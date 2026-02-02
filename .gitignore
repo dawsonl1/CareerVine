@@ -1,0 +1,76 @@
+# ---- OS / Editor ----
+.DS_Store
+.AppleDouble
+Thumbs.db
+ehthumbs.db
+Icon?
+*-journal
+*.swp
+*.swo
+*.orig
+.idea/
+.vscode/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.pytest_cache/
+*.egg
+*.egg-info/
+dist/
+build/
+pip-wheel-metadata/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Node / JS ----
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.turbo/
+coverage/
+
+# ---- Env / Secrets ----
+.env
+.env.*
+.envrc
+.secrets/
+
+# ---- Misc Build Artifacts ----
+*.sqlite3
+*.db
+*.tar
+*.tgz
+*.gz
+*.zip
+*.bak
+*.tmp
+logs/
+
+# ---- Framework Artifacts ----
+.next/
+.nuxt/
+.svelte-kit/
+storybook-static/
+
+# ---- Generated Docs ----
+site/
+docs/_build/
+
+# ---- IDE Project Files ----
+.project
+.classpath
+.c9/
+.idea/
+.settings/
+*.code-workspace
+
+# ---- Markdown ----
+planning.md
