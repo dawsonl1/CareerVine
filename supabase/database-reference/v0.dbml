@@ -1,0 +1,265 @@
+Table users {
+  id uuid [pk]              // matches auth.users.id
+  first_name varchar [not null]
+  last_name varchar [not null]
+  email varchar [unique]    // optional: auth already enforces uniqueness
+  phone varchar
+}
+
+Table contacts {
+  id int [pk, increment]
+  user_id uuid [not null, ref: > users.id]
+
+  name varchar [not null]
+
+  industry varchar
+  role varchar
+  linkedin_url varchar
+
+  notes text
+  met_through text
+
+  follow_up_frequency_days int
+
+  preferred_contact_method varchar
+  preferred_contact_value varchar
+}
+
+Table contact_emails {
+  id int [pk, increment]
+  contact_id int [not null, ref: > contacts.id]
+  email varchar
+  is_primary boolean [not null, default: false]
+
+  Indexes {
+    (contact_id, email) [unique]
+  }
+}
+
+Table contact_phones {
+  id int [pk, increment]
+  contact_id int [not null, ref: > contacts.id]
+  phone varchar [not null]
+  is_primary boolean [not null, default: false]
+  type varchar [not null, default: "mobile"]
+
+  Indexes {
+    (contact_id, phone) [unique]
+  }
+}
+
+Table companies {
+  id int [pk, increment]
+  name varchar [not null, unique]
+}
+
+Table contact_companies {
+  id int [pk, increment]
+  contact_id int [not null, ref: > contacts.id]
+  company_id int [not null, ref: > companies.id]
+
+  title varchar
+  start_date date
+  end_date date
+  is_current boolean [not null, default: false]
+
+  Indexes {
+    (contact_id, company_id, start_date) [unique]
+  }
+}
+
+Table schools {
+  id int [pk, increment]
+  name varchar [not null, unique]
+}
+
+Table contact_schools {
+  id int [pk, increment]
+  contact_id int [not null, ref: > contacts.id]
+  school_id int [not null, ref: > schools.id]
+
+  degree varchar
+  field_of_study varchar
+  start_year int
+  end_year int
+
+  Indexes {
+    (contact_id, school_id, start_year) [unique]
+  }
+}
+
+Table user_companies {
+  id int [pk, increment]
+  user_id uuid [not null, ref: > users.id]
+  company_id int [not null, ref: > companies.id]
+
+  title varchar
+  start_date date
+  end_date date
+  is_current boolean [not null, default: false]
+
+  Indexes {
+    (user_id, company_id, start_date) [unique]
+  }
+}
+
+Table user_schools {
+  id int [pk, increment]
+  user_id uuid [not null, ref: > users.id]
+  school_id int [not null, ref: > schools.id]
+
+  degree varchar
+  field_of_study varchar
+  start_year int
+  end_year int
+
+  Indexes {
+    (user_id, school_id, start_year) [unique]
+  }
+}
+
+Table meetings {
+  id int [pk, increment]
+  user_id uuid [not null, ref: > users.id]
+
+  meeting_date datetime [not null]
+  meeting_type varchar [not null] // in_person, video_call, phone_call
+
+  notes text
+  transcript text
+}
+
+Table meeting_contacts {
+  meeting_id int [not null, ref: > meetings.id]
+  contact_id int [not null, ref: > contacts.id]
+
+  Indexes {
+    (meeting_id, contact_id) [unique]
+  }
+}
+
+Table referrals {
+  id int [pk, increment]
+  user_id uuid [not null, ref: > users.id]
+
+  referred_by_contact_id int [not null, ref: > contacts.id]
+  referred_contact_id int [not null, ref: > contacts.id]
+
+  referral_meeting_id int [ref: > meetings.id] // meeting where referral was given
+  notes text
+
+  Indexes {
+    (user_id, referred_by_contact_id, referred_contact_id, referral_meeting_id) [unique]
+  }
+}
+
+Table interactions {
+  id int [pk, increment]
+  contact_id int [not null, ref: > contacts.id]
+
+  interaction_date datetime [not null]
+  interaction_type varchar [not null] // linkedin, email, in_person, text, phone_call, video_call, other
+  summary text
+}
+
+Table tags {
+  id int [pk, increment]
+  user_id uuid [not null, ref: > users.id]
+  name varchar [not null]
+
+  Indexes {
+    (user_id, name) [unique]
+  }
+}
+
+Table contact_tags {
+  contact_id int [not null, ref: > contacts.id]
+  tag_id int [not null, ref: > tags.id]
+
+  Indexes {
+    (contact_id, tag_id) [unique]
+  }
+}
+
+Table attachments {
+  id int [pk, increment]
+  user_id uuid [not null, ref: > users.id]
+
+  bucket varchar [not null]           // e.g., "attachments"
+  object_path varchar [not null]      // e.g., "user_12/contacts/34/file.pdf"
+
+  file_name varchar [not null]        // original filename shown to users
+  content_type varchar                // e.g., "application/pdf"
+  file_size_bytes bigint              // optional but useful
+
+  is_public boolean [not null, default: false]
+
+  notes text
+  created_at datetime
+
+  Indexes {
+    (bucket, object_path) [unique]
+  }
+}
+
+Table contact_attachments {
+  contact_id int [not null, ref: > contacts.id]
+  attachment_id int [not null, ref: > attachments.id]
+
+  Indexes {
+    (contact_id, attachment_id) [unique]
+  }
+}
+
+Table meeting_attachments {
+  meeting_id int [not null, ref: > meetings.id]
+  attachment_id int [not null, ref: > attachments.id]
+
+  Indexes {
+    (meeting_id, attachment_id) [unique]
+  }
+}
+
+Table interaction_attachments {
+  interaction_id int [not null, ref: > interactions.id]
+  attachment_id int [not null, ref: > attachments.id]
+
+  Indexes {
+    (interaction_id, attachment_id) [unique]
+  }
+}
+
+Table post_meeting_action_items {
+  id int [pk, increment]
+
+  user_id uuid [not null, ref: > users.id]
+  meeting_id int [not null, ref: > meetings.id]
+
+  owner_type varchar [not null] // user or contact
+  contact_id int [ref: > contacts.id] // required when owner_type = contact
+
+  title varchar [not null]        // short task name
+  description text                // longer context
+
+  due_at datetime
+  is_completed boolean [not null, default: false]
+
+  created_at datetime
+  completed_at datetime
+}
+
+Table follow_up_action_items {
+  id int [pk, increment]
+
+  user_id uuid [not null, ref: > users.id]
+  contact_id int [not null, ref: > contacts.id]
+
+  title varchar [not null]
+  description text
+
+  due_at datetime
+
+  is_completed boolean [not null, default: false]
+  created_at datetime
+  completed_at datetime
+}
