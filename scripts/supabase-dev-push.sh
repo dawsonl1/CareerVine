@@ -4,11 +4,15 @@ set -euo pipefail
 # Applies pending migrations to the local Supabase stack that was started via `supabase start`.
 # Usage: ./scripts/supabase-dev-push.sh
 
-db_url=$(supabase status --db-url)
-
-if [[ -z "$db_url" ]]; then
+# Check if local Supabase is running
+if ! supabase status > /dev/null 2>&1; then
   echo "No local Supabase instance detected. Run 'supabase start' first." >&2
   exit 1
 fi
 
-supabase db push --db-url "$db_url"
+echo "Applying migrations to LOCAL database only..."
+
+# Apply migrations to local database using migration up (local-only)
+supabase migration up
+
+echo "Local database updated successfully."

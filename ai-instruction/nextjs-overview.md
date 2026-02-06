@@ -6,7 +6,7 @@ This document summarizes how the `fuell-app` project (and most modern Next.js ap
 
 ```text
 Networking-Helper/
-├── fuell-app/                # Next.js application root
+├── fuell-app/               # Next.js application root
 │   ├── src/app/             # App Router entry points (route segments)
 │   │   ├── layout.tsx       # Root layout (applies HTML/head/body wrappers)
 │   │   └── page.tsx         # Default route rendered at '/'
