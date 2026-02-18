@@ -28,7 +28,7 @@ export async function GET() {
 
     const service = createSupabaseServiceClient();
 
-    const [emailsRes, trashedRes, hiddenRes, scheduledRes, followUpsRes, contactsRes] = await Promise.all([
+    const [emailsRes, trashedRes, hiddenRes, scheduledRes, followUpsRes, contactsRes, calendarEventsRes] = await Promise.all([
       service
         .from("email_messages")
         .select("*")
@@ -74,6 +74,13 @@ export async function GET() {
         .from("contacts")
         .select("id, name")
         .eq("user_id", user.id),
+
+      // Calendar events linked to email threads
+      service
+        .from("calendar_events")
+        .select("source_gmail_thread_id, id, title, start_at, google_event_id")
+        .eq("user_id", user.id)
+        .not("source_gmail_thread_id", "is", null),
     ]);
 
     if (emailsRes.error) throw emailsRes.error;
@@ -87,6 +94,18 @@ export async function GET() {
       contactMap[c.id] = c.name;
     }
 
+    const calendarByThread: Record<string, { id: number; title: string | null; start_at: string; google_event_id: string }> = {};
+    for (const ce of calendarEventsRes.data || []) {
+      if (ce.source_gmail_thread_id) {
+        calendarByThread[ce.source_gmail_thread_id] = {
+          id: ce.id,
+          title: ce.title,
+          start_at: ce.start_at,
+          google_event_id: ce.google_event_id,
+        };
+      }
+    }
+
     return NextResponse.json({
       success: true,
       emails: emailsRes.data || [],
@@ -95,6 +114,7 @@ export async function GET() {
       scheduledEmails: scheduledRes.data || [],
       followUps: followUpsRes.data || [],
       contactMap,
+      calendarByThread,
       gmailAddress: conn.gmail_address,
     });
   } catch (error) {

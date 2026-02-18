@@ -32,6 +32,9 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
   const [windowEnd, setWindowEnd] = useState("18:00");
   const [bufferBefore, setBufferBefore] = useState(10);
   const [bufferAfter, setBufferAfter] = useState(10);
+  const [savingDefault, setSavingDefault] = useState(false);
+  const [savedDefault, setSavedDefault] = useState(false);
+  const [detectedProfile, setDetectedProfile] = useState<"standard" | "priority">("standard");
 
   // Load saved profile from DB when picker opens
   useEffect(() => {
@@ -64,9 +67,9 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
           } catch {}
         }
 
-        const profile = isPriority && conn.availability_priority
-          ? conn.availability_priority
-          : conn.availability_standard;
+        const profileType: "standard" | "priority" = isPriority && conn.availability_priority ? "priority" : "standard";
+        setDetectedProfile(profileType);
+        const profile = profileType === "priority" ? conn.availability_priority : conn.availability_standard;
 
         if (profile) {
           // New per-day format: { workingDays: [...] }
@@ -305,7 +308,37 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
 
               {error && <p className="text-xs text-destructive">{error}</p>}
 
-              <div className="flex justify-end pt-1">
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSavingDefault(true);
+                    try {
+                      const profileData = {
+                        workingDays: daysOfWeek.map(d => ({
+                          day: d - 1,
+                          enabled: true,
+                          startTime: windowStart,
+                          endTime: windowEnd,
+                          bufferBefore,
+                          bufferAfter,
+                        })),
+                      };
+                      await fetch("/api/calendar/availability-profile", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ profile: detectedProfile, data: profileData }),
+                      });
+                      setSavedDefault(true);
+                      setTimeout(() => setSavedDefault(false), 2000);
+                    } catch {}
+                    setSavingDefault(false);
+                  }}
+                  disabled={savingDefault}
+                  className="text-[11px] text-muted-foreground hover:text-primary transition-colors"
+                >
+                  {savedDefault ? "✓ Saved" : `Save as ${detectedProfile} default`}
+                </button>
                 <Button size="sm" onClick={handleInsert} loading={loading}>
                   Insert
                 </Button>

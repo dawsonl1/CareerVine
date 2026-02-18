@@ -38,6 +38,7 @@ import {
   PanelLeftOpen,
   FileText,
   MoreVertical,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -76,6 +77,7 @@ export default function InboxPage() {
   const [followUps, setFollowUps] = useState<EmailFollowUp[]>([]);
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [contactMap, setContactMap] = useState<Record<number, string>>({});
+  const [calendarByThread, setCalendarByThread] = useState<Record<string, { id: number; title: string | null; start_at: string; google_event_id: string }>>({});
   const [gmailAddress, setGmailAddress] = useState("");
   const [gmailLabels, setGmailLabels] = useState<GmailLabel[]>([]);
 
@@ -129,6 +131,7 @@ export default function InboxPage() {
         setScheduledEmails(data.scheduledEmails || []);
         setFollowUps(data.followUps || []);
         setContactMap(data.contactMap || {});
+        setCalendarByThread(data.calendarByThread || {});
         setGmailAddress(data.gmailAddress || "");
       }
     } catch (err) {
@@ -792,6 +795,7 @@ export default function InboxPage() {
           const isUnread = tabCtx === "inbox" && thread.messages.some((m) => !m.is_read && m.direction === "inbound");
           const threadFUs = followUpsByThread[thread.threadId] || [];
           const pendingFUCount = threadFUs.reduce((sum, fu) => sum + fu.email_follow_up_messages.filter((m) => m.status === "pending").length, 0);
+          const linkedCalEvent = calendarByThread[thread.threadId] || null;
           const isSingle = thread.messages.length === 1;
 
           return (
@@ -826,6 +830,14 @@ export default function InboxPage() {
                     {pendingFUCount > 0 && (
                       <span className="inline-flex items-center gap-0.5 h-4 px-1.5 rounded-full bg-tertiary-container/50 text-[10px] font-medium text-on-tertiary-container shrink-0">
                         <Clock className="h-2.5 w-2.5" />{pendingFUCount}
+                      </span>
+                    )}
+                    {linkedCalEvent && (
+                      <span
+                        className="inline-flex items-center gap-0.5 h-4 px-1.5 rounded-full bg-primary/10 text-[10px] font-medium text-primary shrink-0"
+                        title={`Meeting scheduled: ${linkedCalEvent.title || "Untitled"} · ${new Date(linkedCalEvent.start_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                      >
+                        <CalendarIcon className="h-2.5 w-2.5" />
                       </span>
                     )}
                     <span className="text-xs text-muted-foreground truncate hidden sm:inline">— {latest.snippet || ""}</span>

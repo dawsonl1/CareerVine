@@ -66,6 +66,10 @@ export default function SettingsPage() {
   const [disconnectingCalendar, setDisconnectingCalendar] = useState(false);
   const [activeAvailabilityTab, setActiveAvailabilityTab] = useState<"standard" | "priority">("standard");
   const [savingAvailability, setSavingAvailability] = useState(false);
+  const [calendarList, setCalendarList] = useState<Array<{ id: string; summary: string; accessRole: string }>>([]);
+  const [busyCalendarIds, setBusyCalendarIds] = useState<string[]>(["primary"]);
+  const [savingBusyCalendars, setSavingBusyCalendars] = useState(false);
+  const [calendarTimezone, setCalendarTimezone] = useState("");
 
   // Per-day working times (Monday-Sunday)
   const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -114,6 +118,15 @@ export default function SettingsPage() {
         }
         if (data.connection.availability_priority) {
           setAvailabilityPriority(data.connection.availability_priority);
+        }
+        if (data.connection.calendar_list) {
+          setCalendarList(data.connection.calendar_list);
+        }
+        if (data.connection.busy_calendar_ids) {
+          setBusyCalendarIds(data.connection.busy_calendar_ids);
+        }
+        if (data.connection.calendar_timezone) {
+          setCalendarTimezone(data.connection.calendar_timezone);
         }
       }
     } catch (err) {
@@ -209,6 +222,21 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : "Failed to save availability");
     } finally {
       setSavingAvailability(false);
+    }
+  };
+
+  const handleSaveBusyCalendars = async () => {
+    try {
+      setSavingBusyCalendars(true);
+      await fetch("/api/calendar/busy-calendars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ busyCalendarIds }),
+      });
+    } catch (err) {
+      console.error("Error saving busy calendars:", err);
+    } finally {
+      setSavingBusyCalendars(false);
     }
   };
 
@@ -744,6 +772,51 @@ export default function SettingsPage() {
                     Disconnect
                   </Button>
                 </div>
+
+                {/* Which calendars count as busy */}
+                {calendarList.length > 0 && (
+                  <div className="mt-6 pt-6 border-t border-outline-variant/50">
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="text-sm font-medium text-foreground">Count as busy</h3>
+                      {calendarTimezone && (
+                        <span className="text-[11px] text-muted-foreground">{calendarTimezone}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Which calendars should block time when generating availability?
+                    </p>
+                    <div className="space-y-2">
+                      {calendarList.map((cal) => (
+                        <label key={cal.id} className="flex items-center gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={busyCalendarIds.includes(cal.id)}
+                            onChange={(e) => {
+                              setBusyCalendarIds(prev =>
+                                e.target.checked
+                                  ? [...prev, cal.id]
+                                  : prev.filter(id => id !== cal.id)
+                              );
+                            }}
+                            className="w-4 h-4 cursor-pointer"
+                          />
+                          <span className="text-sm text-foreground flex-1">{cal.summary || cal.id}</span>
+                          <span className="text-[11px] text-muted-foreground capitalize">{cal.accessRole}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-3"
+                      loading={savingBusyCalendars}
+                      onClick={handleSaveBusyCalendars}
+                    >
+                      Save calendar selection
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-3">

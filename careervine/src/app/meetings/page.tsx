@@ -83,6 +83,7 @@ export default function MeetingsPage() {
   const [addToCalendar, setAddToCalendar] = useState(false);
   const [includeMeetLink, setIncludeMeetLink] = useState(true);
   const [meetingDuration, setMeetingDuration] = useState(60);
+  const [meetingCalendarMap, setMeetingCalendarMap] = useState<Record<number, { google_event_id: string; attendees: Array<{ email: string; name: string; responseStatus: string }> }>>({});
 
   useEffect(() => {
     if (user) {
@@ -127,8 +128,30 @@ export default function MeetingsPage() {
   const loadMeetings = async () => {
     if (!user) return;
     try {
-      const data = await getMeetings(user.id) as Meeting[];
-      setMeetings(data);
+      const data = await getMeetings(user.id);
+      setMeetings(data as unknown as Meeting[]);
+
+      // Load calendar events for meetings that have a linked calendar_event_id
+      const calEventIds = (data as any[]).map(m => m.calendar_event_id).filter(Boolean);
+      if (calEventIds.length > 0) {
+        try {
+          const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser-client");
+          const supabase = createSupabaseBrowserClient();
+          const { data: calEvents } = await supabase
+            .from("calendar_events")
+            .select("google_event_id, attendees")
+            .in("google_event_id", calEventIds)
+            .eq("user_id", user.id);
+          if (calEvents) {
+            const calMap: Record<number, { google_event_id: string; attendees: Array<{ email: string; name: string; responseStatus: string }> }> = {};
+            for (const m of data as any[]) {
+              const ce = calEvents.find((c: any) => c.google_event_id === m.calendar_event_id);
+              if (ce) calMap[m.id] = { google_event_id: ce.google_event_id, attendees: ce.attendees || [] };
+            }
+            setMeetingCalendarMap(calMap);
+          }
+        } catch {}
+      }
       // Load action items and attachments for each meeting
       const actionsMap: MeetingActionsMap = {};
       const attMap: typeof meetingAttachments = {};
@@ -219,6 +242,28 @@ export default function MeetingsPage() {
         });
         await replaceContactsForMeeting(editingMeeting.id, selectedContactIds);
         meetingId = editingMeeting.id;
+
+        // Sync update to linked Google Calendar event
+        if ((editingMeeting as any).calendar_event_id) {
+          try {
+            const startTime = new Date(dateTime).toISOString();
+            const endTime = new Date(new Date(dateTime).getTime() + meetingDuration * 60000).toISOString();
+            await fetch(`/api/calendar/events/${(editingMeeting as any).calendar_event_id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                summary: formData.meeting_type
+                  ? `${formData.meeting_type.charAt(0).toUpperCase() + formData.meeting_type.slice(1).replace("-", " ")} with ${selectedContactIds.map(id => allContacts.find(c => c.id === id)?.name).filter(Boolean).join(", ") || "Contact"}`
+                  : "Meeting",
+                description: formData.notes || undefined,
+                startTime,
+                endTime,
+              }),
+            });
+          } catch (err) {
+            console.error("Failed to update calendar event:", err);
+          }
+        }
       } else {
         const created = await createMeeting({
           user_id: user.id,
@@ -799,11 +844,27 @@ export default function MeetingsPage() {
 
                 {meeting.meeting_contacts.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-3 ml-[52px]">
-                    {meeting.meeting_contacts.map((mc: Meeting["meeting_contacts"][0]) => (
-                      <span key={mc.contact_id} className="inline-flex items-center h-7 px-3 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium">
-                        {mc.contacts.name}
+                    {meeting.meeting_contacts.map((mc: Meeting["meeting_contacts"][0]) => {
+                      const calEvent = meetingCalendarMap[meeting.id];
+                      const contactEmail = allContacts.find(c => c.id === mc.contact_id)?.email;
+                      const rsvp = calEvent && contactEmail
+                        ? calEvent.attendees.find((a) => a.email === contactEmail)?.responseStatus
+                        : undefined;
+                      const rsvpStyle = rsvp === "accepted" ? " text-primary" : rsvp === "declined" ? " text-destructive" : rsvp === "tentative" ? " text-yellow-600" : "";
+                      const rsvpLabel = rsvp === "accepted" ? " ✓" : rsvp === "declined" ? " ✗" : rsvp === "tentative" ? " ?" : "";
+                      return (
+                        <span key={mc.contact_id} className="inline-flex items-center h-7 px-3 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium">
+                          {mc.contacts.name}
+                          {rsvpLabel && <span className={`ml-1 font-bold${rsvpStyle}`}>{rsvpLabel}</span>}
+                        </span>
+                      );
+                    })}
+                    {meetingCalendarMap[meeting.id] && (
+                      <span className="inline-flex items-center h-7 px-2.5 rounded-full bg-primary/10 text-[11px] text-primary font-medium gap-1">
+                        <Calendar className="h-3 w-3" />
+                        On calendar
                       </span>
-                    ))}
+                    )}
                   </div>
                 )}
 
