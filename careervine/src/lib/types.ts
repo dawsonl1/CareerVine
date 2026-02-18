@@ -61,6 +61,7 @@ export type InteractionWithContact = {
 export type SimpleContact = {
   id: number;
   name: string;
+  email?: string;
 };
 
 /** Action item with contact info as returned by getActionItemsForMeeting() */

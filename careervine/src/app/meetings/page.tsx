@@ -108,7 +108,11 @@ export default function MeetingsPage() {
     if (!user) return;
     try {
       const data = await getContacts(user.id);
-      setAllContacts((data as SimpleContact[]).map((c) => ({ id: c.id, name: c.name })));
+      setAllContacts((data as any[]).map((c) => ({
+        id: c.id,
+        name: c.name,
+        email: c.contact_emails?.[0]?.email || undefined,
+      })));
     } catch (e) { console.error("Error loading contacts:", e); }
   };
 

@@ -456,6 +456,7 @@ export function ComposeEmailModal() {
                 }}
               />
               <AvailabilityPicker
+                recipientEmail={to.includes("@") ? to.trim() : undefined}
                 onInsert={(text) => {
                   setBodyHtml((prev) => {
                     const separator = prev.trim() ? "<br><br>" : "";

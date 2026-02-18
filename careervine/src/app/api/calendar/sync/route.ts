@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { fetchCalendarEvents, getCalendarTimezone, getCalendarList } from "@/lib/calendar";
 
+
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 const SYNC_FORCE_COOLDOWN_MS = 30 * 1000; // 30 seconds for forced syncs
 
@@ -35,8 +36,8 @@ export async function POST(request: NextRequest) {
     // Rate limiting
     const { searchParams } = new URL(request.url);
     const force = searchParams.get("force") === "true";
-    const lastSynced = conn.data.calendar_last_synced
-      ? new Date(conn.data.calendar_last_synced).getTime()
+    const lastSynced = conn.data.calendar_last_synced_at
+      ? new Date(conn.data.calendar_last_synced_at).getTime()
       : 0;
     const cooldown = force ? SYNC_FORCE_COOLDOWN_MS : SYNC_COOLDOWN_MS;
 
@@ -45,6 +46,27 @@ export async function POST(request: NextRequest) {
         { skipped: true, message: "Synced recently, try again later." },
         { status: 429 }
       );
+    }
+
+    // On first sync: fetch timezone and calendar list from Google
+    if (!conn.data.calendar_last_synced_at) {
+      try {
+        const [tz, calList] = await Promise.all([
+          getCalendarTimezone(user.id),
+          getCalendarList(user.id),
+        ]);
+        const busyIds = calList
+          .filter((c: any) => c.accessRole === "owner" || c.accessRole === "writer")
+          .map((c: any) => c.id);
+
+        await service.from("gmail_connections").update({
+          calendar_timezone: tz || "America/New_York",
+          calendar_list: calList,
+          busy_calendar_ids: busyIds.length > 0 ? busyIds : ["primary"],
+        }).eq("user_id", user.id);
+      } catch (err) {
+        console.error("Failed to fetch timezone/calendar list:", err);
+      }
     }
 
     // Fetch events from Google Calendar
