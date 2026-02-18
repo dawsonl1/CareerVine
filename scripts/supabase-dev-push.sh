@@ -1,1 +1,3 @@
 Script started on Wed Feb 18 13:00:40 2026
+[1m[7m%[27m[1m[0m                                                                                                                                              [0m[27m[24m[Jdawsonpitcher@dawsons-air Networking-Helper % [K[?2004h[?2004l
+[1m[7m%[27m[1m[0m                                                                                                                                              [0m[27m[24m[Jdawsonpitcher@dawsons-air Networking-Helper % [K[?2004h
