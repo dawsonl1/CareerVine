@@ -19,7 +19,7 @@ import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox } from "lu
 export default function Navigation() {
   const { user } = useAuth();
   const pathname = usePathname();
-  const { gmailConnected } = useCompose();
+  const { gmailConnected, unreadCount } = useCompose();
 
   if (!user) return null;
 
@@ -49,6 +49,7 @@ export default function Navigation() {
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+              const badge = item.href === "/inbox" && unreadCount > 0 ? unreadCount : 0;
               return (
                 <Link
                   key={item.href}
@@ -59,7 +60,14 @@ export default function Navigation() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <Icon className="h-[18px] w-[18px]" />
+                  <span className="relative">
+                    <Icon className="h-[18px] w-[18px]" />
+                    {badge > 0 && (
+                      <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
+                        {badge > 99 ? "99+" : badge}
+                      </span>
+                    )}
+                  </span>
                   {item.label}
                 </Link>
               );
@@ -88,6 +96,7 @@ export default function Navigation() {
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            const badge = item.href === "/inbox" && unreadCount > 0 ? unreadCount : 0;
             return (
               <Link
                 key={item.href}
@@ -98,8 +107,13 @@ export default function Navigation() {
                     : "text-muted-foreground"
                 }`}
               >
-                <div className={`px-5 py-1 rounded-full transition-colors ${active ? "bg-secondary-container" : ""}`}>
+                <div className={`relative px-5 py-1 rounded-full transition-colors ${active ? "bg-secondary-container" : ""}`}>
                   <Icon className="h-5 w-5" />
+                  {badge > 0 && (
+                    <span className="absolute -top-1 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  )}
                 </div>
                 {item.label}
               </Link>

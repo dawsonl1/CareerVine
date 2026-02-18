@@ -355,6 +355,27 @@ export async function getFullMessage(
   return { subject, from, to, date, bodyHtml, bodyText, messageId, threadId };
 }
 
+/**
+ * Mark a Gmail message as read by removing the UNREAD label,
+ * then update the local cache to match.
+ */
+export async function markMessageAsRead(userId: string, gmailMessageId: string) {
+  const gmail = await getGmailClient(userId);
+
+  await gmail.users.messages.modify({
+    userId: "me",
+    id: gmailMessageId,
+    requestBody: { removeLabelIds: ["UNREAD"] },
+  });
+
+  const supabase = createSupabaseServiceClient();
+  await supabase
+    .from("email_messages")
+    .update({ is_read: true })
+    .eq("user_id", userId)
+    .eq("gmail_message_id", gmailMessageId);
+}
+
 // ── Follow-up scheduling helpers ──
 
 /**

@@ -189,6 +189,17 @@ export default function InboxPage() {
     setExpandedEmailId(gmailMessageId);
     setExpandedEmailContent(null);
     setLoadingEmailContent(true);
+
+    // Mark as read optimistically
+    const msg = emails.find((e) => e.gmail_message_id === gmailMessageId);
+    if (msg && !msg.is_read) {
+      setEmails((prev) =>
+        prev.map((e) => (e.gmail_message_id === gmailMessageId ? { ...e, is_read: true } : e))
+      );
+      fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" }).catch(() => {});
+      window.dispatchEvent(new CustomEvent("careervine:unread-changed"));
+    }
+
     try {
       const res = await fetch(`/api/gmail/emails/${gmailMessageId}`);
       const data = await res.json();
@@ -272,6 +283,11 @@ export default function InboxPage() {
 
   // ── Sidebar counts ──
 
+  const unreadEmailCount = useMemo(
+    () => emails.filter((e) => !e.is_read && e.direction === "inbound").length,
+    [emails]
+  );
+
   const pendingFollowUpCount = followUps.reduce(
     (sum, fu) => sum + fu.email_follow_up_messages.filter((m) => m.status === "pending").length,
     0
@@ -314,12 +330,13 @@ export default function InboxPage() {
           <div className="w-48 shrink-0 hidden md:block">
             <nav className="space-y-0.5">
               {([
-                { key: "inbox" as SidebarTab, label: "Inbox", icon: Inbox, count: threads.length },
+                { key: "inbox" as SidebarTab, label: "Inbox", icon: Inbox, count: unreadEmailCount },
                 { key: "scheduled" as SidebarTab, label: "Scheduled", icon: Send, count: scheduledEmails.length },
                 { key: "followups" as SidebarTab, label: "Follow-ups", icon: Clock, count: pendingFollowUpCount },
               ]).map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.key;
+                const isBold = item.key === "inbox" && item.count > 0;
                 return (
                   <button
                     key={item.key}
@@ -334,7 +351,11 @@ export default function InboxPage() {
                     <Icon className="h-4.5 w-4.5" />
                     <span className="flex-1 text-left">{item.label}</span>
                     {item.count > 0 && (
-                      <span className={`text-xs font-medium ${isActive ? "text-on-secondary-container" : "text-muted-foreground"}`}>
+                      <span className={`text-xs font-medium ${
+                        isBold
+                          ? "bg-destructive text-destructive-foreground rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center"
+                          : isActive ? "text-on-secondary-container" : "text-muted-foreground"
+                      }`}>
                         {item.count}
                       </span>
                     )}
@@ -354,7 +375,7 @@ export default function InboxPage() {
             {/* Mobile tabs */}
             <div className="flex md:hidden gap-1 border-b border-outline-variant mb-4 overflow-x-auto">
               {([
-                { key: "inbox" as SidebarTab, label: "Inbox", count: threads.length },
+                { key: "inbox" as SidebarTab, label: "Inbox", count: unreadEmailCount },
                 { key: "scheduled" as SidebarTab, label: "Scheduled", count: scheduledEmails.length },
                 { key: "followups" as SidebarTab, label: "Follow-ups", count: pendingFollowUpCount },
               ]).map((item) => (

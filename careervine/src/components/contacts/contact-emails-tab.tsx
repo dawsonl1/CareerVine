@@ -106,6 +106,14 @@ export function ContactEmailsTab({
     setExpandedEmailId(gmailMessageId);
     setExpandedEmailContent(null);
     setLoadingEmailContent(true);
+
+    // Mark as read in Gmail + local DB
+    const msg = emails.find((e) => e.gmail_message_id === gmailMessageId);
+    if (msg && !msg.is_read) {
+      fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" }).catch(() => {});
+      window.dispatchEvent(new CustomEvent("careervine:unread-changed"));
+    }
+
     try {
       const res = await fetch(`/api/gmail/emails/${gmailMessageId}`);
       const data = await res.json();

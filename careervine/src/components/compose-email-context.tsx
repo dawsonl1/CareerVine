@@ -26,6 +26,7 @@ type ComposeContextValue = {
   replyQuotedHtml: string;
   gmailConnected: boolean;
   gmailAddress: string;
+  unreadCount: number;
   openCompose: (opts?: ComposeOptions) => void;
   closeCompose: () => void;
 };
@@ -41,6 +42,7 @@ const ComposeContext = createContext<ComposeContextValue>({
   replyQuotedHtml: "",
   gmailConnected: false,
   gmailAddress: "",
+  unreadCount: 0,
   openCompose: () => {},
   closeCompose: () => {},
 });
@@ -60,6 +62,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   const [replyInReplyTo, setReplyInReplyTo] = useState("");
   const [replyReferences, setReplyReferences] = useState("");
   const [replyQuotedHtml, setReplyQuotedHtml] = useState("");
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     if (!user) return;
@@ -67,6 +70,29 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
       .then((conn) => setGmailConn(conn as GmailConnection | null))
       .catch(() => {});
   }, [user]);
+
+  const fetchUnreadCount = useCallback(() => {
+    if (!gmailConn) return;
+    fetch("/api/gmail/unread")
+      .then((res) => res.json())
+      .then((data) => setUnreadCount(data.count || 0))
+      .catch(() => {});
+  }, [gmailConn]);
+
+  useEffect(() => {
+    fetchUnreadCount();
+  }, [fetchUnreadCount]);
+
+  // Re-fetch when emails are read or sent
+  useEffect(() => {
+    const handler = () => setTimeout(fetchUnreadCount, 300);
+    window.addEventListener("careervine:unread-changed", handler);
+    window.addEventListener("careervine:email-sent", handler);
+    return () => {
+      window.removeEventListener("careervine:unread-changed", handler);
+      window.removeEventListener("careervine:email-sent", handler);
+    };
+  }, [fetchUnreadCount]);
 
   const openCompose = useCallback((opts?: ComposeOptions) => {
     setPrefillTo(opts?.to || "");
@@ -103,6 +129,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         replyQuotedHtml,
         gmailConnected: !!gmailConn,
         gmailAddress: gmailConn?.gmail_address || "",
+        unreadCount,
         openCompose,
         closeCompose,
       }}
