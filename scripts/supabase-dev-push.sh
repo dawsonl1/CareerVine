@@ -1,3 +1,18 @@
-Script started on Wed Feb 18 13:00:40 2026
-[1m[7m%[27m[1m[0m                                                                                                                                              [0m[27m[24m[Jdawsonpitcher@dawsons-air Networking-Helper % [K[?2004h[?2004l
-[1m[7m%[27m[1m[0m                                                                                                                                              [0m[27m[24m[Jdawsonpitcher@dawsons-air Networking-Helper % [K[?2004h
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Applies pending migrations to the local Supabase stack that was started via `supabase start`.
+# Usage: ./scripts/supabase-dev-push.sh
+
+# Check if local Supabase is running
+if ! supabase status > /dev/null 2>&1; then
+  echo "No local Supabase instance detected. Run 'supabase start' first." >&2
+  exit 1
+fi
+
+echo "Applying migrations to LOCAL database only..."
+
+# Apply migrations to local database using migration up (local-only)
+supabase migration up
+
+echo "Local database updated successfully."
