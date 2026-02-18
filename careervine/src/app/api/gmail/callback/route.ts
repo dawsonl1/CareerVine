@@ -40,9 +40,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "State mismatch" }, { status: 403 });
     }
 
-    await exchangeCodeForTokens(code, user.id);
-
-    // Check if calendar scopes were granted
+    // Exchange code for tokens
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -52,13 +50,33 @@ export async function GET(request: NextRequest) {
     const grantedScopes = tokens.scope?.split(" ") || [];
     const calendarGranted = grantedScopes.some(s => s.includes("calendar"));
 
-    // Update calendar_scopes_granted flag
-    if (calendarGranted) {
-      const serviceClient = createSupabaseServiceClient();
-      await serviceClient
-        .from("gmail_connections")
-        .update({ calendar_scopes_granted: true })
-        .eq("user_id", user.id);
+    // Store tokens in database
+    if (!tokens.access_token || !tokens.refresh_token) {
+      throw new Error("Missing access_token or refresh_token from Google");
+    }
+
+    oauth2Client.setCredentials(tokens);
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+    const profile = await gmail.users.getProfile({ userId: "me" });
+    const gmailAddress = profile.data.emailAddress || "";
+
+    const serviceClient = createSupabaseServiceClient();
+    const { error } = await serviceClient.from("gmail_connections").upsert(
+      {
+        user_id: user.id,
+        gmail_address: gmailAddress,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        token_expires_at: new Date(tokens.expiry_date || Date.now() + 3600_000).toISOString(),
+        calendar_scopes_granted: calendarGranted,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
+
+    if (error) {
+      console.error("Error upserting gmail connection:", error);
+      throw new Error("Failed to store Gmail connection");
     }
 
     const baseUrl = new URL(request.url).origin;
