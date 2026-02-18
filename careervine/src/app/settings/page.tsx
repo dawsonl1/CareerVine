@@ -64,24 +64,33 @@ export default function SettingsPage() {
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [calendarLastSynced, setCalendarLastSynced] = useState<string | null>(null);
   const [disconnectingCalendar, setDisconnectingCalendar] = useState(false);
-  const [availabilityTab, setAvailabilityTab] = useState<"standard" | "priority">("standard");
+  const [activeAvailabilityTab, setActiveAvailabilityTab] = useState<"standard" | "priority">("standard");
+  const [savingAvailability, setSavingAvailability] = useState(false);
+
+  // Per-day working times (Monday-Sunday)
+  const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const [availabilityStandard, setAvailabilityStandard] = useState({
-    days: [1, 2, 3, 4, 5],
-    windowStart: "09:00",
-    windowEnd: "18:00",
-    duration: 30,
-    bufferBefore: 10,
-    bufferAfter: 10,
+    workingDays: [
+      { day: 0, enabled: true, startTime: "09:00", endTime: "18:00", bufferBefore: 10, bufferAfter: 10 },
+      { day: 1, enabled: true, startTime: "09:00", endTime: "18:00", bufferBefore: 10, bufferAfter: 10 },
+      { day: 2, enabled: true, startTime: "09:00", endTime: "18:00", bufferBefore: 10, bufferAfter: 10 },
+      { day: 3, enabled: true, startTime: "09:00", endTime: "18:00", bufferBefore: 10, bufferAfter: 10 },
+      { day: 4, enabled: true, startTime: "09:00", endTime: "18:00", bufferBefore: 10, bufferAfter: 10 },
+      { day: 5, enabled: false, startTime: "09:00", endTime: "18:00", bufferBefore: 10, bufferAfter: 10 },
+      { day: 6, enabled: false, startTime: "09:00", endTime: "18:00", bufferBefore: 10, bufferAfter: 10 },
+    ],
   });
   const [availabilityPriority, setAvailabilityPriority] = useState({
-    days: [1, 2, 3, 4, 5],
-    windowStart: "09:00",
-    windowEnd: "17:00",
-    duration: 30,
-    bufferBefore: 15,
-    bufferAfter: 15,
+    workingDays: [
+      { day: 0, enabled: true, startTime: "09:00", endTime: "17:00", bufferBefore: 15, bufferAfter: 15 },
+      { day: 1, enabled: true, startTime: "09:00", endTime: "17:00", bufferBefore: 15, bufferAfter: 15 },
+      { day: 2, enabled: true, startTime: "09:00", endTime: "17:00", bufferBefore: 15, bufferAfter: 15 },
+      { day: 3, enabled: true, startTime: "09:00", endTime: "17:00", bufferBefore: 15, bufferAfter: 15 },
+      { day: 4, enabled: true, startTime: "09:00", endTime: "17:00", bufferBefore: 15, bufferAfter: 15 },
+      { day: 5, enabled: false, startTime: "09:00", endTime: "17:00", bufferBefore: 15, bufferAfter: 15 },
+      { day: 6, enabled: false, startTime: "09:00", endTime: "17:00", bufferBefore: 15, bufferAfter: 15 },
+    ],
   });
-  const [savingAvailability, setSavingAvailability] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -184,12 +193,12 @@ export default function SettingsPage() {
   const handleSaveAvailability = async () => {
     try {
       setSavingAvailability(true);
-      const profile = availabilityTab === "standard" ? availabilityStandard : availabilityPriority;
+      const profile = activeAvailabilityTab === "standard" ? availabilityStandard : availabilityPriority;
       const res = await fetch("/api/calendar/availability-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          profile: availabilityTab,
+          profile: activeAvailabilityTab,
           data: profile,
         }),
       });
@@ -544,13 +553,13 @@ export default function SettingsPage() {
           <CardContent className="p-6">
             <div className="flex items-center gap-2 mb-5">
               <Calendar className="h-5 w-5 text-muted-foreground" />
-              <h2 className="text-base font-medium text-foreground">Google Calendar</h2>
+              <h2 className="text-base font-medium text-foreground">Availability</h2>
             </div>
 
             {calendarLoading ? (
               <div className="flex items-center gap-3 text-muted-foreground">
                 <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-                <span className="text-sm">Checking connection…</span>
+                <span className="text-sm">Loading availability…</span>
               </div>
             ) : calendarConnected ? (
               <div className="space-y-6">
@@ -566,199 +575,159 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                {/* Availability profiles */}
+                {/* Availability profiles with per-day working times */}
                 <div>
-                  <p className="text-sm font-medium text-foreground mb-3">Availability Defaults</p>
                   <div className="flex gap-2 mb-4 border-b border-outline-variant">
                     <button
                       type="button"
-                      onClick={() => setAvailabilityTab("standard")}
+                      onClick={() => setActiveAvailabilityTab("standard")}
                       className={`px-3 py-2 text-xs font-medium transition-colors ${
-                        availabilityTab === "standard"
+                        activeAvailabilityTab === "standard"
                           ? "text-primary border-b-2 border-primary"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      Standard
+                      Standard Availability
                     </button>
                     <button
                       type="button"
-                      onClick={() => setAvailabilityTab("priority")}
+                      onClick={() => setActiveAvailabilityTab("priority")}
                       className={`px-3 py-2 text-xs font-medium transition-colors ${
-                        availabilityTab === "priority"
+                        activeAvailabilityTab === "priority"
                           ? "text-primary border-b-2 border-primary"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      Priority
+                      Priority Availability
                     </button>
                   </div>
 
-                  {availabilityTab === "standard" ? (
-                    <div className="space-y-4">
-                      <div>
-                        <label className={labelClasses}>Working days</label>
-                        <div className="flex gap-2 flex-wrap">
-                          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => {
-                                const newDays = availabilityStandard.days.includes(i + 1)
-                                  ? availabilityStandard.days.filter(d => d !== i + 1)
-                                  : [...availabilityStandard.days, i + 1].sort();
-                                setAvailabilityStandard({ ...availabilityStandard, days: newDays });
-                              }}
-                              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                                availabilityStandard.days.includes(i + 1)
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-surface-container-low text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              {day}
-                            </button>
-                          ))}
+                  <div className="space-y-3">
+                    {(activeAvailabilityTab === "standard" ? availabilityStandard.workingDays : availabilityPriority.workingDays).map((dayConfig, idx) => (
+                      <div key={dayConfig.day} className="p-3 rounded-lg border border-outline-variant/50 hover:bg-surface-container-low/50 transition-colors">
+                        <div className="flex items-center gap-3 mb-3">
+                          <input
+                            type="checkbox"
+                            checked={dayConfig.enabled}
+                            onChange={(e) => {
+                              const profile = activeAvailabilityTab === "standard" ? availabilityStandard : availabilityPriority;
+                              const updated = {
+                                ...profile,
+                                workingDays: profile.workingDays.map((d, i) =>
+                                  i === idx ? { ...d, enabled: e.target.checked } : d
+                                ),
+                              };
+                              if (activeAvailabilityTab === "standard") {
+                                setAvailabilityStandard(updated);
+                              } else {
+                                setAvailabilityPriority(updated);
+                              }
+                            }}
+                            className="w-4 h-4 cursor-pointer"
+                          />
+                          <label className="text-sm font-medium text-foreground flex-1 cursor-pointer">
+                            {dayLabels[dayConfig.day]}
+                          </label>
                         </div>
+                        {dayConfig.enabled && (
+                          <div className="grid grid-cols-2 gap-2 ml-7">
+                            <div>
+                              <label className="text-[11px] text-muted-foreground">Start</label>
+                              <input
+                                type="time"
+                                value={dayConfig.startTime}
+                                onChange={(e) => {
+                                  const profile = activeAvailabilityTab === "standard" ? availabilityStandard : availabilityPriority;
+                                  const updated = {
+                                    ...profile,
+                                    workingDays: profile.workingDays.map((d, i) =>
+                                      i === idx ? { ...d, startTime: e.target.value } : d
+                                    ),
+                                  };
+                                  if (activeAvailabilityTab === "standard") {
+                                    setAvailabilityStandard(updated);
+                                  } else {
+                                    setAvailabilityPriority(updated);
+                                  }
+                                }}
+                                className="w-full h-8 px-2 bg-surface-container-low text-foreground rounded text-xs border border-outline"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-muted-foreground">End</label>
+                              <input
+                                type="time"
+                                value={dayConfig.endTime}
+                                onChange={(e) => {
+                                  const profile = activeAvailabilityTab === "standard" ? availabilityStandard : availabilityPriority;
+                                  const updated = {
+                                    ...profile,
+                                    workingDays: profile.workingDays.map((d, i) =>
+                                      i === idx ? { ...d, endTime: e.target.value } : d
+                                    ),
+                                  };
+                                  if (activeAvailabilityTab === "standard") {
+                                    setAvailabilityStandard(updated);
+                                  } else {
+                                    setAvailabilityPriority(updated);
+                                  }
+                                }}
+                                className="w-full h-8 px-2 bg-surface-container-low text-foreground rounded text-xs border border-outline"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-muted-foreground">Buffer before (min)</label>
+                              <input
+                                type="number"
+                                value={dayConfig.bufferBefore}
+                                onChange={(e) => {
+                                  const profile = activeAvailabilityTab === "standard" ? availabilityStandard : availabilityPriority;
+                                  const updated = {
+                                    ...profile,
+                                    workingDays: profile.workingDays.map((d, i) =>
+                                      i === idx ? { ...d, bufferBefore: parseInt(e.target.value) || 0 } : d
+                                    ),
+                                  };
+                                  if (activeAvailabilityTab === "standard") {
+                                    setAvailabilityStandard(updated);
+                                  } else {
+                                    setAvailabilityPriority(updated);
+                                  }
+                                }}
+                                className="w-full h-8 px-2 bg-surface-container-low text-foreground rounded text-xs border border-outline"
+                                min="0"
+                                step="5"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-muted-foreground">Buffer after (min)</label>
+                              <input
+                                type="number"
+                                value={dayConfig.bufferAfter}
+                                onChange={(e) => {
+                                  const profile = activeAvailabilityTab === "standard" ? availabilityStandard : availabilityPriority;
+                                  const updated = {
+                                    ...profile,
+                                    workingDays: profile.workingDays.map((d, i) =>
+                                      i === idx ? { ...d, bufferAfter: parseInt(e.target.value) || 0 } : d
+                                    ),
+                                  };
+                                  if (activeAvailabilityTab === "standard") {
+                                    setAvailabilityStandard(updated);
+                                  } else {
+                                    setAvailabilityPriority(updated);
+                                  }
+                                }}
+                                className="w-full h-8 px-2 bg-surface-container-low text-foreground rounded text-xs border border-outline"
+                                min="0"
+                                step="5"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className={labelClasses}>Start time</label>
-                          <input
-                            type="time"
-                            value={availabilityStandard.windowStart}
-                            onChange={(e) => setAvailabilityStandard({ ...availabilityStandard, windowStart: e.target.value })}
-                            className={inputClasses}
-                          />
-                        </div>
-                        <div>
-                          <label className={labelClasses}>End time</label>
-                          <input
-                            type="time"
-                            value={availabilityStandard.windowEnd}
-                            onChange={(e) => setAvailabilityStandard({ ...availabilityStandard, windowEnd: e.target.value })}
-                            className={inputClasses}
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <label className={labelClasses}>Duration (min)</label>
-                          <input
-                            type="number"
-                            value={availabilityStandard.duration}
-                            onChange={(e) => setAvailabilityStandard({ ...availabilityStandard, duration: parseInt(e.target.value) || 30 })}
-                            className={inputClasses}
-                            min="15"
-                            step="15"
-                          />
-                        </div>
-                        <div>
-                          <label className={labelClasses}>Buffer before (min)</label>
-                          <input
-                            type="number"
-                            value={availabilityStandard.bufferBefore}
-                            onChange={(e) => setAvailabilityStandard({ ...availabilityStandard, bufferBefore: parseInt(e.target.value) || 0 })}
-                            className={inputClasses}
-                            min="0"
-                            step="5"
-                          />
-                        </div>
-                        <div>
-                          <label className={labelClasses}>Buffer after (min)</label>
-                          <input
-                            type="number"
-                            value={availabilityStandard.bufferAfter}
-                            onChange={(e) => setAvailabilityStandard({ ...availabilityStandard, bufferAfter: parseInt(e.target.value) || 0 })}
-                            className={inputClasses}
-                            min="0"
-                            step="5"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div>
-                        <label className={labelClasses}>Working days</label>
-                        <div className="flex gap-2 flex-wrap">
-                          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => {
-                                const newDays = availabilityPriority.days.includes(i + 1)
-                                  ? availabilityPriority.days.filter(d => d !== i + 1)
-                                  : [...availabilityPriority.days, i + 1].sort();
-                                setAvailabilityPriority({ ...availabilityPriority, days: newDays });
-                              }}
-                              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                                availabilityPriority.days.includes(i + 1)
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-surface-container-low text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              {day}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className={labelClasses}>Start time</label>
-                          <input
-                            type="time"
-                            value={availabilityPriority.windowStart}
-                            onChange={(e) => setAvailabilityPriority({ ...availabilityPriority, windowStart: e.target.value })}
-                            className={inputClasses}
-                          />
-                        </div>
-                        <div>
-                          <label className={labelClasses}>End time</label>
-                          <input
-                            type="time"
-                            value={availabilityPriority.windowEnd}
-                            onChange={(e) => setAvailabilityPriority({ ...availabilityPriority, windowEnd: e.target.value })}
-                            className={inputClasses}
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <label className={labelClasses}>Duration (min)</label>
-                          <input
-                            type="number"
-                            value={availabilityPriority.duration}
-                            onChange={(e) => setAvailabilityPriority({ ...availabilityPriority, duration: parseInt(e.target.value) || 30 })}
-                            className={inputClasses}
-                            min="15"
-                            step="15"
-                          />
-                        </div>
-                        <div>
-                          <label className={labelClasses}>Buffer before (min)</label>
-                          <input
-                            type="number"
-                            value={availabilityPriority.bufferBefore}
-                            onChange={(e) => setAvailabilityPriority({ ...availabilityPriority, bufferBefore: parseInt(e.target.value) || 0 })}
-                            className={inputClasses}
-                            min="0"
-                            step="5"
-                          />
-                        </div>
-                        <div>
-                          <label className={labelClasses}>Buffer after (min)</label>
-                          <input
-                            type="number"
-                            value={availabilityPriority.bufferAfter}
-                            onChange={(e) => setAvailabilityPriority({ ...availabilityPriority, bufferAfter: parseInt(e.target.value) || 0 })}
-                            className={inputClasses}
-                            min="0"
-                            step="5"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                    ))}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-3 pt-2">
@@ -779,7 +748,7 @@ export default function SettingsPage() {
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Connect your Google Calendar to share availability and schedule meetings with automatic Google Meet links.
+                  Connect your Google Calendar to set your availability and schedule meetings with automatic Google Meet links.
                 </p>
                 <a href="/api/gmail/auth?scopes=calendar">
                   <Button type="button">
