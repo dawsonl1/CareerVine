@@ -139,3 +139,9 @@ export type EmailFollowUp = Database["public"]["Tables"]["email_follow_ups"]["Ro
 
 /** Individual follow-up message in a sequence */
 export type EmailFollowUpMessage = Database["public"]["Tables"]["email_follow_up_messages"]["Row"];
+
+/** Email draft — auto-saved compose state */
+export type EmailDraft = Database["public"]["Tables"]["email_drafts"]["Row"];
+
+/** Email template — user-defined AI email generation template */
+export type EmailTemplate = Database["public"]["Tables"]["email_templates"]["Row"];

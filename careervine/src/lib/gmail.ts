@@ -246,11 +246,43 @@ export async function syncEmailsForContact(
         };
       });
 
-      const { error } = await supabase.from("email_messages").upsert(rows, {
-        onConflict: "user_id,gmail_message_id",
-        ignoreDuplicates: false,
-      });
-      if (error) console.error("Upsert error:", error);
+      // Look up which messages already exist so we can skip overwriting
+      // user-managed fields (is_read, is_trashed, is_hidden)
+      const msgIds = rows.map((r) => r.gmail_message_id);
+      const { data: existing } = await supabase
+        .from("email_messages")
+        .select("gmail_message_id")
+        .eq("user_id", userId)
+        .in("gmail_message_id", msgIds);
+      const existingIds = new Set((existing || []).map((e) => e.gmail_message_id));
+
+      const newRows = rows.filter((r) => !existingIds.has(r.gmail_message_id));
+      const existingRows = rows.filter((r) => existingIds.has(r.gmail_message_id));
+
+      // Insert new messages (includes is_read from Gmail)
+      if (newRows.length > 0) {
+        const { error } = await supabase.from("email_messages").upsert(newRows, {
+          onConflict: "user_id,gmail_message_id",
+          ignoreDuplicates: false,
+        });
+        if (error) console.error("Insert error:", error);
+      }
+
+      // Update existing messages: only safe fields (subject, snippet, label_ids)
+      // Never overwrite is_read, is_trashed, or is_hidden
+      for (const row of existingRows) {
+        const { error } = await supabase
+          .from("email_messages")
+          .update({
+            subject: row.subject,
+            snippet: row.snippet,
+            label_ids: row.label_ids,
+            thread_id: row.thread_id,
+          })
+          .eq("user_id", userId)
+          .eq("gmail_message_id", row.gmail_message_id);
+        if (error) console.error("Update error:", error);
+      }
 
       totalSynced += rows.length;
     }
@@ -356,24 +388,35 @@ export async function getFullMessage(
 }
 
 /**
- * Mark a Gmail message as read by removing the UNREAD label,
- * then update the local cache to match.
+ * Mark a Gmail message as read by updating the local cache first,
+ * then removing the UNREAD label in Gmail (best-effort).
+ * DB is updated first so the read status persists even if the
+ * Gmail API call fails (e.g. token refresh error, rate limit).
  */
 export async function markMessageAsRead(userId: string, gmailMessageId: string) {
-  const gmail = await getGmailClient(userId);
-
-  await gmail.users.messages.modify({
-    userId: "me",
-    id: gmailMessageId,
-    requestBody: { removeLabelIds: ["UNREAD"] },
-  });
-
+  // Update local DB first — this is the source of truth for the UI
   const supabase = createSupabaseServiceClient();
-  await supabase
+  const { error: dbError } = await supabase
     .from("email_messages")
     .update({ is_read: true })
     .eq("user_id", userId)
     .eq("gmail_message_id", gmailMessageId);
+
+  if (dbError) {
+    console.error("Failed to update is_read in DB:", dbError);
+  }
+
+  // Then sync with Gmail (best-effort — don't let failures undo the local state)
+  try {
+    const gmail = await getGmailClient(userId);
+    await gmail.users.messages.modify({
+      userId: "me",
+      id: gmailMessageId,
+      requestBody: { removeLabelIds: ["UNREAD"] },
+    });
+  } catch (gmailError) {
+    console.error("Failed to remove UNREAD label in Gmail:", gmailError);
+  }
 }
 
 /**

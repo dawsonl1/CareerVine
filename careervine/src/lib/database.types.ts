@@ -359,6 +359,43 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["email_follow_up_messages"]["Insert"]>;
       };
 
+      // Email templates — user-defined AI email generation templates
+      email_templates: {
+        Row: {
+          id: number;
+          user_id: string;
+          name: string;
+          prompt: string;
+          is_default: boolean;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["email_templates"]["Row"], "id" | "created_at" | "updated_at">;
+        Update: Partial<Database["public"]["Tables"]["email_templates"]["Insert"]>;
+      };
+
+      // Email drafts — auto-saved compose state
+      email_drafts: {
+        Row: {
+          id: number;
+          user_id: string;
+          recipient_email: string | null;
+          cc: string | null;
+          bcc: string | null;
+          subject: string | null;
+          body_html: string | null;
+          thread_id: string | null;
+          in_reply_to: string | null;
+          references_header: string | null;
+          contact_name: string | null;
+          updated_at: string;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["email_drafts"]["Row"], "id" | "created_at" | "updated_at">;
+        Update: Partial<Database["public"]["Tables"]["email_drafts"]["Insert"]>;
+      };
+
       // Junction table: many-to-many between action items and contacts
       action_item_contacts: {
         Row: {

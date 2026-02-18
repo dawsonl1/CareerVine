@@ -11,6 +11,7 @@ import type {
   EmailMessageFull,
   EmailFollowUp,
   ScheduledEmail,
+  EmailDraft,
 } from "@/lib/types";
 import {
   Inbox,
@@ -33,6 +34,9 @@ import {
   ChevronDown,
   Filter,
   X,
+  PanelLeftClose,
+  PanelLeftOpen,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -49,7 +53,7 @@ type EmailThread = {
 
 type GmailLabel = { id: string; name: string; type: string };
 
-type SidebarTab = "inbox" | "sent" | "scheduled" | "followups" | "trash" | "hidden";
+type SidebarTab = "inbox" | "sent" | "scheduled" | "followups" | "drafts" | "trash" | "hidden";
 
 // ── Page ──
 
@@ -61,6 +65,7 @@ export default function InboxPage() {
   const [activeTab, setActiveTab] = useState<SidebarTab>("inbox");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Data
   const [emails, setEmails] = useState<EmailMessage[]>([]);
@@ -68,6 +73,7 @@ export default function InboxPage() {
   const [hiddenEmails, setHiddenEmails] = useState<EmailMessage[]>([]);
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
   const [followUps, setFollowUps] = useState<EmailFollowUp[]>([]);
+  const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [contactMap, setContactMap] = useState<Record<number, string>>({});
   const [gmailAddress, setGmailAddress] = useState("");
   const [gmailLabels, setGmailLabels] = useState<GmailLabel[]>([]);
@@ -78,11 +84,15 @@ export default function InboxPage() {
   const [expandedEmailContent, setExpandedEmailContent] = useState<EmailMessageFull | null>(null);
   const [loadingEmailContent, setLoadingEmailContent] = useState(false);
 
-  // Search + contact filter
+  // Search + filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
-  const [contactFilterOpen, setContactFilterOpen] = useState(false);
-  const contactFilterRef = useRef<HTMLDivElement>(null);
+  const [contactSearchQuery, setContactSearchQuery] = useState("");
+  const [filterDirection, setFilterDirection] = useState<"all" | "inbound" | "outbound">("all");
+  const [filterDays, setFilterDays] = useState<number | null>(null);
+  const [filterThreadType, setFilterThreadType] = useState<"all" | "threads" | "single">("all");
+  const [filterFollowUp, setFilterFollowUp] = useState<"all" | "with" | "without">("all");
+  const [showFilters, setShowFilters] = useState(false);
 
   // Move-to-folder dropdown
   const [moveDropdownMsgId, setMoveDropdownMsgId] = useState<string | null>(null);
@@ -122,9 +132,20 @@ export default function InboxPage() {
     }
   }, []);
 
+  const loadDrafts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/gmail/drafts");
+      const data = await res.json();
+      setDrafts(data.drafts || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     if (user && gmailConnected) {
       loadInbox();
+      loadDrafts();
       fetch("/api/gmail/labels")
         .then((r) => r.json())
         .then((d) => setGmailLabels(d.labels || []))
@@ -132,13 +153,20 @@ export default function InboxPage() {
     } else {
       setLoading(false);
     }
-  }, [user, gmailConnected, loadInbox]);
+  }, [user, gmailConnected, loadInbox, loadDrafts]);
 
   useEffect(() => {
-    const handler = () => setTimeout(() => loadInbox(), 500);
+    const handler = () => { setTimeout(() => loadInbox(), 500); loadDrafts(); };
     window.addEventListener("careervine:email-sent", handler);
     return () => window.removeEventListener("careervine:email-sent", handler);
-  }, [loadInbox]);
+  }, [loadInbox, loadDrafts]);
+
+  // Refresh drafts when compose saves/deletes a draft
+  useEffect(() => {
+    const handler = () => loadDrafts();
+    window.addEventListener("careervine:drafts-changed", handler);
+    return () => window.removeEventListener("careervine:drafts-changed", handler);
+  }, [loadDrafts]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -146,13 +174,10 @@ export default function InboxPage() {
       if (moveDropdownMsgId && moveDropdownRef.current && !moveDropdownRef.current.contains(e.target as Node)) {
         setMoveDropdownMsgId(null);
       }
-      if (contactFilterOpen && contactFilterRef.current && !contactFilterRef.current.contains(e.target as Node)) {
-        setContactFilterOpen(false);
-      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [moveDropdownMsgId, contactFilterOpen]);
+  }, [moveDropdownMsgId]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -197,7 +222,7 @@ export default function InboxPage() {
   const trashThreads = useMemo(() => buildThreads(trashedEmails), [trashedEmails]);
   const hiddenThreads = useMemo(() => buildThreads(hiddenEmails), [hiddenEmails]);
 
-  // Contact list for filter
+  // Contact list for filter (search-based)
   const contactsInEmails = useMemo(() => {
     const ids = new Set<number>();
     for (const e of emails) {
@@ -208,16 +233,68 @@ export default function InboxPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [emails, contactMap]);
 
-  // ── Search + contact filtering ──
+  const filteredContactOptions = useMemo(() => {
+    if (!contactSearchQuery.trim()) return contactsInEmails;
+    const q = contactSearchQuery.toLowerCase();
+    return contactsInEmails.filter((c) => c.name.toLowerCase().includes(q));
+  }, [contactsInEmails, contactSearchQuery]);
+
+  // ── Follow-up lookup ──
+
+  const followUpsByThread = useMemo(() => {
+    const map: Record<string, EmailFollowUp[]> = {};
+    for (const fu of followUps) {
+      if (!map[fu.thread_id]) map[fu.thread_id] = [];
+      map[fu.thread_id].push(fu);
+    }
+    return map;
+  }, [followUps]);
+
+  // ── Advanced filtering ──
 
   const filterThreads = useCallback(
     (threads: EmailThread[]) => {
       let filtered = threads;
 
+      // Contact filter
       if (selectedContactId !== null) {
         filtered = filtered.filter((t) => t.contactId === selectedContactId);
       }
 
+      // Direction filter
+      if (filterDirection !== "all") {
+        filtered = filtered.filter((t) =>
+          t.messages.some((m) => m.direction === filterDirection)
+        );
+      }
+
+      // Recent activity (days) filter
+      if (filterDays !== null) {
+        const cutoff = Date.now() - filterDays * 86400_000;
+        filtered = filtered.filter((t) => new Date(t.latestDate).getTime() >= cutoff);
+      }
+
+      // Thread type filter
+      if (filterThreadType === "threads") {
+        filtered = filtered.filter((t) => t.messages.length > 1);
+      } else if (filterThreadType === "single") {
+        filtered = filtered.filter((t) => t.messages.length === 1);
+      }
+
+      // Follow-up filter
+      if (filterFollowUp === "with") {
+        filtered = filtered.filter((t) => {
+          const fus = followUpsByThread[t.threadId];
+          return fus && fus.length > 0;
+        });
+      } else if (filterFollowUp === "without") {
+        filtered = filtered.filter((t) => {
+          const fus = followUpsByThread[t.threadId];
+          return !fus || fus.length === 0;
+        });
+      }
+
+      // Text search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         filtered = filtered.filter(
@@ -235,7 +312,7 @@ export default function InboxPage() {
 
       return filtered;
     },
-    [searchQuery, selectedContactId, contactMap]
+    [searchQuery, selectedContactId, contactMap, filterDirection, filterDays, filterThreadType, filterFollowUp, followUpsByThread]
   );
 
   const filteredInboxThreads = useMemo(() => filterThreads(inboxThreads), [filterThreads, inboxThreads]);
@@ -243,16 +320,22 @@ export default function InboxPage() {
   const filteredTrashThreads = useMemo(() => filterThreads(trashThreads), [filterThreads, trashThreads]);
   const filteredHiddenThreads = useMemo(() => filterThreads(hiddenThreads), [filterThreads, hiddenThreads]);
 
-  // ── Follow-up lookup ──
+  const activeFilterCount = [
+    filterDirection !== "all",
+    filterDays !== null,
+    filterThreadType !== "all",
+    filterFollowUp !== "all",
+    selectedContactId !== null,
+  ].filter(Boolean).length;
 
-  const followUpsByThread = useMemo(() => {
-    const map: Record<string, EmailFollowUp[]> = {};
-    for (const fu of followUps) {
-      if (!map[fu.thread_id]) map[fu.thread_id] = [];
-      map[fu.thread_id].push(fu);
-    }
-    return map;
-  }, [followUps]);
+  const clearAllFilters = () => {
+    setFilterDirection("all");
+    setFilterDays(null);
+    setFilterThreadType("all");
+    setFilterFollowUp("all");
+    setSelectedContactId(null);
+    setContactSearchQuery("");
+  };
 
   // ── Email expand (handles single-message auto-expand) ──
 
@@ -268,13 +351,18 @@ export default function InboxPage() {
 
     const allMsgs = [...emails, ...trashedEmails, ...hiddenEmails];
     const msg = allMsgs.find((e) => e.gmail_message_id === gmailMessageId);
-    if (msg && !msg.is_read && msg.direction === "inbound") {
+    if (msg && !msg.is_read) {
       setEmails((prev) => prev.map((e) => (e.gmail_message_id === gmailMessageId ? { ...e, is_read: true } : e)));
-      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta: -1 } }));
-      fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" }).catch(() => {});
-    } else if (msg && !msg.is_read) {
-      setEmails((prev) => prev.map((e) => (e.gmail_message_id === gmailMessageId ? { ...e, is_read: true } : e)));
-      fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" }).catch(() => {});
+      if (msg.direction === "inbound") {
+        window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta: -1 } }));
+      }
+      try {
+        await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
+      } catch (err) {
+        console.error("Failed to mark as read:", err);
+      }
+      // Confirm badge count from server now that DB is updated
+      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
     }
 
     try {
@@ -377,6 +465,26 @@ export default function InboxPage() {
       body: JSON.stringify({ labelId }),
     }).catch(() => {});
     window.dispatchEvent(new CustomEvent("careervine:unread-changed"));
+  };
+
+  // ── Draft actions ──
+
+  const deleteDraft = async (draftId: number) => {
+    setDrafts((prev) => prev.filter((d) => d.id !== draftId));
+    fetch(`/api/gmail/drafts/${draftId}`, { method: "DELETE" }).catch(() => {});
+  };
+
+  const openDraft = (draft: EmailDraft) => {
+    openCompose({
+      to: draft.recipient_email || undefined,
+      name: draft.contact_name || undefined,
+      subject: draft.subject || undefined,
+      threadId: draft.thread_id || undefined,
+      inReplyTo: draft.in_reply_to || undefined,
+      references: draft.references_header || undefined,
+    });
+    // Delete the draft since it's now open in compose
+    deleteDraft(draft.id);
   };
 
   // ── Scheduled / Follow-up cancel ──
@@ -619,7 +727,7 @@ export default function InboxPage() {
   // ── Render expanded email body ──
 
   const renderExpandedContent = (msg: EmailMessage, thread: EmailThread, contactName: string | null, tabCtx: TabContext) => (
-    <div className="p-3 rounded-lg bg-surface-container-low border border-outline-variant/50">
+    <div className="p-4 rounded-lg bg-surface-container-low border border-outline-variant/50">
       {loadingEmailContent ? (
         <div className="flex items-center gap-2 text-muted-foreground text-xs py-4">
           <div className="animate-spin rounded-full h-3 w-3 border border-primary border-t-transparent" />
@@ -633,9 +741,9 @@ export default function InboxPage() {
             <p><span className="font-medium">Date:</span> {expandedEmailContent.date ? new Date(expandedEmailContent.date).toLocaleString() : ""}</p>
           </div>
           {expandedEmailContent.bodyHtml ? (
-            <div className="text-sm prose prose-sm max-w-none [&_*]:!text-foreground [&_a]:!text-primary overflow-auto max-h-80" dangerouslySetInnerHTML={{ __html: expandedEmailContent.bodyHtml }} />
+            <div className="text-sm prose prose-sm max-w-none [&_*]:!text-foreground [&_a]:!text-primary overflow-auto" style={{ maxHeight: "calc(100vh - 380px)", minHeight: "200px" }} dangerouslySetInnerHTML={{ __html: expandedEmailContent.bodyHtml }} />
           ) : (
-            <pre className="text-sm text-foreground whitespace-pre-wrap overflow-auto max-h-80">{expandedEmailContent.bodyText || "No content available"}</pre>
+            <pre className="text-sm text-foreground whitespace-pre-wrap overflow-auto" style={{ maxHeight: "calc(100vh - 380px)", minHeight: "200px" }}>{expandedEmailContent.bodyText || "No content available"}</pre>
           )}
           {renderEmailActions(msg, thread, contactName, tabCtx)}
         </div>
@@ -652,7 +760,7 @@ export default function InboxPage() {
       const iconMap: Record<string, typeof Inbox> = { inbox: Inbox, sent: Send, trash: Trash2, hidden: EyeOff };
       const EmptyIcon = iconMap[tabCtx] || Inbox;
       const msgMap: Record<string, string> = {
-        inbox: searchQuery || selectedContactId ? "No emails match your filters." : "No emails synced yet.",
+        inbox: searchQuery || selectedContactId || activeFilterCount > 0 ? "No emails match your filters." : "No emails synced yet.",
         sent: "No sent emails yet.",
         trash: "Trash is empty.",
         hidden: "No hidden emails.",
@@ -801,6 +909,7 @@ export default function InboxPage() {
   const sidebarItems: { key: SidebarTab; label: string; icon: typeof Inbox; count: number }[] = [
     { key: "inbox", label: "Inbox", icon: Inbox, count: unreadEmailCount },
     { key: "sent", label: "Sent", icon: Send, count: sentCount },
+    { key: "drafts", label: "Drafts", icon: FileText, count: drafts.length },
     { key: "scheduled", label: "Scheduled", icon: Clock, count: scheduledEmails.length },
     { key: "followups", label: "Follow-ups", icon: Clock, count: pendingFollowUpCount },
     { key: "trash", label: "Trash", icon: Trash2, count: trashedEmails.length },
@@ -819,9 +928,19 @@ export default function InboxPage() {
     <div className="min-h-screen bg-background">
       <Navigation />
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="px-4 sm:px-6 lg:px-8 py-4">
         {/* Top bar */}
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          {/* Sidebar toggle */}
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="hidden md:flex h-10 w-10 rounded-full items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-container-low transition-colors cursor-pointer"
+            title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+          >
+            {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+          </button>
+
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
@@ -833,57 +952,24 @@ export default function InboxPage() {
             />
           </div>
 
-          {/* Contact filter */}
-          {contactsInEmails.length > 0 && (
-            <div className="relative" ref={contactFilterRef}>
-              <button
-                type="button"
-                onClick={() => setContactFilterOpen(!contactFilterOpen)}
-                className={`h-10 px-3 rounded-full flex items-center gap-1.5 text-sm font-medium transition-colors cursor-pointer border ${
-                  selectedContactId !== null
-                    ? "bg-primary-container text-on-primary-container border-primary/30"
-                    : "bg-surface-container-low text-muted-foreground border-outline-variant hover:text-foreground"
-                }`}
-              >
-                <Filter className="h-3.5 w-3.5" />
-                {selectedContactId !== null ? (
-                  <>
-                    <span className="max-w-24 truncate">{contactMap[selectedContactId]}</span>
-                    <button
-                      type="button"
-                      className="ml-0.5 p-0.5 rounded-full hover:bg-primary/20 cursor-pointer"
-                      onClick={(e) => { e.stopPropagation(); setSelectedContactId(null); setContactFilterOpen(false); }}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </>
-                ) : (
-                  <span className="hidden sm:inline">Contact</span>
-                )}
-              </button>
-              {contactFilterOpen && (
-                <div className="absolute right-0 top-12 z-50 w-56 max-h-64 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
-                  <button
-                    type="button"
-                    className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${selectedContactId === null ? "text-primary bg-primary/[0.06]" : "text-foreground hover:bg-surface-container-low"}`}
-                    onClick={() => { setSelectedContactId(null); setContactFilterOpen(false); }}
-                  >
-                    All contacts
-                  </button>
-                  {contactsInEmails.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={`w-full text-left px-3 py-2 text-xs transition-colors cursor-pointer ${selectedContactId === c.id ? "text-primary bg-primary/[0.06] font-medium" : "text-foreground hover:bg-surface-container-low"}`}
-                      onClick={() => { setSelectedContactId(c.id); setContactFilterOpen(false); }}
-                    >
-                      {c.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Filter toggle */}
+          <button
+            type="button"
+            onClick={() => setShowFilters(!showFilters)}
+            className={`h-10 px-3 rounded-full flex items-center gap-1.5 text-sm font-medium transition-colors cursor-pointer border ${
+              activeFilterCount > 0
+                ? "bg-primary-container text-on-primary-container border-primary/30"
+                : "bg-surface-container-low text-muted-foreground border-outline-variant hover:text-foreground"
+            }`}
+          >
+            <Filter className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
 
           <button
             type="button"
@@ -900,10 +986,145 @@ export default function InboxPage() {
           </Button>
         </div>
 
-        <div className="flex gap-6">
-          {/* Sidebar */}
-          <div className="w-48 shrink-0 hidden md:block">
-            <nav className="space-y-0.5">
+        {/* ── Advanced filter bar ── */}
+        {showFilters && (
+          <div className="mb-4 p-3 bg-surface-container-low rounded-xl border border-outline-variant/50">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Direction */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Direction:</span>
+                <div className="flex rounded-lg border border-outline-variant overflow-hidden">
+                  {(["all", "inbound", "outbound"] as const).map((dir) => (
+                    <button
+                      key={dir}
+                      type="button"
+                      onClick={() => setFilterDirection(dir)}
+                      className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                        filterDirection === dir ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
+                      }`}
+                    >
+                      {dir === "all" ? "All" : dir === "inbound" ? "Incoming" : "Outgoing"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Days */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Activity:</span>
+                <div className="flex rounded-lg border border-outline-variant overflow-hidden">
+                  {([null, 7, 14, 30, 90] as const).map((d) => (
+                    <button
+                      key={d ?? "all"}
+                      type="button"
+                      onClick={() => setFilterDays(d)}
+                      className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                        filterDays === d ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
+                      }`}
+                    >
+                      {d === null ? "All" : `${d}d`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Thread type */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Type:</span>
+                <div className="flex rounded-lg border border-outline-variant overflow-hidden">
+                  {(["all", "threads", "single"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setFilterThreadType(t)}
+                      className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                        filterThreadType === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
+                      }`}
+                    >
+                      {t === "all" ? "All" : t === "threads" ? "Threads" : "Single"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Follow-ups */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Follow-ups:</span>
+                <div className="flex rounded-lg border border-outline-variant overflow-hidden">
+                  {(["all", "with", "without"] as const).map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => setFilterFollowUp(f)}
+                      className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                        filterFollowUp === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
+                      }`}
+                    >
+                      {f === "all" ? "All" : f === "with" ? "With" : "Without"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Contact search */}
+              <div className="flex items-center gap-1.5 relative">
+                <span className="text-xs font-medium text-muted-foreground">Contact:</span>
+                {selectedContactId !== null ? (
+                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-container text-on-primary-container text-xs font-medium">
+                    <span className="max-w-32 truncate">{contactMap[selectedContactId]}</span>
+                    <button
+                      type="button"
+                      className="p-0.5 rounded-full hover:bg-primary/20 cursor-pointer"
+                      onClick={() => { setSelectedContactId(null); setContactSearchQuery(""); }}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={contactSearchQuery}
+                      onChange={(e) => setContactSearchQuery(e.target.value)}
+                      placeholder="Search by name..."
+                      className="w-40 h-7 px-2.5 text-xs bg-transparent border border-outline-variant rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                    />
+                    {contactSearchQuery.trim() && filteredContactOptions.length > 0 && (
+                      <div className="absolute left-0 top-8 z-50 w-56 max-h-48 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
+                        {filteredContactOptions.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors"
+                            onClick={() => { setSelectedContactId(c.id); setContactSearchQuery(""); }}
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Clear all */}
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="ml-auto text-xs font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-4">
+          {/* ── Sidebar ── */}
+          <div className={`shrink-0 hidden md:block transition-all duration-200 ${sidebarOpen ? "w-48" : "w-12"}`}>
+            <nav className="space-y-0.5 sticky top-20">
               {sidebarItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.key;
@@ -913,18 +1134,23 @@ export default function InboxPage() {
                     key={item.key}
                     type="button"
                     onClick={() => switchTab(item.key)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-full text-sm font-medium transition-colors cursor-pointer ${
+                    title={!sidebarOpen ? item.label : undefined}
+                    className={`w-full flex items-center gap-3 ${sidebarOpen ? "px-3" : "px-0 justify-center"} py-2.5 rounded-full text-sm font-medium transition-colors cursor-pointer ${
                       isActive ? "bg-secondary-container text-on-secondary-container" : "text-muted-foreground hover:text-foreground hover:bg-surface-container-low"
                     }`}
                   >
-                    <Icon className="h-4.5 w-4.5" />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    {item.count > 0 && (
-                      <span className={`text-xs font-medium ${
-                        isBadge ? "bg-destructive text-destructive-foreground rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center" : isActive ? "text-on-secondary-container" : "text-muted-foreground"
-                      }`}>
-                        {item.count}
-                      </span>
+                    <Icon className="h-4.5 w-4.5 shrink-0" />
+                    {sidebarOpen && (
+                      <>
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {item.count > 0 && (
+                          <span className={`text-xs font-medium ${
+                            isBadge ? "bg-destructive text-destructive-foreground rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center" : isActive ? "text-on-secondary-container" : "text-muted-foreground"
+                          }`}>
+                            {item.count}
+                          </span>
+                        )}
+                      </>
                     )}
                   </button>
                 );
@@ -932,7 +1158,7 @@ export default function InboxPage() {
             </nav>
           </div>
 
-          {/* Main content */}
+          {/* ── Main content ── */}
           <div className="flex-1 min-w-0">
             {/* Mobile tabs */}
             <div className="flex md:hidden gap-1 border-b border-outline-variant mb-4 overflow-x-auto">
@@ -964,6 +1190,58 @@ export default function InboxPage() {
                 {activeTab === "trash" && renderThreadList(filteredTrashThreads, "trash")}
                 {activeTab === "hidden" && renderThreadList(filteredHiddenThreads, "hidden")}
 
+                {/* ─── DRAFTS TAB ─── */}
+                {activeTab === "drafts" && (
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-sm font-medium text-foreground">
+                        Drafts
+                        {drafts.length > 0 && <span className="ml-1.5 text-muted-foreground font-normal">({drafts.length})</span>}
+                      </h2>
+                    </div>
+                    {drafts.length === 0 ? (
+                      <div className="text-center py-16">
+                        <FileText className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+                        <p className="text-sm text-muted-foreground">No drafts.</p>
+                        <p className="text-xs text-muted-foreground mt-1">Emails you start composing but don&apos;t send will be saved here.</p>
+                      </div>
+                    ) : (
+                      <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
+                        {drafts.map((draft) => (
+                          <div key={draft.id} className="px-4 py-3 hover:bg-surface-container-low/50 transition-colors cursor-pointer" onClick={() => openDraft(draft)}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center shrink-0">
+                                <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium text-foreground truncate">{draft.subject || "(no subject)"}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-container text-muted-foreground shrink-0">Draft</span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-xs text-muted-foreground truncate">
+                                    {draft.recipient_email ? `To: ${draft.contact_name || draft.recipient_email}` : "No recipient"}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">·</span>
+                                  <span className="text-xs text-muted-foreground shrink-0">{formatDate(draft.updated_at)}</span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); deleteDraft(draft.id); }}
+                                className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+                                title="Delete draft"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* ─── SCHEDULED TAB ─── */}
                 {activeTab === "scheduled" && (
                   <div>
@@ -977,7 +1255,7 @@ export default function InboxPage() {
                       <div className="text-center py-16">
                         <Send className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
                         <p className="text-sm text-muted-foreground">No scheduled emails.</p>
-                        <p className="text-xs text-muted-foreground mt-1">Use the "Schedule" option in Compose to queue emails for later.</p>
+                        <p className="text-xs text-muted-foreground mt-1">Use the &quot;Schedule&quot; option in Compose to queue emails for later.</p>
                       </div>
                     ) : (
                       <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">

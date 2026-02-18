@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useCompose } from "@/components/compose-email-context";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Button } from "@/components/ui/button";
 import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock } from "lucide-react";
+import { AiWriteDropdown } from "@/components/ai-write-dropdown";
 
 const inputClasses =
   "w-full h-10 px-3 bg-transparent text-foreground text-sm placeholder:text-muted-foreground focus:outline-none";
@@ -43,9 +44,51 @@ export function ComposeEmailModal() {
   const [scheduleDatetime, setScheduleDatetime] = useState("");
 
   const toRef = useRef<HTMLInputElement>(null);
+  const draftIdRef = useRef<number | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sentOrScheduledRef = useRef(false);
 
   // Minimum datetime is 5 minutes from now
   const minDatetime = toLocalDatetimeString(new Date(Date.now() + 5 * 60_000));
+
+  const saveDraft = useCallback(async (fields: { to: string; cc: string; bcc: string; subject: string; bodyHtml: string }) => {
+    // Don't save empty drafts
+    if (!fields.to.trim() && !fields.subject.trim() && !fields.bodyHtml.trim()) return;
+    try {
+      const res = await fetch("/api/gmail/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: draftIdRef.current || undefined,
+          to: fields.to.trim(),
+          cc: fields.cc.trim() || undefined,
+          bcc: fields.bcc.trim() || undefined,
+          subject: fields.subject.trim(),
+          bodyHtml: fields.bodyHtml,
+          contactName: prefillName || undefined,
+          threadId: replyThreadId || undefined,
+          inReplyTo: replyInReplyTo || undefined,
+          references: replyReferences || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.draft?.id) draftIdRef.current = data.draft.id;
+      window.dispatchEvent(new CustomEvent("careervine:drafts-changed"));
+    } catch {
+      // silent — draft save is best-effort
+    }
+  }, [prefillName, replyThreadId, replyInReplyTo, replyReferences]);
+
+  const deleteDraft = useCallback(async () => {
+    if (!draftIdRef.current) return;
+    try {
+      await fetch(`/api/gmail/drafts/${draftIdRef.current}`, { method: "DELETE" });
+      draftIdRef.current = null;
+      window.dispatchEvent(new CustomEvent("careervine:drafts-changed"));
+    } catch {
+      // silent
+    }
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -62,6 +105,8 @@ export function ComposeEmailModal() {
       setError("");
       setShowSchedule(false);
       setScheduleDatetime("");
+      draftIdRef.current = null;
+      sentOrScheduledRef.current = false;
       setTimeout(() => {
         if (prefillTo) {
           // Focus subject if To is pre-filled
@@ -71,6 +116,18 @@ export function ComposeEmailModal() {
       }, 100);
     }
   }, [isOpen, prefillTo, prefillName, prefillSubject]);
+
+  // Auto-save draft on content change (debounced 2s)
+  useEffect(() => {
+    if (!isOpen || sent || scheduled) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      saveDraft({ to, cc, bcc, subject, bodyHtml });
+    }, 2000);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [isOpen, to, cc, bcc, subject, bodyHtml, sent, scheduled, saveDraft]);
 
   const validate = (): boolean => {
     if (!to.trim()) {
@@ -108,6 +165,8 @@ export function ComposeEmailModal() {
       if (!res.ok) throw new Error(data.error);
 
       setSent(true);
+      sentOrScheduledRef.current = true;
+      deleteDraft();
       window.dispatchEvent(new CustomEvent("careervine:email-sent"));
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
@@ -153,6 +212,8 @@ export function ComposeEmailModal() {
       if (!res.ok) throw new Error(data.error);
 
       setScheduled(true);
+      sentOrScheduledRef.current = true;
+      deleteDraft();
       window.dispatchEvent(new CustomEvent("careervine:email-sent"));
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
@@ -162,15 +223,23 @@ export function ComposeEmailModal() {
     }
   };
 
+  // Save draft on close if there's content and not sent/scheduled
+  const handleClose = useCallback(() => {
+    if (!sentOrScheduledRef.current && (to.trim() || subject.trim() || bodyHtml.trim())) {
+      saveDraft({ to, cc, bcc, subject, bodyHtml });
+    }
+    closeCompose();
+  }, [to, cc, bcc, subject, bodyHtml, saveDraft, closeCompose]);
+
   // Close on Escape
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeCompose();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, closeCompose]);
+  }, [isOpen, handleClose]);
 
   if (!isOpen) return null;
 
@@ -178,7 +247,7 @@ export function ComposeEmailModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/32" onClick={closeCompose} />
+      <div className="absolute inset-0 bg-black/32" onClick={handleClose} />
 
       <div className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg flex flex-col max-h-[90vh]">
         {/* Header */}
@@ -192,7 +261,7 @@ export function ComposeEmailModal() {
           </h2>
           <button
             type="button"
-            onClick={closeCompose}
+            onClick={handleClose}
             className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
           >
             <X className="h-5 w-5" />
@@ -281,8 +350,21 @@ export function ComposeEmailModal() {
               />
             </div>
 
-            {/* Body */}
+            {/* AI Write + Body */}
             <div className="flex-1 overflow-y-auto min-h-0 px-4 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <AiWriteDropdown
+                  recipientEmail={to}
+                  recipientName={prefillName}
+                  existingSubject={subject}
+                  onGenerated={(body, generatedSubject) => {
+                    setBodyHtml(body);
+                    if (generatedSubject && !subject.trim()) {
+                      setSubject(generatedSubject);
+                    }
+                  }}
+                />
+              </div>
               <RichTextEditor
                 content={bodyHtml}
                 onChange={setBodyHtml}
@@ -349,7 +431,7 @@ export function ComposeEmailModal() {
 
             {/* Footer */}
             <div className="flex items-center justify-between px-6 py-4">
-              <Button type="button" variant="text" onClick={closeCompose}>
+              <Button type="button" variant="text" onClick={() => { deleteDraft(); closeCompose(); }}>
                 Discard
               </Button>
               <div className="flex items-center gap-2">

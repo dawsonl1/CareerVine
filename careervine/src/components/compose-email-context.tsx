@@ -73,7 +73,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
 
   const fetchUnreadCount = useCallback(() => {
     if (!gmailConn) return;
-    fetch("/api/gmail/unread")
+    fetch("/api/gmail/unread", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => setUnreadCount(data.count || 0))
       .catch(() => {});
@@ -86,11 +86,18 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   // Update badge when emails are read or sent
   useEffect(() => {
     const handleUnread = (e: Event) => {
-      const delta = (e as CustomEvent).detail?.delta;
-      if (typeof delta === "number") {
-        setUnreadCount((prev) => Math.max(0, prev + delta));
+      const detail = (e as CustomEvent).detail || {};
+      if (typeof detail.delta === "number") {
+        setUnreadCount((prev) => Math.max(0, prev + detail.delta));
       }
-      setTimeout(fetchUnreadCount, 600);
+      // Explicit refetch (fired after API completes): fetch immediately
+      // Delta-only events: trust the optimistic delta, skip auto-refetch
+      // Generic events (no delta, no refetch): delayed refetch
+      if (detail.refetch) {
+        fetchUnreadCount();
+      } else if (typeof detail.delta !== "number") {
+        setTimeout(fetchUnreadCount, 600);
+      }
     };
     const handleSent = () => setTimeout(fetchUnreadCount, 600);
     window.addEventListener("careervine:unread-changed", handleUnread);
