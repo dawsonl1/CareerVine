@@ -1,12 +1,11 @@
 {
   "manifest_version": 3,
   "name": "CareerVine - LinkedIn Integration",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Import LinkedIn profiles directly into your CareerVine CRM",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting",
     "identity"
   ],
   "host_permissions": [
