@@ -9,7 +9,9 @@
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
-    "https://dawsonsprojects.com/*"
+    "https://dawsonsprojects.com/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:54321/*"
   ],
   "background": {
     "service_worker": "src/background/background.js"

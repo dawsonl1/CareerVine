@@ -680,6 +680,9 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [autoScrape, setAutoScrape] = useState(false);
+  const [progressStage, setProgressStage] = useState<string | null>(null);
+  const [progressPercent, setProgressPercent] = useState(0);
   
   const checkAuthentication = async () => {
     try {
@@ -735,6 +738,22 @@ const App: React.FC = () => {
     }
   };
 
+  // Load auto-scrape setting
+  useEffect(() => {
+    chrome?.storage?.local?.get?.(['autoScrapeEnabled'], (result: any) => {
+      setAutoScrape(result?.autoScrapeEnabled || false);
+    });
+  }, []);
+
+  const handleToggleAutoScrape = (enabled: boolean) => {
+    setAutoScrape(enabled);
+    chrome?.storage?.local?.set?.({ autoScrapeEnabled: enabled });
+  };
+
+  const handleRequestScrape = () => {
+    window.dispatchEvent(new CustomEvent('careervine:request-scrape'));
+  };
+
   useEffect(() => {
     // Check authentication first
     checkAuthentication().then((authenticated) => {
@@ -748,7 +767,11 @@ const App: React.FC = () => {
       area: string
     ) => {
       if (area === "local" && changes.latestProfile) {
-        setProfile(enrichProfile(changes.latestProfile.newValue));
+        const newProfile = enrichProfile(changes.latestProfile.newValue);
+        if (newProfile) {
+          setProfile(newProfile);
+          setLoading(false);
+        }
       }
     };
 
@@ -757,18 +780,42 @@ const App: React.FC = () => {
       setAnalyzing(event.detail.analyzing);
       if (event.detail.analyzing) {
         setLoading(true);
+        setProfile(null);
+        setStatusText(null);
+        setErrorText(null);
+        setProgressStage('starting');
+        setProgressPercent(0);
       } else {
-        // Analysis complete, try loading the profile
         loadLatestProfile();
       }
     };
 
+    // Listen for progress updates
+    const handleProgress = (event: CustomEvent) => {
+      setProgressStage(event.detail.stage);
+      setProgressPercent(event.detail.percent);
+    };
+
+    // Listen for new profile navigation
+    const handleNewProfile = () => {
+      setProfile(null);
+      setLoading(true);
+      setStatusText(null);
+      setErrorText(null);
+      setProgressStage(null);
+      setProgressPercent(0);
+    };
+
     chrome?.storage?.onChanged?.addListener(handleStorageChange);
     window.addEventListener('careervine:analyzing', handleAnalyzing as EventListener);
-    
+    window.addEventListener('careervine:progress', handleProgress as EventListener);
+    window.addEventListener('careervine:newprofile', handleNewProfile as EventListener);
+
     return () => {
       chrome?.storage?.onChanged?.removeListener(handleStorageChange);
       window.removeEventListener('careervine:analyzing', handleAnalyzing as EventListener);
+      window.removeEventListener('careervine:progress', handleProgress as EventListener);
+      window.removeEventListener('careervine:newprofile', handleNewProfile as EventListener);
     };
   }, []);
 
@@ -889,17 +936,38 @@ const App: React.FC = () => {
   }
 
   if (loading) {
+    const stageLabels: Record<string, string> = {
+      starting: 'Preparing...',
+      authenticating: 'Checking auth...',
+      scrolling: 'Reading profile...',
+      parsing: 'Analyzing with AI...',
+      done: 'Finishing up...',
+      error: 'Something went wrong',
+    };
+    const stageLabel = analyzing && progressStage
+      ? (stageLabels[progressStage] || 'Working...')
+      : 'Loading profile...';
+
     return (
       <div className="cv-panel">
         <div className="cv-loading">
           <Loader2 className="cv-spinner" />
-          <span>{analyzing ? "Analyzing profile..." : "Loading profile..."}</span>
+          <span>{stageLabel}</span>
+          {analyzing && (
+            <div className="cv-progress-bar-container">
+              <div
+                className="cv-progress-bar"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   if (!profile) {
+    const isOnProfile = typeof window !== 'undefined' && window.location?.href?.includes('linkedin.com/in/');
     return (
       <div className="cv-panel">
         <header className="cv-header">
@@ -912,8 +980,35 @@ const App: React.FC = () => {
           </a>
         </header>
         <div className="cv-empty">
-          <p className="cv-empty-title">Visit a LinkedIn profile</p>
-          <p className="cv-empty-subtitle">CareerVine will automatically prepare the contact for you.</p>
+          {isOnProfile ? (
+            <>
+              <p className="cv-empty-title">Ready to analyze</p>
+              <p className="cv-empty-subtitle">Click below to scrape this LinkedIn profile.</p>
+              <button className="cv-analyze-btn" onClick={handleRequestScrape}>
+                Analyze Profile
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="cv-empty-title">Visit a LinkedIn profile</p>
+              <p className="cv-empty-subtitle">Navigate to a profile page to get started.</p>
+            </>
+          )}
+        </div>
+        {/* Auto-scrape toggle */}
+        <div className="cv-autoscrape-toggle">
+          <label className="cv-toggle-label">
+            <span>Auto-analyze on navigation</span>
+            <button
+              type="button"
+              className={`cv-toggle-switch ${autoScrape ? 'cv-toggle-on' : ''}`}
+              onClick={() => handleToggleAutoScrape(!autoScrape)}
+              role="switch"
+              aria-checked={autoScrape}
+            >
+              <span className="cv-toggle-knob" />
+            </button>
+          </label>
         </div>
       </div>
     );
@@ -1170,6 +1265,25 @@ const App: React.FC = () => {
           </div>
         </section>
       </main>
+
+      {/* Auto-scrape toggle + Re-analyze */}
+      <div className="cv-autoscrape-toggle">
+        <label className="cv-toggle-label">
+          <span>Auto-analyze on navigation</span>
+          <button
+            type="button"
+            className={`cv-toggle-switch ${autoScrape ? 'cv-toggle-on' : ''}`}
+            onClick={() => handleToggleAutoScrape(!autoScrape)}
+            role="switch"
+            aria-checked={autoScrape}
+          >
+            <span className="cv-toggle-knob" />
+          </button>
+        </label>
+        <button className="cv-reanalyze-btn" onClick={handleRequestScrape}>
+          Re-analyze Profile
+        </button>
+      </div>
 
       {/* Footer */}
       <footer className="cv-footer">

@@ -48,12 +48,11 @@ function createPanel() {
 function loadPanelScript(shadowRoot) {
   // Define process.env for React bundle
   window.process = { env: { NODE_ENV: 'production' } };
-  
+
   // Store shadow root globally for the panel script
   window.__careervine_shadow_root = shadowRoot;
-  
+
   // Import the panel script as a module in the content script context
-  // This keeps it in the same isolated world where we have access to shadowRoot
   import(chrome.runtime.getURL('src/content/panel-app/panel.js'))
     .catch(error => {
       console.error('CareerVine: Failed to load panel script:', error);
@@ -91,6 +90,42 @@ function togglePanel() {
   }
 }
 
+// Dispatch progress updates to the React panel
+function dispatchProgress(stage, percent) {
+  window.dispatchEvent(new CustomEvent('careervine:progress', {
+    detail: { stage, percent }
+  }));
+}
+
+// Shared: trigger scrape and notify the React panel of progress
+// calledFromNav: true when triggered by SPA navigation (needs delay for LinkedIn to load)
+function analyzeCurrentProfile(profileId, calledFromNav = false) {
+  isAnalyzing = true;
+  window.dispatchEvent(new CustomEvent('careervine:analyzing', { detail: { analyzing: true } }));
+  dispatchProgress('starting', 0);
+
+  const doScrape = () => {
+    scrapeCurrentProfile().then((result) => {
+      isAnalyzing = false;
+      if (result?.scraped) {
+        lastAnalyzedProfileId = profileId;
+      }
+      dispatchProgress('done', 100);
+      window.dispatchEvent(new CustomEvent('careervine:analyzing', { detail: { analyzing: false } }));
+    }).catch(() => {
+      isAnalyzing = false;
+      dispatchProgress('error', 0);
+      window.dispatchEvent(new CustomEvent('careervine:analyzing', { detail: { analyzing: false } }));
+    });
+  };
+
+  if (calledFromNav) {
+    setTimeout(doScrape, 1000);
+  } else {
+    doScrape();
+  }
+}
+
 function openPanel() {
   createPanel();
   const host = document.getElementById('careervine-panel-host');
@@ -99,28 +134,16 @@ function openPanel() {
     if (panel) {
       panel.classList.add('open');
       isPanelOpen = true;
-      
+
       // Check if we need to analyze a new profile (user clicked FAB)
       const currentProfileId = extractProfileId(window.location.href);
       if (currentProfileId && currentProfileId !== lastAnalyzedProfileId) {
-        // Set analyzing state and notify React panel
-        isAnalyzing = true;
-        const event = new CustomEvent('careervine:analyzing', { detail: { analyzing: true } });
-        window.dispatchEvent(event);
-
-        // Start analysis (user-initiated via FAB click)
-        scrapeCurrentProfile().then((result) => {
-          isAnalyzing = false;
-          // Only mark as analyzed if the scrape actually ran
-          if (result?.scraped) {
-            lastAnalyzedProfileId = currentProfileId;
+        // Check auto-scrape setting
+        chrome.storage.local.get(['autoScrapeEnabled'], (result) => {
+          if (result.autoScrapeEnabled) {
+            analyzeCurrentProfile(currentProfileId);
           }
-          const doneEvent = new CustomEvent('careervine:analyzing', { detail: { analyzing: false } });
-          window.dispatchEvent(doneEvent);
-        }).catch(() => {
-          isAnalyzing = false;
-          const doneEvent = new CustomEvent('careervine:analyzing', { detail: { analyzing: false } });
-          window.dispatchEvent(doneEvent);
+          // If auto-scrape is off, React panel will show the "Analyze" button
         });
       }
     }
@@ -128,14 +151,12 @@ function openPanel() {
 }
 
 function closePanel() {
-  console.log('CareerVine: closePanel called');
   const host = document.getElementById('careervine-panel-host');
   if (host && host.shadowRoot) {
     const panel = host.shadowRoot.getElementById('careervine-panel');
     if (panel) {
       panel.classList.remove('open');
       isPanelOpen = false;
-      console.log('CareerVine: panel closed');
     }
   }
 }
@@ -149,12 +170,11 @@ function isExtensionContextValid() {
   }
 }
 
-// Scrape the current LinkedIn profile (only triggered by user action)
+// Scrape the current LinkedIn profile (only triggered by user action or auto-scrape)
 // Returns { scraped: true } on success, { scraped: false } otherwise
 async function scrapeCurrentProfile() {
   if (!window.location.href.includes('linkedin.com/in/')) return { scraped: false };
   if (!isExtensionContextValid()) {
-    console.log('CareerVine: Extension context invalidated, skipping scrape');
     return { scraped: false };
   }
 
@@ -168,17 +188,19 @@ async function scrapeCurrentProfile() {
   }
 
   try {
+    dispatchProgress('authenticating', 5);
     const response = await chrome.runtime.sendMessage({ action: 'checkAuth' });
     if (!response?.authenticated) {
-      console.log('CareerVine: Not authenticated, skipping scrape');
       return { scraped: false };
     }
 
+    dispatchProgress('scrolling', 15);
     const scraper = new window.LinkedInScraper();
     const cleanedText = await scraper.scrapeAndClean();
 
     if (!isExtensionContextValid()) return { scraped: false };
 
+    dispatchProgress('parsing', 60);
     await chrome.runtime.sendMessage({
       action: 'parseProfile',
       data: {
@@ -187,7 +209,7 @@ async function scrapeCurrentProfile() {
       }
     });
 
-    // Only set timestamp after successful scrape
+    dispatchProgress('done', 100);
     lastScrapeTimestamp = Date.now();
     return { scraped: true };
   } catch (error) {
@@ -208,22 +230,42 @@ function extractProfileId(url) {
   return match ? match[1] : null;
 }
 
-// Detect navigation to reset state (no auto-scraping — user must click FAB)
+// Handle navigation to a new profile
 function handleProfileNavigation() {
   const currentProfileId = extractProfileId(window.location.href);
 
   if (currentProfileId && currentProfileId !== lastProfileId) {
     lastProfileId = currentProfileId;
-    // Close panel when navigating to new profile so user can re-open to scrape
-    if (isPanelOpen) {
-      closePanel();
-    }
     // Reset all analysis/throttle state for new profile
     isAnalyzing = false;
     lastAnalyzedProfileId = null;
     lastScrapeTimestamp = 0;
+
+    if (isPanelOpen) {
+      // Clear stale data
+      chrome.storage.local.remove(['latestProfile']);
+      // Notify panel that we're on a new profile
+      window.dispatchEvent(new CustomEvent('careervine:newprofile'));
+
+      // Check auto-scrape setting
+      chrome.storage.local.get(['autoScrapeEnabled'], (result) => {
+        if (result.autoScrapeEnabled) {
+          analyzeCurrentProfile(currentProfileId, true);
+        }
+        // If auto-scrape is off, React panel will show the "Analyze" button
+      });
+    }
   }
 }
+
+// Listen for manual scrape requests from the React panel
+window.addEventListener('careervine:request-scrape', () => {
+  const currentProfileId = extractProfileId(window.location.href);
+  if (currentProfileId && !isAnalyzing) {
+    lastAnalyzedProfileId = null; // Allow re-scrape
+    analyzeCurrentProfile(currentProfileId);
+  }
+});
 
 // Detect SPA navigation via History API hooks and popstate
 window.addEventListener('popstate', handleProfileNavigation);

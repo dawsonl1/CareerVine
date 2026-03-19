@@ -1648,3 +1648,115 @@
   background: #f8f9fa;
   border-color: #d0d0d0;
 }
+
+/* ---- Progress Bar ---- */
+.cv-progress-bar-container {
+  width: 80%;
+  max-width: 240px;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.cv-progress-bar {
+  height: 100%;
+  background: #2d6a30;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+  min-width: 4px;
+}
+
+/* ---- Analyze Button ---- */
+.cv-analyze-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 24px;
+  margin-top: 16px;
+  background: #2d6a30;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.cv-analyze-btn:hover {
+  background: #245524;
+}
+
+/* ---- Re-analyze Button ---- */
+.cv-reanalyze-btn {
+  padding: 6px 14px;
+  background: transparent;
+  color: #2d6a30;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-reanalyze-btn:hover {
+  background: #f0fdf4;
+  border-color: #2d6a30;
+}
+
+/* ---- Auto-scrape Toggle ---- */
+.cv-autoscrape-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #fafafa;
+}
+
+.cv-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #6b7280;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cv-toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: #d1d5db;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.cv-toggle-switch.cv-toggle-on {
+  background: #2d6a30;
+}
+
+.cv-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+
+.cv-toggle-switch.cv-toggle-on .cv-toggle-knob {
+  transform: translateX(16px);
+}

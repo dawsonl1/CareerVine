@@ -4,13 +4,17 @@
  */
 
 // Load environment configuration
+// Change this to 'production' before building for Chrome Web Store
+const ENV = 'development';
+
 let config = {};
 
 // Initialize configuration
 async function initializeConfig() {
   try {
-    const response = await fetch(chrome.runtime.getURL('env/production.json'));
+    const response = await fetch(chrome.runtime.getURL(`env/${ENV}.json`));
     config = await response.json();
+    console.log(`CareerVine: Loaded ${config.environment} config -> ${config.apiBaseUrl}`);
   } catch (error) {
     console.error('Failed to load config:', error);
     config = {
