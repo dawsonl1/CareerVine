@@ -125,13 +125,10 @@ async function tryLoadFromCache(profileId) {
 // ---- DB lookup (no scraping, no page interaction) ----
 
 async function checkProfileInDB(profileId) {
-  if (lastCheckedProfileId === profileId) return; // Already checked this one
+  if (lastCheckedProfileId === profileId) return;
   if (!isExtensionContextValid()) return;
 
   try {
-    const authResponse = await chrome.runtime.sendMessage({ action: 'checkAuth' });
-    if (!authResponse?.authenticated) return;
-
     const linkedinUrl = `https://www.linkedin.com/in/${profileId}/`;
     const response = await chrome.runtime.sendMessage({
       action: 'checkDuplicate',
@@ -141,8 +138,7 @@ async function checkProfileInDB(profileId) {
     lastCheckedProfileId = profileId;
 
     if (response?.duplicates?.length > 0) {
-      const match = response.duplicates[0];
-      emit('dbmatch', { contact: match, profileId });
+      emit('dbmatch', { contact: response.duplicates[0], profileId });
     } else {
       emit('dbnomatch', { profileId });
     }

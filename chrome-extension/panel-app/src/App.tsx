@@ -765,28 +765,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Check if the loaded profile already exists in the user's contacts
-  const checkForExistingContact = async (profileData: ProfileData) => {
-    try {
-      const response = await chrome?.runtime?.sendMessage?.({
-        action: "checkDuplicate",
-        data: {
-          linkedinUrl: profileData.linkedin_url,
-          name: profileData.name || `${profileData.first_name} ${profileData.last_name}`.trim()
-        }
-      });
-      if (response?.duplicates?.length > 0) {
-        const match = response.duplicates[0];
-        setExistingContact(match);
-        setSavedContactId(match.id);
-      } else {
-        setExistingContact(null);
-      }
-    } catch {
-      setExistingContact(null);
-    }
-  };
-
   useEffect(() => {
     // Check authentication first
     checkAuthentication().then((authenticated) => {
@@ -794,6 +772,20 @@ const App: React.FC = () => {
         loadLatestProfile();
       }
     });
+
+    // Shared state reset — prevents copy-paste drift between handlers
+    const resetState = (onProfile: boolean) => {
+      setProfile(null);
+      setLoading(false);
+      setAnalyzing(false);
+      setOnProfilePage(onProfile);
+      setSavedContactId(null);
+      setExistingContact(null);
+      setStatusText(null);
+      setErrorText(null);
+      setProgressStage(null);
+      setProgressPercent(0);
+    };
 
     const handleStorageChange = (
       changes: Record<string, chrome.storage.StorageChange>,
@@ -804,13 +796,11 @@ const App: React.FC = () => {
         if (newProfile) {
           setProfile(newProfile);
           setLoading(false);
-          // Check if this contact already exists in the database
-          checkForExistingContact(newProfile);
+          // DB match check is handled by content.js checkProfileInDB — no duplicate call needed
         }
       }
     };
 
-    // Listen for analyzing events from content script
     const handleAnalyzing = (event: CustomEvent) => {
       setAnalyzing(event.detail.analyzing);
       if (event.detail.analyzing) {
@@ -821,77 +811,47 @@ const App: React.FC = () => {
         setProgressStage('starting');
         setProgressPercent(0);
       } else {
-        // Profile data arrives via the storage onChanged listener — no need to
-        // call loadLatestProfile() here, which would double-process the profile.
-        // Just ensure loading is cleared if storage change hasn't fired yet.
         setTimeout(() => {
           setLoading((prev) => prev ? false : prev);
         }, 500);
       }
     };
 
-    // Listen for progress updates
     const handleProgress = (event: CustomEvent) => {
       setProgressStage(event.detail.stage);
       setProgressPercent(event.detail.percent);
     };
 
-    // Listen for new profile navigation — clear old data, show analyze button
-    const handleNewProfile = () => {
-      setProfile(null);
-      setLoading(false);
-      setAnalyzing(false);
-      setOnProfilePage(true);
-      setSavedContactId(null);
-      setExistingContact(null);
-      setStatusText(null);
-      setErrorText(null);
-      setProgressStage(null);
-      setProgressPercent(0);
-    };
+    const handleNewProfile = () => resetState(true);
+    const handleLeftProfile = () => resetState(false);
 
-    // Listen for cache hit — profile loaded from cache, show it
     const handleCacheHit = (event: CustomEvent) => {
-      setOnProfilePage(true);
-      setSavedContactId(null);
-      setExistingContact(null);
-      // Load the cached profile directly from the event — don't rely on storage.onChanged
+      resetState(true);
       const cachedProfile = enrichProfile(event.detail?.profileData ?? null);
       if (cachedProfile) {
         setProfile(cachedProfile);
         setLoading(false);
-        checkForExistingContact(cachedProfile);
+        // DB match check handled by content.js checkProfileInDB — no duplicate call
       } else {
         setLoading(true);
       }
     };
 
-    // Listen for leaving a profile page (timeline, search, etc.)
-    const handleLeftProfile = () => {
-      setProfile(null);
-      setLoading(false);
-      setAnalyzing(false);
-      setOnProfilePage(false);
-      setSavedContactId(null);
-      setExistingContact(null);
-      setStatusText(null);
-      setErrorText(null);
-      setProgressStage(null);
-      setProgressPercent(0);
-    };
-
-    // DB match — contact already exists in CareerVine (no scraping needed)
+    // DB match — contact already exists in CareerVine
     const handleDBMatch = (event: CustomEvent) => {
       const contact = event.detail?.contact;
       if (contact) {
         setExistingContact(contact);
         setSavedContactId(contact.id);
         setOnProfilePage(true);
+        setStatusText(null);
+        setErrorText(null);
       }
     };
 
-    // DB no match — new contact, show analyze button
+    // DB no match — new contact
     const handleDBNoMatch = () => {
+      setExistingContact(null);
       setOnProfilePage(true);
     };
 
