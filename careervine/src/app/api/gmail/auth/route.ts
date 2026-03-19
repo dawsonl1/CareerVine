@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { getAuthUrl } from "@/lib/gmail";
 
 /**
  * GET /api/gmail/auth?scopes=calendar
  * Generates a Google OAuth consent URL and redirects the user to it.
- * The user's ID is passed through the state parameter for CSRF-like validation.
+ * Uses a random nonce + user ID + timestamp for CSRF protection.
  * Optional query param: scopes=calendar to include Calendar scopes
  */
 export async function GET(request: NextRequest) {
@@ -20,7 +21,15 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const includeCalendar = searchParams.get("scopes") === "calendar";
 
-    const url = getAuthUrl(user.id, includeCalendar);
+    // Build CSRF-safe state: random nonce + user ID + timestamp
+    const nonce = crypto.randomBytes(16).toString("hex");
+    const state = Buffer.from(JSON.stringify({
+      userId: user.id,
+      nonce,
+      ts: Date.now()
+    })).toString("base64url");
+
+    const url = getAuthUrl(state, includeCalendar);
     return NextResponse.redirect(url);
   } catch (error) {
     console.error("Gmail auth error:", error);

@@ -35,9 +35,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Validate that the state matches the current user
-    if (state !== user.id) {
+    // Validate CSRF state — decode and check user ID + freshness
+    let stateData: { userId?: string; ts?: number };
+    try {
+      stateData = JSON.parse(Buffer.from(state, "base64url").toString());
+    } catch {
+      return NextResponse.json({ error: "Invalid state" }, { status: 403 });
+    }
+
+    if (stateData.userId !== user.id) {
       return NextResponse.json({ error: "State mismatch" }, { status: 403 });
+    }
+
+    // Reject stale OAuth flows (> 10 minutes old)
+    if (stateData.ts && Date.now() - stateData.ts > 10 * 60 * 1000) {
+      return NextResponse.json({ error: "OAuth flow expired" }, { status: 403 });
     }
 
     // Exchange code for tokens
