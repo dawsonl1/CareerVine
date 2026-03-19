@@ -1192,10 +1192,10 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="cv-main">
         {/* Existing contact notes — show stored bio instead of regenerating */}
-        {existingContact?.bio && (
+        {existingContact?.notes && (
           <section className="cv-existing-notes">
             <p className="cv-existing-notes-label">Existing notes</p>
-            <p className="cv-existing-notes-text">{existingContact.bio}</p>
+            <p className="cv-existing-notes-text">{existingContact.notes}</p>
           </section>
         )}
 
