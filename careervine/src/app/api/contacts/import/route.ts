@@ -123,18 +123,37 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
 }
 
 async function updateExistingContact(supabase: any, contactId: number, profileData: any, userId: string) {
-  
-  // Update main contact info
+
   const updateData: any = {
     updated_at: new Date().toISOString()
   };
 
-  if (profileData.headline) {
-    updateData.industry = profileData.headline;
+  if (profileData.name) updateData.name = profileData.name;
+  if (profileData.industry) updateData.industry = profileData.industry;
+  if (profileData.linkedin_url || profileData.profileUrl) {
+    updateData.linkedin_url = profileData.linkedin_url || profileData.profileUrl;
+  }
+  if (profileData.contact_status) updateData.contact_status = profileData.contact_status;
+  if (profileData.expected_graduation) updateData.expected_graduation = profileData.expected_graduation;
+
+  // Update notes from AI-generated notes if provided
+  if (profileData.generated_notes || profileData.notes) {
+    updateData.notes = profileData.generated_notes || profileData.notes;
   }
 
-  if (profileData.location) {
-    updateData.notes = profileData.location;
+  // Convert follow_up_frequency string to days
+  const freqDays = parseFollowUpFrequency(profileData.follow_up_frequency);
+  if (freqDays !== null) updateData.follow_up_frequency_days = freqDays;
+
+  // Update location
+  if (profileData.location && typeof profileData.location === 'object') {
+    const { city, state, country } = profileData.location;
+    if (city || state || country) {
+      const location = await findOrCreateLocation(supabase, {
+        city: city || null, state: state || null, country: country || 'United States'
+      });
+      updateData.location_id = location.id;
+    }
   }
 
   const { data: contact } = await supabase
@@ -145,14 +164,21 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
     .select()
     .single();
 
-  // Add new experience if available
+  // Clear existing experience/education before re-adding to prevent duplicates
   if (profileData.experience && profileData.experience.length > 0) {
+    await supabase.from('contact_companies').delete().eq('contact_id', contactId);
     await addExperienceToContact(supabase, contactId, profileData.experience, userId);
   }
 
-  // Add new education if available
   if (profileData.education && profileData.education.length > 0) {
+    await supabase.from('contact_schools').delete().eq('contact_id', contactId);
     await addEducationToContact(supabase, contactId, profileData.education, userId);
+  }
+
+  // Update tags
+  const tags = profileData.suggested_tags || profileData.tags;
+  if (tags && tags.length > 0) {
+    await addTagsToContact(supabase, contactId, tags, userId);
   }
 
   return contact;
@@ -160,11 +186,10 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
 
 async function createNewContact(supabase: any, profileData: any, userId: string) {
   
-  // Use AI-generated notes if provided, otherwise build from headline/about
-  let notes = profileData.notes || null;
+  // Use AI-generated notes if provided
+  let notes = profileData.generated_notes || profileData.notes || null;
   if (!notes) {
-    const noteParts = [`Imported from LinkedIn on ${new Date().toLocaleDateString()}`];
-    notes = noteParts.join('');
+    notes = `Imported from LinkedIn on ${new Date().toLocaleDateString()}`;
   }
 
   // Handle normalized location
@@ -191,7 +216,7 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
     notes: notes,
     contact_status: profileData.contact_status || 'professional',
     expected_graduation: profileData.expected_graduation || null,
-    follow_up_frequency_days: profileData.follow_up_frequency_days || null
+    follow_up_frequency_days: parseFollowUpFrequency(profileData.follow_up_frequency) ?? (profileData.follow_up_frequency_days || null)
   };
 
   const { data: contact } = await supabase
@@ -222,15 +247,28 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
   }
 
   // Add tags
-  if (profileData.tags && profileData.tags.length > 0) {
-    await addTagsToContact(supabase, contact.id, profileData.tags, userId);
+  const tags = profileData.suggested_tags || profileData.tags;
+  if (tags && tags.length > 0) {
+    await addTagsToContact(supabase, contact.id, tags, userId);
   }
 
   return contact;
 }
 
+// Convert follow-up frequency string to days
+function parseFollowUpFrequency(freq: string | null | undefined): number | null {
+  if (!freq) return null;
+  const map: Record<string, number> = {
+    '2 weeks': 14,
+    '2 months': 60,
+    '3 months': 90,
+    '6 months': 180,
+    '1 year': 365,
+  };
+  return map[freq] ?? null;
+}
+
 async function addExperienceToContact(supabase: any, contactId: number, experience: any[], userId: string) {
-  
   for (const exp of experience) {
     if (!exp.company) continue;
 
@@ -253,22 +291,31 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
       company = newCompany;
     }
 
-    // Add contact-company relationship with timeline
-    await supabase
+    // Skip if this exact relationship already exists
+    const { data: existingRel } = await supabase
       .from('contact_companies')
-      .insert({
-        contact_id: contactId,
-        company_id: company.id,
-        title: exp.title || null,
-        start_month: exp.start_month || null,
-        end_month: exp.is_current ? 'Present' : (exp.end_month || null),
-        is_current: exp.is_current || false
-      });
+      .select('id')
+      .eq('contact_id', contactId)
+      .eq('company_id', company.id)
+      .eq('title', exp.title || '')
+      .maybeSingle();
+
+    if (!existingRel) {
+      await supabase
+        .from('contact_companies')
+        .insert({
+          contact_id: contactId,
+          company_id: company.id,
+          title: exp.title || null,
+          start_month: exp.start_month || null,
+          end_month: exp.is_current ? 'Present' : (exp.end_month || null),
+          is_current: exp.is_current || false
+        });
+    }
   }
 }
 
 async function addEducationToContact(supabase: any, contactId: number, education: any[], userId: string) {
-  
   for (const edu of education) {
     if (!edu.school) continue;
 
@@ -291,15 +338,24 @@ async function addEducationToContact(supabase: any, contactId: number, education
       school = newSchool;
     }
 
-    // Add contact-school relationship
-    await supabase
+    // Skip if this exact relationship already exists
+    const { data: existingRel } = await supabase
       .from('contact_schools')
-      .insert({
-        contact_id: contactId,
-        school_id: school.id,
-        degree: edu.degree || null,
-        field_of_study: edu.field_of_study || null
-      });
+      .select('id')
+      .eq('contact_id', contactId)
+      .eq('school_id', school.id)
+      .maybeSingle();
+
+    if (!existingRel) {
+      await supabase
+        .from('contact_schools')
+        .insert({
+          contact_id: contactId,
+          school_id: school.id,
+          degree: edu.degree || null,
+          field_of_study: edu.field_of_study || null
+        });
+    }
   }
 }
 

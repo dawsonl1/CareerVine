@@ -852,6 +852,7 @@ const App: React.FC = () => {
     // DB no match — new contact
     const handleDBNoMatch = () => {
       setExistingContact(null);
+      setSavedContactId(null);
       setOnProfilePage(true);
     };
 
