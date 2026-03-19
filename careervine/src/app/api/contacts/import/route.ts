@@ -6,22 +6,56 @@ import { createContact, getContacts } from '@/lib/queries';
  * API endpoint for importing contacts from Chrome extension
  * Handles duplicate detection and creates contact with related data
  */
+
+// CORS headers for Chrome extension
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+// Handle OPTIONS preflight request
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
+    // Check for Authorization header (from Chrome extension)
+    const authHeader = request.headers.get('authorization');
+    let supabase;
+    
+    if (authHeader?.startsWith('Bearer ')) {
+      // Chrome extension auth - create client with token
+      const token = authHeader.substring(7);
+      const { createClient } = await import('@supabase/supabase-js');
+      const { getSupabaseEnv } = await import('@/lib/supabase/config');
+      const { url, anonKey } = getSupabaseEnv({ server: true });
+      
+      supabase = createClient(url, anonKey, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
+    } else {
+      // Web app auth - use cookies
+      supabase = await createSupabaseServerClient();
+    }
     
     // Get user from session
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (!user || authError) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
     }
 
     const { profileData, sessionId } = await request.json();
 
     // Validate session (additional security check)
     if (!sessionId) {
-      return NextResponse.json({ error: 'Session required' }, { status: 401 });
+      return NextResponse.json({ error: 'Session required' }, { status: 401, headers: corsHeaders });
     }
 
     // Check for duplicates
@@ -48,13 +82,13 @@ export async function POST(request: NextRequest) {
       contact,
       isUpdate,
       duplicates: duplicates.potentialMatches 
-    });
+    }, { headers: corsHeaders });
 
   } catch (error) {
     console.error('Import error:', error);
     return NextResponse.json({ 
       error: error instanceof Error ? error.message : 'Import failed' 
-    }, { status: 500 });
+    }, { status: 500, headers: corsHeaders });
   }
 }
 

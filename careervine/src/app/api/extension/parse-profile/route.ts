@@ -6,21 +6,55 @@ import OpenAI from 'openai';
  * API endpoint for parsing LinkedIn profile text using OpenAI
  * Receives cleaned text from Chrome extension, returns structured JSON
  */
+
+// CORS headers for Chrome extension
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+// Handle OPTIONS preflight request
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
+    // Check for Authorization header (from Chrome extension)
+    const authHeader = request.headers.get('authorization');
+    let supabase;
+    
+    if (authHeader?.startsWith('Bearer ')) {
+      // Chrome extension auth - create client with token
+      const token = authHeader.substring(7);
+      const { createClient } = await import('@supabase/supabase-js');
+      const { getSupabaseEnv } = await import('@/lib/supabase/config');
+      const { url, anonKey } = getSupabaseEnv({ server: true });
+      
+      supabase = createClient(url, anonKey, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
+    } else {
+      // Web app auth - use cookies
+      supabase = await createSupabaseServerClient();
+    }
     
     // Get user from session
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (!user || authError) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
     }
 
     const { cleanedText, profileUrl } = await request.json();
 
     if (!cleanedText) {
-      return NextResponse.json({ error: 'No profile text provided' }, { status: 400 });
+      return NextResponse.json({ error: 'No profile text provided' }, { status: 400, headers: corsHeaders });
     }
 
     // Initialize OpenAI client
@@ -173,7 +207,7 @@ export async function POST(request: NextRequest) {
       console.error('OpenAI returned empty response');
       return NextResponse.json({ 
         error: 'OpenAI returned an empty response. The profile text may be too long or contain unsupported content. Please try again.'
-      }, { status: 500 });
+      }, { status: 500, headers: corsHeaders });
     }
     
     // Parse the JSON response - with json_object mode, response should always be valid JSON
@@ -186,7 +220,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         error: `Failed to parse profile data. Raw response: ${responseText.substring(0, 500)}`,
         rawResponse: responseText 
-      }, { status: 500 });
+      }, { status: 500, headers: corsHeaders });
     }
 
     // Algorithmic processing to derive missing fields
@@ -242,7 +276,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true, 
       profileData 
-    });
+    }, { headers: corsHeaders });
 
   } catch (error) {
     console.error('Parse profile error:', error);
@@ -250,6 +284,6 @@ export async function POST(request: NextRequest) {
     const errorDetails = error instanceof Error && 'response' in error ? JSON.stringify((error as any).response?.data) : '';
     return NextResponse.json({ 
       error: `${errorMessage}${errorDetails ? ` - ${errorDetails}` : ''}` 
-    }, { status: 500 });
+    }, { status: 500, headers: corsHeaders });
   }
 }
