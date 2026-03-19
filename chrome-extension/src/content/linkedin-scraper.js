@@ -25,12 +25,15 @@ class LinkedInScraper {
         const delay = 600 + Math.floor(Math.random() * 1400);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
-      // Final scroll to ensure bottom content is loaded
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      // Final scroll near bottom to trigger remaining lazy content
+      const bottomOffset = 50 + Math.floor(Math.random() * 200);
+      window.scrollTo({ top: document.body.scrollHeight - bottomOffset, behavior: 'smooth' });
       await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-      // Scroll back to top after a pause
-      await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 800));
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // Scroll back near top (not exact zero — humans don't do that)
+      if (Math.random() > 0.3) { // 70% chance to scroll back up
+        await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 800));
+        window.scrollTo({ top: Math.floor(Math.random() * 150), behavior: 'smooth' });
+      }
     }
 
     // Extract all text from main content area
