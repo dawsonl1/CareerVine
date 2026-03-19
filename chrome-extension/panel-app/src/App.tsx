@@ -851,11 +851,19 @@ const App: React.FC = () => {
     };
 
     // Listen for cache hit — profile loaded from cache, show it
-    const handleCacheHit = () => {
+    const handleCacheHit = (event: CustomEvent) => {
       setOnProfilePage(true);
       setSavedContactId(null);
       setExistingContact(null);
-      setLoading(true); // Brief loading while storage.onChanged delivers the data
+      // Load the cached profile directly from the event — don't rely on storage.onChanged
+      const cachedProfile = enrichProfile(event.detail?.profileData ?? null);
+      if (cachedProfile) {
+        setProfile(cachedProfile);
+        setLoading(false);
+        checkForExistingContact(cachedProfile);
+      } else {
+        setLoading(true);
+      }
     };
 
     // Listen for leaving a profile page (timeline, search, etc.)

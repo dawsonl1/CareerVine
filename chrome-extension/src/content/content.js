@@ -134,7 +134,9 @@ async function tryLoadFromCache(profileId) {
   if (cached) {
     await chrome.storage.local.set({ latestProfile: cached });
     lastAnalyzedProfileId = profileId;
-    emit('cachedhit');
+    // Send the cached data directly to the React panel — don't rely on storage.onChanged
+    // which may not fire if the data is identical to what's already in storage
+    emit('cachedhit', { profileData: cached });
     return true;
   }
   return false;
