@@ -5,9 +5,10 @@
 
 // State
 let isPanelOpen = false;
-let currentProfileData = null;
 let isAnalyzing = false;
 let lastAnalyzedProfileId = null;
+let lastScrapeTimestamp = 0;
+const SCRAPE_COOLDOWN_MS = 30000; // 30 seconds minimum between scrapes
 
 // Create and inject the slide-out panel with Shadow DOM isolation
 function createPanel() {
@@ -99,19 +100,25 @@ function openPanel() {
       panel.classList.add('open');
       isPanelOpen = true;
       
-      // Check if we need to analyze a new profile
+      // Check if we need to analyze a new profile (user clicked FAB)
       const currentProfileId = extractProfileId(window.location.href);
       if (currentProfileId && currentProfileId !== lastAnalyzedProfileId) {
         // Set analyzing state and notify React panel
         isAnalyzing = true;
         const event = new CustomEvent('careervine:analyzing', { detail: { analyzing: true } });
         window.dispatchEvent(event);
-        
-        // Start analysis
-        autoScrapeIfProfile().then(() => {
+
+        // Start analysis (user-initiated via FAB click)
+        scrapeCurrentProfile().then((result) => {
           isAnalyzing = false;
-          lastAnalyzedProfileId = currentProfileId;
-          // Notify React panel that analysis is complete
+          // Only mark as analyzed if the scrape actually ran
+          if (result?.scraped) {
+            lastAnalyzedProfileId = currentProfileId;
+          }
+          const doneEvent = new CustomEvent('careervine:analyzing', { detail: { analyzing: false } });
+          window.dispatchEvent(doneEvent);
+        }).catch(() => {
+          isAnalyzing = false;
           const doneEvent = new CustomEvent('careervine:analyzing', { detail: { analyzing: false } });
           window.dispatchEvent(doneEvent);
         });
@@ -133,42 +140,6 @@ function closePanel() {
   }
 }
 
-async function checkAuthAndShowContent() {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
-function showLoginUI() {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
-async function handleLogin(e) {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
-function showScrapeUI(user) {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
-async function handleLogout() {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
-async function handleScrape() {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
-function showContactForm(profileData) {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
-function resetForm() {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
-function handleSubmitContact(e) {
-  // No longer needed: React panel handles auth/data loading internally
-}
-
 // Check if extension context is still valid
 function isExtensionContextValid() {
   try {
@@ -178,27 +149,36 @@ function isExtensionContextValid() {
   }
 }
 
-// Auto-scrape on LinkedIn profile visits
-async function autoScrapeIfProfile() {
-  if (!window.location.href.includes('linkedin.com/in/')) return;
+// Scrape the current LinkedIn profile (only triggered by user action)
+// Returns { scraped: true } on success, { scraped: false } otherwise
+async function scrapeCurrentProfile() {
+  if (!window.location.href.includes('linkedin.com/in/')) return { scraped: false };
   if (!isExtensionContextValid()) {
-    console.log('CareerVine: Extension context invalidated, skipping auto-scrape');
-    return;
+    console.log('CareerVine: Extension context invalidated, skipping scrape');
+    return { scraped: false };
   }
-  
+
+  // Throttle: enforce minimum cooldown between scrapes
+  const now = Date.now();
+  const timeSinceLastScrape = now - lastScrapeTimestamp;
+  if (timeSinceLastScrape < SCRAPE_COOLDOWN_MS) {
+    const waitSeconds = Math.ceil((SCRAPE_COOLDOWN_MS - timeSinceLastScrape) / 1000);
+    console.log(`CareerVine: Please wait ${waitSeconds}s before scraping again`);
+    return { scraped: false };
+  }
+
   try {
     const response = await chrome.runtime.sendMessage({ action: 'checkAuth' });
     if (!response?.authenticated) {
-      console.log('CareerVine: Not authenticated, skipping auto-scrape');
-      return;
+      console.log('CareerVine: Not authenticated, skipping scrape');
+      return { scraped: false };
     }
-    
-    // Already authenticated, scrape immediately
+
     const scraper = new window.LinkedInScraper();
     const cleanedText = await scraper.scrapeAndClean();
-    
-    if (!isExtensionContextValid()) return;
-    
+
+    if (!isExtensionContextValid()) return { scraped: false };
+
     await chrome.runtime.sendMessage({
       action: 'parseProfile',
       data: {
@@ -206,121 +186,76 @@ async function autoScrapeIfProfile() {
         profileUrl: window.location.href
       }
     });
+
+    // Only set timestamp after successful scrape
+    lastScrapeTimestamp = Date.now();
+    return { scraped: true };
   } catch (error) {
     if (error.message?.includes('Extension context invalidated')) {
       console.log('CareerVine: Extension was reloaded, please refresh the page');
     } else {
-      console.error('CareerVine: Auto-scrape failed:', error);
+      console.error('CareerVine: Scrape failed:', error);
     }
+    return { scraped: false };
   }
 }
 
 // Listen for navigation changes (SPA)
-let lastUrl = window.location.href;
-let lastProfileId = extractProfileId(lastUrl);
+let lastProfileId = extractProfileId(window.location.href);
 
 function extractProfileId(url) {
   const match = url.match(/linkedin\.com\/in\/([^/?]+)/);
   return match ? match[1] : null;
 }
 
-// Use multiple methods to detect navigation in LinkedIn SPA
-// Method 1: MutationObserver for DOM changes
-new MutationObserver(() => {
-  const currentUrl = window.location.href;
-  const currentProfileId = extractProfileId(currentUrl);
-  
-  if (currentUrl !== lastUrl) {
-    lastUrl = currentUrl;
-    // Only rescrape if we're on a different profile
-    if (currentProfileId && currentProfileId !== lastProfileId) {
-      lastProfileId = currentProfileId;
-      console.log('CareerVine: New profile detected via MutationObserver:', currentProfileId);
-      // Close panel when navigating to new profile
-      if (isPanelOpen) {
-        closePanel();
-      }
-      // Reset analysis state for new profile
-      isAnalyzing = false;
-      lastAnalyzedProfileId = null;
-      autoScrapeIfProfile();
-    }
-  }
-}).observe(document.body, { childList: true, subtree: true });
-
-// Method 2:// Listen for popstate (back/forward navigation)
-window.addEventListener('popstate', () => {
+// Detect navigation to reset state (no auto-scraping — user must click FAB)
+function handleProfileNavigation() {
   const currentProfileId = extractProfileId(window.location.href);
+
   if (currentProfileId && currentProfileId !== lastProfileId) {
     lastProfileId = currentProfileId;
-    console.log('CareerVine: New profile detected via popstate:', currentProfileId);
-    // Close panel when navigating to new profile
+    // Close panel when navigating to new profile so user can re-open to scrape
     if (isPanelOpen) {
       closePanel();
     }
-    // Reset analysis state for new profile
+    // Reset all analysis/throttle state for new profile
     isAnalyzing = false;
     lastAnalyzedProfileId = null;
-    autoScrapeIfProfile();
-  }
-});
-
-// Method 3: Intercept pushState/replaceState for programmatic navigation
-const originalPushState = history.pushState;
-const originalReplaceState = history.replaceState;
-
-history.pushState = function(...args) {
-  originalPushState.apply(this, args);
-  handleHistoryChange();
-};
-
-history.replaceState = function(...args) {
-  originalReplaceState.apply(this, args);
-  handleHistoryChange();
-};
-
-function handleHistoryChange() {
-  const currentProfileId = extractProfileId(window.location.href);
-  if (currentProfileId && currentProfileId !== lastProfileId) {
-    lastProfileId = currentProfileId;
-    console.log('CareerVine: New profile detected via history change:', currentProfileId);
-    // Close panel when navigating to new profile
-    if (isPanelOpen) {
-      closePanel();
-    }
-    // Reset analysis state for new profile
-    isAnalyzing = false;
-    lastAnalyzedProfileId = null;
-    // Small delay to let LinkedIn load the new profile content
-    setTimeout(autoScrapeIfProfile, 500);
+    lastScrapeTimestamp = 0;
   }
 }
 
-// Add close panel listener at initialization (before panel is created)
-window.addEventListener('careervine:close-panel', closePanel);
+// Detect SPA navigation via History API hooks and popstate
+window.addEventListener('popstate', handleProfileNavigation);
 
-// Initialize when DOM is ready
+// Guard against double-initialization if content script runs twice
+if (!window.__careervine_initialized) {
+  window.__careervine_initialized = true;
+
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+
+  history.pushState = function(...args) {
+    originalPushState.apply(this, args);
+    handleProfileNavigation();
+  };
+
+  history.replaceState = function(...args) {
+    originalReplaceState.apply(this, args);
+    handleProfileNavigation();
+  };
+}
+
+// Initialize when DOM is ready (no auto-scraping — user clicks FAB to scrape)
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    createFAB();
-    // Reset state on page reload
-    isAnalyzing = false;
-    lastAnalyzedProfileId = null;
-    autoScrapeIfProfile();
-  });
+  document.addEventListener('DOMContentLoaded', createFAB);
 } else {
   createFAB();
-  // Reset state on page reload
-  isAnalyzing = false;
-  lastAnalyzedProfileId = null;
-  autoScrapeIfProfile();
 }
 
-// Also expose for manual triggering
+// Expose for manual triggering
 window.CareerVinePanel = {
   open: openPanel,
   close: closePanel,
   toggle: togglePanel
 };
-
-console.log('CareerVine content script loaded');

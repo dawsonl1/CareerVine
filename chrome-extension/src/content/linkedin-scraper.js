@@ -5,10 +5,26 @@
 
 class LinkedInScraper {
   async scrapeAndClean() {
-    // Scroll to load all lazy-loaded content
-    for (let i = 0; i < 5; i++) {
-      window.scrollTo(0, document.body.scrollHeight);
-      await new Promise(resolve => setTimeout(resolve, 300));
+    // Scroll to load lazy-loaded content with human-like behavior
+    // First check if content is already loaded by looking for key sections
+    const hasExperience = !!document.getElementById('experience');
+    const hasEducation = !!document.getElementById('education');
+
+    // Only scroll if sections appear to be missing (lazy-loaded)
+    if (!hasExperience || !hasEducation) {
+      const scrollSteps = 3 + Math.floor(Math.random() * 3); // 3-5 scrolls
+      for (let i = 0; i < scrollSteps; i++) {
+        // Re-read height each iteration since lazy-loading increases it
+        const currentHeight = document.body.scrollHeight;
+        const targetY = (currentHeight * (i + 1)) / scrollSteps;
+        window.scrollTo({ top: targetY, behavior: 'smooth' });
+        // Random delay between 500-1500ms to mimic human scrolling
+        const delay = 500 + Math.floor(Math.random() * 1000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      // Scroll back to top like a human would after reviewing
+      await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     // Extract all text from main content area
@@ -61,16 +77,6 @@ class LinkedInScraper {
       cleanedLines = cleanedLines.concat(relevantLines.slice(sections.header.start, sections.header.end));
     }
 
-    // If there is a Highlights section, get rid of all of those items
-    if (sections.highlights) {
-      // Skip highlights section entirely
-    }
-
-    // If there is an activity section, get rid of all of the activity section's items
-    if (sections.activity) {
-      // Skip activity section entirely
-    }
-
     // Keep the About section (don't try to parse it)
     if (sections.about) {
       cleanedLines = cleanedLines.concat(relevantLines.slice(sections.about.start, sections.about.end));
@@ -85,12 +91,6 @@ class LinkedInScraper {
     if (sections.education) {
       cleanedLines = cleanedLines.concat(relevantLines.slice(sections.education.start, sections.education.end));
     }
-
-    // Extract name for filename
-    const nameLine = lines[0] || '';
-    const nameParts = nameLine.trim().split(' ');
-    const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
-    const cleanName = `${firstName}_${lastName}`.replace(/[^a-zA-Z0-9_]/g, '');
 
     // Apply additional filtering rules to the first section
     if (sections.header) {
@@ -170,7 +170,6 @@ class LinkedInScraper {
     };
 
     let currentSection = 'header';
-    let headerEnd = 0;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -178,7 +177,6 @@ class LinkedInScraper {
       // Look for section headers
       if (line === 'Highlights') {
         sections.header.end = i;
-        headerEnd = i;
         sections.highlights = { start: i, end: i };
         currentSection = 'highlights';
       } else if (line === 'About') {
@@ -186,7 +184,6 @@ class LinkedInScraper {
           sections.highlights.end = i;
         } else {
           sections.header.end = i;
-          headerEnd = i;
         }
         sections.about = { start: i, end: i };
         currentSection = 'about';
@@ -197,7 +194,6 @@ class LinkedInScraper {
           sections.highlights.end = i;
         } else {
           sections.header.end = i;
-          headerEnd = i;
         }
         sections.services = { start: i, end: i };
         currentSection = 'services';
@@ -210,7 +206,6 @@ class LinkedInScraper {
           sections.highlights.end = i;
         } else {
           sections.header.end = i;
-          headerEnd = i;
         }
         sections.featured = { start: i, end: i };
         currentSection = 'featured';
@@ -225,7 +220,6 @@ class LinkedInScraper {
           sections.highlights.end = i;
         } else {
           sections.header.end = i;
-          headerEnd = i;
         }
         sections.activity = { start: i, end: i };
         currentSection = 'activity';
@@ -242,7 +236,6 @@ class LinkedInScraper {
           sections.highlights.end = i;
         } else {
           sections.header.end = i;
-          headerEnd = i;
         }
         sections.experience = { start: i, end: i };
         currentSection = 'experience';
@@ -261,7 +254,6 @@ class LinkedInScraper {
           sections.highlights.end = i;
         } else {
           sections.header.end = i;
-          headerEnd = i;
         }
         sections.education = { start: i, end: i };
         currentSection = 'education';
@@ -283,7 +275,6 @@ class LinkedInScraper {
           sections.highlights.end = i;
         } else {
           sections.header.end = i;
-          headerEnd = i;
         }
         break;
       }

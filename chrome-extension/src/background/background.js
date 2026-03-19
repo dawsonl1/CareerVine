@@ -16,9 +16,76 @@ async function initializeConfig() {
     config = {
       apiBaseUrl: 'https://dawsonsprojects.com/api',
       supabaseUrl: 'https://iycrlwqjetkwaauzxrhd.supabase.co',
+      supabaseAnonKey: 'sb_publishable_1WPOaIis1MzOM3SUuW1wMw_l5ZGr3n3',
       environment: 'production'
     };
   }
+}
+
+// Attempt to refresh an expired session using the refresh token
+async function refreshSession(session) {
+  try {
+    const response = await fetch(`${config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': config.supabaseAnonKey
+      },
+      body: JSON.stringify({
+        refresh_token: session.refresh_token
+      })
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const newSession = await response.json();
+
+    // Store only the fields we need
+    const storedSession = {
+      access_token: newSession.access_token,
+      refresh_token: newSession.refresh_token,
+      expires_at: newSession.expires_at,
+      user: {
+        id: newSession.user?.id,
+        email: newSession.user?.email
+      }
+    };
+
+    await chrome.storage.local.set({
+      session: storedSession,
+      isAuthenticated: true
+    });
+
+    return storedSession;
+  } catch (error) {
+    console.error('Token refresh failed:', error);
+    return null;
+  }
+}
+
+// Get a valid session, refreshing if expired
+async function getValidSession() {
+  const { session } = await chrome.storage.local.get(['session']);
+  if (!session) return null;
+
+  // Check if token has expired (with 60s buffer)
+  if (session.expires_at) {
+    const expiresAt = session.expires_at * 1000; // Supabase uses seconds
+    if (Date.now() > expiresAt - 60000) {
+      // Token expired or about to expire — try refresh
+      if (session.refresh_token) {
+        const refreshed = await refreshSession(session);
+        if (refreshed) return refreshed;
+      }
+      // Refresh failed — clear session
+      await chrome.storage.local.remove(['session', 'isAuthenticated']);
+      return null;
+    }
+  }
+
+  return session;
 }
 
 // Handle messages from content scripts and popup
@@ -28,7 +95,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!config.supabaseUrl) {
       await initializeConfig();
     }
-    
+
     try {
       switch (message.action) {
       case 'parseProfile':
@@ -57,16 +124,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ error: error.message });
     }
   })();
-  
+
   // Return true to indicate async response
   return true;
 });
 
 async function handleParseProfile(data, sendResponse) {
   try {
-    // Get stored session
-    const { session } = await chrome.storage.local.get(['session']);
-    
+    const session = await getValidSession();
+
     if (!session) {
       sendResponse({ error: 'Not authenticated. Please sign in first.' });
       return;
@@ -91,10 +157,10 @@ async function handleParseProfile(data, sendResponse) {
     }
 
     const result = await response.json();
-    
+
     // Cache the latest profile for React panel
     await chrome.storage.local.set({ latestProfile: result.profileData });
-    
+
     sendResponse({ success: true, profileData: result.profileData });
 
   } catch (error) {
@@ -105,9 +171,8 @@ async function handleParseProfile(data, sendResponse) {
 
 async function handleImportData(data, sendResponse) {
   try {
-    // Get stored session
-    const { session } = await chrome.storage.local.get(['session']);
-    
+    const session = await getValidSession();
+
     if (!session) {
       sendResponse({ error: 'Not authenticated. Please sign in first.' });
       return;
@@ -121,8 +186,7 @@ async function handleImportData(data, sendResponse) {
         'Authorization': `Bearer ${session.access_token}`
       },
       body: JSON.stringify({
-        profileData: data,
-        sessionId: session.access_token
+        profileData: data
       })
     });
 
@@ -132,6 +196,23 @@ async function handleImportData(data, sendResponse) {
     }
 
     const result = await response.json();
+
+    // Add to recent contacts in storage
+    const { recentContacts = [] } = await chrome.storage.local.get(['recentContacts']);
+    const contactEntry = {
+      name: data.name || `${data.first_name || ''} ${data.last_name || ''}`.trim(),
+      headline: data.industry || '',
+      company: data.current_company || '',
+      school: data.education?.[0]?.school || '',
+      linkedin_url: data.linkedin_url || '',
+      importedAt: new Date().toISOString()
+    };
+    const updatedContacts = [
+      contactEntry,
+      ...recentContacts.filter(c => c.linkedin_url !== contactEntry.linkedin_url)
+    ].slice(0, 10);
+    await chrome.storage.local.set({ recentContacts: updatedContacts });
+
     sendResponse({ success: true, data: result });
 
   } catch (error) {
@@ -147,7 +228,7 @@ async function handleAuthentication(credentials, sendResponse) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': config.supabaseAnonKey || 'your-anon-key-here'
+        'apikey': config.supabaseAnonKey
       },
       body: JSON.stringify({
         email: credentials.email,
@@ -160,15 +241,32 @@ async function handleAuthentication(credentials, sendResponse) {
       throw new Error(errorData.error_description || errorData.error || 'Authentication failed');
     }
 
-    const session = await response.json();
-    
-    // Store session
-    await chrome.storage.local.set({ 
-      session: session,
-      isAuthenticated: true 
+    const fullSession = await response.json();
+
+    // Store only the fields we need
+    const storedSession = {
+      access_token: fullSession.access_token,
+      refresh_token: fullSession.refresh_token,
+      expires_at: fullSession.expires_at,
+      user: {
+        id: fullSession.user?.id,
+        email: fullSession.user?.email
+      }
+    };
+
+    await chrome.storage.local.set({
+      session: storedSession,
+      isAuthenticated: true
     });
 
-    sendResponse({ success: true, session: session });
+    // Return session without refresh_token to the popup
+    sendResponse({
+      success: true,
+      session: {
+        access_token: storedSession.access_token,
+        user: storedSession.user
+      }
+    });
 
   } catch (error) {
     console.error('Authentication error:', error);
@@ -178,28 +276,15 @@ async function handleAuthentication(credentials, sendResponse) {
 
 async function checkAuthentication(sendResponse) {
   try {
-    const { session, isAuthenticated } = await chrome.storage.local.get(['session', 'isAuthenticated']);
-    
-    if (!session || !isAuthenticated) {
+    const session = await getValidSession();
+
+    if (!session) {
       sendResponse({ authenticated: false });
       return;
     }
 
-    // Check if session is still valid
-    const response = await fetch(`${config.supabaseUrl}/auth/v1/user`, {
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'apikey': config.supabaseAnonKey || 'your-anon-key-here'
-      }
-    });
-
-    if (response.ok) {
-      sendResponse({ authenticated: true, user: await response.json() });
-    } else {
-      // Session expired, clear it
-      await chrome.storage.local.remove(['session', 'isAuthenticated']);
-      sendResponse({ authenticated: false });
-    }
+    // Token is valid (checked locally + refreshed if needed)
+    sendResponse({ authenticated: true, user: session.user });
 
   } catch (error) {
     console.error('Auth check error:', error);
@@ -231,10 +316,10 @@ async function handleGetLatestProfile(sendResponse) {
 chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     console.log('CareerVine Extension installed');
-    
+
     // Initialize configuration
     await initializeConfig();
-    
+
     // Set default values
     await chrome.storage.local.set({
       isAuthenticated: false,

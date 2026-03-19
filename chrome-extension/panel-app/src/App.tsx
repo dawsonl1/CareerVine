@@ -128,21 +128,22 @@ const parseAnyDate = (dateStr: string): Date | null => {
     if (mi !== -1) return new Date(parseInt(fullMatch[2]), mi);
   }
   
-  // Try "Month YY" or "Month Y" format with truncated year (e.g., "September 4" -> "September 2024")
+  // Try "Month YY" format with truncated 2-digit year (e.g., "September 24" -> "September 2024")
+  // Only match numbers > 12 to avoid confusing day-of-month (e.g., "September 4") with years
   const truncatedMatch = cleaned.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
   if (truncatedMatch) {
-    const mi = MONTH_FULL.findIndex(m => m.toLowerCase() === truncatedMatch[1].toLowerCase());
-    if (mi === -1) {
+    const num = parseInt(truncatedMatch[2]);
+    // Numbers 1-31 are ambiguous (could be day-of-month), so only treat > 31 as definite years
+    // Numbers 13-31 are also ambiguous but less likely to be years, so skip them too
+    // Only treat 2-digit numbers as truncated years (e.g., 24 -> 2024)
+    if (num >= 20 && num <= 99) {
+      const mi = MONTH_FULL.findIndex(m => m.toLowerCase() === truncatedMatch[1].toLowerCase());
       const miAbbrev = MONTH_ABBREVS.findIndex(m => m.toLowerCase() === truncatedMatch[1].toLowerCase());
-      if (miAbbrev !== -1) {
-        // Assume 2020s decade for truncated years
-        const year = parseInt(truncatedMatch[2]) + 2020;
-        return new Date(year, miAbbrev);
+      const monthIndex = mi !== -1 ? mi : miAbbrev;
+      if (monthIndex !== -1) {
+        const year = num + 2000;
+        return new Date(year, monthIndex);
       }
-    } else {
-      // Assume 2020s decade for truncated years
-      const year = parseInt(truncatedMatch[2]) + 2020;
-      return new Date(year, mi);
     }
   }
   
@@ -341,9 +342,32 @@ const SimpleDropdown: React.FC<{
   className?: string;
 }> = ({ value, onChange, options, placeholder = "Select...", className = "" }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    const shadowRoot = (window as any).__careervine_shadow_root;
+    const root = shadowRoot || document;
+
+    const timer = setTimeout(() => {
+      root.addEventListener("mousedown", handler);
+    }, 10);
+
+    return () => {
+      clearTimeout(timer);
+      root.removeEventListener("mousedown", handler);
+    };
+  }, [isOpen]);
 
   const handleToggle = () => {
-    console.log('SimpleDropdown handleToggle called, current isOpen:', isOpen);
     setIsOpen(!isOpen);
   };
 
@@ -353,7 +377,7 @@ const SimpleDropdown: React.FC<{
   };
 
   return (
-    <div className={`cv-custom-dropdown ${className}`}>
+    <div ref={dropdownRef} className={`cv-custom-dropdown ${className}`}>
       <button
         type="button"
         className={`cv-dropdown-trigger ${!value ? 'cv-dropdown-placeholder' : ''}`}
@@ -657,27 +681,6 @@ const App: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   
-  const getExistingLocations = () => {
-    const locations = new Set<string>();
-    
-    // Add profile location
-    if (profile?.location?.city || profile.location?.state || profile.location?.country) {
-      const profileLoc = [profile.location.city, profile.location.state, profile.location.country]
-        .filter(Boolean)
-        .join(', ');
-      if (profileLoc) locations.add(profileLoc);
-    }
-    
-    // Add experience locations
-    profile?.experience?.forEach(exp => {
-      if (exp.location) locations.add(exp.location);
-    });
-    
-    return Array.from(locations);
-  };
-
-  
-  
   const checkAuthentication = async () => {
     try {
       const response = await chrome?.runtime?.sendMessage?.({
@@ -724,9 +727,7 @@ const App: React.FC = () => {
       });
       const profileData = enrichProfile(response?.profileData ?? null);
       setProfile(profileData);
-      if (profileData) {
-        setLoading(false);
-      }
+      setLoading(false);
     } catch (error) {
       console.error("Failed to load profile", error);
       setErrorText("Unable to load profile data. Visit a LinkedIn profile first.");
@@ -985,8 +986,8 @@ const App: React.FC = () => {
     if (editedProfile) {
       setProfile(editedProfile);
       setIsEditing(false);
-      setStatusText("Changes saved successfully");
-      setTimeout(() => setStatusText(null), 3000);
+      setStatusText("Changes applied — click Save Contact to keep");
+      setTimeout(() => setStatusText(null), 5000);
     }
   };
 

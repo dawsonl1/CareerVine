@@ -48,7 +48,7 @@ class PopupManager {
     if (signupLink) {
       signupLink.addEventListener('click', (e) => {
         e.preventDefault();
-        chrome.tabs.create({ url: 'http://localhost:3000/auth' });
+        chrome.tabs.create({ url: 'https://careervine.app/auth' });
       });
     }
 
@@ -59,7 +59,7 @@ class PopupManager {
     }
 
     // Tab navigation
-    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabBtns = document.querySelectorAll('.nav-tab');
     tabBtns.forEach(btn => {
       btn.addEventListener('click', () => this.switchTab(btn.dataset.tab));
     });
@@ -158,7 +158,7 @@ class PopupManager {
 
   switchTab(tabName) {
     // Update tab buttons
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    document.querySelectorAll('.nav-tab').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === tabName);
     });
     
@@ -285,7 +285,7 @@ class PopupManager {
 
 // Initialize popup when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  new PopupManager();
+  window.popupManager = new PopupManager();
 });
 
 // Handle messages from background script
