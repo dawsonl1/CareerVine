@@ -5,35 +5,28 @@
 
 class LinkedInScraper {
   async scrapeAndClean() {
-    // Scroll to load lazy-loaded content with human-like behavior
-    // First check if content is already loaded by looking for key sections
-    const hasExperience = !!document.getElementById('experience');
-    const hasEducation = !!document.getElementById('education');
-
-    // Only scroll if sections appear to be missing (lazy-loaded)
-    if (!hasExperience || !hasEducation) {
-      const scrollSteps = 3 + Math.floor(Math.random() * 3); // 3-5 scrolls
-      let scrolledTo = 0;
-      for (let i = 0; i < scrollSteps; i++) {
-        const currentHeight = document.body.scrollHeight;
-        // Non-uniform scroll distances — humans scroll unevenly
-        const remaining = currentHeight - scrolledTo;
-        const fraction = 0.3 + Math.random() * 0.5; // scroll 30-80% of remaining
-        scrolledTo = Math.min(scrolledTo + remaining * fraction, currentHeight);
-        window.scrollTo({ top: scrolledTo, behavior: 'smooth' });
-        // Variable delays — humans pause longer at some spots
-        const delay = 600 + Math.floor(Math.random() * 1400);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-      // Final scroll near bottom to trigger remaining lazy content
-      const bottomOffset = 50 + Math.floor(Math.random() * 200);
-      window.scrollTo({ top: document.body.scrollHeight - bottomOffset, behavior: 'smooth' });
-      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-      // Scroll back near top (not exact zero — humans don't do that)
-      if (Math.random() > 0.3) { // 70% chance to scroll back up
-        await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 800));
-        window.scrollTo({ top: Math.floor(Math.random() * 150), behavior: 'smooth' });
-      }
+    // Always scroll to load lazy-loaded content — LinkedIn renders section anchors
+    // in the initial DOM but lazy-loads the actual content within them, so checking
+    // for element existence is unreliable
+    const scrollSteps = 3 + Math.floor(Math.random() * 3); // 3-5 scrolls
+    let scrolledTo = 0;
+    for (let i = 0; i < scrollSteps; i++) {
+      const currentHeight = document.body.scrollHeight;
+      const remaining = currentHeight - scrolledTo;
+      const fraction = 0.3 + Math.random() * 0.5;
+      scrolledTo = Math.min(scrolledTo + remaining * fraction, currentHeight);
+      window.scrollTo({ top: scrolledTo, behavior: 'smooth' });
+      const delay = 600 + Math.floor(Math.random() * 1400);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    // Final scroll near bottom to trigger remaining lazy content
+    const bottomOffset = 50 + Math.floor(Math.random() * 200);
+    window.scrollTo({ top: document.body.scrollHeight - bottomOffset, behavior: 'smooth' });
+    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
+    // Scroll back near top (not exact zero — humans don't do that)
+    if (Math.random() > 0.3) {
+      await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 800));
+      window.scrollTo({ top: Math.floor(Math.random() * 150), behavior: 'smooth' });
     }
 
     // Extract all text from main content area
