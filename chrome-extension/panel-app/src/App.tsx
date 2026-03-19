@@ -797,10 +797,11 @@ const App: React.FC = () => {
       setProgressPercent(event.detail.percent);
     };
 
-    // Listen for new profile navigation
+    // Listen for new profile navigation — clear old data, show analyze button
     const handleNewProfile = () => {
       setProfile(null);
-      setLoading(true);
+      setLoading(false);
+      setAnalyzing(false);
       setStatusText(null);
       setErrorText(null);
       setProgressStage(null);
