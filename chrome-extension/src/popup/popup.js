@@ -7,8 +7,7 @@ class PopupManager {
   constructor() {
     this.api = new CareerVineAPI();
     this.storage = new StorageHelper();
-    this.currentTab = 'import';
-    
+
     this.init();
   }
 
@@ -167,7 +166,6 @@ class PopupManager {
       content.classList.toggle('active', content.id === `${tabName}Tab`);
     });
     
-    this.currentTab = tabName;
   }
 
   async loadRecentContacts() {
@@ -288,13 +286,3 @@ document.addEventListener('DOMContentLoaded', () => {
   window.popupManager = new PopupManager();
 });
 
-// Handle messages from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'contactImported') {
-    // Refresh recent contacts when a contact is imported
-    const popupManager = window.popupManager;
-    if (popupManager) {
-      popupManager.loadRecentContacts();
-    }
-  }
-});

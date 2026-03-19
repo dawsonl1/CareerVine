@@ -8,11 +8,7 @@ import {
   Loader2,
   MapPin,
   User,
-  AlertCircle,
   ExternalLink,
-  ChevronDown,
-  ChevronRight,
-  Calendar,
   Pencil,
 } from "lucide-react";
 
@@ -786,7 +782,12 @@ const App: React.FC = () => {
         setProgressStage('starting');
         setProgressPercent(0);
       } else {
-        loadLatestProfile();
+        // Profile data arrives via the storage onChanged listener — no need to
+        // call loadLatestProfile() here, which would double-process the profile.
+        // Just ensure loading is cleared if storage change hasn't fired yet.
+        setTimeout(() => {
+          setLoading((prev) => prev ? false : prev);
+        }, 500);
       }
     };
 
@@ -849,16 +850,7 @@ const App: React.FC = () => {
   };
 
   const handleClosePanel = () => {
-    const shadowRoot = (window as any).__careervine_shadow_root;
-    if (shadowRoot) {
-      const panel = shadowRoot.getElementById('careervine-panel');
-      if (panel) {
-        panel.classList.remove('open');
-      }
-    }
-    if ((window as any).CareerVinePanel?.close) {
-      (window as any).CareerVinePanel.close();
-    }
+    (window as any).CareerVinePanel?.close();
   };
 
   if (isAuthenticated === null) {

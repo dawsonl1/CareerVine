@@ -256,34 +256,33 @@ function handleProfileNavigation() {
   }
 }
 
-// Listen for manual scrape requests from the React panel
-window.addEventListener('careervine:request-scrape', () => {
-  const currentProfileId = extractProfileId(window.location.href);
-  if (currentProfileId && !isAnalyzing) {
-    lastAnalyzedProfileId = null; // Allow re-scrape
-    analyzeCurrentProfile(currentProfileId);
-  }
-});
-
-// Detect SPA navigation via History API hooks and popstate
-window.addEventListener('popstate', handleProfileNavigation);
-
 // Guard against double-initialization if content script runs twice
 if (!window.__careervine_initialized) {
   window.__careervine_initialized = true;
 
-  const originalPushState = history.pushState;
-  const originalReplaceState = history.replaceState;
+  // Listen for manual scrape requests from the React panel
+  window.addEventListener('careervine:request-scrape', () => {
+    const currentProfileId = extractProfileId(window.location.href);
+    if (currentProfileId && !isAnalyzing) {
+      lastAnalyzedProfileId = null; // Allow re-scrape
+      analyzeCurrentProfile(currentProfileId);
+    }
+  });
 
-  history.pushState = function(...args) {
-    originalPushState.apply(this, args);
-    handleProfileNavigation();
-  };
+  // Detect back/forward navigation
+  window.addEventListener('popstate', handleProfileNavigation);
 
-  history.replaceState = function(...args) {
-    originalReplaceState.apply(this, args);
-    handleProfileNavigation();
-  };
+  // Poll for URL changes to detect LinkedIn SPA navigation
+  // pushState/replaceState hooks don't work from the content script's isolated world,
+  // so we poll instead — one string comparison per second, negligible overhead
+  let lastPolledUrl = window.location.href;
+  setInterval(() => {
+    const currentUrl = window.location.href;
+    if (currentUrl !== lastPolledUrl) {
+      lastPolledUrl = currentUrl;
+      handleProfileNavigation();
+    }
+  }, 1000);
 }
 
 // Initialize when DOM is ready (no auto-scraping — user clicks FAB to scrape)

@@ -26,6 +26,19 @@ async function initializeConfig() {
   }
 }
 
+// Extract only the fields we need from a raw Supabase session
+function buildStoredSession(raw) {
+  return {
+    access_token: raw.access_token,
+    refresh_token: raw.refresh_token,
+    expires_at: raw.expires_at,
+    user: {
+      id: raw.user?.id,
+      email: raw.user?.email
+    }
+  };
+}
+
 // Attempt to refresh an expired session using the refresh token
 async function refreshSession(session) {
   try {
@@ -45,22 +58,9 @@ async function refreshSession(session) {
     }
 
     const newSession = await response.json();
+    const storedSession = buildStoredSession(newSession);
 
-    // Store only the fields we need
-    const storedSession = {
-      access_token: newSession.access_token,
-      refresh_token: newSession.refresh_token,
-      expires_at: newSession.expires_at,
-      user: {
-        id: newSession.user?.id,
-        email: newSession.user?.email
-      }
-    };
-
-    await chrome.storage.local.set({
-      session: storedSession,
-      isAuthenticated: true
-    });
+    await chrome.storage.local.set({ session: storedSession });
 
     return storedSession;
   } catch (error) {
@@ -84,7 +84,7 @@ async function getValidSession() {
         if (refreshed) return refreshed;
       }
       // Refresh failed — clear session
-      await chrome.storage.local.remove(['session', 'isAuthenticated']);
+      await chrome.storage.local.remove(['session']);
       return null;
     }
   }
@@ -246,22 +246,9 @@ async function handleAuthentication(credentials, sendResponse) {
     }
 
     const fullSession = await response.json();
+    const storedSession = buildStoredSession(fullSession);
 
-    // Store only the fields we need
-    const storedSession = {
-      access_token: fullSession.access_token,
-      refresh_token: fullSession.refresh_token,
-      expires_at: fullSession.expires_at,
-      user: {
-        id: fullSession.user?.id,
-        email: fullSession.user?.email
-      }
-    };
-
-    await chrome.storage.local.set({
-      session: storedSession,
-      isAuthenticated: true
-    });
+    await chrome.storage.local.set({ session: storedSession });
 
     // Return session without refresh_token to the popup
     sendResponse({
@@ -298,7 +285,7 @@ async function checkAuthentication(sendResponse) {
 
 async function handleLogout(sendResponse) {
   try {
-    await chrome.storage.local.remove(['session', 'isAuthenticated']);
+    await chrome.storage.local.remove(['session']);
     sendResponse({ success: true });
   } catch (error) {
     console.error('Logout error:', error);
@@ -325,10 +312,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await initializeConfig();
 
     // Set default values
-    await chrome.storage.local.set({
-      isAuthenticated: false,
-      session: null
-    });
+    await chrome.storage.local.set({ session: null });
   }
 });
 
