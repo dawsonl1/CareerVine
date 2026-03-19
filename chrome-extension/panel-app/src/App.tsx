@@ -834,7 +834,7 @@ const App: React.FC = () => {
     try {
       const payload = {
         ...profile,
-        name: `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim(),
+        name: profile.name || `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim(),
       };
       const response = await chrome?.runtime?.sendMessage?.({
         action: "importData",

@@ -8,7 +8,18 @@ let isPanelOpen = false;
 let isAnalyzing = false;
 let lastAnalyzedProfileId = null;
 let lastScrapeTimestamp = 0;
+let autoScrapeEnabled = false;
 const SCRAPE_COOLDOWN_MS = 30000;
+
+// Load and cache auto-scrape setting, update via storage change listener
+chrome.storage.local.get(['autoScrapeEnabled'], (result) => {
+  autoScrapeEnabled = result.autoScrapeEnabled || false;
+});
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.autoScrapeEnabled) {
+    autoScrapeEnabled = changes.autoScrapeEnabled.newValue || false;
+  }
+});
 
 // Private event bus — NOT on window, so LinkedIn's JS can never listen to it
 const _bus = new EventTarget();
@@ -134,12 +145,8 @@ function openPanel() {
       isPanelOpen = true;
 
       const currentProfileId = extractProfileId(window.location.href);
-      if (currentProfileId && currentProfileId !== lastAnalyzedProfileId) {
-        chrome.storage.local.get(['autoScrapeEnabled'], (result) => {
-          if (result.autoScrapeEnabled) {
-            analyzeCurrentProfile(currentProfileId);
-          }
-        });
+      if (currentProfileId && currentProfileId !== lastAnalyzedProfileId && autoScrapeEnabled) {
+        analyzeCurrentProfile(currentProfileId);
       }
     }
   }
@@ -217,12 +224,8 @@ function handleProfileNavigation() {
     chrome.storage.local.remove(['latestProfile']);
     emit('newprofile');
 
-    if (isPanelOpen) {
-      chrome.storage.local.get(['autoScrapeEnabled'], (result) => {
-        if (result.autoScrapeEnabled) {
-          analyzeCurrentProfile(currentProfileId, true);
-        }
-      });
+    if (isPanelOpen && autoScrapeEnabled) {
+      analyzeCurrentProfile(currentProfileId, true);
     }
   }
 }

@@ -97,12 +97,6 @@ class PopupManager {
     }
   }
 
-  showLoadingSection() {
-    document.getElementById('authSection').style.display = 'none';
-    document.getElementById('mainSection').style.display = 'none';
-    document.getElementById('loadingSection').style.display = 'flex';
-  }
-
   async handleSignIn(e) {
     e.preventDefault();
     

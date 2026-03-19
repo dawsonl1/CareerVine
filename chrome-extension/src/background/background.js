@@ -74,22 +74,11 @@ async function getValidSession() {
   const { session } = await chrome.storage.local.get(['session']);
   if (!session) return null;
 
-  // Check if token has expired (with 60s buffer)
-  // Treat missing expires_at as expired to force a refresh
-  if (session.expires_at != null) {
-    const expiresAt = session.expires_at * 1000; // Supabase uses seconds
-    if (Date.now() > expiresAt - 60000) {
-      // Token expired or about to expire — try refresh
-      if (session.refresh_token) {
-        const refreshed = await refreshSession(session);
-        if (refreshed) return refreshed;
-      }
-      // Refresh failed — clear session
-      await chrome.storage.local.remove(['session']);
-      return null;
-    }
-  } else {
-    // No expires_at — treat as expired, try refresh
+  // Check if token needs refresh (expired, about to expire, or missing expires_at)
+  const isExpired = session.expires_at == null ||
+    Date.now() > session.expires_at * 1000 - 60000;
+
+  if (isExpired) {
     if (session.refresh_token) {
       const refreshed = await refreshSession(session);
       if (refreshed) return refreshed;
@@ -142,73 +131,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// Authenticated POST to the CareerVine API
+async function authenticatedPost(path, body) {
+  const session = await getValidSession();
+  if (!session) throw new Error('Not authenticated. Please sign in first.');
+
+  const response = await fetch(`${config.apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 async function handleParseProfile(data, sendResponse) {
   try {
-    const session = await getValidSession();
-
-    if (!session) {
-      sendResponse({ error: 'Not authenticated. Please sign in first.' });
-      return;
-    }
-
-    // Call API to parse profile with OpenAI
-    const response = await fetch(`${config.apiBaseUrl}/extension/parse-profile`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`
-      },
-      body: JSON.stringify({
-        cleanedText: data.cleanedText,
-        profileUrl: data.profileUrl
-      })
+    const result = await authenticatedPost('/extension/parse-profile', {
+      cleanedText: data.cleanedText,
+      profileUrl: data.profileUrl
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
-    }
-
-    const result = await response.json();
-
-    // Cache the latest profile for React panel
     await chrome.storage.local.set({ latestProfile: result.profileData });
-
     sendResponse({ success: true, profileData: result.profileData });
-
   } catch (error) {
-    console.error('Parse profile error:', error);
     sendResponse({ error: error.message });
   }
 }
 
 async function handleImportData(data, sendResponse) {
   try {
-    const session = await getValidSession();
-
-    if (!session) {
-      sendResponse({ error: 'Not authenticated. Please sign in first.' });
-      return;
-    }
-
-    // Call API to import data
-    const response = await fetch(`${config.apiBaseUrl}/contacts/import`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`
-      },
-      body: JSON.stringify({
-        profileData: data
-      })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
-    }
-
-    const result = await response.json();
+    const result = await authenticatedPost('/contacts/import', { profileData: data });
 
     // Add to recent contacts in storage
     const { recentContacts = [] } = await chrome.storage.local.get(['recentContacts']);
@@ -227,9 +188,7 @@ async function handleImportData(data, sendResponse) {
     await chrome.storage.local.set({ recentContacts: updatedContacts });
 
     sendResponse({ success: true, data: result });
-
   } catch (error) {
-    console.error('Import error:', error);
     sendResponse({ error: error.message });
   }
 }
