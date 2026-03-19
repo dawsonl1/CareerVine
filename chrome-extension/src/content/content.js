@@ -10,6 +10,7 @@ let lastAnalyzedProfileId = null;
 let lastScrapeTimestamp = 0;
 let autoScrapeEnabled = false;
 const SCRAPE_COOLDOWN_MS = 30000;
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // Load and cache auto-scrape setting, update via storage change listener
 chrome.storage.local.get(['autoScrapeEnabled'], (result) => {
@@ -103,6 +104,42 @@ function togglePanel() {
   }
 }
 
+// Profile cache — avoids re-scraping recently viewed profiles
+async function getCachedProfile(profileId) {
+  const { profileCache = {} } = await chrome.storage.local.get(['profileCache']);
+  const entry = profileCache[profileId];
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+    return entry.data;
+  }
+  return null;
+}
+
+async function setCachedProfile(profileId, data) {
+  const { profileCache = {} } = await chrome.storage.local.get(['profileCache']);
+  // Clean expired entries while we're here
+  const now = Date.now();
+  const cleaned = {};
+  for (const [key, val] of Object.entries(profileCache)) {
+    if (now - val.timestamp < CACHE_TTL_MS) {
+      cleaned[key] = val;
+    }
+  }
+  cleaned[profileId] = { data, timestamp: now };
+  await chrome.storage.local.set({ profileCache: cleaned });
+}
+
+// Try loading a profile from cache, returns true if cache hit
+async function tryLoadFromCache(profileId) {
+  const cached = await getCachedProfile(profileId);
+  if (cached) {
+    await chrome.storage.local.set({ latestProfile: cached });
+    lastAnalyzedProfileId = profileId;
+    emit('cachedhit');
+    return true;
+  }
+  return false;
+}
+
 // Dispatch progress updates via private bus
 function dispatchProgress(stage, percent) {
   emit('progress', { stage, percent });
@@ -115,10 +152,15 @@ function analyzeCurrentProfile(profileId, calledFromNav = false) {
   dispatchProgress('starting', 0);
 
   const doScrape = () => {
-    scrapeCurrentProfile().then((result) => {
+    scrapeCurrentProfile().then(async (result) => {
       isAnalyzing = false;
       if (result?.scraped) {
         lastAnalyzedProfileId = profileId;
+        // Cache the scraped profile for future visits
+        const { latestProfile } = await chrome.storage.local.get(['latestProfile']);
+        if (latestProfile) {
+          await setCachedProfile(profileId, latestProfile);
+        }
       }
       dispatchProgress('done', 100);
       emit('analyzing', { analyzing: false });
@@ -145,8 +187,13 @@ function openPanel() {
       isPanelOpen = true;
 
       const currentProfileId = extractProfileId(window.location.href);
-      if (currentProfileId && currentProfileId !== lastAnalyzedProfileId && autoScrapeEnabled) {
-        analyzeCurrentProfile(currentProfileId);
+      if (currentProfileId && currentProfileId !== lastAnalyzedProfileId) {
+        // Try cache first — if hit, profile loads instantly
+        tryLoadFromCache(currentProfileId).then((hit) => {
+          if (!hit && autoScrapeEnabled) {
+            analyzeCurrentProfile(currentProfileId);
+          }
+        });
       }
     }
   }
@@ -223,10 +270,19 @@ function handleProfileNavigation() {
     lastScrapeTimestamp = 0;
 
     chrome.storage.local.remove(['latestProfile']);
-    emit('newprofile');
 
-    if (isPanelOpen && autoScrapeEnabled) {
-      analyzeCurrentProfile(currentProfileId, true);
+    if (isPanelOpen) {
+      // Try cache first — if hit, profile loads instantly with no scrape needed
+      tryLoadFromCache(currentProfileId).then((hit) => {
+        if (!hit) {
+          emit('newprofile');
+          if (autoScrapeEnabled) {
+            analyzeCurrentProfile(currentProfileId, true);
+          }
+        }
+      });
+    } else {
+      emit('newprofile');
     }
   } else if (!currentProfileId && lastProfileId) {
     // Left a profile page (went to timeline, search, etc.)

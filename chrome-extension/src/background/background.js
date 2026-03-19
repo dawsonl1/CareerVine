@@ -253,7 +253,7 @@ async function checkAuthentication(sendResponse) {
 
 async function handleLogout(sendResponse) {
   try {
-    await chrome.storage.local.remove(['session', 'latestProfile', 'recentContacts', 'autoScrapeEnabled']);
+    await chrome.storage.local.remove(['session', 'latestProfile', 'recentContacts', 'autoScrapeEnabled', 'profileCache']);
     sendResponse({ success: true });
   } catch (error) {
     sendResponse({ error: error.message });

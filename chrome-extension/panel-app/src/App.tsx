@@ -815,6 +815,12 @@ const App: React.FC = () => {
       setProgressPercent(0);
     };
 
+    // Listen for cache hit — profile loaded from cache, show it
+    const handleCacheHit = () => {
+      setOnProfilePage(true);
+      setLoading(true); // Brief loading while storage.onChanged delivers the data
+    };
+
     // Listen for leaving a profile page (timeline, search, etc.)
     const handleLeftProfile = () => {
       setProfile(null);
@@ -831,6 +837,7 @@ const App: React.FC = () => {
     bus?.addEventListener('progress', handleProgress as EventListener);
     bus?.addEventListener('newprofile', handleNewProfile as EventListener);
     bus?.addEventListener('leftprofile', handleLeftProfile as EventListener);
+    bus?.addEventListener('cachedhit', handleCacheHit as EventListener);
 
     return () => {
       chrome?.storage?.onChanged?.removeListener(handleStorageChange);
@@ -838,6 +845,7 @@ const App: React.FC = () => {
       bus?.removeEventListener('progress', handleProgress as EventListener);
       bus?.removeEventListener('newprofile', handleNewProfile as EventListener);
       bus?.removeEventListener('leftprofile', handleLeftProfile as EventListener);
+      bus?.removeEventListener('cachedhit', handleCacheHit as EventListener);
     };
   }, []);
 
