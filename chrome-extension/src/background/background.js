@@ -118,6 +118,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'getLatestProfile':
         await handleGetLatestProfile(sendResponse);
         break;
+      case 'getConfig':
+        sendResponse({ apiBaseUrl: config.apiBaseUrl, environment: config.environment });
+        break;
       default:
         sendResponse({ error: 'Unknown action' });
     }

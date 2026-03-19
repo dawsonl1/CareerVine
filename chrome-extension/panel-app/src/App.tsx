@@ -682,6 +682,8 @@ const App: React.FC = () => {
   const [onProfilePage, setOnProfilePage] = useState(
     typeof window !== 'undefined' && window.location?.href?.includes('linkedin.com/in/')
   );
+  const [savedContactId, setSavedContactId] = useState<number | null>(null);
+  const [webappBaseUrl, setWebappBaseUrl] = useState("https://careervine.app");
   
   const checkAuthentication = async () => {
     try {
@@ -737,10 +739,16 @@ const App: React.FC = () => {
     }
   };
 
-  // Load auto-scrape setting
+  // Load auto-scrape setting and webapp base URL
   useEffect(() => {
     chrome?.storage?.local?.get?.(['autoScrapeEnabled'], (result: any) => {
       setAutoScrape(result?.autoScrapeEnabled || false);
+    });
+    // Get webapp URL from config (strips /api from apiBaseUrl)
+    chrome?.runtime?.sendMessage?.({ action: 'getConfig' }, (response: any) => {
+      if (response?.apiBaseUrl) {
+        setWebappBaseUrl(response.apiBaseUrl.replace(/\/api$/, ''));
+      }
     });
   }, []);
 
@@ -809,6 +817,7 @@ const App: React.FC = () => {
       setLoading(false);
       setAnalyzing(false);
       setOnProfilePage(true);
+      setSavedContactId(null);
       setStatusText(null);
       setErrorText(null);
       setProgressStage(null);
@@ -867,6 +876,9 @@ const App: React.FC = () => {
 
       if (response?.success) {
         setStatusText("Contact saved to CareerVine.");
+        if (response?.data?.contact?.id) {
+          setSavedContactId(response.data.contact.id);
+        }
       } else {
         throw new Error(response?.error || "Failed to save contact");
       }
@@ -881,6 +893,10 @@ const App: React.FC = () => {
   const handleClosePanel = () => {
     (window as any).__cv_close?.();
   };
+
+  const careervineUrl = savedContactId
+    ? `${webappBaseUrl}/contacts/${savedContactId}`
+    : webappBaseUrl;
 
   if (isAuthenticated === null) {
     return (
@@ -994,9 +1010,9 @@ const App: React.FC = () => {
           <button className="cv-back-btn" onClick={handleClosePanel}>
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <a href="https://careervine.app" target="_blank" rel="noreferrer" className="cv-open-link">
+          <a href={careervineUrl} target="_blank" rel="noreferrer" className="cv-open-link">
             <ExternalLink className="w-4 h-4" />
-            Open In CareerVine
+            {savedContactId ? "View In CareerVine" : "Open CareerVine"}
           </a>
         </header>
         <div className="cv-empty">
