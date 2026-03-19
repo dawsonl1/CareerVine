@@ -350,7 +350,7 @@ const SimpleDropdown: React.FC<{
       }
     };
 
-    const shadowRoot = (window as any).__careervine_shadow_root;
+    const shadowRoot = (window as any).__cv_sr;
     const root = shadowRoot || document;
 
     const timer = setTimeout(() => {
@@ -747,7 +747,10 @@ const App: React.FC = () => {
   };
 
   const handleRequestScrape = () => {
-    window.dispatchEvent(new CustomEvent('careervine:request-scrape'));
+    const bus = (window as any).__cv_bus;
+    if (bus) {
+      bus.dispatchEvent(new CustomEvent('request-scrape'));
+    }
   };
 
   useEffect(() => {
@@ -808,16 +811,17 @@ const App: React.FC = () => {
       setProgressPercent(0);
     };
 
+    const bus = (window as any).__cv_bus;
     chrome?.storage?.onChanged?.addListener(handleStorageChange);
-    window.addEventListener('careervine:analyzing', handleAnalyzing as EventListener);
-    window.addEventListener('careervine:progress', handleProgress as EventListener);
-    window.addEventListener('careervine:newprofile', handleNewProfile as EventListener);
+    bus?.addEventListener('analyzing', handleAnalyzing as EventListener);
+    bus?.addEventListener('progress', handleProgress as EventListener);
+    bus?.addEventListener('newprofile', handleNewProfile as EventListener);
 
     return () => {
       chrome?.storage?.onChanged?.removeListener(handleStorageChange);
-      window.removeEventListener('careervine:analyzing', handleAnalyzing as EventListener);
-      window.removeEventListener('careervine:progress', handleProgress as EventListener);
-      window.removeEventListener('careervine:newprofile', handleNewProfile as EventListener);
+      bus?.removeEventListener('analyzing', handleAnalyzing as EventListener);
+      bus?.removeEventListener('progress', handleProgress as EventListener);
+      bus?.removeEventListener('newprofile', handleNewProfile as EventListener);
     };
   }, []);
 
@@ -851,7 +855,7 @@ const App: React.FC = () => {
   };
 
   const handleClosePanel = () => {
-    (window as any).CareerVinePanel?.close();
+    (window as any).__cv_close?.();
   };
 
   if (isAuthenticated === null) {

@@ -13,17 +13,20 @@ class LinkedInScraper {
     // Only scroll if sections appear to be missing (lazy-loaded)
     if (!hasExperience || !hasEducation) {
       const scrollSteps = 3 + Math.floor(Math.random() * 3); // 3-5 scrolls
+      let scrolledTo = 0;
       for (let i = 0; i < scrollSteps; i++) {
-        // Re-read height each iteration since lazy-loading increases it
         const currentHeight = document.body.scrollHeight;
-        const targetY = (currentHeight * (i + 1)) / scrollSteps;
-        window.scrollTo({ top: targetY, behavior: 'smooth' });
-        // Random delay between 500-1500ms to mimic human scrolling
-        const delay = 500 + Math.floor(Math.random() * 1000);
+        // Non-uniform scroll distances — humans scroll unevenly
+        const remaining = currentHeight - scrolledTo;
+        const fraction = 0.3 + Math.random() * 0.5; // scroll 30-80% of remaining
+        scrolledTo = Math.min(scrolledTo + remaining * fraction, currentHeight);
+        window.scrollTo({ top: scrolledTo, behavior: 'smooth' });
+        // Variable delays — humans pause longer at some spots
+        const delay = 600 + Math.floor(Math.random() * 1400);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
-      // Scroll back to top like a human would after reviewing
-      await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500));
+      // Scroll back to top after a pause
+      await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 800));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 

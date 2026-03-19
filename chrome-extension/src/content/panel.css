@@ -4,7 +4,7 @@
  */
 
 /* Floating Action Button (outside Shadow DOM) */
-.careervine-fab {
+._cv-f {
   position: fixed;
   bottom: 24px;
   right: 24px;
@@ -23,17 +23,17 @@
   transition: all 0.2s ease;
 }
 
-.careervine-fab:hover {
+._cv-f:hover {
   background: #1e4d22;
   transform: scale(1.05);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
 }
 
-.careervine-fab:active {
+._cv-f:active {
   transform: scale(0.98);
 }
 
-.careervine-fab svg {
+._cv-f svg {
   width: 24px;
   height: 24px;
 }
