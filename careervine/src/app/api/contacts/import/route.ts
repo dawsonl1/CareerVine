@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server-client';
-import { createContact, getContacts } from '@/lib/queries';
 
 /**
  * API endpoint for importing contacts from Chrome extension
@@ -54,22 +53,18 @@ export async function POST(request: NextRequest) {
     const { profileData } = await request.json();
 
     // Check for duplicates
-    const duplicates = await findDuplicateContacts(user.id, profileData);
-    
+    const duplicates = await findDuplicateContacts(supabase, user.id, profileData);
+
     let contact;
     let isUpdate = false;
 
     if (duplicates.exactMatch) {
-      // Update existing contact
-      contact = await updateExistingContact(duplicates.exactMatch.id, profileData, user.id);
+      contact = await updateExistingContact(supabase, duplicates.exactMatch.id, profileData, user.id);
       isUpdate = true;
     } else if (duplicates.potentialMatches.length > 0) {
-      // Create new contact but mark potential matches
-      contact = await createNewContact(profileData, user.id);
-      // TODO: You might want to notify user about potential matches
+      contact = await createNewContact(supabase, profileData, user.id);
     } else {
-      // Create completely new contact
-      contact = await createNewContact(profileData, user.id);
+      contact = await createNewContact(supabase, profileData, user.id);
     }
 
     return NextResponse.json({ 
@@ -87,8 +82,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function findDuplicateContacts(userId: string, profileData: any) {
-  const supabase = await createSupabaseServerClient();
+async function findDuplicateContacts(supabase: any, userId: string, profileData: any) {
   
   // Check for exact LinkedIn URL match
   let exactMatch = null;
@@ -128,8 +122,7 @@ async function findDuplicateContacts(userId: string, profileData: any) {
   };
 }
 
-async function updateExistingContact(contactId: number, profileData: any, userId: string) {
-  const supabase = await createSupabaseServerClient();
+async function updateExistingContact(supabase: any, contactId: number, profileData: any, userId: string) {
   
   // Update main contact info
   const updateData: any = {
@@ -154,19 +147,18 @@ async function updateExistingContact(contactId: number, profileData: any, userId
 
   // Add new experience if available
   if (profileData.experience && profileData.experience.length > 0) {
-    await addExperienceToContact(contactId, profileData.experience, userId);
+    await addExperienceToContact(supabase, contactId, profileData.experience, userId);
   }
 
   // Add new education if available
   if (profileData.education && profileData.education.length > 0) {
-    await addEducationToContact(contactId, profileData.education, userId);
+    await addEducationToContact(supabase, contactId, profileData.education, userId);
   }
 
   return contact;
 }
 
-async function createNewContact(profileData: any, userId: string) {
-  const supabase = await createSupabaseServerClient();
+async function createNewContact(supabase: any, profileData: any, userId: string) {
   
   // Use AI-generated notes if provided, otherwise build from headline/about
   let notes = profileData.notes || null;
@@ -193,7 +185,7 @@ async function createNewContact(profileData: any, userId: string) {
   const contactData: any = {
     user_id: userId,
     name: profileData.name || 'Unknown',
-    linkedin_url: profileData.profileUrl || null,
+    linkedin_url: profileData.linkedin_url || profileData.profileUrl || null,
     industry: profileData.industry || null,
     location_id: locationId,
     notes: notes,
@@ -221,24 +213,23 @@ async function createNewContact(profileData: any, userId: string) {
 
   // Add experience
   if (profileData.experience && profileData.experience.length > 0) {
-    await addExperienceToContact(contact.id, profileData.experience, userId);
+    await addExperienceToContact(supabase, contact.id, profileData.experience, userId);
   }
 
   // Add education
   if (profileData.education && profileData.education.length > 0) {
-    await addEducationToContact(contact.id, profileData.education, userId);
+    await addEducationToContact(supabase, contact.id, profileData.education, userId);
   }
 
   // Add tags
   if (profileData.tags && profileData.tags.length > 0) {
-    await addTagsToContact(contact.id, profileData.tags, userId);
+    await addTagsToContact(supabase, contact.id, profileData.tags, userId);
   }
 
   return contact;
 }
 
-async function addExperienceToContact(contactId: number, experience: any[], userId: string) {
-  const supabase = await createSupabaseServerClient();
+async function addExperienceToContact(supabase: any, contactId: number, experience: any[], userId: string) {
   
   for (const exp of experience) {
     if (!exp.company) continue;
@@ -276,8 +267,7 @@ async function addExperienceToContact(contactId: number, experience: any[], user
   }
 }
 
-async function addEducationToContact(contactId: number, education: any[], userId: string) {
-  const supabase = await createSupabaseServerClient();
+async function addEducationToContact(supabase: any, contactId: number, education: any[], userId: string) {
   
   for (const edu of education) {
     if (!edu.school) continue;
@@ -348,8 +338,7 @@ async function findOrCreateLocation(supabase: any, location: { city: string | nu
   return data;
 }
 
-async function addTagsToContact(contactId: number, tags: string[], userId: string) {
-  const supabase = await createSupabaseServerClient();
+async function addTagsToContact(supabase: any, contactId: number, tags: string[], userId: string) {
   
   for (const tagName of tags) {
     if (!tagName.trim()) continue;

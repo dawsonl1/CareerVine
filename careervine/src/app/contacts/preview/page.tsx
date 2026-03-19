@@ -62,7 +62,9 @@ export default function ContactPreviewPage() {
 
     try {
       const encoded = hash.split("data=")[1];
-      const json = atob(decodeURIComponent(encoded));
+      const binStr = atob(decodeURIComponent(encoded));
+      const bytes = Uint8Array.from(binStr, (c) => c.charCodeAt(0));
+      const json = new TextDecoder().decode(bytes);
       const data = JSON.parse(json) as ProfileData;
       setProfileData(data);
 
