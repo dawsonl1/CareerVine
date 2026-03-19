@@ -683,7 +683,7 @@ const App: React.FC = () => {
     typeof window !== 'undefined' && window.location?.href?.includes('linkedin.com/in/')
   );
   const [savedContactId, setSavedContactId] = useState<number | null>(null);
-  const [webappBaseUrl, setWebappBaseUrl] = useState("https://careervine.app");
+  const [webappBaseUrl, setWebappBaseUrl] = useState("https://www.dawsonsprojects.com");
   const [existingContact, setExistingContact] = useState<any>(null);
   
   const checkAuthentication = async () => {

@@ -193,7 +193,7 @@ function openPanel() {
           if (!hit && autoScrapeEnabled) {
             analyzeCurrentProfile(currentProfileId);
           }
-        });
+        }).catch(() => {});
       }
     }
   }
@@ -279,7 +279,7 @@ function handleProfileNavigation() {
             analyzeCurrentProfile(currentProfileId, true);
           }
         }
-      });
+      }).catch(() => emit('newprofile'));
     } else {
       emit('newprofile');
     }
