@@ -51,12 +51,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
     }
 
-    const { profileData, sessionId } = await request.json();
-
-    // Validate session (additional security check)
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Session required' }, { status: 401, headers: corsHeaders });
-    }
+    const { profileData } = await request.json();
 
     // Check for duplicates
     const duplicates = await findDuplicateContacts(user.id, profileData);

@@ -926,9 +926,19 @@ const App: React.FC = () => {
     (window as any).__cv_close?.();
   };
 
-  const careervineUrl = savedContactId
-    ? `${webappBaseUrl}/contacts/${savedContactId}`
-    : webappBaseUrl;
+  const careervineUrl = (() => {
+    if (savedContactId) return `${webappBaseUrl}/contacts/${savedContactId}`;
+    // For unsaved contacts, encode profile data in URL hash for the preview page
+    if (profile) {
+      try {
+        const encoded = encodeURIComponent(btoa(JSON.stringify(profile)));
+        return `${webappBaseUrl}/contacts/preview#data=${encoded}`;
+      } catch {
+        return `${webappBaseUrl}/contacts`;
+      }
+    }
+    return `${webappBaseUrl}/contacts`;
+  })();
 
   if (isAuthenticated === null) {
     return (

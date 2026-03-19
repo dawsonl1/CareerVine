@@ -93,7 +93,8 @@ class PopupManager {
     document.getElementById('signOutBtn').style.display = 'block';
     
     if (user) {
-      document.getElementById('userEmail').textContent = user.email || 'Signed in';
+      const emailEl = document.getElementById('userEmail');
+      if (emailEl) emailEl.textContent = user.email || 'Signed in';
     }
   }
 

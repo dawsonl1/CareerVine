@@ -268,19 +268,24 @@ function handleProfileNavigation() {
     lastAnalyzedProfileId = null;
     lastScrapeTimestamp = 0;
 
-    chrome.storage.local.remove(['latestProfile']);
-
     if (isPanelOpen) {
       // Try cache first — if hit, profile loads instantly with no scrape needed
+      // Note: we don't remove latestProfile first since tryLoadFromCache will overwrite it,
+      // and removing first would cause a race condition
       tryLoadFromCache(currentProfileId).then((hit) => {
         if (!hit) {
+          chrome.storage.local.remove(['latestProfile']);
           emit('newprofile');
           if (autoScrapeEnabled) {
             analyzeCurrentProfile(currentProfileId, true);
           }
         }
-      }).catch(() => emit('newprofile'));
+      }).catch(() => {
+        chrome.storage.local.remove(['latestProfile']);
+        emit('newprofile');
+      });
     } else {
+      chrome.storage.local.remove(['latestProfile']);
       emit('newprofile');
     }
   } else if (!currentProfileId && lastProfileId) {
