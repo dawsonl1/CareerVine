@@ -940,7 +940,7 @@ const App: React.FC = () => {
       starting: 'Preparing...',
       authenticating: 'Checking auth...',
       scrolling: 'Reading profile...',
-      parsing: 'Analyzing with AI...',
+      parsing: 'Enriching profile data...',
       done: 'Finishing up...',
       error: 'Something went wrong',
     };

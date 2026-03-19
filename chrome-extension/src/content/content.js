@@ -241,18 +241,16 @@ function handleProfileNavigation() {
     lastAnalyzedProfileId = null;
     lastScrapeTimestamp = 0;
 
-    if (isPanelOpen) {
-      // Clear stale data
-      chrome.storage.local.remove(['latestProfile']);
-      // Notify panel that we're on a new profile
-      window.dispatchEvent(new CustomEvent('careervine:newprofile'));
+    // Always clear stale data and notify panel of new profile
+    chrome.storage.local.remove(['latestProfile']);
+    window.dispatchEvent(new CustomEvent('careervine:newprofile'));
 
+    if (isPanelOpen) {
       // Check auto-scrape setting
       chrome.storage.local.get(['autoScrapeEnabled'], (result) => {
         if (result.autoScrapeEnabled) {
           analyzeCurrentProfile(currentProfileId, true);
         }
-        // If auto-scrape is off, React panel will show the "Analyze" button
       });
     }
   }
