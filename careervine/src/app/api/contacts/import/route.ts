@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server-client';
+import { parseFollowUpFrequency, sanitizeForPostgrest, buildContactData, buildUpdateData } from '@/lib/import-helpers';
 
 /**
  * API endpoint for importing contacts from Chrome extension
@@ -102,10 +103,8 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
   if (profileData.name && !exactMatch) {
     const names = profileData.name.split(' ');
     if (names.length >= 2) {
-      // Sanitize for PostgREST filter syntax
-      const sanitize = (s: string) => s.replace(/[%_\\.,()]/g, '');
-      const firstName = sanitize(names[0]);
-      const lastName = sanitize(names[names.length - 1]);
+      const firstName = sanitizeForPostgrest(names[0]);
+      const lastName = sanitizeForPostgrest(names[names.length - 1]);
 
       const { data } = await supabase
         .from('contacts')
@@ -125,24 +124,7 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
 
 async function updateExistingContact(supabase: any, contactId: number, profileData: any, userId: string) {
 
-  const updateData: any = {};
-
-  if (profileData.name) updateData.name = profileData.name;
-  if (profileData.industry) updateData.industry = profileData.industry;
-  if (profileData.linkedin_url || profileData.profileUrl) {
-    updateData.linkedin_url = profileData.linkedin_url || profileData.profileUrl;
-  }
-  if (profileData.contact_status) updateData.contact_status = profileData.contact_status;
-  if (profileData.expected_graduation) updateData.expected_graduation = profileData.expected_graduation;
-
-  // Update notes from AI-generated notes if provided
-  if (profileData.generated_notes || profileData.notes) {
-    updateData.notes = profileData.generated_notes || profileData.notes;
-  }
-
-  // Convert follow_up_frequency string to days
-  const freqDays = parseFollowUpFrequency(profileData.follow_up_frequency);
-  if (freqDays !== null) updateData.follow_up_frequency_days = freqDays;
+  const updateData = buildUpdateData(profileData);
 
   // Update location
   if (profileData.location && typeof profileData.location === 'object') {
@@ -258,18 +240,6 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
   return contact;
 }
 
-// Convert follow-up frequency string to days
-function parseFollowUpFrequency(freq: string | null | undefined): number | null {
-  if (!freq) return null;
-  const map: Record<string, number> = {
-    '2 weeks': 14,
-    '2 months': 60,
-    '3 months': 90,
-    '6 months': 180,
-    '1 year': 365,
-  };
-  return map[freq] ?? null;
-}
 
 async function addExperienceToContact(supabase: any, contactId: number, experience: any[], userId: string) {
   for (const exp of experience) {
