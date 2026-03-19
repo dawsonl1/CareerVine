@@ -9,6 +9,7 @@ import {
   FileText, Clock, ExternalLink, Loader2, Check, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import AuthForm from "@/components/auth-form";
 
 type ProfileData = {
   first_name?: string;
@@ -49,13 +50,12 @@ export default function ContactPreviewPage() {
   const [savedContactId, setSavedContactId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Read profile data from URL hash on mount
+  // Read profile data from URL hash once authenticated
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !user) return;
 
     const hash = window.location.hash;
     if (!hash || !hash.includes("data=")) {
-      // No data in hash — can't show anything
       router.push("/contacts");
       return;
     }
@@ -68,12 +68,11 @@ export default function ContactPreviewPage() {
       const data = JSON.parse(json) as ProfileData;
       setProfileData(data);
 
-      // Check if this contact already exists in the database
       checkExisting(data);
     } catch {
       router.push("/contacts");
     }
-  }, [router]);
+  }, [router, user]);
 
   const checkExisting = async (data: ProfileData) => {
     if (!data.linkedin_url) return;
@@ -122,6 +121,11 @@ export default function ContactPreviewPage() {
       setSaving(false);
     }
   };
+
+  // Show login form if not authenticated (hash data preserved across login)
+  if (!user) {
+    return <AuthForm />;
+  }
 
   if (!profileData) {
     return (

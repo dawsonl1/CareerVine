@@ -308,6 +308,7 @@ if (!window.__cv_init) {
     const currentProfileId = extractProfileId(window.location.href);
     if (currentProfileId && !isAnalyzing) {
       lastAnalyzedProfileId = null;
+      lastScrapeTimestamp = 0; // Allow immediate re-scrape
       analyzeCurrentProfile(currentProfileId);
     }
   });
