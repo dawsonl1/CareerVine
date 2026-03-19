@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { escapeIlikePattern } from "@/lib/search-helpers";
 
 /**
  * GET /api/contacts/search?q=...
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Sanitize input for PostgREST ilike filter
-    const sanitized = q.replace(/[%_\\]/g, '\\$&');
+    const sanitized = escapeIlikePattern(q);
 
     // Use the authenticated client (RLS enforced) instead of service role
     const { data, error } = await supabase

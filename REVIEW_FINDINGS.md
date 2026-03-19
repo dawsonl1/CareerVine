@@ -34,7 +34,7 @@
 - [ ] **#18** `createSupabaseBrowserClient()` called every render in auth-provider — stabilize with useState
 - [ ] **#19** Contacts page no auth loading check — flash of empty state before auth resolves
 - [ ] **#20** Dashboard links go to /contacts instead of /contacts/{id}
-- [ ] **#21** Duplicate import branches doing same thing — collapse
+- [x] **#21** Duplicate import branches doing same thing — collapsed
 
 ## Efficiency (Priority 4)
 
@@ -45,17 +45,17 @@
 
 ## Nits
 
-- [ ] **#26** Debug console.log in parse-profile — **DONE** (removed with #3 fix)
-- [ ] **#27** Unused `userId` params in import helpers
+- [x] **#26** Debug console.log in parse-profile — removed with #3 fix
+- [x] **#27** Unused `userId` params in import helpers — removed from addExperienceToContact, addEducationToContact
 - [ ] **#28** server-client.ts unnecessarily requires service role key
 - [ ] **#29** database.types.ts: companies/schools Insert requires id
 - [ ] **#30** contact-info-header onContactUpdate passes stale data
-- [ ] **#31** contacts/[id] dynamic import of already-imported module
+- [x] **#31** contacts/[id] dynamic import of already-imported module — added getContacts to static import
 - [ ] **#32** No user-visible error on dashboard quick-add failure
-- [ ] **#33** Unnecessary removeEmails/removePhones on new contacts
+- [x] **#33** Unnecessary removeEmails/removePhones on new contacts — removed from create flow
 - [ ] **#34** Tag dropdown no outside-click handler
 - [ ] **#35** Search suggestion dropdown no outside-click handler
-- [ ] **#36** select("*") over-fetches sensitive token columns in gmail/calendar
+- [x] **#36** select("*") over-fetches sensitive token columns in gmail/calendar — narrowed to needed columns
 - [ ] **#37** buildThreads recreated every render in inbox
 - [ ] **#38** Missing loadData in useEffect dependency arrays
 - [ ] **#39** getContacts over-fetches for list views

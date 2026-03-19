@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import AuthForm from "@/components/auth-form";
+import { decodeProfileData } from "@/lib/profile-encoding";
 
 type ProfileData = {
   first_name?: string;
@@ -62,10 +63,7 @@ export default function ContactPreviewPage() {
 
     try {
       const encoded = hash.split("data=")[1];
-      const binStr = atob(decodeURIComponent(encoded));
-      const bytes = Uint8Array.from(binStr, (c) => c.charCodeAt(0));
-      const json = new TextDecoder().decode(bytes);
-      const data = JSON.parse(json) as ProfileData;
+      const data = decodeProfileData(encoded) as ProfileData;
       setProfileData(data);
 
       checkExisting(data);

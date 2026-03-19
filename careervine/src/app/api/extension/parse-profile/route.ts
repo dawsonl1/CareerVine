@@ -200,42 +200,26 @@ export async function POST(request: NextRequest) {
     }
 
     // Algorithmic processing to derive missing fields
-    
+    const { addIsCurrentToExperience, addIsCurrentToEducation, deriveCurrentRole, deriveContactStatus } = await import('@/lib/profile-helpers');
+
     // 1. Add is_current to experience and education based on end dates
     if (profileData.experience) {
-      profileData.experience = profileData.experience.map((exp: any) => ({
-        ...exp,
-        is_current: exp.end_month === "Present"
-      }));
+      profileData.experience = addIsCurrentToExperience(profileData.experience);
     }
-    
+
     if (profileData.education) {
-      profileData.education = profileData.education.map((edu: any) => ({
-        ...edu,
-        is_current: edu.end_year === "Present"
-      }));
+      profileData.education = addIsCurrentToEducation(profileData.education);
     }
 
     // 2. Derive current_company and current_title from current experience
-    const currentExperience = profileData.experience?.find((exp: any) => exp.is_current);
-    profileData.current_company = currentExperience?.company || null;
-    profileData.current_title = currentExperience?.title || null;
+    const { current_company, current_title } = deriveCurrentRole(profileData.experience || []);
+    profileData.current_company = current_company;
+    profileData.current_title = current_title;
 
     // 3. Determine contact_status and expected_graduation from education
-    const currentYear = new Date().getFullYear();
-    const hasCurrentEducation = profileData.education?.some((edu: any) => edu.is_current);
-    const futureGraduation = profileData.education?.find((edu: any) => {
-      const endYear = parseInt(edu.end_year);
-      return endYear && endYear > currentYear;
-    });
-    
-    if (hasCurrentEducation || futureGraduation) {
-      profileData.contact_status = "student";
-      profileData.expected_graduation = futureGraduation?.end_year || null;
-    } else {
-      profileData.contact_status = "professional";
-      profileData.expected_graduation = null;
-    }
+    const { contact_status, expected_graduation } = deriveContactStatus(profileData.education || []);
+    profileData.contact_status = contact_status;
+    profileData.expected_graduation = expected_graduation;
 
     // 4. Add empty fields for compatibility with existing code
     profileData.headline = null;

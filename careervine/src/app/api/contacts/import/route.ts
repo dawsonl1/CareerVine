@@ -62,8 +62,6 @@ export async function POST(request: NextRequest) {
     if (duplicates.exactMatch) {
       contact = await updateExistingContact(supabase, duplicates.exactMatch.id, profileData, user.id);
       isUpdate = true;
-    } else if (duplicates.potentialMatches.length > 0) {
-      contact = await createNewContact(supabase, profileData, user.id);
     } else {
       contact = await createNewContact(supabase, profileData, user.id);
     }
@@ -150,12 +148,12 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
   // Clear existing experience/education before re-adding to prevent duplicates
   if (profileData.experience && profileData.experience.length > 0) {
     await supabase.from('contact_companies').delete().eq('contact_id', contactId);
-    await addExperienceToContact(supabase, contactId, profileData.experience, userId);
+    await addExperienceToContact(supabase, contactId, profileData.experience);
   }
 
   if (profileData.education && profileData.education.length > 0) {
     await supabase.from('contact_schools').delete().eq('contact_id', contactId);
-    await addEducationToContact(supabase, contactId, profileData.education, userId);
+    await addEducationToContact(supabase, contactId, profileData.education);
   }
 
   // Update tags
@@ -223,12 +221,12 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
 
   // Add experience
   if (profileData.experience && profileData.experience.length > 0) {
-    await addExperienceToContact(supabase, contact.id, profileData.experience, userId);
+    await addExperienceToContact(supabase, contact.id, profileData.experience);
   }
 
   // Add education
   if (profileData.education && profileData.education.length > 0) {
-    await addEducationToContact(supabase, contact.id, profileData.education, userId);
+    await addEducationToContact(supabase, contact.id, profileData.education);
   }
 
   // Add tags
@@ -241,7 +239,7 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
 }
 
 
-async function addExperienceToContact(supabase: any, contactId: number, experience: any[], userId: string) {
+async function addExperienceToContact(supabase: any, contactId: number, experience: any[]) {
   for (const exp of experience) {
     if (!exp.company) continue;
 
@@ -288,7 +286,7 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
   }
 }
 
-async function addEducationToContact(supabase: any, contactId: number, education: any[], userId: string) {
+async function addEducationToContact(supabase: any, contactId: number, education: any[]) {
   for (const edu of education) {
     if (!edu.school) continue;
 

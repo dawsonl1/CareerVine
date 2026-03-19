@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server-client';
+import { calculateNameMatchConfidence } from '@/lib/duplicate-helpers';
 
 // CORS headers for Chrome extension
 const corsHeaders = {
@@ -138,27 +139,3 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
   return { matches };
 }
 
-function calculateNameMatchConfidence(searchName: string, existingName: string): number {
-  const searchNames = searchName.toLowerCase().split(' ').filter(n => n.length > 1);
-  const existingNames = existingName.toLowerCase().split(' ').filter(n => n.length > 1);
-  
-  let matches = 0;
-  
-  searchNames.forEach(searchName => {
-    if (existingNames.some(existingName => 
-      existingName.includes(searchName) || searchName.includes(existingName)
-    )) {
-      matches++;
-    }
-  });
-  
-  // Calculate confidence based on name part matches
-  const confidence = (matches / Math.max(searchNames.length, existingNames.length)) * 80;
-  
-  // Bonus for exact matches
-  if (searchName.toLowerCase() === existingName.toLowerCase()) {
-    return Math.min(confidence + 20, 90); // Cap at 90 for name-only matches
-  }
-  
-  return confidence;
-}

@@ -11,6 +11,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@ext': path.resolve(__dirname, '../chrome-extension/src'),
     },
   },
 });

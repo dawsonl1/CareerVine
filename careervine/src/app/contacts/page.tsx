@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   getContacts, createContact, findOrCreateSchool, addSchoolToContact,
-  findOrCreateCompany, addCompanyToContact, removeEmailsFromContact,
-  addEmailToContact, removePhonesFromContact, addPhoneToContact,
+  findOrCreateCompany, addCompanyToContact,
+  addEmailToContact, addPhoneToContact,
   getTags, createTag, addTagToContact, findOrCreateLocation,
 } from "@/lib/queries";
 import type { Contact, TagRow } from "@/lib/types";
@@ -222,13 +222,11 @@ export default function ContactsPage() {
         });
       }
 
-      await removeEmailsFromContact(contactId);
       for (const entry of emails) {
         if (entry.email.trim()) {
           await addEmailToContact(contactId, entry.email.trim(), entry.is_primary);
         }
       }
-      await removePhonesFromContact(contactId);
       for (const entry of phones) {
         if (entry.phone.trim()) {
           await addPhoneToContact(contactId, entry.phone.trim(), entry.type || "mobile", entry.is_primary);

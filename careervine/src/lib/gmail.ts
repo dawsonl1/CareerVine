@@ -80,7 +80,7 @@ export async function getGmailClient(userId: string) {
 
   const { data: conn, error } = await supabase
     .from("gmail_connections")
-    .select("*")
+    .select("access_token, refresh_token, token_expires_at, gmail_address")
     .eq("user_id", userId)
     .single();
 
@@ -148,16 +148,8 @@ export async function revokeAccess(userId: string) {
 
 // ── Email sync helpers ──
 
-type ParsedHeader = { name: string; value: string };
-
-function getHeader(headers: ParsedHeader[], name: string): string {
-  return headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
-}
-
-function parseEmailAddress(raw: string): string {
-  const match = raw.match(/<(.+?)>/);
-  return (match ? match[1] : raw).toLowerCase().trim();
-}
+import { getHeader, parseEmailAddress } from '@/lib/gmail-helpers';
+import type { ParsedHeader } from '@/lib/gmail-helpers';
 
 /**
  * Sync emails for a specific contact by querying Gmail for messages

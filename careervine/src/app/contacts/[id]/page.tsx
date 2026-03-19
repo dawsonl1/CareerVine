@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import Navigation from "@/components/navigation";
-import { getContactById, getMeetingsForContact, getActionItemsForContact, getCompletedActionItemsForContact, getInteractions, getAttachmentsForContact, getGmailConnection } from "@/lib/queries";
+import { getContactById, getContacts, getMeetingsForContact, getActionItemsForContact, getCompletedActionItemsForContact, getInteractions, getAttachmentsForContact, getGmailConnection } from "@/lib/queries";
 import type { Contact, ContactMeeting, InteractionRow, GmailConnection, EmailMessage, ScheduledEmail } from "@/lib/types";
 import { ContactInfoHeader } from "@/components/contacts/contact-info-header";
 import { ContactActionsTab } from "@/components/contacts/contact-actions-tab";
@@ -157,9 +157,7 @@ export default function ContactDetailPage() {
         .catch(() => {});
 
       // Load all contacts for the action item contact picker
-      import("@/lib/queries").then(({ getContacts }) => {
-        getContacts(user.id).then((data) => setAllContacts(data as Contact[])).catch(() => {});
-      });
+      getContacts(user.id).then((data) => setAllContacts(data as Contact[])).catch(() => {});
     }
   }, [user, loadContact]);
 

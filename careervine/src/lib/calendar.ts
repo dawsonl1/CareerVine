@@ -25,7 +25,7 @@ export async function getCalendarClient(userId: string) {
 
   const { data: conn, error } = await supabase
     .from("gmail_connections")
-    .select("*")
+    .select("access_token, refresh_token, token_expires_at, calendar_scopes_granted")
     .eq("user_id", userId)
     .single();
 

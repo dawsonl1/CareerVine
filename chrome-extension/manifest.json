@@ -20,7 +20,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.linkedin.com/*"],
-      "js": ["src/content/linkedin-scraper.js", "src/content/content.js"],
+      "js": ["src/content/identify-sections.js", "src/content/linkedin-scraper.js", "src/content/content.js"],
       "css": ["src/content/panel.css"],
       "run_at": "document_end"
     }
