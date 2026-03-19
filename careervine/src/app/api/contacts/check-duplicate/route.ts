@@ -1,35 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server-client';
 
+// CORS headers for Chrome extension
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 /**
  * API endpoint for checking potential duplicate contacts
- * Used by Chrome extension to warn about duplicates before import
+ * Used by Chrome extension and webapp
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
-    
-    // Get user from session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
-    if (!user || authError) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Support both cookie auth (webapp) and Bearer token auth (extension)
+    const authHeader = request.headers.get('authorization');
+    let supabase;
+    let user;
+
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const { createClient } = await import('@supabase/supabase-js');
+      const { getSupabaseEnv } = await import('@/lib/supabase/config');
+      const { url, anonKey } = getSupabaseEnv({ server: true });
+      supabase = createClient(url, anonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } }
+      });
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+      }
+      user = data.user;
+    } else {
+      supabase = await createSupabaseServerClient();
+      const { data, error: authError } = await supabase.auth.getUser();
+      if (!data.user || authError) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+      }
+      user = data.user;
     }
 
     const { linkedinUrl, name, email } = await request.json();
 
     const duplicates = await findPotentialDuplicates(user.id, { linkedinUrl, name, email });
     
-    return NextResponse.json({ 
+    return NextResponse.json({
       duplicates: duplicates.matches,
-      suggestions: duplicates.suggestions 
-    });
+      suggestions: duplicates.suggestions
+    }, { headers: corsHeaders });
 
   } catch (error) {
     console.error('Duplicate check error:', error);
-    return NextResponse.json({ 
-      error: error instanceof Error ? error.message : 'Duplicate check failed' 
-    }, { status: 500 });
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Duplicate check failed'
+    }, { status: 500, headers: corsHeaders });
   }
 }
 

@@ -684,6 +684,7 @@ const App: React.FC = () => {
   );
   const [savedContactId, setSavedContactId] = useState<number | null>(null);
   const [webappBaseUrl, setWebappBaseUrl] = useState("https://careervine.app");
+  const [existingContact, setExistingContact] = useState<any>(null);
   
   const checkAuthentication = async () => {
     try {
@@ -764,6 +765,28 @@ const App: React.FC = () => {
     }
   };
 
+  // Check if the loaded profile already exists in the user's contacts
+  const checkForExistingContact = async (profileData: ProfileData) => {
+    try {
+      const response = await chrome?.runtime?.sendMessage?.({
+        action: "checkDuplicate",
+        data: {
+          linkedinUrl: profileData.linkedin_url,
+          name: profileData.name || `${profileData.first_name} ${profileData.last_name}`.trim()
+        }
+      });
+      if (response?.duplicates?.length > 0) {
+        const match = response.duplicates[0];
+        setExistingContact(match);
+        setSavedContactId(match.id);
+      } else {
+        setExistingContact(null);
+      }
+    } catch {
+      setExistingContact(null);
+    }
+  };
+
   useEffect(() => {
     // Check authentication first
     checkAuthentication().then((authenticated) => {
@@ -781,6 +804,8 @@ const App: React.FC = () => {
         if (newProfile) {
           setProfile(newProfile);
           setLoading(false);
+          // Check if this contact already exists in the database
+          checkForExistingContact(newProfile);
         }
       }
     };
@@ -818,6 +843,7 @@ const App: React.FC = () => {
       setAnalyzing(false);
       setOnProfilePage(true);
       setSavedContactId(null);
+      setExistingContact(null);
       setStatusText(null);
       setErrorText(null);
       setProgressStage(null);
@@ -1146,14 +1172,33 @@ const App: React.FC = () => {
         <button className="cv-back-btn" onClick={handleClosePanel}>
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <a href="https://careervine.app" target="_blank" rel="noreferrer" className="cv-open-link">
+        <a href={careervineUrl} target="_blank" rel="noreferrer" className="cv-open-link">
           <ExternalLink className="w-4 h-4" />
-          Open In CareerVine
+          {savedContactId ? "View In CareerVine" : "Open CareerVine"}
         </a>
       </header>
 
+      {/* Existing contact badge */}
+      {existingContact && (
+        <div className="cv-existing-badge">
+          <span className="cv-existing-dot" />
+          Already in CareerVine
+          {existingContact.matchType === 'exact_linkedin' && (
+            <span className="cv-existing-match">Exact match</span>
+          )}
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="cv-main">
+        {/* Existing contact notes — show stored bio instead of regenerating */}
+        {existingContact?.bio && (
+          <section className="cv-existing-notes">
+            <p className="cv-existing-notes-label">Existing notes</p>
+            <p className="cv-existing-notes-text">{existingContact.bio}</p>
+          </section>
+        )}
+
         {/* Profile Section */}
         <section className="cv-profile-section">
           <div className="cv-avatar">

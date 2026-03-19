@@ -121,6 +121,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'getConfig':
         sendResponse({ apiBaseUrl: config.apiBaseUrl, environment: config.environment });
         break;
+      case 'checkDuplicate':
+        await handleCheckDuplicate(message.data, sendResponse);
+        break;
       default:
         sendResponse({ error: 'Unknown action' });
     }
@@ -251,6 +254,18 @@ async function checkAuthentication(sendResponse) {
   } catch (error) {
     console.error('Auth check error:', error);
     sendResponse({ authenticated: false });
+  }
+}
+
+async function handleCheckDuplicate(data, sendResponse) {
+  try {
+    const result = await authenticatedPost('/contacts/check-duplicate', {
+      linkedinUrl: data.linkedinUrl,
+      name: data.name
+    });
+    sendResponse({ success: true, duplicates: result.duplicates || [], suggestions: result.suggestions || [] });
+  } catch (error) {
+    sendResponse({ duplicates: [], suggestions: [] });
   }
 }
 
