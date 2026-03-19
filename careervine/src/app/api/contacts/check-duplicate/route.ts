@@ -104,14 +104,17 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
   // Check for name similarity
   if (searchData.name && matches.length === 0) {
     const names = searchData.name.split(' ').filter(n => n.length > 1);
-    
+
     if (names.length >= 2) {
-      // Search for contacts with matching first or last name
+      // Sanitize for PostgREST filter syntax
+      const sanitize = (s: string) => s.replace(/[%_\\.,()]/g, '');
+      const first = sanitize(names[0]);
+      const last = sanitize(names[names.length - 1]);
       const { data } = await supabase
         .from('contacts')
         .select('*')
         .eq('user_id', userId)
-        .or(`name.ilike.%${names[0]}%,name.ilike.%${names[names.length - 1]}%`);
+        .or(`name.ilike.%${first}%,name.ilike.%${last}%`);
 
       if (data && data.length > 0 && searchData.name) {
         data.filter(contact => contact.name).forEach(contact => {

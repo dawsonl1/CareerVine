@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
-import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 /**
  * GET /api/contacts/search?q=...
@@ -13,14 +12,18 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createSupabaseServerClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return NextResponse.json({ contacts: [] });
+    if (!user || authError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    const service = createSupabaseServiceClient();
-    const { data, error } = await service
+    // Sanitize input for PostgREST ilike filter
+    const sanitized = q.replace(/[%_\\]/g, '\\$&');
+
+    // Use the authenticated client (RLS enforced) instead of service role
+    const { data, error } = await supabase
       .from("contacts")
       .select("id, name, contact_emails(email, is_primary)")
-      .eq("user_id", user.id)
-      .ilike("name", `%${q}%`)
+      .ilike("name", `%${sanitized}%`)
       .limit(8);
 
     if (error) throw error;
@@ -40,6 +43,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ contacts: results });
   } catch (error) {
     console.error("Contact search error:", error);
-    return NextResponse.json({ contacts: [] });
+    return NextResponse.json({ contacts: [] }, { status: 500 });
   }
 }

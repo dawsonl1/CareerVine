@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Button } from "@/components/ui/button";
@@ -513,7 +514,7 @@ export function ComposeEmailModal() {
                     <div className="mt-1.5 pl-3 border-l-2 border-outline-variant/50">
                       <div
                         className="text-xs text-muted-foreground prose prose-sm max-w-none [&_*]:!text-muted-foreground overflow-auto max-h-48"
-                        dangerouslySetInnerHTML={{ __html: replyQuotedHtml }}
+                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(replyQuotedHtml) }}
                       />
                     </div>
                   )}

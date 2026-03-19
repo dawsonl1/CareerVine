@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
 import { FollowUpModal } from "@/components/follow-up-modal";
 import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
@@ -319,7 +320,7 @@ export function ContactEmailsTab({
                                   {expandedEmailContent.bodyHtml ? (
                                     <div
                                       className="text-sm prose prose-sm max-w-none [&_*]:!text-foreground [&_a]:!text-primary overflow-auto max-h-80"
-                                      dangerouslySetInnerHTML={{ __html: expandedEmailContent.bodyHtml }}
+                                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(expandedEmailContent.bodyHtml) }}
                                     />
                                   ) : (
                                     <pre className="text-sm text-foreground whitespace-pre-wrap overflow-auto max-h-80">

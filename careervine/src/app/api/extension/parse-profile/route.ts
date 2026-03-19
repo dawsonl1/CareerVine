@@ -177,29 +177,6 @@ export async function POST(request: NextRequest) {
       }
     });
 
-        // 1) Debug once to see what you actually got back
-      const { model: responseModel, service_tier, usage } = response;
-
-      console.log(
-        JSON.stringify(
-          {
-            id: response.id,
-            status: response.status,
-            model_used: responseModel,
-            service_tier,
-            usage,
-            output_len: response.output?.length ?? 0,
-            output_text_len: (response.output_text ?? "").length
-          },
-          null,
-          2
-        )
-      );
-
-      console.dir(
-        response
-      )
-
     const responseText = response.output_text || '';
     
     // Check for empty response
@@ -217,9 +194,8 @@ export async function POST(request: NextRequest) {
     } catch (parseError) {
       console.error('Failed to parse OpenAI response:', responseText);
       console.error('Parse error:', parseError);
-      return NextResponse.json({ 
-        error: `Failed to parse profile data. Raw response: ${responseText.substring(0, 500)}`,
-        rawResponse: responseText 
+      return NextResponse.json({
+        error: 'Failed to parse profile data. Please try again.'
       }, { status: 500, headers: corsHeaders });
     }
 
@@ -280,10 +256,8 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Parse profile error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to parse profile';
-    const errorDetails = error instanceof Error && 'response' in error ? JSON.stringify((error as any).response?.data) : '';
-    return NextResponse.json({ 
-      error: `${errorMessage}${errorDetails ? ` - ${errorDetails}` : ''}` 
+    return NextResponse.json({
+      error: 'Failed to parse profile. Please try again.'
     }, { status: 500, headers: corsHeaders });
   }
 }

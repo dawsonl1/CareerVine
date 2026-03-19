@@ -102,10 +102,11 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
   if (profileData.name && !exactMatch) {
     const names = profileData.name.split(' ');
     if (names.length >= 2) {
-      const firstName = names[0];
-      const lastName = names[names.length - 1];
-      
-      // Search for contacts with similar names
+      // Sanitize for PostgREST filter syntax
+      const sanitize = (s: string) => s.replace(/[%_\\.,()]/g, '');
+      const firstName = sanitize(names[0]);
+      const lastName = sanitize(names[names.length - 1]);
+
       const { data } = await supabase
         .from('contacts')
         .select('*')
@@ -124,9 +125,7 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
 
 async function updateExistingContact(supabase: any, contactId: number, profileData: any, userId: string) {
 
-  const updateData: any = {
-    updated_at: new Date().toISOString()
-  };
+  const updateData: any = {};
 
   if (profileData.name) updateData.name = profileData.name;
   if (profileData.industry) updateData.industry = profileData.industry;
@@ -156,13 +155,15 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
     }
   }
 
-  const { data: contact } = await supabase
+  const { data: contact, error: updateError } = await supabase
     .from('contacts')
     .update(updateData)
     .eq('id', contactId)
     .eq('user_id', userId)
     .select()
     .single();
+
+  if (updateError || !contact) throw new Error(updateError?.message || 'Failed to update contact');
 
   // Clear existing experience/education before re-adding to prevent duplicates
   if (profileData.experience && profileData.experience.length > 0) {
@@ -219,11 +220,13 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
     follow_up_frequency_days: parseFollowUpFrequency(profileData.follow_up_frequency) ?? (profileData.follow_up_frequency_days || null)
   };
 
-  const { data: contact } = await supabase
+  const { data: contact, error: insertError } = await supabase
     .from('contacts')
     .insert(contactData)
     .select()
     .single();
+
+  if (insertError || !contact) throw new Error(insertError?.message || 'Failed to create contact');
 
   // Add email if available
   if (profileData.contactInfo?.email) {
