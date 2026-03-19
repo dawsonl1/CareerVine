@@ -216,6 +216,7 @@ function handleProfileNavigation() {
   const currentProfileId = extractProfileId(window.location.href);
 
   if (currentProfileId && currentProfileId !== lastProfileId) {
+    // Navigated to a new profile
     lastProfileId = currentProfileId;
     isAnalyzing = false;
     lastAnalyzedProfileId = null;
@@ -227,6 +228,14 @@ function handleProfileNavigation() {
     if (isPanelOpen && autoScrapeEnabled) {
       analyzeCurrentProfile(currentProfileId, true);
     }
+  } else if (!currentProfileId && lastProfileId) {
+    // Left a profile page (went to timeline, search, etc.)
+    lastProfileId = null;
+    isAnalyzing = false;
+    lastAnalyzedProfileId = null;
+
+    chrome.storage.local.remove(['latestProfile']);
+    emit('leftprofile');
   }
 }
 

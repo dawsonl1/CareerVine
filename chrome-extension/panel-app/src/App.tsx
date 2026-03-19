@@ -679,6 +679,9 @@ const App: React.FC = () => {
   const [autoScrape, setAutoScrape] = useState(false);
   const [progressStage, setProgressStage] = useState<string | null>(null);
   const [progressPercent, setProgressPercent] = useState(0);
+  const [onProfilePage, setOnProfilePage] = useState(
+    typeof window !== 'undefined' && window.location?.href?.includes('linkedin.com/in/')
+  );
   
   const checkAuthentication = async () => {
     try {
@@ -805,10 +808,21 @@ const App: React.FC = () => {
       setProfile(null);
       setLoading(false);
       setAnalyzing(false);
+      setOnProfilePage(true);
       setStatusText(null);
       setErrorText(null);
       setProgressStage(null);
       setProgressPercent(0);
+    };
+
+    // Listen for leaving a profile page (timeline, search, etc.)
+    const handleLeftProfile = () => {
+      setProfile(null);
+      setLoading(false);
+      setAnalyzing(false);
+      setOnProfilePage(false);
+      setStatusText(null);
+      setErrorText(null);
     };
 
     const bus = (window as any).__cv_bus;
@@ -816,12 +830,14 @@ const App: React.FC = () => {
     bus?.addEventListener('analyzing', handleAnalyzing as EventListener);
     bus?.addEventListener('progress', handleProgress as EventListener);
     bus?.addEventListener('newprofile', handleNewProfile as EventListener);
+    bus?.addEventListener('leftprofile', handleLeftProfile as EventListener);
 
     return () => {
       chrome?.storage?.onChanged?.removeListener(handleStorageChange);
       bus?.removeEventListener('analyzing', handleAnalyzing as EventListener);
       bus?.removeEventListener('progress', handleProgress as EventListener);
       bus?.removeEventListener('newprofile', handleNewProfile as EventListener);
+      bus?.removeEventListener('leftprofile', handleLeftProfile as EventListener);
     };
   }, []);
 
@@ -964,7 +980,6 @@ const App: React.FC = () => {
   }
 
   if (!profile) {
-    const isOnProfile = typeof window !== 'undefined' && window.location?.href?.includes('linkedin.com/in/');
     return (
       <div className="cv-panel">
         <header className="cv-header">
@@ -977,7 +992,7 @@ const App: React.FC = () => {
           </a>
         </header>
         <div className="cv-empty">
-          {isOnProfile ? (
+          {onProfilePage ? (
             <>
               <p className="cv-empty-title">Ready to analyze</p>
               <p className="cv-empty-subtitle">Click below to scrape this LinkedIn profile.</p>
@@ -987,26 +1002,29 @@ const App: React.FC = () => {
             </>
           ) : (
             <>
-              <p className="cv-empty-title">Visit a LinkedIn profile</p>
-              <p className="cv-empty-subtitle">Navigate to a profile page to get started.</p>
+              <MapPin className="cv-empty-icon" />
+              <p className="cv-empty-title">No profile detected</p>
+              <p className="cv-empty-subtitle">Navigate to a LinkedIn profile page to find and save new contacts.</p>
             </>
           )}
         </div>
-        {/* Auto-scrape toggle */}
-        <div className="cv-autoscrape-toggle">
-          <label className="cv-toggle-label">
-            <span>Auto-analyze on navigation</span>
-            <button
-              type="button"
-              className={`cv-toggle-switch ${autoScrape ? 'cv-toggle-on' : ''}`}
-              onClick={() => handleToggleAutoScrape(!autoScrape)}
-              role="switch"
-              aria-checked={autoScrape}
-            >
-              <span className="cv-toggle-knob" />
-            </button>
-          </label>
-        </div>
+        {/* Auto-scrape toggle — only show on profile pages */}
+        {onProfilePage && (
+          <div className="cv-autoscrape-toggle">
+            <label className="cv-toggle-label">
+              <span>Auto-analyze on navigation</span>
+              <button
+                type="button"
+                className={`cv-toggle-switch ${autoScrape ? 'cv-toggle-on' : ''}`}
+                onClick={() => handleToggleAutoScrape(!autoScrape)}
+                role="switch"
+                aria-checked={autoScrape}
+              >
+                <span className="cv-toggle-knob" />
+              </button>
+            </label>
+          </div>
+        )}
       </div>
     );
   }

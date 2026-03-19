@@ -1760,3 +1760,11 @@
 .cv-toggle-switch.cv-toggle-on .cv-toggle-knob {
   transform: translateX(16px);
 }
+
+/* ---- Empty State Icon ---- */
+.cv-empty-icon {
+  width: 40px;
+  height: 40px;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
