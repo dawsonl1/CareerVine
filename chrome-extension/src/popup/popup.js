@@ -178,20 +178,37 @@ class PopupManager {
         return;
       }
       
-      container.innerHTML = recentContacts.map(contact => `
-        <div class="contact-item">
-          <div class="contact-name">${contact.name || 'Unknown'}</div>
-          <div class="contact-details">
-            ${contact.headline ? `<div>${contact.headline}</div>` : ''}
-            ${contact.company ? `<div>${contact.company}</div>` : ''}
-            ${contact.school ? `<div>${contact.school}</div>` : ''}
-          </div>
-          <div class="contact-meta">
-            <span>Imported from LinkedIn</span>
-            <span>${this.formatDate(contact.importedAt)}</span>
-          </div>
-        </div>
-      `).join('');
+      container.innerHTML = '';
+      recentContacts.forEach(contact => {
+        const item = document.createElement('div');
+        item.className = 'contact-item';
+
+        const name = document.createElement('div');
+        name.className = 'contact-name';
+        name.textContent = contact.name || 'Unknown';
+        item.appendChild(name);
+
+        const details = document.createElement('div');
+        details.className = 'contact-details';
+        [contact.headline, contact.company, contact.school].filter(Boolean).forEach(text => {
+          const div = document.createElement('div');
+          div.textContent = text;
+          details.appendChild(div);
+        });
+        item.appendChild(details);
+
+        const meta = document.createElement('div');
+        meta.className = 'contact-meta';
+        const src = document.createElement('span');
+        src.textContent = 'Imported from LinkedIn';
+        const date = document.createElement('span');
+        date.textContent = this.formatDate(contact.importedAt);
+        meta.appendChild(src);
+        meta.appendChild(date);
+        item.appendChild(meta);
+
+        container.appendChild(item);
+      });
       
     } catch (error) {
       console.error('Failed to load recent contacts:', error);
@@ -203,10 +220,10 @@ class PopupManager {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const pageInfo = document.getElementById('currentPageInfo');
       
-      if (tab.url.includes('linkedin.com/in/')) {
+      if (tab.url?.includes('linkedin.com/in/')) {
         pageInfo.textContent = 'LinkedIn Profile Page';
         pageInfo.style.color = '#2d6a30';
-      } else if (tab.url.includes('linkedin.com/company/')) {
+      } else if (tab.url?.includes('linkedin.com/company/')) {
         pageInfo.textContent = 'LinkedIn Company Page';
         pageInfo.style.color = '#2d6a30';
       } else {

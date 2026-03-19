@@ -75,7 +75,8 @@ async function getValidSession() {
   if (!session) return null;
 
   // Check if token has expired (with 60s buffer)
-  if (session.expires_at) {
+  // Treat missing expires_at as expired to force a refresh
+  if (session.expires_at != null) {
     const expiresAt = session.expires_at * 1000; // Supabase uses seconds
     if (Date.now() > expiresAt - 60000) {
       // Token expired or about to expire — try refresh
@@ -87,6 +88,14 @@ async function getValidSession() {
       await chrome.storage.local.remove(['session']);
       return null;
     }
+  } else {
+    // No expires_at — treat as expired, try refresh
+    if (session.refresh_token) {
+      const refreshed = await refreshSession(session);
+      if (refreshed) return refreshed;
+    }
+    await chrome.storage.local.remove(['session']);
+    return null;
   }
 
   return session;
@@ -285,10 +294,9 @@ async function checkAuthentication(sendResponse) {
 
 async function handleLogout(sendResponse) {
   try {
-    await chrome.storage.local.remove(['session']);
+    await chrome.storage.local.remove(['session', 'latestProfile', 'recentContacts', 'autoScrapeEnabled']);
     sendResponse({ success: true });
   } catch (error) {
-    console.error('Logout error:', error);
     sendResponse({ error: error.message });
   }
 }

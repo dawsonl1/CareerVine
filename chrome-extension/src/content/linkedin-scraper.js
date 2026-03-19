@@ -25,6 +25,9 @@ class LinkedInScraper {
         const delay = 600 + Math.floor(Math.random() * 1400);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
+      // Final scroll to ensure bottom content is loaded
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
       // Scroll back to top after a pause
       await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 800));
       window.scrollTo({ top: 0, behavior: 'smooth' });
