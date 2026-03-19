@@ -243,7 +243,6 @@ async function scrapeCurrentProfile() {
       data: { cleanedText, profileUrl: window.location.href }
     });
 
-    dispatchProgress('done', 100);
     lastScrapeTimestamp = Date.now();
     return { scraped: true };
   } catch (error) {

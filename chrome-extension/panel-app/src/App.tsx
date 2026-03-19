@@ -853,6 +853,8 @@ const App: React.FC = () => {
     // Listen for cache hit — profile loaded from cache, show it
     const handleCacheHit = () => {
       setOnProfilePage(true);
+      setSavedContactId(null);
+      setExistingContact(null);
       setLoading(true); // Brief loading while storage.onChanged delivers the data
     };
 
@@ -862,8 +864,12 @@ const App: React.FC = () => {
       setLoading(false);
       setAnalyzing(false);
       setOnProfilePage(false);
+      setSavedContactId(null);
+      setExistingContact(null);
       setStatusText(null);
       setErrorText(null);
+      setProgressStage(null);
+      setProgressPercent(0);
     };
 
     const bus = (window as any).__cv_bus;

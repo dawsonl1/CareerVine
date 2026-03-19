@@ -47,11 +47,10 @@ export async function POST(request: NextRequest) {
 
     const { linkedinUrl, name, email } = await request.json();
 
-    const duplicates = await findPotentialDuplicates(user.id, { linkedinUrl, name, email });
-    
+    const duplicates = await findPotentialDuplicates(supabase, user.id, { linkedinUrl, name, email });
+
     return NextResponse.json({
-      duplicates: duplicates.matches,
-      suggestions: duplicates.suggestions
+      duplicates: duplicates.matches
     }, { headers: corsHeaders });
 
   } catch (error) {
@@ -62,10 +61,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function findPotentialDuplicates(userId: string, searchData: { linkedinUrl?: string, name?: string, email?: string }) {
-  const supabase = await createSupabaseServerClient();
+async function findPotentialDuplicates(supabase: any, userId: string, searchData: { linkedinUrl?: string, name?: string, email?: string }) {
   const matches = [];
-  const suggestions = [];
 
   // Check for exact LinkedIn URL match
   if (searchData.linkedinUrl) {
@@ -135,17 +132,7 @@ async function findPotentialDuplicates(userId: string, searchData: { linkedinUrl
   // Sort by confidence
   matches.sort((a, b) => b.confidence - a.confidence);
 
-  return {
-    matches,
-    suggestions: matches.map(match => ({
-      id: match.id,
-      name: match.name,
-      industry: match.industry,
-      linkedin_url: match.linkedin_url,
-      matchType: match.matchType,
-      confidence: match.confidence
-    }))
-  };
+  return { matches };
 }
 
 function calculateNameMatchConfidence(searchName: string, existingName: string): number {

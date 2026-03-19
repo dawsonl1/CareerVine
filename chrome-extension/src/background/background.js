@@ -8,22 +8,26 @@
 const ENV = 'development';
 
 let config = {};
+let configPromise = null;
 
-// Initialize configuration
-async function initializeConfig() {
-  try {
-    const response = await fetch(chrome.runtime.getURL(`env/${ENV}.json`));
-    config = await response.json();
-    console.log(`CareerVine: Loaded ${config.environment} config -> ${config.apiBaseUrl}`);
-  } catch (error) {
-    console.error('Failed to load config:', error);
-    config = {
-      apiBaseUrl: 'https://dawsonsprojects.com/api',
-      supabaseUrl: 'https://iycrlwqjetkwaauzxrhd.supabase.co',
-      supabaseAnonKey: 'sb_publishable_1WPOaIis1MzOM3SUuW1wMw_l5ZGr3n3',
-      environment: 'production'
-    };
+// Initialize configuration (singleton — safe to call concurrently)
+function ensureConfig() {
+  if (!configPromise) {
+    configPromise = (async () => {
+      try {
+        const response = await fetch(chrome.runtime.getURL(`env/${ENV}.json`));
+        config = await response.json();
+      } catch (error) {
+        config = {
+          apiBaseUrl: 'https://dawsonsprojects.com/api',
+          supabaseUrl: 'https://iycrlwqjetkwaauzxrhd.supabase.co',
+          supabaseAnonKey: 'sb_publishable_1WPOaIis1MzOM3SUuW1wMw_l5ZGr3n3',
+          environment: 'production'
+        };
+      }
+    })();
   }
+  return configPromise;
 }
 
 // Extract only the fields we need from a raw Supabase session
@@ -94,9 +98,7 @@ async function getValidSession() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Ensure config is loaded before handling message
   (async () => {
-    if (!config.supabaseUrl) {
-      await initializeConfig();
-    }
+    await ensureConfig();
 
     try {
       switch (message.action) {
@@ -263,7 +265,7 @@ async function handleCheckDuplicate(data, sendResponse) {
       linkedinUrl: data.linkedinUrl,
       name: data.name
     });
-    sendResponse({ success: true, duplicates: result.duplicates || [], suggestions: result.suggestions || [] });
+    sendResponse({ success: true, duplicates: result.duplicates || [] });
   } catch (error) {
     sendResponse({ duplicates: [], suggestions: [] });
   }
@@ -294,7 +296,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     console.log('CareerVine Extension installed');
 
     // Initialize configuration
-    await initializeConfig();
+    await ensureConfig();
 
     // Set default values
     await chrome.storage.local.set({ session: null });
@@ -304,5 +306,5 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // Handle extension startup
 chrome.runtime.onStartup.addListener(async () => {
   console.log('CareerVine Extension started');
-  await initializeConfig();
+  await ensureConfig();
 });
