@@ -880,6 +880,21 @@ const App: React.FC = () => {
       setProgressPercent(0);
     };
 
+    // DB match — contact already exists in CareerVine (no scraping needed)
+    const handleDBMatch = (event: CustomEvent) => {
+      const contact = event.detail?.contact;
+      if (contact) {
+        setExistingContact(contact);
+        setSavedContactId(contact.id);
+        setOnProfilePage(true);
+      }
+    };
+
+    // DB no match — new contact, show analyze button
+    const handleDBNoMatch = () => {
+      setOnProfilePage(true);
+    };
+
     const bus = (window as any).__cv_bus;
     chrome?.storage?.onChanged?.addListener(handleStorageChange);
     bus?.addEventListener('analyzing', handleAnalyzing as EventListener);
@@ -887,6 +902,8 @@ const App: React.FC = () => {
     bus?.addEventListener('newprofile', handleNewProfile as EventListener);
     bus?.addEventListener('leftprofile', handleLeftProfile as EventListener);
     bus?.addEventListener('cachedhit', handleCacheHit as EventListener);
+    bus?.addEventListener('dbmatch', handleDBMatch as EventListener);
+    bus?.addEventListener('dbnomatch', handleDBNoMatch as EventListener);
 
     return () => {
       chrome?.storage?.onChanged?.removeListener(handleStorageChange);
@@ -895,6 +912,8 @@ const App: React.FC = () => {
       bus?.removeEventListener('newprofile', handleNewProfile as EventListener);
       bus?.removeEventListener('leftprofile', handleLeftProfile as EventListener);
       bus?.removeEventListener('cachedhit', handleCacheHit as EventListener);
+      bus?.removeEventListener('dbmatch', handleDBMatch as EventListener);
+      bus?.removeEventListener('dbnomatch', handleDBNoMatch as EventListener);
     };
   }, []);
 
@@ -1068,23 +1087,56 @@ const App: React.FC = () => {
             {savedContactId ? "View In CareerVine" : "Open CareerVine"}
           </a>
         </header>
-        <div className="cv-empty">
-          {onProfilePage ? (
-            <>
-              <p className="cv-empty-title">Ready to analyze</p>
-              <p className="cv-empty-subtitle">Click below to scrape this LinkedIn profile.</p>
-              <button className="cv-analyze-btn" onClick={handleRequestScrape}>
-                Analyze Profile
+
+        {/* Show existing contact info if found in DB */}
+        {existingContact && onProfilePage && (
+          <>
+            <div className="cv-existing-badge">
+              <span className="cv-existing-dot" />
+              Already in CareerVine
+              <span className="cv-existing-match">
+                {existingContact.matchType === 'exact_linkedin' ? 'Exact match' : 'Possible match'}
+              </span>
+            </div>
+            <div className="cv-empty">
+              <User className="cv-empty-icon" style={{ color: '#2d6a30' }} />
+              <p className="cv-empty-title">{existingContact.name || 'Saved Contact'}</p>
+              {existingContact.industry && (
+                <p className="cv-empty-subtitle">{existingContact.industry}</p>
+              )}
+              {existingContact.notes && (
+                <p className="cv-empty-subtitle" style={{ marginTop: '8px', fontStyle: 'italic' }}>
+                  {existingContact.notes}
+                </p>
+              )}
+              <button className="cv-analyze-btn" onClick={handleRequestScrape} style={{ marginTop: '12px' }}>
+                Refresh from LinkedIn
               </button>
-            </>
-          ) : (
-            <>
-              <MapPin className="cv-empty-icon" />
-              <p className="cv-empty-title">No profile detected</p>
-              <p className="cv-empty-subtitle">Navigate to a LinkedIn profile page to find and save new contacts.</p>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        )}
+
+        {/* New contact — not in DB */}
+        {!existingContact && (
+          <div className="cv-empty">
+            {onProfilePage ? (
+              <>
+                <p className="cv-empty-title">Ready to analyze</p>
+                <p className="cv-empty-subtitle">Click below to scrape this LinkedIn profile.</p>
+                <button className="cv-analyze-btn" onClick={handleRequestScrape}>
+                  Analyze Profile
+                </button>
+              </>
+            ) : (
+              <>
+                <MapPin className="cv-empty-icon" />
+                <p className="cv-empty-title">No profile detected</p>
+                <p className="cv-empty-subtitle">Navigate to a LinkedIn profile page to find and save new contacts.</p>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Auto-scrape toggle — only show on profile pages */}
         {onProfilePage && (
           <div className="cv-autoscrape-toggle">

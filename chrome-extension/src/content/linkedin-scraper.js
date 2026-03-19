@@ -29,6 +29,9 @@ class LinkedInScraper {
       window.scrollTo({ top: Math.floor(Math.random() * 150), behavior: 'smooth' });
     }
 
+    // Wait for lazy-loaded content to finish rendering after scrolling
+    await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
+
     // Extract all text from main content area
     const main = document.querySelector('main') || document.body;
     let text = main.innerText || main.textContent || '';

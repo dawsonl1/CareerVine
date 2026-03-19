@@ -8,11 +8,12 @@ let isPanelOpen = false;
 let isAnalyzing = false;
 let lastAnalyzedProfileId = null;
 let lastScrapeTimestamp = 0;
+let lastCheckedProfileId = null; // Track which profile we last checked against the DB
 let autoScrapeEnabled = false;
 const SCRAPE_COOLDOWN_MS = 30000;
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-// Load and cache auto-scrape setting, update via storage change listener
+// Load and cache auto-scrape setting
 chrome.storage.local.get(['autoScrapeEnabled'], (result) => {
   autoScrapeEnabled = result.autoScrapeEnabled || false;
 });
@@ -22,37 +23,33 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// Private event bus — NOT on window, so LinkedIn's JS can never listen to it
+// Private event bus
 const _bus = new EventTarget();
 
 function emit(name, detail = {}) {
   _bus.dispatchEvent(new CustomEvent(name, { detail }));
 }
 
-// Expose event bus to the React panel (isolated world only — not visible to page JS)
 window.__cv_bus = _bus;
 
-// Store closed shadow root reference (isolated world only)
 let _shadowRoot = null;
 
-// Create and inject the slide-out panel with Shadow DOM isolation
+// ---- Panel creation ----
+
 function createPanel() {
-  if (document.getElementById('_cv-ph')) {
-    return;
-  }
+  if (document.getElementById('_cv-ph')) return;
 
   const host = document.createElement('div');
   host.id = '_cv-ph';
   host.style.cssText = 'all: initial; position: fixed; top: 0; right: 0; z-index: 2147483647; height: 100vh; pointer-events: none;';
   document.body.appendChild(host);
 
-  // Closed shadow DOM — LinkedIn cannot inspect contents
   const shadow = host.attachShadow({ mode: 'closed' });
   _shadowRoot = shadow;
 
   const panel = document.createElement('div');
   panel.id = '_cv-p';
-  panel.className = 'careervine-panel';  // Inside shadow DOM — not visible to LinkedIn
+  panel.className = 'careervine-panel';
   panel.style.cssText = 'pointer-events: auto;';
   panel.innerHTML = `<div id="root"></div>`;
   shadow.appendChild(panel);
@@ -68,16 +65,11 @@ function createPanel() {
 function loadPanelScript(shadowRoot) {
   window.process = { env: { NODE_ENV: 'production' } };
   window.__cv_sr = shadowRoot;
-
-  import(chrome.runtime.getURL('src/content/panel-app/panel.js'))
-    .catch(() => {});
+  import(chrome.runtime.getURL('src/content/panel-app/panel.js')).catch(() => {});
 }
 
-// Create the floating action button
 function createFAB() {
-  if (document.getElementById('_cv-f')) {
-    return;
-  }
+  if (document.getElementById('_cv-f')) return;
 
   const fab = document.createElement('button');
   fab.id = '_cv-f';
@@ -92,62 +84,79 @@ function createFAB() {
   `;
   fab.title = 'Import to CareerVine';
   fab.addEventListener('click', togglePanel);
-
   document.body.appendChild(fab);
 }
 
 function togglePanel() {
-  if (isPanelOpen) {
-    closePanel();
-  } else {
-    openPanel();
-  }
+  isPanelOpen ? closePanel() : openPanel();
 }
 
-// Profile cache — avoids re-scraping recently viewed profiles
+// ---- Profile cache ----
+
 async function getCachedProfile(profileId) {
   const { profileCache = {} } = await chrome.storage.local.get(['profileCache']);
   const entry = profileCache[profileId];
-  if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
-    return entry.data;
-  }
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) return entry.data;
   return null;
 }
 
 async function setCachedProfile(profileId, data) {
   const { profileCache = {} } = await chrome.storage.local.get(['profileCache']);
-  // Clean expired entries while we're here
   const now = Date.now();
   const cleaned = {};
   for (const [key, val] of Object.entries(profileCache)) {
-    if (now - val.timestamp < CACHE_TTL_MS) {
-      cleaned[key] = val;
-    }
+    if (now - val.timestamp < CACHE_TTL_MS) cleaned[key] = val;
   }
   cleaned[profileId] = { data, timestamp: now };
   await chrome.storage.local.set({ profileCache: cleaned });
 }
 
-// Try loading a profile from cache, returns true if cache hit
 async function tryLoadFromCache(profileId) {
   const cached = await getCachedProfile(profileId);
   if (cached) {
     await chrome.storage.local.set({ latestProfile: cached });
     lastAnalyzedProfileId = profileId;
-    // Send the cached data directly to the React panel — don't rely on storage.onChanged
-    // which may not fire if the data is identical to what's already in storage
     emit('cachedhit', { profileData: cached });
     return true;
   }
   return false;
 }
 
-// Dispatch progress updates via private bus
+// ---- DB lookup (no scraping, no page interaction) ----
+
+async function checkProfileInDB(profileId) {
+  if (lastCheckedProfileId === profileId) return; // Already checked this one
+  if (!isExtensionContextValid()) return;
+
+  try {
+    const authResponse = await chrome.runtime.sendMessage({ action: 'checkAuth' });
+    if (!authResponse?.authenticated) return;
+
+    const linkedinUrl = `https://www.linkedin.com/in/${profileId}/`;
+    const response = await chrome.runtime.sendMessage({
+      action: 'checkDuplicate',
+      data: { linkedinUrl }
+    });
+
+    lastCheckedProfileId = profileId;
+
+    if (response?.duplicates?.length > 0) {
+      const match = response.duplicates[0];
+      emit('dbmatch', { contact: match, profileId });
+    } else {
+      emit('dbnomatch', { profileId });
+    }
+  } catch {
+    emit('dbnomatch', { profileId });
+  }
+}
+
+// ---- Progress + scraping ----
+
 function dispatchProgress(stage, percent) {
   emit('progress', { stage, percent });
 }
 
-// Trigger scrape and notify the React panel of progress
 function analyzeCurrentProfile(profileId, calledFromNav = false) {
   isAnalyzing = true;
   emit('analyzing', { analyzing: true });
@@ -158,11 +167,8 @@ function analyzeCurrentProfile(profileId, calledFromNav = false) {
       isAnalyzing = false;
       if (result?.scraped) {
         lastAnalyzedProfileId = profileId;
-        // Cache the scraped profile for future visits
         const { latestProfile } = await chrome.storage.local.get(['latestProfile']);
-        if (latestProfile) {
-          await setCachedProfile(profileId, latestProfile);
-        }
+        if (latestProfile) await setCachedProfile(profileId, latestProfile);
       }
       dispatchProgress('done', 100);
       emit('analyzing', { analyzing: false });
@@ -189,13 +195,18 @@ function openPanel() {
       isPanelOpen = true;
 
       const currentProfileId = extractProfileId(window.location.href);
-      if (currentProfileId && currentProfileId !== lastAnalyzedProfileId) {
-        // Try cache first — if hit, profile loads instantly
-        tryLoadFromCache(currentProfileId).then((hit) => {
-          if (!hit && autoScrapeEnabled) {
-            analyzeCurrentProfile(currentProfileId);
-          }
-        }).catch(() => {});
+      if (currentProfileId) {
+        // Check DB first (fast, no page interaction)
+        checkProfileInDB(currentProfileId);
+
+        if (currentProfileId !== lastAnalyzedProfileId) {
+          // Try cache — if hit, profile loads instantly
+          tryLoadFromCache(currentProfileId).then((hit) => {
+            if (!hit && autoScrapeEnabled) {
+              analyzeCurrentProfile(currentProfileId);
+            }
+          }).catch(() => {});
+        }
       }
     }
   }
@@ -211,16 +222,11 @@ function closePanel() {
   }
 }
 
-// Check if extension context is still valid
 function isExtensionContextValid() {
-  try {
-    return chrome.runtime && !!chrome.runtime.id;
-  } catch {
-    return false;
-  }
+  try { return chrome.runtime && !!chrome.runtime.id; }
+  catch { return false; }
 }
 
-// Scrape the current LinkedIn profile
 async function scrapeCurrentProfile() {
   if (!window.location.href.includes('linkedin.com/in/')) return { scraped: false };
   if (!isExtensionContextValid()) return { scraped: false };
@@ -252,7 +258,8 @@ async function scrapeCurrentProfile() {
   }
 }
 
-// Navigation detection
+// ---- Navigation detection ----
+
 let lastProfileId = extractProfileId(window.location.href);
 
 function extractProfileId(url) {
@@ -264,60 +271,59 @@ function handleProfileNavigation() {
   const currentProfileId = extractProfileId(window.location.href);
 
   if (currentProfileId && currentProfileId !== lastProfileId) {
-    // Navigated to a new profile
     lastProfileId = currentProfileId;
     isAnalyzing = false;
     lastAnalyzedProfileId = null;
     lastScrapeTimestamp = 0;
+    lastCheckedProfileId = null; // Reset so DB check runs for new profile
+
+    // Always check DB for the new profile (fast, no page interaction)
+    checkProfileInDB(currentProfileId);
 
     if (isPanelOpen) {
-      // Try cache first — if hit, profile loads instantly with no scrape needed
-      // Note: we don't remove latestProfile first since tryLoadFromCache will overwrite it,
-      // and removing first would cause a race condition
       tryLoadFromCache(currentProfileId).then((hit) => {
         if (!hit) {
           chrome.storage.local.remove(['latestProfile']);
-          emit('newprofile');
+          emit('newprofile', { profileId: currentProfileId });
           if (autoScrapeEnabled) {
             analyzeCurrentProfile(currentProfileId, true);
           }
         }
       }).catch(() => {
         chrome.storage.local.remove(['latestProfile']);
-        emit('newprofile');
+        emit('newprofile', { profileId: currentProfileId });
       });
     } else {
       chrome.storage.local.remove(['latestProfile']);
-      emit('newprofile');
+      emit('newprofile', { profileId: currentProfileId });
     }
   } else if (!currentProfileId && lastProfileId) {
-    // Left a profile page (went to timeline, search, etc.)
     lastProfileId = null;
     isAnalyzing = false;
     lastAnalyzedProfileId = null;
+    lastCheckedProfileId = null;
 
     chrome.storage.local.remove(['latestProfile']);
     emit('leftprofile');
   }
 }
 
-// Guard against double-initialization
+// ---- Init ----
+
 if (!window.__cv_init) {
   window.__cv_init = true;
 
-  // Listen for manual scrape requests from the React panel (private bus)
   _bus.addEventListener('request-scrape', () => {
     const currentProfileId = extractProfileId(window.location.href);
     if (currentProfileId && !isAnalyzing) {
       lastAnalyzedProfileId = null;
-      lastScrapeTimestamp = 0; // Allow immediate re-scrape
+      lastScrapeTimestamp = 0;
       analyzeCurrentProfile(currentProfileId);
     }
   });
 
   window.addEventListener('popstate', handleProfileNavigation);
 
-  // Poll for URL changes — LinkedIn SPA navigation detection
   let lastPolledUrl = window.location.href;
   setInterval(() => {
     const currentUrl = window.location.href;
@@ -328,12 +334,10 @@ if (!window.__cv_init) {
   }, 1000);
 }
 
-// Initialize
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', createFAB);
 } else {
   createFAB();
 }
 
-// Expose close function for panel (isolated world only)
 window.__cv_close = closePanel;
