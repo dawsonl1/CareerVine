@@ -1858,6 +1858,58 @@
   line-height: 1.5;
 }
 
+/* ---- Contact Status Toggle ---- */
+.cv-status-toggle-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.cv-status-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid #e0e0e0;
+  border-radius: 9999px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cv-status-toggle-btn:hover {
+  border-color: #d0d0d0;
+  background: #f8f9fa;
+}
+
+.cv-status-toggle-btn.cv-status-active {
+  background: #e8f5e9;
+  border-color: #2d6a30;
+  color: #2d6a30;
+}
+
+.cv-status-toggle-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- View Mode Follow-up Dropdown ---- */
+.cv-view-followup .cv-dropdown-trigger {
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.cv-view-followup .cv-dropdown-trigger:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
 /* ---- Empty State Icon ---- */
 .cv-empty-icon {
   width: 40px;

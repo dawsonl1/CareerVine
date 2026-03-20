@@ -56,6 +56,24 @@ type ProfileData = {
   current_company?: string | null;
 };
 
+// Client-side contact status derivation (mirrors backend deriveContactStatus)
+const deriveContactStatus = (education: Education[]): { contact_status: 'student' | 'professional'; expected_graduation: string | null } => {
+  const currentYear = new Date().getFullYear();
+  const hasCurrentEducation = education.some(edu => (edu as any).is_current);
+  const futureGraduation = education.find(edu => {
+    const endYear = parseInt(edu.end_year || "");
+    return endYear && endYear > currentYear;
+  });
+
+  if (hasCurrentEducation || futureGraduation) {
+    return {
+      contact_status: 'student',
+      expected_graduation: futureGraduation?.end_year || null,
+    };
+  }
+  return { contact_status: 'professional', expected_graduation: null };
+};
+
 const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null => {
   if (!data) return null;
   const experience = (data.experience ?? []).map((exp, index) => ({
@@ -67,9 +85,27 @@ const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null =>
     end_month: exp.end_month ?? "",
     is_current: exp.is_current ?? exp.end_month === "Present",
   }));
-  
+
   const currentExp = experience.find(e => e.is_current);
-  
+
+  const education = (data.education ?? []).map((edu, index) => ({
+    id: (edu as Education)?.id ?? `${Date.now()}-edu-${index}`,
+    school: edu.school ?? "",
+    degree: edu.degree ?? "",
+    field_of_study: edu.field_of_study ?? "",
+    start_year: edu.start_year ?? "",
+    end_year: edu.end_year ?? "",
+  }));
+
+  // Auto-derive contact_status if not already set
+  let contactStatus = data.contact_status;
+  let expectedGraduation = data.expected_graduation;
+  if (!contactStatus) {
+    const derived = deriveContactStatus(education);
+    contactStatus = derived.contact_status;
+    expectedGraduation = derived.expected_graduation;
+  }
+
   return {
     first_name: data.first_name ?? "",
     last_name: data.last_name ?? "",
@@ -83,16 +119,9 @@ const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null =>
     generated_notes: data.generated_notes ?? "",
     suggested_tags: data.suggested_tags ?? [],
     experience,
-    education: (data.education ?? []).map((edu, index) => ({
-      id: (edu as Education)?.id ?? `${Date.now()}-edu-${index}`,
-      school: edu.school ?? "",
-      degree: edu.degree ?? "",
-      field_of_study: edu.field_of_study ?? "",
-      start_year: edu.start_year ?? "",
-      end_year: edu.end_year ?? "",
-    })),
-    contact_status: data.contact_status ?? "professional",
-    expected_graduation: data.expected_graduation ?? "",
+    education,
+    contact_status: contactStatus ?? "professional",
+    expected_graduation: expectedGraduation ?? "",
     linkedin_url: data.linkedin_url ?? "",
     follow_up_frequency: data.follow_up_frequency ?? "",
     current_company: currentExp?.company ?? null,
@@ -514,6 +543,26 @@ const EditPanel: React.FC<{
             />
           </div>
         </section>
+
+        {/* Contact Status Toggle */}
+        <div className="cv-status-toggle-row">
+          <button
+            type="button"
+            className={`cv-status-toggle-btn ${profile.contact_status === 'student' ? 'cv-status-active' : ''}`}
+            onClick={() => onChange('contact_status', 'student')}
+          >
+            <GraduationCap className="w-4 h-4" />
+            Student
+          </button>
+          <button
+            type="button"
+            className={`cv-status-toggle-btn ${profile.contact_status === 'professional' ? 'cv-status-active' : ''}`}
+            onClick={() => onChange('contact_status', 'professional')}
+          >
+            <Briefcase className="w-4 h-4" />
+            Professional
+          </button>
+        </div>
 
         {/* Quick Info — same icon rows as view mode */}
         <div className="cv-quick-info">
@@ -1202,6 +1251,11 @@ const App: React.FC = () => {
     setEditedProfile(null);
   };
 
+  // Update a single field on profile without entering edit mode
+  const setProfileField = (field: string, value: any) => {
+    setProfile(prev => prev ? { ...prev, [field]: value } : prev);
+  };
+
   if (isEditing && editedProfile) {
     return <EditPanel
             profile={editedProfile}
@@ -1256,6 +1310,26 @@ const App: React.FC = () => {
           </div>
         </section>
 
+        {/* Contact Status Toggle */}
+        <div className="cv-status-toggle-row">
+          <button
+            type="button"
+            className={`cv-status-toggle-btn ${profile.contact_status === 'student' ? 'cv-status-active' : ''}`}
+            onClick={() => setProfileField('contact_status', 'student')}
+          >
+            <GraduationCap className="w-4 h-4" />
+            Student
+          </button>
+          <button
+            type="button"
+            className={`cv-status-toggle-btn ${profile.contact_status === 'professional' ? 'cv-status-active' : ''}`}
+            onClick={() => setProfileField('contact_status', 'professional')}
+          >
+            <Briefcase className="w-4 h-4" />
+            Professional
+          </button>
+        </div>
+
         {/* Quick Info */}
         <div className="cv-quick-info">
           {(() => {
@@ -1270,7 +1344,20 @@ const App: React.FC = () => {
           })()}
           <div className="cv-info-row">
             <Clock />
-            <span>{profile.follow_up_frequency || "No follow-up"}</span>
+            <SimpleDropdown
+              value={profile.follow_up_frequency || ""}
+              onChange={(value) => setProfileField('follow_up_frequency', value)}
+              options={[
+                "No follow-up",
+                "2 weeks",
+                "2 months",
+                "3 months",
+                "6 months",
+                "1 year"
+              ]}
+              placeholder="Follow-up frequency"
+              className="cv-view-followup"
+            />
           </div>
           {profile.generated_notes && (
             <div className="cv-info-row cv-notes-row">
