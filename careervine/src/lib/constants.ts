@@ -32,6 +32,15 @@ export const EmailDirection = {
   Outbound: "outbound",
 } as const;
 
+// ── AI follow-up draft statuses ──────────────────────────────────────
+
+export const AiFollowUpDraftStatus = {
+  Pending: "pending",
+  Sent: "sent",
+  Dismissed: "dismissed",
+  EditedAndSent: "edited_and_sent",
+} as const;
+
 // ── Gmail labels ───────────────────────────────────────────────────────
 
 export const GmailLabel = {

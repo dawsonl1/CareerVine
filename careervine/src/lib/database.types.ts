@@ -439,6 +439,34 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["action_item_contacts"]["Insert"]>;
       };
 
+      // AI follow-up drafts — AI-generated follow-up emails for user review
+      ai_follow_up_drafts: {
+        Row: {
+          id: number;
+          user_id: string;
+          contact_id: number;
+          recipient_email: string | null;
+          subject: string;
+          body_html: string;
+          reply_thread_id: string | null;
+          reply_thread_subject: string | null;
+          send_as_reply: boolean;
+          extracted_topic: string;
+          topic_evidence: string;
+          source_meeting_id: number | null;
+          article_url: string | null;
+          article_title: string | null;
+          article_source: string | null;
+          status: string;
+          created_at: string;
+          updated_at: string;
+          sent_at: string | null;
+          dismissed_at: string | null;
+        };
+        Insert: Omit<Database["public"]["Tables"]["ai_follow_up_drafts"]["Row"], "id" | "created_at" | "updated_at">;
+        Update: Partial<Database["public"]["Tables"]["ai_follow_up_drafts"]["Insert"]>;
+      };
+
       // Follow-up action items - general follow-up tasks
       follow_up_action_items: {
         Row: {

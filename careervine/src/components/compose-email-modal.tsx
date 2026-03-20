@@ -6,7 +6,7 @@ import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Button } from "@/components/ui/button";
-import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock } from "lucide-react";
+import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock, Sparkles } from "lucide-react";
 import { AiWriteDropdown } from "@/components/ai-write-dropdown";
 import { AvailabilityPicker } from "@/components/availability-picker";
 
@@ -25,8 +25,10 @@ export function ComposeEmailModal() {
   const {
     isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml,
     replyThreadId, replyInReplyTo, replyReferences, replyQuotedHtml,
-    gmailAddress, closeCompose,
+    aiDraftContext, gmailAddress, closeCompose,
   } = useCompose();
+
+  const [showAiContext, setShowAiContext] = useState(false);
 
   const isReply = !!replyThreadId;
 
@@ -117,6 +119,7 @@ export function ComposeEmailModal() {
       setError("");
       setShowSchedule(false);
       setScheduleDatetime("");
+      setShowAiContext(false);
       draftIdRef.current = null;
       sentOrScheduledRef.current = false;
       setContactSuggestions([]);
@@ -223,6 +226,17 @@ export function ComposeEmailModal() {
       setSent(true);
       sentOrScheduledRef.current = true;
       deleteDraft();
+
+      // Mark AI draft as sent/edited_and_sent if this came from one
+      if (aiDraftContext?.draftId) {
+        const draftStatus = bodyHtml !== prefillBodyHtml ? "edited_and_sent" : "sent";
+        fetch(`/api/gmail/ai-followups/${aiDraftContext.draftId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: draftStatus }),
+        }).catch(() => {});
+      }
+
       window.dispatchEvent(new CustomEvent("careervine:email-sent"));
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
@@ -337,6 +351,39 @@ export function ComposeEmailModal() {
           </div>
         ) : (
           <>
+            {/* AI Draft Context banner */}
+            {aiDraftContext && (
+              <div className="mx-4 mt-1 mb-2">
+                <button
+                  type="button"
+                  className="w-full text-left"
+                  onClick={() => setShowAiContext(!showAiContext)}
+                >
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary-container/30 border border-primary/10">
+                    <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-xs text-foreground font-medium flex-1 truncate">
+                      AI draft — {aiDraftContext.extractedTopic}
+                    </span>
+                    <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showAiContext ? "rotate-180" : ""}`} />
+                  </div>
+                </button>
+                {showAiContext && (
+                  <div className="mt-1.5 px-3 py-2 rounded-xl bg-surface-container-low text-xs text-muted-foreground space-y-1">
+                    <p><span className="font-medium text-foreground">Interest:</span> &ldquo;{aiDraftContext.topicEvidence}&rdquo;</p>
+                    {aiDraftContext.sourceMeetingDate && (
+                      <p><span className="font-medium text-foreground">From:</span> {aiDraftContext.sourceMeetingDate}</p>
+                    )}
+                    {aiDraftContext.articleTitle && (
+                      <p>
+                        <span className="font-medium text-foreground">Article:</span> {aiDraftContext.articleTitle}
+                        {aiDraftContext.articleSource && ` via ${aiDraftContext.articleSource}`}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* From */}
             <div className={fieldRowClasses}>
               <span className="text-xs text-muted-foreground pl-4 w-12 shrink-0">From</span>

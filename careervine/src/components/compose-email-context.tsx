@@ -5,6 +5,16 @@ import { useAuth } from "@/components/auth-provider";
 import { getGmailConnection } from "@/lib/queries";
 import type { GmailConnection } from "@/lib/types";
 
+export type AiDraftContext = {
+  draftId: number;
+  extractedTopic: string;
+  topicEvidence: string;
+  sourceMeetingDate?: string;
+  articleTitle?: string;
+  articleSource?: string;
+  articleUrl?: string;
+};
+
 type ComposeOptions = {
   to?: string;
   name?: string;
@@ -14,6 +24,7 @@ type ComposeOptions = {
   inReplyTo?: string;
   references?: string;
   quotedHtml?: string;
+  aiDraftContext?: AiDraftContext;
 };
 
 type ComposeContextValue = {
@@ -26,6 +37,7 @@ type ComposeContextValue = {
   replyInReplyTo: string;
   replyReferences: string;
   replyQuotedHtml: string;
+  aiDraftContext: AiDraftContext | null;
   gmailConnected: boolean;
   gmailAddress: string;
   unreadCount: number;
@@ -43,6 +55,7 @@ const ComposeContext = createContext<ComposeContextValue>({
   replyInReplyTo: "",
   replyReferences: "",
   replyQuotedHtml: "",
+  aiDraftContext: null,
   gmailConnected: false,
   gmailAddress: "",
   unreadCount: 0,
@@ -66,6 +79,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   const [replyInReplyTo, setReplyInReplyTo] = useState("");
   const [replyReferences, setReplyReferences] = useState("");
   const [replyQuotedHtml, setReplyQuotedHtml] = useState("");
+  const [aiDraftCtx, setAiDraftCtx] = useState<AiDraftContext | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -121,6 +135,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setReplyInReplyTo(opts?.inReplyTo || "");
     setReplyReferences(opts?.references || "");
     setReplyQuotedHtml(opts?.quotedHtml || "");
+    setAiDraftCtx(opts?.aiDraftContext || null);
     setIsOpen(true);
   }, []);
 
@@ -134,6 +149,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setReplyInReplyTo("");
     setReplyReferences("");
     setReplyQuotedHtml("");
+    setAiDraftCtx(null);
   }, []);
 
   return (
@@ -148,6 +164,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         replyInReplyTo,
         replyReferences,
         replyQuotedHtml,
+        aiDraftContext: aiDraftCtx,
         gmailConnected: !!gmailConn,
         gmailAddress: gmailConn?.gmail_address || "",
         unreadCount,

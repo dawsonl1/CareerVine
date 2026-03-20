@@ -11,7 +11,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
 import LandingPage from "@/components/landing-page";
@@ -35,11 +35,17 @@ import {
   Handshake,
   Bell,
   MessageSquare,
+  Sparkles,
+  X,
+  Loader2,
 } from "lucide-react";
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
+import { useCompose } from "@/components/compose-email-context";
+import { useToast } from "@/components/ui/toast";
 import { getHealthColor, healthBgColors, healthLabels, healthRingColors, CRITICAL_OVERDUE_DAYS, type HealthColor } from "@/lib/health-helpers";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import type { AiDraftContext } from "@/components/compose-email-context";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"];
@@ -65,9 +71,29 @@ type ContactHealth = {
   days_since_touch: number | null;
 };
 
+type AiDraft = {
+  id: number;
+  contact_id: number;
+  recipient_email: string | null;
+  subject: string;
+  body_html: string;
+  reply_thread_id: string | null;
+  reply_thread_subject: string | null;
+  send_as_reply: boolean;
+  extracted_topic: string;
+  topic_evidence: string;
+  source_meeting_id: number | null;
+  article_url: string | null;
+  article_title: string | null;
+  article_source: string | null;
+  contacts: { name: string; photo_url: string | null; industry: string | null } | null;
+};
+
 export default function Home() {
   const { user, loading } = useAuth();
   const { open: openQuickCapture } = useQuickCapture();
+  const { openCompose, gmailConnected } = useCompose();
+  const { toast } = useToast();
 
   // Quick-add contact form
   const [name, setName] = useState("");
@@ -82,6 +108,10 @@ export default function Home() {
   const [followUps, setFollowUps] = useState<FollowUpContact[]>([]);
   const [contactHealth, setContactHealth] = useState<ContactHealth[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
+
+  // AI follow-up drafts
+  const [aiDrafts, setAiDrafts] = useState<Map<number, AiDraft>>(new Map());
+  const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set());
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -112,9 +142,164 @@ export default function Home() {
     setDataLoaded(true);
   }, [user]);
 
+  // Fetch existing pending AI drafts
+  const loadAiDrafts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/gmail/ai-followups/pending");
+      if (!res.ok) return;
+      const data = await res.json();
+      const map = new Map<number, AiDraft>();
+      for (const d of data.drafts || []) {
+        map.set(d.contact_id, d);
+      }
+      setAiDrafts(map);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  // Generate AI drafts for due contacts that don't have one yet
+  const generateAiDrafts = useCallback(async (dueContacts: FollowUpContact[]) => {
+    // Only generate for contacts with emails and no existing draft
+    // We don't know which have emails from here, so we send up to 3 and let the API figure it out
+    const candidates = dueContacts
+      .filter((c) => !aiDrafts.has(c.id))
+      .slice(0, 3);
+
+    if (candidates.length === 0) return;
+
+    const ids = candidates.map((c) => c.id);
+    setGeneratingIds(new Set(ids));
+
+    try {
+      const res = await fetch("/api/gmail/ai-followups/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactIds: ids }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      setAiDrafts((prev) => {
+        const next = new Map(prev);
+        for (const result of data.results || []) {
+          if (result.draft) {
+            next.set(result.contactId, {
+              ...result.draft,
+              id: result.draft.id,
+              contact_id: result.draft.contactId,
+              recipient_email: result.draft.recipientEmail,
+              body_html: result.draft.bodyHtml,
+              reply_thread_id: result.draft.replyThreadId,
+              reply_thread_subject: result.draft.replyThreadSubject,
+              send_as_reply: result.draft.sendAsReply,
+              extracted_topic: result.draft.extractedTopic,
+              topic_evidence: result.draft.topicEvidence,
+              source_meeting_id: result.draft.sourceMeetingId,
+              article_url: result.draft.articleUrl,
+              article_title: result.draft.articleTitle,
+              article_source: result.draft.articleSource,
+              contacts: { name: result.draft.contactName, photo_url: null, industry: null },
+            });
+          }
+        }
+        return next;
+      });
+    } catch {
+      // silent
+    } finally {
+      setGeneratingIds(new Set());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiDrafts]);
+
+  // Dismiss an AI draft with undo toast
+  const dismissDraft = useCallback(async (draftId: number, contactId: number) => {
+    // Optimistically remove
+    setAiDrafts((prev) => {
+      const next = new Map(prev);
+      next.delete(contactId);
+      return next;
+    });
+
+    const undoDraft = aiDrafts.get(contactId);
+
+    toast("Draft dismissed", {
+      variant: "info",
+      duration: 5000,
+      actions: [{
+        label: "Undo",
+        onClick: async () => {
+          // Restore locally
+          if (undoDraft) {
+            setAiDrafts((prev) => {
+              const next = new Map(prev);
+              next.set(contactId, undoDraft);
+              return next;
+            });
+          }
+          // Restore in DB
+          await fetch(`/api/gmail/ai-followups/${draftId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "pending" }),
+          });
+        },
+      }],
+    });
+
+    // Dismiss in DB
+    await fetch(`/api/gmail/ai-followups/${draftId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "dismissed" }),
+    });
+  }, [aiDrafts, toast]);
+
+  // Open compose modal pre-filled with AI draft
+  const reviewDraft = useCallback((draft: AiDraft) => {
+    const aiCtx: AiDraftContext = {
+      draftId: draft.id,
+      extractedTopic: draft.extracted_topic,
+      topicEvidence: draft.topic_evidence,
+      articleTitle: draft.article_title || undefined,
+      articleSource: draft.article_source || undefined,
+      articleUrl: draft.article_url || undefined,
+    };
+
+    openCompose({
+      to: draft.recipient_email || "",
+      name: draft.contacts?.name || "",
+      subject: draft.subject,
+      bodyHtml: draft.body_html,
+      threadId: draft.send_as_reply ? (draft.reply_thread_id || undefined) : undefined,
+      aiDraftContext: aiCtx,
+    });
+  }, [openCompose]);
+
   useEffect(() => {
     if (user) loadData();
   }, [user, loadData]);
+
+  // Load AI drafts after main data, then generate for due contacts
+  useEffect(() => {
+    if (!dataLoaded || !gmailConnected) return;
+    loadAiDrafts().then(() => {
+      // Generation will be triggered by the next effect
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataLoaded, gmailConnected]);
+
+  // Trigger generation after drafts are loaded and follow-ups are known
+  const hasTriggeredGeneration = useRef(false);
+  useEffect(() => {
+    if (!dataLoaded || !gmailConnected || hasTriggeredGeneration.current) return;
+    if (followUps.length > 0 && generatingIds.size === 0) {
+      hasTriggeredGeneration.current = true;
+      generateAiDrafts(followUps);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataLoaded, gmailConnected, followUps, aiDrafts]);
 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -418,35 +603,88 @@ export default function Home() {
                 <div className="space-y-1.5">
                   {reachOutToday.map((item) => {
                     const isCritical = item.urgency > CRITICAL_OVERDUE_DAYS;
+                    const draft = aiDrafts.get(item.id);
+                    const isGenerating = generatingIds.has(item.id);
                     return (
-                      <Link key={item.id} href={`/contacts/${item.id}`}>
-                        <Card
-                          variant="outlined"
-                          className={`state-layer ${isCritical ? "border-destructive/40" : ""}`}
-                        >
-                          <CardContent className="p-4 flex items-center gap-3">
-                            <ContactAvatar
-                              name={item.name}
-                              photoUrl={item.photo_url}
-                              className="w-11 h-11 text-sm"
-                              ringClassName={
-                                isCritical
-                                  ? healthRingColors.red
-                                  : item.urgency > 0
-                                  ? healthRingColors.orange
-                                  : ""
-                              }
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{item.reason}</p>
-                            </div>
-                            {isCritical && (
-                              <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
-                            )}
-                          </CardContent>
-                        </Card>
-                      </Link>
+                      <div key={item.id}>
+                        <Link href={`/contacts/${item.id}`}>
+                          <Card
+                            variant="outlined"
+                            className={`state-layer ${isCritical ? "border-destructive/40" : ""}`}
+                          >
+                            <CardContent className="p-4 flex items-center gap-3">
+                              <ContactAvatar
+                                name={item.name}
+                                photoUrl={item.photo_url}
+                                className="w-11 h-11 text-sm"
+                                ringClassName={
+                                  isCritical
+                                    ? healthRingColors.red
+                                    : item.urgency > 0
+                                    ? healthRingColors.orange
+                                    : ""
+                                }
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
+                                <p className="text-xs text-muted-foreground truncate">{item.reason}</p>
+                              </div>
+                              {isCritical && (
+                                <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+                              )}
+                            </CardContent>
+                          </Card>
+                        </Link>
+
+                        {/* AI Draft inline card */}
+                        {draft && (
+                          <div className="ml-6 mt-1 mb-1.5">
+                            <Card variant="filled" className="border border-primary/10 bg-primary-container/15">
+                              <CardContent className="p-3">
+                                <div className="flex items-start gap-2">
+                                  <Sparkles className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-foreground mb-0.5">
+                                      Draft ready
+                                    </p>
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {draft.body_html.replace(/<[^>]*>/g, "").slice(0, 100)}...
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground mt-1">
+                                      Based on: {draft.extracted_topic}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Button
+                                    size="sm"
+                                    variant="tonal"
+                                    onClick={(e) => { e.preventDefault(); reviewDraft(draft); }}
+                                  >
+                                    Review & Send
+                                  </Button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.preventDefault(); dismissDraft(draft.id, draft.contact_id); }}
+                                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors"
+                                    title="Dismiss draft"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </div>
+                        )}
+
+                        {/* Generating indicator */}
+                        {isGenerating && !draft && (
+                          <div className="ml-6 mt-1 mb-1.5 flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Generating draft...
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>

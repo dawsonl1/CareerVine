@@ -216,6 +216,19 @@ export const transcriptParseSchema = z.object({
   rawText: z.string().min(1, "rawText is required").max(200000, "Text too large (200KB max)"),
 });
 
+// ── AI Follow-Up Drafts ─────────────────────────────────────────────
+
+export const aiFollowUpGenerateSchema = z.object({
+  contactIds: z.array(z.number().int()).min(1).max(3),
+});
+
+export const aiFollowUpPatchSchema = z.object({
+  status: z.enum(["pending", "dismissed", "sent", "edited_and_sent"]).optional(),
+  subject: z.string().optional(),
+  bodyHtml: z.string().optional(),
+  sendAsReply: z.boolean().optional(),
+});
+
 // ── Extension ──────────────────────────────────────────────────────────
 
 export const extensionParseProfileSchema = z.object({
