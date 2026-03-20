@@ -1170,7 +1170,8 @@ const App: React.FC = () => {
     // For unsaved contacts, encode profile data in URL hash for the preview page
     if (profile) {
       try {
-        const jsonStr = JSON.stringify(profile);
+        const dataWithPhoto = photoUrl ? { ...profile, photo_url: photoUrl } : profile;
+        const jsonStr = JSON.stringify(dataWithPhoto);
         const bytes = new TextEncoder().encode(jsonStr);
         const binStr = Array.from(bytes, (b: number) => String.fromCharCode(b)).join('');
         const encoded = encodeURIComponent(btoa(binStr));

@@ -41,6 +41,7 @@ type ProfileData = {
   linkedin_url?: string;
   follow_up_frequency?: string;
   current_company?: string;
+  photo_url?: string;
 };
 
 export default function ContactPreviewPage() {
@@ -100,7 +101,7 @@ export default function ContactPreviewPage() {
       const res = await fetch("/api/contacts/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileData }),
+        body: JSON.stringify({ profileData, photoUrl: profileData.photo_url }),
       });
       const result = await res.json();
 
@@ -182,8 +183,22 @@ export default function ContactPreviewPage() {
           <div className="flex items-start justify-between gap-4 flex-wrap">
             {/* Avatar + Identity */}
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <span className="text-lg font-semibold text-primary select-none">
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+                {profileData.photo_url ? (
+                  <img
+                    src={profileData.photo_url}
+                    alt={fullName}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      // Fall back to initials if image fails
+                      const target = e.currentTarget;
+                      target.style.display = "none";
+                      target.nextElementSibling?.classList.remove("hidden");
+                    }}
+                  />
+                ) : null}
+                <span className={`text-lg font-semibold text-primary select-none ${profileData.photo_url ? "hidden" : ""}`}>
                   {initials}
                 </span>
               </div>
