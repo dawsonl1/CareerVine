@@ -243,4 +243,64 @@ describe("parseTranscript", () => {
     expect(result.segments).toHaveLength(2);
     expect(result.segments[0].content).toContain("continues on the next line");
   });
+
+  // ── Metadata header filtering ──────────────────────────────
+
+  it("filters metadata headers from generic speaker format", () => {
+    const text = [
+      "Coffee Chat Transcript",
+      "Date: March 18, 2026",
+      "Participants: Dawson Pitcher (DP), Alex Chen (AC)",
+      "Location: Coffee shop near campus",
+      "",
+      "---",
+      "",
+      "DP: Thanks for taking the time to meet, I really appreciate it.",
+      "",
+      "AC: Of course, happy to help. I remember being in your position not too long ago.",
+      "",
+      "DP: I wanted to start by understanding your path.",
+      "",
+      "AC: I started as a software engineer intern, then transitioned internally.",
+      "",
+      "DP: That makes sense. Right now I'm building a few projects.",
+      "",
+      "AC: Two things: proof of product thinking and communication.",
+    ].join("\n");
+
+    const result = parseTranscript(text);
+    expect(result.format).toBe("generic");
+    // Only DP and AC should be detected as speakers, not Date/Participants/Location
+    const speakers = new Set(result.segments.map((s) => s.speaker_label));
+    expect(speakers.size).toBe(2);
+    expect(speakers.has("DP")).toBe(true);
+    expect(speakers.has("AC")).toBe(true);
+    expect(speakers.has("Date")).toBe(false);
+    expect(speakers.has("Participants")).toBe(false);
+    expect(speakers.has("Location")).toBe(false);
+  });
+
+  it("filters metadata even when followed by action items section", () => {
+    const text = [
+      "DP: I'll send the follow-up email.",
+      "AC: Sounds good. I'll review your project.",
+      "DP: Great, thanks.",
+      "AC: Of course.",
+      "",
+      "---",
+      "",
+      "Action Items:",
+      "- DP: Send follow-up email within 48 hours",
+      "- AC: Review project when shared",
+    ].join("\n");
+
+    const result = parseTranscript(text);
+    expect(result.format).toBe("generic");
+    const speakers = new Set(result.segments.map((s) => s.speaker_label));
+    expect(speakers.size).toBe(2);
+    expect(speakers.has("DP")).toBe(true);
+    expect(speakers.has("AC")).toBe(true);
+    // "Action Items" and "- DP" should not be treated as speakers
+    expect(speakers.has("Action Items")).toBe(false);
+  });
 });

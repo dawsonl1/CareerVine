@@ -328,17 +328,47 @@ function tryGenericSpeaker(text: string): ParseResult | null {
   // Speaker name: 1-40 chars, no digits at start, followed by colon and text
   const pattern = /^([A-Za-z][^:]{0,39}):\s+(.+)$/;
   const lines = text.split("\n");
-  const segments: ParsedTranscriptTurn[] = [];
-  let matched = 0;
-  const speakers = new Set<string>();
 
+  // Common metadata/header keys that look like "Key: value" but aren't speaker turns
+  const METADATA_KEYS = new Set([
+    "date", "time", "participants", "participant", "attendees", "attendee",
+    "location", "subject", "topic", "title", "meeting", "agenda",
+    "action items", "action item", "summary", "notes", "note",
+    "duration", "organizer", "host", "recording", "link",
+  ]);
+
+  // First pass: identify which labels appear at least twice (real speakers repeat)
+  const labelCounts = new Map<string, number>();
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     const m = trimmed.match(pattern);
     if (m) {
+      const label = m[1].trim();
+      labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+    }
+  }
+
+  // Build the set of real speakers: appear at least twice and not a metadata key
+  const realSpeakers = new Set<string>();
+  for (const [label, count] of labelCounts) {
+    if (count >= 2 && !METADATA_KEYS.has(label.toLowerCase())) {
+      realSpeakers.add(label);
+    }
+  }
+
+  if (realSpeakers.size < 2) return null;
+
+  // Second pass: parse only lines from real speakers
+  const segments: ParsedTranscriptTurn[] = [];
+  let matched = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const m = trimmed.match(pattern);
+    if (m && realSpeakers.has(m[1].trim())) {
       matched++;
-      speakers.add(m[1].trim());
       segments.push({
         speaker_label: m[1].trim(),
         started_at: null,
@@ -346,14 +376,16 @@ function tryGenericSpeaker(text: string): ParseResult | null {
         content: m[2].trim(),
       });
     } else if (segments.length > 0) {
-      // Continuation line
-      segments[segments.length - 1].content += " " + trimmed;
+      // Continuation line (only append if not a metadata line)
+      const mMeta = trimmed.match(pattern);
+      if (!mMeta || !METADATA_KEYS.has(mMeta[1].trim().toLowerCase())) {
+        segments[segments.length - 1].content += " " + trimmed;
+      }
     }
   }
 
   const nonEmpty = lines.filter((l) => l.trim()).length;
-  // Need at least 2 speakers and reasonable match rate
-  if (matched < 2 || speakers.size < 2) return null;
+  if (matched < 2) return null;
   return { segments, format: "generic", confidence: matched / nonEmpty };
 }
 
