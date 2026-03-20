@@ -934,7 +934,7 @@ export async function deleteInteraction(id: number) {
 export async function getContactsWithLastTouch(userId: string) {
   const { data: contacts, error: cErr } = await supabase
     .from("contacts")
-    .select("id, name, industry, follow_up_frequency_days, created_at")
+    .select("id, name, industry, follow_up_frequency_days")
     .eq("user_id", userId)
     .order("name")
     .limit(500);
@@ -990,7 +990,6 @@ export async function getContactsWithLastTouch(userId: string) {
       follow_up_frequency_days: c.follow_up_frequency_days,
       last_touch: lastTouch,
       days_since_touch: daysSinceTouch,
-      created_at: c.created_at,
     };
   });
 }

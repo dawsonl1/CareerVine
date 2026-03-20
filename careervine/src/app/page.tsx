@@ -59,7 +59,6 @@ type ContactHealth = {
   follow_up_frequency_days: number | null;
   last_touch: string | null;
   days_since_touch: number | null;
-  created_at: string | null;
 };
 
 /**
