@@ -5,58 +5,14 @@
 
 class LinkedInScraper {
   async scrapeAndClean() {
-    // Helper: instant scroll + wait for LinkedIn's lazy-load observers to fire.
-    // 'smooth' scroll animates over hundreds of ms and doesn't guarantee the
-    // viewport has actually moved when the call returns, so we use 'instant'
-    // to ensure the position changes immediately, then wait for rendering.
-    const scrollAndWait = async (top) => {
-      window.scrollTo({ top, behavior: 'instant' });
-      // Give intersection observers + React renders time to fire
-      await new Promise(r => setTimeout(r, 600 + Math.floor(Math.random() * 400)));
-    };
+    // Scroll to the bottom to trigger LinkedIn's lazy-loading, then wait
+    // for all content to render before scraping.
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+    await new Promise(r => setTimeout(r, 1500 + Math.floor(Math.random() * 500)));
 
-    const viewportH = window.innerHeight;
-
-    // Phase 1: walk down the page in overlapping viewport-sized steps.
-    // After each step, wait for lazy content. Keep going until we've been
-    // at the bottom and the page height has been stable across 3 checks.
-    let pos = 0;
-    let stableCount = 0;
-    let prevHeight = 0;
-    const maxIterations = 40; // safety valve
-    let iterations = 0;
-
-    while (stableCount < 3 && iterations < maxIterations) {
-      iterations++;
-      const pageH = document.body.scrollHeight;
-
-      // Scroll to next position
-      pos += viewportH * 0.75;
-      if (pos >= pageH) pos = pageH;
-      await scrollAndWait(pos);
-
-      // Check if we're at the bottom
-      const newPageH = document.body.scrollHeight;
-      if (pos >= newPageH - viewportH) {
-        // We're near/at the bottom — has height stabilized?
-        if (newPageH === prevHeight) {
-          stableCount++;
-        } else {
-          stableCount = 0;
-        }
-        prevHeight = newPageH;
-
-        // Hit absolute bottom to trigger any final lazy loads
-        await scrollAndWait(newPageH);
-      }
-    }
-
-    // Phase 2: scroll back to top so the user isn't left at the bottom
-    await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+    // Scroll back to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
-
-    // Wait for any final rendering after scroll-back
-    await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+    await new Promise(r => setTimeout(r, 500 + Math.random() * 300));
 
     // Extract all text from main content area
     const main = document.querySelector('main') || document.body;
