@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Sprout,
   MessageSquare,
@@ -12,7 +12,6 @@ import {
   Mic,
   Heart,
   ArrowRight,
-  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -30,7 +29,7 @@ type Feature = {
 const features: Feature[] = [
   {
     icon: MessageSquare,
-    headline: "Remember every conversation, word for word",
+    headline: "Remember every conversation",
     tagline:
       "Coffee chats, Zoom calls, chance encounters. Log them all in seconds so nothing slips away.",
     details: [
@@ -43,7 +42,7 @@ const features: Feature[] = [
   },
   {
     icon: Mic,
-    headline: "Turn recordings into searchable notes",
+    headline: "Turn recordings into notes",
     tagline:
       "Paste a transcript or drop in an audio file. Speakers are identified and everything links to your meeting.",
     details: [
@@ -56,7 +55,7 @@ const features: Feature[] = [
   },
   {
     icon: ListChecks,
-    headline: "Never forget what you promised",
+    headline: "Never forget a promise",
     tagline:
       "Turn \"I'll send you that intro\" into a tracked task with a due date, tied to the conversation where you said it.",
     details: [
@@ -69,7 +68,7 @@ const features: Feature[] = [
   },
   {
     icon: Heart,
-    headline: "Know exactly who needs your attention",
+    headline: "Know who needs your attention",
     tagline:
       "Set a follow-up cadence for each contact and see at a glance who's overdue and who's thriving.",
     details: [
@@ -82,7 +81,7 @@ const features: Feature[] = [
   },
   {
     icon: Users,
-    headline: "Your entire network, organized and searchable",
+    headline: "Your whole network, organized",
     tagline:
       "Rich profiles with work history, education, tags, and a full interaction timeline for everyone you know.",
     details: [
@@ -95,9 +94,9 @@ const features: Feature[] = [
   },
   {
     icon: Mail,
-    headline: "Send smarter emails without leaving the app",
+    headline: "Smarter email, built in",
     tagline:
-      "Connect Gmail and manage your inbox, compose with AI-powered templates, and set up automated follow-up sequences.",
+      "Connect Gmail and manage your inbox, compose with AI templates, and set up automated follow-up sequences.",
     details: [
       "Full inbox with tabs for Inbox, Sent, Drafts, Scheduled, and Follow-ups",
       "Emails automatically linked to contacts so you can see every thread per person",
@@ -108,7 +107,7 @@ const features: Feature[] = [
   },
   {
     icon: Calendar,
-    headline: "Your schedule and your network, in sync",
+    headline: "Schedule meets network",
     tagline:
       "See your calendar in CareerVine, create meetings that sync to Google Calendar, and share your availability.",
     details: [
@@ -121,7 +120,7 @@ const features: Feature[] = [
   },
   {
     icon: Chrome,
-    headline: "Add anyone from LinkedIn in one click",
+    headline: "One-click LinkedIn import",
     tagline:
       "Visit a LinkedIn profile and click import. Name, company, education, and photo are saved instantly.",
     details: [
@@ -134,80 +133,134 @@ const features: Feature[] = [
   },
 ];
 
-/* ── Expandable Feature Card ── */
+/* ── Grid layout: which features go in which row ── */
+const rows: number[][] = [
+  [0, 1, 2], // 3 across
+  [3, 4],    // 2 wide
+  [5, 6, 7], // 3 across
+];
 
-function FeatureCard({
+/* ── Detail Panel (slides in below a row) ── */
+
+function DetailPanel({
   feature,
-  isExpanded,
-  onToggle,
+  onClose,
 }: {
   feature: Feature;
-  isExpanded: boolean;
-  onToggle: () => void;
+  onClose: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
+
+  return (
+    <div
+      ref={panelRef}
+      className="col-span-full rounded-2xl border border-primary/20 bg-surface-container-low overflow-hidden"
+    >
+      <div className="px-8 py-6 flex flex-col sm:flex-row gap-6">
+        {/* Icon + headline */}
+        <div className="flex items-center gap-4 sm:w-64 shrink-0">
+          <div className="w-12 h-12 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0">
+            <feature.icon className="h-5 w-5" />
+          </div>
+          <h3 className="text-lg font-medium text-foreground">
+            {feature.headline}
+          </h3>
+        </div>
+
+        {/* Details */}
+        <ul className="flex-1 space-y-2.5">
+          {feature.details.map((detail, j) => (
+            <li key={j} className="flex items-start gap-2.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-primary mt-[7px] shrink-0" />
+              <span className="text-sm text-muted-foreground leading-relaxed">
+                {detail}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        {/* Close */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="self-start text-muted-foreground hover:text-foreground transition-colors text-xl leading-none px-2 py-1 rounded-lg hover:bg-surface-container"
+          aria-label="Close details"
+        >
+          &times;
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Bento Card ── */
+
+function BentoCard({
+  feature,
+  isActive,
+  onClick,
+}: {
+  feature: Feature;
+  isActive: boolean;
+  onClick: () => void;
 }) {
   return (
     <div
-      onClick={onToggle}
+      onClick={onClick}
       className={`
-        group rounded-2xl border cursor-pointer
-        transition-all duration-300 ease-out
+        group relative rounded-2xl border cursor-pointer overflow-hidden
+        flex flex-col transition-all duration-300 ease-out
         ${
-          isExpanded
-            ? "border-primary/30 bg-primary-container/8 shadow-lg"
-            : "border-outline-variant bg-surface-container-low hover:border-primary/20 hover:shadow-md hover:-translate-y-0.5"
+          isActive
+            ? "border-primary/40 shadow-lg ring-1 ring-primary/20"
+            : "border-outline-variant hover:border-primary/20 hover:shadow-md hover:-translate-y-1"
         }
       `}
     >
-      {/* Card header – always visible */}
-      <div className="px-8 py-6 flex items-center gap-5">
-        <div
-          className={`
-            w-12 h-12 rounded-full flex items-center justify-center shrink-0
-            transition-colors duration-300
-            ${isExpanded ? "bg-primary text-on-primary" : "bg-primary-container text-on-primary-container"}
-          `}
-        >
-          <feature.icon className="h-5 w-5" />
-        </div>
+      {/* Text content */}
+      <div className="px-6 pt-6 pb-4 flex-1">
+        <h3 className="text-[17px] font-semibold text-foreground leading-snug mb-2">
+          {feature.headline}
+        </h3>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          {feature.tagline}
+        </p>
+      </div>
 
-        <div className="flex-1 min-w-0">
-          <h3 className="text-lg font-medium text-foreground leading-snug">
-            {feature.headline}
-          </h3>
-          <p className="text-sm text-muted-foreground leading-relaxed mt-1">
-            {feature.tagline}
-          </p>
-        </div>
-
-        <ChevronDown
+      {/* Visual icon area */}
+      <div className="relative h-40 mx-4 mb-4 rounded-xl bg-primary-container/30 flex items-center justify-center overflow-hidden">
+        {/* Decorative background circles */}
+        <div className="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-primary/5" />
+        <div className="absolute -left-4 -top-4 w-20 h-20 rounded-full bg-primary/3" />
+        <feature.icon
           className={`
-            h-5 w-5 text-muted-foreground shrink-0
-            transition-transform duration-300
-            ${isExpanded ? "rotate-180" : ""}
+            h-16 w-16 transition-all duration-300
+            ${isActive ? "text-primary scale-110" : "text-primary/60 group-hover:text-primary/80 group-hover:scale-105"}
           `}
+          strokeWidth={1.2}
         />
       </div>
 
-      {/* Expandable detail section */}
-      <div
-        className="grid transition-[grid-template-rows] duration-300 ease-out"
-        style={{ gridTemplateRows: isExpanded ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden">
-          <div className="px-8 pb-6">
-            <div className="border-t border-outline-variant pt-5 ml-[68px]">
-              <ul className="space-y-3">
-                {feature.details.map((detail, j) => (
-                  <li key={j} className="flex items-start gap-2.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-primary mt-[7px] shrink-0" />
-                    <span className="text-sm text-muted-foreground leading-relaxed">
-                      {detail}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
+      {/* Arrow button */}
+      <div className="absolute bottom-6 left-6">
+        <div
+          className={`
+            w-9 h-9 rounded-full border flex items-center justify-center
+            transition-all duration-300
+            ${
+              isActive
+                ? "bg-primary border-primary text-on-primary rotate-45"
+                : "border-outline-variant text-muted-foreground group-hover:border-primary/40 group-hover:text-primary"
+            }
+          `}
+        >
+          <ArrowRight className="h-4 w-4" />
         </div>
       </div>
     </div>
@@ -221,6 +274,10 @@ export default function LandingPage() {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
   if (showAuth) return <AuthForm />;
+
+  const handleToggle = (featureIndex: number) => {
+    setExpandedIndex(expandedIndex === featureIndex ? null : featureIndex);
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -265,27 +322,51 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Feature cards ── */}
+      {/* ── Bento feature grid ── */}
       <section className="px-6 py-16">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-center text-[24px] sm:text-[28px] font-normal text-foreground mb-3">
+        <div className="max-w-6xl mx-auto">
+          <h2 className="text-center text-[24px] sm:text-[32px] font-normal text-foreground mb-3">
             Everything you need, nothing you don&apos;t
           </h2>
-          <p className="text-center text-sm text-muted-foreground mb-12 max-w-lg mx-auto">
-            Click any card to see how it works.
+          <p className="text-center text-sm text-muted-foreground mb-14 max-w-lg mx-auto">
+            Click any card to learn more.
           </p>
 
-          <div className="flex flex-col gap-4">
-            {features.map((feature, i) => (
-              <FeatureCard
-                key={feature.headline}
-                feature={feature}
-                isExpanded={expandedIndex === i}
-                onToggle={() =>
-                  setExpandedIndex(expandedIndex === i ? null : i)
-                }
-              />
-            ))}
+          <div className="flex flex-col gap-5">
+            {rows.map((row, rowIdx) => {
+              // Find if any feature in this row is expanded
+              const expandedInRow = row.find((i) => expandedIndex === i);
+
+              return (
+                <div key={rowIdx} className="flex flex-col gap-5">
+                  {/* Card row */}
+                  <div
+                    className={`grid gap-5 ${
+                      row.length === 3
+                        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+                        : "grid-cols-1 sm:grid-cols-2"
+                    }`}
+                  >
+                    {row.map((featureIdx) => (
+                      <BentoCard
+                        key={featureIdx}
+                        feature={features[featureIdx]}
+                        isActive={expandedIndex === featureIdx}
+                        onClick={() => handleToggle(featureIdx)}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Detail panel slides in below the row */}
+                  {expandedInRow !== undefined && (
+                    <DetailPanel
+                      feature={features[expandedInRow]}
+                      onClose={() => setExpandedIndex(null)}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
