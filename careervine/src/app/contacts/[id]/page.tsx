@@ -293,6 +293,7 @@ export default function ContactDetailPage() {
                 emails={contactEmails}
                 scheduledEmails={scheduledEmails}
                 gmailConnected={gmailConnected}
+                loadingEmails={loadingEmails}
                 onScheduledEmailCancel={handleScheduledEmailCancel}
                 onReloadEmails={loadContactEmails}
               />

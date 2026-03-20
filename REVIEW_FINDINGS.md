@@ -29,11 +29,11 @@
 - [x] **#13** `updated_at` set on table without that column — removed
 - [x] **#14** Missing error checks on insert/update results — added
 - [x] **#15** `getContactById` has no `user_id` filter — added optional userId param, call site passes user.id
-- [ ] **#16** Calendar events created without timezone — pass timezone explicitly
-- [ ] **#17** `loadingEmails` permanently false in contact-emails-tab — wire up properly
+- [x] **#16** Calendar events created without timezone — added timeZone option with default
+- [x] **#17** `loadingEmails` permanently false in contact-emails-tab — wired up as prop from parent
 - [x] **#18** `createSupabaseBrowserClient()` called every render in auth-provider — stabilized with useState initializer
 - [x] **#19** Preview page no auth loading check — added authLoading guard before AuthForm render
-- [ ] **#20** Dashboard links go to /contacts instead of /contacts/{id}
+- [x] **#20** Dashboard links go to /contacts instead of /contacts/{id} — fixed to use contact ID
 - [x] **#21** Duplicate import branches doing same thing — collapsed
 
 ## Efficiency (Priority 4)
@@ -41,7 +41,7 @@
 - [ ] **#22** N+1 queries in experience/education/tag import loops
 - [ ] **#23** No retry/backoff for Gmail API rate limits during sync
 - [ ] **#24** `getAllInteractions` two-query pattern could be one join
-- [ ] **#25** Duplicated OAuth2 client + token refresh logic in gmail.ts/calendar.ts
+- [x] **#25** Duplicated OAuth2 client + token refresh logic — consolidated into oauth-helpers.ts
 
 ## Nits
 
@@ -49,14 +49,14 @@
 - [x] **#27** Unused `userId` params in import helpers — removed from addExperienceToContact, addEducationToContact
 - [ ] **#28** server-client.ts unnecessarily requires service role key
 - [ ] **#29** database.types.ts: companies/schools Insert requires id
-- [ ] **#30** contact-info-header onContactUpdate passes stale data
+- [x] **#30** contact-info-header onContactUpdate passes stale data — parent ignores arg and reloads, no bug
 - [x] **#31** contacts/[id] dynamic import of already-imported module — added getContacts to static import
 - [ ] **#32** No user-visible error on dashboard quick-add failure
 - [x] **#33** Unnecessary removeEmails/removePhones on new contacts — removed from create flow
 - [ ] **#34** Tag dropdown no outside-click handler
 - [ ] **#35** Search suggestion dropdown no outside-click handler
 - [x] **#36** select("*") over-fetches sensitive token columns in gmail/calendar — narrowed to needed columns
-- [ ] **#37** buildThreads recreated every render in inbox
+- [x] **#37** buildThreads recreated every render in inbox — moved to module-level pure function
 - [ ] **#38** Missing loadData in useEffect dependency arrays
 - [ ] **#39** getContacts over-fetches for list views
 - [ ] **#40** getConnection fragile column selection

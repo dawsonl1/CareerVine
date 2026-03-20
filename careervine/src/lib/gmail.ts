@@ -19,14 +19,6 @@ const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
-function getOAuth2Client() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  );
-}
-
 /** Generate the Google consent URL that the user will be redirected to. */
 export function getAuthUrl(state: string, includeCalendar: boolean = false): string {
   const oauth2Client = getOAuth2Client();
@@ -136,7 +128,7 @@ export async function revokeAccess(userId: string) {
 
 import { getHeader, parseEmailAddress } from '@/lib/gmail-helpers';
 import type { ParsedHeader } from '@/lib/gmail-helpers';
-import { refreshTokenIfNeeded } from '@/lib/oauth-helpers';
+import { getOAuth2Client, refreshTokenIfNeeded } from '@/lib/oauth-helpers';
 
 /**
  * Sync emails for a specific contact by querying Gmail for messages

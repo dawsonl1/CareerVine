@@ -207,7 +207,7 @@ export default function Home() {
             </div>
             <div className="space-y-2">
               {followUps.slice(0, 5).map((c) => (
-                <Link key={c.id} href="/contacts">
+                <Link key={c.id} href={`/contacts/${c.id}`}>
                   <Card variant="outlined" className={`state-layer ${c.days_overdue > c.follow_up_frequency_days ? "border-destructive/40" : ""}`}>
                     <CardContent className="p-4 flex items-center gap-3">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
@@ -263,7 +263,7 @@ export default function Home() {
             ) : (
               <div className="space-y-2">
                 {recentContacts.map((contact) => (
-                  <Link key={contact.id} href="/contacts">
+                  <Link key={contact.id} href={`/contacts/${contact.id}`}>
                     <Card variant="outlined" className="state-layer">
                       <CardContent className="p-4 flex items-center gap-3">
                         <div className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center shrink-0 text-on-primary-container text-xs font-medium">

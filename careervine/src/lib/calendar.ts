@@ -7,15 +7,7 @@
 
 import { google } from "googleapis";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { refreshTokenIfNeeded } from "@/lib/oauth-helpers";
-
-function getOAuth2Client() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  );
-}
+import { getOAuth2Client, refreshTokenIfNeeded } from "@/lib/oauth-helpers";
 
 /**
  * Load tokens from DB, refresh if expired, return an authenticated Calendar client.
@@ -191,6 +183,7 @@ export async function createCalendarEvent(
     endTime: string;   // ISO 8601
     attendeeEmails?: string[];
     conferenceType?: "meet" | "zoom" | "none";
+    timeZone?: string;
     calendarId?: string;
   }
 ) {
@@ -200,8 +193,8 @@ export async function createCalendarEvent(
   const requestBody: any = {
     summary: options.summary,
     description: options.description || "",
-    start: { dateTime: options.startTime },
-    end: { dateTime: options.endTime },
+    start: { dateTime: options.startTime, timeZone: options.timeZone || "America/New_York" },
+    end: { dateTime: options.endTime, timeZone: options.timeZone || "America/New_York" },
   };
 
   if (options.attendeeEmails && options.attendeeEmails.length > 0) {

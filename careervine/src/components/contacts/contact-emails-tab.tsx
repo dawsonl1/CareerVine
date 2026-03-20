@@ -22,6 +22,7 @@ interface ContactEmailsTabProps {
   emails: EmailMessage[];
   scheduledEmails: ScheduledEmail[];
   gmailConnected: boolean;
+  loadingEmails: boolean;
   onScheduledEmailCancel: (id: number) => void;
   onReloadEmails: () => void;
 }
@@ -33,6 +34,7 @@ export function ContactEmailsTab({
   emails,
   scheduledEmails,
   gmailConnected,
+  loadingEmails,
   onScheduledEmailCancel,
   onReloadEmails,
 }: ContactEmailsTabProps) {
@@ -42,7 +44,6 @@ export function ContactEmailsTab({
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
   const [expandedEmailContent, setExpandedEmailContent] = useState<EmailMessageFull | null>(null);
   const [loadingEmailContent, setLoadingEmailContent] = useState(false);
-  const [loadingEmails] = useState(false);
 
   const [threadFollowUps, setThreadFollowUps] = useState<Record<string, EmailFollowUp[]>>({});
   const [followUpModal, setFollowUpModal] = useState<{

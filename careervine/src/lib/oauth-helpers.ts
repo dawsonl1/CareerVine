@@ -1,9 +1,19 @@
 /**
- * Shared OAuth token refresh logic for Gmail and Calendar clients.
+ * Shared OAuth helpers for Gmail and Calendar clients.
  * Both services share the same gmail_connections row.
  */
 
+import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
+
+/** Create a Google OAuth2 client from env vars. */
+export function getOAuth2Client() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+}
 
 /**
  * Refresh an OAuth2 token if it's expired or about to expire (within 5 min).
