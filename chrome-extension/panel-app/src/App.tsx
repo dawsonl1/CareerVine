@@ -66,20 +66,57 @@ const FOLLOW_UP_OPTIONS = [
   "1 year",
 ];
 
-// Client-side contact status derivation (mirrors backend deriveContactStatus)
-const deriveContactStatus = (education: Education[]): { contact_status: 'student' | 'professional'; expected_graduation: string | null } => {
-  const currentYear = new Date().getFullYear();
-  const hasCurrentEducation = education.some(edu => edu.is_current);
-  const futureGraduation = education.find(edu => {
-    const endYear = parseInt(edu.end_year || "");
-    return endYear && endYear > currentYear;
-  });
+// Month abbreviations for parsing education end dates
+const MONTH_NAMES: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  january: 0, february: 1, march: 2, april: 3, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+};
 
-  if (hasCurrentEducation || futureGraduation) {
-    return {
-      contact_status: 'student',
-      expected_graduation: futureGraduation?.end_year || null,
-    };
+// Client-side contact status derivation (mirrors backend deriveContactStatus)
+// Month-aware: "May 2027" -> student until June 2027; "2027" -> student until July 2027
+const deriveContactStatus = (education: Education[], now: Date = new Date()): { contact_status: 'student' | 'professional'; expected_graduation: string | null } => {
+  let isStudent = false;
+  let latestGradLabel: string | null = null;
+
+  for (const edu of education) {
+    if (edu.is_current || edu.end_year === "Present") {
+      isStudent = true;
+      continue;
+    }
+    if (!edu.end_year) continue;
+
+    const trimmed = edu.end_year.trim();
+
+    // Try month+year: "May 2027"
+    const monthYearMatch = trimmed.match(/^([A-Za-z]+)\s+(\d{4})$/);
+    if (monthYearMatch) {
+      const mi = MONTH_NAMES[monthYearMatch[1].toLowerCase()];
+      const yr = parseInt(monthYearMatch[2]);
+      if (mi !== undefined && !isNaN(yr)) {
+        const cutoff = new Date(yr, mi + 1, 1);
+        if (now < cutoff) {
+          isStudent = true;
+          latestGradLabel = trimmed;
+        }
+        continue;
+      }
+    }
+
+    // Year-only: "2027" -> student until July of that year
+    const yearOnly = parseInt(trimmed);
+    if (!isNaN(yearOnly) && yearOnly > 1900) {
+      const cutoff = new Date(yearOnly, 6, 1); // July 1
+      if (now < cutoff) {
+        isStudent = true;
+        latestGradLabel = trimmed;
+      }
+    }
+  }
+
+  if (isStudent) {
+    return { contact_status: 'student', expected_graduation: latestGradLabel };
   }
   return { contact_status: 'professional', expected_graduation: null };
 };
@@ -1369,8 +1406,8 @@ const App: React.FC = () => {
     if (editedProfile) {
       setProfile(editedProfile);
       setIsEditing(false);
-      setStatusText("Changes applied — click Save Contact to keep");
-      setTimeout(() => setStatusText(null), 5000);
+      setStatusText("Edits applied");
+      setTimeout(() => setStatusText(null), 3000);
     }
   };
 

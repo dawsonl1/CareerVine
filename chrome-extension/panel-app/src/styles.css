@@ -1139,36 +1139,38 @@
 /* Status Messages */
 .cv-status {
   position: fixed;
-  bottom: 80px;
-  right: 16px;
-  padding: 10px 16px;
-  border-radius: 8px;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 20px;
+  border-radius: 20px;
   font-size: 13px;
   font-weight: 500;
   z-index: 100;
-  max-width: 280px;
-  animation: slideInRight 0.3s ease;
+  white-space: nowrap;
+  text-align: center;
+  animation: toastFadeUp 0.25s ease;
 }
 
-@keyframes slideInRight {
+@keyframes toastFadeUp {
   from {
     opacity: 0;
-    transform: translateX(12px);
+    transform: translateX(-50%) translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateX(-50%) translateY(0);
   }
 }
 
 .cv-status-success {
-  background: #d4edda;
-  color: #155724;
+  background: #1a1a1a;
+  color: #fff;
 }
 
 .cv-status-error {
-  background: #f8d7da;
-  color: #721c24;
+  background: #d32f2f;
+  color: #fff;
 }
 
 /* Login Form Styles */
