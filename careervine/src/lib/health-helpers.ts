@@ -12,8 +12,8 @@ export function getHealthColor(
   daysSince: number | null,
   frequencyDays: number | null,
 ): HealthColor {
-  // No cadence configured — neutral
-  if (frequencyDays === null) return "gray";
+  // No cadence configured (or invalid) — neutral
+  if (frequencyDays === null || frequencyDays <= 0) return "gray";
 
   // Never contacted but has a cadence — overdue
   if (daysSince === null) return "red";

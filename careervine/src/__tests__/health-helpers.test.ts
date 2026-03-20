@@ -84,5 +84,12 @@ describe("getHealthColor", () => {
       // ratio = 1.01 → red
       expect(getHealthColor(101, 100)).toBe("red");
     });
+
+    it("returns gray for zero or negative frequency (invalid cadence)", () => {
+      expect(getHealthColor(0, 0)).toBe("gray");
+      expect(getHealthColor(10, 0)).toBe("gray");
+      expect(getHealthColor(null, 0)).toBe("gray");
+      expect(getHealthColor(5, -1)).toBe("gray");
+    });
   });
 });

@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
-import { getHealthColor, healthStyles, healthBgColors, healthLabels, healthRingColors, CRITICAL_OVERDUE_DAYS, type HealthColor } from "@/lib/health-helpers";
+import { getHealthColor, healthBgColors, healthLabels, healthRingColors, CRITICAL_OVERDUE_DAYS, type HealthColor } from "@/lib/health-helpers";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
@@ -157,8 +157,9 @@ export default function Home() {
     const items: { id: number; name: string; photo_url: string | null; reason: string; urgency: number }[] = [];
 
     for (const f of followUps) {
-      const reason =
-        f.days_overdue === 0
+      const reason = !f.last_touch
+        ? "Never contacted"
+        : f.days_overdue === 0
           ? "Follow-up due today"
           : `Follow-up ${f.days_overdue}d overdue`;
       items.push({ id: f.id, name: f.name, photo_url: f.photo_url, reason, urgency: f.days_overdue });
