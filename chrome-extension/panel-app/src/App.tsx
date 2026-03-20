@@ -369,6 +369,19 @@ const standardizeLocation = (location: string | null): string => {
 };
 
 
+// Hook: close a dropdown/popover when clicking outside its ref (works in Shadow DOM)
+const useClickOutside = (ref: React.RefObject<HTMLElement | null>, onClose: () => void, isOpen: boolean) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const root = (window as any).__cv_sr || document;
+    const timer = setTimeout(() => root.addEventListener("mousedown", handler), 10);
+    return () => { clearTimeout(timer); root.removeEventListener("mousedown", handler); };
+  }, [isOpen]);
+};
+
 // Simple Dropdown Component
 const SimpleDropdown: React.FC<{
   value: string;
@@ -379,29 +392,7 @@ const SimpleDropdown: React.FC<{
 }> = ({ value, onChange, options, placeholder = "Select...", className = "" }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    const shadowRoot = (window as any).__cv_sr;
-    const root = shadowRoot || document;
-
-    const timer = setTimeout(() => {
-      root.addEventListener("mousedown", handler);
-    }, 10);
-
-    return () => {
-      clearTimeout(timer);
-      root.removeEventListener("mousedown", handler);
-    };
-  }, [isOpen]);
+  useClickOutside(dropdownRef, () => setIsOpen(false), isOpen);
 
   const handleToggle = () => {
     setIsOpen(!isOpen);
@@ -500,35 +491,15 @@ const InlineInput: React.FC<{
   onChange: (value: string) => void;
   placeholder: string;
   className?: string;
-  autoSize?: boolean;
-}> = ({ value, onChange, placeholder, className = "", autoSize = false }) => {
-  if (autoSize) {
-    // Render a hidden sizer span + input that matches its width
-    return (
-      <span className="cv-auto-size-wrapper">
-        <span className={`cv-auto-size-sizer cv-inline-input ${className}`}>
-          {value || placeholder}
-        </span>
-        <input
-          type="text"
-          className={`cv-inline-input ${className}`}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-        />
-      </span>
-    );
-  }
-  return (
-    <input
-      type="text"
-      className={`cv-inline-input ${className}`}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-    />
-  );
-};
+}> = ({ value, onChange, placeholder, className = "" }) => (
+  <input
+    type="text"
+    className={`cv-inline-input ${className}`}
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    placeholder={placeholder}
+  />
+);
 
 // Contact status toggle — reused in view mode and edit mode
 const StatusToggle: React.FC<{
@@ -568,32 +539,13 @@ const MonthYearPicker: React.FC<{
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setInputVal(value); }, [value]);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    const shadowRoot = (window as any).__cv_sr;
-    const root = shadowRoot || document;
-    const timer = setTimeout(() => root.addEventListener("mousedown", handler), 10);
-    return () => { clearTimeout(timer); root.removeEventListener("mousedown", handler); };
-  }, [isOpen]);
+  useClickOutside(wrapperRef, () => setIsOpen(false), isOpen);
 
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 30 }, (_, i) => currentYear - i);
+  const years = useMemo(() => Array.from({ length: 30 }, (_, i) => currentYear - i), [currentYear]);
 
-  // Build suggestions based on input
   const getSuggestions = (): string[] => {
     const q = inputVal.toLowerCase().trim();
-
-    // "Present" option
-    if (!yearOnly && ("present".startsWith(q) || q === "")) {
-      // always include Present as first option when relevant
-    }
 
     if (yearOnly) {
       const filtered = years.filter(y => String(y).includes(q));
