@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
 
 interface UseSuggestionsOptions {
-  /** Called after a suggestion is successfully saved */
+  /** Called after a suggestion is successfully saved (not completed) */
   onSave?: () => void;
 }
 
@@ -32,7 +32,8 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
     }
   }, []);
 
-  const save = useCallback(async (s: Suggestion): Promise<boolean> => {
+  /** Internal: save a suggestion, optionally marking it as already completed. */
+  const saveSuggestion = useCallback(async (s: Suggestion, opts?: { completed?: boolean }): Promise<boolean> => {
     try {
       const res = await fetch("/api/suggestions/save", {
         method: "POST",
@@ -44,11 +45,12 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
           reasonType: s.reasonType,
           headline: s.headline,
           evidence: s.evidence,
+          ...(opts?.completed && { completed: true }),
         }),
       });
       if (res.ok) {
         setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
-        onSave?.();
+        if (!opts?.completed) onSave?.();
         return true;
       }
       return false;
@@ -57,31 +59,10 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
     }
   }, [onSave]);
 
+  const save = useCallback((s: Suggestion) => saveSuggestion(s), [saveSuggestion]);
+
   /** Mark a suggestion as already done — creates a completed action item. */
-  const complete = useCallback(async (s: Suggestion): Promise<boolean> => {
-    try {
-      const res = await fetch("/api/suggestions/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contactId: s.contactId,
-          title: s.suggestedTitle,
-          description: s.suggestedDescription,
-          reasonType: s.reasonType,
-          headline: s.headline,
-          evidence: s.evidence,
-          completed: true,
-        }),
-      });
-      if (res.ok) {
-        setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }, []);
+  const complete = useCallback((s: Suggestion) => saveSuggestion(s, { completed: true }), [saveSuggestion]);
 
   const dismiss = useCallback((s: Suggestion) => {
     setSuggestions((prev) => prev.filter((x) => x.id !== s.id));

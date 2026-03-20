@@ -15,9 +15,10 @@
 
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { usePortalDropdown } from "@/hooks/use-portal-dropdown";
 
 interface DatePickerProps {
   value: string; // YYYY-MM-DD
@@ -33,39 +34,16 @@ const MONTHS = [
 ];
 
 export function DatePicker({ value, onChange, required, placeholder = "Select date" }: DatePickerProps) {
-  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  const { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos } = usePortalDropdown(ref, {
+    dropdownHeight: 380,
+    dropdownWidth: 300,
+  });
 
   const today = new Date();
   const selected = value ? new Date(value + "T00:00:00") : null;
   const [viewYear, setViewYear] = useState(selected?.getFullYear() ?? today.getFullYear());
   const [viewMonth, setViewMonth] = useState(selected?.getMonth() ?? today.getMonth());
-
-  // Close on outside click — check both the trigger container and the portaled dropdown
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (ref.current?.contains(target)) return;
-      if (dropdownRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  // Position the dropdown relative to the trigger button
-  useEffect(() => {
-    if (!open || !triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    const dropdownHeight = 380; // approximate max height
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const top = spaceBelow >= dropdownHeight ? rect.bottom + 8 : rect.top - dropdownHeight - 8;
-    setDropdownPos({ top: Math.max(8, top), left: Math.max(8, Math.min(rect.left, window.innerWidth - 316)) });
-  }, [open]);
 
   const firstDay = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
@@ -106,7 +84,7 @@ export function DatePicker({ value, onChange, required, placeholder = "Select da
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggle}
         className="w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm flex items-center justify-between gap-2"
       >
         <span className={displayValue ? "text-foreground" : "text-muted-foreground"}>

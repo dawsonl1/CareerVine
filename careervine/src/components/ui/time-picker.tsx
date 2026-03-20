@@ -14,9 +14,10 @@
 
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
+import { usePortalDropdown } from "@/hooks/use-portal-dropdown";
 
 interface TimePickerProps {
   value: string; // HH:MM (24h)
@@ -39,10 +40,11 @@ function to24(h12: number, period: "AM" | "PM"): number {
 }
 
 export function TimePicker({ value, onChange, placeholder = "Select time" }: TimePickerProps) {
-  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  const { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos } = usePortalDropdown(ref, {
+    dropdownHeight: 340,
+    dropdownWidth: 280,
+  });
 
   // Parse current value
   const parts = value ? value.split(":").map(Number) : [null, null];
@@ -52,30 +54,6 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
   const [period, setPeriod] = useState<"AM" | "PM">(
     currentH24 !== null && currentH24 >= 12 ? "PM" : "AM"
   );
-
-  // Close on outside click — check both trigger container and portaled dropdown
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (ref.current?.contains(target)) return;
-      if (dropdownRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  // Position the dropdown relative to the trigger button
-  useEffect(() => {
-    if (!open || !triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    const dropdownHeight = 340;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const top = spaceBelow >= dropdownHeight ? rect.bottom + 8 : rect.top - dropdownHeight - 8;
-    setDropdownPos({ top: Math.max(8, top), left: Math.max(8, Math.min(rect.left, window.innerWidth - 296)) });
-  }, [open]);
 
   const selectHour = (h12: number) => {
     const h24 = to24(h12, period);
@@ -113,7 +91,7 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggle}
         className="w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm flex items-center justify-between gap-2"
       >
         <span className={displayValue ? "text-foreground" : "text-muted-foreground"}>

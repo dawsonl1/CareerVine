@@ -193,6 +193,7 @@ export function ComposeEmailModal() {
     }, 2000);
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      if (draftSavedTimer.current) clearTimeout(draftSavedTimer.current);
     };
   }, [isOpen, to, cc, bcc, subject, bodyHtml, sent, scheduled, saveDraft]);
 

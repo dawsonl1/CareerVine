@@ -220,7 +220,6 @@ export default function SpeakerResolver({
     setAiError(null);
 
     try {
-      const speakerSamples = extractSpeakerSamples(segments);
       const contactContext = buildContactContext();
       const attendeeIds = meetingContacts.map((c) => c.id);
 
@@ -230,6 +229,11 @@ export default function SpeakerResolver({
         .map((m) => m.speakerLabel);
 
       if (unmatchedLabels.length === 0) return;
+
+      // Only extract samples for unmatched speakers to reduce API payload
+      const unmatchedSet = new Set(unmatchedLabels);
+      const unmatchedSegments = segments.filter((s) => unmatchedSet.has(s.speaker_label));
+      const speakerSamples = extractSpeakerSamples(unmatchedSegments);
 
       const res = await fetch("/api/transcripts/match-speakers", {
         method: "POST",

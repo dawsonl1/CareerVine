@@ -12,19 +12,7 @@ import { transcriptMatchSpeakersSchema } from "@/lib/api-schemas";
  * Input:  { speakerLabels, speakerSamples, attendeeIds, contactContext, meetingTitle? }
  * Output: { matches: [{ speakerLabel, contactId, confidence, reason }] }
  */
-export const POST = withApiHandler({
-  schema: transcriptMatchSpeakersSchema,
-  handler: async ({ body }) => {
-    const { speakerLabels, speakerSamples, contactContext, meetingTitle } = body;
-
-    if (contactContext.length === 0) {
-      return { matches: [] };
-    }
-
-    const openai = getOpenAIClient();
-    const model = DEFAULT_MODEL;
-
-    const matchSchema = {
+const MATCH_SCHEMA = {
       name: "speaker_matches",
       schema: {
         type: "object",
@@ -59,8 +47,20 @@ export const POST = withApiHandler({
           },
         },
       },
-      strict: true,
-    };
+  strict: true,
+} as const;
+
+export const POST = withApiHandler({
+  schema: transcriptMatchSpeakersSchema,
+  handler: async ({ body }) => {
+    const { speakerLabels, speakerSamples, contactContext, meetingTitle } = body;
+
+    if (contactContext.length === 0) {
+      return { matches: [] };
+    }
+
+    const openai = getOpenAIClient();
+    const model = DEFAULT_MODEL;
 
     // Build contact profiles for the prompt
     const contactProfiles = contactContext
@@ -112,7 +112,7 @@ export const POST = withApiHandler({
         text: {
           format: {
             type: "json_schema",
-            ...matchSchema,
+            ...MATCH_SCHEMA,
           },
         },
       });

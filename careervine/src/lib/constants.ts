@@ -66,3 +66,16 @@ export const SuggestionReasonType = {
   LlmPersonalized: "llm_personalized",
   TranscriptExtracted: "transcript_extracted",
 } as const;
+
+// ── Meeting type options (shared across meeting forms) ───────────────
+
+export const MEETING_TYPE_OPTIONS = [
+  { value: "coffee", label: "Coffee Chat" },
+  { value: "phone", label: "Phone Call" },
+  { value: "video", label: "Video Call" },
+  { value: "in-person", label: "In Person" },
+  { value: "lunch", label: "Lunch/Dinner" },
+  { value: "interview", label: "Interview" },
+  { value: "networking", label: "Networking Event" },
+  { value: "other", label: "Other" },
+] as const;
