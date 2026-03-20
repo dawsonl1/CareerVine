@@ -21,6 +21,13 @@ CREATE POLICY "contact_photos_bucket_insert"
     AND (storage.foldername(name))[1] = auth.uid()::text
   );
 
+CREATE POLICY "contact_photos_bucket_update"
+  ON storage.objects FOR UPDATE
+  USING (
+    bucket_id = 'contact-photos'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
 CREATE POLICY "contact_photos_bucket_delete"
   ON storage.objects FOR DELETE
   USING (

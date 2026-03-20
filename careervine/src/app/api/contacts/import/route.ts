@@ -416,35 +416,39 @@ async function downloadAndStorePhoto(supabase: SupabaseClient, userId: string, c
     return;
   }
 
-  // Fetch the image with a 3-second timeout
+  // Fetch the image with a 5-second timeout covering headers + body
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3000);
+  const timeout = setTimeout(() => controller.abort(), 5000);
   let response: Response;
+  let imageBuffer: ArrayBuffer;
   try {
-    response = await fetch(photoUrl, { signal: controller.signal });
+    response = await fetch(photoUrl, { signal: controller.signal, redirect: 'error' });
+    if (!response.ok) {
+      throw new Error(`Photo fetch failed with status ${response.status}`);
+    }
+    imageBuffer = await response.arrayBuffer();
   } finally {
     clearTimeout(timeout);
   }
 
-  if (!response.ok) {
-    throw new Error(`Photo fetch failed with status ${response.status}`);
-  }
-
-  // Guard against unexpectedly large payloads
-  const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
-  if (contentLength > 5 * 1024 * 1024) {
-    console.warn(`[import] Photo too large: ${contentLength} bytes`);
+  // Validate actual payload size (Content-Length can be absent or spoofed)
+  if (imageBuffer.byteLength > 5 * 1024 * 1024) {
+    console.warn(`[import] Photo too large: ${imageBuffer.byteLength} bytes`);
     return;
   }
 
-  const imageBuffer = await response.arrayBuffer();
+  // Validate content-type is an image format
+  const contentType = response.headers.get('content-type') || '';
+  const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  const resolvedContentType = ALLOWED_IMAGE_TYPES.find(t => contentType.startsWith(t)) || 'image/jpeg';
+
   const storagePath = `${userId}/${contactId}.jpg`;
 
   // Upload photo (upsert handles re-imports atomically)
   const { error: uploadError } = await supabase.storage
     .from('contact-photos')
     .upload(storagePath, imageBuffer, {
-      contentType: response.headers.get('content-type') || 'image/jpeg',
+      contentType: resolvedContentType,
       upsert: true,
     });
   if (uploadError) throw uploadError;

@@ -258,7 +258,7 @@ async function scrapeCurrentProfile() {
 // ---- Navigation detection ----
 
 function clearLatestProfileStorage() {
-  clearLatestProfileStorage();
+  chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
 }
 
 let lastProfileId = extractProfileId(window.location.href);

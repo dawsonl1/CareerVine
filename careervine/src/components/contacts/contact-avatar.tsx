@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface ContactAvatarProps {
   name: string;
@@ -12,6 +12,9 @@ interface ContactAvatarProps {
 
 export function ContactAvatar({ name, photoUrl, className = "", ringClassName = "" }: ContactAvatarProps) {
   const [imgError, setImgError] = useState(false);
+
+  // Reset error state when the photo URL changes (e.g. after re-import)
+  useEffect(() => setImgError(false), [photoUrl]);
   const initial = name.charAt(0).toUpperCase();
   const ring = ringClassName ? `ring-2 ${ringClassName}` : "";
 
