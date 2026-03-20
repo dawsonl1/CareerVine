@@ -329,21 +329,15 @@ export async function getInteractions(contactId: number) {
  * @throws Error if query fails
  */
 export async function getAllInteractions(userId: string) {
-  const { data: contacts } = await supabase
-    .from("contacts")
-    .select("id")
-    .eq("user_id", userId);
-  if (!contacts || contacts.length === 0) return [];
-
-  const contactIds = contacts.map((c) => c.id);
+  // Single query using an inner join on contacts — RLS on contacts ensures user scoping
   const { data, error } = await supabase
     .from("interactions")
-    .select("*, contacts(id, name)")
-    .in("contact_id", contactIds)
+    .select("*, contacts!inner(id, name)")
+    .eq("contacts.user_id", userId)
     .order("interaction_date", { ascending: false });
 
   if (error) throw error;
-  return data;
+  return data || [];
 }
 
 /**

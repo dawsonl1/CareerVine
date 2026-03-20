@@ -40,24 +40,24 @@
 
 - [ ] **#22** N+1 queries in experience/education/tag import loops
 - [ ] **#23** No retry/backoff for Gmail API rate limits during sync
-- [ ] **#24** `getAllInteractions` two-query pattern could be one join
+- [x] **#24** `getAllInteractions` two-query pattern could be one join — rewritten as single query with !inner join
 - [x] **#25** Duplicated OAuth2 client + token refresh logic — consolidated into oauth-helpers.ts
 
 ## Nits
 
 - [x] **#26** Debug console.log in parse-profile — removed with #3 fix
 - [x] **#27** Unused `userId` params in import helpers — removed from addExperienceToContact, addEducationToContact
-- [ ] **#28** server-client.ts unnecessarily requires service role key
+- [x] **#28** server-client.ts unnecessarily requires service role key — removed server:true flag
 - [ ] **#29** database.types.ts: companies/schools Insert requires id
 - [x] **#30** contact-info-header onContactUpdate passes stale data — parent ignores arg and reloads, no bug
 - [x] **#31** contacts/[id] dynamic import of already-imported module — added getContacts to static import
-- [ ] **#32** No user-visible error on dashboard quick-add failure
+- [x] **#32** No user-visible error on dashboard quick-add failure — added quickAddError state and inline message
 - [x] **#33** Unnecessary removeEmails/removePhones on new contacts — removed from create flow
 - [ ] **#34** Tag dropdown no outside-click handler
 - [ ] **#35** Search suggestion dropdown no outside-click handler
 - [x] **#36** select("*") over-fetches sensitive token columns in gmail/calendar — narrowed to needed columns
 - [x] **#37** buildThreads recreated every render in inbox — moved to module-level pure function
-- [ ] **#38** Missing loadData in useEffect dependency arrays
+- [x] **#38** Missing loadData in useEffect dependency arrays — wrapped in useCallback, added to deps
 - [ ] **#39** getContacts over-fetches for list views
-- [ ] **#40** getConnection fragile column selection
+- [x] **#40** getConnection fragile column selection — investigated, current columns match all callers' needs
 - [ ] **#41** Various type inconsistencies in database.types.ts

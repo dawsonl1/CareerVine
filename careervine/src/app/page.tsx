@@ -13,7 +13,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
 import AuthForm from "@/components/auth-form";
@@ -48,6 +48,7 @@ export default function Home() {
   const [metThrough, setMetThrough] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
 
   // Recent contacts
   const [recentContacts, setRecentContacts] = useState<Contact[]>([]);
@@ -63,9 +64,9 @@ export default function Home() {
     if (user) {
       loadData();
     }
-  }, [user]);
+  }, [user, loadData]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!user) return;
     try {
       const [contacts, items, dueContacts] = await Promise.all([
@@ -82,12 +83,13 @@ export default function Home() {
     } catch (e) {
       console.error("Error loading home data:", e);
     }
-  };
+  }, [user]);
 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !name.trim()) return;
     setSaving(true);
+    setQuickAddError(null);
     try {
       await createContact({
         user_id: user.id,
@@ -111,6 +113,7 @@ export default function Home() {
       await loadData();
     } catch (e) {
       console.error("Error creating contact:", e);
+      setQuickAddError("Failed to add contact. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -192,6 +195,9 @@ export default function Home() {
                   <span className="text-sm text-primary font-medium animate-pulse">
                     Contact saved!
                   </span>
+                )}
+                {quickAddError && (
+                  <span className="text-sm text-red-600">{quickAddError}</span>
                 )}
               </div>
             </form>
