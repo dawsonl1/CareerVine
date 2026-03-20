@@ -5,44 +5,58 @@
 
 class LinkedInScraper {
   async scrapeAndClean() {
-    // Scroll the full page to force LinkedIn to lazy-load all section content.
-    // Strategy: scroll in viewport-sized chunks to the bottom, pausing at each
-    // step so LinkedIn's intersection observers fire and render content.
+    // Helper: instant scroll + wait for LinkedIn's lazy-load observers to fire.
+    // 'smooth' scroll animates over hundreds of ms and doesn't guarantee the
+    // viewport has actually moved when the call returns, so we use 'instant'
+    // to ensure the position changes immediately, then wait for rendering.
+    const scrollAndWait = async (top) => {
+      window.scrollTo({ top, behavior: 'instant' });
+      // Give intersection observers + React renders time to fire
+      await new Promise(r => setTimeout(r, 600 + Math.floor(Math.random() * 400)));
+    };
+
     const viewportH = window.innerHeight;
-    let scrolledTo = 0;
-    let prevHeight = document.body.scrollHeight;
 
-    // Phase 1: scroll down in chunks until we've hit the true bottom
-    // (page height can grow as lazy content loads, so keep going until stable)
+    // Phase 1: walk down the page in overlapping viewport-sized steps.
+    // After each step, wait for lazy content. Keep going until we've been
+    // at the bottom and the page height has been stable across 3 checks.
+    let pos = 0;
     let stableCount = 0;
-    while (stableCount < 2) {
-      const target = scrolledTo + viewportH * (0.7 + Math.random() * 0.3);
-      scrolledTo = Math.min(target, document.body.scrollHeight);
-      window.scrollTo({ top: scrolledTo, behavior: 'smooth' });
-      const delay = 400 + Math.floor(Math.random() * 400);
-      await new Promise(resolve => setTimeout(resolve, delay));
+    let prevHeight = 0;
+    const maxIterations = 40; // safety valve
+    let iterations = 0;
 
-      const newHeight = document.body.scrollHeight;
-      if (scrolledTo >= newHeight - viewportH) {
-        // We're near the bottom — check if page height is still growing
-        if (newHeight === prevHeight) {
+    while (stableCount < 3 && iterations < maxIterations) {
+      iterations++;
+      const pageH = document.body.scrollHeight;
+
+      // Scroll to next position
+      pos += viewportH * 0.75;
+      if (pos >= pageH) pos = pageH;
+      await scrollAndWait(pos);
+
+      // Check if we're at the bottom
+      const newPageH = document.body.scrollHeight;
+      if (pos >= newPageH - viewportH) {
+        // We're near/at the bottom — has height stabilized?
+        if (newPageH === prevHeight) {
           stableCount++;
         } else {
           stableCount = 0;
-          prevHeight = newHeight;
         }
-        // Nudge to absolute bottom to trigger any final lazy loads
-        window.scrollTo({ top: newHeight, behavior: 'smooth' });
-        await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 300));
+        prevHeight = newPageH;
+
+        // Hit absolute bottom to trigger any final lazy loads
+        await scrollAndWait(newPageH);
       }
     }
 
-    // Phase 2: scroll back to top
-    await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 400));
-    window.scrollTo({ top: Math.floor(Math.random() * 150), behavior: 'smooth' });
+    // Phase 2: scroll back to top so the user isn't left at the bottom
+    await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    // Wait for any final rendering
-    await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
+    // Wait for any final rendering after scroll-back
+    await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
 
     // Extract all text from main content area
     const main = document.querySelector('main') || document.body;
