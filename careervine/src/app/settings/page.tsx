@@ -39,7 +39,8 @@ export default function SettingsPageWrapper() {
 function SettingsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const activeTab = (searchParams.get("tab") as TabId) || "account";
+  const rawTab = searchParams.get("tab");
+  const activeTab: TabId = tabs.some((t) => t.id === rawTab) ? (rawTab as TabId) : "account";
 
   const setTab = (tab: TabId) => {
     router.push(`/settings?tab=${tab}`, { scroll: false });

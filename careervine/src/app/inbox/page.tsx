@@ -41,9 +41,9 @@ import {
   FileText,
   MoreVertical,
   Calendar as CalendarIcon,
-  ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 
 // ── Types ──
@@ -513,12 +513,8 @@ export default function InboxPage() {
           <p className="text-sm text-muted-foreground mb-5 max-w-md mx-auto">
             Connect your Gmail account to see your email conversations with contacts, send emails, and track follow-ups.
           </p>
-          <div className="flex gap-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 max-w-md mx-auto mb-5 text-left">
-            <ShieldAlert className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
-              Google will show a warning screen since CareerVine is still being verified.
-              Click <strong>&quot;Advanced&quot;</strong> then <strong>&quot;Go to CareerVine (unsafe)&quot;</strong> to continue.
-            </p>
+          <div className="max-w-md mx-auto mb-5 text-left">
+            <OAuthWarning />
           </div>
           <a href="/api/gmail/auth">
             <Button>

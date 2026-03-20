@@ -11,10 +11,6 @@ import {
   Chrome,
   Mic,
   Heart,
-  Clock,
-  Send,
-  FileText,
-  Bell,
   ArrowRight,
   type LucideIcon,
 } from "lucide-react";

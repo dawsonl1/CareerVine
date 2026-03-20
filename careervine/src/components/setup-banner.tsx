@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
-import { AlertCircle, X, Mail, Calendar, ShieldAlert } from "lucide-react";
+import { AlertCircle, X, Mail, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { OAuthWarning } from "@/components/oauth-warning";
 
 /**
  * Global setup banner — shown on all pages when Gmail or Calendar is not connected.
@@ -93,13 +94,8 @@ export default function SetupBanner() {
               </button>
             </div>
             {showOAuthInfo && (
-              <div className="flex gap-2.5 mt-3 p-2.5 rounded-lg bg-amber-100/60 dark:bg-amber-900/30">
-                <ShieldAlert className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-                  CareerVine is in the Google verification process. You&apos;ll see a &quot;This app isn&apos;t verified&quot; screen.
-                  Click <strong>&quot;Advanced&quot;</strong> then <strong>&quot;Go to CareerVine (unsafe)&quot;</strong> to continue.
-                  Your data is only used within your CareerVine account.
-                </p>
+              <div className="mt-3">
+                <OAuthWarning variant="amber" />
               </div>
             )}
           </div>

@@ -7,24 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getGmailConnection } from "@/lib/queries";
 import type { GmailConnection } from "@/lib/types";
-import { Mail, Check, RefreshCw, Unplug, MailCheck, Calendar, ShieldAlert } from "lucide-react";
-
-function OAuthWarning() {
-  return (
-    <div className="flex gap-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
-      <ShieldAlert className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-      <div className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
-        <p className="font-medium mb-1">Google will show a warning screen</p>
-        <p>
-          CareerVine is currently in the Google verification process. When connecting, you&apos;ll see a
-          &quot;This app isn&apos;t verified&quot; screen. Click <strong>&quot;Advanced&quot;</strong> then{" "}
-          <strong>&quot;Go to CareerVine (unsafe)&quot;</strong> to continue. Your data is only used
-          within your CareerVine account.
-        </p>
-      </div>
-    </div>
-  );
-}
+import { Mail, Check, RefreshCw, Unplug, MailCheck, Calendar } from "lucide-react";
+import { OAuthWarning } from "@/components/oauth-warning";
 
 export default function IntegrationsSection() {
   const { user } = useAuth();
