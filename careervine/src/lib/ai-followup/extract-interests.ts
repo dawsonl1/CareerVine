@@ -36,6 +36,19 @@ If no meetings, transcripts, or notes exist, derive interests from their profile
 Return interests sorted by confidence (highest first).
 Do NOT fabricate interests — only extract what is clearly supported by the context.`;
 
+const INTEREST_ITEM_SCHEMA = {
+  type: "object",
+  properties: {
+    topic: { type: "string" },
+    evidence: { type: "string" },
+    source: { type: "string" },
+    confidence: { type: "number" },
+    searchQuery: { type: "string" },
+  },
+  required: ["topic", "evidence", "source", "confidence", "searchQuery"],
+  additionalProperties: false,
+} as const;
+
 const RESPONSE_SCHEMA = {
   type: "json_schema" as const,
   json_schema: {
@@ -44,36 +57,8 @@ const RESPONSE_SCHEMA = {
     schema: {
       type: "object",
       properties: {
-        interests: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              topic: { type: "string" },
-              evidence: { type: "string" },
-              source: { type: "string" },
-              confidence: { type: "number" },
-              searchQuery: { type: "string" },
-            },
-            required: ["topic", "evidence", "source", "confidence", "searchQuery"],
-            additionalProperties: false,
-          },
-        },
-        profileFallbacks: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              topic: { type: "string" },
-              evidence: { type: "string" },
-              source: { type: "string" },
-              confidence: { type: "number" },
-              searchQuery: { type: "string" },
-            },
-            required: ["topic", "evidence", "source", "confidence", "searchQuery"],
-            additionalProperties: false,
-          },
-        },
+        interests: { type: "array", items: INTEREST_ITEM_SCHEMA },
+        profileFallbacks: { type: "array", items: INTEREST_ITEM_SCHEMA },
       },
       required: ["interests", "profileFallbacks"],
       additionalProperties: false,

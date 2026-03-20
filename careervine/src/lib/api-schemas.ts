@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { AiFollowUpDraftStatus } from "@/lib/constants";
 
 // ── Shared primitives ──────────────────────────────────────────────────
 
@@ -222,8 +223,10 @@ export const aiFollowUpGenerateSchema = z.object({
   contactIds: z.array(z.number().int()).min(1).max(3),
 });
 
+const aiDraftStatuses = Object.values(AiFollowUpDraftStatus) as [string, ...string[]];
+
 export const aiFollowUpPatchSchema = z.object({
-  status: z.enum(["pending", "dismissed", "sent", "edited_and_sent"]).optional(),
+  status: z.enum(aiDraftStatuses).optional(),
   subject: z.string().optional(),
   bodyHtml: z.string().optional(),
   sendAsReply: z.boolean().optional(),

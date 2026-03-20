@@ -18,25 +18,10 @@ import { extractInterests } from "@/lib/ai-followup/extract-interests";
 import { findArticle } from "@/lib/ai-followup/find-article";
 import { generateDraft } from "@/lib/ai-followup/generate-draft";
 
-interface GeneratedDraft {
+interface GeneratedResult {
   contactId: number;
-  draft: {
-    id: number;
-    contactId: number;
-    contactName: string;
-    recipientEmail: string | null;
-    subject: string;
-    bodyHtml: string;
-    extractedTopic: string;
-    topicEvidence: string;
-    sourceMeetingId: number | null;
-    articleUrl: string | null;
-    articleTitle: string | null;
-    articleSource: string | null;
-    replyThreadId: string | null;
-    replyThreadSubject: string | null;
-    sendAsReply: boolean;
-  } | null;
+  /** Matches the snake_case shape from GET /pending so the client uses one type */
+  draft: Record<string, unknown> | null;
   error?: string;
 }
 
@@ -59,32 +44,32 @@ export const POST = withApiHandler({
 
     const senderFirstName = userProfile.first_name || "there";
 
+    // Batch-check which contacts already have pending drafts (single query)
+    const { data: existingDrafts } = await service
+      .from("ai_follow_up_drafts")
+      .select("contact_id")
+      .in("contact_id", contactIds)
+      .eq("user_id", user.id)
+      .eq("status", AiFollowUpDraftStatus.Pending);
+
+    const existingContactIds = new Set((existingDrafts || []).map((d) => d.contact_id));
+
     // Process contacts sequentially to respect rate limits
-    const results: GeneratedDraft[] = [];
+    const results: GeneratedResult[] = [];
 
     for (const contactId of contactIds) {
+      if (existingContactIds.has(contactId)) {
+        results.push({ contactId, draft: null, error: "Pending draft already exists" });
+        continue;
+      }
+
       try {
-        // Check if a pending draft already exists
-        const { data: existing } = await service
-          .from("ai_follow_up_drafts")
-          .select("id")
-          .eq("contact_id", contactId)
-          .eq("user_id", user.id)
-          .eq("status", AiFollowUpDraftStatus.Pending)
-          .limit(1);
-
-        if (existing && existing.length > 0) {
-          results.push({ contactId, draft: null, error: "Pending draft already exists" });
-          continue;
-        }
-
         // Step 1: Gather context (also verifies ownership)
         const context = await gatherContactContext(user.id, contactId);
 
         // Step 2: Extract interests
         const interests = await extractInterests(context);
 
-        // Determine the best interest to use
         const bestInterest =
           interests.interests[0] || interests.profileFallbacks[0];
 
@@ -105,46 +90,39 @@ export const POST = withApiHandler({
           article: articleResult?.article,
         });
 
-        // Get contact's primary email
-        const { data: contactEmails } = await service
+        // Get contact's primary email + check for recent thread in parallel
+        const recipientEmailPromise = service
           .from("contact_emails")
           .select("email")
           .eq("contact_id", contactId)
           .eq("is_primary", true)
           .limit(1);
 
-        const recipientEmail = contactEmails?.[0]?.email || null;
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-        // Check for recent thread to potentially reply to (within 90 days)
-        let replyThreadId: string | null = null;
-        let replyThreadSubject: string | null = null;
+        const recentThreadPromise = service
+          .from("email_messages")
+          .select("thread_id, subject")
+          .eq("user_id", user.id)
+          .eq("matched_contact_id", contactId)
+          .gte("date", ninetyDaysAgo.toISOString())
+          .order("date", { ascending: false })
+          .limit(1);
 
-        if (recipientEmail) {
-          const ninetyDaysAgo = new Date();
-          ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+        const [emailResult, threadResult] = await Promise.all([
+          recipientEmailPromise,
+          recentThreadPromise,
+        ]);
 
-          const { data: recentThreads } = await service
-            .from("email_messages")
-            .select("thread_id, subject")
-            .eq("user_id", user.id)
-            .eq("matched_contact_id", contactId)
-            .gte("date", ninetyDaysAgo.toISOString())
-            .order("date", { ascending: false })
-            .limit(1);
-
-          if (recentThreads?.[0]?.thread_id) {
-            replyThreadId = recentThreads[0].thread_id;
-            replyThreadSubject = recentThreads[0].subject;
-          }
-        }
-
-        // Default to reply if recent thread exists
+        const recipientEmail = emailResult.data?.[0]?.email || null;
+        const replyThreadId = threadResult.data?.[0]?.thread_id || null;
+        const replyThreadSubject = threadResult.data?.[0]?.subject || null;
         const sendAsReply = replyThreadId !== null;
-
-        // Source meeting is the most recent meeting
         const sourceMeetingId = context.meetings[0]?.id || null;
+        const usedInterest = articleResult?.interest || bestInterest;
 
-        // Step 5: Store the draft
+        // Step 5: Store and return the full row (same shape as GET /pending)
         const { data: inserted, error: insertError } = await service
           .from("ai_follow_up_drafts")
           .insert({
@@ -156,19 +134,25 @@ export const POST = withApiHandler({
             reply_thread_id: replyThreadId,
             reply_thread_subject: replyThreadSubject,
             send_as_reply: sendAsReply,
-            extracted_topic: (articleResult?.interest || bestInterest).topic,
-            topic_evidence: (articleResult?.interest || bestInterest).evidence,
+            extracted_topic: usedInterest.topic,
+            topic_evidence: usedInterest.evidence,
             source_meeting_id: sourceMeetingId,
             article_url: articleResult?.article.url || null,
             article_title: articleResult?.article.title || null,
             article_source: articleResult?.article.source || null,
             status: AiFollowUpDraftStatus.Pending,
           })
-          .select("id")
+          .select(`
+            id, contact_id, recipient_email, subject, body_html,
+            reply_thread_id, reply_thread_subject, send_as_reply,
+            extracted_topic, topic_evidence, source_meeting_id,
+            article_url, article_title, article_source,
+            status, created_at,
+            contacts(name, photo_url, industry)
+          `)
           .single();
 
         if (insertError) {
-          // Unique constraint violation = draft already exists (race condition)
           if (insertError.code === "23505") {
             results.push({ contactId, draft: null, error: "Pending draft already exists" });
             continue;
@@ -176,26 +160,7 @@ export const POST = withApiHandler({
           throw insertError;
         }
 
-        results.push({
-          contactId,
-          draft: {
-            id: inserted.id,
-            contactId,
-            contactName: context.contactName,
-            recipientEmail,
-            subject: draftResult.subject,
-            bodyHtml: draftResult.bodyHtml,
-            extractedTopic: (articleResult?.interest || bestInterest).topic,
-            topicEvidence: (articleResult?.interest || bestInterest).evidence,
-            sourceMeetingId,
-            articleUrl: articleResult?.article.url || null,
-            articleTitle: articleResult?.article.title || null,
-            articleSource: articleResult?.article.source || null,
-            replyThreadId,
-            replyThreadSubject,
-            sendAsReply,
-          },
-        });
+        results.push({ contactId, draft: inserted });
       } catch (err) {
         console.error(`[AI Follow-Up] Failed to generate draft for contact ${contactId}:`, err);
         results.push({

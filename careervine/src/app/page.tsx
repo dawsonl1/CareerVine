@@ -11,7 +11,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
 import LandingPage from "@/components/landing-page";
@@ -111,7 +111,9 @@ export default function Home() {
 
   // AI follow-up drafts
   const [aiDrafts, setAiDrafts] = useState<Map<number, AiDraft>>(new Map());
-  const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set());
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingContactIds, setGeneratingContactIds] = useState<number[]>([]);
+  const aiDraftsRef = useRef<Map<number, AiDraft>>(new Map());
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -142,34 +144,42 @@ export default function Home() {
     setDataLoaded(true);
   }, [user]);
 
-  // Fetch existing pending AI drafts
-  const loadAiDrafts = useCallback(async () => {
+  // Keep ref in sync with state to avoid stale closures
+  const updateAiDrafts = useCallback((updater: (prev: Map<number, AiDraft>) => Map<number, AiDraft>) => {
+    setAiDrafts((prev) => {
+      const next = updater(prev);
+      aiDraftsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  // Load pending AI drafts, then generate for due contacts — single consolidated function
+  const loadAndGenerateAiDrafts = useCallback(async (dueContacts: FollowUpContact[]) => {
+    // 1. Fetch existing pending drafts
     try {
       const res = await fetch("/api/gmail/ai-followups/pending");
-      if (!res.ok) return;
-      const data = await res.json();
-      const map = new Map<number, AiDraft>();
-      for (const d of data.drafts || []) {
-        map.set(d.contact_id, d);
+      if (res.ok) {
+        const data = await res.json();
+        const map = new Map<number, AiDraft>();
+        for (const d of data.drafts || []) {
+          map.set(d.contact_id, d);
+        }
+        updateAiDrafts(() => map);
       }
-      setAiDrafts(map);
     } catch {
       // silent
     }
-  }, []);
 
-  // Generate AI drafts for due contacts that don't have one yet
-  const generateAiDrafts = useCallback(async (dueContacts: FollowUpContact[]) => {
-    // Only generate for contacts with emails and no existing draft
-    // We don't know which have emails from here, so we send up to 3 and let the API figure it out
+    // 2. Generate for contacts that don't have a draft yet (read from ref for freshness)
     const candidates = dueContacts
-      .filter((c) => !aiDrafts.has(c.id))
+      .filter((c) => !aiDraftsRef.current.has(c.id))
       .slice(0, 3);
 
     if (candidates.length === 0) return;
 
     const ids = candidates.map((c) => c.id);
-    setGeneratingIds(new Set(ids));
+    setIsGenerating(true);
+    setGeneratingContactIds(ids);
 
     try {
       const res = await fetch("/api/gmail/ai-followups/generate", {
@@ -180,27 +190,11 @@ export default function Home() {
       if (!res.ok) return;
       const data = await res.json();
 
-      setAiDrafts((prev) => {
+      updateAiDrafts((prev) => {
         const next = new Map(prev);
         for (const result of data.results || []) {
           if (result.draft) {
-            next.set(result.contactId, {
-              ...result.draft,
-              id: result.draft.id,
-              contact_id: result.draft.contactId,
-              recipient_email: result.draft.recipientEmail,
-              body_html: result.draft.bodyHtml,
-              reply_thread_id: result.draft.replyThreadId,
-              reply_thread_subject: result.draft.replyThreadSubject,
-              send_as_reply: result.draft.sendAsReply,
-              extracted_topic: result.draft.extractedTopic,
-              topic_evidence: result.draft.topicEvidence,
-              source_meeting_id: result.draft.sourceMeetingId,
-              article_url: result.draft.articleUrl,
-              article_title: result.draft.articleTitle,
-              article_source: result.draft.articleSource,
-              contacts: { name: result.draft.contactName, photo_url: null, industry: null },
-            });
+            next.set(result.contactId, result.draft as AiDraft);
           }
         }
         return next;
@@ -208,21 +202,22 @@ export default function Home() {
     } catch {
       // silent
     } finally {
-      setGeneratingIds(new Set());
+      setIsGenerating(false);
+      setGeneratingContactIds([]);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiDrafts]);
+  }, [updateAiDrafts]);
 
   // Dismiss an AI draft with undo toast
-  const dismissDraft = useCallback(async (draftId: number, contactId: number) => {
+  const dismissDraft = useCallback((draftId: number, contactId: number) => {
+    // Capture draft for undo before removing
+    const undoDraft = aiDraftsRef.current.get(contactId);
+
     // Optimistically remove
-    setAiDrafts((prev) => {
+    updateAiDrafts((prev) => {
       const next = new Map(prev);
       next.delete(contactId);
       return next;
     });
-
-    const undoDraft = aiDrafts.get(contactId);
 
     toast("Draft dismissed", {
       variant: "info",
@@ -230,15 +225,13 @@ export default function Home() {
       actions: [{
         label: "Undo",
         onClick: async () => {
-          // Restore locally
           if (undoDraft) {
-            setAiDrafts((prev) => {
+            updateAiDrafts((prev) => {
               const next = new Map(prev);
               next.set(contactId, undoDraft);
               return next;
             });
           }
-          // Restore in DB
           await fetch(`/api/gmail/ai-followups/${draftId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -249,12 +242,12 @@ export default function Home() {
     });
 
     // Dismiss in DB
-    await fetch(`/api/gmail/ai-followups/${draftId}`, {
+    fetch(`/api/gmail/ai-followups/${draftId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "dismissed" }),
     });
-  }, [aiDrafts, toast]);
+  }, [updateAiDrafts, toast]);
 
   // Open compose modal pre-filled with AI draft
   const reviewDraft = useCallback((draft: AiDraft) => {
@@ -281,25 +274,15 @@ export default function Home() {
     if (user) loadData();
   }, [user, loadData]);
 
-  // Load AI drafts after main data, then generate for due contacts
-  useEffect(() => {
-    if (!dataLoaded || !gmailConnected) return;
-    loadAiDrafts().then(() => {
-      // Generation will be triggered by the next effect
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataLoaded, gmailConnected]);
-
-  // Trigger generation after drafts are loaded and follow-ups are known
+  // Load AI drafts + trigger generation once after data loads
   const hasTriggeredGeneration = useRef(false);
   useEffect(() => {
     if (!dataLoaded || !gmailConnected || hasTriggeredGeneration.current) return;
-    if (followUps.length > 0 && generatingIds.size === 0) {
+    if (followUps.length > 0) {
       hasTriggeredGeneration.current = true;
-      generateAiDrafts(followUps);
+      loadAndGenerateAiDrafts(followUps);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataLoaded, gmailConnected, followUps, aiDrafts]);
+  }, [dataLoaded, gmailConnected, followUps, loadAndGenerateAiDrafts]);
 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -604,9 +587,9 @@ export default function Home() {
                   {reachOutToday.map((item) => {
                     const isCritical = item.urgency > CRITICAL_OVERDUE_DAYS;
                     const draft = aiDrafts.get(item.id);
-                    const isGenerating = generatingIds.has(item.id);
+                    const isContactGenerating = generatingContactIds.includes(item.id);
                     return (
-                      <div key={item.id}>
+                      <Fragment key={item.id}>
                         <Link href={`/contacts/${item.id}`}>
                           <Card
                             variant="outlined"
@@ -678,13 +661,13 @@ export default function Home() {
                         )}
 
                         {/* Generating indicator */}
-                        {isGenerating && !draft && (
+                        {isContactGenerating && !draft && (
                           <div className="ml-6 mt-1 mb-1.5 flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
                             <Loader2 className="h-3 w-3 animate-spin" />
                             Generating draft...
                           </div>
                         )}
-                      </div>
+                      </Fragment>
                     );
                   })}
                 </div>

@@ -123,8 +123,10 @@ export async function gatherContactContext(
 
   const meetingIds = meetingLinks?.map((ml) => ml.meeting_id) || [];
 
-  let meetings: MeetingContext[] = [];
-  if (meetingIds.length > 0) {
+  // Fetch meetings + interactions in parallel (independent queries)
+  const meetingsPromise = (async () => {
+    if (meetingIds.length === 0) return [];
+
     const { data: meetingRows } = await service
       .from("meetings")
       .select("id, meeting_date, meeting_type, title, notes")
@@ -133,46 +135,56 @@ export async function gatherContactContext(
       .order("meeting_date", { ascending: false })
       .limit(MAX_MEETINGS);
 
-    if (meetingRows) {
-      // For each meeting, also fetch transcript segments (more structured than raw transcript)
-      meetings = await Promise.all(
-        meetingRows.map(async (m) => {
-          let transcriptExcerpt: string | null = null;
+    if (!meetingRows?.length) return [];
 
-          const { data: segments } = await service
-            .from("transcript_segments")
-            .select("speaker_label, content")
-            .eq("meeting_id", m.id)
-            .order("ordinal", { ascending: true })
-            .limit(50);
+    // Fetch all transcript segments in a single query (avoids N+1)
+    const meetingRowIds = meetingRows.map((m) => m.id);
+    const { data: allSegments } = await service
+      .from("transcript_segments")
+      .select("meeting_id, speaker_label, content")
+      .in("meeting_id", meetingRowIds)
+      .order("ordinal", { ascending: true });
 
-          if (segments && segments.length > 0) {
-            const text = segments
-              .map((s) => `${s.speaker_label}: ${s.content}`)
-              .join("\n");
-            transcriptExcerpt = text.substring(0, MAX_TRANSCRIPT_CHARS_PER_MEETING);
-          }
-
-          return {
-            id: m.id,
-            date: m.meeting_date,
-            type: m.meeting_type,
-            title: m.title,
-            notes: m.notes,
-            transcriptExcerpt,
-          };
-        }),
-      );
+    // Group segments by meeting_id
+    const segmentsByMeeting = new Map<number, typeof allSegments>();
+    for (const seg of allSegments || []) {
+      const existing = segmentsByMeeting.get(seg.meeting_id) || [];
+      existing.push(seg);
+      segmentsByMeeting.set(seg.meeting_id, existing);
     }
-  }
 
-  // Fetch recent interactions
-  const { data: interactionRows } = await service
+    return meetingRows.map((m): MeetingContext => {
+      const segments = segmentsByMeeting.get(m.id) || [];
+      let transcriptExcerpt: string | null = null;
+      if (segments.length > 0) {
+        const text = segments
+          .slice(0, 50)
+          .map((s) => `${s.speaker_label}: ${s.content}`)
+          .join("\n");
+        transcriptExcerpt = text.substring(0, MAX_TRANSCRIPT_CHARS_PER_MEETING);
+      }
+      return {
+        id: m.id,
+        date: m.meeting_date,
+        type: m.meeting_type,
+        title: m.title,
+        notes: m.notes,
+        transcriptExcerpt,
+      };
+    });
+  })();
+
+  const interactionsPromise = service
     .from("interactions")
     .select("interaction_date, interaction_type, summary")
     .eq("contact_id", contactId)
     .order("interaction_date", { ascending: false })
     .limit(MAX_INTERACTIONS);
+
+  const [meetings, { data: interactionRows }] = await Promise.all([
+    meetingsPromise,
+    interactionsPromise,
+  ]);
 
   const interactions: InteractionContext[] = (interactionRows || []).map((i) => ({
     date: i.interaction_date,
