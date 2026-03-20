@@ -12,6 +12,32 @@ import { getOAuth2Client, refreshTokenIfNeeded } from "@/lib/oauth-helpers";
 export const DEFAULT_TIMEZONE = "America/New_York";
 
 /**
+ * Merge overlapping or adjacent busy intervals into a minimal set.
+ * Input intervals must have ISO string start/end properties.
+ */
+export function mergeBusyIntervals(intervals: Array<{ start: string; end: string }>) {
+  if (intervals.length === 0) return [];
+
+  const sorted = [...intervals].sort(
+    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
+  );
+
+  const merged = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    const current = sorted[i];
+    if (new Date(current.start).getTime() <= new Date(last.end).getTime()) {
+      last.end = new Date(
+        Math.max(new Date(last.end).getTime(), new Date(current.end).getTime())
+      ).toISOString();
+    } else {
+      merged.push(current);
+    }
+  }
+  return merged;
+}
+
+/**
  * Load tokens from DB, refresh if expired, return an authenticated Calendar client.
  * Reuses the same gmail_connections row as Gmail — tokens are shared.
  */
@@ -146,26 +172,7 @@ export async function queryFreeBusy(
     }
 
     // Sort and merge overlapping intervals
-    allBusyIntervals.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
-
-    const merged: Array<{ start: string; end: string }> = [];
-    for (const interval of allBusyIntervals) {
-      if (merged.length === 0) {
-        merged.push(interval);
-      } else {
-        const last = merged[merged.length - 1];
-        if (new Date(interval.start).getTime() <= new Date(last.end).getTime()) {
-          // Overlapping — extend the last interval
-          last.end = new Date(
-            Math.max(new Date(last.end).getTime(), new Date(interval.end).getTime())
-          ).toISOString();
-        } else {
-          merged.push(interval);
-        }
-      }
-    }
-
-    return merged;
+    return mergeBusyIntervals(allBusyIntervals);
   } catch (err) {
     console.error("Error querying free/busy:", err);
     return [];

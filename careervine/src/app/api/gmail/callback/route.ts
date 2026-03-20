@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { exchangeCodeForTokens } from "@/lib/gmail";
 import { google } from "googleapis";
+import { getOAuth2Client } from "@/lib/oauth-helpers";
 
 /**
  * GET /api/gmail/callback
@@ -53,11 +54,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Exchange code for tokens
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI
-    );
+    const oauth2Client = getOAuth2Client();
     const { tokens } = await oauth2Client.getToken(code);
     const grantedScopes = tokens.scope?.split(" ") || [];
     const calendarGranted = grantedScopes.some(s => s.includes("calendar"));

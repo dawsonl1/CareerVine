@@ -6,8 +6,7 @@ import { updateMeeting, getMeetingsForContact } from "@/lib/queries";
 import type { ContactMeeting } from "@/lib/types";
 import { Calendar, Pencil, X, ChevronDown } from "lucide-react";
 
-const inputClasses =
-  "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
+import { inputClasses } from "@/lib/form-styles";
 
 interface ContactMeetingsTabProps {
   contactId: number;

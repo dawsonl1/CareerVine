@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const service = createSupabaseServiceClient();
     const conn = await service
       .from("gmail_connections")
-      .select("*")
+      .select("calendar_scopes_granted, calendar_last_synced_at, calendar_sync_token, gmail_address")
       .eq("user_id", user.id)
       .single();
 

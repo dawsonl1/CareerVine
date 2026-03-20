@@ -22,10 +22,7 @@ import { getUserProfile, updateUserProfile, getGmailConnection } from "@/lib/que
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import type { GmailConnection, EmailTemplate } from "@/lib/types";
 import { User, Phone, Mail, Check, Lock, RefreshCw, Unplug, MailCheck, Sparkles, Plus, Pencil, Trash2, X, Calendar, ChevronDown } from "lucide-react";
-
-const inputClasses =
-  "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
-const labelClasses = "block text-xs font-medium text-muted-foreground mb-1.5";
+import { inputClasses, labelClasses } from "@/lib/form-styles";
 
 export default function SettingsPage() {
   const { user } = useAuth();

@@ -43,46 +43,13 @@ import {
   Calendar as CalendarIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 
 // ── Types ──
-
-type EmailThread = {
-  threadId: string;
-  subject: string;
-  messages: EmailMessage[];
-  latestDate: string;
-  latestDirection: string | null;
-  contactId: number | null;
-};
 
 type GmailLabel = { id: string; name: string; type: string };
 
 type SidebarTab = "inbox" | "sent" | "scheduled" | "followups" | "drafts" | "trash" | "hidden";
-
-/** Group flat email list into threads, sorted by latest date desc. */
-function buildThreads(msgs: EmailMessage[]): EmailThread[] {
-  const map = new Map<string, EmailMessage[]>();
-  for (const email of msgs) {
-    const tid = email.thread_id || email.gmail_message_id;
-    if (!map.has(tid)) map.set(tid, []);
-    map.get(tid)!.push(email);
-  }
-  const result: EmailThread[] = [];
-  for (const [threadId, threadMsgs] of map) {
-    threadMsgs.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
-    const latest = threadMsgs[threadMsgs.length - 1];
-    result.push({
-      threadId,
-      subject: threadMsgs[0].subject || "(no subject)",
-      messages: threadMsgs,
-      latestDate: latest.date || "",
-      latestDirection: latest.direction,
-      contactId: threadMsgs[0].matched_contact_id,
-    });
-  }
-  result.sort((a, b) => new Date(b.latestDate).getTime() - new Date(a.latestDate).getTime());
-  return result;
-}
 
 // ── Page ──
 

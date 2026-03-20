@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { getMeetings, createMeeting, updateMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting } from "@/lib/queries";
 import type { Meeting, SimpleContact } from "@/lib/types";
 import { RefreshCw, Lock, RotateCcw, Video, MapPin, List, LayoutGrid, ChevronLeft, ChevronRight, Pencil, X, Plus, Search } from "lucide-react";
+import { inputClasses, labelClasses } from "@/lib/form-styles";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -37,8 +38,6 @@ interface CalendarEvent {
 type ContactFilter = "all" | "contacts" | "no-contacts";
 
 const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", title: "", notes: "", privateNotes: "", calendarDescription: "", transcript: "" };
-const inputClasses = "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
-const labelClasses = "block text-xs font-medium text-muted-foreground mb-1.5";
 
 function minsToTimeStr(totalMins: number) {
   const h = GRID_START_HOUR + Math.floor(totalMins / 60);

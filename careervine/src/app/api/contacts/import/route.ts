@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server-client';
-import { parseFollowUpFrequency, sanitizeForPostgrest, buildUpdateData } from '@/lib/import-helpers';
+import { parseFollowUpFrequency, sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
 
 /**
  * API endpoint for importing contacts from Chrome extension
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       const token = authHeader.substring(7);
       const { createClient } = await import('@supabase/supabase-js');
       const { getSupabaseEnv } = await import('@/lib/supabase/config');
-      const { url, anonKey } = getSupabaseEnv({ server: true });
+      const { url, anonKey } = getSupabaseEnv();
       
       supabase = createClient(url, anonKey, {
         global: {
@@ -184,12 +184,6 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
 }
 
 async function createNewContact(supabase: any, profileData: any, userId: string) {
-  
-  // Use AI-generated notes if provided
-  let notes = profileData.generated_notes || profileData.notes || null;
-  if (!notes) {
-    notes = `Imported from LinkedIn on ${new Date().toLocaleDateString()}`;
-  }
 
   // Handle normalized location
   let locationId = null;
@@ -206,17 +200,7 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
   }
 
   // Create main contact
-  const contactData: any = {
-    user_id: userId,
-    name: profileData.name || 'Unknown',
-    linkedin_url: profileData.linkedin_url || profileData.profileUrl || null,
-    industry: profileData.industry || null,
-    location_id: locationId,
-    notes: notes,
-    contact_status: profileData.contact_status || 'professional',
-    expected_graduation: profileData.expected_graduation || null,
-    follow_up_frequency_days: parseFollowUpFrequency(profileData.follow_up_frequency) ?? (profileData.follow_up_frequency_days || null)
-  };
+  const contactData = buildContactData(profileData, userId, locationId);
 
   const { data: contact, error: insertError } = await supabase
     .from('contacts')

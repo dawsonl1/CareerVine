@@ -33,10 +33,9 @@ import { TimePicker } from "@/components/ui/time-picker";
 import { Select } from "@/components/ui/select";
 import { ContactPicker } from "@/components/ui/contact-picker";
 
+import { inputClasses, labelClasses } from "@/lib/form-styles";
+
 const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", title: "", notes: "", privateNotes: "", calendarDescription: "", transcript: "" };
-const inputClasses =
-  "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
-const labelClasses = "block text-xs font-medium text-muted-foreground mb-1.5";
 
 export default function MeetingsPage() {
   const { user } = useAuth();

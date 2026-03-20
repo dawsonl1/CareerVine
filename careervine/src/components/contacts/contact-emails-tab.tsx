@@ -5,15 +5,8 @@ import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
 import { FollowUpModal } from "@/components/follow-up-modal";
 import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
+import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 import { Inbox, ArrowUpRight, ArrowDownLeft, Reply, Clock, XCircle, Pencil, Check } from "lucide-react";
-
-type EmailThread = {
-  threadId: string;
-  subject: string;
-  messages: EmailMessage[];
-  latestDate: string;
-  latestDirection: string | null;
-};
 
 interface ContactEmailsTabProps {
   contactId: number;
@@ -75,29 +68,7 @@ export function ContactEmailsTab({
       .catch(() => {});
   }, [gmailConnected, emails]);
 
-  const emailThreads = useMemo<EmailThread[]>(() => {
-    if (emails.length === 0) return [];
-    const map = new Map<string, EmailMessage[]>();
-    for (const email of emails) {
-      const tid = email.thread_id || email.gmail_message_id;
-      if (!map.has(tid)) map.set(tid, []);
-      map.get(tid)!.push(email);
-    }
-    const threads: EmailThread[] = [];
-    for (const [threadId, msgs] of map) {
-      msgs.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
-      const latest = msgs[msgs.length - 1];
-      threads.push({
-        threadId,
-        subject: msgs[0].subject || "(no subject)",
-        messages: msgs,
-        latestDate: latest.date || "",
-        latestDirection: latest.direction,
-      });
-    }
-    threads.sort((a, b) => new Date(b.latestDate).getTime() - new Date(a.latestDate).getTime());
-    return threads;
-  }, [emails]);
+  const emailThreads = useMemo(() => buildThreads(emails), [emails]);
 
   const handleExpandEmail = async (gmailMessageId: string) => {
     if (expandedEmailId === gmailMessageId) {

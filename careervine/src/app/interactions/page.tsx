@@ -32,10 +32,9 @@ interface InteractionsPageProps {
   contactName?: string;
 }
 
+import { inputClasses, labelClasses } from "@/lib/form-styles";
+
 const emptyForm = { interaction_date: "", interaction_type: "", summary: "" };
-const inputClasses =
-  "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
-const labelClasses = "block text-xs font-medium text-muted-foreground mb-1.5";
 
 export default function InteractionsPage({ contactId, contactName }: InteractionsPageProps) {
   const { user } = useAuth();

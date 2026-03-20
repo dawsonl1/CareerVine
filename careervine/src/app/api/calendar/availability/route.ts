@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { queryFreeBusy, DEFAULT_TIMEZONE } from "@/lib/calendar";
+import { queryFreeBusy, DEFAULT_TIMEZONE, mergeBusyIntervals } from "@/lib/calendar";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
 /**
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const service = createSupabaseServiceClient();
     const conn = await service
       .from("gmail_connections")
-      .select("*")
+      .select("calendar_scopes_granted, calendar_last_synced_at, calendar_timezone, busy_calendar_ids")
       .eq("user_id", user.id)
       .single();
 
@@ -128,28 +128,6 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-function mergeBusyIntervals(intervals: Array<{ start: string; end: string }>) {
-  if (intervals.length === 0) return [];
-
-  const sorted = [...intervals].sort(
-    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
-  );
-
-  const merged = [sorted[0]];
-  for (let i = 1; i < sorted.length; i++) {
-    const last = merged[merged.length - 1];
-    const current = sorted[i];
-    if (new Date(current.start).getTime() <= new Date(last.end).getTime()) {
-      last.end = new Date(
-        Math.max(new Date(last.end).getTime(), new Date(current.end).getTime())
-      ).toISOString();
-    } else {
-      merged.push(current);
-    }
-  }
-  return merged;
 }
 
 function computeFreeSlots(

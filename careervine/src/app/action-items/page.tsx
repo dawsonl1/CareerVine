@@ -24,7 +24,7 @@ import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { getActionItems, updateActionItem, createActionItem, getContacts, getMeetingsForContact, getCompletedActionItems, deleteActionItem, replaceContactsForActionItem } from "@/lib/queries";
+import { getActionItems, updateActionItem, createActionItem, getContacts, getCompletedActionItems, deleteActionItem, replaceContactsForActionItem } from "@/lib/queries";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { Database } from "@/lib/database.types";
 import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown } from "lucide-react";
@@ -37,8 +37,7 @@ type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] 
   action_item_contacts?: { contact_id: number; contacts: { id: number; name: string } | null }[];
 };
 
-const inputClasses =
-  "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
+import { inputClasses } from "@/lib/form-styles";
 
 export default function ActionItemsPage() {
   const { user } = useAuth();
@@ -57,7 +56,6 @@ export default function ActionItemsPage() {
   const [editDueDate, setEditDueDate] = useState("");
   const [editContactIds, setEditContactIds] = useState<number[]>([]);
   const [editMeetingId, setEditMeetingId] = useState<number | null>(null);
-  const [editContactMeetings, setEditContactMeetings] = useState<{ id: number; meeting_date: string; meeting_type: string }[]>([]);
   const [editSaving, setEditSaving] = useState(false);
 
   // Create modal
@@ -68,7 +66,6 @@ export default function ActionItemsPage() {
   const [newDueDate, setNewDueDate] = useState("");
   const [newContactIds, setNewContactIds] = useState<number[]>([]);
   const [newMeetingId, setNewMeetingId] = useState<number | null>(null);
-  const [contactMeetings, setContactMeetings] = useState<{ id: number; meeting_date: string; meeting_type: string }[]>([]);
   const [newSaving, setNewSaving] = useState(false);
 
   useEffect(() => { if (user) { loadActionItems(); loadContacts(); } }, [user]);
@@ -132,7 +129,6 @@ export default function ActionItemsPage() {
     const ids = item.action_item_contacts?.map(ac => ac.contact_id) ?? (item.contact_id ? [item.contact_id] : []);
     setEditContactIds(ids);
     setEditMeetingId(item.meeting_id);
-    setEditContactMeetings([]);
   };
 
   const saveEdit = async () => {
@@ -149,7 +145,6 @@ export default function ActionItemsPage() {
       await replaceContactsForActionItem(editingItem.id, editContactIds);
       await loadActionItems();
       setEditingItem(null);
-      setEditContactMeetings([]);
       if (selectedItem?.id === editingItem.id) setSelectedItem(null);
     } catch (err) { console.error("Error updating action item:", err); }
     finally { setEditSaving(false); }
@@ -415,7 +410,7 @@ export default function ActionItemsPage() {
         {/* Create modal */}
         {showCreate && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/32" onClick={() => { setShowCreate(false); setNewTitle(""); setNewDescription(""); setNewDueDate(""); setNewContactIds([]); setNewMeetingId(null); setContactMeetings([]); }} />
+            <div className="absolute inset-0 bg-black/32" onClick={() => { setShowCreate(false); setNewTitle(""); setNewDescription(""); setNewDueDate(""); setNewContactIds([]); setNewMeetingId(null); }} />
             <div className="relative w-full max-w-md bg-surface-container-high rounded-[28px] shadow-lg">
               <div className="px-6 pt-6 pb-4">
                 <h2 className="text-[22px] leading-7 font-normal text-foreground">New action item</h2>
@@ -471,7 +466,7 @@ export default function ActionItemsPage() {
                   <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button type="button" variant="text" onClick={() => { setShowCreate(false); setNewTitle(""); setNewDescription(""); setNewDueDate(""); setNewContactIds([]); setNewMeetingId(null); setContactMeetings([]); }}>Cancel</Button>
+                  <Button type="button" variant="text" onClick={() => { setShowCreate(false); setNewTitle(""); setNewDescription(""); setNewDueDate(""); setNewContactIds([]); setNewMeetingId(null); }}>Cancel</Button>
                   <Button
                     type="button"
                     disabled={!newTitle.trim() || newContactIds.length === 0 || newSaving}
@@ -497,7 +492,6 @@ export default function ActionItemsPage() {
                         setNewDueDate("");
                         setNewContactIds([]);
                         setNewMeetingId(null);
-                        setContactMeetings([]);
                         await loadActionItems();
                       } catch (err) { console.error("Error creating action item:", err); }
                       finally { setNewSaving(false); }
@@ -514,7 +508,7 @@ export default function ActionItemsPage() {
         {/* Edit modal */}
         {editingItem && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/32" onClick={() => { setEditingItem(null); setEditContactMeetings([]); }} />
+            <div className="absolute inset-0 bg-black/32" onClick={() => { setEditingItem(null); }} />
             <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[95vh] overflow-y-auto">
               <div className="px-6 pt-6 pb-4">
                 <h2 className="text-[22px] leading-7 font-normal text-foreground">Edit action item</h2>
@@ -570,7 +564,7 @@ export default function ActionItemsPage() {
                   <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="No due date" />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button type="button" variant="text" onClick={() => { setEditingItem(null); setEditContactMeetings([]); }}>Cancel</Button>
+                  <Button type="button" variant="text" onClick={() => { setEditingItem(null); }}>Cancel</Button>
                   <Button type="button" disabled={!editTitle.trim() || editSaving} loading={editSaving} onClick={saveEdit}>
                     Save
                   </Button>

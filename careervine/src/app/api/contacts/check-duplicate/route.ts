@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       const token = authHeader.substring(7);
       const { createClient } = await import('@supabase/supabase-js');
       const { getSupabaseEnv } = await import('@/lib/supabase/config');
-      const { url, anonKey } = getSupabaseEnv({ server: true });
+      const { url, anonKey } = getSupabaseEnv();
       supabase = createClient(url, anonKey, {
         global: { headers: { Authorization: `Bearer ${token}` } }
       });
@@ -70,7 +70,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
   if (searchData.linkedinUrl) {
     const { data } = await supabase
       .from('contacts')
-      .select('*')
+      .select('id, name, linkedin_url')
       .eq('user_id', userId)
       .eq('linkedin_url', searchData.linkedinUrl);
 
@@ -88,8 +88,8 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
     const { data } = await supabase
       .from('contact_emails')
       .select(`
-        *,
-        contacts!inner(*)
+        contact_id,
+        contacts!inner(id, name, linkedin_url)
       `)
       .eq('email', searchData.email)
       .eq('contacts.user_id', userId);
@@ -113,7 +113,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       const last = sanitizeForPostgrest(names[names.length - 1]);
       const { data } = await supabase
         .from('contacts')
-        .select('*')
+        .select('id, name, linkedin_url')
         .eq('user_id', userId)
         .or(`name.ilike.%${first}%,name.ilike.%${last}%`);
 

@@ -30,14 +30,12 @@ import {
   Sprout,
   Clock,
 } from "lucide-react";
+import { inputClasses } from "@/lib/form-styles";
 
 type Contact = Database["public"]["Tables"]["contacts"]["Row"];
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"];
 };
-
-const inputClasses =
-  "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
 
 export default function Home() {
   const { user, loading } = useAuth();

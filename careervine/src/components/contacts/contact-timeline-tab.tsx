@@ -7,9 +7,7 @@ import { createInteraction, updateInteraction, deleteInteraction, getInteraction
 import type { ContactMeeting, InteractionRow, EmailMessage } from "@/lib/types";
 import { Calendar, MessageSquare, Pencil, Trash2, Mail, ArrowUpRight, ArrowDownLeft, Plus, CheckCircle } from "lucide-react";
 
-const inputClasses =
-  "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
-const labelClasses = "block text-xs font-medium text-muted-foreground mb-1.5";
+import { inputClasses, labelClasses } from "@/lib/form-styles";
 
 type CompletedAction = {
   id: number;

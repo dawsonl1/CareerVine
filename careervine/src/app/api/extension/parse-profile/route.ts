@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       const token = authHeader.substring(7);
       const { createClient } = await import('@supabase/supabase-js');
       const { getSupabaseEnv } = await import('@/lib/supabase/config');
-      const { url, anonKey } = getSupabaseEnv({ server: true });
+      const { url, anonKey } = getSupabaseEnv();
       
       supabase = createClient(url, anonKey, {
         global: {

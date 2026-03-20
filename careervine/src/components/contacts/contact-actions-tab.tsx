@@ -9,8 +9,7 @@ import { createActionItem, updateActionItem, deleteActionItem, replaceContactsFo
 import type { Contact, ContactMeeting } from "@/lib/types";
 import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare } from "lucide-react";
 
-const inputClasses =
-  "w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm";
+import { inputClasses } from "@/lib/form-styles";
 
 type ActionItem = {
   id: number;
