@@ -1,55 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server-client';
 import { parseFollowUpFrequency, sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
+import { corsHeaders, handleOptions, getExtensionAuth } from '@/lib/extension-auth';
 
 /**
  * API endpoint for importing contacts from Chrome extension
  * Handles duplicate detection and creates contact with related data
  */
 
-// CORS headers for Chrome extension
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-// Handle OPTIONS preflight request
 export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders });
+  return handleOptions();
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // Check for Authorization header (from Chrome extension)
-    const authHeader = request.headers.get('authorization');
-    let supabase;
-    
-    if (authHeader?.startsWith('Bearer ')) {
-      // Chrome extension auth - create client with token
-      const token = authHeader.substring(7);
-      const { createClient } = await import('@supabase/supabase-js');
-      const { getSupabaseEnv } = await import('@/lib/supabase/config');
-      const { url, anonKey } = getSupabaseEnv();
-      
-      supabase = createClient(url, anonKey, {
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      });
-    } else {
-      // Web app auth - use cookies
-      supabase = await createSupabaseServerClient();
-    }
-    
-    // Get user from session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
-    if (!user || authError) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
-    }
+    const auth = await getExtensionAuth(request);
+    if (auth.error) return auth.error;
+    const { supabase, user } = auth;
 
     const { profileData } = await request.json();
 
