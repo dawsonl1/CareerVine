@@ -235,9 +235,6 @@ function BentoCard({
 
       {/* Visual icon area */}
       <div className="relative h-40 mx-4 mb-4 rounded-xl bg-primary-container/30 flex items-center justify-center overflow-hidden">
-        {/* Decorative background circles */}
-        <div className="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-primary/5" />
-        <div className="absolute -left-4 -top-4 w-20 h-20 rounded-full bg-primary/3" />
         <feature.icon
           className={`
             h-16 w-16 transition-all duration-300
