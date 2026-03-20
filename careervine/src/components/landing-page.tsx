@@ -32,7 +32,7 @@ const features: Feature[] = [
     icon: MessageSquare,
     headline: "Remember every conversation, word for word",
     tagline:
-      "Coffee chats, Zoom calls, chance encounters — log them all in seconds so nothing slips away.",
+      "Coffee chats, Zoom calls, chance encounters. Log them all in seconds so nothing slips away.",
     details: [
       "Log meetings with date, time, type (coffee, video, phone, in-person, conference), and attendees",
       "Add rich notes and attach files for full context",
@@ -45,9 +45,9 @@ const features: Feature[] = [
     icon: Mic,
     headline: "Turn recordings into searchable notes",
     tagline:
-      "Paste a transcript or drop in an audio file — speakers are identified and everything links to your meeting.",
+      "Paste a transcript or drop in an audio file. Speakers are identified and everything links to your meeting.",
     details: [
-      "Supports VTT, SRT, and raw text formats — auto-detected on paste or upload",
+      "Supports VTT, SRT, and raw text formats, auto-detected on paste or upload",
       "Upload audio files (MP3, WAV, M4A) for automatic speech-to-text",
       "Speaker resolver matches transcript speakers to meeting attendees",
       "Parsed segments stored with speaker labels for easy review",
@@ -63,7 +63,7 @@ const features: Feature[] = [
       "Create action items from meeting notes with due dates and linked contacts",
       "Dashboard shows pending items front and center, overdue flagged in red",
       "Mark done with one click; optionally log a follow-up right after",
-      "Completed items are archived but never lost — review them anytime",
+      "Completed items are archived but never lost. Review them anytime",
       "Every item links back to its source meeting for original context",
     ],
   },
@@ -88,7 +88,7 @@ const features: Feature[] = [
     details: [
       "Store name, company, title, location, LinkedIn, emails, and phone numbers",
       "Track work experience and education with full details",
-      "Tag contacts for easy filtering — investors, alumni, mentors, or custom labels",
+      "Tag contacts for easy filtering: investors, alumni, mentors, or custom labels",
       "Each contact has a timeline showing every meeting, email, and action item",
       "Quick-add form lets you save someone in seconds",
     ],
@@ -100,7 +100,7 @@ const features: Feature[] = [
       "Connect Gmail and manage your inbox, compose with AI-powered templates, and set up automated follow-up sequences.",
     details: [
       "Full inbox with tabs for Inbox, Sent, Drafts, Scheduled, and Follow-ups",
-      "Emails automatically linked to contacts — see every thread per person",
+      "Emails automatically linked to contacts so you can see every thread per person",
       "AI-powered templates for intros, follow-ups, thank-yous, and custom drafts",
       "Schedule emails to send at the right time",
       "Multi-stage follow-up sequences that auto-send and auto-cancel on reply",
@@ -123,7 +123,7 @@ const features: Feature[] = [
     icon: Chrome,
     headline: "Add anyone from LinkedIn in one click",
     tagline:
-      "Visit a LinkedIn profile, click import — name, company, education, and photo are saved instantly.",
+      "Visit a LinkedIn profile and click import. Name, company, education, and photo are saved instantly.",
     details: [
       "Floating button appears on LinkedIn profile pages",
       "Scrapes name, headline, company, and education automatically",
@@ -158,11 +158,11 @@ function FeatureCard({
         }
       `}
     >
-      {/* Card header — always visible */}
-      <div className="px-6 py-5 flex items-start gap-4">
+      {/* Card header – always visible */}
+      <div className="px-8 py-6 flex items-center gap-5">
         <div
           className={`
-            w-11 h-11 rounded-full flex items-center justify-center shrink-0 mt-0.5
+            w-12 h-12 rounded-full flex items-center justify-center shrink-0
             transition-colors duration-300
             ${isExpanded ? "bg-primary text-on-primary" : "bg-primary-container text-on-primary-container"}
           `}
@@ -171,17 +171,17 @@ function FeatureCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          <h3 className="text-base font-medium text-foreground leading-snug">
+          <h3 className="text-lg font-medium text-foreground leading-snug">
             {feature.headline}
           </h3>
-          <p className="text-sm text-muted-foreground leading-relaxed mt-1.5">
+          <p className="text-sm text-muted-foreground leading-relaxed mt-1">
             {feature.tagline}
           </p>
         </div>
 
         <ChevronDown
           className={`
-            h-5 w-5 text-muted-foreground shrink-0 mt-1
+            h-5 w-5 text-muted-foreground shrink-0
             transition-transform duration-300
             ${isExpanded ? "rotate-180" : ""}
           `}
@@ -194,9 +194,9 @@ function FeatureCard({
         style={{ gridTemplateRows: isExpanded ? "1fr" : "0fr" }}
       >
         <div className="overflow-hidden">
-          <div className="px-6 pb-5">
-            <div className="border-t border-outline-variant pt-4 ml-[60px]">
-              <ul className="space-y-2.5">
+          <div className="px-8 pb-6">
+            <div className="border-t border-outline-variant pt-5 ml-[68px]">
+              <ul className="space-y-3">
                 {feature.details.map((detail, j) => (
                   <li key={j} className="flex items-start gap-2.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-primary mt-[7px] shrink-0" />
@@ -248,35 +248,34 @@ export default function LandingPage() {
 
       {/* ── Hero ── */}
       <section className="px-6 py-20 sm:py-28 text-center">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <Sprout className="mx-auto h-14 w-14 text-primary mb-6" />
-          <h1 className="text-[32px] sm:text-[44px] leading-tight font-normal text-foreground mb-5">
-            Your conversations build your career.
-            <br />
+          <h1 className="text-[36px] sm:text-[48px] leading-[1.15] font-normal text-foreground mb-5">
+            Your conversations build your career.{" "}
             <span className="text-primary">Don&apos;t let them disappear.</span>
           </h1>
-          <p className="text-base sm:text-lg text-muted-foreground leading-relaxed max-w-lg mx-auto mb-10">
+          <p className="text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl mx-auto mb-10">
             Every coffee chat, every &ldquo;let&apos;s circle back,&rdquo; every
-            promise to make an intro — CareerVine makes sure you follow through
+            promise to make an intro. CareerVine makes sure you follow through
             on all of it.
           </p>
           <Button size="lg" onClick={() => setShowAuth(true)}>
-            Get started — it&apos;s free <ArrowRight className="h-4 w-4" />
+            Get started for free <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
       </section>
 
       {/* ── Feature cards ── */}
       <section className="px-6 py-16">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <h2 className="text-center text-[24px] sm:text-[28px] font-normal text-foreground mb-3">
             Everything you need, nothing you don&apos;t
           </h2>
           <p className="text-center text-sm text-muted-foreground mb-12 max-w-lg mx-auto">
-            Click any card to see exactly how it works.
+            Click any card to see how it works.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex flex-col gap-4">
             {features.map((feature, i) => (
               <FeatureCard
                 key={feature.headline}
