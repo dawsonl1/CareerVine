@@ -3,11 +3,14 @@
  * Extracted for testability.
  */
 
+/** Sentinel value used by the OpenAI parser to mark ongoing roles/education. */
+export const CURRENT_MARKER = "Present";
+
 /** Add is_current flag to experience entries based on end_month. */
 export function addIsCurrentToExperience(experience: any[]): any[] {
   return experience.map(exp => ({
     ...exp,
-    is_current: exp.end_month === "Present"
+    is_current: exp.end_month === CURRENT_MARKER
   }));
 }
 
@@ -15,7 +18,7 @@ export function addIsCurrentToExperience(experience: any[]): any[] {
 export function addIsCurrentToEducation(education: any[]): any[] {
   return education.map(edu => ({
     ...edu,
-    is_current: edu.end_year === "Present"
+    is_current: edu.end_year === CURRENT_MARKER
   }));
 }
 

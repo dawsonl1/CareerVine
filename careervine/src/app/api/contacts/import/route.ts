@@ -353,7 +353,7 @@ async function addEducationToContact(supabase: any, contactId: number, education
 
 async function findOrCreateLocation(supabase: any, location: { city: string | null; state: string | null; country: string }) {
   function buildLookup() {
-    let q = supabase.from('locations').select('*');
+    let q = supabase.from('locations').select('id, city, state, country');
     q = location.city ? q.eq('city', location.city) : q.is('city', null);
     q = location.state ? q.eq('state', location.state) : q.is('state', null);
     return q.eq('country', location.country);
@@ -370,7 +370,7 @@ async function findOrCreateLocation(supabase: any, location: { city: string | nu
       state: location.state,
       country: location.country,
     })
-    .select()
+    .select('id')
     .single();
   if (error) {
     const { data: retry } = await buildLookup().maybeSingle();

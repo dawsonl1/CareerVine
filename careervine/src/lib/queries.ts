@@ -63,8 +63,8 @@ export async function getContacts(userId: string) {
 /**
  * Fetch a single contact by ID with all related data (same shape as getContacts).
  */
-export async function getContactById(contactId: number, userId?: string) {
-  let query = supabase
+export async function getContactById(contactId: number, userId: string) {
+  const { data, error } = await supabase
     .from("contacts")
     .select(`
       *,
@@ -84,11 +84,9 @@ export async function getContactById(contactId: number, userId?: string) {
         tags(*)
       )
     `)
-    .eq("id", contactId);
-
-  if (userId) query = query.eq("user_id", userId);
-
-  const { data, error } = await query.single();
+    .eq("id", contactId)
+    .eq("user_id", userId)
+    .single();
 
   if (error) throw error;
   return data;

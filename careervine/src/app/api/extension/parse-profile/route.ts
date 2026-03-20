@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server-client';
 import OpenAI from 'openai';
+import { addIsCurrentToExperience, addIsCurrentToEducation, deriveCurrentRole, deriveContactStatus } from '@/lib/profile-helpers';
 
 /**
  * API endpoint for parsing LinkedIn profile text using OpenAI
@@ -200,7 +201,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Algorithmic processing to derive missing fields
-    const { addIsCurrentToExperience, addIsCurrentToEducation, deriveCurrentRole, deriveContactStatus } = await import('@/lib/profile-helpers');
 
     // 1. Add is_current to experience and education based on end dates
     if (profileData.experience) {
