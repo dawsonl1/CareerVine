@@ -105,6 +105,7 @@ const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null =>
     field_of_study: edu.field_of_study ?? "",
     start_year: edu.start_year ?? "",
     end_year: edu.end_year ?? "",
+    is_current: edu.is_current ?? edu.end_year === "Present",
   }));
 
   // Auto-derive contact_status if not already set
