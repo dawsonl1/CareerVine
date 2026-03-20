@@ -42,6 +42,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "CareerVine",
   description: "Grow your professional network, one connection at a time",
+  icons: {
+    icon: "/icon.png",
+    apple: "/apple-icon.png",
+  },
 };
 
 /**
