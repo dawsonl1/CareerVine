@@ -484,8 +484,18 @@ export type Database = {
           created_at: string | null;     // Creation timestamp
           completed_at: string | null;   // Completion timestamp
           priority: string | null;       // 'high' | 'medium' | 'low' | null
+          source: string;                // 'manual' | 'ai_suggestion'
+          suggestion_reason_type: string | null;  // Type of AI suggestion reason
+          suggestion_headline: string | null;     // AI-generated contextual headline
+          suggestion_evidence: string | null;     // Evidence backing the suggestion
         };
-        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority"> & { priority?: string | null };
+        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority" | "source"> & {
+          priority?: string | null;
+          source?: string;
+          suggestion_reason_type?: string | null;
+          suggestion_headline?: string | null;
+          suggestion_evidence?: string | null;
+        };
         Update: Partial<Database["public"]["Tables"]["follow_up_action_items"]["Insert"]>;
       };
     };

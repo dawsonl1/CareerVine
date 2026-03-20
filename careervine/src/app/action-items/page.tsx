@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
@@ -9,7 +9,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getActionItems, updateActionItem, createActionItem, getContacts, getCompletedActionItems, deleteActionItem, replaceContactsForActionItem } from "@/lib/queries";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { Database } from "@/lib/database.types";
-import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus } from "lucide-react";
+import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark } from "lucide-react";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { ActionItemSource } from "@/lib/constants";
+import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
 import { Select } from "@/components/ui/select";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, sortByPriorityThenDate } from "@/lib/priority-helpers";
@@ -32,6 +35,11 @@ export default function ActionItemsPage() {
   const [completedItems, setCompletedItems] = useState<ActionItem[]>([]);
   const [showCompleted, setShowCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Smart suggestions
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
 
   // Detail modal
   const [selectedItem, setSelectedItem] = useState<ActionItem | null>(null);
@@ -79,7 +87,56 @@ export default function ActionItemsPage() {
     finally { setLoading(false); }
   }, [user]);
 
+  const loadSuggestions = useCallback(async () => {
+    setSuggestionsLoading(true);
+    try {
+      const res = await fetch("/api/suggestions/generate", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.suggestions || []);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  }, []);
+
+  const saveSuggestion = useCallback(async (s: Suggestion) => {
+    try {
+      const res = await fetch("/api/suggestions/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: s.contactId,
+          title: s.suggestedTitle,
+          description: s.suggestedDescription,
+          reasonType: s.reasonType,
+          headline: s.headline,
+          evidence: s.evidence,
+        }),
+      });
+      if (res.ok) {
+        setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
+        await loadActionItems();
+        toastSuccess("Saved as action item");
+      } else {
+        toastError("Failed to save suggestion");
+      }
+    } catch {
+      toastError("Failed to save suggestion");
+    }
+  }, [loadActionItems, toastSuccess, toastError]);
+
   useEffect(() => { if (user) { loadActionItems(); loadContacts(); } }, [user, loadActionItems, loadContacts]);
+
+  // Load suggestions once
+  const hasTriggeredSuggestions = useRef(false);
+  useEffect(() => {
+    if (!user || loading || hasTriggeredSuggestions.current) return;
+    hasTriggeredSuggestions.current = true;
+    loadSuggestions();
+  }, [user, loading, loadSuggestions]);
 
   const { execute: deferDelete } = useDeferredAction<ActionItem>({
     action: async (item) => { await deleteActionItem(item.id); },
@@ -264,6 +321,8 @@ export default function ActionItemsPage() {
     );
   };
 
+  const isAiSuggestion = (item: ActionItem) => (item as any).source === ActionItemSource.AiSuggestion;
+
   const renderItem = (item: ActionItem, overdue: boolean) => (
     <Card
       key={item.id}
@@ -281,14 +340,23 @@ export default function ActionItemsPage() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
+              {isAiSuggestion(item) && (
+                <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+              )}
               {renderPriorityDot(item)}
               <h3 className="text-base font-medium text-foreground">{item.title}</h3>
             </div>
             <p className="text-sm text-muted-foreground">
               {(item.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || item.contacts?.name || "No contact"}
               {item.meetings && <span> · <Calendar className="inline h-3 w-3 mb-0.5" /> {item.meetings.meeting_type}</span>}
+              {isAiSuggestion(item) && <span> · AI suggestion</span>}
             </p>
-            {item.description && (
+            {isAiSuggestion(item) && (item as any).suggestion_headline && (
+              <p className="mt-1 text-sm text-muted-foreground italic line-clamp-1">
+                &ldquo;{(item as any).suggestion_evidence || (item as any).suggestion_headline}&rdquo;
+              </p>
+            )}
+            {!isAiSuggestion(item) && item.description && (
               <p className="mt-1.5 text-sm text-muted-foreground line-clamp-1">{item.description}</p>
             )}
             <p className={`mt-1.5 text-xs ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
@@ -361,6 +429,79 @@ export default function ActionItemsPage() {
             <Plus className="h-[18px] w-[18px]" /> New task
           </Button>
         </div>
+
+        {/* Suggested for you banner */}
+        {(suggestionsLoading || (suggestions.length > 0 && !suggestionsCollapsed)) && (
+          <Card variant="filled" className="mb-8 border border-primary/10 bg-primary-container/5">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  <h2 className="text-base font-medium text-foreground">Suggested for you</h2>
+                </div>
+                {suggestions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSuggestionsCollapsed(true)}
+                    className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Collapse
+                  </button>
+                )}
+              </div>
+
+              {suggestionsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="h-16 rounded-[12px] bg-surface-container-highest animate-pulse" />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    {suggestions.map((s) => (
+                      <div key={s.id} className="flex items-start gap-3 p-3 rounded-[12px] bg-surface-container hover:bg-surface-container-high transition-colors">
+                        <ContactAvatar
+                          name={s.contactName}
+                          photoUrl={s.contactPhotoUrl}
+                          className="w-9 h-9 text-xs shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{s.headline}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {s.suggestedTitle}
+                            {s.daysSinceContact !== null && ` · ${s.daysSinceContact}d`}
+                          </p>
+                        </div>
+                        <Button
+                          variant="tonal"
+                          size="sm"
+                          onClick={() => saveSuggestion(s)}
+                        >
+                          <Bookmark className="h-3.5 w-3.5" /> Save
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-3">
+                    These suggestions refresh each visit. Save the ones you want to keep.
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {suggestions.length > 0 && suggestionsCollapsed && (
+          <button
+            type="button"
+            onClick={() => setSuggestionsCollapsed(false)}
+            className="flex items-center gap-2 mb-6 text-sm text-primary hover:underline cursor-pointer"
+          >
+            <Sparkles className="h-4 w-4" />
+            Show {suggestions.length} suggestion{suggestions.length !== 1 ? "s" : ""}
+          </button>
+        )}
 
         {/* Sections */}
         {renderSection(

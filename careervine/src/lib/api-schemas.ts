@@ -232,6 +232,17 @@ export const aiFollowUpPatchSchema = z.object({
   sendAsReply: z.boolean().optional(),
 });
 
+// ── Smart Suggestions ─────────────────────────────────────────────────
+
+export const suggestionsSaveSchema = z.object({
+  contactId: z.number().int(),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  reasonType: z.string().min(1),
+  headline: z.string().min(1),
+  evidence: z.string().min(1),
+});
+
 // ── Extension ──────────────────────────────────────────────────────────
 
 export const extensionParseProfileSchema = z.object({

@@ -48,3 +48,19 @@ export const GmailLabel = {
   Inbox: "INBOX",
   Trash: "TRASH",
 } as const;
+
+// ── Action item sources ───────────────────────────────────────────────
+
+export const ActionItemSource = {
+  Manual: "manual",
+  AiSuggestion: "ai_suggestion",
+} as const;
+
+// ── AI suggestion reason types ────────────────────────────────────────
+
+export const SuggestionReasonType = {
+  Graduation: "graduation",
+  NoInteractionCadence: "no_interaction_cadence",
+  DecayWarning: "decay_warning",
+  LlmPersonalized: "llm_personalized",
+} as const;

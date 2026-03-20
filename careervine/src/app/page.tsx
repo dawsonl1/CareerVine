@@ -38,6 +38,7 @@ import {
   Sparkles,
   X,
   Loader2,
+  Bookmark,
 } from "lucide-react";
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
@@ -46,6 +47,7 @@ import { useToast } from "@/components/ui/toast";
 import { getHealthColor, healthBgColors, healthLabels, healthRingColors, CRITICAL_OVERDUE_DAYS, type HealthColor } from "@/lib/health-helpers";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import type { AiDraftContext } from "@/components/compose-email-context";
+import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"];
@@ -114,6 +116,10 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingContactIds, setGeneratingContactIds] = useState<number[]>([]);
   const aiDraftsRef = useRef<Map<number, AiDraft>>(new Map());
+
+  // Smart suggestions
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -270,6 +276,56 @@ export default function Home() {
     });
   }, [openCompose]);
 
+  // Load smart suggestions
+  const loadSuggestions = useCallback(async () => {
+    setSuggestionsLoading(true);
+    try {
+      const res = await fetch("/api/suggestions/generate", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.suggestions || []);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  }, []);
+
+  // Save a suggestion as an action item
+  const saveSuggestion = useCallback(async (s: Suggestion) => {
+    try {
+      const res = await fetch("/api/suggestions/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: s.contactId,
+          title: s.suggestedTitle,
+          description: s.suggestedDescription,
+          reasonType: s.reasonType,
+          headline: s.headline,
+          evidence: s.evidence,
+        }),
+      });
+      if (res.ok) {
+        setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
+        toast("Saved to action items", {
+          variant: "success",
+          actions: [{ label: "View", onClick: () => window.location.assign("/action-items") }],
+        });
+      } else {
+        toast("Failed to save suggestion", { variant: "error" });
+      }
+    } catch {
+      toast("Failed to save suggestion", { variant: "error" });
+    }
+  }, [toast]);
+
+  // Dismiss a suggestion
+  const dismissSuggestion = useCallback((s: Suggestion) => {
+    setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
+  }, []);
+
   useEffect(() => {
     if (user) loadData();
   }, [user, loadData]);
@@ -284,6 +340,14 @@ export default function Home() {
       loadAndGenerateAiDrafts(followUps.slice(0, 6));
     }
   }, [dataLoaded, gmailConnected, followUps, loadAndGenerateAiDrafts]);
+
+  // Load smart suggestions once after data loads
+  const hasTriggeredSuggestions = useRef(false);
+  useEffect(() => {
+    if (!dataLoaded || hasTriggeredSuggestions.current) return;
+    hasTriggeredSuggestions.current = true;
+    loadSuggestions();
+  }, [dataLoaded, loadSuggestions]);
 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -679,6 +743,65 @@ export default function Home() {
                   >
                     View all {totalOverdue} overdue <ArrowRight className="h-3 w-3" />
                   </Link>
+                )}
+              </div>
+            )}
+
+            {/* ── Suggested Outreach ── */}
+            {(suggestionsLoading || suggestions.length > 0) && (
+              <div className="mb-10">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  <h2 className="text-base font-medium text-foreground">Suggested outreach</h2>
+                </div>
+
+                {suggestionsLoading ? (
+                  <div className="space-y-1.5">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-20 rounded-[12px] bg-surface-container-highest animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {suggestions.map((s) => (
+                      <Card key={s.id} variant="outlined" className="border-primary/10">
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <ContactAvatar
+                              name={s.contactName}
+                              photoUrl={s.contactPhotoUrl}
+                              className="w-10 h-10 text-sm shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[15px] font-medium text-foreground truncate">{s.headline}</p>
+                              <p className="text-sm text-muted-foreground truncate">{s.suggestedTitle}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {s.daysSinceContact !== null ? `${s.daysSinceContact}d since last contact` : "Never contacted"}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => saveSuggestion(s)}
+                                className="p-2 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
+                                title="Save as action item"
+                              >
+                                <Bookmark className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => dismissSuggestion(s)}
+                                className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+                                title="Dismiss"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
