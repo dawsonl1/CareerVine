@@ -9,6 +9,7 @@ type ComposeOptions = {
   to?: string;
   name?: string;
   subject?: string;
+  bodyHtml?: string;
   threadId?: string;
   inReplyTo?: string;
   references?: string;
@@ -20,6 +21,7 @@ type ComposeContextValue = {
   prefillTo: string;
   prefillName: string;
   prefillSubject: string;
+  prefillBodyHtml: string;
   replyThreadId: string;
   replyInReplyTo: string;
   replyReferences: string;
@@ -36,6 +38,7 @@ const ComposeContext = createContext<ComposeContextValue>({
   prefillTo: "",
   prefillName: "",
   prefillSubject: "",
+  prefillBodyHtml: "",
   replyThreadId: "",
   replyInReplyTo: "",
   replyReferences: "",
@@ -58,6 +61,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   const [prefillTo, setPrefillTo] = useState("");
   const [prefillName, setPrefillName] = useState("");
   const [prefillSubject, setPrefillSubject] = useState("");
+  const [prefillBodyHtml, setPrefillBodyHtml] = useState("");
   const [replyThreadId, setReplyThreadId] = useState("");
   const [replyInReplyTo, setReplyInReplyTo] = useState("");
   const [replyReferences, setReplyReferences] = useState("");
@@ -112,6 +116,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setPrefillTo(opts?.to || "");
     setPrefillName(opts?.name || "");
     setPrefillSubject(opts?.subject || "");
+    setPrefillBodyHtml(opts?.bodyHtml || "");
     setReplyThreadId(opts?.threadId || "");
     setReplyInReplyTo(opts?.inReplyTo || "");
     setReplyReferences(opts?.references || "");
@@ -124,6 +129,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setPrefillTo("");
     setPrefillName("");
     setPrefillSubject("");
+    setPrefillBodyHtml("");
     setReplyThreadId("");
     setReplyInReplyTo("");
     setReplyReferences("");
@@ -137,6 +143,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         prefillTo,
         prefillName,
         prefillSubject,
+        prefillBodyHtml,
         replyThreadId,
         replyInReplyTo,
         replyReferences,

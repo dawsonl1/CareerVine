@@ -23,7 +23,7 @@ function toLocalDatetimeString(date: Date): string {
 
 export function ComposeEmailModal() {
   const {
-    isOpen, prefillTo, prefillName, prefillSubject,
+    isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml,
     replyThreadId, replyInReplyTo, replyReferences, replyQuotedHtml,
     gmailAddress, closeCompose,
   } = useCompose();
@@ -108,7 +108,7 @@ export function ComposeEmailModal() {
       setCc("");
       setBcc("");
       setSubject(prefillSubject || (prefillName ? `Hi ${prefillName}` : ""));
-      setBodyHtml("");
+      setBodyHtml(prefillBodyHtml || "");
       setShowCcBcc(false);
       setShowQuoted(false);
       setSending(false);
@@ -132,7 +132,7 @@ export function ComposeEmailModal() {
         }
       }, 100);
     }
-  }, [isOpen, prefillTo, prefillName, prefillSubject]);
+  }, [isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml]);
 
   // Contact autocomplete: debounced search
   const searchContacts = useCallback(async (query: string) => {

@@ -449,8 +449,7 @@ export function FollowUpModal({
                           body: JSON.stringify({
                             recipientEmail,
                             recipientName: contactName || undefined,
-                            template: "follow_up",
-                            customPrompt: `Write follow-up #${activeTab + 1} for an email with subject "${originalSubject}". This is a professional networking follow-up. Keep it brief (2-3 sentences), friendly, and add value. Do not start with "I hope this email finds you well".`,
+                            prompt: `Write follow-up #${activeTab + 1} for an email with subject "${originalSubject}". This is a professional networking follow-up. Keep it brief (2-3 sentences), friendly, and add value. Do not start with "I hope this email finds you well".`,
                           }),
                         });
                         const data = await res.json();

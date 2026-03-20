@@ -451,6 +451,7 @@ export default function InboxPage() {
       to: draft.recipient_email || undefined,
       name: draft.contact_name || undefined,
       subject: draft.subject || undefined,
+      bodyHtml: draft.body_html || undefined,
       threadId: draft.thread_id || undefined,
       inReplyTo: draft.in_reply_to || undefined,
       references: draft.references_header || undefined,
@@ -827,7 +828,7 @@ export default function InboxPage() {
                               const lastMsg = thread.messages[thread.messages.length - 1];
                               const replyTo = lastMsg.direction === "outbound" ? (lastMsg.to_addresses?.[0] || "") : (lastMsg.from_address || "");
                               const subj = thread.subject.replace(/^(Re:\s*)+/i, "");
-                              openCompose({ to: replyTo, name: contactName || undefined, subject: `Re: ${subj}`, threadId: thread.threadId });
+                              openCompose({ to: replyTo, name: contactName || undefined, subject: `Re: ${subj}`, threadId: thread.threadId, inReplyTo: lastMsg.gmail_message_id, references: lastMsg.gmail_message_id });
                               setThreadActionMenuId(null);
                             }}
                           >
@@ -957,7 +958,7 @@ export default function InboxPage() {
                               const lastMsg = thread.messages[thread.messages.length - 1];
                               const replyTo = lastMsg.direction === "outbound" ? (lastMsg.to_addresses?.[0] || "") : (lastMsg.from_address || "");
                               const subj = thread.subject.replace(/^(Re:\s*)+/i, "");
-                              openCompose({ to: replyTo, name: contactName || undefined, subject: `Re: ${subj}`, threadId: thread.threadId });
+                              openCompose({ to: replyTo, name: contactName || undefined, subject: `Re: ${subj}`, threadId: thread.threadId, inReplyTo: lastMsg.gmail_message_id, references: lastMsg.gmail_message_id });
                             }}
                           >
                             <Reply className="h-3.5 w-3.5" />

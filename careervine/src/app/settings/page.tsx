@@ -14,6 +14,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import { inputClasses, labelClasses } from "@/lib/form-styles";
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -67,6 +69,19 @@ export default function SettingsPage() {
   const [busyCalendarIds, setBusyCalendarIds] = useState<string[]>(["primary"]);
   const [savingBusyCalendars, setSavingBusyCalendars] = useState(false);
   const [calendarTimezone, setCalendarTimezone] = useState("");
+
+  // Gmail OAuth result message
+  const [gmailMessage, setGmailMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    const gmailParam = searchParams.get("gmail");
+    if (gmailParam === "connected") {
+      setGmailMessage({ type: "success", text: "Gmail connected successfully!" });
+    } else if (gmailParam === "error") {
+      const reason = searchParams.get("reason");
+      setGmailMessage({ type: "error", text: reason === "access_denied" ? "Gmail access was denied. Please try again and grant the required permissions." : `Failed to connect Gmail${reason ? `: ${reason}` : ""}. Please try again.` });
+    }
+  }, [searchParams]);
 
   // Per-day working times (Monday-Sunday)
   const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -307,6 +322,11 @@ export default function SettingsPage() {
         last_name: lastName.trim(),
         phone: phone.trim() || null,
       });
+      // Also update auth metadata so Navigation picks up the new name
+      const supabase = createSupabaseBrowserClient();
+      await supabase.auth.updateUser({
+        data: { first_name: firstName.trim(), last_name: lastName.trim() },
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (err) {
@@ -511,6 +531,12 @@ export default function SettingsPage() {
               <MailCheck className="h-5 w-5 text-muted-foreground" />
               <h2 className="text-base font-medium text-foreground">Email integration</h2>
             </div>
+
+            {gmailMessage && (
+              <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${gmailMessage.type === "success" ? "bg-primary-container/30 text-primary" : "bg-destructive/10 text-destructive"}`}>
+                {gmailMessage.text}
+              </div>
+            )}
 
             {gmailLoading ? (
               <div className="flex items-center gap-3 text-muted-foreground">
