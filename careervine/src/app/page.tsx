@@ -23,6 +23,7 @@ import {
   getActionItems,
   getContactsDueForFollowUp,
   getContactsWithLastTouch,
+  updateActionItem,
 } from "@/lib/queries";
 import type { Database } from "@/lib/database.types";
 import {
@@ -298,6 +299,17 @@ export default function Home() {
     }
   }, [completeSuggestionRaw, toast]);
 
+  // Mark action item as done inline from dashboard
+  const markActionDone = useCallback(async (itemId: number) => {
+    try {
+      await updateActionItem(itemId, { is_completed: true, completed_at: new Date().toISOString() });
+      setActionItems((prev) => prev.filter((i) => i.id !== itemId));
+      toast("Action item completed", { variant: "success" });
+    } catch {
+      toast("Failed to complete action item", { variant: "error" });
+    }
+  }, [toast]);
+
   useEffect(() => {
     if (user) loadData();
   }, [user, loadData]);
@@ -529,7 +541,9 @@ export default function Home() {
             ACTIVE DASHBOARD — shown when user has contacts
            ══════════════════════════════════════════════════════ */}
         {!isNewUser && dataLoaded && (
-          <>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+            {/* ── LEFT COLUMN: Actions ── */}
+            <div>
             {/* ── Action items (front and center) ── */}
             <div className="mb-10">
               <div className="flex items-center justify-between mb-3">
@@ -569,38 +583,43 @@ export default function Home() {
                     const contactName = item.contacts?.name ?? (item as any).action_item_contacts?.[0]?.contacts?.name;
                     const href = contactId ? `/contacts/${contactId}` : "/action-items";
                     return (
-                      <Link key={item.id} href={href}>
-                        <Card
-                          variant="outlined"
-                          className={`state-layer ${overdue ? "border-destructive/40" : ""}`}
-                        >
-                          <CardContent className="p-4 flex items-start gap-3">
-                            <div
-                              className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                                overdue ? "bg-error-container" : "bg-primary-container"
-                              }`}
-                            >
-                              {overdue ? (
-                                <AlertTriangle className="h-[18px] w-[18px] text-on-error-container" />
-                              ) : (
-                                <CheckSquare className="h-[18px] w-[18px] text-on-primary-container" />
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-[15px] font-medium text-foreground truncate">
-                                {item.title}
-                              </p>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {contactName}
-                                {item.due_at &&
-                                  ` · ${overdue ? "Overdue" : "Due"}: ${new Date(
-                                    item.due_at
-                                  ).toLocaleDateString()}`}
-                              </p>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </Link>
+                      <Card
+                        key={item.id}
+                        variant="outlined"
+                        className={`${overdue ? "border-destructive/40" : ""}`}
+                      >
+                        <CardContent className="p-4 flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => markActionDone(item.id)}
+                            className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors group ${
+                              overdue
+                                ? "bg-error-container hover:bg-green-100 dark:hover:bg-green-900/30"
+                                : "bg-primary-container hover:bg-green-100 dark:hover:bg-green-900/30"
+                            }`}
+                            title="Mark as done"
+                          >
+                            <Check className="h-[18px] w-[18px] hidden group-hover:block text-green-600" />
+                            {overdue ? (
+                              <AlertTriangle className="h-[18px] w-[18px] text-on-error-container group-hover:hidden" />
+                            ) : (
+                              <CheckSquare className="h-[18px] w-[18px] text-on-primary-container group-hover:hidden" />
+                            )}
+                          </button>
+                          <Link href={href} className="flex-1 min-w-0">
+                            <p className="text-[15px] font-medium text-foreground truncate">
+                              {item.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {contactName}
+                              {item.due_at &&
+                                ` · ${overdue ? "Overdue" : "Due"}: ${new Date(
+                                  item.due_at
+                                ).toLocaleDateString()}`}
+                            </p>
+                          </Link>
+                        </CardContent>
+                      </Card>
                     );
                   })}
                 </div>
@@ -646,6 +665,14 @@ export default function Home() {
                                 <p className="text-[15px] font-medium text-foreground truncate">{item.name}</p>
                                 <p className="text-sm text-muted-foreground truncate">{item.reason}</p>
                               </div>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); openQuickCapture(item.id); }}
+                                className="p-2 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer shrink-0"
+                                title="Log interaction"
+                              >
+                                <MessageSquare className="h-4 w-4" />
+                              </button>
                               {isCritical && (
                                 <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
                               )}
@@ -783,68 +810,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* ── Relationship Health ── */}
-            {contactHealth.length > 0 && (
-              <div className="mb-10">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-5 w-5 text-primary" />
-                    <h2 className="text-base font-medium text-foreground">Network health</h2>
-                  </div>
-                  <Link
-                    href="/contacts"
-                    className="text-sm font-medium text-primary flex items-center gap-0.5 hover:underline"
-                  >
-                    View all <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </div>
-
-                {/* Health summary bar */}
-                <div className="flex gap-3 mb-4">
-                  {(["green", "yellow", "orange", "red", "gray"] as const)
-                    .filter((color) => healthStats[color] > 0)
-                    .map((color) => (
-                      <div key={color} className="flex items-center gap-1.5">
-                        <div className={`w-3.5 h-3.5 rounded-full ${healthBgColors[color]}`} />
-                        <span className="text-sm text-muted-foreground">
-                          {healthStats[color]}
-                        </span>
-                      </div>
-                    ))}
-                </div>
-
-                {/* Contact grid */}
-                <div className="flex flex-wrap gap-3">
-                  {sortedHealthGrid.map((c) => (
-                    <Link key={c.id} href={`/contacts/${c.id}`} title={`${c.name} — ${
-                      c.days_since_touch === null
-                        ? "Never contacted"
-                        : c.days_since_touch === 0
-                        ? "Contacted today"
-                        : `${c.days_since_touch}d since last contact`
-                    }`}>
-                      <ContactAvatar
-                        name={c.name}
-                        photoUrl={c.photo_url}
-                        className="w-14 h-14 text-base transition-all hover:scale-110 cursor-pointer"
-                        ringClassName={healthRingColors[c.color]}
-                      />
-                    </Link>
-                  ))}
-                </div>
-
-                {/* Legend */}
-                <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4">
-                  {(["green", "yellow", "orange", "red", "gray"] as const).map((color) => (
-                    <span key={color} className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <span className={`inline-block w-2.5 h-2.5 rounded-full ${healthBgColors[color]}`} />
-                      {healthLabels[color]}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* ── Quick-add contact ── */}
             <Card variant="outlined" className="mb-10">
               <CardContent className="p-6">
@@ -902,7 +867,72 @@ export default function Home() {
               </CardContent>
             </Card>
 
-          </>
+            </div>{/* end left column */}
+
+            {/* ── RIGHT COLUMN: Network Health ── */}
+            <div className="lg:sticky lg:top-6 lg:self-start">
+              {contactHealth.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-5 w-5 text-primary" />
+                      <h2 className="text-base font-medium text-foreground">Network health</h2>
+                    </div>
+                    <Link
+                      href="/contacts"
+                      className="text-sm font-medium text-primary flex items-center gap-0.5 hover:underline"
+                    >
+                      View all <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+
+                  {/* Health summary bar */}
+                  <div className="flex gap-3 mb-4">
+                    {(["green", "yellow", "orange", "red", "gray"] as const)
+                      .filter((color) => healthStats[color] > 0)
+                      .map((color) => (
+                        <div key={color} className="flex items-center gap-1.5">
+                          <div className={`w-3.5 h-3.5 rounded-full ${healthBgColors[color]}`} />
+                          <span className="text-sm text-muted-foreground">
+                            {healthStats[color]}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+
+                  {/* Contact grid */}
+                  <div className="flex flex-wrap gap-2.5">
+                    {sortedHealthGrid.map((c) => (
+                      <Link key={c.id} href={`/contacts/${c.id}`} title={`${c.name} — ${
+                        c.days_since_touch === null
+                          ? "Never contacted"
+                          : c.days_since_touch === 0
+                          ? "Contacted today"
+                          : `${c.days_since_touch}d since last contact`
+                      }`}>
+                        <ContactAvatar
+                          name={c.name}
+                          photoUrl={c.photo_url}
+                          className="w-12 h-12 text-sm transition-all hover:scale-110 cursor-pointer"
+                          ringClassName={healthRingColors[c.color]}
+                        />
+                      </Link>
+                    ))}
+                  </div>
+
+                  {/* Legend */}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-4">
+                    {(["green", "yellow", "orange", "red", "gray"] as const).map((color) => (
+                      <span key={color} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <span className={`inline-block w-2.5 h-2.5 rounded-full ${healthBgColors[color]}`} />
+                        {healthLabels[color]}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>{/* end right column */}
+          </div>
         )}
 
         {/* Loading skeleton */}
