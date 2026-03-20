@@ -997,8 +997,15 @@
 .cv-inline-date-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   margin-top: 1px;
+  max-width: 260px;
+}
+
+.cv-date-picker-wrapper {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .cv-inline-date {
@@ -1006,14 +1013,51 @@
   color: #7e7a7a;
   line-height: 14px;
   letter-spacing: 0.4px;
-  flex: 1;
-  min-width: 0;
+  width: 90px;
 }
 
 .cv-inline-date-sep {
   color: #7e7a7a;
   font-size: 14px;
   flex-shrink: 0;
+  padding: 0 2px;
+}
+
+/* Date suggestion dropdown */
+.cv-date-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 200;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  margin-top: 2px;
+  min-width: 100px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.cv-date-suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  font-size: 13px;
+  color: #333;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cv-date-suggestion:hover {
+  background: #f5f5f5;
+}
+
+.cv-date-suggestion-active {
+  color: #2d6a30;
+  font-weight: 500;
 }
 
 /* Education inline fields */
@@ -1059,6 +1103,70 @@
 
 .cv-panel-editing .cv-edit-followup .cv-dropdown-trigger:hover {
   background: rgba(0, 0, 0, 0.04);
+}
+
+/* ── Add / Remove buttons ── */
+.cv-add-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  color: #c0c0c0;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.cv-add-btn:hover {
+  color: #2d6a30;
+}
+
+.cv-add-btn:active {
+  color: #2d6a30;
+  background: rgba(45, 106, 48, 0.1);
+}
+
+.cv-remove-btn:hover {
+  color: #d32f2f;
+}
+
+.cv-remove-btn:active {
+  color: #d32f2f;
+  background: rgba(211, 47, 47, 0.1);
+}
+
+/* "+" in section header — push to the right */
+.cv-section-header .cv-add-btn {
+  margin-left: auto;
+}
+
+/* Editable item — row with remove button + content */
+.cv-editable-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.cv-editable-item .cv-remove-btn {
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.cv-editable-item:hover .cv-remove-btn {
+  opacity: 1;
+}
+
+.cv-editable-item-content {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Custom Dropdown Styles */

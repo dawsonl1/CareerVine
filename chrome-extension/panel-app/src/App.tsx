@@ -472,7 +472,7 @@ const AutoResizeTextarea: React.FC<{
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`cv-edit-input ${className}`}
+      className={className}
       style={{
         minHeight: `${minHeight}px`,
         resize: 'none',
@@ -499,17 +499,138 @@ const InlineInput: React.FC<{
   />
 );
 
+// Month/Year picker — inline input with dropdown suggestions
+const MonthYearPicker: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  className?: string;
+  yearOnly?: boolean;
+}> = ({ value, onChange, placeholder, className = "", yearOnly = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputVal, setInputVal] = useState(value);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setInputVal(value); }, [value]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const shadowRoot = (window as any).__cv_sr;
+    const root = shadowRoot || document;
+    const timer = setTimeout(() => root.addEventListener("mousedown", handler), 10);
+    return () => { clearTimeout(timer); root.removeEventListener("mousedown", handler); };
+  }, [isOpen]);
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 30 }, (_, i) => currentYear - i);
+
+  // Build suggestions based on input
+  const getSuggestions = (): string[] => {
+    const q = inputVal.toLowerCase().trim();
+
+    // "Present" option
+    if (!yearOnly && ("present".startsWith(q) || q === "")) {
+      // always include Present as first option when relevant
+    }
+
+    if (yearOnly) {
+      const filtered = years.filter(y => String(y).includes(q));
+      return (q === "" ? filtered.slice(0, 8) : filtered.slice(0, 6)).map(String);
+    }
+
+    // Month+year suggestions
+    const suggestions: string[] = [];
+    if ("present".startsWith(q) && q !== "") suggestions.push("Present");
+
+    for (const y of years.slice(0, 10)) {
+      for (const m of MONTH_ABBREVS) {
+        const label = `${m} ${y}`;
+        if (q === "" || label.toLowerCase().includes(q) || m.toLowerCase().startsWith(q)) {
+          suggestions.push(label);
+        }
+        if (suggestions.length >= 8) break;
+      }
+      if (suggestions.length >= 8) break;
+    }
+    if (q === "" && !suggestions.includes("Present")) suggestions.unshift("Present");
+    return suggestions.slice(0, 8);
+  };
+
+  const handleSelect = (val: string) => {
+    onChange(val);
+    setInputVal(val);
+    setIsOpen(false);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputVal(e.target.value);
+    setIsOpen(true);
+  };
+
+  const handleBlur = () => {
+    // Commit whatever is typed on blur
+    setTimeout(() => {
+      if (inputVal !== value) onChange(inputVal);
+      setIsOpen(false);
+    }, 150);
+  };
+
+  const suggestions = isOpen ? getSuggestions() : [];
+
+  return (
+    <div ref={wrapperRef} className="cv-date-picker-wrapper">
+      <input
+        type="text"
+        className={`cv-inline-input ${className}`}
+        value={inputVal}
+        onChange={handleInputChange}
+        onFocus={() => setIsOpen(true)}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+      />
+      {isOpen && suggestions.length > 0 && (
+        <div className="cv-date-suggestions">
+          {suggestions.map(s => (
+            <button
+              key={s}
+              type="button"
+              className={`cv-date-suggestion ${s === value ? 'cv-date-suggestion-active' : ''}`}
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(s); }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Edit Panel Component
 const EditPanel: React.FC<{
   profile: ProfileData;
   onChange: (field: string, value: any) => void;
   onSave: () => void;
   onCancel: () => void;
+  onAddExperience: () => void;
+  onRemoveExperience: (index: number) => void;
+  onAddEducation: () => void;
+  onRemoveEducation: (index: number) => void;
 }> = ({
   profile,
   onChange,
   onSave,
-  onCancel
+  onCancel,
+  onAddExperience,
+  onRemoveExperience,
+  onAddEducation,
+  onRemoveEducation,
 }) => {
   return (
     <div className="cv-panel cv-panel-editing">
@@ -605,104 +726,118 @@ const EditPanel: React.FC<{
         </div>
 
         {/* Experience Section */}
-        {profile.experience.length > 0 && (
         <section className="cv-section">
           <div className="cv-section-header">
             <Briefcase className="w-5 h-5" />
             <h2>Experience</h2>
+            <button type="button" className="cv-add-remove-btn cv-add-btn" onClick={onAddExperience}>+</button>
           </div>
           <div className="cv-experience-list">
             {profile.experience.map((exp, index) => (
-              <div key={exp.id} className="cv-job-item">
-                <InlineInput
-                  value={exp.title || ""}
-                  onChange={(v) => onChange(`experience.${index}.title`, v)}
-                  placeholder="Job Title"
-                  className="cv-inline-job-title"
-                />
-                <InlineInput
-                  value={exp.company || ""}
-                  onChange={(v) => onChange(`experience.${index}.company`, v)}
-                  placeholder="Company"
-                  className="cv-inline-job-company"
-                />
-                <div className="cv-inline-date-row">
+              <div key={exp.id} className="cv-job-item cv-editable-item">
+                <button
+                  type="button"
+                  className="cv-add-remove-btn cv-remove-btn"
+                  onClick={() => onRemoveExperience(index)}
+                >-</button>
+                <div className="cv-editable-item-content">
                   <InlineInput
-                    value={exp.start_month || ""}
-                    onChange={(v) => onChange(`experience.${index}.start_month`, v)}
-                    placeholder="Start"
-                    className="cv-inline-date"
+                    value={exp.title || ""}
+                    onChange={(v) => onChange(`experience.${index}.title`, v)}
+                    placeholder="Job Title"
+                    className="cv-inline-job-title"
                   />
-                  <span className="cv-inline-date-sep">-</span>
                   <InlineInput
-                    value={exp.end_month || ""}
-                    onChange={(v) => onChange(`experience.${index}.end_month`, v)}
-                    placeholder="End"
-                    className="cv-inline-date"
+                    value={exp.company || ""}
+                    onChange={(v) => onChange(`experience.${index}.company`, v)}
+                    placeholder="Company"
+                    className="cv-inline-job-company"
+                  />
+                  <div className="cv-inline-date-row">
+                    <MonthYearPicker
+                      value={exp.start_month || ""}
+                      onChange={(v) => onChange(`experience.${index}.start_month`, v)}
+                      placeholder="Start"
+                      className="cv-inline-date"
+                    />
+                    <span className="cv-inline-date-sep">-</span>
+                    <MonthYearPicker
+                      value={exp.end_month || ""}
+                      onChange={(v) => onChange(`experience.${index}.end_month`, v)}
+                      placeholder="End"
+                      className="cv-inline-date"
+                    />
+                  </div>
+                  <InlineInput
+                    value={exp.location || ""}
+                    onChange={(v) => onChange(`experience.${index}.location`, v)}
+                    placeholder="Location"
+                    className="cv-inline-job-location"
                   />
                 </div>
-                <InlineInput
-                  value={exp.location || ""}
-                  onChange={(v) => onChange(`experience.${index}.location`, v)}
-                  placeholder="Location"
-                  className="cv-inline-job-location"
-                />
               </div>
             ))}
           </div>
         </section>
-        )}
 
         {/* Education Section */}
-        {profile.education.length > 0 && (
         <section className="cv-section cv-education-section">
           <div className="cv-section-header">
             <GraduationCap className="w-5 h-5" />
             <h2>Education</h2>
+            <button type="button" className="cv-add-remove-btn cv-add-btn" onClick={onAddEducation}>+</button>
           </div>
           <div className="cv-education-list">
             {profile.education.map((edu, index) => (
-              <div key={edu.id} className="cv-edu-item">
-                <InlineInput
-                  value={edu.school || ""}
-                  onChange={(v) => onChange(`education.${index}.school`, v)}
-                  placeholder="School"
-                  className="cv-inline-edu-school"
-                />
-                <div className="cv-inline-degree-row">
+              <div key={edu.id} className="cv-edu-item cv-editable-item">
+                <button
+                  type="button"
+                  className="cv-add-remove-btn cv-remove-btn"
+                  onClick={() => onRemoveEducation(index)}
+                >-</button>
+                <div className="cv-editable-item-content">
                   <InlineInput
-                    value={edu.degree || ""}
-                    onChange={(v) => onChange(`education.${index}.degree`, v)}
-                    placeholder="Degree"
-                    className="cv-inline-edu-degree"
+                    value={edu.school || ""}
+                    onChange={(v) => onChange(`education.${index}.school`, v)}
+                    placeholder="School"
+                    className="cv-inline-edu-school"
                   />
-                  <InlineInput
-                    value={edu.field_of_study || ""}
-                    onChange={(v) => onChange(`education.${index}.field_of_study`, v)}
-                    placeholder="Field of study"
-                    className="cv-inline-edu-degree"
-                  />
-                </div>
-                <div className="cv-inline-date-row">
-                  <InlineInput
-                    value={edu.start_year || ""}
-                    onChange={(v) => onChange(`education.${index}.start_year`, v)}
-                    placeholder="Start"
-                    className="cv-inline-date"
-                  />
-                  <span className="cv-inline-date-sep">-</span>
-                  <InlineInput
-                    value={edu.end_year || ""}
-                    onChange={(v) => onChange(`education.${index}.end_year`, v)}
-                    placeholder="End"
-                    className="cv-inline-date"
-                  />
+                  <div className="cv-inline-degree-row">
+                    <InlineInput
+                      value={edu.degree || ""}
+                      onChange={(v) => onChange(`education.${index}.degree`, v)}
+                      placeholder="Degree"
+                      className="cv-inline-edu-degree"
+                    />
+                    <InlineInput
+                      value={edu.field_of_study || ""}
+                      onChange={(v) => onChange(`education.${index}.field_of_study`, v)}
+                      placeholder="Field of study"
+                      className="cv-inline-edu-degree"
+                    />
+                  </div>
+                  <div className="cv-inline-date-row">
+                    <MonthYearPicker
+                      value={edu.start_year || ""}
+                      onChange={(v) => onChange(`education.${index}.start_year`, v)}
+                      placeholder="Start"
+                      className="cv-inline-date"
+                      yearOnly
+                    />
+                    <span className="cv-inline-date-sep">-</span>
+                    <MonthYearPicker
+                      value={edu.end_year || ""}
+                      onChange={(v) => onChange(`education.${index}.end_year`, v)}
+                      placeholder="End"
+                      className="cv-inline-date"
+                      yearOnly
+                    />
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         </section>
-        )}
       </main>
 
       {/* Footer */}
@@ -1251,6 +1386,49 @@ const App: React.FC = () => {
     setEditedProfile(null);
   };
 
+  const handleAddExperience = () => {
+    setEditedProfile(prev => prev ? {
+      ...prev,
+      experience: [...prev.experience, {
+        id: `new-exp-${Date.now()}`,
+        company: "",
+        title: "",
+        location: "",
+        start_month: "",
+        end_month: "",
+        is_current: false,
+      }]
+    } : prev);
+  };
+
+  const handleRemoveExperience = (index: number) => {
+    setEditedProfile(prev => prev ? {
+      ...prev,
+      experience: prev.experience.filter((_, i) => i !== index)
+    } : prev);
+  };
+
+  const handleAddEducation = () => {
+    setEditedProfile(prev => prev ? {
+      ...prev,
+      education: [...prev.education, {
+        id: `new-edu-${Date.now()}`,
+        school: "",
+        degree: "",
+        field_of_study: "",
+        start_year: "",
+        end_year: "",
+      }]
+    } : prev);
+  };
+
+  const handleRemoveEducation = (index: number) => {
+    setEditedProfile(prev => prev ? {
+      ...prev,
+      education: prev.education.filter((_, i) => i !== index)
+    } : prev);
+  };
+
   // Update a single field on profile without entering edit mode
   const setProfileField = (field: string, value: any) => {
     setProfile(prev => prev ? { ...prev, [field]: value } : prev);
@@ -1262,6 +1440,10 @@ const App: React.FC = () => {
             onChange={handleEditChange}
             onSave={handleSaveEdit}
             onCancel={handleCancelEdit}
+            onAddExperience={handleAddExperience}
+            onRemoveExperience={handleRemoveExperience}
+            onAddEducation={handleAddEducation}
+            onRemoveEducation={handleRemoveEducation}
           />;
   }
 
