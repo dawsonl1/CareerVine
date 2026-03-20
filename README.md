@@ -21,12 +21,15 @@ The core insight is that **conversations are the atomic unit of a relationship**
 - **Calendar that knows your network** — Google Calendar sync with week and list views. Create a meeting in CareerVine and it generates a Calendar event with Meet link and attendee invites.
 - **Transcripts to notes** — Upload audio or paste a transcript. Speakers are identified and matched to attendees, so your meeting notes write themselves.
 
-### UX decisions I'm proud of
+### Design decisions I'm proud of
 
 - **Inline editing for high-frequency actions.** Email and follow-up cadence are editable directly on the contact card (hover to reveal, click to edit, blur to save). Inspired by the Chrome extension's pattern of making inputs look like display text until interaction. No edit mode needed for the two most common actions.
-- **Contact profile as two-column layout.** Sticky sidebar with identity and contact info, main column with activity tabs. Keeps context visible while you scroll through timeline and emails.
-- **Conversation-first data model.** Action items link back to the meeting where you made the promise. Timeline shows everything chronologically across meetings, emails, and interactions.
-- **Follow-up sequences that respect replies.** Multi-stage email sequences auto-cancel when the recipient responds, so you never accidentally nag someone who already got back to you.
+- **Relationship health as a ratio, not a date.** The dashboard doesn't show "last contacted 10 days ago." It shows a color based on the ratio of days since contact to the cadence you set. A 30-day cadence touched 10 days ago is green; a 7-day cadence touched 10 days ago is red. Same number, completely different urgency.
+- **Follow-up sequences that respect replies.** Multi-stage email sequences auto-cancel when the recipient responds. Before each scheduled send, the system checks the Gmail thread for new replies and cancels the entire sequence if one is found. You never accidentally nag someone who already got back to you.
+- **AI email drafts grounded in real conversations.** The AI compose feature optionally pulls in meeting notes and transcripts as context, with a 32KB token budget to keep quality high. The prompt explicitly blocks generic phrases like "I stumbled upon" to keep emails sounding like you actually wrote them.
+- **Conversation-first data model.** Action items link back to the meeting where you made the promise. Timeline shows everything chronologically across meetings, emails, and interactions. A task isn't just a task — it's a record of a commitment you made to a specific person at a specific time.
+- **Chrome extension that doesn't fight the host page.** The LinkedIn sidebar uses a closed Shadow DOM with `all: initial` on the host element, so LinkedIn's CSS can't leak in and the extension can't break LinkedIn. Profile photos are extracted with a three-tier fallback strategy (400x400 first, URL rewrite from 100x100, graceful null). Duplicate detection runs before scraping even starts.
+- **Multi-contact conversation logging.** Real networking events involve multiple people. Quick-capture lets you log one conversation with multiple contacts, creating interactions for all of them in parallel. If creation fails for some contacts, it still succeeds for the others and shows a partial-success toast.
 
 ## Tech stack
 
