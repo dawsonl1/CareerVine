@@ -131,9 +131,19 @@ export default function CalendarPage() {
   }), [events, contactFilter, contactEmailToName]);
 
   const weekEvents = useMemo(() => {
+    const startStr = dateToStr(weekDays[0]);
+    const endStr = dateToStr(weekDays[6]);
     const start = weekDays[0];
     const end = new Date(weekDays[6]); end.setHours(23, 59, 59, 999);
-    return filteredEvents.filter(e => { const s = new Date(e.start_at); return s >= start && s <= end; });
+    return filteredEvents.filter(e => {
+      if (e.all_day) {
+        // All-day events are stored as UTC midnight — compare date strings to avoid timezone shift
+        const d = e.start_at.slice(0, 10);
+        return d >= startStr && d <= endStr;
+      }
+      const s = new Date(e.start_at);
+      return s >= start && s <= end;
+    });
   }, [filteredEvents, weekDays]);
 
   // ── Mount
@@ -396,7 +406,7 @@ export default function CalendarPage() {
                   <div className="text-[10px] text-muted-foreground text-right pr-2 pt-1">all day</div>
                   {weekDays.map((day, i) => (
                     <div key={i} className="px-0.5 py-0.5 min-h-[24px]">
-                      {weekEvents.filter(e => e.all_day && new Date(e.start_at).toDateString() === day.toDateString()).map(e => (
+                      {weekEvents.filter(e => e.all_day && e.start_at.slice(0, 10) === dateToStr(day)).map(e => (
                         <div key={e.id} className="text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary truncate">{e.is_private ? "Busy" : (e.title || "Untitled")}</div>
                       ))}
                     </div>
@@ -543,8 +553,9 @@ export default function CalendarPage() {
           ) : (
             <div className="space-y-3">
               {filteredEvents.map((event) => {
-                const sd = new Date(event.start_at);
-                const ed = new Date(event.end_at);
+                // All-day events are stored as UTC midnight — parse date parts in UTC to avoid timezone shift
+                const sd = event.all_day ? new Date(event.start_at.slice(0, 10) + "T12:00:00") : new Date(event.start_at);
+                const ed = event.all_day ? new Date(event.end_at.slice(0, 10) + "T12:00:00") : new Date(event.end_at);
                 const isToday = sd.toDateString() === new Date().toDateString();
                 const timeStr = sd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
                 const endStr = ed.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
