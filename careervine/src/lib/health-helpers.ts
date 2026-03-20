@@ -25,6 +25,14 @@ export function getHealthColor(
   return "red";
 }
 
+export const healthBgColors: Record<HealthColor, string> = {
+  green: "bg-[#c8e6c9]",
+  yellow: "bg-[#fff9c4]",
+  orange: "bg-[#ffe0b2]",
+  red: "bg-[#ffcdd2]",
+  gray: "bg-[#e0e0e0]",
+};
+
 export const healthStyles: Record<HealthColor, string> = {
   green: "bg-[#c8e6c9] text-[#1b5e20] ring-[#66bb6a]/30",
   yellow: "bg-[#fff9c4] text-[#f57f17] ring-[#ffee58]/30",
@@ -32,6 +40,16 @@ export const healthStyles: Record<HealthColor, string> = {
   red: "bg-[#ffcdd2] text-[#b71c1c] ring-[#ef5350]/30",
   gray: "bg-[#e0e0e0] text-[#616161] ring-[#9e9e9e]/30",
 };
+
+export const healthRingColors: Record<HealthColor, string> = {
+  green: "ring-[#66bb6a]",
+  yellow: "ring-[#ffee58]",
+  orange: "ring-[#ffa726]",
+  red: "ring-[#ef5350]",
+  gray: "ring-[#9e9e9e]",
+};
+
+export const CRITICAL_OVERDUE_DAYS = 7;
 
 export const healthLabels: Record<HealthColor, string> = {
   green: "On track",

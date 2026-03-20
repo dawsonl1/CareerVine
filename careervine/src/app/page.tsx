@@ -38,7 +38,8 @@ import {
 } from "lucide-react";
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
-import { getHealthColor, healthStyles, healthLabels, type HealthColor } from "@/lib/health-helpers";
+import { getHealthColor, healthStyles, healthBgColors, healthLabels, healthRingColors, CRITICAL_OVERDUE_DAYS, type HealthColor } from "@/lib/health-helpers";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"];
@@ -48,6 +49,7 @@ type FollowUpContact = {
   id: number;
   name: string;
   industry: string | null;
+  photo_url: string | null;
   follow_up_frequency_days: number;
   last_touch: string | null;
   days_overdue: number;
@@ -57,6 +59,7 @@ type ContactHealth = {
   id: number;
   name: string;
   industry: string | null;
+  photo_url: string | null;
   follow_up_frequency_days: number | null;
   last_touch: string | null;
   days_since_touch: number | null;
@@ -151,43 +154,43 @@ export default function Home() {
 
   // Reach Out Today: only contacts with a cadence that are due/overdue
   const reachOutToday = useMemo(() => {
-    const items: { id: number; name: string; reason: string; urgency: number }[] = [];
+    const items: { id: number; name: string; photo_url: string | null; reason: string; urgency: number }[] = [];
 
     for (const f of followUps) {
       const reason =
         f.days_overdue === 0
           ? "Follow-up due today"
           : `Follow-up ${f.days_overdue}d overdue`;
-      items.push({ id: f.id, name: f.name, reason, urgency: f.days_overdue });
+      items.push({ id: f.id, name: f.name, photo_url: f.photo_url, reason, urgency: f.days_overdue });
     }
 
-    return items.sort((a, b) => b.urgency - a.urgency).slice(0, 6);
+    return items.slice(0, 6);
   }, [followUps]);
 
   // Total overdue count (for "View all" link)
   const totalOverdue = followUps.length;
 
-  // Health grid stats
+  // Compute color once per contact, then derive stats + sorted grid
+  const coloredContacts = useMemo(() =>
+    contactHealth.map((c) => ({ ...c, color: getHealthColor(c.days_since_touch, c.follow_up_frequency_days) })),
+    [contactHealth],
+  );
+
   const healthStats = useMemo(() => {
     const counts: Record<HealthColor, number> = { green: 0, yellow: 0, orange: 0, red: 0, gray: 0 };
-    for (const c of contactHealth) {
-      counts[getHealthColor(c.days_since_touch, c.follow_up_frequency_days)]++;
-    }
+    for (const c of coloredContacts) counts[c.color]++;
     return counts;
-  }, [contactHealth]);
+  }, [coloredContacts]);
 
-  // Sorted health grid (memoized to avoid re-sorting on every render)
   const sortedHealthGrid = useMemo(() => {
     const order: Record<HealthColor, number> = { red: 0, orange: 1, yellow: 2, green: 3, gray: 4 };
-    return [...contactHealth]
+    return [...coloredContacts]
       .sort((a, b) => {
-        const aColor = getHealthColor(a.days_since_touch, a.follow_up_frequency_days);
-        const bColor = getHealthColor(b.days_since_touch, b.follow_up_frequency_days);
-        if (order[aColor] !== order[bColor]) return order[aColor] - order[bColor];
+        if (order[a.color] !== order[b.color]) return order[a.color] - order[b.color];
         return a.name.localeCompare(b.name);
       })
       .slice(0, 40);
-  }, [contactHealth]);
+  }, [coloredContacts]);
 
   if (loading) {
     return (
@@ -412,35 +415,39 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="space-y-1.5">
-                  {reachOutToday.map((item) => (
-                    <Link key={item.id} href={`/contacts/${item.id}`}>
-                      <Card
-                        variant="outlined"
-                        className={`state-layer ${item.urgency > 7 ? "border-destructive/40" : ""}`}
-                      >
-                        <CardContent className="p-4 flex items-center gap-3">
-                          <div
-                            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-xs font-medium ${
-                              item.urgency > 7
-                                ? "bg-error-container text-on-error-container"
-                                : item.urgency > 0
-                                ? "bg-[#ffe0b2] text-[#e65100]"
-                                : "bg-secondary-container text-on-secondary-container"
-                            }`}
-                          >
-                            {item.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">{item.reason}</p>
-                          </div>
-                          {item.urgency > 7 && (
-                            <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Link>
-                  ))}
+                  {reachOutToday.map((item) => {
+                    const isCritical = item.urgency > CRITICAL_OVERDUE_DAYS;
+                    return (
+                      <Link key={item.id} href={`/contacts/${item.id}`}>
+                        <Card
+                          variant="outlined"
+                          className={`state-layer ${isCritical ? "border-destructive/40" : ""}`}
+                        >
+                          <CardContent className="p-4 flex items-center gap-3">
+                            <ContactAvatar
+                              name={item.name}
+                              photoUrl={item.photo_url}
+                              className="w-11 h-11 text-sm"
+                              ringClassName={
+                                isCritical
+                                  ? healthRingColors.red
+                                  : item.urgency > 0
+                                  ? healthRingColors.orange
+                                  : ""
+                              }
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{item.reason}</p>
+                            </div>
+                            {isCritical && (
+                              <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Link>
+                    );
+                  })}
                 </div>
                 {totalOverdue > 6 && (
                   <Link
@@ -471,45 +478,43 @@ export default function Home() {
 
                 {/* Health summary bar */}
                 <div className="flex gap-3 mb-4">
-                  {(["green", "yellow", "orange", "red", "gray"] as const).map((color) => (
-                    healthStats[color] > 0 ? (
+                  {(["green", "yellow", "orange", "red", "gray"] as const)
+                    .filter((color) => healthStats[color] > 0)
+                    .map((color) => (
                       <div key={color} className="flex items-center gap-1.5">
-                        <div className={`w-3 h-3 rounded-full ${healthStyles[color].split(" ")[0]}`} />
+                        <div className={`w-3 h-3 rounded-full ${healthBgColors[color]}`} />
                         <span className="text-xs text-muted-foreground">
                           {healthStats[color]}
                         </span>
                       </div>
-                    ) : <span key={color} />
-                  ))}
+                    ))}
                 </div>
 
                 {/* Contact grid */}
                 <div className="flex flex-wrap gap-2">
-                  {sortedHealthGrid.map((c) => {
-                      const color = getHealthColor(c.days_since_touch, c.follow_up_frequency_days);
-                      return (
-                        <Link key={c.id} href={`/contacts/${c.id}`} title={`${c.name} — ${
-                          c.days_since_touch === null
-                            ? "Never contacted"
-                            : c.days_since_touch === 0
-                            ? "Contacted today"
-                            : `${c.days_since_touch}d since last contact`
-                        }`}>
-                          <div
-                            className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-medium transition-all hover:ring-2 hover:scale-110 cursor-pointer ${healthStyles[color]}`}
-                          >
-                            {c.name.charAt(0).toUpperCase()}
-                          </div>
-                        </Link>
-                      );
-                    })}
+                  {sortedHealthGrid.map((c) => (
+                    <Link key={c.id} href={`/contacts/${c.id}`} title={`${c.name} — ${
+                      c.days_since_touch === null
+                        ? "Never contacted"
+                        : c.days_since_touch === 0
+                        ? "Contacted today"
+                        : `${c.days_since_touch}d since last contact`
+                    }`}>
+                      <ContactAvatar
+                        name={c.name}
+                        photoUrl={c.photo_url}
+                        className="w-11 h-11 text-sm transition-all hover:scale-110 cursor-pointer"
+                        ringClassName={healthRingColors[c.color]}
+                      />
+                    </Link>
+                  ))}
                 </div>
 
                 {/* Legend */}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
                   {(["green", "yellow", "orange", "red", "gray"] as const).map((color) => (
                     <span key={color} className="text-[10px] text-muted-foreground flex items-center gap-1">
-                      <span className={`inline-block w-2 h-2 rounded-full ${healthStyles[color].split(" ")[0]}`} />
+                      <span className={`inline-block w-2 h-2 rounded-full ${healthBgColors[color]}`} />
                       {healthLabels[color]}
                     </span>
                   ))}
