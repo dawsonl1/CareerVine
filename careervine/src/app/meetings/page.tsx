@@ -29,7 +29,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getMeetings, createMeeting, updateMeeting, deleteMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting, createActionItem, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, createInteraction, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment, createTranscriptSegments, getTranscriptSegments, updateSpeakerContact, deleteTranscriptSegments } from "@/lib/queries";
 import type { Meeting, SimpleContact, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact, TranscriptSegment } from "@/lib/types";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
-import { Plus, Calendar, X, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, Video } from "lucide-react";
+import { Plus, Calendar, X, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, Video, AlertCircle, ShieldAlert } from "lucide-react";
+import Link from "next/link";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { Select } from "@/components/ui/select";
@@ -535,6 +536,24 @@ export default function MeetingsPage() {
             </Button>
           </div>
         </div>
+
+        {/* Calendar not connected banner */}
+        {!calendarConnected && !loading && (
+          <div className="flex gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 mb-5">
+            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                Google Calendar not connected
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                Connect your Google Calendar to add meetings to your calendar and generate Google Meet links.{" "}
+                <Link href="/settings?tab=integrations" className="underline font-medium">
+                  Go to Integrations
+                </Link>
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Search bar */}
         <div className="relative mb-6">

@@ -15,6 +15,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import SignOutButton from "@/components/sign-out-button";
 import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox, MessageSquare } from "lucide-react";
+import SetupBanner from "@/components/setup-banner";
 
 export default function Navigation() {
   const { user } = useAuth();
@@ -67,25 +68,26 @@ export default function Navigation() {
 
           {/* User area */}
           <div className="flex items-center gap-2">
-            {/* Inbox icon (shown when Gmail connected) */}
-            {gmailConnected && (
-              <Link
-                href="/inbox"
-                className={`state-layer relative w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
-                  pathname.startsWith("/inbox")
-                    ? "bg-secondary-container text-on-secondary-container"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                title="Inbox"
-              >
-                <Inbox className="h-[18px] w-[18px]" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-              </Link>
-            )}
+            {/* Inbox icon — always visible, shows indicator when not connected */}
+            <Link
+              href={gmailConnected ? "/inbox" : "/settings?tab=integrations"}
+              className={`state-layer relative w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                pathname.startsWith("/inbox")
+                  ? "bg-secondary-container text-on-secondary-container"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title={gmailConnected ? "Inbox" : "Connect Gmail to use Inbox"}
+            >
+              <Inbox className="h-[18px] w-[18px]" />
+              {gmailConnected && unreadCount > 0 && (
+                <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+              {!gmailConnected && (
+                <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-amber-500 border-2 border-background" />
+              )}
+            </Link>
             {/* Calendar icon */}
             <Link
               href="/calendar"
@@ -137,6 +139,7 @@ export default function Navigation() {
           })}
         </div>
       </div>
+      <SetupBanner />
     </nav>
   );
 }
