@@ -225,9 +225,9 @@ function ToastItem({
         </button>
       </div>
       {toast.showProgress && toast.duration && (
-        <div className="h-[3px] w-full bg-current/10">
+        <div className="h-[3px] w-full bg-current/10 overflow-hidden">
           <div
-            className="h-full bg-current/40 rounded-full"
+            className="h-full w-full bg-current/40 origin-left"
             style={{
               animation: `toast-progress ${toast.duration}ms linear forwards`,
             }}

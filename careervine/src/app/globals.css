@@ -219,12 +219,12 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   animation: slide-in-right 200ms ease-out;
 }
 
-/* Toast progress bar countdown */
+/* Toast progress bar countdown — uses transform for GPU compositing */
 @keyframes toast-progress {
   from {
-    width: 100%;
+    transform: scaleX(1);
   }
   to {
-    width: 0%;
+    transform: scaleX(0);
   }
 }

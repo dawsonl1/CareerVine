@@ -6,7 +6,6 @@ interface DeferredActionOptions<T extends { id: number }> {
   undoMessage: string | ((item: T) => string);
   delayMs?: number;
   onUndo?: (item: T) => void;
-  onCommit?: (item: T) => void;
   onError?: (item: T, error: Error) => void;
   toastVariant?: "success" | "info" | "warning";
   extraActions?: (item: T) => { label: string; onClick: () => void }[];
@@ -17,7 +16,6 @@ export function useDeferredAction<T extends { id: number }>({
   undoMessage,
   delayMs = 5000,
   onUndo,
-  onCommit,
   onError,
   toastVariant = "success",
   extraActions,
@@ -29,11 +27,11 @@ export function useDeferredAction<T extends { id: number }>({
   useEffect(() => {
     const pending = pendingRef.current;
     return () => {
-      for (const [, { item, timerId }] of pending) {
+      for (const [id, { item, timerId }] of pending) {
         clearTimeout(timerId);
+        pending.delete(id); // Remove so the timer callback no-ops if it fires
         action(item).catch(() => {});
       }
-      pending.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -57,10 +55,9 @@ export function useDeferredAction<T extends { id: number }>({
           label: "Undo",
           onClick: () => {
             const entry = pendingRef.current.get(item.id);
-            if (entry) {
-              clearTimeout(entry.timerId);
-              pendingRef.current.delete(item.id);
-            }
+            if (!entry) return; // Already committed or undone
+            clearTimeout(entry.timerId);
+            pendingRef.current.delete(item.id);
             dismiss(toastId);
             onUndo?.(item);
           },
@@ -69,10 +66,11 @@ export function useDeferredAction<T extends { id: number }>({
     });
 
     const timerId = setTimeout(async () => {
+      // Guard: if already removed (by unmount cleanup or undo), skip
+      if (!pendingRef.current.has(item.id)) return;
       pendingRef.current.delete(item.id);
       try {
         await action(item);
-        onCommit?.(item);
       } catch (err) {
         onError?.(item, err as Error);
         // Restore on failure
@@ -81,9 +79,7 @@ export function useDeferredAction<T extends { id: number }>({
     }, delayMs);
 
     pendingRef.current.set(item.id, { item, timerId });
-  }, [action, undoMessage, delayMs, onUndo, onCommit, onError, toastVariant, extraActions, toast, dismiss]);
+  }, [action, undoMessage, delayMs, onUndo, onError, toastVariant, extraActions, toast, dismiss]);
 
-  const isPending = useCallback((id: number) => pendingRef.current.has(id), []);
-
-  return { execute, isPending };
+  return { execute };
 }
