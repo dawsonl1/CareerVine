@@ -541,6 +541,7 @@ const EditPanel: React.FC<{
         </section>
 
         {/* Experience Section */}
+        {profile.experience.length > 0 && (
         <section className="cv-section">
           <div className="cv-section-header">
             <Briefcase className="w-5 h-5" />
@@ -596,8 +597,10 @@ const EditPanel: React.FC<{
             ))}
           </div>
         </section>
+        )}
 
         {/* Education Section */}
+        {profile.education.length > 0 && (
         <section className="cv-section cv-education-section">
           <div className="cv-section-header">
             <GraduationCap className="w-5 h-5" />
@@ -648,6 +651,7 @@ const EditPanel: React.FC<{
             ))}
           </div>
         </section>
+        )}
       </main>
       
       {/* Footer */}
@@ -1275,6 +1279,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Experience Section */}
+        {profile.experience.length > 0 && (
         <section className="cv-section">
           <div className="cv-section-header">
             <Briefcase className="w-5 h-5" />
@@ -1295,7 +1300,7 @@ const App: React.FC = () => {
 
               return groups.map((group, groupIndex) => {
                 const isMultiRole = group.roles.length > 1;
-                
+
                 if (isMultiRole) {
                   // Multi-role at same company - show company header with connected roles
                   return (
@@ -1311,7 +1316,7 @@ const App: React.FC = () => {
                         {group.roles.map((exp, roleIndex) => {
                           const dateRange = formatDateRange(exp.start_month, exp.end_month);
                           const isLast = roleIndex === group.roles.length - 1;
-                          
+
                           return (
                             <div key={exp.id} className={`cv-role-item ${isLast ? 'cv-role-last' : ''}`}>
                               <div className="cv-role-dot" />
@@ -1330,7 +1335,7 @@ const App: React.FC = () => {
                   // Single role at company - simple display
                   const exp = group.roles[0];
                   const dateRange = formatDateRange(exp.start_month, exp.end_month);
-                  
+
                   return (
                     <div key={exp.id} className="cv-job-item">
                       <p className="cv-job-title">{exp.title || "Job Title"}</p>
@@ -1344,8 +1349,10 @@ const App: React.FC = () => {
             })()}
           </div>
         </section>
+        )}
 
         {/* Education Section */}
+        {profile.education.length > 0 && (
         <section className="cv-section cv-education-section">
           <div className="cv-section-header">
             <GraduationCap className="w-5 h-5" />
@@ -1369,10 +1376,10 @@ const App: React.FC = () => {
                   }
                 }
               });
-              
+
               return Array.from(seen.values()).map((edu) => {
                 const dateRange = formatEducationDateRange(edu.start_year, edu.end_year);
-                
+
                 return (
                   <div key={edu.id} className="cv-edu-item">
                     <p className="cv-edu-school">{edu.school || "School Name"}</p>
@@ -1388,6 +1395,7 @@ const App: React.FC = () => {
             })()}
           </div>
         </section>
+        )}
       </main>
 
       {/* Auto-scrape toggle + Re-analyze */}
