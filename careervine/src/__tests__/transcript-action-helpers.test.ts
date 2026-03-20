@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   matchSpeakerToAttendee,
-  isSelfReference,
   resolveDueDate,
 } from "@/lib/transcript-action-helpers";
 
@@ -43,28 +42,6 @@ describe("matchSpeakerToAttendee", () => {
   it("does not match single-letter first names", () => {
     const atts = [{ id: 1, name: "J. Smith" }];
     expect(matchSpeakerToAttendee("J", atts)).toBeNull();
-  });
-});
-
-describe("isSelfReference", () => {
-  it("detects 'I'", () => {
-    expect(isSelfReference("I")).toBe(true);
-  });
-
-  it("detects 'me'", () => {
-    expect(isSelfReference("me")).toBe(true);
-  });
-
-  it("detects 'we'", () => {
-    expect(isSelfReference("we")).toBe(true);
-  });
-
-  it("rejects regular names", () => {
-    expect(isSelfReference("John")).toBe(false);
-  });
-
-  it("is case-insensitive", () => {
-    expect(isSelfReference("ME")).toBe(true);
   });
 });
 

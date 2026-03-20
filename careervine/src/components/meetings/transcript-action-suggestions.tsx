@@ -5,9 +5,10 @@ import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { createActionItem } from "@/lib/queries";
 import { ActionItemSource, SuggestionReasonType } from "@/lib/constants";
-import { Sparkles, Check, X, Pencil, Calendar, User, AlertTriangle } from "lucide-react";
+import { Sparkles, Check, X, Calendar, User, AlertTriangle } from "lucide-react";
 
 interface TranscriptSuggestion {
+  _key: string;
   title: string;
   description: string | null;
   contactId: number | null;
@@ -40,7 +41,7 @@ export function TranscriptActionSuggestions({
   const [hasRun, setHasRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
-  const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
 
   const extractActions = useCallback(async () => {
     setLoading(true);
@@ -63,7 +64,12 @@ export function TranscriptActionSuggestions({
       }
 
       const data = await res.json();
-      setSuggestions(data.suggestions || []);
+      // Assign stable keys to each suggestion
+      const keyed = (data.suggestions || []).map((s: Omit<TranscriptSuggestion, "_key">, i: number) => ({
+        ...s,
+        _key: `${i}-${s.title.slice(0, 20)}`,
+      }));
+      setSuggestions(keyed);
       setTruncated(data.truncated || false);
       setHasRun(true);
     } catch (err) {
@@ -73,8 +79,8 @@ export function TranscriptActionSuggestions({
     }
   }, [meetingId, transcript, attendees, meetingDate]);
 
-  const acceptSuggestion = async (suggestion: TranscriptSuggestion, index: number) => {
-    setSavingIds((prev) => new Set(prev).add(index));
+  const acceptSuggestion = async (suggestion: TranscriptSuggestion) => {
+    setSavingKeys((prev) => new Set(prev).add(suggestion._key));
     try {
       const contactIds = suggestion.contactId ? [suggestion.contactId] : [];
       await createActionItem({
@@ -93,22 +99,22 @@ export function TranscriptActionSuggestions({
         suggestion_evidence: suggestion.evidence,
       }, contactIds);
 
-      setSuggestions((prev) => prev.filter((_, i) => i !== index));
+      setSuggestions((prev) => prev.filter((s) => s._key !== suggestion._key));
       onActionCreated();
       toastSuccess("Action item created");
     } catch {
       toastError("Failed to create action item");
     } finally {
-      setSavingIds((prev) => {
+      setSavingKeys((prev) => {
         const next = new Set(prev);
-        next.delete(index);
+        next.delete(suggestion._key);
         return next;
       });
     }
   };
 
-  const dismissSuggestion = (index: number) => {
-    setSuggestions((prev) => prev.filter((_, i) => i !== index));
+  const dismissSuggestion = (key: string) => {
+    setSuggestions((prev) => prev.filter((s) => s._key !== key));
   };
 
   // Not yet triggered — show the button
@@ -167,6 +173,13 @@ export function TranscriptActionSuggestions({
     );
   }
 
+  // Format a YYYY-MM-DD date string without timezone shifting
+  const formatDate = (dateStr: string) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const date = new Date(y, m - 1, d); // local time, no UTC shift
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
   // Show suggestions
   return (
     <div className="mt-3">
@@ -182,9 +195,9 @@ export function TranscriptActionSuggestions({
         </p>
       )}
       <div className="space-y-2">
-        {suggestions.map((s, i) => (
+        {suggestions.map((s) => (
           <div
-            key={i}
+            key={s._key}
             className="flex items-start gap-3 p-3 rounded-[8px] bg-surface-container"
           >
             <div className="flex-1 min-w-0">
@@ -198,7 +211,7 @@ export function TranscriptActionSuggestions({
                 {s.dueDate && (
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                     <Calendar className="h-3 w-3" />
-                    {new Date(s.dueDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    {formatDate(s.dueDate)}
                   </span>
                 )}
                 {!s.contactName && (
@@ -215,15 +228,15 @@ export function TranscriptActionSuggestions({
               <Button
                 variant="tonal"
                 size="sm"
-                onClick={() => acceptSuggestion(s, i)}
-                loading={savingIds.has(i)}
-                disabled={savingIds.has(i)}
+                onClick={() => acceptSuggestion(s)}
+                loading={savingKeys.has(s._key)}
+                disabled={savingKeys.has(s._key)}
               >
                 <Check className="h-3.5 w-3.5" /> Add
               </Button>
               <button
                 type="button"
-                onClick={() => dismissSuggestion(i)}
+                onClick={() => dismissSuggestion(s._key)}
                 className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
                 title="Dismiss"
               >

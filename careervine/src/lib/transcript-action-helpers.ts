@@ -43,15 +43,6 @@ export function matchSpeakerToAttendee(
   return null;
 }
 
-/**
- * Check if the speaker name likely refers to the app user (self-reference).
- * These action items should be assigned to the contact being spoken to.
- */
-export function isSelfReference(speakerName: string): boolean {
-  const s = speakerName.toLowerCase().trim();
-  return ["i", "me", "myself", "we", "us"].includes(s);
-}
-
 const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
 /**
