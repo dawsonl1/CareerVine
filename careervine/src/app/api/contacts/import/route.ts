@@ -150,7 +150,7 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
     const { data: oldExp } = await supabase.from('contact_companies').select('*').eq('contact_id', contactId);
     await supabase.from('contact_companies').delete().eq('contact_id', contactId);
     try {
-      await addExperienceToContact(supabase, contactId, profileData.experience);
+      await addExperienceToContact(supabase, contactId, profileData.experience, true);
     } catch (err) {
       // Restore old data on failure
       if (oldExp && oldExp.length > 0) {
@@ -165,7 +165,7 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
     const { data: oldEdu } = await supabase.from('contact_schools').select('*').eq('contact_id', contactId);
     await supabase.from('contact_schools').delete().eq('contact_id', contactId);
     try {
-      await addEducationToContact(supabase, contactId, profileData.education);
+      await addEducationToContact(supabase, contactId, profileData.education, true);
     } catch (err) {
       if (oldEdu && oldEdu.length > 0) {
         await supabase.from('contact_schools').insert(oldEdu.map(({ id, ...rest }: any) => rest));
@@ -257,15 +257,17 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
 }
 
 
-async function addExperienceToContact(supabase: any, contactId: number, experience: any[]) {
+async function addExperienceToContact(supabase: any, contactId: number, experience: any[], skipDedup = false) {
   const validExps = experience.filter(exp => exp.company);
   if (validExps.length === 0) return;
 
-  // Batch lookup: fetch all matching companies in one query
+  // Batch lookup: fetch matching companies in one filtered query
   const companyNames = [...new Set(validExps.map(exp => exp.company))];
+  const companyFilter = companyNames.map(n => `name.ilike.${sanitizeForPostgrest(n)}`).join(',');
   const { data: existingCompanies } = await supabase
     .from('companies')
-    .select('id, name');
+    .select('id, name')
+    .or(companyFilter);
 
   // Build a case-insensitive lookup map
   const companyMap = new Map<string, { id: number; name: string }>();
@@ -295,16 +297,18 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
     }
   }
 
-  // Fetch existing relationships for this contact in one query
-  const { data: existingRels } = await supabase
-    .from('contact_companies')
-    .select('company_id, title')
-    .eq('contact_id', contactId);
-  const relSet = new Set((existingRels || []).map((r: any) =>
-    `${r.company_id}:${r.title || ''}`
-  ));
+  // Build insert list, skipping existing relationships unless we just deleted them
+  let relSet = new Set<string>();
+  if (!skipDedup) {
+    const { data: existingRels } = await supabase
+      .from('contact_companies')
+      .select('company_id, title')
+      .eq('contact_id', contactId);
+    relSet = new Set((existingRels || []).map((r: any) =>
+      `${r.company_id}:${r.title || ''}`
+    ));
+  }
 
-  // Insert missing relationships
   const toInsert = [];
   for (const exp of validExps) {
     const company = companyMap.get(exp.company.toLowerCase());
@@ -326,15 +330,17 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
   }
 }
 
-async function addEducationToContact(supabase: any, contactId: number, education: any[]) {
+async function addEducationToContact(supabase: any, contactId: number, education: any[], skipDedup = false) {
   const validEdus = education.filter(edu => edu.school);
   if (validEdus.length === 0) return;
 
-  // Batch lookup: fetch all schools in one query
+  // Batch lookup: fetch matching schools in one filtered query
   const schoolNames = [...new Set(validEdus.map(edu => edu.school))];
+  const schoolFilter = schoolNames.map(n => `name.ilike.${sanitizeForPostgrest(n)}`).join(',');
   const { data: existingSchools } = await supabase
     .from('schools')
-    .select('id, name');
+    .select('id, name')
+    .or(schoolFilter);
 
   const schoolMap = new Map<string, { id: number; name: string }>();
   for (const s of existingSchools || []) {
@@ -362,14 +368,16 @@ async function addEducationToContact(supabase: any, contactId: number, education
     }
   }
 
-  // Fetch existing relationships in one query
-  const { data: existingRels } = await supabase
-    .from('contact_schools')
-    .select('school_id')
-    .eq('contact_id', contactId);
-  const relSet = new Set((existingRels || []).map((r: any) => r.school_id));
+  // Build insert list, skipping existing relationships unless we just deleted them
+  let relSet = new Set<number>();
+  if (!skipDedup) {
+    const { data: existingRels } = await supabase
+      .from('contact_schools')
+      .select('school_id')
+      .eq('contact_id', contactId);
+    relSet = new Set((existingRels || []).map((r: any) => r.school_id));
+  }
 
-  // Insert missing relationships
   const toInsert = [];
   for (const edu of validEdus) {
     const school = schoolMap.get(edu.school.toLowerCase());
@@ -416,49 +424,45 @@ async function findOrCreateLocation(supabase: any, location: { city: string | nu
 }
 
 async function addTagsToContact(supabase: any, contactId: number, tags: string[], userId: string) {
-  
-  for (const tagName of tags) {
-    if (!tagName.trim()) continue;
-    
-    const normalizedTag = tagName.trim().toLowerCase();
-    
-    // Find or create tag
-    let tag;
-    const { data: existingTag } = await supabase
-      .from('tags')
-      .select('id, name')
-      .eq('user_id', userId)
-      .ilike('name', normalizedTag)
-      .maybeSingle();
+  const normalizedTags = [...new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))];
+  if (normalizedTags.length === 0) return;
 
-    if (existingTag) {
-      tag = existingTag;
-    } else {
+  // Batch lookup: fetch user's existing tags in one query
+  const { data: existingTags } = await supabase
+    .from('tags')
+    .select('id, name')
+    .eq('user_id', userId);
+  const tagMap = new Map<string, { id: number; name: string }>();
+  for (const t of existingTags || []) {
+    tagMap.set(t.name.toLowerCase(), t);
+  }
+
+  // Create missing tags
+  for (const name of normalizedTags) {
+    if (!tagMap.has(name)) {
       const { data: newTag } = await supabase
         .from('tags')
-        .insert({ name: normalizedTag, user_id: userId })
-        .select()
+        .insert({ name, user_id: userId })
+        .select('id, name')
         .single();
-      tag = newTag;
+      if (newTag) tagMap.set(newTag.name.toLowerCase(), newTag);
     }
+  }
 
-    if (tag) {
-      // Check if contact-tag link already exists
-      const { data: existingLink } = await supabase
-        .from('contact_tags')
-        .select('id')
-        .eq('contact_id', contactId)
-        .eq('tag_id', tag.id)
-        .maybeSingle();
+  // Fetch existing contact-tag links in one query
+  const tagIds = normalizedTags.map(n => tagMap.get(n)?.id).filter(Boolean) as number[];
+  const { data: existingLinks } = await supabase
+    .from('contact_tags')
+    .select('tag_id')
+    .eq('contact_id', contactId)
+    .in('tag_id', tagIds);
+  const linkedSet = new Set((existingLinks || []).map((r: any) => r.tag_id));
 
-      if (!existingLink) {
-        await supabase
-          .from('contact_tags')
-          .insert({
-            contact_id: contactId,
-            tag_id: tag.id
-          });
-      }
-    }
+  // Batch insert missing links
+  const toInsert = tagIds
+    .filter(id => !linkedSet.has(id))
+    .map(tag_id => ({ contact_id: contactId, tag_id }));
+  if (toInsert.length > 0) {
+    await supabase.from('contact_tags').insert(toInsert);
   }
 }

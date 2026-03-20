@@ -34,10 +34,23 @@ export async function refreshTokenIfNeeded(
 ) {
   if (Date.now() <= expiresAt - 5 * 60_000) return;
 
-  // Wait for any in-flight refresh for this user to complete
+  // Wait for any in-flight refresh for this user to complete, then re-read the new token
   const existing = refreshLocks.get(userId);
   if (existing) {
     await existing;
+    // The first caller updated the DB — re-read the fresh token into this caller's client
+    const { data: fresh } = await supabase
+      .from("gmail_connections")
+      .select("access_token, refresh_token, token_expires_at")
+      .eq("user_id", userId)
+      .single();
+    if (fresh) {
+      oauth2Client.setCredentials({
+        access_token: fresh.access_token,
+        refresh_token: fresh.refresh_token,
+        expiry_date: new Date(fresh.token_expires_at).getTime(),
+      });
+    }
     return;
   }
 
