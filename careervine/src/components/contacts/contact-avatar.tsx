@@ -16,7 +16,7 @@ export function ContactAvatar({ name, photoUrl, className = "", ringClassName = 
   // Reset error state when the photo URL changes (e.g. after re-import)
   useEffect(() => setImgError(false), [photoUrl]);
   const initial = name.charAt(0).toUpperCase();
-  const ring = ringClassName ? `ring-2 ${ringClassName}` : "";
+  const ring = ringClassName ? `ring-[3px] ${ringClassName}` : "";
 
   if (photoUrl && !imgError) {
     return (
