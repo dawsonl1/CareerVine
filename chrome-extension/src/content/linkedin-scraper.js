@@ -5,10 +5,18 @@
 
 class LinkedInScraper {
   async scrapeAndClean() {
-    // Scroll to the bottom to trigger LinkedIn's lazy-loading, then wait
-    // for all content to render before scraping.
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-    await new Promise(r => setTimeout(r, 2000 + Math.floor(Math.random() * 500)));
+    // Scroll to the bottom to trigger LinkedIn's lazy-loading.
+    // We can't just scroll to scrollHeight once — that only reflects currently
+    // loaded content. Lazy sections extend the page as they load, so we scroll
+    // to the "bottom", wait for new content, and repeat until stable.
+    let prevHeight = 0;
+    for (let i = 0; i < 8; i++) {
+      const target = document.body.scrollHeight;
+      if (target === prevHeight && i > 0) break; // height stabilized
+      prevHeight = target;
+      window.scrollTo({ top: target, behavior: 'smooth' });
+      await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 400)));
+    }
 
     // Scroll back to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
