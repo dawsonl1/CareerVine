@@ -1,19 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler } from "@/lib/api-handler";
+import { gmailAiWriteMeetingsQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 /**
  * GET /api/gmail/ai-write/meetings?contactId=...
  * Returns meetings associated with a contact (that belong to the current user).
  */
-export async function GET(request: NextRequest) {
-  try {
-    const contactId = request.nextUrl.searchParams.get("contactId");
-    if (!contactId) return NextResponse.json({ meetings: [] });
-
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return NextResponse.json({ meetings: [] });
+export const GET = withApiHandler({
+  querySchema: gmailAiWriteMeetingsQuerySchema,
+  authOptional: true,
+  handler: async ({ user, query }) => {
+    if (!user) return { meetings: [] };
+    const { contactId } = query;
 
     const service = createSupabaseServiceClient();
 
@@ -23,7 +21,7 @@ export async function GET(request: NextRequest) {
       .select("meeting_id")
       .eq("contact_id", parseInt(contactId));
 
-    if (!links?.length) return NextResponse.json({ meetings: [] });
+    if (!links?.length) return { meetings: [] };
 
     const meetingIds = links.map((l) => l.meeting_id);
 
@@ -39,8 +37,6 @@ export async function GET(request: NextRequest) {
     // Only return meetings that have useful content
     const useful = (meetings || []).filter((m) => m.notes || m.transcript);
 
-    return NextResponse.json({ meetings: useful });
-  } catch {
-    return NextResponse.json({ meetings: [] });
-  }
-}
+    return { meetings: useful };
+  },
+});

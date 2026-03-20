@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 /**
@@ -7,15 +6,8 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
  * Disconnects Calendar from CareerVine (clears calendar_scopes_granted and deletes cached events).
  * Does NOT disconnect Gmail.
  */
-export async function POST(request: NextRequest) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+export const POST = withApiHandler({
+  handler: async ({ user }) => {
     const service = createSupabaseServiceClient();
 
     // Clear calendar scopes and sync state
@@ -34,12 +26,6 @@ export async function POST(request: NextRequest) {
       .delete()
       .eq("user_id", user.id);
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Calendar disconnect error:", error);
-    return NextResponse.json(
-      { error: "Failed to disconnect calendar" },
-      { status: 500 }
-    );
-  }
-}
+    return { success: true };
+  },
+});

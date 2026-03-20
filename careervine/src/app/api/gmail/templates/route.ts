@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler } from "@/lib/api-handler";
+import { gmailTemplateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 // Built-in preset templates (returned when user has no custom ones)
@@ -40,12 +40,10 @@ const PRESET_TEMPLATES = [
  * GET /api/gmail/templates
  * Returns user's custom templates, or preset defaults if they have none.
  */
-export async function GET() {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return NextResponse.json({ templates: [], presets: PRESET_TEMPLATES });
-
+export const GET = withApiHandler({
+  authOptional: true,
+  handler: async ({ user }) => {
+    if (!user) return { templates: [], presets: PRESET_TEMPLATES };
     const service = createSupabaseServiceClient();
     const { data, error } = await service
       .from("email_templates")
@@ -55,27 +53,20 @@ export async function GET() {
 
     if (error) throw error;
 
-    return NextResponse.json({
+    return {
       templates: data || [],
       presets: PRESET_TEMPLATES,
-    });
-  } catch (error) {
-    console.error("Templates fetch error:", error);
-    return NextResponse.json({ templates: [], presets: PRESET_TEMPLATES });
-  }
-}
+    };
+  },
+});
 
 /**
  * POST /api/gmail/templates
  * Create or update a template.
  */
-export async function POST(request: Request) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const body = await request.json();
+export const POST = withApiHandler({
+  schema: gmailTemplateSchema,
+  handler: async ({ user, body }) => {
     const service = createSupabaseServiceClient();
 
     if (body.id) {
@@ -92,7 +83,7 @@ export async function POST(request: Request) {
         .select()
         .single();
       if (error) throw error;
-      return NextResponse.json({ success: true, template: data });
+      return { success: true, template: data };
     } else {
       const { data, error } = await service
         .from("email_templates")
@@ -106,10 +97,7 @@ export async function POST(request: Request) {
         .select()
         .single();
       if (error) throw error;
-      return NextResponse.json({ success: true, template: data });
+      return { success: true, template: data };
     }
-  } catch (error) {
-    console.error("Template save error:", error);
-    return NextResponse.json({ error: "Failed to save template" }, { status: 500 });
-  }
-}
+  },
+});

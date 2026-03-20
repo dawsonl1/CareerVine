@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { calendarSyncQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { fetchCalendarEvents, getCalendarTimezone, getCalendarList, DEFAULT_TIMEZONE } from "@/lib/calendar";
 
@@ -13,15 +13,9 @@ const SYNC_FORCE_COOLDOWN_MS = 5 * 1000; // 5 seconds (manual sync button)
  * Supports incremental sync via sync tokens.
  * Rate-limited to prevent abuse.
  */
-export async function POST(request: NextRequest) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+export const POST = withApiHandler({
+  querySchema: calendarSyncQuerySchema,
+  handler: async ({ user, query }) => {
     const service = createSupabaseServiceClient();
     const conn = await service
       .from("gmail_connections")
@@ -30,22 +24,18 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!conn.data || !conn.data.calendar_scopes_granted) {
-      return NextResponse.json({ error: "Calendar not connected" }, { status: 400 });
+      throw new ApiError("Calendar not connected", 400);
     }
 
     // Rate limiting
-    const { searchParams } = new URL(request.url);
-    const force = searchParams.get("force") === "true";
+    const force = query.force === "true";
     const lastSynced = conn.data.calendar_last_synced_at
       ? new Date(conn.data.calendar_last_synced_at).getTime()
       : 0;
     const cooldown = force ? SYNC_FORCE_COOLDOWN_MS : SYNC_COOLDOWN_MS;
 
     if (Date.now() - lastSynced < cooldown) {
-      return NextResponse.json(
-        { skipped: true, message: "Synced recently, try again later." },
-        { status: 429 }
-      );
+      throw new ApiError("Synced recently, try again later.", 429);
     }
 
     // On first sync: fetch timezone and calendar list from Google
@@ -216,16 +206,10 @@ export async function POST(request: NextRequest) {
       })
       .eq("user_id", user.id);
 
-    return NextResponse.json({
+    return {
       success: true,
       eventsSynced: events.length,
       nextSyncToken,
-    });
-  } catch (error) {
-    console.error("Calendar sync error:", error);
-    return NextResponse.json(
-      { error: "Sync failed" },
-      { status: 500 }
-    );
-  }
-}
+    };
+  },
+});

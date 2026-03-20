@@ -1,19 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler } from "@/lib/api-handler";
+import { gmailAiWriteResolveContactQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 /**
  * GET /api/gmail/ai-write/resolve-contact?email=...
  * Resolves a recipient email to a contact ID.
  */
-export async function GET(request: NextRequest) {
-  try {
-    const email = request.nextUrl.searchParams.get("email");
-    if (!email) return NextResponse.json({ contactId: null });
-
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return NextResponse.json({ contactId: null });
+export const GET = withApiHandler({
+  querySchema: gmailAiWriteResolveContactQuerySchema,
+  authOptional: true,
+  handler: async ({ user, query }) => {
+    if (!user) return { contactId: null };
+    const { email } = query;
 
     const service = createSupabaseServiceClient();
 
@@ -29,7 +27,7 @@ export async function GET(request: NextRequest) {
       // Verify ownership through the join
       const ce = contactEmail as unknown as { contact_id: number; contacts: { user_id: string } };
       if (ce.contacts?.user_id === user.id) {
-        return NextResponse.json({ contactId: ce.contact_id });
+        return { contactId: ce.contact_id };
       }
     }
 
@@ -44,11 +42,9 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (emailMsg?.matched_contact_id) {
-      return NextResponse.json({ contactId: emailMsg.matched_contact_id });
+      return { contactId: emailMsg.matched_contact_id };
     }
 
-    return NextResponse.json({ contactId: null });
-  } catch {
-    return NextResponse.json({ contactId: null });
-  }
-}
+    return { contactId: null };
+  },
+});

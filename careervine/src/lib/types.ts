@@ -118,6 +118,20 @@ export type GmailConnection = {
 /** Cached email metadata row */
 export type EmailMessage = Database["public"]["Tables"]["email_messages"]["Row"];
 
+// ── Timeline types ──
+
+export type CompletedActionEntry = {
+  id: number;
+  title: string;
+  completed_at: string | null;
+};
+
+export type TimelineEntry =
+  | { kind: "meeting"; date: string; data: ContactMeeting }
+  | { kind: "interaction"; date: string; data: InteractionRow }
+  | { kind: "email"; date: string; data: EmailMessage }
+  | { kind: "completed_action"; date: string; data: CompletedActionEntry };
+
 /** Full email content as returned by the message detail endpoint */
 export type EmailMessageFull = {
   subject: string;

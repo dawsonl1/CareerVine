@@ -21,6 +21,9 @@ import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
 import { ComposeEmailProvider } from "@/components/compose-email-context";
 import { ComposeEmailModal } from "@/components/compose-email-modal";
+import { QuickCaptureProvider } from "@/components/quick-capture-context";
+import { QuickCaptureModal } from "@/components/quick-capture-modal";
+import { ToastProvider } from "@/components/ui/toast";
 
 // Configure Geist fonts for the application
 const geistSans = Geist({
@@ -61,10 +64,15 @@ export default function RootLayout({
           to work properly across the application.
         */}
         <AuthProvider>
-          <ComposeEmailProvider>
-            {children}
-            <ComposeEmailModal />
-          </ComposeEmailProvider>
+          <ToastProvider>
+            <ComposeEmailProvider>
+              <QuickCaptureProvider>
+                {children}
+                <ComposeEmailModal />
+                <QuickCaptureModal />
+              </QuickCaptureProvider>
+            </ComposeEmailProvider>
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

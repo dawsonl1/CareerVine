@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getConnection } from "@/lib/gmail";
 
@@ -9,21 +8,11 @@ import { getConnection } from "@/lib/gmail";
  * all pending scheduled emails, and all active follow-up sequences.
  * Used by the unified Inbox page.
  */
-export async function GET() {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+export const GET = withApiHandler({
+  handler: async ({ user }) => {
     const conn = await getConnection(user.id);
     if (!conn) {
-      return NextResponse.json({ error: "Gmail not connected" }, { status: 400 });
+      throw new ApiError("Gmail not connected", 400);
     }
 
     const service = createSupabaseServiceClient();
@@ -106,7 +95,7 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({
+    return {
       success: true,
       emails: emailsRes.data || [],
       trashedEmails: trashedRes.data || [],
@@ -116,12 +105,6 @@ export async function GET() {
       contactMap,
       calendarByThread,
       gmailAddress: conn.gmail_address,
-    });
-  } catch (error) {
-    console.error("Inbox API error:", error);
-    return NextResponse.json(
-      { error: "Failed to load inbox" },
-      { status: 500 },
-    );
-  }
-}
+    };
+  },
+});

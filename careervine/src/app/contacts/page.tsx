@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,6 +38,7 @@ const emptyForm = {
 export default function ContactsPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const { success: toastSuccess, error: toastError } = useToast();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -227,8 +229,9 @@ export default function ContactsPage() {
 
       closeForm();
       await loadContacts();
+      toastSuccess("Contact created");
     } catch (error) {
-      console.error("Error creating contact:", error);
+      toastError("Failed to create contact");
     }
   };
 
@@ -323,11 +326,16 @@ export default function ContactsPage() {
         {contacts.length === 0 && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
-              <Users className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-base text-foreground mb-1">No contacts yet</p>
-              <p className="text-sm text-muted-foreground mb-6">Add your first connection to get started.</p>
+              <Users className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
+              <p className="text-base text-foreground mb-1">Your network starts here</p>
+              <p className="text-sm text-muted-foreground mb-2">
+                Add people you meet — colleagues, mentors, classmates, or anyone worth staying in touch with.
+              </p>
+              <p className="text-xs text-muted-foreground mb-6">
+                You can also import contacts from LinkedIn using the Chrome extension.
+              </p>
               <Button onClick={() => setShowForm(true)}>
-                <Plus className="h-[18px] w-[18px]" /> Add contact
+                <Plus className="h-[18px] w-[18px]" /> Add your first contact
               </Button>
             </CardContent>
           </Card>

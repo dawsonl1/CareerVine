@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler } from "@/lib/api-handler";
+import { calendarCreateEventSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { createCalendarEvent } from "@/lib/calendar";
 
@@ -7,28 +7,10 @@ import { createCalendarEvent } from "@/lib/calendar";
  * POST /api/calendar/create-event
  * Creates a Google Calendar event with optional Google Meet conference.
  * Stores the event in the local cache and optionally links to a CareerVine meeting.
- *
- * Body:
- * - summary: event title
- * - description: event description (optional)
- * - startTime: ISO 8601 datetime
- * - endTime: ISO 8601 datetime
- * - attendeeEmails: array of email addresses (optional)
- * - conferenceType: "meet" | "zoom" | "none"
- * - meetingId: CareerVine meeting ID to link (optional)
- * - sourceThreadId: Gmail thread ID (optional)
- * - sourceMessageId: Gmail message ID (optional)
  */
-export async function POST(request: NextRequest) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const body = await request.json();
+export const POST = withApiHandler({
+  schema: calendarCreateEventSchema,
+  handler: async ({ user, body }) => {
     const {
       summary,
       description,
@@ -40,13 +22,6 @@ export async function POST(request: NextRequest) {
       sourceThreadId,
       sourceMessageId,
     } = body;
-
-    if (!summary || !startTime || !endTime) {
-      return NextResponse.json(
-        { error: "Missing required fields: summary, startTime, endTime" },
-        { status: 400 }
-      );
-    }
 
     // Create event on Google Calendar
     const result = await createCalendarEvent(user.id, {
@@ -96,16 +71,10 @@ export async function POST(request: NextRequest) {
         .eq("user_id", user.id);
     }
 
-    return NextResponse.json({
+    return {
       success: true,
       googleEventId: result.googleEventId,
       meetLink: result.meetLink,
-    });
-  } catch (error) {
-    console.error("Create event error:", error);
-    return NextResponse.json(
-      { error: "Failed to create event" },
-      { status: 500 }
-    );
-  }
-}
+    };
+  },
+});

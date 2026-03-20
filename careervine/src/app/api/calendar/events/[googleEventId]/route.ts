@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler } from "@/lib/api-handler";
+import { calendarEventPatchSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { updateCalendarEvent, deleteCalendarEvent } from "@/lib/calendar";
 
@@ -8,17 +8,10 @@ import { updateCalendarEvent, deleteCalendarEvent } from "@/lib/calendar";
  * Updates a Google Calendar event and the local cache row.
  * Body: { summary?, description?, startTime?, endTime? }
  */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ googleEventId: string }> }
-) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const { googleEventId } = await params;
-    const body = await request.json();
+export const PATCH = withApiHandler({
+  schema: calendarEventPatchSchema,
+  handler: async ({ user, params, body }) => {
+    const { googleEventId } = params;
     const { summary, description, startTime, endTime } = body;
 
     await updateCalendarEvent(user.id, googleEventId, { summary, description, startTime, endTime });
@@ -36,30 +29,17 @@ export async function PATCH(
       .eq("google_event_id", googleEventId)
       .eq("user_id", user.id);
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Update calendar event error:", error);
-    return NextResponse.json(
-      { error: "Failed to update event" },
-      { status: 500 }
-    );
-  }
-}
+    return { success: true };
+  },
+});
 
 /**
  * DELETE /api/calendar/events/[googleEventId]
  * Deletes a Google Calendar event and removes it from the local cache.
  */
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ googleEventId: string }> }
-) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const { googleEventId } = await params;
+export const DELETE = withApiHandler({
+  handler: async ({ user, params }) => {
+    const { googleEventId } = params;
 
     await deleteCalendarEvent(user.id, googleEventId);
 
@@ -70,12 +50,6 @@ export async function DELETE(
       .eq("google_event_id", googleEventId)
       .eq("user_id", user.id);
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Delete calendar event error:", error);
-    return NextResponse.json(
-      { error: "Failed to delete event" },
-      { status: 500 }
-    );
-  }
-}
+    return { success: true };
+  },
+});

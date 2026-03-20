@@ -11,9 +11,11 @@ import { ContactInfoHeader } from "@/components/contacts/contact-info-header";
 import { ContactActionsTab } from "@/components/contacts/contact-actions-tab";
 import { ContactTimelineTab } from "@/components/contacts/contact-timeline-tab";
 import { ContactEmailsTab } from "@/components/contacts/contact-emails-tab";
-import { ContactMeetingsTab } from "@/components/contacts/contact-meetings-tab";
 import { ContactAttachmentsTab } from "@/components/contacts/contact-attachments-tab";
-import { ChevronLeft } from "lucide-react";
+import { ContactPendingActionsBanner } from "@/components/contacts/contact-pending-actions-banner";
+import { ChevronLeft, MessageSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useQuickCapture } from "@/components/quick-capture-context";
 
 type ActionItem = {
   id: number;
@@ -42,10 +44,9 @@ type Attachment = {
 };
 
 const TABS = [
-  { key: "actions", label: "Action Items" },
   { key: "timeline", label: "Timeline" },
+  { key: "actions", label: "Actions" },
   { key: "emails", label: "Emails" },
-  { key: "meetings", label: "Meetings" },
   { key: "attachments", label: "Attachments" },
 ] as const;
 
@@ -54,6 +55,7 @@ type TabKey = (typeof TABS)[number]["key"];
 export default function ContactDetailPage() {
   const { user } = useAuth();
   const { gmailConnected } = useCompose();
+  const { open: openQuickCapture } = useQuickCapture();
   const router = useRouter();
   const params = useParams();
   const contactId = Number(params.id);
@@ -80,7 +82,7 @@ export default function ContactDetailPage() {
       const hash = window.location.hash.replace("#", "") as TabKey;
       if (TABS.some((t) => t.key === hash)) return hash;
     }
-    return "actions";
+    return "timeline";
   });
 
   const changeTab = (tab: TabKey) => {
@@ -180,6 +182,13 @@ export default function ContactDetailPage() {
     return () => window.removeEventListener("careervine:email-sent", handler);
   }, [gmailConn, loadContactEmails]);
 
+  // Re-fetch data when a conversation is logged via quick-capture
+  useEffect(() => {
+    const handler = () => loadRelatedData();
+    window.addEventListener("careervine:conversation-logged", handler);
+    return () => window.removeEventListener("careervine:conversation-logged", handler);
+  }, [loadRelatedData]);
+
   const handleScheduledEmailCancel = async (scheduledId: number) => {
     try {
       const res = await fetch(`/api/gmail/schedule/${scheduledId}`, { method: "DELETE" });
@@ -218,14 +227,19 @@ export default function ContactDetailPage() {
     <div className="min-h-screen bg-background">
       <Navigation />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back link */}
-        <button
-          onClick={() => router.push("/contacts")}
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6 cursor-pointer"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          All contacts
-        </button>
+        {/* Back link + Log conversation */}
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={() => router.push("/contacts")}
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            All contacts
+          </button>
+          <Button variant="tonal" size="sm" onClick={() => openQuickCapture(contactId)}>
+            <MessageSquare className="h-4 w-4" /> Log conversation
+          </Button>
+        </div>
 
         {/* Contact info header */}
         <div className="mb-8">
@@ -236,6 +250,13 @@ export default function ContactDetailPage() {
             onContactDelete={() => router.push("/contacts")}
           />
         </div>
+
+        {/* Pending actions banner */}
+        <ContactPendingActionsBanner
+          actions={actions}
+          onActionCompleted={loadRelatedData}
+          onViewAll={() => changeTab("actions")}
+        />
 
         {/* Tab bar */}
         <div className="flex gap-1 border-b border-outline-variant mb-6 overflow-x-auto">
@@ -307,14 +328,6 @@ export default function ContactDetailPage() {
                 </p>
               </div>
             )
-          )}
-          {activeTab === "meetings" && (
-            <ContactMeetingsTab
-              contactId={contactId}
-              meetings={meetings}
-              loading={loadingData}
-              onMeetingsChange={setMeetings}
-            />
           )}
           {activeTab === "attachments" && (
             <ContactAttachmentsTab

@@ -1,34 +1,16 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { gmailAiWriteSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import OpenAI from "openai";
 
 /**
  * POST /api/gmail/ai-write
  * Generate an email using AI with contact context and optional meeting notes.
- *
- * Body:
- *   prompt: string           — the template prompt or custom prompt
- *   recipientEmail?: string  — who the email is addressed to
- *   contactId?: number       — matched contact ID (for rich context)
- *   meetingIds?: number[]    — meeting IDs whose notes/transcripts to include
- *   additionalContext?: string — any extra user-supplied context
- *   subject?: string         — existing subject line (for replies)
  */
-export async function POST(request: Request) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const body = await request.json();
+export const POST = withApiHandler({
+  schema: gmailAiWriteSchema,
+  handler: async ({ user, body }) => {
     const { prompt, contactId, meetingIds, additionalContext, subject } = body;
-
-    if (!prompt) {
-      return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-    }
 
     const service = createSupabaseServiceClient();
 
@@ -183,7 +165,7 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
     const emailHtml = response.output_text || "";
 
     if (!emailHtml.trim()) {
-      return NextResponse.json({ error: "AI returned an empty response. Please try again." }, { status: 500 });
+      throw new ApiError("AI returned an empty response. Please try again.", 500);
     }
 
     // Also generate a subject line if none provided
@@ -198,13 +180,10 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
       generatedSubject = subjectResponse.output_text?.trim() || null;
     }
 
-    return NextResponse.json({
+    return {
       success: true,
       bodyHtml: emailHtml,
       subject: generatedSubject,
-    });
-  } catch (error) {
-    console.error("AI write error:", error);
-    return NextResponse.json({ error: "Failed to generate email" }, { status: 500 });
-  }
-}
+    };
+  },
+});

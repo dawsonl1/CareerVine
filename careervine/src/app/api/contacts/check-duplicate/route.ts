@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { withApiHandler } from "@/lib/api-handler";
+import { contactsCheckDuplicateSchema } from "@/lib/api-schemas";
 import { calculateNameMatchConfidence } from '@/lib/duplicate-helpers';
 import { sanitizeForPostgrest } from '@/lib/import-helpers';
-import { corsHeaders, handleOptions, getExtensionAuth } from '@/lib/extension-auth';
+import { handleOptions } from '@/lib/extension-auth';
 
 export async function OPTIONS() {
   return handleOptions();
@@ -11,27 +12,20 @@ export async function OPTIONS() {
  * API endpoint for checking potential duplicate contacts
  * Used by Chrome extension and webapp
  */
-export async function POST(request: NextRequest) {
-  try {
-    const auth = await getExtensionAuth(request);
-    if (auth.error) return auth.error;
-    const { supabase, user } = auth;
-
-    const { linkedinUrl, name, email } = await request.json();
+export const POST = withApiHandler({
+  schema: contactsCheckDuplicateSchema,
+  extensionAuth: true,
+  cors: true,
+  handler: async ({ supabase, user, body }) => {
+    const { linkedinUrl, name, email } = body;
 
     const duplicates = await findPotentialDuplicates(supabase, user.id, { linkedinUrl, name, email });
 
-    return NextResponse.json({
+    return {
       duplicates: duplicates.matches
-    }, { headers: corsHeaders });
-
-  } catch (error) {
-    console.error('Duplicate check error:', error);
-    return NextResponse.json({
-      error: 'Duplicate check failed'
-    }, { status: 500, headers: corsHeaders });
-  }
-}
+    };
+  },
+});
 
 async function findPotentialDuplicates(supabase: any, userId: string, searchData: { linkedinUrl?: string, name?: string, email?: string }) {
   const matches: any[] = [];
@@ -107,4 +101,3 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
 
   return { matches };
 }
-

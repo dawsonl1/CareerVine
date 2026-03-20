@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { getAuthUrl } from "@/lib/gmail";
+import { withApiHandler } from "@/lib/api-handler";
+import { gmailAuthQuerySchema } from "@/lib/api-schemas";
 
 /**
  * GET /api/gmail/auth?scopes=calendar
@@ -9,17 +10,10 @@ import { getAuthUrl } from "@/lib/gmail";
  * Uses a random nonce + user ID + timestamp for CSRF protection.
  * Optional query param: scopes=calendar to include Calendar scopes
  */
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const includeCalendar = searchParams.get("scopes") === "calendar";
+export const GET = withApiHandler({
+  querySchema: gmailAuthQuerySchema,
+  handler: async ({ user, query }) => {
+    const includeCalendar = query.scopes === "calendar";
 
     // Build CSRF-safe state: random nonce + user ID + timestamp
     const nonce = crypto.randomBytes(16).toString("hex");
@@ -31,11 +25,5 @@ export async function GET(request: NextRequest) {
 
     const url = getAuthUrl(state, includeCalendar);
     return NextResponse.redirect(url);
-  } catch (error) {
-    console.error("Gmail auth error:", error);
-    return NextResponse.json(
-      { error: "Failed to initiate Gmail auth" },
-      { status: 500 }
-    );
-  }
-}
+  },
+});

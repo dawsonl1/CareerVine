@@ -4,29 +4,17 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { createInteraction, updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
-import type { ContactMeeting, InteractionRow, EmailMessage } from "@/lib/types";
+import type { ContactMeeting, InteractionRow, EmailMessage, CompletedActionEntry, TimelineEntry } from "@/lib/types";
 import { Calendar, MessageSquare, Pencil, Trash2, Mail, ArrowUpRight, ArrowDownLeft, Plus, CheckCircle } from "lucide-react";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
-
-type CompletedAction = {
-  id: number;
-  title: string;
-  completed_at: string | null;
-};
-
-type TimelineEntry =
-  | { kind: "meeting"; date: string; data: ContactMeeting }
-  | { kind: "interaction"; date: string; data: InteractionRow }
-  | { kind: "email"; date: string; data: EmailMessage }
-  | { kind: "completed_action"; date: string; data: CompletedAction };
 
 interface ContactTimelineTabProps {
   contactId: number;
   meetings: ContactMeeting[];
   interactions: InteractionRow[];
   emails: EmailMessage[];
-  completedActions: CompletedAction[];
+  completedActions: CompletedActionEntry[];
   loading: boolean;
   onMeetingClick?: (meeting: ContactMeeting) => void;
   onInteractionsChange: (interactions: InteractionRow[]) => void;

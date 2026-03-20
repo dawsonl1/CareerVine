@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { extensionParseProfileSchema } from "@/lib/api-schemas";
 import { addIsCurrentToExperience, addIsCurrentToEducation, deriveCurrentRole, deriveContactStatus } from '@/lib/profile-helpers';
-import { corsHeaders, handleOptions, getExtensionAuth } from '@/lib/extension-auth';
+import { handleOptions } from '@/lib/extension-auth';
 
 /**
  * API endpoint for parsing LinkedIn profile text using OpenAI
@@ -12,16 +13,12 @@ export async function OPTIONS() {
   return handleOptions();
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const auth = await getExtensionAuth(request);
-    if (auth.error) return auth.error;
-
-    const { cleanedText, profileUrl } = await request.json();
-
-    if (!cleanedText) {
-      return NextResponse.json({ error: 'No profile text provided' }, { status: 400, headers: corsHeaders });
-    }
+export const POST = withApiHandler({
+  schema: extensionParseProfileSchema,
+  extensionAuth: true,
+  cors: true,
+  handler: async ({ body }) => {
+    const { cleanedText, profileUrl } = body;
 
     // Initialize OpenAI client
     const openai = new OpenAI({
@@ -30,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     // Parse the LinkedIn text using the new Responses API with structured JSON output
     const model = process.env.OPENAI_MODEL ?? 'gpt-5-mini';
-    
+
     // Optimized schema - only request what we actually need from AI
     const linkedinProfileSchema = {
       name: "linkedin_profile",
@@ -144,15 +141,15 @@ export async function POST(request: NextRequest) {
     });
 
     const responseText = response.output_text || '';
-    
+
     // Check for empty response
     if (!responseText.trim()) {
-      console.error('OpenAI returned empty response');
-      return NextResponse.json({ 
-        error: 'OpenAI returned an empty response. The profile text may be too long or contain unsupported content. Please try again.'
-      }, { status: 500, headers: corsHeaders });
+      throw new ApiError(
+        'OpenAI returned an empty response. The profile text may be too long or contain unsupported content. Please try again.',
+        500
+      );
     }
-    
+
     // Parse the JSON response - with json_object mode, response should always be valid JSON
     let profileData;
     try {
@@ -160,9 +157,7 @@ export async function POST(request: NextRequest) {
     } catch (parseError) {
       console.error('Failed to parse OpenAI response:', responseText);
       console.error('Parse error:', parseError);
-      return NextResponse.json({
-        error: 'Failed to parse profile data. Please try again.'
-      }, { status: 500, headers: corsHeaders });
+      throw new ApiError('Failed to parse profile data. Please try again.', 500);
     }
 
     // Algorithmic processing to derive missing fields
@@ -198,15 +193,9 @@ export async function POST(request: NextRequest) {
     // 6. Construct the full name
     profileData.name = `${profileData.first_name || ''} ${profileData.last_name || ''}`.trim();
 
-    return NextResponse.json({ 
-      success: true, 
-      profileData 
-    }, { headers: corsHeaders });
-
-  } catch (error) {
-    console.error('Parse profile error:', error);
-    return NextResponse.json({
-      error: 'Failed to parse profile. Please try again.'
-    }, { status: 500, headers: corsHeaders });
-  }
-}
+    return {
+      success: true,
+      profileData
+    };
+  },
+});

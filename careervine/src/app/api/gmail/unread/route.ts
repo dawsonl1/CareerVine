@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 /**
@@ -7,18 +6,10 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
  * Returns the count of unread inbound emails for the current user.
  * Lightweight endpoint used by the navigation badge.
  */
-export async function GET() {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (!user || authError) {
-      return NextResponse.json({ count: 0 });
-    }
-
+export const GET = withApiHandler({
+  authOptional: true,
+  handler: async ({ user }) => {
+    if (!user) return { count: 0 };
     const service = createSupabaseServiceClient();
     const { count, error } = await service
       .from("email_messages")
@@ -31,9 +22,6 @@ export async function GET() {
 
     if (error) throw error;
 
-    return NextResponse.json({ count: count || 0 });
-  } catch (error) {
-    console.error("Unread count error:", error);
-    return NextResponse.json({ count: 0 });
-  }
-}
+    return { count: count || 0 };
+  },
+});

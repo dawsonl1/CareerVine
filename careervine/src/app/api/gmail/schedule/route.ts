@@ -1,74 +1,48 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler } from "@/lib/api-handler";
+import { gmailScheduleQuerySchema, gmailScheduleCreateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { ScheduledEmailStatus } from "@/lib/constants";
 
 /**
  * GET /api/gmail/schedule?contactId=xxx
  * Returns pending scheduled emails, optionally filtered by contact.
  */
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const contactId = request.nextUrl.searchParams.get("contactId");
+export const GET = withApiHandler({
+  querySchema: gmailScheduleQuerySchema,
+  handler: async ({ user, query }) => {
+    const { contactId } = query;
     const service = createSupabaseServiceClient();
 
-    let query = service
+    let dbQuery = service
       .from("scheduled_emails")
       .select("*")
       .eq("user_id", user.id)
-      .eq("status", "pending")
+      .eq("status", ScheduledEmailStatus.Pending)
       .order("scheduled_send_at", { ascending: true });
 
     if (contactId) {
-      query = query.eq("matched_contact_id", parseInt(contactId, 10));
+      dbQuery = dbQuery.eq("matched_contact_id", parseInt(contactId, 10));
     }
 
-    const { data, error } = await query;
+    const { data, error } = await dbQuery;
     if (error) throw error;
 
-    return NextResponse.json({ scheduledEmails: data || [] });
-  } catch (error) {
-    console.error("Scheduled emails fetch error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch scheduled emails" },
-      { status: 500 }
-    );
-  }
-}
+    return { scheduledEmails: data || [] };
+  },
+});
 
 /**
  * POST /api/gmail/schedule
  * Creates a new scheduled email.
- *
- * Body: { to, cc?, bcc?, subject, bodyHtml, scheduledSendAt,
- *         threadId?, inReplyTo?, references?, contactName?, matchedContactId? }
  */
-export async function POST(request: NextRequest) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const body = await request.json();
+export const POST = withApiHandler({
+  schema: gmailScheduleCreateSchema,
+  handler: async ({ user, body }) => {
     const {
       to, cc, bcc, subject, bodyHtml, scheduledSendAt,
       threadId, inReplyTo, references,
       contactName, matchedContactId,
     } = body;
-
-    if (!to || !subject || !scheduledSendAt) {
-      return NextResponse.json(
-        { error: "to, subject, and scheduledSendAt are required" },
-        { status: 400 }
-      );
-    }
 
     const service = createSupabaseServiceClient();
 
@@ -85,7 +59,7 @@ export async function POST(request: NextRequest) {
         in_reply_to: inReplyTo || null,
         references_header: references || null,
         scheduled_send_at: scheduledSendAt,
-        status: "pending",
+        status: ScheduledEmailStatus.Pending,
         contact_name: contactName || null,
         matched_contact_id: matchedContactId || null,
       })
@@ -94,12 +68,6 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error;
 
-    return NextResponse.json({ scheduledEmail: data });
-  } catch (error) {
-    console.error("Schedule email error:", error);
-    return NextResponse.json(
-      { error: "Failed to schedule email" },
-      { status: 500 }
-    );
-  }
-}
+    return { scheduledEmail: data };
+  },
+});

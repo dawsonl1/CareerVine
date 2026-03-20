@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { gmailEmailsQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getConnection, syncEmailsForContact } from "@/lib/gmail";
 
@@ -8,23 +8,14 @@ import { getConnection, syncEmailsForContact } from "@/lib/gmail";
  * Returns cached email metadata for a contact. Triggers a background
  * re-sync if the last sync was more than 15 minutes ago.
  */
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const contactId = request.nextUrl.searchParams.get("contactId");
-    if (!contactId) {
-      return NextResponse.json({ error: "contactId is required" }, { status: 400 });
-    }
+export const GET = withApiHandler({
+  querySchema: gmailEmailsQuerySchema,
+  handler: async ({ user, query }) => {
+    const { contactId } = query;
 
     const conn = await getConnection(user.id);
     if (!conn) {
-      return NextResponse.json({ error: "Gmail not connected" }, { status: 400 });
+      throw new ApiError("Gmail not connected", 400);
     }
 
     const serviceClient = createSupabaseServiceClient();
@@ -69,17 +60,11 @@ export async function GET(request: NextRequest) {
 
     if (queryError) throw queryError;
 
-    return NextResponse.json({
+    return {
       success: true,
       emails: messages || [],
       isStale,
       gmailAddress: conn.gmail_address,
-    });
-  } catch (error) {
-    console.error("Gmail emails error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch emails" },
-      { status: 500 }
-    );
-  }
-}
+    };
+  },
+});

@@ -925,6 +925,77 @@ export async function deleteInteraction(id: number) {
 }
 
 /**
+ * Get all contacts with their last interaction/meeting date for the relationship health grid.
+ * Returns a lightweight projection: id, name, industry, last_touch date, and days since last touch.
+ *
+ * @param userId - The user's ID
+ * @returns Promise<ContactHealth[]> - All contacts with recency data
+ */
+export async function getContactsWithLastTouch(userId: string) {
+  const { data: contacts, error: cErr } = await supabase
+    .from("contacts")
+    .select("id, name, industry, follow_up_frequency_days, created_at")
+    .eq("user_id", userId)
+    .order("name")
+    .limit(500);
+  if (cErr) throw cErr;
+  if (!contacts || contacts.length === 0) return [];
+
+  const contactIds = contacts.map((c) => c.id);
+
+  // Get latest meeting date per contact
+  const { data: meetingLinks } = await supabase
+    .from("meeting_contacts")
+    .select("contact_id, meetings(meeting_date)")
+    .in("contact_id", contactIds);
+
+  // Get latest interaction date per contact
+  const { data: interactions } = await supabase
+    .from("interactions")
+    .select("contact_id, interaction_date")
+    .in("contact_id", contactIds);
+
+  const lastTouchMap = new Map<number, string>();
+
+  if (meetingLinks) {
+    for (const ml of meetingLinks as unknown as { contact_id: number; meetings: { meeting_date: string } }[]) {
+      const date = ml.meetings?.meeting_date;
+      if (!date) continue;
+      const prev = lastTouchMap.get(ml.contact_id);
+      if (!prev || date > prev) lastTouchMap.set(ml.contact_id, date);
+    }
+  }
+
+  if (interactions) {
+    for (const i of interactions) {
+      const date = i.interaction_date;
+      if (!date) continue;
+      const prev = lastTouchMap.get(i.contact_id);
+      if (!prev || date > prev) lastTouchMap.set(i.contact_id, date);
+    }
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return contacts.map((c) => {
+    const lastTouch = lastTouchMap.get(c.id) || null;
+    const daysSinceTouch = lastTouch
+      ? Math.floor((today.getTime() - new Date(lastTouch).getTime()) / (1000 * 60 * 60 * 24))
+      : null; // null means never contacted
+    return {
+      id: c.id,
+      name: c.name,
+      industry: c.industry,
+      follow_up_frequency_days: c.follow_up_frequency_days,
+      last_touch: lastTouch,
+      days_since_touch: daysSinceTouch,
+      created_at: c.created_at,
+    };
+  });
+}
+
+/**
  * Get contacts that are due (or overdue) for follow-up.
  * Returns contacts with follow_up_frequency_days set, enriched with
  * their most recent meeting and interaction dates so the caller can

@@ -1,28 +1,80 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { parseFollowUpFrequency, sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
-import { corsHeaders, handleOptions, getExtensionAuth } from '@/lib/extension-auth';
+import { withApiHandler } from "@/lib/api-handler";
+import { contactsImportSchema } from "@/lib/api-schemas";
+import { sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
+import { handleOptions } from '@/lib/extension-auth';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-/**
- * API endpoint for importing contacts from Chrome extension
- * Handles duplicate detection and creates contact with related data
- */
+// ── Types for the Chrome extension's profile payload ───────────────────
+
+interface ProfileLocation {
+  city: string | null;
+  state: string | null;
+  country: string;
+}
+
+interface ProfileExperience {
+  company: string;
+  title?: string;
+  location?: string | null;
+  start_month?: string | null;
+  end_month?: string | null;
+  is_current?: boolean;
+}
+
+interface ProfileEducation {
+  school: string;
+  degree?: string | null;
+  field_of_study?: string | null;
+  start_year?: string | null;
+  end_year?: string | null;
+}
+
+interface ProfileData {
+  name?: string;
+  linkedin_url?: string;
+  location?: ProfileLocation;
+  experience?: ProfileExperience[];
+  education?: ProfileEducation[];
+  suggested_tags?: string[];
+  tags?: string[];
+  contactInfo?: { email?: string };
+  [key: string]: unknown;
+}
+
+interface ContactRow {
+  id: number;
+  [key: string]: unknown;
+}
+
+interface CompanyRelRow {
+  company_id: number;
+  title: string | null;
+}
+
+interface SchoolRelRow {
+  school_id: number;
+}
+
+interface TagLinkRow {
+  tag_id: number;
+}
+
+// ── Route ──────────────────────────────────────────────────────────────
 
 export async function OPTIONS() {
   return handleOptions();
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const auth = await getExtensionAuth(request);
-    if (auth.error) return auth.error;
-    const { supabase, user } = auth;
+export const POST = withApiHandler({
+  schema: contactsImportSchema,
+  extensionAuth: true,
+  cors: true,
+  handler: async ({ supabase, user, body }) => {
+    const { profileData } = body as { profileData: ProfileData };
 
-    const { profileData } = await request.json();
-
-    // Check for duplicates
     const duplicates = await findDuplicateContacts(supabase, user.id, profileData);
 
-    let contact;
+    let contact: ContactRow;
     let isUpdate = false;
 
     if (duplicates.exactMatch) {
@@ -32,25 +84,19 @@ export async function POST(request: NextRequest) {
       contact = await createNewContact(supabase, profileData, user.id);
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return {
+      success: true,
       contact,
       isUpdate,
-      duplicates: duplicates.potentialMatches 
-    }, { headers: corsHeaders });
+      duplicates: duplicates.potentialMatches
+    };
+  },
+});
 
-  } catch (error) {
-    console.error('Import error:', error);
-    return NextResponse.json({ 
-      error: 'Import failed'
-    }, { status: 500, headers: corsHeaders });
-  }
-}
+// ── Helpers ────────────────────────────────────────────────────────────
 
-async function findDuplicateContacts(supabase: any, userId: string, profileData: any) {
-  
-  // Check for exact LinkedIn URL match
-  let exactMatch = null;
+async function findDuplicateContacts(supabase: SupabaseClient, userId: string, profileData: ProfileData) {
+  let exactMatch: ContactRow | null = null;
   if (profileData.linkedin_url) {
     const { data } = await supabase
       .from('contacts')
@@ -58,12 +104,11 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
       .eq('user_id', userId)
       .eq('linkedin_url', profileData.linkedin_url)
       .single();
-    
-    exactMatch = data;
+
+    exactMatch = data as ContactRow | null;
   }
 
-  // Check for name matches
-  let potentialMatches: any[] = [];
+  let potentialMatches: ContactRow[] = [];
   if (profileData.name && !exactMatch) {
     const names = profileData.name.split(' ');
     if (names.length >= 2) {
@@ -75,8 +120,8 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
         .select('*')
         .eq('user_id', userId)
         .or(`name.ilike.%${firstName}%,name.ilike.%${lastName}%`);
-      
-      potentialMatches = data || [];
+
+      potentialMatches = (data as ContactRow[] | null) || [];
     }
   }
 
@@ -86,11 +131,9 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
   };
 }
 
-async function updateExistingContact(supabase: any, contactId: number, profileData: any, userId: string) {
-
+async function updateExistingContact(supabase: SupabaseClient, contactId: number, profileData: ProfileData, userId: string): Promise<ContactRow> {
   const updateData = buildUpdateData(profileData);
 
-  // Update location
   if (profileData.location && typeof profileData.location === 'object') {
     const { city, state, country } = profileData.location;
     if (city || state || country) {
@@ -118,9 +161,8 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
     try {
       await addExperienceToContact(supabase, contactId, profileData.experience, true);
     } catch (err) {
-      // Restore old data on failure
       if (oldExp && oldExp.length > 0) {
-        await supabase.from('contact_companies').insert(oldExp.map(({ id, ...rest }: any) => rest));
+        await supabase.from('contact_companies').insert(oldExp.map(({ id: _id, ...rest }) => rest));
       }
       throw err;
     }
@@ -134,25 +176,22 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
       await addEducationToContact(supabase, contactId, profileData.education, true);
     } catch (err) {
       if (oldEdu && oldEdu.length > 0) {
-        await supabase.from('contact_schools').insert(oldEdu.map(({ id, ...rest }: any) => rest));
+        await supabase.from('contact_schools').insert(oldEdu.map(({ id: _id, ...rest }) => rest));
       }
       throw err;
     }
   }
 
-  // Update tags
   const tags = profileData.suggested_tags || profileData.tags;
   if (tags && tags.length > 0) {
     await addTagsToContact(supabase, contactId, tags, userId);
   }
 
-  return contact;
+  return contact as ContactRow;
 }
 
-async function createNewContact(supabase: any, profileData: any, userId: string) {
-
-  // Handle normalized location
-  let locationId = null;
+async function createNewContact(supabase: SupabaseClient, profileData: ProfileData, userId: string): Promise<ContactRow> {
+  let locationId: number | null = null;
   if (profileData.location && typeof profileData.location === 'object') {
     const { city, state, country } = profileData.location;
     if (city || state || country) {
@@ -165,7 +204,6 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
     }
   }
 
-  // Create main contact
   const contactData = buildContactData(profileData, userId, locationId);
 
   const { data: contact, error: insertError } = await supabase
@@ -176,42 +214,36 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
 
   if (insertError || !contact) throw new Error(insertError?.message || 'Failed to create contact');
 
-  // Add email if available
   if (profileData.contactInfo?.email) {
     await supabase
       .from('contact_emails')
       .insert({
-        contact_id: contact.id,
+        contact_id: (contact as ContactRow).id,
         email: profileData.contactInfo.email,
         is_primary: true
       });
   }
 
-  // Add experience
   if (profileData.experience && profileData.experience.length > 0) {
-    await addExperienceToContact(supabase, contact.id, profileData.experience);
+    await addExperienceToContact(supabase, (contact as ContactRow).id, profileData.experience);
   }
 
-  // Add education
   if (profileData.education && profileData.education.length > 0) {
-    await addEducationToContact(supabase, contact.id, profileData.education);
+    await addEducationToContact(supabase, (contact as ContactRow).id, profileData.education);
   }
 
-  // Add tags
   const tags = profileData.suggested_tags || profileData.tags;
   if (tags && tags.length > 0) {
-    await addTagsToContact(supabase, contact.id, tags, userId);
+    await addTagsToContact(supabase, (contact as ContactRow).id, tags, userId);
   }
 
-  return contact;
+  return contact as ContactRow;
 }
 
-
-async function addExperienceToContact(supabase: any, contactId: number, experience: any[], skipDedup = false) {
+async function addExperienceToContact(supabase: SupabaseClient, contactId: number, experience: ProfileExperience[], skipDedup = false) {
   const validExps = experience.filter(exp => exp.company);
   if (validExps.length === 0) return;
 
-  // Batch lookup: fetch matching companies concurrently (parameterized, handles special chars)
   const companyNames = [...new Set(validExps.map(exp => exp.company))];
   const companyResults = await Promise.all(
     companyNames.map(name =>
@@ -219,13 +251,11 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
     )
   );
 
-  // Build a case-insensitive lookup map
   const companyMap = new Map<string, { id: number; name: string }>();
   for (const { data } of companyResults) {
-    if (data) companyMap.set(data.name.toLowerCase(), data);
+    if (data) companyMap.set((data as { id: number; name: string }).name.toLowerCase(), data as { id: number; name: string });
   }
 
-  // Create missing companies
   for (const name of companyNames) {
     if (!companyMap.has(name.toLowerCase())) {
       const { data: newCompany, error: insertErr } = await supabase
@@ -234,27 +264,25 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
         .select('id, name')
         .single();
       if (insertErr) {
-        // Concurrent insert — re-fetch
         const { data: retry } = await supabase
           .from('companies')
           .select('id, name')
           .ilike('name', name)
           .maybeSingle();
-        if (retry) companyMap.set(retry.name.toLowerCase(), retry);
+        if (retry) companyMap.set((retry as { id: number; name: string }).name.toLowerCase(), retry as { id: number; name: string });
       } else if (newCompany) {
-        companyMap.set(newCompany.name.toLowerCase(), newCompany);
+        companyMap.set((newCompany as { id: number; name: string }).name.toLowerCase(), newCompany as { id: number; name: string });
       }
     }
   }
 
-  // Build insert list, skipping existing relationships unless we just deleted them
   let relSet = new Set<string>();
   if (!skipDedup) {
     const { data: existingRels } = await supabase
       .from('contact_companies')
       .select('company_id, title')
       .eq('contact_id', contactId);
-    relSet = new Set((existingRels || []).map((r: any) =>
+    relSet = new Set(((existingRels as CompanyRelRow[] | null) || []).map(r =>
       `${r.company_id}:${r.title || ''}`
     ));
   }
@@ -280,11 +308,10 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
   }
 }
 
-async function addEducationToContact(supabase: any, contactId: number, education: any[], skipDedup = false) {
+async function addEducationToContact(supabase: SupabaseClient, contactId: number, education: ProfileEducation[], skipDedup = false) {
   const validEdus = education.filter(edu => edu.school);
   if (validEdus.length === 0) return;
 
-  // Batch lookup: fetch matching schools concurrently (parameterized, handles special chars)
   const schoolNames = [...new Set(validEdus.map(edu => edu.school))];
   const schoolResults = await Promise.all(
     schoolNames.map(name =>
@@ -294,10 +321,9 @@ async function addEducationToContact(supabase: any, contactId: number, education
 
   const schoolMap = new Map<string, { id: number; name: string }>();
   for (const { data } of schoolResults) {
-    if (data) schoolMap.set(data.name.toLowerCase(), data);
+    if (data) schoolMap.set((data as { id: number; name: string }).name.toLowerCase(), data as { id: number; name: string });
   }
 
-  // Create missing schools
   for (const name of schoolNames) {
     if (!schoolMap.has(name.toLowerCase())) {
       const { data: newSchool, error: insertErr } = await supabase
@@ -311,21 +337,20 @@ async function addEducationToContact(supabase: any, contactId: number, education
           .select('id, name')
           .ilike('name', name)
           .maybeSingle();
-        if (retry) schoolMap.set(retry.name.toLowerCase(), retry);
+        if (retry) schoolMap.set((retry as { id: number; name: string }).name.toLowerCase(), retry as { id: number; name: string });
       } else if (newSchool) {
-        schoolMap.set(newSchool.name.toLowerCase(), newSchool);
+        schoolMap.set((newSchool as { id: number; name: string }).name.toLowerCase(), newSchool as { id: number; name: string });
       }
     }
   }
 
-  // Build insert list, skipping existing relationships unless we just deleted them
   let relSet = new Set<number>();
   if (!skipDedup) {
     const { data: existingRels } = await supabase
       .from('contact_schools')
       .select('school_id')
       .eq('contact_id', contactId);
-    relSet = new Set((existingRels || []).map((r: any) => r.school_id));
+    relSet = new Set(((existingRels as SchoolRelRow[] | null) || []).map(r => r.school_id));
   }
 
   const toInsert = [];
@@ -344,7 +369,7 @@ async function addEducationToContact(supabase: any, contactId: number, education
   }
 }
 
-async function findOrCreateLocation(supabase: any, location: { city: string | null; state: string | null; country: string }) {
+async function findOrCreateLocation(supabase: SupabaseClient, location: { city: string | null; state: string | null; country: string }) {
   function buildLookup() {
     let q = supabase.from('locations').select('id, city, state, country');
     q = location.city ? q.eq('city', location.city) : q.is('city', null);
@@ -353,9 +378,8 @@ async function findOrCreateLocation(supabase: any, location: { city: string | nu
   }
 
   const { data: existing } = await buildLookup().maybeSingle();
-  if (existing) return existing;
+  if (existing) return existing as { id: number };
 
-  // Create new; if concurrent insert, retry the lookup
   const { data, error } = await supabase
     .from('locations')
     .insert({
@@ -367,27 +391,25 @@ async function findOrCreateLocation(supabase: any, location: { city: string | nu
     .single();
   if (error) {
     const { data: retry } = await buildLookup().maybeSingle();
-    if (retry) return retry;
+    if (retry) return retry as { id: number };
     throw error;
   }
-  return data;
+  return data as { id: number };
 }
 
-async function addTagsToContact(supabase: any, contactId: number, tags: string[], userId: string) {
+async function addTagsToContact(supabase: SupabaseClient, contactId: number, tags: string[], userId: string) {
   const normalizedTags = [...new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))];
   if (normalizedTags.length === 0) return;
 
-  // Batch lookup: fetch user's existing tags in one query
   const { data: existingTags } = await supabase
     .from('tags')
     .select('id, name')
     .eq('user_id', userId);
   const tagMap = new Map<string, { id: number; name: string }>();
-  for (const t of existingTags || []) {
+  for (const t of (existingTags as { id: number; name: string }[] | null) || []) {
     tagMap.set(t.name.toLowerCase(), t);
   }
 
-  // Create missing tags
   for (const name of normalizedTags) {
     if (!tagMap.has(name)) {
       const { data: newTag } = await supabase
@@ -395,20 +417,18 @@ async function addTagsToContact(supabase: any, contactId: number, tags: string[]
         .insert({ name, user_id: userId })
         .select('id, name')
         .single();
-      if (newTag) tagMap.set(newTag.name.toLowerCase(), newTag);
+      if (newTag) tagMap.set((newTag as { id: number; name: string }).name.toLowerCase(), newTag as { id: number; name: string });
     }
   }
 
-  // Fetch existing contact-tag links in one query
   const tagIds = normalizedTags.map(n => tagMap.get(n)?.id).filter(Boolean) as number[];
   const { data: existingLinks } = await supabase
     .from('contact_tags')
     .select('tag_id')
     .eq('contact_id', contactId)
     .in('tag_id', tagIds);
-  const linkedSet = new Set((existingLinks || []).map((r: any) => r.tag_id));
+  const linkedSet = new Set(((existingLinks as TagLinkRow[] | null) || []).map(r => r.tag_id));
 
-  // Batch insert missing links
   const toInsert = tagIds
     .filter(id => !linkedSet.has(id))
     .map(tag_id => ({ contact_id: contactId, tag_id }));

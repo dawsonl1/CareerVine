@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
+import { useToast } from "@/components/ui/toast";
 import { FollowUpModal } from "@/components/follow-up-modal";
 import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
@@ -32,6 +33,7 @@ export function ContactEmailsTab({
   onReloadEmails,
 }: ContactEmailsTabProps) {
   const { openCompose } = useCompose();
+  const { error: toastError, success: toastSuccess } = useToast();
 
   const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
@@ -94,7 +96,7 @@ export function ContactEmailsTab({
         setExpandedEmailContent(data.message);
       }
     } catch (err) {
-      console.error("Error loading email content:", err);
+      toastError("Failed to load email content");
     } finally {
       setLoadingEmailContent(false);
     }
@@ -113,9 +115,12 @@ export function ContactEmailsTab({
   const cancelFollowUp = async (followUpId: number, threadId: string) => {
     try {
       const res = await fetch(`/api/gmail/follow-ups/${followUpId}`, { method: "DELETE" });
-      if (res.ok) loadFollowUpsForThread(threadId);
+      if (res.ok) {
+        loadFollowUpsForThread(threadId);
+        toastSuccess("Follow-up cancelled");
+      }
     } catch (err) {
-      console.error("Error cancelling follow-up:", err);
+      toastError("Failed to cancel follow-up");
     }
   };
 

@@ -22,6 +22,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +40,7 @@ const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", title:
 
 export default function MeetingsPage() {
   const { user } = useAuth();
+  const { success: toastSuccess, error: toastError } = useToast();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -202,7 +204,7 @@ export default function MeetingsPage() {
       const atts = await getAttachmentsForMeeting(meetingId);
       setMeetingAttachments(prev => ({ ...prev, [meetingId]: atts as typeof meetingAttachments[number] }));
     } catch (err) {
-      console.error("Error uploading attachment:", err);
+      toastError("Failed to upload attachment");
     } finally {
       setAttachmentUploading(null);
       e.target.value = "";
@@ -220,7 +222,7 @@ export default function MeetingsPage() {
       a.click();
       document.body.removeChild(a);
     } catch (err) {
-      console.error("Error downloading attachment:", err);
+      toastError("Failed to download attachment");
     }
   };
 
@@ -232,7 +234,7 @@ export default function MeetingsPage() {
         [meetingId]: (prev[meetingId] || []).filter(a => a.id !== attachmentId),
       }));
     } catch (err) {
-      console.error("Error deleting attachment:", err);
+      toastError("Failed to delete attachment");
     }
   };
 
@@ -273,7 +275,7 @@ export default function MeetingsPage() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || formData.notes || undefined, startTime, endTime }),
             });
-          } catch (err) { console.error("Failed to update calendar event:", err); }
+          } catch (err) { toastError("Failed to update calendar event"); }
         }
       } else {
         const created = await createMeeting({
@@ -308,7 +310,7 @@ export default function MeetingsPage() {
                 meetingId: created.id,
               }),
             });
-          } catch (err) { console.error("Failed to create calendar event:", err); }
+          } catch (err) { toastError("Failed to create calendar event"); }
         }
       }
       // Create any pending action items, linking to the meeting
@@ -329,7 +331,8 @@ export default function MeetingsPage() {
       }
       await loadMeetings();
       closeForm();
-    } catch (e) { console.error("Error saving meeting:", e); }
+      toastSuccess(editingMeeting ? "Meeting updated" : "Meeting created");
+    } catch (e) { toastError("Failed to save meeting"); }
   };
 
   const handleEdit = async (meeting: Meeting) => {
@@ -841,9 +844,14 @@ export default function MeetingsPage() {
         {meetings.length === 0 && allInteractions.length === 0 && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
-              <Calendar className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+              <Calendar className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
               <p className="text-base text-foreground mb-1">No activity yet</p>
-              <p className="text-sm text-muted-foreground mb-6">Log a meeting or interaction to start tracking.</p>
+              <p className="text-sm text-muted-foreground mb-2">
+                Record coffee chats, calls, and casual interactions to build a history with your contacts.
+              </p>
+              <p className="text-xs text-muted-foreground mb-6">
+                Meetings support notes, transcripts, and action items. Interactions are lighter — just a date and summary.
+              </p>
               <div className="flex justify-center gap-2">
                 <Button onClick={() => setShowForm(true)}>
                   <Plus className="h-[18px] w-[18px]" /> Add meeting
@@ -967,8 +975,9 @@ export default function MeetingsPage() {
                         try {
                           await deleteMeeting(meeting.id);
                           await loadMeetings();
+                          toastSuccess("Meeting deleted");
                         } catch (err) {
-                          console.error("Error deleting meeting:", err);
+                          toastError("Failed to delete meeting");
                         }
                       }}
                       className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
@@ -1209,8 +1218,9 @@ export default function MeetingsPage() {
                       });
                       await loadInteractions();
                       setShowInteractionModal(false);
+                      toastSuccess("Interaction logged");
                     } catch (err) {
-                      console.error("Error creating interaction:", err);
+                      toastError("Failed to save interaction");
                     } finally {
                       setInteractionSaving(false);
                     }

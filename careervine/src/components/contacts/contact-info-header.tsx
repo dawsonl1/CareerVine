@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,7 +20,7 @@ import type { Contact, TagRow } from "@/lib/types";
 import { useCompose } from "@/components/compose-email-context";
 import {
   Pencil, Trash2, ExternalLink, Plus, X, Check, Mail, Phone,
-  Tag, Briefcase, GraduationCap, MapPin, Send,
+  Tag, Briefcase, GraduationCap, MapPin, Send, ChevronDown,
 } from "lucide-react";
 
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
@@ -35,6 +36,7 @@ interface ContactInfoHeaderProps {
 
 export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactDelete }: ContactInfoHeaderProps) {
   const { gmailConnected, openCompose } = useCompose();
+  const { success: toastSuccess, error: toastError } = useToast();
   const [editing, setEditing] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -230,8 +232,9 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
 
       setEditing(false);
       onContactUpdate(contact);
+      toastSuccess("Contact saved");
     } catch (error) {
-      console.error("Error saving contact:", error);
+      toastError("Failed to save contact");
     }
   };
 
@@ -240,10 +243,13 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
     try {
       await deleteContact(contact.id);
       onContactDelete();
+      toastSuccess("Contact deleted");
     } catch (error) {
-      console.error("Error deleting contact:", error);
+      toastError("Failed to delete contact");
     }
   };
+
+  const [expanded, setExpanded] = useState(false);
 
   // ── View mode ──
   if (!editing) {
@@ -253,34 +259,28 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
     const primaryEmail = contact.contact_emails.find((e) => e.is_primary)?.email || contact.contact_emails[0]?.email;
 
     return (
-      <div className="space-y-4">
-        <div className="flex items-start gap-4">
-          <div className="w-16 h-16 rounded-full bg-primary-container flex items-center justify-center shrink-0 text-on-primary-container text-xl font-medium">
+      <div className="space-y-3">
+        {/* Compact header — always visible */}
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center shrink-0 text-on-primary-container text-lg font-medium">
             {contact.name.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-medium text-foreground">{contact.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-medium text-foreground">{contact.name}</h1>
               {contact.contact_status && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
                   {contact.contact_status}
                 </span>
               )}
             </div>
-            {(currentCompany || contact.industry) && (
-              <p className="text-sm text-muted-foreground mt-1">
-                {currentCompany ? `${currentCompany.title || ""}${currentCompany.title && currentCompany.companies.name ? " at " : ""}${currentCompany.companies.name}` : ""}
-                {currentCompany && contact.industry ? " · " : ""}
-                {contact.industry || ""}
-              </p>
-            )}
-            {locationParts.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                <MapPin className="h-3 w-3" /> {locationParts.join(", ")}
-              </p>
-            )}
+            <p className="text-sm text-muted-foreground truncate">
+              {currentCompany ? `${currentCompany.title || ""}${currentCompany.title && currentCompany.companies.name ? " at " : ""}${currentCompany.companies.name}` : ""}
+              {currentCompany && primaryEmail ? " · " : ""}
+              {primaryEmail || (!currentCompany ? (contact.industry || "") : "")}
+            </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {gmailConnected && primaryEmail && (
               <Button
                 type="button"
@@ -288,14 +288,16 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
                 size="sm"
                 onClick={() => openCompose({ to: primaryEmail, name: contact.name })}
               >
-                <Send className="h-4 w-4" /> Send email
+                <Send className="h-4 w-4" /> Email
               </Button>
             )}
-            {contact.linkedin_url && (
-              <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors">
-                <ExternalLink className="h-[18px] w-[18px]" />
-              </a>
-            )}
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+              title={expanded ? "Hide details" : "Show details"}
+            >
+              <ChevronDown className={`h-[18px] w-[18px] transition-transform ${expanded ? "rotate-180" : ""}`} />
+            </button>
             <button onClick={startEditing} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Edit">
               <Pencil className="h-[18px] w-[18px]" />
             </button>
@@ -305,65 +307,80 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
           </div>
         </div>
 
-        {/* Chips: emails, phones, tags */}
-        {(contact.contact_emails.length > 0 || contact.contact_phones.length > 0 || contact.contact_tags.length > 0) && (
-          <div className="flex flex-wrap gap-1.5">
-            {contact.contact_emails.map((email) => (
-              <span key={email.id} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[8px] bg-surface-container-low text-xs text-foreground group/email">
-                <Mail className="h-3 w-3 text-muted-foreground" />
-                {email.email}{email.is_primary && <span className="text-primary font-medium">·primary</span>}
-                {gmailConnected && email.email && contact.contact_emails.length > 1 && (
-                  <button
-                    type="button"
-                    className="ml-0.5 p-0.5 rounded text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-                    title={`Send to ${email.email}`}
-                    onClick={() => openCompose({ to: email.email!, name: contact.name })}
-                  >
-                    <Send className="h-3 w-3" />
-                  </button>
-                )}
-              </span>
-            ))}
-            {contact.contact_phones.map((phone) => (
-              <span key={phone.id} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[8px] bg-surface-container-low text-xs text-foreground">
-                <Phone className="h-3 w-3 text-muted-foreground" />
-                {phone.phone}<span className="text-muted-foreground capitalize">·{phone.type}</span>{phone.is_primary && <span className="text-primary font-medium">·primary</span>}
-              </span>
-            ))}
-            {contact.contact_tags.map((ct) => (
-              <span key={ct.tag_id} className="inline-flex items-center h-7 px-3 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium">
-                {ct.tags.name}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Expanded details — toggled */}
+        {expanded && (
+          <div className="space-y-3 pl-16 border-l-2 border-outline-variant ml-6">
+            {/* Chips: emails, phones, tags */}
+            {(contact.contact_emails.length > 0 || contact.contact_phones.length > 0 || contact.contact_tags.length > 0) && (
+              <div className="flex flex-wrap gap-1.5">
+                {contact.contact_emails.map((email) => (
+                  <span key={email.id} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[8px] bg-surface-container-low text-xs text-foreground group/email">
+                    <Mail className="h-3 w-3 text-muted-foreground" />
+                    {email.email}{email.is_primary && <span className="text-primary font-medium">·primary</span>}
+                    {gmailConnected && email.email && contact.contact_emails.length > 1 && (
+                      <button
+                        type="button"
+                        className="ml-0.5 p-0.5 rounded text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                        title={`Send to ${email.email}`}
+                        onClick={() => openCompose({ to: email.email!, name: contact.name })}
+                      >
+                        <Send className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
+                ))}
+                {contact.contact_phones.map((phone) => (
+                  <span key={phone.id} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[8px] bg-surface-container-low text-xs text-foreground">
+                    <Phone className="h-3 w-3 text-muted-foreground" />
+                    {phone.phone}<span className="text-muted-foreground capitalize">·{phone.type}</span>{phone.is_primary && <span className="text-primary font-medium">·primary</span>}
+                  </span>
+                ))}
+                {contact.contact_tags.map((ct) => (
+                  <span key={ct.tag_id} className="inline-flex items-center h-7 px-3 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium">
+                    {ct.tags.name}
+                  </span>
+                ))}
+              </div>
+            )}
 
-        {/* Companies & schools */}
-        {(contact.contact_companies.length > 0 || contact.contact_schools.length > 0) && (
-          <div className="space-y-1">
-            {contact.contact_companies.map((cc) => (
-              <p key={cc.id} className="text-xs text-muted-foreground">
-                <Briefcase className="h-3 w-3 inline mr-1" />
-                {cc.title} at {cc.companies.name}
-                {(cc as any).location && ` · ${(cc as any).location}`}
-                {(cc as any).start_month && ` · ${(cc as any).start_month} – ${cc.is_current ? "Present" : ((cc as any).end_month || "")}`}
-              </p>
-            ))}
-            {contact.contact_schools.map((cs) => (
-              <p key={cs.id} className="text-xs text-muted-foreground">
-                <GraduationCap className="h-3 w-3 inline mr-1" />
-                {cs.degree}{cs.field_of_study ? ` in ${cs.field_of_study}` : ""} · {cs.schools.name}
-              </p>
-            ))}
-          </div>
-        )}
+            {/* Companies & schools */}
+            {(contact.contact_companies.length > 0 || contact.contact_schools.length > 0) && (
+              <div className="space-y-1">
+                {contact.contact_companies.map((cc) => (
+                  <p key={cc.id} className="text-xs text-muted-foreground">
+                    <Briefcase className="h-3 w-3 inline mr-1" />
+                    {cc.title} at {cc.companies.name}
+                    {(cc as any).location && ` · ${(cc as any).location}`}
+                    {(cc as any).start_month && ` · ${(cc as any).start_month} – ${cc.is_current ? "Present" : ((cc as any).end_month || "")}`}
+                  </p>
+                ))}
+                {contact.contact_schools.map((cs) => (
+                  <p key={cs.id} className="text-xs text-muted-foreground">
+                    <GraduationCap className="h-3 w-3 inline mr-1" />
+                    {cs.degree}{cs.field_of_study ? ` in ${cs.field_of_study}` : ""} · {cs.schools.name}
+                  </p>
+                ))}
+              </div>
+            )}
 
-        {contact.met_through && <p className="text-xs text-muted-foreground">Met through: {contact.met_through}</p>}
-        {contact.notes && <p className="text-sm text-muted-foreground whitespace-pre-wrap">{contact.notes}</p>}
-        {contact.follow_up_frequency_days && (
-          <p className="text-xs text-muted-foreground">
-            Follow-up: every {contact.follow_up_frequency_days} days
-          </p>
+            {locationParts.length > 0 && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <MapPin className="h-3 w-3" /> {locationParts.join(", ")}
+              </p>
+            )}
+            {contact.met_through && <p className="text-xs text-muted-foreground">Met through: {contact.met_through}</p>}
+            {contact.notes && <p className="text-sm text-muted-foreground whitespace-pre-wrap">{contact.notes}</p>}
+            {contact.follow_up_frequency_days && (
+              <p className="text-xs text-muted-foreground">
+                Follow-up: every {contact.follow_up_frequency_days} days
+              </p>
+            )}
+            {contact.linkedin_url && (
+              <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                <ExternalLink className="h-3 w-3" /> LinkedIn
+              </a>
+            )}
+          </div>
         )}
       </div>
     );

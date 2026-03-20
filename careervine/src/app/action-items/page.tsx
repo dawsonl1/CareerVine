@@ -21,6 +21,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -38,9 +39,12 @@ type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] 
 };
 
 import { inputClasses } from "@/lib/form-styles";
+import { useQuickCapture } from "@/components/quick-capture-context";
 
 export default function ActionItemsPage() {
   const { user } = useAuth();
+  const { toast, success: toastSuccess, error: toastError } = useToast();
+  const { open: openQuickCapture } = useQuickCapture();
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [completedItems, setCompletedItems] = useState<ActionItem[]>([]);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -97,7 +101,8 @@ export default function ActionItemsPage() {
     try {
       await updateActionItem(id, { is_completed: false, completed_at: null });
       await loadActionItems();
-    } catch (err) { console.error("Error restoring action item:", err); }
+      toastSuccess("Action item restored");
+    } catch (err) { toastError("Failed to restore action item"); }
   };
 
   const removeItem = async (e: React.MouseEvent, id: number) => {
@@ -107,16 +112,31 @@ export default function ActionItemsPage() {
       await deleteActionItem(id);
       await loadActionItems();
       if (selectedItem?.id === id) setSelectedItem(null);
-    } catch (err) { console.error("Error deleting action item:", err); }
+      toastSuccess("Action item deleted");
+    } catch (err) { toastError("Failed to delete action item"); }
   };
 
   const markDone = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation();
     try {
+      const item = actionItems.find((a) => a.id === id);
+      const contactId = item?.contacts?.id || item?.action_item_contacts?.[0]?.contact_id;
+      const contactName = item?.contacts?.name || item?.action_item_contacts?.[0]?.contacts?.name;
+
       await updateActionItem(id, { is_completed: true, completed_at: new Date().toISOString() });
       await loadActionItems();
       if (selectedItem?.id === id) setSelectedItem(null);
-    } catch (err) { console.error("Error completing action item:", err); }
+
+      const actions: { label: string; onClick: () => void }[] = [];
+      if (contactId) {
+        actions.push({ label: "Log conversation", onClick: () => openQuickCapture(contactId) });
+      }
+      toast(`Completed${contactName ? ` · ${contactName}` : ""}`, {
+        variant: "success",
+        duration: 6000,
+        actions: actions.length > 0 ? actions : undefined,
+      });
+    } catch (err) { toastError("Failed to complete action item"); }
   };
 
   const openEdit = async (e: React.MouseEvent, item: ActionItem) => {
@@ -146,7 +166,8 @@ export default function ActionItemsPage() {
       await loadActionItems();
       setEditingItem(null);
       if (selectedItem?.id === editingItem.id) setSelectedItem(null);
-    } catch (err) { console.error("Error updating action item:", err); }
+      toastSuccess("Action item updated");
+    } catch (err) { toastError("Failed to update action item"); }
     finally { setEditSaving(false); }
   };
 
@@ -255,11 +276,17 @@ export default function ActionItemsPage() {
           {upcomingItems.length === 0 && overdueItems.length === 0 ? (
             <Card variant="outlined" className="text-center py-16">
               <CardContent>
-                <CheckSquare className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                <p className="text-base text-foreground mb-1">No action items</p>
-                <p className="text-sm text-muted-foreground">
-                  Action items will appear here when you create them from meetings or contacts.
+                <CheckSquare className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
+                <p className="text-base text-foreground mb-1">All clear</p>
+                <p className="text-sm text-muted-foreground mb-2">
+                  No pending action items. Create one to track a follow-up, introduction, or commitment.
                 </p>
+                <p className="text-xs text-muted-foreground mb-6">
+                  Action items can also be created from meetings — they&apos;ll automatically link back.
+                </p>
+                <Button onClick={() => setShowCreate(true)} variant="tonal">
+                  <Plus className="h-[18px] w-[18px]" /> Create action item
+                </Button>
               </CardContent>
             </Card>
           ) : upcomingItems.length === 0 ? (
@@ -493,7 +520,8 @@ export default function ActionItemsPage() {
                         setNewContactIds([]);
                         setNewMeetingId(null);
                         await loadActionItems();
-                      } catch (err) { console.error("Error creating action item:", err); }
+                        toastSuccess("Action item created");
+                      } catch (err) { toastError("Failed to create action item"); }
                       finally { setNewSaving(false); }
                     }}
                   >

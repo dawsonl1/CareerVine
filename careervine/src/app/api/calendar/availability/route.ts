@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { calendarAvailabilityQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { queryFreeBusy, DEFAULT_TIMEZONE, mergeBusyIntervals } from "@/lib/calendar";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
@@ -8,27 +8,10 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
  * GET /api/calendar/availability
  * Computes free time slots based on calendar events and user preferences.
  * Supports dual availability profiles (standard/priority).
- *
- * Query params:
- * - start: ISO date string (start of range)
- * - end: ISO date string (end of range)
- * - daysOfWeek: comma-separated day numbers (1=Mon, 7=Sun)
- * - windowStart: HH:MM format (e.g., "09:00")
- * - windowEnd: HH:MM format (e.g., "18:00")
- * - duration: slot duration in minutes
- * - bufferBefore: minutes before each event
- * - bufferAfter: minutes after each event
- * - profile: "standard" or "priority" (uses defaults if not specified)
  */
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+export const GET = withApiHandler({
+  querySchema: calendarAvailabilityQuerySchema,
+  handler: async ({ user, query }) => {
     const service = createSupabaseServiceClient();
     const conn = await service
       .from("gmail_connections")
@@ -37,35 +20,31 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (!conn.data || !conn.data.calendar_scopes_granted) {
-      return NextResponse.json({
+      return {
         notConnected: true,
         days: [],
-      });
+      };
     }
 
     if (!conn.data.calendar_last_synced_at) {
-      return NextResponse.json({
+      return {
         neverSynced: true,
         days: [],
-      });
+      };
     }
 
-    const { searchParams } = new URL(request.url);
-    const start = searchParams.get("start");
-    const end = searchParams.get("end");
-    const daysOfWeekStr = searchParams.get("daysOfWeek") || "1,2,3,4,5";
-    const windowStart = searchParams.get("windowStart") || "09:00";
-    const windowEnd = searchParams.get("windowEnd") || "18:00";
-    const duration = parseInt(searchParams.get("duration") || "30");
-    const bufferBefore = parseInt(searchParams.get("bufferBefore") || "10");
-    const bufferAfter = parseInt(searchParams.get("bufferAfter") || "10");
-    const profile = searchParams.get("profile") || "standard";
+    const {
+      start,
+      end,
+      daysOfWeek: daysOfWeekStr = "1,2,3,4,5",
+      windowStart = "09:00",
+      windowEnd = "18:00",
+      duration = 30,
+      bufferBefore = 10,
+      bufferAfter = 10,
+    } = query;
 
-    if (!start || !end) {
-      return NextResponse.json({ error: "Missing start or end date" }, { status: 400 });
-    }
-
-    const daysOfWeek = daysOfWeekStr.split(",").map(d => parseInt(d));
+    const daysOfWeek = daysOfWeekStr.split(",").map((d: string) => parseInt(d));
     const userTimezone = conn.data.calendar_timezone || DEFAULT_TIMEZONE;
     const busyCalendarIds = conn.data.busy_calendar_ids || ["primary"];
 
@@ -78,7 +57,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Expand busy intervals with buffer
-    const expandedBusy = busyIntervals.map(interval => ({
+    const expandedBusy = busyIntervals.map((interval: { start: string; end: string }) => ({
       start: new Date(new Date(interval.start).getTime() - bufferBefore * 60000).toISOString(),
       end: new Date(new Date(interval.end).getTime() + bufferAfter * 60000).toISOString(),
     }));
@@ -120,15 +99,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ days: result });
-  } catch (error) {
-    console.error("Availability error:", error);
-    return NextResponse.json(
-      { error: "Failed to compute availability" },
-      { status: 500 }
-    );
-  }
-}
+    return { days: result };
+  },
+});
 
 function computeFreeSlots(
   dayStart: Date,

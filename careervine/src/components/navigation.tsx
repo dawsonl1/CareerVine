@@ -14,7 +14,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import SignOutButton from "@/components/sign-out-button";
-import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox } from "lucide-react";
+import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox, MessageSquare } from "lucide-react";
 
 export default function Navigation() {
   const { user } = useAuth();
@@ -24,11 +24,9 @@ export default function Navigation() {
   if (!user) return null;
 
   const navItems = [
-    { href: "/", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/", label: "Home", icon: LayoutDashboard },
+    { href: "/meetings", label: "Activity", icon: MessageSquare },
     { href: "/contacts", label: "Contacts", icon: Users },
-    ...(gmailConnected ? [{ href: "/inbox", label: "Inbox", icon: Inbox }] : []),
-    { href: "/meetings", label: "Activity", icon: Calendar },
-    { href: "/calendar", label: "Calendar", icon: Calendar },
     { href: "/action-items", label: "Actions", icon: CheckSquare },
   ];
 
@@ -50,25 +48,17 @@ export default function Navigation() {
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-              const badge = item.href === "/inbox" && unreadCount > 0 ? unreadCount : 0;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`state-layer relative flex items-center gap-2 px-4 h-10 rounded-full text-sm font-medium transition-colors ${
+                  className={`state-layer flex items-center gap-2 px-4 h-10 rounded-full text-sm font-medium transition-colors ${
                     active
                       ? "bg-secondary-container text-on-secondary-container"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <span className="relative">
-                    <Icon className="h-[18px] w-[18px]" />
-                    {badge > 0 && (
-                      <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
-                        {badge > 99 ? "99+" : badge}
-                      </span>
-                    )}
-                  </span>
+                  <Icon className="h-[18px] w-[18px]" />
                   {item.label}
                 </Link>
               );
@@ -76,8 +66,39 @@ export default function Navigation() {
           </div>
 
           {/* User area */}
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex flex-col items-end">
+          <div className="flex items-center gap-2">
+            {/* Inbox icon (shown when Gmail connected) */}
+            {gmailConnected && (
+              <Link
+                href="/inbox"
+                className={`state-layer relative w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                  pathname.startsWith("/inbox")
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Inbox"
+              >
+                <Inbox className="h-[18px] w-[18px]" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </Link>
+            )}
+            {/* Calendar icon */}
+            <Link
+              href="/calendar"
+              className={`state-layer w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                pathname.startsWith("/calendar")
+                  ? "bg-secondary-container text-on-secondary-container"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title="Calendar"
+            >
+              <Calendar className="h-[18px] w-[18px]" />
+            </Link>
+            <div className="hidden sm:flex flex-col items-end ml-1">
               <span className="text-sm font-medium text-foreground leading-tight">
                 {user.user_metadata?.first_name || "User"}
               </span>
@@ -93,11 +114,10 @@ export default function Navigation() {
         </div>
 
         {/* Mobile bottom-style tabs (rendered below top bar on small screens) */}
-        <div className="flex md:hidden -mx-4 overflow-x-auto border-t border-outline-variant">
+        <div className="flex md:hidden -mx-4 border-t border-outline-variant">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-            const badge = item.href === "/inbox" && unreadCount > 0 ? unreadCount : 0;
             return (
               <Link
                 key={item.href}
@@ -108,13 +128,8 @@ export default function Navigation() {
                     : "text-muted-foreground"
                 }`}
               >
-                <div className={`relative px-5 py-1 rounded-full transition-colors ${active ? "bg-secondary-container" : ""}`}>
+                <div className={`px-5 py-1 rounded-full transition-colors ${active ? "bg-secondary-container" : ""}`}>
                   <Icon className="h-5 w-5" />
-                  {badge > 0 && (
-                    <span className="absolute -top-1 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
-                      {badge > 99 ? "99+" : badge}
-                    </span>
-                  )}
                 </div>
                 {item.label}
               </Link>
