@@ -102,6 +102,7 @@ export default function MeetingsPage() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [meetingSegments, setMeetingSegments] = useState<Record<number, TranscriptSegment[]>>({});
   const [showSpeakerResolver, setShowSpeakerResolver] = useState<number | null>(null);
+  const [pendingAudioAttachment, setPendingAudioAttachment] = useState<{ id: number; object_path: string } | null>(null);
 
   const checkCalendarConnection = useCallback(async () => {
     try {
@@ -388,6 +389,17 @@ export default function MeetingsPage() {
         }
       }
 
+      // Link audio attachment to the meeting if one was uploaded
+      if (pendingAudioAttachment) {
+        try {
+          await addAttachmentToMeeting(meetingId, pendingAudioAttachment.id);
+          await updateMeeting(meetingId, { transcript_attachment_id: pendingAudioAttachment.id });
+        } catch (e) {
+          console.warn("Failed to link audio attachment:", e);
+        }
+        setPendingAudioAttachment(null); // Prevent cleanup in closeForm
+      }
+
       await loadMeetings();
       closeForm();
       toastSuccess(editingMeeting ? "Meeting updated" : "Meeting created");
@@ -414,6 +426,7 @@ export default function MeetingsPage() {
     setPendingSegments([]);
     setPendingTranscriptSource(null);
     setIsTranscribing(false);
+    setPendingAudioAttachment(null);
     // Calculate actual duration from the meeting's calendar event if available
     if ((meeting as any).calendar_event_id) {
       try {
@@ -457,6 +470,11 @@ export default function MeetingsPage() {
     setPendingSegments([]);
     setPendingTranscriptSource(null);
     setIsTranscribing(false);
+    // Clean up orphaned audio attachment if form is closed without saving
+    if (pendingAudioAttachment) {
+      deleteAttachment(pendingAudioAttachment.id, pendingAudioAttachment.object_path).catch(() => {});
+      setPendingAudioAttachment(null);
+    }
   };
 
   const addPendingAction = () => {
@@ -681,9 +699,11 @@ export default function MeetingsPage() {
                           onAudioFile={async (file) => {
                             if (!user) return;
                             setIsTranscribing(true);
+                            let attachment: { id: number; object_path: string } | null = null;
                             try {
                               // Upload audio to storage first
-                              const attachment = await uploadAttachment(user.id, file);
+                              attachment = await uploadAttachment(user.id, file);
+                              setPendingAudioAttachment(attachment);
                               // Call transcription API
                               const res = await fetch("/api/transcripts/transcribe", {
                                 method: "POST",
@@ -702,9 +722,19 @@ export default function MeetingsPage() {
                               } else {
                                 const err = await res.json().catch(() => ({}));
                                 toastError(err.error || "Transcription failed");
+                                // Clean up orphaned file on transcription failure
+                                if (attachment) {
+                                  try { await deleteAttachment(attachment.id, attachment.object_path); } catch {}
+                                  setPendingAudioAttachment(null);
+                                }
                               }
                             } catch (e) {
                               toastError("Transcription failed");
+                              // Clean up orphaned file on error
+                              if (attachment) {
+                                try { await deleteAttachment(attachment.id, attachment.object_path); } catch {}
+                                setPendingAudioAttachment(null);
+                              }
                             } finally {
                               setIsTranscribing(false);
                             }

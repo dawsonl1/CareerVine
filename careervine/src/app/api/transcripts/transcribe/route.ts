@@ -89,26 +89,28 @@ export const POST = withApiHandler({
 
     // Only persist to DB when editing an existing meeting
     if (meetingId && segments.length > 0) {
-      await serviceClient
-        .from("transcript_segments")
-        .delete()
-        .eq("meeting_id", meetingId);
-
-      const { error: insertError } = await serviceClient
-        .from("transcript_segments")
-        .insert(segments.map((s: any) => ({
-          meeting_id: meetingId,
+      // Atomic replace via Postgres function (transaction-safe)
+      const { error: rpcError } = await serviceClient.rpc("replace_transcript_segments", {
+        p_meeting_id: meetingId,
+        p_segments: segments.map((s: any) => ({
           ordinal: s.ordinal,
           speaker_label: s.speaker_label,
-          contact_id: null,
           started_at: s.started_at,
           ended_at: s.ended_at,
           content: s.content,
-        })));
-      if (insertError) {
-        console.error("[transcribe] Segment insert error:", insertError);
+        })),
+      });
+      if (rpcError) {
+        console.error("[transcribe] Segment replace error:", rpcError);
         throw new ApiError("Failed to save transcript segments", 500);
       }
+
+      // Look up attachment ID from the storage path
+      const { data: attachment } = await serviceClient
+        .from("attachments")
+        .select("id")
+        .eq("object_path", attachmentObjectPath)
+        .single();
 
       const { error: updateError } = await serviceClient
         .from("meetings")
@@ -116,6 +118,7 @@ export const POST = withApiHandler({
           transcript: rawText,
           transcript_source: "audio_deepgram",
           transcript_parsed: true,
+          transcript_attachment_id: attachment?.id ?? null,
         })
         .eq("id", meetingId);
       if (updateError) {

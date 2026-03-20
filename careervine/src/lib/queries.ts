@@ -1328,20 +1328,20 @@ export async function deleteAttachment(attachmentId: number, objectPath: string)
 // ═══════════════════════════════════════════════════════════
 
 /**
- * Bulk-insert parsed transcript segments for a meeting.
- * Deletes any existing segments first (idempotent re-parse).
+ * Atomically replace transcript segments for a meeting.
+ * Uses a Postgres function to delete+insert in a single transaction,
+ * preventing data loss if the insert fails.
  */
 export async function createTranscriptSegments(
   meetingId: number,
   segments: { speaker_label: string; contact_id?: number | null; started_at?: number | null; ended_at?: number | null; content: string }[],
 ) {
-  // Clear existing segments
-  await supabase.from("transcript_segments").delete().eq("meeting_id", meetingId);
-
-  if (segments.length === 0) return [];
+  if (segments.length === 0) {
+    await supabase.from("transcript_segments").delete().eq("meeting_id", meetingId);
+    return [];
+  }
 
   const rows = segments.map((s, i) => ({
-    meeting_id: meetingId,
     ordinal: i,
     speaker_label: s.speaker_label,
     contact_id: s.contact_id ?? null,
@@ -1350,12 +1350,14 @@ export async function createTranscriptSegments(
     content: s.content,
   }));
 
-  const { data, error } = await supabase
-    .from("transcript_segments")
-    .insert(rows)
-    .select();
+  const { error } = await supabase.rpc("replace_transcript_segments", {
+    p_meeting_id: meetingId,
+    p_segments: rows,
+  });
   if (error) throw error;
-  return data;
+
+  // Return the newly inserted segments
+  return getTranscriptSegments(meetingId);
 }
 
 /**
