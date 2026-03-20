@@ -22,31 +22,44 @@ export const POST = withApiHandler({
 
     const duplicates = await findPotentialDuplicates(supabase, user.id, { linkedinUrl, name, email });
 
-    // Lazy re-derivation: check each match for stale contact_status
-    for (const match of duplicates.matches) {
-      if (shouldRederiveStatus(match.status_derived_at)) {
-        const { data: education } = await supabase
-          .from('contact_schools')
-          .select('end_year')
-          .eq('contact_id', match.id);
+    // Lazy re-derivation: batch-check stale matches and update in bulk
+    const staleIds = duplicates.matches
+      .filter(m => shouldRederiveStatus(m.status_derived_at))
+      .map(m => m.id);
 
-        if (education && education.length > 0) {
-          const derived = deriveContactStatusFromDB(education);
+    if (staleIds.length > 0) {
+      const { data: allEducation } = await supabase
+        .from('contact_schools')
+        .select('contact_id, end_year')
+        .in('contact_id', staleIds);
+
+      const eduByContact = new Map<number, { end_year: number | null }[]>();
+      for (const row of allEducation ?? []) {
+        const list = eduByContact.get(row.contact_id) ?? [];
+        list.push({ end_year: row.end_year });
+        eduByContact.set(row.contact_id, list);
+      }
+
+      const now = new Date().toISOString();
+      for (const id of staleIds) {
+        const edu = eduByContact.get(id);
+        if (edu && edu.length > 0) {
+          const derived = deriveContactStatusFromDB(edu);
           await supabase
             .from('contacts')
             .update({
               contact_status: derived.contact_status,
               expected_graduation: derived.expected_graduation,
-              status_derived_at: new Date().toISOString(),
+              status_derived_at: now,
             })
-            .eq('id', match.id);
-          match.contact_status = derived.contact_status;
+            .eq('id', id);
+          const match = duplicates.matches.find(m => m.id === id);
+          if (match) match.contact_status = derived.contact_status;
         } else {
-          // No education data — just update the timestamp to avoid rechecking
           await supabase
             .from('contacts')
-            .update({ status_derived_at: new Date().toISOString() })
-            .eq('id', match.id);
+            .update({ status_derived_at: now })
+            .eq('id', id);
         }
       }
     }
