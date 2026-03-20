@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /reset-password
+Disallow: /settings
+Disallow: /contacts
+Disallow: /meetings
+Disallow: /inbox
+Disallow: /calendar
+Disallow: /action-items
+Disallow: /interactions
+
+Sitemap: https://careervine.app/sitemap.xml

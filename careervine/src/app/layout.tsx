@@ -38,13 +38,34 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// Metadata for SEO and browser display
+// Metadata for SEO, social sharing, and AI crawlers
 export const metadata: Metadata = {
-  title: "CareerVine",
-  description: "Grow your professional network, one connection at a time",
+  title: "CareerVine — Personal CRM for Professional Networking",
+  description:
+    "Track conversations, follow up on promises, and keep your professional relationships warm. A personal CRM that helps you remember every coffee chat, action item, and intro you said you'd make.",
   icons: {
     icon: "/icon.png",
     apple: "/apple-icon.png",
+  },
+  metadataBase: new URL("https://careervine.app"),
+  openGraph: {
+    title: "CareerVine — Personal CRM for Professional Networking",
+    description:
+      "Track conversations, follow up on promises, and keep your professional relationships warm.",
+    url: "https://careervine.app",
+    siteName: "CareerVine",
+    type: "website",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary",
+    title: "CareerVine — Personal CRM for Professional Networking",
+    description:
+      "Track conversations, follow up on promises, and keep your professional relationships warm.",
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
 };
 
