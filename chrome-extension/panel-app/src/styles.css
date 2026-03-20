@@ -719,6 +719,11 @@
   font-size: 14px;
   color: #000;
   transition: background 0.15s, box-shadow 0.15s !important;
+  width: 100% !important;
+  flex: 1;
+  min-width: 0;
+  font-family: inherit !important;
+  line-height: 1.5 !important;
 }
 
 .cv-inline-notes:hover {
