@@ -500,15 +500,35 @@ const InlineInput: React.FC<{
   onChange: (value: string) => void;
   placeholder: string;
   className?: string;
-}> = ({ value, onChange, placeholder, className = "" }) => (
-  <input
-    type="text"
-    className={`cv-inline-input ${className}`}
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    placeholder={placeholder}
-  />
-);
+  autoSize?: boolean;
+}> = ({ value, onChange, placeholder, className = "", autoSize = false }) => {
+  if (autoSize) {
+    // Render a hidden sizer span + input that matches its width
+    return (
+      <span className="cv-auto-size-wrapper">
+        <span className={`cv-auto-size-sizer cv-inline-input ${className}`}>
+          {value || placeholder}
+        </span>
+        <input
+          type="text"
+          className={`cv-inline-input ${className}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      </span>
+    );
+  }
+  return (
+    <input
+      type="text"
+      className={`cv-inline-input ${className}`}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+    />
+  );
+};
 
 // Contact status toggle — reused in view mode and edit mode
 const StatusToggle: React.FC<{
@@ -621,15 +641,20 @@ const MonthYearPicker: React.FC<{
 
   return (
     <div ref={wrapperRef} className="cv-date-picker-wrapper">
-      <input
-        type="text"
-        className={`cv-inline-input ${className}`}
-        value={inputVal}
-        onChange={handleInputChange}
-        onFocus={() => setIsOpen(true)}
-        onBlur={handleBlur}
-        placeholder={placeholder}
-      />
+      <span className="cv-auto-size-wrapper">
+        <span className={`cv-auto-size-sizer cv-inline-input ${className}`}>
+          {inputVal || placeholder}
+        </span>
+        <input
+          type="text"
+          className={`cv-inline-input ${className}`}
+          value={inputVal}
+          onChange={handleInputChange}
+          onFocus={() => setIsOpen(true)}
+          onBlur={handleBlur}
+          placeholder={placeholder}
+        />
+      </span>
       {isOpen && suggestions.length > 0 && (
         <div className="cv-date-suggestions">
           {suggestions.map(s => (

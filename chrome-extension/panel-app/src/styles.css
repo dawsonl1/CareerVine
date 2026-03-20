@@ -1013,7 +1013,25 @@
   color: #7e7a7a;
   line-height: 14px;
   letter-spacing: 0.4px;
-  width: 90px;
+}
+
+/* Auto-size input: input overlays a hidden sizer span */
+.cv-auto-size-wrapper {
+  display: inline-grid;
+  align-items: center;
+  min-width: 30px;
+}
+
+.cv-auto-size-wrapper > * {
+  grid-area: 1 / 1 / 2 / 2;
+}
+
+.cv-auto-size-sizer {
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+  height: 0;
+  overflow: hidden;
 }
 
 .cv-inline-date-sep {
