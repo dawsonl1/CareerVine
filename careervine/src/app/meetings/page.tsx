@@ -26,7 +26,7 @@ import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { getMeetings, createMeeting, updateMeeting, deleteMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting, createActionItem, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, createInteraction, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment, createTranscriptSegments, getTranscriptSegments, updateSpeakerContact } from "@/lib/queries";
+import { getMeetings, createMeeting, updateMeeting, deleteMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting, createActionItem, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, createInteraction, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment, createTranscriptSegments, getTranscriptSegments, updateSpeakerContact, deleteTranscriptSegments } from "@/lib/queries";
 import type { Meeting, SimpleContact, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact, TranscriptSegment } from "@/lib/types";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Plus, Calendar, X, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, Video } from "lucide-react";
@@ -350,18 +350,41 @@ export default function MeetingsPage() {
           }, action.contactIds);
         }
       }
+      // If transcript text exists but debounce hasn't fired yet, parse synchronously now
+      let segmentsToSave = pendingSegments;
+      let sourceToSave = pendingTranscriptSource;
+      if (segmentsToSave.length === 0 && formData.transcript.length > 50) {
+        const { parseTranscript } = await import("@/lib/transcript-parser");
+        const result = parseTranscript(formData.transcript);
+        if (result.segments.length > 0 && result.confidence >= 0.3) {
+          segmentsToSave = result.segments;
+          sourceToSave = "paste";
+        }
+      }
+
       // Save parsed transcript segments if any
       // Skip for audio when editing — server already saved them
-      const serverAlreadySaved = pendingTranscriptSource === "audio_deepgram" && editingMeeting;
-      if (pendingSegments.length > 0 && !serverAlreadySaved) {
+      const serverAlreadySaved = sourceToSave === "audio_deepgram" && editingMeeting;
+      if (segmentsToSave.length > 0 && !serverAlreadySaved) {
         try {
-          await createTranscriptSegments(meetingId, pendingSegments);
+          await createTranscriptSegments(meetingId, segmentsToSave);
           await updateMeeting(meetingId, {
-            transcript_source: pendingTranscriptSource || "paste",
+            transcript_source: sourceToSave || "paste",
             transcript_parsed: true,
           });
         } catch (e) {
           console.warn("Failed to save transcript segments:", e);
+        }
+      } else if (editingMeeting && editingMeeting.transcript_parsed && segmentsToSave.length === 0) {
+        // Transcript text was changed/cleared but no new segments parsed — clear stale segments
+        const transcriptChanged = (formData.transcript || null) !== (editingMeeting.transcript || null);
+        if (transcriptChanged) {
+          try {
+            await deleteTranscriptSegments(meetingId);
+            await updateMeeting(meetingId, { transcript_parsed: false, transcript_source: null });
+          } catch (e) {
+            console.warn("Failed to clear stale transcript segments:", e);
+          }
         }
       }
 
@@ -388,6 +411,9 @@ export default function MeetingsPage() {
     });
     setSelectedContactIds(meeting.meeting_contacts.map((mc) => mc.contact_id));
     setContactSearch("");
+    setPendingSegments([]);
+    setPendingTranscriptSource(null);
+    setIsTranscribing(false);
     // Calculate actual duration from the meeting's calendar event if available
     if ((meeting as any).calendar_event_id) {
       try {

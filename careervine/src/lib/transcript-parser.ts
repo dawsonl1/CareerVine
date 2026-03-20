@@ -37,6 +37,16 @@ function parseTimestamp(ts: string): number | null {
   return null;
 }
 
+/** Parse VTT/SRT timestamp: MM:SS.mmm or HH:MM:SS.mmm to seconds */
+function parseVttTimestamp(ts: string): number | null {
+  // Split off milliseconds first (period or comma separator)
+  const [timePart, msPart] = ts.trim().split(/[.,]/);
+  const ms = msPart ? Number(msPart) / 1000 : 0;
+  const secs = parseTimestamp(timePart);
+  if (secs == null) return null;
+  return secs + ms;
+}
+
 // ── Format detectors & parsers ─────────────────────────────────────────
 
 /**
@@ -224,8 +234,8 @@ function tryVtt(text: string): ParseResult | null {
     const tm = timeLine?.match(cuePattern);
     if (tm) {
       matched++;
-      const startSec = parseTimestamp(tm[1].replace(".", ":"));
-      const endSec = parseTimestamp(tm[2].replace(".", ":"));
+      const startSec = parseVttTimestamp(tm[1]);
+      const endSec = parseVttTimestamp(tm[2]);
       // Collect content lines until blank
       const contentLines: string[] = [];
       i++;

@@ -168,7 +168,11 @@ export type Database = {
           transcript_parsed: boolean;     // Whether transcript has been parsed into segments
           transcript_attachment_id: number | null; // Reference to uploaded file
         };
-        Insert: Omit<Database["public"]["Tables"]["meetings"]["Row"], "id">;
+        Insert: Omit<Database["public"]["Tables"]["meetings"]["Row"], "id" | "transcript_parsed" | "transcript_source" | "transcript_attachment_id"> & {
+          transcript_parsed?: boolean;
+          transcript_source?: string | null;
+          transcript_attachment_id?: number | null;
+        };
         Update: Partial<Database["public"]["Tables"]["meetings"]["Insert"]>;
       };
 

@@ -21,6 +21,11 @@ export const POST = withApiHandler({
   handler: async ({ user, body }) => {
     const { meetingId, attachmentObjectPath } = body;
 
+    // Validate the user owns this storage path (paths are {userId}/{uuid}_{filename})
+    if (!attachmentObjectPath.startsWith(`${user.id}/`) || attachmentObjectPath.includes("..")) {
+      throw new ApiError("Invalid attachment path", 403);
+    }
+
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!apiKey) throw new ApiError("Deepgram API key not configured", 500);
 
@@ -105,7 +110,7 @@ export const POST = withApiHandler({
         throw new ApiError("Failed to save transcript segments", 500);
       }
 
-      await serviceClient
+      const { error: updateError } = await serviceClient
         .from("meetings")
         .update({
           transcript: rawText,
@@ -113,6 +118,9 @@ export const POST = withApiHandler({
           transcript_parsed: true,
         })
         .eq("id", meetingId);
+      if (updateError) {
+        console.error("[transcribe] Meeting update error:", updateError);
+      }
     }
 
     return { segments, rawText };

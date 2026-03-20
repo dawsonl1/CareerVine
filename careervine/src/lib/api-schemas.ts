@@ -213,15 +213,7 @@ export const transcriptTranscribeSchema = z.object({
 });
 
 export const transcriptParseSchema = z.object({
-  rawText: z.string().min(1, "rawText is required"),
-});
-
-export const transcriptSpeakerResolveSchema = z.object({
-  meetingId: z.number().int(),
-  mappings: z.array(z.object({
-    speakerLabel: z.string(),
-    contactId: z.number().int().nullable(),
-  })),
+  rawText: z.string().min(1, "rawText is required").max(200000, "Text too large (200KB max)"),
 });
 
 // ── Extension ──────────────────────────────────────────────────────────

@@ -133,7 +133,11 @@ describe("parseTranscript", () => {
     expect(result.segments).toHaveLength(2);
     expect(result.segments[0].speaker_label).toBe("Alice");
     expect(result.segments[0].content).toBe("Hello, how are you?");
+    expect(result.segments[0].started_at).toBe(1); // 00:01.000 = 1 second
+    expect(result.segments[0].ended_at).toBe(5);   // 00:05.000 = 5 seconds
     expect(result.segments[1].speaker_label).toBe("Bob");
+    expect(result.segments[1].started_at).toBe(5);
+    expect(result.segments[1].ended_at).toBe(10);
   });
 
   it("parses VTT without speaker tags as Unknown", () => {

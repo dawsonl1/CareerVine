@@ -116,9 +116,16 @@ export default function TranscriptUploader({
   };
 
   // ── Audio file upload ────────────────────────────────────
+  const MAX_AUDIO_SIZE = 500 * 1024 * 1024; // 500 MB
+
   const handleAudioFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > MAX_AUDIO_SIZE) {
+      setParseStatus(`File too large (${(file.size / 1024 / 1024).toFixed(0)} MB). Maximum is 500 MB.`);
+      e.target.value = "";
+      return;
+    }
     setParseStatus(`Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
     onAudioFile?.(file);
     e.target.value = "";
