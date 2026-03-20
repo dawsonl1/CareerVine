@@ -61,6 +61,8 @@ if grep -q 'localhost\|127\.0\.0\.1' manifest.json; then
 fi
 
 # ── 4. Build the panel React app ────────────────────────────
+echo "    Installing panel-app dependencies..."
+(cd panel-app && npm ci --silent)
 echo "    Building panel-app..."
 (cd panel-app && npm run build)
 
