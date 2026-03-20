@@ -3,10 +3,10 @@ export default function PrivacyPolicyPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <div className="mb-10">
-          <h1 className="text-3xl font-medium text-foreground mb-2">Privacy Policy</h1>
-          <p className="text-sm text-muted-foreground">Last updated: {lastUpdated}</p>
+          <h1 className="text-[28px] leading-9 font-normal text-foreground">Privacy Policy</h1>
+          <p className="text-sm text-muted-foreground mt-1">Last updated: {lastUpdated}</p>
         </div>
 
         <div className="prose prose-sm max-w-none space-y-8 text-foreground">
