@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function findPotentialDuplicates(supabase: any, userId: string, searchData: { linkedinUrl?: string, name?: string, email?: string }) {
-  const matches = [];
+  const matches: any[] = [];
 
   // Check for exact LinkedIn URL match
   if (searchData.linkedinUrl) {
@@ -45,7 +45,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       .eq('linkedin_url', searchData.linkedinUrl);
 
     if (data && data.length > 0) {
-      matches.push(...data.map(contact => ({
+      matches.push(...data.map((contact: any) => ({
         ...contact,
         matchType: 'exact_linkedin',
         confidence: 100
@@ -65,7 +65,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       .eq('contacts.user_id', userId);
 
     if (data && data.length > 0) {
-      matches.push(...data.map(item => ({
+      matches.push(...data.map((item: any) => ({
         ...item.contacts,
         matchType: 'exact_email',
         confidence: 95
@@ -78,7 +78,6 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
     const names = searchData.name.split(' ').filter(n => n.length > 1);
 
     if (names.length >= 2) {
-      // Sanitize for PostgREST filter syntax
       const first = sanitizeForPostgrest(names[0]);
       const last = sanitizeForPostgrest(names[names.length - 1]);
       const { data } = await supabase
@@ -88,9 +87,9 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
         .or(`name.ilike.%${first}%,name.ilike.%${last}%`);
 
       if (data && data.length > 0 && searchData.name) {
-        data.filter(contact => contact.name).forEach(contact => {
+        data.filter((contact: any) => contact.name).forEach((contact: any) => {
           const confidence = calculateNameMatchConfidence(searchData.name!, contact.name as string);
-          
+
           if (confidence > 50) {
             matches.push({
               ...contact,

@@ -13,7 +13,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
@@ -25,7 +25,15 @@ import type { GmailConnection, EmailTemplate } from "@/lib/types";
 import { User, Phone, Mail, Check, Lock, RefreshCw, Unplug, MailCheck, Sparkles, Plus, Pencil, Trash2, X, Calendar, ChevronDown } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
-export default function SettingsPage() {
+export default function SettingsPageWrapper() {
+  return (
+    <Suspense>
+      <SettingsPage />
+    </Suspense>
+  );
+}
+
+function SettingsPage() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);

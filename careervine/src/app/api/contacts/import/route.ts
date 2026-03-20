@@ -63,7 +63,7 @@ async function findDuplicateContacts(supabase: any, userId: string, profileData:
   }
 
   // Check for name matches
-  let potentialMatches = [];
+  let potentialMatches: any[] = [];
   if (profileData.name && !exactMatch) {
     const names = profileData.name.split(' ');
     if (names.length >= 2) {
