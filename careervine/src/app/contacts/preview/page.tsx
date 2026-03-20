@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import AuthForm from "@/components/auth-form";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { decodeProfileData } from "@/lib/profile-encoding";
 import { deriveCurrentRole } from "@/lib/profile-helpers";
 
@@ -52,6 +53,8 @@ export default function ContactPreviewPage() {
   const [saved, setSaved] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const routerRef = useRef(router);
+  routerRef.current = router;
 
   // Read profile data from URL hash once authenticated
   useEffect(() => {
@@ -59,38 +62,41 @@ export default function ContactPreviewPage() {
 
     const hash = window.location.hash;
     if (!hash || !hash.includes("data=")) {
-      router.push("/contacts");
+      routerRef.current.push("/contacts");
       return;
     }
 
+    let data: ProfileData;
     try {
       const encoded = hash.split("data=")[1];
-      const data = decodeProfileData(encoded) as ProfileData;
+      data = decodeProfileData(encoded) as ProfileData;
       setProfileData(data);
-
-      checkExisting(data);
     } catch {
-      router.push("/contacts");
+      routerRef.current.push("/contacts");
+      return;
     }
-  }, [router, user]);
 
-  const checkExisting = async (data: ProfileData) => {
     if (!data.linkedin_url) return;
-    try {
-      const res = await fetch("/api/contacts/check-duplicate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ linkedinUrl: data.linkedin_url }),
+
+    const controller = new AbortController();
+    fetch("/api/contacts/check-duplicate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ linkedinUrl: data.linkedin_url }),
+      signal: controller.signal,
+    })
+      .then((res) => res.json())
+      .then((result) => {
+        if (result.duplicates?.length > 0) {
+          routerRef.current.replace(`/contacts/${result.duplicates[0].id}`);
+        }
+      })
+      .catch(() => {
+        // Ignore — aborted or network error, just show preview
       });
-      const result = await res.json();
-      if (result.duplicates?.length > 0) {
-        // Contact already exists — redirect to their page
-        router.replace(`/contacts/${result.duplicates[0].id}`);
-      }
-    } catch {
-      // Ignore — just show preview
-    }
-  };
+
+    return () => controller.abort();
+  }, [user]);
 
   const handleSave = async () => {
     if (!profileData || saving) return;
@@ -114,8 +120,8 @@ export default function ContactPreviewPage() {
       } else {
         throw new Error(result.error || "Failed to save contact");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to save contact");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save contact");
     } finally {
       setSaving(false);
     }
@@ -155,12 +161,6 @@ export default function ContactPreviewPage() {
         .filter(Boolean).join(", ")
     : "";
 
-  const isRealName = fullName !== "Unknown Contact";
-  const initials = isRealName
-    ? ((profileData.first_name?.[0] || fullName[0] || "") +
-       (profileData.last_name?.[0] || fullName.split(" ")[1]?.[0] || "")).toUpperCase()
-    : "?";
-
   const { current_company, current_title } = deriveCurrentRole(
     profileData.experience || []
   );
@@ -183,25 +183,7 @@ export default function ContactPreviewPage() {
           <div className="flex items-start justify-between gap-4 flex-wrap">
             {/* Avatar + Identity */}
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
-                {profileData.photo_url ? (
-                  <img
-                    src={profileData.photo_url}
-                    alt={fullName}
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      // Fall back to initials if image fails
-                      const target = e.currentTarget;
-                      target.style.display = "none";
-                      target.nextElementSibling?.classList.remove("hidden");
-                    }}
-                  />
-                ) : null}
-                <span className={`text-lg font-semibold text-primary select-none ${profileData.photo_url ? "hidden" : ""}`}>
-                  {initials}
-                </span>
-              </div>
+              <ContactAvatar name={fullName} photoUrl={profileData.photo_url} className="w-14 h-14 text-lg" />
               <div>
                 <h1 className="text-2xl font-semibold text-foreground leading-tight">{fullName}</h1>
                 {current_title && current_company && (

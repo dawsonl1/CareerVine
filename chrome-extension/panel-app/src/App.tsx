@@ -1165,7 +1165,7 @@ const App: React.FC = () => {
     (window as any).__cv_close?.();
   };
 
-  const careervineUrl = (() => {
+  const careervineUrl = useMemo(() => {
     if (savedContactId) return `${webappBaseUrl}/contacts/${savedContactId}`;
     // For unsaved contacts, encode profile data in URL hash for the preview page
     if (profile) {
@@ -1181,7 +1181,7 @@ const App: React.FC = () => {
       }
     }
     return `${webappBaseUrl}/contacts`;
-  })();
+  }, [savedContactId, webappBaseUrl, profile, photoUrl]);
 
   if (isAuthenticated === null) {
     return (
