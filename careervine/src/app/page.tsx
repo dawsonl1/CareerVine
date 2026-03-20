@@ -58,12 +58,6 @@ export default function Home() {
   type FollowUpContact = { id: number; name: string; industry: string | null; follow_up_frequency_days: number; last_touch: string | null; days_overdue: number };
   const [followUps, setFollowUps] = useState<FollowUpContact[]>([]);
 
-  useEffect(() => {
-    if (user) {
-      loadData();
-    }
-  }, [user, loadData]);
-
   const loadData = useCallback(async () => {
     if (!user) return;
     try {
@@ -82,6 +76,12 @@ export default function Home() {
       console.error("Error loading home data:", e);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [user, loadData]);
 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();

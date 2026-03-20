@@ -13,7 +13,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
@@ -93,16 +93,7 @@ export default function SettingsPage() {
     ],
   });
 
-  useEffect(() => {
-    if (user) {
-      loadProfile();
-      loadGmailStatus();
-      loadTemplates();
-      loadCalendarStatus();
-    }
-  }, [user]);
-
-  const loadCalendarStatus = async () => {
+  const loadCalendarStatus = useCallback(async () => {
     if (!user) return;
     try {
       const res = await fetch("/api/gmail/connection");
@@ -131,9 +122,9 @@ export default function SettingsPage() {
     } finally {
       setCalendarLoading(false);
     }
-  };
+  }, [user]);
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     if (!user) return;
     try {
       const profile = await getUserProfile(user.id);
@@ -145,9 +136,9 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
-  const loadGmailStatus = async () => {
+  const loadGmailStatus = useCallback(async () => {
     if (!user) return;
     try {
       const conn = await getGmailConnection(user.id);
@@ -157,9 +148,9 @@ export default function SettingsPage() {
     } finally {
       setGmailLoading(false);
     }
-  };
+  }, [user]);
 
-  const loadTemplates = async () => {
+  const loadTemplates = useCallback(async () => {
     try {
       const res = await fetch("/api/gmail/templates");
       const data = await res.json();
@@ -169,7 +160,16 @@ export default function SettingsPage() {
     } finally {
       setTemplatesLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadProfile();
+      loadGmailStatus();
+      loadTemplates();
+      loadCalendarStatus();
+    }
+  }, [user, loadProfile, loadGmailStatus, loadTemplates, loadCalendarStatus]);
 
   const handleSaveTemplate = async () => {
     if (!editingTemplate) return;

@@ -16,7 +16,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,14 +44,14 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
   const [formData, setFormData] = useState(emptyForm);
   const [editingInteraction, setEditingInteraction] = useState<Interaction | null>(null);
 
-  useEffect(() => { if (contactId) loadInteractions(); }, [contactId]);
-
-  const loadInteractions = async () => {
+  const loadInteractions = useCallback(async () => {
     if (!contactId) return;
     try { setInteractions(await getInteractions(contactId)); }
     catch (e) { console.error("Error loading interactions:", e); }
     finally { setLoading(false); }
-  };
+  }, [contactId]);
+
+  useEffect(() => { if (contactId) loadInteractions(); }, [contactId, loadInteractions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

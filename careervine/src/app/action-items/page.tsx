@@ -19,7 +19,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
@@ -68,17 +68,15 @@ export default function ActionItemsPage() {
   const [newMeetingId, setNewMeetingId] = useState<number | null>(null);
   const [newSaving, setNewSaving] = useState(false);
 
-  useEffect(() => { if (user) { loadActionItems(); loadContacts(); } }, [user]);
-
-  const loadContacts = async () => {
+  const loadContacts = useCallback(async () => {
     if (!user) return;
     try {
       const data = await getContacts(user.id);
       setAllContacts((data as { id: number; name: string }[]).map(c => ({ id: c.id, name: c.name })));
     } catch (e) { console.error("Error loading contacts:", e); }
-  };
+  }, [user]);
 
-  const loadActionItems = async () => {
+  const loadActionItems = useCallback(async () => {
     if (!user) return;
     try {
       const [items, completed] = await Promise.all([
@@ -90,7 +88,9 @@ export default function ActionItemsPage() {
     }
     catch (e) { console.error("Error loading action items:", e); }
     finally { setLoading(false); }
-  };
+  }, [user]);
+
+  useEffect(() => { if (user) { loadActionItems(); loadContacts(); } }, [user, loadActionItems, loadContacts]);
 
   const restoreItem = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation();

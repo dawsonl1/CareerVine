@@ -20,7 +20,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
@@ -89,16 +89,7 @@ export default function MeetingsPage() {
   const [contactEmailsMap, setContactEmailsMap] = useState<Record<number, string[]>>({});
   const [inviteEmailMap, setInviteEmailMap] = useState<Record<number, string>>({});
 
-  useEffect(() => {
-    if (user) {
-      loadMeetings();
-      loadContacts();
-      loadInteractions();
-      checkCalendarConnection();
-    }
-  }, [user]);
-
-  const checkCalendarConnection = async () => {
+  const checkCalendarConnection = useCallback(async () => {
     try {
       const res = await fetch("/api/gmail/connection");
       const data = await res.json();
@@ -107,9 +98,9 @@ export default function MeetingsPage() {
         setAddToCalendar(true);
       }
     } catch {}
-  };
+  }, []);
 
-  const loadContacts = async () => {
+  const loadContacts = useCallback(async () => {
     if (!user) return;
     try {
       const data = await getContacts(user.id);
@@ -127,17 +118,17 @@ export default function MeetingsPage() {
       setAllContacts(contacts);
       setContactEmailsMap(emailsMap);
     } catch (e) { console.error("Error loading contacts:", e); }
-  };
+  }, [user]);
 
-  const loadInteractions = async () => {
+  const loadInteractions = useCallback(async () => {
     if (!user) return;
     try {
       const data = await getAllInteractions(user.id);
       setAllInteractions(data as unknown as InteractionWithContact[]);
     } catch (e) { console.error("Error loading interactions:", e); }
-  };
+  }, [user]);
 
-  const loadMeetings = async () => {
+  const loadMeetings = useCallback(async () => {
     if (!user) return;
     try {
       const data = await getMeetings(user.id);
@@ -182,7 +173,16 @@ export default function MeetingsPage() {
     }
     catch (e) { console.error("Error loading meetings:", e); }
     finally { setLoading(false); }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadMeetings();
+      loadContacts();
+      loadInteractions();
+      checkCalendarConnection();
+    }
+  }, [user, loadMeetings, loadContacts, loadInteractions, checkCalendarConnection]);
 
   const reloadMeetingActions = async (meetingId: number) => {
     try {

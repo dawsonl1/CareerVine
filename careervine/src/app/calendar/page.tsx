@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
@@ -137,16 +137,16 @@ export default function CalendarPage() {
   }, [filteredEvents, weekDays]);
 
   // ── Mount
-  useEffect(() => { if (user) loadData(); }, [user]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       await Promise.all([loadEvents(), loadContacts(), loadLinkedMeetings(), checkCalendarConnection()]);
       // Background auto-sync (silent, respects 5-min cooldown)
       fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) loadEvents(); }).catch(() => {});
     } finally { setLoading(false); }
-  };
+  }, [user]);
+
+  useEffect(() => { if (user) loadData(); }, [user, loadData]);
 
   const loadEvents = async () => {
     const res = await fetch("/api/calendar/events");

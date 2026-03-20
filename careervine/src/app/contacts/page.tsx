@@ -62,14 +62,7 @@ export default function ContactsPage() {
   const [tagSearch, setTagSearch] = useState("");
   const [showTagDropdown, setShowTagDropdown] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      loadContacts();
-      getTags(user.id).then(setAllTags).catch(() => {});
-    }
-  }, [user]);
-
-  const loadContacts = async () => {
+  const loadContacts = useCallback(async () => {
     if (!user) return;
     try {
       const data = await getContacts(user.id);
@@ -79,7 +72,14 @@ export default function ContactsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadContacts();
+      getTags(user.id).then(setAllTags).catch(() => {});
+    }
+  }, [user, loadContacts]);
 
   const uniqueTags = useMemo(() => {
     const tagMap = new Map<number, string>();
