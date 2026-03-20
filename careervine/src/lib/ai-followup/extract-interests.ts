@@ -89,7 +89,13 @@ export async function extractInterests(
     return { interests: [], profileFallbacks: [] };
   }
 
-  const parsed: ExtractedInterests = JSON.parse(content);
+  let parsed: ExtractedInterests;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    // Truncated or malformed response (e.g., max_tokens hit)
+    return { interests: [], profileFallbacks: [] };
+  }
 
   // Sort by confidence descending
   parsed.interests.sort((a, b) => b.confidence - a.confidence);

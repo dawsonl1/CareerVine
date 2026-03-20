@@ -463,7 +463,10 @@ export type Database = {
           sent_at: string | null;
           dismissed_at: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["ai_follow_up_drafts"]["Row"], "id" | "created_at" | "updated_at">;
+        Insert: Omit<Database["public"]["Tables"]["ai_follow_up_drafts"]["Row"], "id" | "created_at" | "updated_at" | "sent_at" | "dismissed_at"> & {
+          sent_at?: string | null;
+          dismissed_at?: string | null;
+        };
         Update: Partial<Database["public"]["Tables"]["ai_follow_up_drafts"]["Insert"]>;
       };
 

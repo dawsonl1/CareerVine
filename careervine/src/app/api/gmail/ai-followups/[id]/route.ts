@@ -34,12 +34,23 @@ export const PATCH = withApiHandler({
     };
 
     if (body.status !== undefined) {
+      // Prevent reverting a sent draft back to pending
+      if (
+        body.status === AiFollowUpDraftStatus.Pending &&
+        (draft.status === AiFollowUpDraftStatus.Sent || draft.status === AiFollowUpDraftStatus.EditedAndSent)
+      ) {
+        throw new ApiError("Cannot modify a sent draft", 400);
+      }
+
       update.status = body.status;
       if (body.status === AiFollowUpDraftStatus.Dismissed) {
         update.dismissed_at = new Date().toISOString();
-      }
-      if (body.status === AiFollowUpDraftStatus.Sent || body.status === AiFollowUpDraftStatus.EditedAndSent) {
+      } else if (body.status === AiFollowUpDraftStatus.Sent || body.status === AiFollowUpDraftStatus.EditedAndSent) {
         update.sent_at = new Date().toISOString();
+      } else if (body.status === AiFollowUpDraftStatus.Pending) {
+        // Clear stale timestamps when reverting to pending (undo flow)
+        update.dismissed_at = null;
+        update.sent_at = null;
       }
     }
 

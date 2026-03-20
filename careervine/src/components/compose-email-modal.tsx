@@ -230,11 +230,11 @@ export function ComposeEmailModal() {
       // Mark AI draft as sent/edited_and_sent if this came from one
       if (aiDraftContext?.draftId) {
         const draftStatus = bodyHtml !== prefillBodyHtml ? "edited_and_sent" : "sent";
-        fetch(`/api/gmail/ai-followups/${aiDraftContext.draftId}`, {
+        await fetch(`/api/gmail/ai-followups/${aiDraftContext.draftId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: draftStatus }),
-        }).catch(() => {});
+        }).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
       }
 
       window.dispatchEvent(new CustomEvent("careervine:email-sent"));
@@ -284,6 +284,17 @@ export function ComposeEmailModal() {
       setScheduled(true);
       sentOrScheduledRef.current = true;
       deleteDraft();
+
+      // Mark AI draft as sent/edited_and_sent if this came from one
+      if (aiDraftContext?.draftId) {
+        const draftStatus = bodyHtml !== prefillBodyHtml ? "edited_and_sent" : "sent";
+        await fetch(`/api/gmail/ai-followups/${aiDraftContext.draftId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: draftStatus }),
+        }).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
+      }
+
       window.dispatchEvent(new CustomEvent("careervine:email-sent"));
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {

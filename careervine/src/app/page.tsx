@@ -280,7 +280,8 @@ export default function Home() {
     if (!dataLoaded || !gmailConnected || hasTriggeredGeneration.current) return;
     if (followUps.length > 0) {
       hasTriggeredGeneration.current = true;
-      loadAndGenerateAiDrafts(followUps);
+      // Only generate for visible contacts (top 6) to avoid orphaned drafts
+      loadAndGenerateAiDrafts(followUps.slice(0, 6));
     }
   }, [dataLoaded, gmailConnected, followUps, loadAndGenerateAiDrafts]);
 
