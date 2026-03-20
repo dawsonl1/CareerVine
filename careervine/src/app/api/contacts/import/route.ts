@@ -2,6 +2,7 @@ import { withApiHandler } from "@/lib/api-handler";
 import { contactsImportSchema } from "@/lib/api-schemas";
 import { sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
+import { backfillEmailsForContact } from "@/lib/gmail";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ── Types for the Chrome extension's profile payload ───────────────────
@@ -82,6 +83,12 @@ export const POST = withApiHandler({
       isUpdate = true;
     } else {
       contact = await createNewContact(supabase, profileData, user.id);
+    }
+
+    // Backfill orphaned emails in the background
+    if (profileData.contactInfo?.email) {
+      backfillEmailsForContact(user.id, contact.id, [profileData.contactInfo.email])
+        .catch((err) => console.warn("[import] Email backfill failed:", err));
     }
 
     // Handle photo download and storage (never blocks import)

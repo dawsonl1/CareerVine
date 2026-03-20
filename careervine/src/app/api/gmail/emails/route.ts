@@ -1,7 +1,7 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailEmailsQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { getConnection, syncEmailsForContact } from "@/lib/gmail";
+import { getConnection, syncEmailsForContact, backfillEmailsForContact } from "@/lib/gmail";
 
 /**
  * GET /api/gmail/emails?contactId=xxx
@@ -37,15 +37,21 @@ export const GET = withApiHandler({
       : 0;
     const isStale = Date.now() - lastSync > STALE_MS;
 
-    if (isStale && emails.length > 0) {
-      // Sync in the background — don't block the response
-      syncEmailsForContact(
-        user.id,
-        parseInt(contactId),
-        emails,
-        conn.gmail_address,
-        90
-      ).catch((err) => console.error("Background sync error:", err));
+    if (emails.length > 0) {
+      // Claim any orphaned emails that match this contact's addresses
+      backfillEmailsForContact(user.id, parseInt(contactId), emails)
+        .catch((err) => console.error("Email backfill error:", err));
+
+      if (isStale) {
+        // Sync in the background — don't block the response
+        syncEmailsForContact(
+          user.id,
+          parseInt(contactId),
+          emails,
+          conn.gmail_address,
+          90
+        ).catch((err) => console.error("Background sync error:", err));
+      }
     }
 
     // Return cached emails (exclude trashed/hidden)

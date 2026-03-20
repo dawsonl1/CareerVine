@@ -339,6 +339,48 @@ export async function syncAllContactEmails(userId: string, sinceDays = 90) {
   return totalSynced;
 }
 
+/**
+ * Backfill orphaned email_messages for a contact.
+ *
+ * When a contact gains an email address (creation, import, or edit), there may
+ * already be cached email_messages with that address that have no matched_contact_id.
+ * This function claims those orphaned rows so they appear on the contact's timeline.
+ */
+export async function backfillEmailsForContact(
+  userId: string,
+  contactId: number,
+  contactEmails: string[]
+) {
+  if (contactEmails.length === 0) return 0;
+
+  const supabase = createSupabaseServiceClient();
+  const lowerEmails = contactEmails.map((e) => e.toLowerCase());
+
+  let totalMatched = 0;
+  for (const email of lowerEmails) {
+    // Match orphaned messages where from_address or to_addresses contains this email
+    const { data: orphanedFrom } = await supabase
+      .from("email_messages")
+      .update({ matched_contact_id: contactId })
+      .eq("user_id", userId)
+      .is("matched_contact_id", null)
+      .eq("from_address", email)
+      .select("id");
+
+    const { data: orphanedTo } = await supabase
+      .from("email_messages")
+      .update({ matched_contact_id: contactId })
+      .eq("user_id", userId)
+      .is("matched_contact_id", null)
+      .contains("to_addresses", [email])
+      .select("id");
+
+    totalMatched += (orphanedFrom?.length || 0) + (orphanedTo?.length || 0);
+  }
+
+  return totalMatched;
+}
+
 /** Fetch the full body of a single Gmail message (HTML preferred, plaintext fallback). */
 export async function getFullMessage(
   userId: string,
