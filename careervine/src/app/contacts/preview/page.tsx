@@ -49,7 +49,7 @@ export default function ContactPreviewPage() {
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [savedContactId, setSavedContactId] = useState<number | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   // Read profile data from URL hash once authenticated
@@ -106,7 +106,6 @@ export default function ContactPreviewPage() {
 
       if (result.success && result.contact?.id) {
         setSaved(true);
-        setSavedContactId(result.contact.id);
         // Redirect to the saved contact page after a brief delay
         setTimeout(() => {
           router.push(`/contacts/${result.contact.id}`);

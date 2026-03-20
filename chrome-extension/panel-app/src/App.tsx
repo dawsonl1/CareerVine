@@ -79,6 +79,7 @@ const MONTH_NAMES: Record<string, number> = {
 const deriveContactStatus = (education: Education[], now: Date = new Date()): { contact_status: 'student' | 'professional'; expected_graduation: string | null } => {
   let isStudent = false;
   let latestGradLabel: string | null = null;
+  let latestCutoff: Date | null = null;
 
   for (const edu of education) {
     if (edu.is_current || edu.end_year === "Present") {
@@ -98,7 +99,10 @@ const deriveContactStatus = (education: Education[], now: Date = new Date()): { 
         const cutoff = new Date(yr, mi + 1, 1);
         if (now < cutoff) {
           isStudent = true;
-          latestGradLabel = trimmed;
+          if (!latestCutoff || cutoff > latestCutoff) {
+            latestCutoff = cutoff;
+            latestGradLabel = trimmed;
+          }
         }
         continue;
       }
@@ -110,7 +114,10 @@ const deriveContactStatus = (education: Education[], now: Date = new Date()): { 
       const cutoff = new Date(yearOnly, 6, 1); // July 1
       if (now < cutoff) {
         isStudent = true;
-        latestGradLabel = trimmed;
+        if (!latestCutoff || cutoff > latestCutoff) {
+          latestCutoff = cutoff;
+          latestGradLabel = trimmed;
+        }
       }
     }
   }
