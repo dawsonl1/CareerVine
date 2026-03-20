@@ -1134,6 +1134,7 @@ const App: React.FC = () => {
 
       if (response?.success) {
         setStatusText("Contact saved to CareerVine.");
+        setTimeout(() => setStatusText(null), 5000);
         if (response?.data?.contact?.id) {
           setSavedContactId(response.data.contact.id);
         }
