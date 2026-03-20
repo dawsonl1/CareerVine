@@ -91,6 +91,7 @@ export function deriveContactStatus(
   now: Date = new Date()
 ): { contact_status: 'student' | 'professional'; expected_graduation: string | null } {
   let latestGraduationLabel: string | null = null;
+  let latestCutoff: Date | null = null;
   let isStudent = false;
 
   for (const edu of education) {
@@ -98,14 +99,13 @@ export function deriveContactStatus(
 
     if (parsed.isCurrent) {
       isStudent = true;
-      // Don't break — keep looking for a graduation label from future entries
       continue;
     }
 
     if (parsed.cutoff && now < parsed.cutoff) {
       isStudent = true;
-      // Track the latest (furthest future) graduation label
-      if (!latestGraduationLabel || (parsed.cutoff > (parseEducationEnd(latestGraduationLabel)?.cutoff ?? new Date(0)))) {
+      if (!latestCutoff || parsed.cutoff > latestCutoff) {
+        latestCutoff = parsed.cutoff;
         latestGraduationLabel = parsed.graduationLabel;
       }
     }
