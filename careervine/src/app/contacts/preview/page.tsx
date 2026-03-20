@@ -43,7 +43,7 @@ type ProfileData = {
 };
 
 export default function ContactPreviewPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [saving, setSaving] = useState(false);
@@ -119,6 +119,15 @@ export default function ContactPreviewPage() {
       setSaving(false);
     }
   };
+
+  // Show spinner while auth is resolving to avoid flashing the login form
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   // Show login form if not authenticated (hash data preserved across login)
   if (!user) {

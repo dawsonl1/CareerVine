@@ -32,7 +32,7 @@
 - [ ] **#16** Calendar events created without timezone — pass timezone explicitly
 - [ ] **#17** `loadingEmails` permanently false in contact-emails-tab — wire up properly
 - [x] **#18** `createSupabaseBrowserClient()` called every render in auth-provider — stabilized with useState initializer
-- [ ] **#19** Contacts page no auth loading check — flash of empty state before auth resolves
+- [x] **#19** Preview page no auth loading check — added authLoading guard before AuthForm render
 - [ ] **#20** Dashboard links go to /contacts instead of /contacts/{id}
 - [x] **#21** Duplicate import branches doing same thing — collapsed
 

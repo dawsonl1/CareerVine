@@ -279,7 +279,7 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
       .select('id')
       .eq('contact_id', contactId)
       .eq('company_id', company.id)
-      .eq('title', exp.title || '')
+      .eq('title', exp.title || null)
       .maybeSingle();
 
     if (!existingRel) {
@@ -391,10 +391,10 @@ async function addTagsToContact(supabase: any, contactId: number, tags: string[]
     let tag;
     const { data: existingTag } = await supabase
       .from('tags')
-      .select('*')
+      .select('id, name')
       .eq('user_id', userId)
       .ilike('name', normalizedTag)
-      .single();
+      .maybeSingle();
 
     if (existingTag) {
       tag = existingTag;
@@ -411,10 +411,10 @@ async function addTagsToContact(supabase: any, contactId: number, tags: string[]
       // Check if contact-tag link already exists
       const { data: existingLink } = await supabase
         .from('contact_tags')
-        .select('*')
+        .select('id')
         .eq('contact_id', contactId)
         .eq('tag_id', tag.id)
-        .single();
+        .maybeSingle();
 
       if (!existingLink) {
         await supabase

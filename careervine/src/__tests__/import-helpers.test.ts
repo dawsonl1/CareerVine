@@ -61,6 +61,14 @@ describe('sanitizeForPostgrest', () => {
     expect(sanitizeForPostgrest('O\\Brien')).toBe('OBrien');
   });
 
+  it('strips apostrophes', () => {
+    expect(sanitizeForPostgrest("O'Brien")).toBe('OBrien');
+  });
+
+  it('strips double quotes', () => {
+    expect(sanitizeForPostgrest('"Johnny"')).toBe('Johnny');
+  });
+
   it('strips dots', () => {
     expect(sanitizeForPostgrest('J.R.')).toBe('JR');
   });

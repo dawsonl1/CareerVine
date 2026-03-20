@@ -108,7 +108,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
 
     if (names.length >= 2) {
       // Sanitize for PostgREST filter syntax
-      const sanitize = (s: string) => s.replace(/[%_\\.,()]/g, '');
+      const sanitize = (s: string) => s.replace(/[%_\\.,()'"]/g, '');
       const first = sanitize(names[0]);
       const last = sanitize(names[names.length - 1]);
       const { data } = await supabase

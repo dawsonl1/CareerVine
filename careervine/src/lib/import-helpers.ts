@@ -18,7 +18,7 @@ export function parseFollowUpFrequency(freq: string | null | undefined): number 
 
 /** Sanitize a string for use in PostgREST .or()/.ilike() filters */
 export function sanitizeForPostgrest(s: string): string {
-  return s.replace(/[%_\\.,()]/g, '');
+  return s.replace(/[%_\\.,()'"]/g, '');
 }
 
 /** Build the contact data object for insert from extension profile data */
