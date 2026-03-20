@@ -258,10 +258,10 @@ function BentoCard({
 /* ── Landing Page ── */
 
 export default function LandingPage() {
-  const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup" | null>(null);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
-  if (showAuth) return <AuthForm />;
+  if (authMode) return <AuthForm initialMode={authMode} onBack={() => setAuthMode(null)} />;
 
   const handleToggle = (featureIndex: number) => {
     setExpandedIndex(expandedIndex === featureIndex ? null : featureIndex);
@@ -281,11 +281,11 @@ export default function LandingPage() {
           <Button
             variant="text"
             size="sm"
-            onClick={() => setShowAuth(true)}
+            onClick={() => setAuthMode("signin")}
           >
             Sign in
           </Button>
-          <Button size="sm" onClick={() => setShowAuth(true)}>
+          <Button size="sm" onClick={() => setAuthMode("signup")}>
             Get started
           </Button>
         </div>
@@ -304,7 +304,7 @@ export default function LandingPage() {
             promise to make an intro. CareerVine makes sure you follow through
             on all of it.
           </p>
-          <Button size="lg" onClick={() => setShowAuth(true)}>
+          <Button size="lg" onClick={() => setAuthMode("signup")}>
             Get started for free <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
@@ -370,7 +370,7 @@ export default function LandingPage() {
           <p className="text-sm text-muted-foreground mb-8">
             Free to use. Set up in under a minute.
           </p>
-          <Button size="lg" onClick={() => setShowAuth(true)}>
+          <Button size="lg" onClick={() => setAuthMode("signup")}>
             Create your free account <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
