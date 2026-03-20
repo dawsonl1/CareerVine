@@ -275,8 +275,6 @@ export default function ContactDetailPage() {
             <ContactQuickActions
               contact={contact}
               onLogConversation={() => openQuickCapture(contactId)}
-              onAddAction={() => changeTab("actions")}
-              onAddMeeting={() => changeTab("timeline")}
             />
 
             {/* Pending actions banner */}

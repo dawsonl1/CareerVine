@@ -4,23 +4,26 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { updateMeeting, getMeetingsForContact } from "@/lib/queries";
 import type { ContactMeeting } from "@/lib/types";
-import { Calendar, Pencil, X, ChevronDown } from "lucide-react";
+import { Calendar, Pencil, ChevronDown, Plus } from "lucide-react";
+import { AddMeetingModal } from "@/components/contacts/add-meeting-modal";
 
 import { inputClasses } from "@/lib/form-styles";
 
 interface ContactMeetingsTabProps {
   contactId: number;
+  userId: string;
   meetings: ContactMeeting[];
   loading: boolean;
   onMeetingsChange: (meetings: ContactMeeting[]) => void;
 }
 
-export function ContactMeetingsTab({ contactId, meetings, loading, onMeetingsChange }: ContactMeetingsTabProps) {
+export function ContactMeetingsTab({ contactId, userId, meetings, loading, onMeetingsChange }: ContactMeetingsTabProps) {
   const [expandedMeetingId, setExpandedMeetingId] = useState<number | null>(null);
   const [editingMeetingId, setEditingMeetingId] = useState<number | null>(null);
   const [editNotes, setEditNotes] = useState("");
   const [editTranscript, setEditTranscript] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const handleSave = async (meeting: ContactMeeting) => {
     setSaving(true);
@@ -48,10 +51,12 @@ export function ContactMeetingsTab({ contactId, meetings, loading, onMeetingsCha
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground py-2">
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
-          <span className="text-xs">Loading…</span>
+          <span className="text-xs">Loading...</span>
         </div>
       ) : meetings.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-1">No meetings recorded.</p>
+        <p className="text-xs text-muted-foreground py-1">
+          No meetings recorded. Click &quot;Add meeting&quot; below to log one.
+        </p>
       ) : (
         <div className="space-y-2">
           {meetings
@@ -99,7 +104,7 @@ export function ContactMeetingsTab({ contactId, meetings, loading, onMeetingsCha
                               onChange={(e) => setEditNotes(e.target.value)}
                               className={`${inputClasses} !h-auto py-3`}
                               rows={6}
-                              placeholder="Key takeaways, action items…"
+                              placeholder="Key takeaways, action items..."
                             />
                           </div>
                           <div>
@@ -109,7 +114,7 @@ export function ContactMeetingsTab({ contactId, meetings, loading, onMeetingsCha
                               onChange={(e) => setEditTranscript(e.target.value)}
                               className={`${inputClasses} !h-auto py-3`}
                               rows={12}
-                              placeholder="Paste your full meeting transcript here…"
+                              placeholder="Paste your full meeting transcript here..."
                             />
                           </div>
                           <div className="flex justify-end gap-2">
@@ -172,11 +177,20 @@ export function ContactMeetingsTab({ contactId, meetings, loading, onMeetingsCha
           type="button"
           variant="tonal"
           size="sm"
-          onClick={() => { window.location.href = "/meetings"; }}
+          onClick={() => setShowAddModal(true)}
         >
-          <Calendar className="h-4 w-4" /> Add meeting
+          <Plus className="h-4 w-4" /> Add meeting
         </Button>
       </div>
+
+      {showAddModal && (
+        <AddMeetingModal
+          contactId={contactId}
+          userId={userId}
+          onClose={() => setShowAddModal(false)}
+          onMeetingsChange={onMeetingsChange}
+        />
+      )}
     </div>
   );
 }

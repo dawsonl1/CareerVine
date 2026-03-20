@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { createInteraction, updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
+import { Button } from "@/components/ui/button";
+import { updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
 import type { ContactMeeting, InteractionRow, EmailMessage, CompletedActionEntry, TimelineEntry } from "@/lib/types";
-import { Calendar, MessageSquare, Pencil, Trash2, Mail, ArrowUpRight, ArrowDownLeft, Plus, CheckCircle } from "lucide-react";
+import { Calendar, MessageSquare, Pencil, Trash2, ArrowUpRight, ArrowDownLeft, CheckCircle } from "lucide-react";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
@@ -30,8 +30,8 @@ export function ContactTimelineTab({
   onMeetingClick,
   onInteractionsChange,
 }: ContactTimelineTabProps) {
-  const [showInteractionModal, setShowInteractionModal] = useState(false);
   const [editingInteraction, setEditingInteraction] = useState<InteractionRow | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [interactionForm, setInteractionForm] = useState({ interaction_date: "", interaction_type: "", summary: "" });
 
   const entries: TimelineEntry[] = [
@@ -52,24 +52,16 @@ export function ContactTimelineTab({
   };
 
   const handleSaveInteraction = async () => {
+    if (!editingInteraction) return;
     try {
-      if (editingInteraction) {
-        await updateInteraction(editingInteraction.id, {
-          interaction_date: interactionForm.interaction_date,
-          interaction_type: interactionForm.interaction_type,
-          summary: interactionForm.summary || null,
-        });
-      } else {
-        await createInteraction({
-          contact_id: contactId,
-          interaction_date: interactionForm.interaction_date,
-          interaction_type: interactionForm.interaction_type,
-          summary: interactionForm.summary || null,
-        });
-      }
+      await updateInteraction(editingInteraction.id, {
+        interaction_date: interactionForm.interaction_date,
+        interaction_type: interactionForm.interaction_type,
+        summary: interactionForm.summary || null,
+      });
       const updated = await getInteractions(contactId);
       onInteractionsChange(updated);
-      setShowInteractionModal(false);
+      setShowEditModal(false);
       setEditingInteraction(null);
     } catch (err) {
       console.error("Error saving interaction:", err);
@@ -85,10 +77,12 @@ export function ContactTimelineTab({
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground py-2">
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
-          <span className="text-xs">Loading…</span>
+          <span className="text-xs">Loading...</span>
         </div>
       ) : entries.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-1">No activity yet.</p>
+        <p className="text-xs text-muted-foreground py-1">
+          No interactions yet. Use &quot;Log conversation&quot; above to record your first interaction.
+        </p>
       ) : (
         <div className="relative">
           {/* Vertical timeline line */}
@@ -146,7 +140,7 @@ export function ContactTimelineTab({
                             interaction_type: i.interaction_type,
                             summary: i.summary || "",
                           });
-                          setShowInteractionModal(true);
+                          setShowEditModal(true);
                         }}
                         className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
                         title="Edit"
@@ -214,37 +208,14 @@ export function ContactTimelineTab({
         </div>
       )}
 
-      <div className="flex gap-2 mt-3">
-        <Button
-          type="button"
-          variant="tonal"
-          size="sm"
-          onClick={() => { window.location.href = "/meetings"; }}
-        >
-          <Calendar className="h-4 w-4" /> Add meeting
-        </Button>
-        <Button
-          type="button"
-          variant="tonal"
-          size="sm"
-          onClick={() => {
-            setEditingInteraction(null);
-            setInteractionForm({ interaction_date: new Date().toISOString().split("T")[0], interaction_type: "", summary: "" });
-            setShowInteractionModal(true);
-          }}
-        >
-          <MessageSquare className="h-4 w-4" /> Add interaction
-        </Button>
-      </div>
-
-      {/* Interaction create/edit modal */}
-      {showInteractionModal && (
+      {/* Interaction edit modal */}
+      {showEditModal && editingInteraction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/32" onClick={() => setShowInteractionModal(false)} />
+          <div className="absolute inset-0 bg-black/32" onClick={() => setShowEditModal(false)} />
           <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
             <div className="px-6 pt-6 pb-4">
               <h2 className="text-[22px] leading-7 font-normal text-foreground">
-                {editingInteraction ? "Edit interaction" : "New interaction"}
+                Edit interaction
               </h2>
             </div>
             <div className="px-6 pb-6 space-y-4">
@@ -264,7 +235,7 @@ export function ContactTimelineTab({
                   <Select
                     value={interactionForm.interaction_type}
                     onChange={(val) => setInteractionForm({ ...interactionForm, interaction_type: val })}
-                    placeholder="Select…"
+                    placeholder="Select..."
                     options={[
                       { value: "email", label: "Email" },
                       { value: "phone", label: "Phone Call" },
@@ -289,13 +260,13 @@ export function ContactTimelineTab({
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="text" onClick={() => setShowInteractionModal(false)}>Cancel</Button>
+                <Button type="button" variant="text" onClick={() => setShowEditModal(false)}>Cancel</Button>
                 <Button
                   type="button"
                   disabled={!interactionForm.interaction_date || !interactionForm.interaction_type}
                   onClick={handleSaveInteraction}
                 >
-                  {editingInteraction ? "Save" : "Create"}
+                  Save
                 </Button>
               </div>
             </div>
