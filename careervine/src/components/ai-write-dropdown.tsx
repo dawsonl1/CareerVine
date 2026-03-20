@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import { Sparkles, ChevronDown, X, Loader2, MessageSquare, Calendar, Check } from "lucide-react";
 
 type PresetTemplate = {
@@ -91,19 +92,6 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
     if (open && recipientEmail) resolveContact();
   }, [open, recipientEmail, resolveContact]);
 
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        resetState();
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
   const resetState = () => {
     setShowCustomPrompt(false);
     setCustomPrompt("");
@@ -112,6 +100,9 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
     setPendingPrompt(null);
     setError("");
   };
+
+  // Close on outside click
+  useClickOutside(dropdownRef, useCallback(() => { setOpen(false); resetState(); }, []), open);
 
   const handleGenerate = async (prompt: string) => {
     setError("");

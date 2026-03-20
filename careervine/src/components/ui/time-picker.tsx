@@ -14,8 +14,9 @@
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Clock } from "lucide-react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 
 interface TimePickerProps {
   value: string; // HH:MM (24h)
@@ -51,13 +52,7 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
   );
 
   // Close on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useClickOutside(ref, useCallback(() => setOpen(false), []));
 
   const selectHour = (h12: number) => {
     const h24 = to24(h12, period);

@@ -15,8 +15,9 @@
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 
 interface DatePickerProps {
   value: string; // YYYY-MM-DD
@@ -41,13 +42,7 @@ export function DatePicker({ value, onChange, required, placeholder = "Select da
   const [viewMonth, setViewMonth] = useState(selected?.getMonth() ?? today.getMonth());
 
   // Close on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useClickOutside(ref, useCallback(() => setOpen(false), []));
 
   const firstDay = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();

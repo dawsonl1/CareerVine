@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
@@ -170,16 +171,7 @@ export function ComposeEmailModal() {
   };
 
   // Close suggestions on outside click
-  useEffect(() => {
-    if (!showSuggestions) return;
-    const handler = (e: MouseEvent) => {
-      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showSuggestions]);
+  useClickOutside(suggestionsRef, useCallback(() => setShowSuggestions(false), []), showSuggestions);
 
   // Auto-save draft on content change (debounced 2s)
   useEffect(() => {

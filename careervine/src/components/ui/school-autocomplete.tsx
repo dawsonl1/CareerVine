@@ -10,8 +10,9 @@
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { GraduationCap } from "lucide-react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 
 const UNIVERSITIES = [
   "Arizona State University", "Auburn University", "Baylor University",
@@ -88,13 +89,7 @@ export function SchoolAutocomplete({
 
   useEffect(() => { setQuery(value); }, [value]);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useClickOutside(ref, useCallback(() => setOpen(false), []));
 
   const filtered = query.trim().length >= 2
     ? UNIVERSITIES.filter((u) =>

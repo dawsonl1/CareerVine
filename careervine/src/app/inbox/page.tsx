@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRouter } from "next/navigation";
 import DOMPurify from "dompurify";
 import { useAuth } from "@/components/auth-provider";
@@ -204,19 +205,8 @@ export default function InboxPage() {
   }, [loadDrafts]);
 
   // Close dropdowns on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (moveDropdownMsgId && moveDropdownRef.current && !moveDropdownRef.current.contains(e.target as Node)) {
-        setMoveDropdownMsgId(null);
-      }
-      if (threadActionMenuId && threadActionRef.current && !threadActionRef.current.contains(e.target as Node)) {
-        setThreadActionMenuId(null);
-        setThreadActionMoveOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [moveDropdownMsgId, threadActionMenuId]);
+  useClickOutside(moveDropdownRef, useCallback(() => setMoveDropdownMsgId(null), []), !!moveDropdownMsgId);
+  useClickOutside(threadActionRef, useCallback(() => { setThreadActionMenuId(null); setThreadActionMoveOpen(false); }, []), !!threadActionMenuId);
 
   const handleSync = async () => {
     setSyncing(true);

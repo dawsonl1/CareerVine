@@ -13,8 +13,9 @@
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 
 interface MonthYearPickerProps {
   value: string; // YYYY-MM format
@@ -41,13 +42,7 @@ export function MonthYearPicker({ value, onChange, placeholder = "Select month" 
   const selectedMonth = value ? parseInt(value.split("-")[1]) - 1 : null;
   const [viewYear, setViewYear] = useState(selectedYear ?? today.getFullYear());
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useClickOutside(ref, useCallback(() => setOpen(false), []));
 
   const selectMonth = (monthIdx: number) => {
     const m = String(monthIdx + 1).padStart(2, "0");

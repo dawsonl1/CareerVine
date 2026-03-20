@@ -14,8 +14,9 @@
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { X, Search } from "lucide-react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 
 interface ContactPickerProps {
   allContacts: { id: number; name: string }[];
@@ -35,13 +36,7 @@ export function ContactPicker({
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useClickOutside(ref, useCallback(() => setOpen(false), []));
 
   const selected = allContacts.filter((c) => selectedIds.includes(c.id));
   const filtered = allContacts

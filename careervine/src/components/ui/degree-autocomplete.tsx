@@ -9,7 +9,8 @@
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 
 const DEGREES = [
   "A.A.", "A.A.S.", "A.S.",
@@ -40,13 +41,7 @@ export function DegreeAutocomplete({
 
   useEffect(() => { setQuery(value); }, [value]);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useClickOutside(ref, useCallback(() => setOpen(false), []));
 
   const filtered = query.trim().length >= 1
     ? DEGREES.filter((d) =>

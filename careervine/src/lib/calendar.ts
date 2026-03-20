@@ -9,7 +9,7 @@ import { google } from "googleapis";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getOAuth2Client, refreshTokenIfNeeded } from "@/lib/oauth-helpers";
 
-const DEFAULT_TIMEZONE = "America/New_York";
+export const DEFAULT_TIMEZONE = "America/New_York";
 
 /**
  * Load tokens from DB, refresh if expired, return an authenticated Calendar client.
@@ -47,9 +47,9 @@ export async function getCalendarTimezone(userId: string): Promise<string> {
   try {
     const calendar = await getCalendarClient(userId);
     const res = await calendar.settings.get({ setting: "timezone" });
-    return res.data.value || "America/New_York";
+    return res.data.value || DEFAULT_TIMEZONE;
   } catch {
-    return "America/New_York";
+    return DEFAULT_TIMEZONE;
   }
 }
 

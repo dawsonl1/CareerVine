@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { fetchCalendarEvents, getCalendarTimezone, getCalendarList } from "@/lib/calendar";
+import { fetchCalendarEvents, getCalendarTimezone, getCalendarList, DEFAULT_TIMEZONE } from "@/lib/calendar";
 
 
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes (auto-sync)
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
           .map((c: any) => c.id);
 
         await service.from("gmail_connections").update({
-          calendar_timezone: tz || "America/New_York",
+          calendar_timezone: tz || DEFAULT_TIMEZONE,
           calendar_list: calList,
           busy_calendar_ids: busyIds.length > 0 ? busyIds : ["primary"],
         }).eq("user_id", user.id);

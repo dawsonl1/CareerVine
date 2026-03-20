@@ -52,6 +52,7 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
     }
   }, []);
 
+  // Close on outside click + reposition on scroll/resize
   useEffect(() => {
     if (!open) return;
     updatePos();

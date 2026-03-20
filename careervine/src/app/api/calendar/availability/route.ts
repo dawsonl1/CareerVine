@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { queryFreeBusy } from "@/lib/calendar";
+import { queryFreeBusy, DEFAULT_TIMEZONE } from "@/lib/calendar";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
 /**
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     }
 
     const daysOfWeek = daysOfWeekStr.split(",").map(d => parseInt(d));
-    const userTimezone = conn.data.calendar_timezone || "America/New_York";
+    const userTimezone = conn.data.calendar_timezone || DEFAULT_TIMEZONE;
     const busyCalendarIds = conn.data.busy_calendar_ids || ["primary"];
 
     // Query free/busy from Google Calendar API

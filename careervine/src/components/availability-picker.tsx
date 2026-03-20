@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import { Calendar, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -168,16 +169,7 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
   }, [open, recipientEmail]);
 
   // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  useClickOutside(containerRef, useCallback(() => setOpen(false), []), open);
 
   const toggleDay = (day: number) => {
     setDaysOfWeek((prev) =>
