@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import {
-  ChevronLeft, User, Briefcase, GraduationCap, MapPin,
-  FileText, Clock, ExternalLink, Loader2, Check, AlertCircle,
+  ChevronLeft, Briefcase, GraduationCap, MapPin,
+  FileText, Clock, ExternalLink, Loader2, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import AuthForm from "@/components/auth-form";
 import { decodeProfileData } from "@/lib/profile-encoding";
+import { deriveCurrentRole } from "@/lib/profile-helpers";
 
 type ProfileData = {
   first_name?: string;
@@ -154,12 +155,14 @@ export default function ContactPreviewPage() {
         .filter(Boolean).join(", ")
     : "";
 
-  const initials = (profileData.first_name?.[0] || fullName[0] || "?") +
-    (profileData.last_name?.[0] || fullName.split(" ")[1]?.[0] || "");
+  const isRealName = fullName !== "Unknown Contact";
+  const initials = isRealName
+    ? ((profileData.first_name?.[0] || fullName[0] || "") +
+       (profileData.last_name?.[0] || fullName.split(" ")[1]?.[0] || "")).toUpperCase()
+    : "?";
 
-  // Derive current role from experience
-  const currentRole = profileData.experience?.find(
-    (exp) => exp.is_current || exp.end_month === "Present" || !exp.end_month
+  const { current_company, current_title } = deriveCurrentRole(
+    profileData.experience || []
   );
 
   return (
@@ -186,14 +189,14 @@ export default function ContactPreviewPage() {
               <div className="flex items-end gap-4">
                 <div className="w-20 h-20 rounded-full bg-primary/15 border-4 border-surface-container-low flex items-center justify-center shrink-0">
                   <span className="text-xl font-semibold text-primary select-none">
-                    {initials.toUpperCase()}
+                    {initials}
                   </span>
                 </div>
                 <div className="pb-1">
                   <h1 className="text-2xl font-semibold text-foreground leading-tight">{fullName}</h1>
-                  {currentRole && (
+                  {current_title && current_company && (
                     <p className="text-sm text-muted-foreground mt-0.5">
-                      {currentRole.title} at {currentRole.company}
+                      {current_title} at {current_company}
                     </p>
                   )}
                 </div>
