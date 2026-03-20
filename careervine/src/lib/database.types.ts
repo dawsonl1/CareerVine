@@ -100,7 +100,7 @@ export type Database = {
           id: number;                    // Auto-incrementing primary key
           name: string;                  // Company name (unique)
         };
-        Insert: Database["public"]["Tables"]["companies"]["Row"];
+        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id"> & { id?: number };
         Update: Partial<Database["public"]["Tables"]["companies"]["Insert"]>;
       };
       
@@ -128,7 +128,7 @@ export type Database = {
           id: number;                    // Auto-incrementing primary key
           name: string;                  // School name (unique)
         };
-        Insert: Database["public"]["Tables"]["schools"]["Row"];
+        Insert: Omit<Database["public"]["Tables"]["schools"]["Row"], "id"> & { id?: number };
         Update: Partial<Database["public"]["Tables"]["schools"]["Insert"]>;
       };
       

@@ -145,15 +145,33 @@ async function updateExistingContact(supabase: any, contactId: number, profileDa
 
   if (updateError || !contact) throw new Error(updateError?.message || 'Failed to update contact');
 
-  // Clear existing experience/education before re-adding to prevent duplicates
+  // Replace experience: back up old data, delete, insert new, restore on failure
   if (profileData.experience && profileData.experience.length > 0) {
+    const { data: oldExp } = await supabase.from('contact_companies').select('*').eq('contact_id', contactId);
     await supabase.from('contact_companies').delete().eq('contact_id', contactId);
-    await addExperienceToContact(supabase, contactId, profileData.experience);
+    try {
+      await addExperienceToContact(supabase, contactId, profileData.experience);
+    } catch (err) {
+      // Restore old data on failure
+      if (oldExp && oldExp.length > 0) {
+        await supabase.from('contact_companies').insert(oldExp.map(({ id, ...rest }: any) => rest));
+      }
+      throw err;
+    }
   }
 
+  // Replace education: same backup/restore pattern
   if (profileData.education && profileData.education.length > 0) {
+    const { data: oldEdu } = await supabase.from('contact_schools').select('*').eq('contact_id', contactId);
     await supabase.from('contact_schools').delete().eq('contact_id', contactId);
-    await addEducationToContact(supabase, contactId, profileData.education);
+    try {
+      await addEducationToContact(supabase, contactId, profileData.education);
+    } catch (err) {
+      if (oldEdu && oldEdu.length > 0) {
+        await supabase.from('contact_schools').insert(oldEdu.map(({ id, ...rest }: any) => rest));
+      }
+      throw err;
+    }
   }
 
   // Update tags
@@ -240,114 +258,131 @@ async function createNewContact(supabase: any, profileData: any, userId: string)
 
 
 async function addExperienceToContact(supabase: any, contactId: number, experience: any[]) {
-  for (const exp of experience) {
-    if (!exp.company) continue;
+  const validExps = experience.filter(exp => exp.company);
+  if (validExps.length === 0) return;
 
-    // Find or create company (upsert-style to avoid race conditions)
-    let company;
-    const { data: existingCompany } = await supabase
-      .from('companies')
-      .select('id, name')
-      .ilike('name', exp.company)
-      .maybeSingle();
+  // Batch lookup: fetch all matching companies in one query
+  const companyNames = [...new Set(validExps.map(exp => exp.company))];
+  const { data: existingCompanies } = await supabase
+    .from('companies')
+    .select('id, name');
 
-    if (existingCompany) {
-      company = existingCompany;
-    } else {
-      // Try insert; if another request created it concurrently, fetch it
+  // Build a case-insensitive lookup map
+  const companyMap = new Map<string, { id: number; name: string }>();
+  for (const c of existingCompanies || []) {
+    companyMap.set(c.name.toLowerCase(), c);
+  }
+
+  // Create missing companies
+  for (const name of companyNames) {
+    if (!companyMap.has(name.toLowerCase())) {
       const { data: newCompany, error: insertErr } = await supabase
         .from('companies')
-        .insert({ name: exp.company })
-        .select()
+        .insert({ name })
+        .select('id, name')
         .single();
       if (insertErr) {
+        // Concurrent insert — re-fetch
         const { data: retry } = await supabase
           .from('companies')
           .select('id, name')
-          .ilike('name', exp.company)
+          .ilike('name', name)
           .maybeSingle();
-        company = retry;
-      } else {
-        company = newCompany;
+        if (retry) companyMap.set(retry.name.toLowerCase(), retry);
+      } else if (newCompany) {
+        companyMap.set(newCompany.name.toLowerCase(), newCompany);
       }
     }
+  }
+
+  // Fetch existing relationships for this contact in one query
+  const { data: existingRels } = await supabase
+    .from('contact_companies')
+    .select('company_id, title')
+    .eq('contact_id', contactId);
+  const relSet = new Set((existingRels || []).map((r: any) =>
+    `${r.company_id}:${r.title || ''}`
+  ));
+
+  // Insert missing relationships
+  const toInsert = [];
+  for (const exp of validExps) {
+    const company = companyMap.get(exp.company.toLowerCase());
     if (!company) continue;
-
-    // Skip if this exact relationship already exists
-    let relQuery = supabase
-      .from('contact_companies')
-      .select('id')
-      .eq('contact_id', contactId)
-      .eq('company_id', company.id);
-    relQuery = exp.title ? relQuery.eq('title', exp.title) : relQuery.is('title', null);
-    const { data: existingRel } = await relQuery.maybeSingle();
-
-    if (!existingRel) {
-      await supabase
-        .from('contact_companies')
-        .insert({
-          contact_id: contactId,
-          company_id: company.id,
-          title: exp.title || null,
-          start_month: exp.start_month || null,
-          end_month: exp.is_current ? 'Present' : (exp.end_month || null),
-          is_current: exp.is_current || false
-        });
+    const key = `${company.id}:${exp.title || ''}`;
+    if (!relSet.has(key)) {
+      toInsert.push({
+        contact_id: contactId,
+        company_id: company.id,
+        title: exp.title || null,
+        start_month: exp.start_month || null,
+        end_month: exp.is_current ? 'Present' : (exp.end_month || null),
+        is_current: exp.is_current || false,
+      });
     }
+  }
+  if (toInsert.length > 0) {
+    await supabase.from('contact_companies').insert(toInsert);
   }
 }
 
 async function addEducationToContact(supabase: any, contactId: number, education: any[]) {
-  for (const edu of education) {
-    if (!edu.school) continue;
+  const validEdus = education.filter(edu => edu.school);
+  if (validEdus.length === 0) return;
 
-    // Find or create school (upsert-style to avoid race conditions)
-    let school;
-    const { data: existingSchool } = await supabase
-      .from('schools')
-      .select('id, name')
-      .ilike('name', edu.school)
-      .maybeSingle();
+  // Batch lookup: fetch all schools in one query
+  const schoolNames = [...new Set(validEdus.map(edu => edu.school))];
+  const { data: existingSchools } = await supabase
+    .from('schools')
+    .select('id, name');
 
-    if (existingSchool) {
-      school = existingSchool;
-    } else {
+  const schoolMap = new Map<string, { id: number; name: string }>();
+  for (const s of existingSchools || []) {
+    schoolMap.set(s.name.toLowerCase(), s);
+  }
+
+  // Create missing schools
+  for (const name of schoolNames) {
+    if (!schoolMap.has(name.toLowerCase())) {
       const { data: newSchool, error: insertErr } = await supabase
         .from('schools')
-        .insert({ name: edu.school })
-        .select()
+        .insert({ name })
+        .select('id, name')
         .single();
       if (insertErr) {
         const { data: retry } = await supabase
           .from('schools')
           .select('id, name')
-          .ilike('name', edu.school)
+          .ilike('name', name)
           .maybeSingle();
-        school = retry;
-      } else {
-        school = newSchool;
+        if (retry) schoolMap.set(retry.name.toLowerCase(), retry);
+      } else if (newSchool) {
+        schoolMap.set(newSchool.name.toLowerCase(), newSchool);
       }
     }
-    if (!school) continue;
+  }
 
-    // Skip if this exact relationship already exists
-    const { data: existingRel } = await supabase
-      .from('contact_schools')
-      .select('id')
-      .eq('contact_id', contactId)
-      .eq('school_id', school.id)
-      .maybeSingle();
+  // Fetch existing relationships in one query
+  const { data: existingRels } = await supabase
+    .from('contact_schools')
+    .select('school_id')
+    .eq('contact_id', contactId);
+  const relSet = new Set((existingRels || []).map((r: any) => r.school_id));
 
-    if (!existingRel) {
-      await supabase
-        .from('contact_schools')
-        .insert({
-          contact_id: contactId,
-          school_id: school.id,
-          degree: edu.degree || null,
-          field_of_study: edu.field_of_study || null
-        });
-    }
+  // Insert missing relationships
+  const toInsert = [];
+  for (const edu of validEdus) {
+    const school = schoolMap.get(edu.school.toLowerCase());
+    if (!school || relSet.has(school.id)) continue;
+    toInsert.push({
+      contact_id: contactId,
+      school_id: school.id,
+      degree: edu.degree || null,
+      field_of_study: edu.field_of_study || null,
+    });
+  }
+  if (toInsert.length > 0) {
+    await supabase.from('contact_schools').insert(toInsert);
   }
 }
 

@@ -19,9 +19,9 @@
 ## Data Integrity (Priority 2)
 
 - [x] **#8** Race condition in find-or-create (companies/schools/locations) — insert-then-retry-lookup on conflict
-- [ ] **#9** Non-atomic delete-then-insert in replaceContacts helpers — wrap in transaction or use RPC
+- [x] **#9** Non-atomic delete-then-insert in replaceContacts helpers — added backup/restore on failure
 - [x] **#10** `access_token!` assertion crashes if refresh token revoked — try/catch with connection cleanup and user-facing error
-- [ ] **#11** Token refresh race condition between Gmail and Calendar clients
+- [x] **#11** Token refresh race condition between Gmail and Calendar clients — added per-user in-memory lock
 - [x] **#12** Malformed email Date header crashes batch sync — safe parse with null fallback
 
 ## Correctness (Priority 3)
@@ -38,8 +38,8 @@
 
 ## Efficiency (Priority 4)
 
-- [ ] **#22** N+1 queries in experience/education/tag import loops
-- [ ] **#23** No retry/backoff for Gmail API rate limits during sync
+- [x] **#22** N+1 queries in experience/education/tag import loops — batched company/school lookups and batch inserts
+- [x] **#23** No retry/backoff for Gmail API rate limits during sync — added withRetry helper with exponential backoff
 - [x] **#24** `getAllInteractions` two-query pattern could be one join — rewritten as single query with !inner join
 - [x] **#25** Duplicated OAuth2 client + token refresh logic — consolidated into oauth-helpers.ts
 
@@ -48,7 +48,7 @@
 - [x] **#26** Debug console.log in parse-profile — removed with #3 fix
 - [x] **#27** Unused `userId` params in import helpers — removed from addExperienceToContact, addEducationToContact
 - [x] **#28** server-client.ts unnecessarily requires service role key — removed server:true flag
-- [ ] **#29** database.types.ts: companies/schools Insert requires id
+- [x] **#29** database.types.ts: companies/schools Insert requires id — made id optional in Insert types
 - [x] **#30** contact-info-header onContactUpdate passes stale data — parent ignores arg and reloads, no bug
 - [x] **#31** contacts/[id] dynamic import of already-imported module — added getContacts to static import
 - [x] **#32** No user-visible error on dashboard quick-add failure — added quickAddError state and inline message
@@ -60,4 +60,4 @@
 - [x] **#38** Missing loadData in useEffect dependency arrays — wrapped in useCallback, added to deps
 - [x] **#39** getContacts over-fetches for list views — investigated, all callers use the full data; deferring lightweight version
 - [x] **#40** getConnection fragile column selection — investigated, current columns match all callers' needs
-- [ ] **#41** Various type inconsistencies in database.types.ts
+- [x] **#41** Various type inconsistencies in database.types.ts — fixed companies/schools Insert types; junction tables confirmed correct

@@ -15,9 +15,15 @@ export function getOAuth2Client() {
   );
 }
 
+// In-memory lock to prevent concurrent token refreshes for the same user.
+// If Gmail and Calendar both try to refresh at the same time, the second
+// caller waits for the first to finish instead of issuing a duplicate refresh.
+const refreshLocks = new Map<string, Promise<void>>();
+
 /**
  * Refresh an OAuth2 token if it's expired or about to expire (within 5 min).
  * On failure (revoked token), deletes the connection row and throws a clear error.
+ * Uses a per-user lock to prevent concurrent refresh races.
  */
 export async function refreshTokenIfNeeded(
   supabase: any,
@@ -28,6 +34,28 @@ export async function refreshTokenIfNeeded(
 ) {
   if (Date.now() <= expiresAt - 5 * 60_000) return;
 
+  // Wait for any in-flight refresh for this user to complete
+  const existing = refreshLocks.get(userId);
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const refreshPromise = doRefresh(supabase, oauth2Client, userId, serviceName);
+  refreshLocks.set(userId, refreshPromise);
+  try {
+    await refreshPromise;
+  } finally {
+    refreshLocks.delete(userId);
+  }
+}
+
+async function doRefresh(
+  supabase: any,
+  oauth2Client: OAuth2Client,
+  userId: string,
+  serviceName: string,
+) {
   let credentials;
   try {
     ({ credentials } = await oauth2Client.refreshAccessToken());

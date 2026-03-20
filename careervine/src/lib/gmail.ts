@@ -9,6 +9,22 @@
 import { google } from "googleapis";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
+/** Retry a function with exponential backoff on rate-limit (429) or server errors (5xx). */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const status = err?.code || err?.response?.status;
+      const isRetryable = status === 429 || (status >= 500 && status < 600);
+      if (!isRetryable || attempt === maxRetries) throw err;
+      const delay = Math.min(1000 * 2 ** attempt + Math.random() * 500, 10000);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
 const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.send",
@@ -171,12 +187,12 @@ export async function syncEmailsForContact(
   let totalSynced = 0;
 
   do {
-    const listRes = await gmail.users.messages.list({
+    const listRes = await withRetry(() => gmail.users.messages.list({
       userId: "me",
       q: query,
       maxResults: 100,
       pageToken,
-    });
+    }));
 
     const messageIds = (listRes.data.messages || []).map((m) => m.id!);
     if (messageIds.length === 0) break;
@@ -187,12 +203,12 @@ export async function syncEmailsForContact(
       const batch = messageIds.slice(i, i + batchSize);
       const details = await Promise.all(
         batch.map((id) =>
-          gmail.users.messages.get({
+          withRetry(() => gmail.users.messages.get({
             userId: "me",
             id,
             format: "metadata",
             metadataHeaders: ["From", "To", "Subject", "Date"],
-          })
+          }))
         )
       );
 
