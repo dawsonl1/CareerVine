@@ -1165,7 +1165,7 @@
   margin-left: auto;
 }
 
-/* Editable item — row with remove button + content */
+/* Editable item — content + remove button on the right */
 .cv-editable-item {
   display: flex;
   align-items: flex-start;
@@ -1174,6 +1174,7 @@
 
 .cv-editable-item .cv-remove-btn {
   margin-top: 2px;
+  margin-left: auto;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s, background 0.15s;
 }

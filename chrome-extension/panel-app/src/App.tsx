@@ -775,11 +775,6 @@ const EditPanel: React.FC<{
           <div className="cv-experience-list">
             {profile.experience.map((exp, index) => (
               <div key={exp.id} className="cv-job-item cv-editable-item">
-                <button
-                  type="button"
-                  className="cv-add-remove-btn cv-remove-btn"
-                  onClick={() => onRemoveExperience(index)}
-                >-</button>
                 <div className="cv-editable-item-content">
                   <InlineInput
                     value={exp.title || ""}
@@ -815,6 +810,11 @@ const EditPanel: React.FC<{
                     className="cv-inline-job-location"
                   />
                 </div>
+                <button
+                  type="button"
+                  className="cv-add-remove-btn cv-remove-btn"
+                  onClick={() => onRemoveExperience(index)}
+                >{'\u2014'}</button>
               </div>
             ))}
           </div>
@@ -830,11 +830,6 @@ const EditPanel: React.FC<{
           <div className="cv-education-list">
             {profile.education.map((edu, index) => (
               <div key={edu.id} className="cv-edu-item cv-editable-item">
-                <button
-                  type="button"
-                  className="cv-add-remove-btn cv-remove-btn"
-                  onClick={() => onRemoveEducation(index)}
-                >-</button>
                 <div className="cv-editable-item-content">
                   <InlineInput
                     value={edu.school || ""}
@@ -874,6 +869,11 @@ const EditPanel: React.FC<{
                     />
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className="cv-add-remove-btn cv-remove-btn"
+                  onClick={() => onRemoveEducation(index)}
+                >{'\u2014'}</button>
               </div>
             ))}
           </div>
