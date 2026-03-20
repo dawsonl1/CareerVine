@@ -500,8 +500,8 @@ export default function Home() {
             <div className="mb-10">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <CheckSquare className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-medium text-foreground">Pending follow-ups</h2>
+                  <CheckSquare className="h-5 w-5 text-primary" />
+                  <h2 className="text-base font-medium text-foreground">Pending follow-ups</h2>
                   {actionItems.length > 0 && (
                     <span className="text-xs text-muted-foreground">
                       {actionItems.length} item{actionItems.length !== 1 ? "s" : ""}
@@ -510,9 +510,9 @@ export default function Home() {
                 </div>
                 <Link
                   href="/action-items"
-                  className="text-xs font-medium text-primary flex items-center gap-0.5 hover:underline"
+                  className="text-sm font-medium text-primary flex items-center gap-0.5 hover:underline"
                 >
-                  View all <ArrowRight className="h-3 w-3" />
+                  View all <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </div>
 
@@ -542,18 +542,18 @@ export default function Home() {
                         >
                           <CardContent className="p-4 flex items-start gap-3">
                             <div
-                              className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                              className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
                                 overdue ? "bg-error-container" : "bg-primary-container"
                               }`}
                             >
                               {overdue ? (
-                                <AlertTriangle className="h-4 w-4 text-on-error-container" />
+                                <AlertTriangle className="h-[18px] w-[18px] text-on-error-container" />
                               ) : (
-                                <CheckSquare className="h-4 w-4 text-on-primary-container" />
+                                <CheckSquare className="h-[18px] w-[18px] text-on-primary-container" />
                               )}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-foreground truncate">
+                              <p className="text-[15px] font-medium text-foreground truncate">
                                 {item.title}
                               </p>
                               <p className="text-xs text-muted-foreground truncate">
@@ -577,8 +577,8 @@ export default function Home() {
             {reachOutToday.length > 0 && (
               <div className="mb-10">
                 <div className="flex items-center gap-2 mb-3">
-                  <Send className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-medium text-foreground">Reach out today</h2>
+                  <Send className="h-5 w-5 text-primary" />
+                  <h2 className="text-base font-medium text-foreground">Reach out today</h2>
                   <span className="text-xs text-muted-foreground ml-1">
                     {reachOutToday.length} {reachOutToday.length === 1 ? "contact" : "contacts"} need attention
                   </span>
@@ -599,7 +599,7 @@ export default function Home() {
                               <ContactAvatar
                                 name={item.name}
                                 photoUrl={item.photo_url}
-                                className="w-11 h-11 text-sm"
+                                className="w-12 h-12 text-sm"
                                 ringClassName={
                                   isCritical
                                     ? healthRingColors.red
@@ -609,8 +609,8 @@ export default function Home() {
                                 }
                               />
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
-                                <p className="text-xs text-muted-foreground truncate">{item.reason}</p>
+                                <p className="text-[15px] font-medium text-foreground truncate">{item.name}</p>
+                                <p className="text-sm text-muted-foreground truncate">{item.reason}</p>
                               </div>
                               {isCritical && (
                                 <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
@@ -687,14 +687,14 @@ export default function Home() {
               <div className="mb-10">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-primary" />
-                    <h2 className="text-sm font-medium text-foreground">Network health</h2>
+                    <Users className="h-5 w-5 text-primary" />
+                    <h2 className="text-base font-medium text-foreground">Network health</h2>
                   </div>
                   <Link
                     href="/contacts"
-                    className="text-xs font-medium text-primary flex items-center gap-0.5 hover:underline"
+                    className="text-sm font-medium text-primary flex items-center gap-0.5 hover:underline"
                   >
-                    View all <ArrowRight className="h-3 w-3" />
+                    View all <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 </div>
 
@@ -704,8 +704,8 @@ export default function Home() {
                     .filter((color) => healthStats[color] > 0)
                     .map((color) => (
                       <div key={color} className="flex items-center gap-1.5">
-                        <div className={`w-3 h-3 rounded-full ${healthBgColors[color]}`} />
-                        <span className="text-xs text-muted-foreground">
+                        <div className={`w-3.5 h-3.5 rounded-full ${healthBgColors[color]}`} />
+                        <span className="text-sm text-muted-foreground">
                           {healthStats[color]}
                         </span>
                       </div>
@@ -713,7 +713,7 @@ export default function Home() {
                 </div>
 
                 {/* Contact grid */}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-3">
                   {sortedHealthGrid.map((c) => (
                     <Link key={c.id} href={`/contacts/${c.id}`} title={`${c.name} — ${
                       c.days_since_touch === null
@@ -725,7 +725,7 @@ export default function Home() {
                       <ContactAvatar
                         name={c.name}
                         photoUrl={c.photo_url}
-                        className="w-11 h-11 text-sm transition-all hover:scale-110 cursor-pointer"
+                        className="w-14 h-14 text-base transition-all hover:scale-110 cursor-pointer"
                         ringClassName={healthRingColors[c.color]}
                       />
                     </Link>
@@ -733,10 +733,10 @@ export default function Home() {
                 </div>
 
                 {/* Legend */}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
+                <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4">
                   {(["green", "yellow", "orange", "red", "gray"] as const).map((color) => (
-                    <span key={color} className="text-[10px] text-muted-foreground flex items-center gap-1">
-                      <span className={`inline-block w-2 h-2 rounded-full ${healthBgColors[color]}`} />
+                    <span key={color} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <span className={`inline-block w-2.5 h-2.5 rounded-full ${healthBgColors[color]}`} />
                       {healthLabels[color]}
                     </span>
                   ))}
