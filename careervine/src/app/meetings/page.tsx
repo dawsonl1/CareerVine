@@ -495,7 +495,7 @@ export default function MeetingsPage() {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex items-center gap-3 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
             <span className="text-sm">Loading meetings…</span>
@@ -508,9 +508,9 @@ export default function MeetingsPage() {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Header */}
-        <div className="flex justify-between items-center mb-5">
+        <div className="flex justify-between items-center mb-10">
           <div>
             <h1 className="text-[28px] leading-9 font-normal text-foreground">Activity</h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -1058,9 +1058,9 @@ export default function MeetingsPage() {
               <div key={`i-${(item.data as InteractionWithContact).id}`} className="rounded-[16px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all duration-200">
                 <div className="p-5">
                   <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center shrink-0">
-                        <MessageSquare className="h-5 w-5 text-on-primary-container" />
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="w-14 h-14 rounded-full bg-primary-container flex items-center justify-center shrink-0">
+                        <MessageSquare className="h-6 w-6 text-on-primary-container" />
                       </div>
                       <div className="min-w-0">
                         <h3 className="text-base font-medium text-foreground capitalize">{(item.data as InteractionWithContact).interaction_type}</h3>
@@ -1100,9 +1100,9 @@ export default function MeetingsPage() {
             <div key={`m-${meeting.id}`} className="rounded-[16px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all duration-200">
               <div className="p-5">
                 <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
-                      <Calendar className="h-5 w-5 text-on-secondary-container" />
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-14 h-14 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
+                      <Calendar className="h-6 w-6 text-on-secondary-container" />
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-base font-medium text-foreground">{(meeting as any).title || <span className="capitalize">{meeting.meeting_type}</span>}</h3>

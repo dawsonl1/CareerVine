@@ -240,7 +240,7 @@ export default function ContactsPage() {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex items-center gap-3 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
             <span className="text-sm">Loading contacts…</span>
@@ -253,9 +253,9 @@ export default function ContactsPage() {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-10">
           <div>
             <h1 className="text-[28px] leading-9 font-normal text-foreground">Contacts</h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -353,16 +353,16 @@ export default function ContactsPage() {
             return (
               <div key={contact.id} className="rounded-[12px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all">
                 <div
-                  className="flex items-center gap-3 p-3.5 cursor-pointer"
+                  className="flex items-center gap-4 p-4 cursor-pointer"
                   onClick={() => router.push(`/contacts/${contact.id}`)}
                 >
                   {/* Avatar */}
-                  <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-11 h-11 text-base" />
+                  <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-14 h-14 text-base" />
 
                   {/* Name + subtitle */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-foreground truncate">{contact.name}</h3>
-                    <p className="text-xs text-muted-foreground truncate">
+                    <h3 className="text-base font-medium text-foreground truncate">{contact.name}</h3>
+                    <p className="text-sm text-muted-foreground truncate">
                       {currentCompany
                         ? `${currentCompany.title || ""}${currentCompany.title && currentCompany.companies.name ? " at " : ""}${currentCompany.companies.name}`
                         : contact.industry || "No details"
@@ -398,7 +398,7 @@ export default function ContactsPage() {
 
                 {/* Expanded preview */}
                 {isExpanded && (
-                  <div className="px-3.5 pb-3.5 pt-0 border-t border-outline-variant/30">
+                  <div className="px-4 pb-4 pt-0 border-t border-outline-variant/30">
                     <div className="pt-2.5 space-y-2">
                       {/* Contact info chips */}
                       <div className="flex flex-wrap gap-1.5">
