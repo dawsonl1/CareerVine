@@ -163,12 +163,10 @@ export default function IntegrationsSection() {
                 Connect your Gmail account to view email history with your contacts, send emails, and track follow-ups.
               </p>
               <OAuthWarning />
-              <a href="/api/gmail/auth">
-                <Button type="button">
-                  <Mail className="h-4 w-4 mr-2" />
-                  Connect Gmail
-                </Button>
-              </a>
+              <Button href="/api/gmail/auth">
+                <Mail className="h-4 w-4 mr-2" />
+                Connect Gmail
+              </Button>
             </div>
           )}
         </CardContent>
@@ -212,12 +210,10 @@ export default function IntegrationsSection() {
                 Connect your Google Calendar to set your availability and schedule meetings with automatic Google Meet links.
               </p>
               <OAuthWarning />
-              <a href="/api/gmail/auth?scopes=calendar">
-                <Button type="button">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Connect Google Calendar
-                </Button>
-              </a>
+              <Button href="/api/gmail/auth?scopes=calendar">
+                <Calendar className="h-4 w-4 mr-2" />
+                Connect Google Calendar
+              </Button>
             </div>
           )}
         </CardContent>

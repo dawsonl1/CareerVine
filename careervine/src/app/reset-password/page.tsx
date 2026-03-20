@@ -90,9 +90,7 @@ export default function ResetPasswordPage() {
             </div>
             <p className="text-base font-medium text-foreground mb-1">Password updated</p>
             <p className="text-sm text-muted-foreground mb-4">Your password has been successfully changed.</p>
-            <a href="/">
-              <Button type="button">Go to Dashboard</Button>
-            </a>
+            <Button href="/">Go to Dashboard</Button>
           </div>
         ) : sessionError ? (
           <div className="text-center p-6 rounded-2xl bg-surface-container-high">
@@ -103,9 +101,7 @@ export default function ResetPasswordPage() {
             <p className="text-sm text-muted-foreground mb-4">
               This password reset link is invalid or has expired. Please request a new one.
             </p>
-            <a href="/">
-              <Button type="button">Back to login</Button>
-            </a>
+            <Button href="/">Back to login</Button>
           </div>
         ) : !sessionReady ? (
           <div className="flex items-center justify-center gap-3 text-muted-foreground py-8">

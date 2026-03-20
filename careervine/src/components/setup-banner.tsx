@@ -55,20 +55,16 @@ export default function SetupBanner() {
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-2.5">
               {needsGmail && (
-                <a href="/api/gmail/auth">
-                  <Button type="button" size="sm">
-                    <Mail className="h-3.5 w-3.5 mr-1.5" />
-                    Connect Gmail
-                  </Button>
-                </a>
+                <Button href="/api/gmail/auth" size="sm">
+                  <Mail className="h-3.5 w-3.5 mr-1.5" />
+                  Connect Gmail
+                </Button>
               )}
               {needsCalendar && (
-                <a href="/api/gmail/auth?scopes=calendar">
-                  <Button type="button" size="sm" variant={needsGmail ? "outline" : "primary"}>
-                    <Calendar className="h-3.5 w-3.5 mr-1.5" />
-                    Connect Calendar
-                  </Button>
-                </a>
+                <Button href="/api/gmail/auth?scopes=calendar" size="sm" variant={needsGmail ? "outline" : "primary"}>
+                  <Calendar className="h-3.5 w-3.5 mr-1.5" />
+                  Connect Calendar
+                </Button>
               )}
               <button
                 type="button"

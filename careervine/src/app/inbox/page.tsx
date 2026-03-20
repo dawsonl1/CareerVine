@@ -516,12 +516,10 @@ export default function InboxPage() {
           <div className="max-w-md mx-auto mb-5 text-left">
             <OAuthWarning />
           </div>
-          <a href="/api/gmail/auth">
-            <Button>
-              <Mail className="h-4 w-4 mr-2" />
-              Connect Gmail
-            </Button>
-          </a>
+          <Button href="/api/gmail/auth">
+            <Mail className="h-4 w-4 mr-2" />
+            Connect Gmail
+          </Button>
         </div>
       </div>
     );
