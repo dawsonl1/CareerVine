@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
@@ -55,6 +55,19 @@ export default function ContactsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTagFilter, setSelectedTagFilter] = useState<number | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(true);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // Close search suggestions on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowSearchSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // Create contact form state
   const [showForm, setShowForm] = useState(false);
@@ -274,16 +287,17 @@ export default function ContactsPage() {
         </div>
 
         {/* Search bar + suggestions */}
-        <div className="relative mb-4">
+        <div className="relative mb-4" ref={searchRef}>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setShowSearchSuggestions(true); }}
+            onFocus={() => setShowSearchSuggestions(true)}
             className="w-full h-12 pl-11 pr-4 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm"
             placeholder="Search contacts…"
           />
-          {searchQuery.trim() && (nameSuggestions.length > 0 || tagSuggestions.length > 0) && (
+          {showSearchSuggestions && searchQuery.trim() && (nameSuggestions.length > 0 || tagSuggestions.length > 0) && (
             <div className="absolute left-0 top-full mt-1.5 w-full z-50 bg-surface-container-high rounded-2xl shadow-lg border border-outline-variant overflow-hidden">
               {nameSuggestions.map((c) => {
                 const currentCompany = c.contact_companies.find((cc) => cc.is_current);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -68,6 +68,19 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [tagSearch, setTagSearch] = useState("");
   const [showTagDropdown, setShowTagDropdown] = useState(false);
+  const tagDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close tag dropdown on outside click
+  useEffect(() => {
+    if (!showTagDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (tagDropdownRef.current && !tagDropdownRef.current.contains(e.target as Node)) {
+        setShowTagDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showTagDropdown]);
 
   useEffect(() => {
     getTags(userId).then(setAllTags).catch(() => {});
@@ -587,7 +600,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
             })}
           </div>
         )}
-        <div className="relative">
+        <div className="relative" ref={tagDropdownRef}>
           <input
             type="text"
             value={tagSearch}

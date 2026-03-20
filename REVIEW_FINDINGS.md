@@ -53,11 +53,11 @@
 - [x] **#31** contacts/[id] dynamic import of already-imported module — added getContacts to static import
 - [x] **#32** No user-visible error on dashboard quick-add failure — added quickAddError state and inline message
 - [x] **#33** Unnecessary removeEmails/removePhones on new contacts — removed from create flow
-- [ ] **#34** Tag dropdown no outside-click handler
-- [ ] **#35** Search suggestion dropdown no outside-click handler
+- [x] **#34** Tag dropdown no outside-click handler — added ref + mousedown listener
+- [x] **#35** Search suggestion dropdown no outside-click handler — added ref + mousedown listener
 - [x] **#36** select("*") over-fetches sensitive token columns in gmail/calendar — narrowed to needed columns
 - [x] **#37** buildThreads recreated every render in inbox — moved to module-level pure function
 - [x] **#38** Missing loadData in useEffect dependency arrays — wrapped in useCallback, added to deps
-- [ ] **#39** getContacts over-fetches for list views
+- [x] **#39** getContacts over-fetches for list views — investigated, all callers use the full data; deferring lightweight version
 - [x] **#40** getConnection fragile column selection — investigated, current columns match all callers' needs
 - [ ] **#41** Various type inconsistencies in database.types.ts
