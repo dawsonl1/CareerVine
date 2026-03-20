@@ -25,7 +25,7 @@ import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { getMeetings, createMeeting, updateMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting, createActionItem, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, createInteraction, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment } from "@/lib/queries";
+import { getMeetings, createMeeting, updateMeeting, deleteMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting, createActionItem, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, createInteraction, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment } from "@/lib/queries";
 import type { Meeting, SimpleContact, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact } from "@/lib/types";
 import { Plus, Calendar, X, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, Video } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -349,6 +349,23 @@ export default function MeetingsPage() {
     });
     setSelectedContactIds(meeting.meeting_contacts.map((mc) => mc.contact_id));
     setContactSearch("");
+    // Calculate actual duration from the meeting's calendar event if available
+    if ((meeting as any).calendar_event_id) {
+      try {
+        const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser-client");
+        const supabase = createSupabaseBrowserClient();
+        const { data: calEvent } = await supabase
+          .from("calendar_events")
+          .select("start_at, end_at")
+          .eq("google_event_id", (meeting as any).calendar_event_id)
+          .eq("user_id", user!.id)
+          .single();
+        if (calEvent?.start_at && calEvent?.end_at) {
+          const durationMin = Math.round((new Date(calEvent.end_at).getTime() - new Date(calEvent.start_at).getTime()) / 60000);
+          if (durationMin > 0) setMeetingDuration(durationMin);
+        }
+      } catch {}
+    }
     // Load existing action items for this meeting
     try {
       const actions = await getActionItemsForMeeting(meeting.id);
@@ -940,9 +957,25 @@ export default function MeetingsPage() {
                       </p>
                     </div>
                   </div>
-                  <button onClick={() => handleEdit(meeting)} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors">
-                    <Pencil className="h-[18px] w-[18px]" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleEdit(meeting)} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors">
+                      <Pencil className="h-[18px] w-[18px]" />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!confirm("Delete this meeting? This action cannot be undone.")) return;
+                        try {
+                          await deleteMeeting(meeting.id);
+                          await loadMeetings();
+                        } catch (err) {
+                          console.error("Error deleting meeting:", err);
+                        }
+                      }}
+                      className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="h-[18px] w-[18px]" />
+                    </button>
+                  </div>
                 </div>
 
                 {meeting.meeting_contacts.length > 0 && (

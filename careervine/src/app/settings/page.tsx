@@ -459,8 +459,8 @@ export default function SettingsPage() {
             <form onSubmit={async (e) => {
               e.preventDefault();
               setPasswordError("");
-              if (newPassword.length < 6) {
-                setPasswordError("Password must be at least 6 characters.");
+              if (newPassword.length < 8) {
+                setPasswordError("Password must be at least 8 characters.");
                 return;
               }
               if (newPassword !== confirmPassword) {
@@ -490,9 +490,9 @@ export default function SettingsPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className={inputClasses}
-                  placeholder="At least 6 characters"
+                  placeholder="At least 8 characters"
                   required
-                  minLength={6}
+                  minLength={8}
                 />
               </div>
               <div>

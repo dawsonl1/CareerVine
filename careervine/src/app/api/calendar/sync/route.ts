@@ -187,20 +187,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Handle cancelled events
-    const { data: existingEvents } = await service
-      .from("calendar_events")
-      .select("id, google_event_id")
-      .eq("user_id", user.id);
+    // Handle cancelled events — these arrive with status "cancelled" and often
+    // lack start/end fields, so they are skipped by the upsert loop above.
+    // Explicitly delete them from the local cache.
+    const cancelledGoogleIds = events
+      .filter((e: any) => e.status === "cancelled" && e.id)
+      .map((e: any) => e.id);
 
-    const eventIds = new Set(events.map((e: any) => e.id));
-    for (const existing of existingEvents || []) {
-      if (!eventIds.has(existing.google_event_id)) {
-        // Check if it was cancelled in the sync
-        const cancelled = events.find((e: any) => e.id === existing.google_event_id && e.status === "cancelled");
-        if (cancelled) {
-          await service.from("calendar_events").delete().eq("id", existing.id);
-        }
+    if (cancelledGoogleIds.length > 0) {
+      const { data: toDelete } = await service
+        .from("calendar_events")
+        .select("id")
+        .eq("user_id", user.id)
+        .in("google_event_id", cancelledGoogleIds);
+
+      for (const row of toDelete || []) {
+        await service.from("calendar_event_contacts").delete().eq("calendar_event_id", row.id);
+        await service.from("calendar_events").delete().eq("id", row.id);
       }
     }
 

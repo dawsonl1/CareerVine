@@ -73,9 +73,16 @@ export function ContactActionsTab({
     } catch {}
   };
 
+  // Show ALL action items, sorted: overdue first, then upcoming by date, then no due date
   const now = new Date();
-  const oneMonthOut = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
-  const filtered = actions.filter((a) => !a.due_at || new Date(a.due_at) <= oneMonthOut);
+  const filtered = [...actions].sort((a, b) => {
+    const aDate = a.due_at ? new Date(a.due_at).getTime() : Infinity;
+    const bDate = b.due_at ? new Date(b.due_at).getTime() : Infinity;
+    const aOverdue = a.due_at && new Date(a.due_at) < now ? 0 : 1;
+    const bOverdue = b.due_at && new Date(b.due_at) < now ? 0 : 1;
+    if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+    return aDate - bDate;
+  });
 
   return (
     <div>
@@ -84,7 +91,7 @@ export function ContactActionsTab({
       </h4>
 
       {filtered.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-1">No pending action items due soon.</p>
+        <p className="text-xs text-muted-foreground py-1">No pending action items.</p>
       ) : (
         <div className="space-y-1.5 mb-3">
           {filtered.map((action) =>

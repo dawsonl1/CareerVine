@@ -267,8 +267,29 @@ export async function updateMeeting(
 }
 
 /**
+ * Delete a meeting and its associated meeting_contacts rows
+ *
+ * @param id - The meeting's ID
+ * @throws Error if operation fails
+ */
+export async function deleteMeeting(id: number) {
+  // Delete associated contacts first
+  const { error: mcError } = await supabase
+    .from("meeting_contacts")
+    .delete()
+    .eq("meeting_id", id);
+  if (mcError) throw mcError;
+
+  const { error } = await supabase
+    .from("meetings")
+    .delete()
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/**
  * Replace all contacts for a meeting (delete existing, insert new)
- * 
+ *
  * @param meetingId - The meeting's ID
  * @param contactIds - New array of contact IDs
  * @throws Error if operation fails
