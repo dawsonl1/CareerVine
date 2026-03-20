@@ -263,7 +263,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
       <div className="space-y-3">
         {/* Compact header — always visible */}
         <div className="flex items-center gap-4">
-          <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-12 h-12 text-lg" />
+          <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-14 h-14 text-xl" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-medium text-foreground">{contact.name}</h1>

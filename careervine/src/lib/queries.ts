@@ -954,7 +954,7 @@ export async function deleteInteraction(id: number) {
 export async function getContactsWithLastTouch(userId: string) {
   const { data: contacts, error: cErr } = await supabase
     .from("contacts")
-    .select("id, name, industry, follow_up_frequency_days")
+    .select("id, name, industry, follow_up_frequency_days, photo_url")
     .eq("user_id", userId)
     .order("name")
     .limit(500);
@@ -1007,6 +1007,7 @@ export async function getContactsWithLastTouch(userId: string) {
       id: c.id,
       name: c.name,
       industry: c.industry,
+      photo_url: c.photo_url,
       follow_up_frequency_days: c.follow_up_frequency_days,
       last_touch: lastTouch,
       days_since_touch: daysSinceTouch,
@@ -1024,7 +1025,7 @@ export async function getContactsDueForFollowUp(userId: string) {
   // 1. Get all contacts that have a follow-up frequency configured
   const { data: contacts, error: cErr } = await supabase
     .from("contacts")
-    .select("id, name, industry, follow_up_frequency_days")
+    .select("id, name, industry, follow_up_frequency_days, photo_url")
     .eq("user_id", userId)
     .not("follow_up_frequency_days", "is", null)
     .order("name");
@@ -1090,6 +1091,7 @@ export async function getContactsDueForFollowUp(userId: string) {
         id: c.id,
         name: c.name,
         industry: c.industry,
+        photo_url: c.photo_url,
         follow_up_frequency_days: freqDays,
         last_touch: lastTouch || null,
         days_overdue: daysOverdue,

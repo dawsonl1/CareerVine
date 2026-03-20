@@ -63,6 +63,7 @@ export type SimpleContact = {
   name: string;
   email?: string;
   emails?: string[];
+  photo_url?: string | null;
 };
 
 /** Action item with contact info as returned by getActionItemsForMeeting() */

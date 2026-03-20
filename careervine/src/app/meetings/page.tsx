@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getMeetings, createMeeting, updateMeeting, deleteMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting, createActionItem, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, createInteraction, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment, createTranscriptSegments, getTranscriptSegments, updateSpeakerContact } from "@/lib/queries";
 import type { Meeting, SimpleContact, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact, TranscriptSegment } from "@/lib/types";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Plus, Calendar, X, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, Video } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
@@ -36,7 +37,7 @@ import { ContactPicker } from "@/components/ui/contact-picker";
 import TranscriptUploader from "@/components/transcript-uploader";
 import TranscriptViewer from "@/components/transcript-viewer";
 import SpeakerResolver from "@/components/speaker-resolver";
-import type { TranscriptSegment as ParsedSegment } from "@/lib/transcript-parser";
+import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
@@ -96,7 +97,7 @@ export default function MeetingsPage() {
   const [inviteEmailMap, setInviteEmailMap] = useState<Record<number, string>>({});
 
   // Transcript segments
-  const [pendingSegments, setPendingSegments] = useState<ParsedSegment[]>([]);
+  const [pendingSegments, setPendingSegments] = useState<ParsedTranscriptTurn[]>([]);
   const [pendingTranscriptSource, setPendingTranscriptSource] = useState<string | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [meetingSegments, setMeetingSegments] = useState<Record<number, TranscriptSegment[]>>({});
@@ -126,6 +127,7 @@ export default function MeetingsPage() {
           name: c.name,
           email: allEmails[0] || undefined,
           emails: allEmails,
+          photo_url: c.photo_url,
         };
       });
       setAllContacts(contacts);
@@ -348,14 +350,14 @@ export default function MeetingsPage() {
           }, action.contactIds);
         }
       }
-      // Save parsed transcript segments if any
-      if (pendingSegments.length > 0) {
+      // Save parsed transcript segments if any (skip for audio — server already saved them)
+      if (pendingSegments.length > 0 && pendingTranscriptSource !== "audio_deepgram") {
         try {
           await createTranscriptSegments(meetingId, pendingSegments);
           await updateMeeting(meetingId, {
             transcript_source: pendingTranscriptSource || "paste",
             transcript_parsed: true,
-          } as any);
+          });
         } catch (e) {
           console.warn("Failed to save transcript segments:", e);
         }
@@ -603,7 +605,7 @@ export default function MeetingsPage() {
                         const hasEmail = (contactEmailsMap[c.id] || []).length > 0 || !!c.email;
                         return (
                           <button key={c.id} type="button" onClick={() => { setSelectedContactIds([...selectedContactIds, c.id]); setContactSearch(""); }} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-surface-container cursor-pointer transition-colors">
-                            <div className="w-7 h-7 rounded-full bg-secondary-container flex items-center justify-center shrink-0 text-on-secondary-container text-[11px] font-medium">{c.name.charAt(0).toUpperCase()}</div>
+                            <ContactAvatar name={c.name} photoUrl={c.photo_url} className="w-8 h-8 text-xs" />
                             <div className="min-w-0 flex-1">
                               <p className="text-sm text-foreground truncate">{c.name}</p>
                               {c.email ? <p className="text-[11px] text-muted-foreground truncate">{c.email}</p> : <p className="text-[11px] text-amber-600">No email saved</p>}
