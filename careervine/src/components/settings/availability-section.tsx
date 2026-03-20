@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Calendar, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import { useGmailConnection } from "@/hooks/use-gmail-connection";
 
 const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -26,8 +27,7 @@ const defaultPriority: AvailabilityProfile = {
 
 export default function AvailabilitySection() {
   const { user } = useAuth();
-  const [calendarConnected, setCalendarConnected] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { data: connData, loading, calendarConnected } = useGmailConnection();
   const [activeTab, setActiveTab] = useState<"standard" | "priority">("standard");
   const [standard, setStandard] = useState<AvailabilityProfile>(defaultStandard);
   const [priority, setPriority] = useState<AvailabilityProfile>(defaultPriority);
@@ -37,29 +37,15 @@ export default function AvailabilitySection() {
   const [savingBusyCalendars, setSavingBusyCalendars] = useState(false);
   const [calendarTimezone, setCalendarTimezone] = useState("");
 
-  const loadData = useCallback(async () => {
-    if (!user) return;
-    try {
-      const res = await fetch("/api/gmail/connection");
-      const data = await res.json();
-      if (data.connection) {
-        setCalendarConnected(data.connection.calendar_scopes_granted || false);
-        if (data.connection.availability_standard) setStandard(data.connection.availability_standard);
-        if (data.connection.availability_priority) setPriority(data.connection.availability_priority);
-        if (data.connection.calendar_list) setCalendarList(data.connection.calendar_list);
-        if (data.connection.busy_calendar_ids) setBusyCalendarIds(data.connection.busy_calendar_ids);
-        if (data.connection.calendar_timezone) setCalendarTimezone(data.connection.calendar_timezone);
-      }
-    } catch (err) {
-      console.error("Error loading availability:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
+  // Hydrate local state from shared connection data
   useEffect(() => {
-    if (user) loadData();
-  }, [user, loadData]);
+    if (!connData) return;
+    if (connData.availability_standard) setStandard(connData.availability_standard as AvailabilityProfile);
+    if (connData.availability_priority) setPriority(connData.availability_priority as AvailabilityProfile);
+    if (connData.calendar_list) setCalendarList(connData.calendar_list);
+    if (connData.busy_calendar_ids) setBusyCalendarIds(connData.busy_calendar_ids);
+    if (connData.calendar_timezone) setCalendarTimezone(connData.calendar_timezone);
+  }, [connData]);
 
   const handleSaveAvailability = async () => {
     try {

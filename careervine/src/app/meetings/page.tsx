@@ -39,6 +39,7 @@ import TranscriptUploader from "@/components/transcript-uploader";
 import TranscriptViewer from "@/components/transcript-viewer";
 import SpeakerResolver from "@/components/speaker-resolver";
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
+import { useGmailConnection } from "@/hooks/use-gmail-connection";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
@@ -47,6 +48,7 @@ const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", title:
 export default function MeetingsPage() {
   const { user } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
+  const { calendarConnected } = useGmailConnection();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -85,8 +87,7 @@ export default function MeetingsPage() {
   const [interactionForm, setInteractionForm] = useState({ interaction_date: "", interaction_type: "", summary: "" });
   const [interactionSaving, setInteractionSaving] = useState(false);
 
-  // Calendar integration
-  const [calendarConnected, setCalendarConnected] = useState(false);
+  // Calendar integration (calendarConnected from shared hook, defined below)
   const [addToCalendar, setAddToCalendar] = useState(false);
   const [includeMeetLink, setIncludeMeetLink] = useState(true);
   const [meetingDuration, setMeetingDuration] = useState(60);
@@ -105,16 +106,10 @@ export default function MeetingsPage() {
   const [showSpeakerResolver, setShowSpeakerResolver] = useState<number | null>(null);
   const [pendingAudioAttachment, setPendingAudioAttachment] = useState<{ id: number; object_path: string } | null>(null);
 
-  const checkCalendarConnection = useCallback(async () => {
-    try {
-      const res = await fetch("/api/gmail/connection");
-      const data = await res.json();
-      if (data.connection?.calendar_scopes_granted) {
-        setCalendarConnected(true);
-        setAddToCalendar(true);
-      }
-    } catch {}
-  }, []);
+  // Set addToCalendar default when calendar connects
+  useEffect(() => {
+    if (calendarConnected) setAddToCalendar(true);
+  }, [calendarConnected]);
 
   const loadContacts = useCallback(async () => {
     if (!user) return;
@@ -205,9 +200,8 @@ export default function MeetingsPage() {
       loadMeetings();
       loadContacts();
       loadInteractions();
-      checkCalendarConnection();
     }
-  }, [user, loadMeetings, loadContacts, loadInteractions, checkCalendarConnection]);
+  }, [user, loadMeetings, loadContacts, loadInteractions]);
 
   const reloadMeetingActions = async (meetingId: number) => {
     try {

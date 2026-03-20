@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +26,10 @@ export default function AccountSection() {
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordSaved, setPasswordSaved] = useState(false);
   const [passwordError, setPasswordError] = useState("");
+
+  // Cleanup timers on unmount
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
 
   const loadProfile = useCallback(async () => {
     if (!user) return;
@@ -61,7 +65,7 @@ export default function AccountSection() {
         data: { first_name: firstName.trim(), last_name: lastName.trim() },
       });
       setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      timersRef.current.push(setTimeout(() => setSaved(false), 2500));
     } catch (err) {
       console.error("Error saving profile:", err);
       setError("Failed to save profile. Please try again.");
@@ -89,7 +93,7 @@ export default function AccountSection() {
       setNewPassword("");
       setConfirmPassword("");
       setPasswordSaved(true);
-      setTimeout(() => setPasswordSaved(false), 2500);
+      timersRef.current.push(setTimeout(() => setPasswordSaved(false), 2500));
     } catch (err: unknown) {
       console.error("Error changing password:", err);
       setPasswordError(err instanceof Error ? err.message : "Failed to change password.");

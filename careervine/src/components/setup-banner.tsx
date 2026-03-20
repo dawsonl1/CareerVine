@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
+import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { AlertCircle, X, Mail, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OAuthWarning } from "@/components/oauth-warning";
+
+const DISMISSED_KEY = "setup-banner-dismissed";
 
 /**
  * Global setup banner — shown on all pages when Gmail or Calendar is not connected.
@@ -15,38 +18,20 @@ import { OAuthWarning } from "@/components/oauth-warning";
 export default function SetupBanner() {
   const { user } = useAuth();
   const { gmailConnected } = useCompose();
-  const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  const { calendarConnected, loading } = useGmailConnection();
+  // Read sessionStorage synchronously to avoid fetch race
+  const [dismissed, setDismissed] = useState(() =>
+    typeof window !== "undefined" ? sessionStorage.getItem(DISMISSED_KEY) === "true" : false
+  );
   const [showOAuthInfo, setShowOAuthInfo] = useState(false);
-
-  useEffect(() => {
-    if (!user) return;
-    const checkCalendar = async () => {
-      try {
-        const res = await fetch("/api/gmail/connection");
-        const data = await res.json();
-        setCalendarConnected(data.connection?.calendar_scopes_granted || false);
-      } catch {
-        setCalendarConnected(false);
-      }
-    };
-    checkCalendar();
-  }, [user]);
-
-  // Check session dismissal
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setDismissed(sessionStorage.getItem("setup-banner-dismissed") === "true");
-    }
-  }, []);
 
   const handleDismiss = () => {
     setDismissed(true);
-    sessionStorage.setItem("setup-banner-dismissed", "true");
+    sessionStorage.setItem(DISMISSED_KEY, "true");
   };
 
   // Don't render if: no user, still loading, dismissed, or everything is connected
-  if (!user || calendarConnected === null || dismissed) return null;
+  if (!user || loading || dismissed) return null;
   if (gmailConnected && calendarConnected) return null;
 
   const needsGmail = !gmailConnected;

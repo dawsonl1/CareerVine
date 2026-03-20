@@ -9,22 +9,21 @@ import { getGmailConnection } from "@/lib/queries";
 import type { GmailConnection } from "@/lib/types";
 import { Mail, Check, RefreshCw, Unplug, MailCheck, Calendar } from "lucide-react";
 import { OAuthWarning } from "@/components/oauth-warning";
+import { useGmailConnection, invalidateGmailConnectionCache } from "@/hooks/use-gmail-connection";
 
 export default function IntegrationsSection() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
+  const { calendarConnected, calendarLastSynced, loading: calendarLoading, refresh: refreshConnection } = useGmailConnection();
 
-  // Gmail
+  // Gmail — still uses direct Supabase query for address/sync info
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState("");
   const [disconnecting, setDisconnecting] = useState(false);
 
-  // Calendar
-  const [calendarConnected, setCalendarConnected] = useState(false);
-  const [calendarLoading, setCalendarLoading] = useState(true);
-  const [calendarLastSynced, setCalendarLastSynced] = useState<string | null>(null);
+  // Calendar disconnect
   const [disconnectingCalendar, setDisconnectingCalendar] = useState(false);
 
   // Gmail OAuth result message
@@ -52,28 +51,9 @@ export default function IntegrationsSection() {
     }
   }, [user]);
 
-  const loadCalendarStatus = useCallback(async () => {
-    if (!user) return;
-    try {
-      const res = await fetch("/api/gmail/connection");
-      const data = await res.json();
-      if (data.connection) {
-        setCalendarConnected(data.connection.calendar_scopes_granted || false);
-        setCalendarLastSynced(data.connection.calendar_last_synced_at);
-      }
-    } catch (err) {
-      console.error("Error loading calendar status:", err);
-    } finally {
-      setCalendarLoading(false);
-    }
-  }, [user]);
-
   useEffect(() => {
-    if (user) {
-      loadGmailStatus();
-      loadCalendarStatus();
-    }
-  }, [user, loadGmailStatus, loadCalendarStatus]);
+    if (user) loadGmailStatus();
+  }, [user, loadGmailStatus]);
 
   const handleGmailSync = async () => {
     setSyncing(true);
@@ -115,8 +95,8 @@ export default function IntegrationsSection() {
       setDisconnectingCalendar(true);
       const res = await fetch("/api/calendar/disconnect", { method: "POST" });
       if (!res.ok) throw new Error("Failed to disconnect calendar");
-      setCalendarConnected(false);
-      setCalendarLastSynced(null);
+      invalidateGmailConnectionCache();
+      refreshConnection();
     } catch (err) {
       console.error("Error disconnecting calendar:", err);
     } finally {
