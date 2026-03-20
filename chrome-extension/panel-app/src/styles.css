@@ -1019,11 +1019,15 @@
 .cv-auto-size-wrapper {
   display: inline-grid;
   align-items: center;
-  min-width: 30px;
 }
 
 .cv-auto-size-wrapper > * {
   grid-area: 1 / 1 / 2 / 2;
+}
+
+.cv-auto-size-wrapper .cv-inline-input {
+  width: 100%;
+  min-width: 0;
 }
 
 .cv-auto-size-sizer {
@@ -1032,6 +1036,7 @@
   pointer-events: none;
   height: 0;
   overflow: hidden;
+  padding: 2px 4px;
 }
 
 .cv-inline-date-sep {

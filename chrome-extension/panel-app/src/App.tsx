@@ -642,11 +642,12 @@ const MonthYearPicker: React.FC<{
   return (
     <div ref={wrapperRef} className="cv-date-picker-wrapper">
       <span className="cv-auto-size-wrapper">
-        <span className={`cv-auto-size-sizer cv-inline-input ${className}`}>
+        <span className={`cv-auto-size-sizer ${className}`}>
           {inputVal || placeholder}
         </span>
         <input
           type="text"
+          size={1}
           className={`cv-inline-input ${className}`}
           value={inputVal}
           onChange={handleInputChange}
