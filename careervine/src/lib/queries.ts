@@ -152,6 +152,30 @@ export async function updateContact(
  * @throws Error if deletion fails
  */
 export async function deleteContact(id: number) {
+  // Clean up profile photo from storage before deleting the contact row
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("photo_url")
+    .eq("id", id)
+    .single();
+
+  if (contact?.photo_url) {
+    try {
+      // Extract the storage path from the public URL
+      // Public URLs have the form: .../object/public/contact-photos/{userId}/{contactId}.jpg
+      const url = new URL(contact.photo_url);
+      const marker = '/object/public/contact-photos/';
+      const markerIndex = url.pathname.indexOf(marker);
+      if (markerIndex !== -1) {
+        const storagePath = url.pathname.slice(markerIndex + marker.length);
+        await supabase.storage.from('contact-photos').remove([storagePath]);
+      }
+    } catch (err) {
+      // Photo cleanup failure should not block contact deletion
+      console.warn(`[deleteContact] Photo cleanup failed for contact ${id}:`, err);
+    }
+  }
+
   const { error } = await supabase
     .from("contacts")
     .delete()

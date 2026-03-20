@@ -70,7 +70,7 @@ export const POST = withApiHandler({
   extensionAuth: true,
   cors: true,
   handler: async ({ supabase, user, body }) => {
-    const { profileData } = body as { profileData: ProfileData };
+    const { profileData, photoUrl } = body as { profileData: ProfileData; photoUrl?: string };
 
     const duplicates = await findDuplicateContacts(supabase, user.id, profileData);
 
@@ -82,6 +82,15 @@ export const POST = withApiHandler({
       isUpdate = true;
     } else {
       contact = await createNewContact(supabase, profileData, user.id);
+    }
+
+    // Handle photo download and storage (never blocks import)
+    if (photoUrl) {
+      try {
+        await downloadAndStorePhoto(supabase, user.id, contact.id, photoUrl);
+      } catch (err) {
+        console.warn(`[import] Photo download/storage failed for contact ${contact.id}:`, err);
+      }
     }
 
     return {
@@ -397,6 +406,56 @@ async function findOrCreateLocation(supabase: SupabaseClient, location: { city: 
     throw error;
   }
   return data as { id: number };
+}
+
+async function downloadAndStorePhoto(supabase: SupabaseClient, userId: string, contactId: number, photoUrl: string) {
+  // SSRF protection: only allow LinkedIn CDN URLs
+  const parsedUrl = new URL(photoUrl);
+  if (parsedUrl.hostname !== 'media.licdn.com') {
+    console.warn(`[import] Rejected non-LinkedIn photo URL hostname: ${parsedUrl.hostname}`);
+    return;
+  }
+
+  // Fetch the image with a 3-second timeout
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  let response: Response;
+  try {
+    response = await fetch(photoUrl, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Photo fetch failed with status ${response.status}`);
+  }
+
+  const imageBuffer = await response.arrayBuffer();
+  const storagePath = `${userId}/${contactId}.jpg`;
+
+  // On re-import: delete existing photo first (ignore errors — file may not exist)
+  await supabase.storage.from('contact-photos').remove([storagePath]);
+
+  // Upload new photo
+  const { error: uploadError } = await supabase.storage
+    .from('contact-photos')
+    .upload(storagePath, imageBuffer, {
+      contentType: response.headers.get('content-type') || 'image/jpeg',
+      upsert: false,
+    });
+  if (uploadError) throw uploadError;
+
+  // Get the public URL and update the contact record
+  const { data: publicUrlData } = supabase.storage
+    .from('contact-photos')
+    .getPublicUrl(storagePath);
+
+  const { error: updateError } = await supabase
+    .from('contacts')
+    .update({ photo_url: publicUrlData.publicUrl })
+    .eq('id', contactId)
+    .eq('user_id', userId);
+  if (updateError) throw updateError;
 }
 
 async function addTagsToContact(supabase: SupabaseClient, contactId: number, tags: string[], userId: string) {

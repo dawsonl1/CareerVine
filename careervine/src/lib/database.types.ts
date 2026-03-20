@@ -53,8 +53,12 @@ export type Database = {
           expected_graduation: string | null;       // e.g. "May 2027"
           status_derived_at: string | null;         // When contact_status was last derived/set
           location_id: number | null;    // Foreign key to locations table
+          photo_url: string | null;      // Public URL of contact's profile photo in Supabase storage
         };
-        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id">;
+        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url"> & {
+          status_derived_at?: string | null;
+          photo_url?: string | null;
+        };
         Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;
       };
       

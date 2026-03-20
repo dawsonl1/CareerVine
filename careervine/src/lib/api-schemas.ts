@@ -202,6 +202,7 @@ export const contactsCheckDuplicateSchema = z.object({
 
 export const contactsImportSchema = z.object({
   profileData: z.record(z.string(), z.unknown()),
+  photoUrl: z.string().url().optional(),
 });
 
 // ── Extension ──────────────────────────────────────────────────────────
