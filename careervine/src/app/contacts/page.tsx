@@ -25,6 +25,7 @@ import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
 import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 
@@ -284,9 +285,7 @@ export default function ContactsPage() {
                 return (
                   <button key={c.id} type="button" onClick={() => { router.push(`/contacts/${c.id}`); setSearchQuery(""); }}
                     className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface-container cursor-pointer transition-colors text-left">
-                    <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 text-on-primary-container text-xs font-medium">
-                      {c.name.charAt(0).toUpperCase()}
-                    </div>
+                    <ContactAvatar name={c.name} photoUrl={c.photo_url} className="w-7 h-7 text-xs" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-foreground truncate">{c.name}</p>
                       {currentCompany && <p className="text-xs text-muted-foreground truncate">{currentCompany.title}{currentCompany.title && currentCompany.companies.name ? " at " : ""}{currentCompany.companies.name}</p>}
@@ -303,9 +302,7 @@ export default function ContactsPage() {
                     return (
                       <button key={c.id} type="button" onClick={() => { router.push(`/contacts/${c.id}`); setSearchQuery(""); }}
                         className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface-container cursor-pointer transition-colors text-left">
-                        <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 text-on-primary-container text-xs font-medium">
-                          {c.name.charAt(0).toUpperCase()}
-                        </div>
+                        <ContactAvatar name={c.name} photoUrl={c.photo_url} className="w-7 h-7 text-xs" />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm text-foreground truncate">{c.name}</p>
                           {currentCompany && <p className="text-xs text-muted-foreground truncate">{currentCompany.title}{currentCompany.title && currentCompany.companies.name ? " at " : ""}{currentCompany.companies.name}</p>}
@@ -360,9 +357,7 @@ export default function ContactsPage() {
                   onClick={() => router.push(`/contacts/${contact.id}`)}
                 >
                   {/* Avatar */}
-                  <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center shrink-0 text-on-primary-container text-sm font-medium">
-                    {contact.name.charAt(0).toUpperCase()}
-                  </div>
+                  <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-10 h-10 text-base" />
 
                   {/* Name + subtitle */}
                   <div className="flex-1 min-w-0">

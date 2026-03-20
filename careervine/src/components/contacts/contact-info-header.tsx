@@ -22,6 +22,7 @@ import {
   Pencil, Trash2, ExternalLink, Plus, X, Check, Mail, Phone,
   Tag, Briefcase, GraduationCap, MapPin, Send, ChevronDown,
 } from "lucide-react";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
 
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 
@@ -262,9 +263,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
       <div className="space-y-3">
         {/* Compact header — always visible */}
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center shrink-0 text-on-primary-container text-lg font-medium">
-            {contact.name.charAt(0).toUpperCase()}
-          </div>
+          <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-12 h-12 text-lg" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-medium text-foreground">{contact.name}</h1>
