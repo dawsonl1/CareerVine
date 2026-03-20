@@ -11,7 +11,7 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
 import { Modal } from "@/components/ui/modal";
 import {
-  updateContact, deleteContact, findOrCreateSchool, addSchoolToContact,
+  updateContact, findOrCreateSchool, addSchoolToContact,
   removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact,
   removeCompaniesFromContact, removeEmailsFromContact, addEmailToContact,
   removePhonesFromContact, addPhoneToContact, getTags, createTag,
@@ -228,15 +228,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this contact?")) return;
-    try {
-      await deleteContact(contact.id);
-      onContactDelete();
-      toastSuccess("Contact deleted");
-    } catch {
-      toastError("Failed to delete contact");
-    }
+  const handleDelete = () => {
+    onClose();
+    onContactDelete();
   };
 
   return (

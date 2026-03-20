@@ -20,17 +20,20 @@ interface Toast {
   message: string;
   variant: ToastVariant;
   actions?: ToastAction[];
+  showProgress?: boolean;
+  duration?: number;
+}
+
+interface ToastOptions {
+  variant?: ToastVariant;
+  duration?: number;
+  actions?: ToastAction[];
+  showProgress?: boolean;
 }
 
 interface ToastContextValue {
-  toast: (
-    message: string,
-    options?: {
-      variant?: ToastVariant;
-      duration?: number;
-      actions?: ToastAction[];
-    },
-  ) => void;
+  toast: (message: string, options?: ToastOptions) => string;
+  dismiss: (id: string) => void;
   success: (message: string) => void;
   error: (message: string) => void;
   info: (message: string) => void;
@@ -79,12 +82,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const toast = useCallback(
     (
       message: string,
-      options?: {
-        variant?: ToastVariant;
-        duration?: number;
-        actions?: ToastAction[];
-      },
-    ) => {
+      options?: ToastOptions,
+    ): string => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const variant = options?.variant ?? "info";
       const duration = options?.duration ?? DEFAULT_DURATION;
@@ -94,6 +93,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         message,
         variant,
         actions: options?.actions,
+        showProgress: options?.showProgress,
+        duration: duration > 0 ? duration : undefined,
       };
 
       setToasts((prev) => {
@@ -105,6 +106,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         const timer = setTimeout(() => dismiss(id), duration);
         timersRef.current.set(id, timer);
       }
+
+      return id;
     },
     [dismiss],
   );
@@ -127,7 +130,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <ToastContext.Provider value={{ toast, success, error, info, warning }}>
+    <ToastContext.Provider value={{ toast, dismiss, success, error, info, warning }}>
       {children}
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </ToastContext.Provider>
@@ -197,29 +200,40 @@ function ToastItem({
 
   return (
     <div
-      className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-[var(--md-shape-sm)] shadow-[var(--md-elevation-3)] min-w-[300px] max-w-[420px] animate-slide-in-right ${bg}`}
+      className={`pointer-events-auto flex flex-col rounded-[var(--md-shape-sm)] shadow-[var(--md-elevation-3)] min-w-[300px] max-w-[420px] animate-slide-in-right overflow-hidden ${bg}`}
     >
-      <Icon size={18} className={`shrink-0 ${iconColor}`} />
-      <span className="flex-1 text-sm font-medium">{toast.message}</span>
-      {toast.actions?.map((action, i) => (
+      <div className="flex items-center gap-3 px-4 py-3">
+        <Icon size={18} className={`shrink-0 ${iconColor}`} />
+        <span className="flex-1 text-sm font-medium">{toast.message}</span>
+        {toast.actions?.map((action, i) => (
+          <button
+            key={i}
+            onClick={() => {
+              action.onClick();
+            }}
+            className="shrink-0 text-sm font-semibold underline underline-offset-2 opacity-90 hover:opacity-100 transition-opacity"
+          >
+            {action.label}
+          </button>
+        ))}
         <button
-          key={i}
-          onClick={() => {
-            action.onClick();
-            onDismiss(toast.id);
-          }}
-          className="shrink-0 text-sm font-semibold underline underline-offset-2 opacity-90 hover:opacity-100 transition-opacity"
+          onClick={() => onDismiss(toast.id)}
+          className="shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+          aria-label="Dismiss"
         >
-          {action.label}
+          <X size={16} />
         </button>
-      ))}
-      <button
-        onClick={() => onDismiss(toast.id)}
-        className="shrink-0 opacity-70 hover:opacity-100 transition-opacity"
-        aria-label="Dismiss"
-      >
-        <X size={16} />
-      </button>
+      </div>
+      {toast.showProgress && toast.duration && (
+        <div className="h-[3px] w-full bg-current/10">
+          <div
+            className="h-full bg-current/40 rounded-full"
+            style={{
+              animation: `toast-progress ${toast.duration}ms linear forwards`,
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

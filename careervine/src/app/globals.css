@@ -218,3 +218,13 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
 .animate-slide-in-right {
   animation: slide-in-right 200ms ease-out;
 }
+
+/* Toast progress bar countdown */
+@keyframes toast-progress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}

@@ -21,6 +21,7 @@ import { ChevronLeft } from "lucide-react";
 import { useQuickCapture } from "@/components/quick-capture-context";
 import { deleteContact } from "@/lib/queries";
 import { useToast } from "@/components/ui/toast";
+import { useDeferredAction } from "@/hooks/use-deferred-action";
 
 type ActionItem = {
   id: number;
@@ -202,15 +203,20 @@ export default function ContactDetailPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this contact?")) return;
-    try {
-      await deleteContact(contact!.id);
-      toastSuccess("Contact deleted");
-      router.push("/contacts");
-    } catch {
-      toastError("Failed to delete contact");
-    }
+  const { execute: deferDeleteContact } = useDeferredAction<{ id: number; name: string }>({
+    action: async (c) => { await deleteContact(c.id); },
+    undoMessage: (c) => `${c.name} deleted`,
+    onUndo: () => {
+      // Navigate back to this contact — it was never actually deleted
+      router.push(`/contacts/${contactId}`);
+    },
+    onError: () => toastError("Failed to delete contact"),
+  });
+
+  const handleDelete = () => {
+    if (!contact) return;
+    deferDeleteContact({ id: contact.id, name: contact.name });
+    router.push("/contacts");
   };
 
   if (loading) {

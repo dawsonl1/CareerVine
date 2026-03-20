@@ -10,7 +10,7 @@ import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
 import {
-  updateContact, deleteContact, findOrCreateSchool, addSchoolToContact,
+  updateContact, findOrCreateSchool, addSchoolToContact,
   removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact,
   removeCompaniesFromContact, removeEmailsFromContact, addEmailToContact,
   removePhonesFromContact, addPhoneToContact, getTags, createTag,
@@ -239,15 +239,8 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this contact?")) return;
-    try {
-      await deleteContact(contact.id);
-      onContactDelete();
-      toastSuccess("Contact deleted");
-    } catch (error) {
-      toastError("Failed to delete contact");
-    }
+  const handleDelete = () => {
+    onContactDelete();
   };
 
   const [expanded, setExpanded] = useState(false);

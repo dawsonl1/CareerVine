@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select } from "@/components/ui/select";
@@ -8,6 +9,7 @@ import { ContactPicker } from "@/components/ui/contact-picker";
 import { createActionItem, updateActionItem, deleteActionItem, replaceContactsForActionItem, getActionItemsForContact, getCompletedActionItemsForContact } from "@/lib/queries";
 import type { Contact, ContactMeeting } from "@/lib/types";
 import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare } from "lucide-react";
+import { useDeferredAction } from "@/hooks/use-deferred-action";
 
 import { inputClasses } from "@/lib/form-styles";
 
@@ -63,6 +65,8 @@ export function ContactActionsTab({
   const [newMeetingId, setNewMeetingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const { error: toastError } = useToast();
+
   const reloadActions = async () => {
     try {
       const [acts, completed] = await Promise.all([
@@ -72,6 +76,30 @@ export function ContactActionsTab({
       onActionsChange(acts as ActionItem[], completed as CompletedAction[]);
     } catch {}
   };
+
+  const { execute: deferDelete } = useDeferredAction<ActionItem>({
+    action: async (item) => { await deleteActionItem(item.id); },
+    undoMessage: (item) => `"${item.title}" deleted`,
+    onUndo: (item) => {
+      onActionsChange([...actions, item], completedActions);
+    },
+    onError: () => toastError("Failed to delete action item"),
+  });
+
+  const { execute: deferComplete } = useDeferredAction<ActionItem>({
+    action: async (item) => {
+      await updateActionItem(item.id, { is_completed: true, completed_at: new Date().toISOString() });
+    },
+    undoMessage: (item) => `"${item.title}" completed`,
+    onUndo: (item) => {
+      onActionsChange(
+        [...actions, item],
+        completedActions.filter((a) => a.id !== item.id),
+      );
+    },
+    onCommit: () => { reloadActions(); },
+    onError: () => toastError("Failed to complete action item"),
+  });
 
   // Show ALL action items, sorted: overdue first, then upcoming by date, then no due date
   const now = new Date();
@@ -171,11 +199,12 @@ export function ContactActionsTab({
                   </button>
                   <button
                     type="button"
-                    onClick={async () => {
-                      try {
-                        await updateActionItem(action.id, { is_completed: true, completed_at: new Date().toISOString() });
-                        await reloadActions();
-                      } catch {}
+                    onClick={() => {
+                      onActionsChange(
+                        actions.filter((a) => a.id !== action.id),
+                        [{ ...action, is_completed: true, completed_at: new Date().toISOString() } as unknown as CompletedAction, ...completedActions],
+                      );
+                      deferComplete(action);
                     }}
                     className="p-1 rounded-full text-muted-foreground hover:text-primary cursor-pointer"
                     title="Mark done"
@@ -184,12 +213,12 @@ export function ContactActionsTab({
                   </button>
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (!confirm("Delete this action item?")) return;
-                      try {
-                        await deleteActionItem(action.id);
-                        await reloadActions();
-                      } catch {}
+                    onClick={() => {
+                      onActionsChange(
+                        actions.filter((a) => a.id !== action.id),
+                        completedActions,
+                      );
+                      deferDelete(action);
                     }}
                     className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"
                     title="Delete"

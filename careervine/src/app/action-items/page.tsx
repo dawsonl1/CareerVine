@@ -30,6 +30,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import type { Database } from "@/lib/database.types";
 import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown } from "lucide-react";
 import { Select } from "@/components/ui/select";
+import { useDeferredAction } from "@/hooks/use-deferred-action";
 
 type MeetingRow = Database["public"]["Tables"]["meetings"]["Row"];
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
@@ -96,6 +97,42 @@ export default function ActionItemsPage() {
 
   useEffect(() => { if (user) { loadActionItems(); loadContacts(); } }, [user, loadActionItems, loadContacts]);
 
+  const { execute: deferDelete } = useDeferredAction<ActionItem>({
+    action: async (item) => { await deleteActionItem(item.id); },
+    undoMessage: (item) => `"${item.title}" deleted`,
+    onUndo: (item) => {
+      if (item.is_completed) {
+        setCompletedItems((prev) => [...prev, item]);
+      } else {
+        setActionItems((prev) => [...prev, item]);
+      }
+    },
+    onError: () => toastError("Failed to delete action item"),
+  });
+
+  const { execute: deferComplete } = useDeferredAction<ActionItem>({
+    action: async (item) => {
+      await updateActionItem(item.id, { is_completed: true, completed_at: new Date().toISOString() });
+    },
+    undoMessage: (item) => {
+      const contactName = item.contacts?.name || item.action_item_contacts?.[0]?.contacts?.name;
+      return `Completed${contactName ? ` · ${contactName}` : ""}`;
+    },
+    onUndo: (item) => {
+      setCompletedItems((prev) => prev.filter((a) => a.id !== item.id));
+      setActionItems((prev) => [...prev, item]);
+    },
+    onCommit: () => { loadActionItems(); },
+    onError: () => toastError("Failed to complete action item"),
+    extraActions: (item) => {
+      const contactId = item.contacts?.id || item.action_item_contacts?.[0]?.contact_id;
+      if (contactId) {
+        return [{ label: "Log conversation", onClick: () => openQuickCapture(contactId) }];
+      }
+      return [];
+    },
+  });
+
   const restoreItem = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation();
     try {
@@ -105,38 +142,20 @@ export default function ActionItemsPage() {
     } catch (err) { toastError("Failed to restore action item"); }
   };
 
-  const removeItem = async (e: React.MouseEvent, id: number) => {
+  const removeItem = (e: React.MouseEvent, item: ActionItem) => {
     e.stopPropagation();
-    if (!confirm("Permanently delete this action item?")) return;
-    try {
-      await deleteActionItem(id);
-      await loadActionItems();
-      if (selectedItem?.id === id) setSelectedItem(null);
-      toastSuccess("Action item deleted");
-    } catch (err) { toastError("Failed to delete action item"); }
+    setActionItems((prev) => prev.filter((a) => a.id !== item.id));
+    setCompletedItems((prev) => prev.filter((a) => a.id !== item.id));
+    if (selectedItem?.id === item.id) setSelectedItem(null);
+    deferDelete(item);
   };
 
-  const markDone = async (e: React.MouseEvent, id: number) => {
+  const markDone = (e: React.MouseEvent, item: ActionItem) => {
     e.stopPropagation();
-    try {
-      const item = actionItems.find((a) => a.id === id);
-      const contactId = item?.contacts?.id || item?.action_item_contacts?.[0]?.contact_id;
-      const contactName = item?.contacts?.name || item?.action_item_contacts?.[0]?.contacts?.name;
-
-      await updateActionItem(id, { is_completed: true, completed_at: new Date().toISOString() });
-      await loadActionItems();
-      if (selectedItem?.id === id) setSelectedItem(null);
-
-      const actions: { label: string; onClick: () => void }[] = [];
-      if (contactId) {
-        actions.push({ label: "Log conversation", onClick: () => openQuickCapture(contactId) });
-      }
-      toast(`Completed${contactName ? ` · ${contactName}` : ""}`, {
-        variant: "success",
-        duration: 6000,
-        actions: actions.length > 0 ? actions : undefined,
-      });
-    } catch (err) { toastError("Failed to complete action item"); }
+    setActionItems((prev) => prev.filter((a) => a.id !== item.id));
+    setCompletedItems((prev) => [{ ...item, is_completed: true, completed_at: new Date().toISOString() }, ...prev]);
+    if (selectedItem?.id === item.id) setSelectedItem(null);
+    deferComplete(item);
   };
 
   const openEdit = async (e: React.MouseEvent, item: ActionItem) => {
@@ -226,7 +245,7 @@ export default function ActionItemsPage() {
             <button onClick={(e) => openEdit(e, item)} className="state-layer p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
               <Pencil className="h-[18px] w-[18px]" />
             </button>
-            <Button variant={overdue ? "danger" : "tonal"} size="sm" onClick={(e) => markDone(e, item.id)}>
+            <Button variant={overdue ? "danger" : "tonal"} size="sm" onClick={(e) => markDone(e, item)}>
               <Check className="h-4 w-4" /> Done
             </Button>
           </div>
@@ -341,7 +360,7 @@ export default function ActionItemsPage() {
                           <button onClick={(e) => restoreItem(e, item.id)} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Restore">
                             <RotateCcw className="h-[18px] w-[18px]" />
                           </button>
-                          <button onClick={(e) => removeItem(e, item.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
+                          <button onClick={(e) => removeItem(e, item)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
                             <Trash2 className="h-[18px] w-[18px]" />
                           </button>
                         </div>
@@ -411,7 +430,7 @@ export default function ActionItemsPage() {
 
                 {/* Actions */}
                 <div className="flex justify-between pt-2">
-                  <Button variant="danger" size="sm" onClick={(e) => { removeItem(e, selectedItem.id); }}>
+                  <Button variant="danger" size="sm" onClick={(e) => { removeItem(e, selectedItem); }}>
                     <Trash2 className="h-4 w-4" /> Delete
                   </Button>
                   <div className="flex gap-2">
@@ -423,7 +442,7 @@ export default function ActionItemsPage() {
                         <RotateCcw className="h-4 w-4" /> Restore
                       </Button>
                     ) : (
-                      <Button onClick={(e) => markDone(e, selectedItem.id)}>
+                      <Button onClick={(e) => markDone(e, selectedItem)}>
                         <Check className="h-4 w-4" /> Mark done
                       </Button>
                     )}
