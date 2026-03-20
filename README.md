@@ -1,23 +1,32 @@
 # CareerVine
 
-A full-stack personal CRM for managing professional relationships. Built to solve a real problem: keeping track of every conversation, follow-up, and promise across a growing network.
+A personal CRM I built from scratch to solve my own problem: I was having great conversations — coffee chats, informational interviews, networking events — and then losing track of the follow-ups. Existing tools were either too heavy (Salesforce) or too generic (spreadsheets). So I built something purpose-fit.
 
 **Live at [careervine.app](https://careervine.app)**
 
-## What it does
+## The problem
 
-CareerVine tracks the people you meet and the conversations you have with them. Log a coffee chat, and it reminds you to send that intro you promised. Set a follow-up cadence, and it tells you when a relationship is going cold. Connect Gmail, and your email history with each contact appears automatically.
+Professional relationships compound, but only if you maintain them. After a few months of networking, I had dozens of contacts and no system for remembering what I promised, who I owed a follow-up, or when I last spoke to someone. The cost of a dropped follow-up is invisible — you just never hear back.
 
-### Core features
+## How CareerVine solves it
 
-- **Conversation logging** — Record meetings with notes, attendees, and file attachments. Quick-capture modal lets you log from anywhere in the app.
-- **Action items** — Turn "I'll send you that article" into a tracked task with a due date, linked back to the conversation where you said it.
-- **Follow-up cadences** — Set per-contact frequencies (weekly, monthly, quarterly). Dashboard shows who's overdue with color-coded health indicators.
-- **Gmail integration** — Full inbox with threading, AI-powered email composition, scheduled sending, and multi-stage follow-up sequences that auto-cancel on reply.
-- **Google Calendar sync** — Week/list views, drag-to-create meetings, auto-generated Google Calendar events with Meet links and attendee invites.
-- **Transcript processing** — Upload audio files or paste VTT/SRT transcripts. Speakers are identified and matched to meeting attendees.
-- **Contact profiles** — Two-column card layout with inline editing for email and follow-up cadence (no edit mode needed for common actions). Full work history, education, tags, and interaction timeline.
-- **Chrome extension** — Visit a LinkedIn profile, click import. Name, company, education, photo, and work history are scraped and saved in one click.
+The core insight is that **conversations are the atomic unit of a relationship**, not contacts. Everything in CareerVine flows from logging a conversation: action items are created in context, follow-ups are tracked against the last touchpoint, and email history fills in the gaps automatically.
+
+### Key workflows
+
+- **Log a conversation, capture what matters** — Quick-capture from anywhere in the app. Notes, attendees, and action items are tied to the conversation where they happened, not floating in a vacuum.
+- **Never drop a follow-up** — Set a cadence per contact (weekly, monthly, quarterly). The dashboard shows who's overdue with color-coded health indicators so you can prioritize at a glance.
+- **One-click LinkedIn import** — Chrome extension scrapes a LinkedIn profile and saves the contact with work history, education, and photo. No manual data entry.
+- **Email as a first-class feature** — Gmail integration with threaded inbox, AI-powered composition, scheduled sends, and multi-stage follow-up sequences that auto-cancel when the person replies.
+- **Calendar that knows your network** — Google Calendar sync with week/list views. Create a meeting in CareerVine and it generates a Google Calendar event with Meet link and attendee invites.
+- **Transcripts to notes** — Upload audio or paste a transcript. Speakers are identified and matched to attendees so your meeting notes write themselves.
+
+### UX decisions I'm proud of
+
+- **Inline editing for high-frequency actions** — Email and follow-up cadence are editable directly on the contact card (hover to reveal, click to edit, blur to save). Inspired by the Chrome extension's pattern of making inputs look like display text until interaction. No edit mode needed for the two most common actions.
+- **Contact profile as two-column layout** — Sticky sidebar with identity + contact info, main column with activity tabs. Keeps context visible while you scroll through timeline/emails.
+- **Conversation-first data model** — Action items link back to the meeting where you made the promise. Timeline shows everything chronologically across meetings, emails, and interactions.
+- **Follow-up sequences that respect replies** — Multi-stage email sequences auto-cancel when the recipient responds, so you never accidentally nag someone who already got back to you.
 
 ## Tech stack
 
@@ -25,12 +34,12 @@ CareerVine tracks the people you meet and the conversations you have with them. 
 |-------|------|
 | Framework | Next.js 16 (App Router, React 19) |
 | Language | TypeScript |
-| Styling | Tailwind CSS 4, Material Design 3 color system |
+| Styling | Tailwind CSS 4, custom Material Design 3 component library |
 | Database | Supabase (Postgres + Row Level Security) |
 | Auth | Supabase Auth |
 | APIs | Gmail API, Google Calendar API, OpenAI API, Deepgram API |
 | Rich text | Tiptap editor |
-| Testing | Vitest + React Testing Library |
+| Testing | Vitest + React Testing Library (278 tests) |
 | Deployment | Vercel |
 | Browser extension | Chrome Manifest V3, Shadow DOM isolation |
 
@@ -39,8 +48,8 @@ CareerVine tracks the people you meet and the conversations you have with them. 
 ```
 careervine/           Next.js app
   src/
-    app/              Pages + 45 API routes
-    components/       UI components (custom M3 component library)
+    app/              12 pages + 45 API routes
+    components/       Custom M3 component library
     lib/              Database queries, types, utilities
     hooks/            Custom React hooks
 
@@ -52,15 +61,6 @@ supabase/
   migrations/         28 database migrations
 ```
 
-## Project stats
-
-- ~150 TypeScript source files
-- 45 API routes
-- 12 pages
-- 278 tests
-- 28 database migrations
-- Chrome extension with LinkedIn scraping + Shadow DOM panel
-
 ## Local development
 
 ```bash
@@ -69,4 +69,4 @@ npm install
 npm run dev
 ```
 
-Requires environment variables for Supabase, Google OAuth, OpenAI, and Deepgram. See `.env.example` if present, or check the API route files for required keys.
+Requires environment variables for Supabase, Google OAuth, OpenAI, and Deepgram.
