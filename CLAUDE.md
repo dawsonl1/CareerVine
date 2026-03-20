@@ -45,3 +45,5 @@ This file contains a growing ruleset that improves over time. **At session start
 4. [PROCESS] After completing a change and writing/updating tests, always run the test suite (`npm run test` from the `careervine/` directory, which runs Vitest) and verify all tests pass before committing — because pushing broken tests defeats the purpose of having them and wastes the user's time when they pull to test locally.
 
 5. [UX] Prioritize user experience above all else. Every UI decision must favor clean, intuitive design that serves real functionality and utility — never add visual clutter, unnecessary complexity, or decorative elements that don't help the user accomplish their goals. The product exists to meaningfully improve users' lives, so every interaction should feel effortless and purposeful.
+
+6. [PROCESS] Always write implementation plans to `/home/braxtong/Dawson/CareerVine/.claude/plans/` as a markdown file before starting non-trivial features — because the user wants plans persisted and reviewable on disk, not just in conversation context.
