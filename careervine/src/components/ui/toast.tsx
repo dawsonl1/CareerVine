@@ -210,6 +210,7 @@ function ToastItem({
             key={i}
             onClick={() => {
               action.onClick();
+              onDismiss(toast.id);
             }}
             className="shrink-0 text-sm font-semibold underline underline-offset-2 opacity-90 hover:opacity-100 transition-opacity"
           >
