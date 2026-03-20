@@ -25,6 +25,7 @@ import { QuickCaptureProvider } from "@/components/quick-capture-context";
 import { QuickCaptureModal } from "@/components/quick-capture-modal";
 import { ToastProvider } from "@/components/ui/toast";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 // Configure Geist fonts for the application
 const geistSans = Geist({
@@ -76,6 +77,7 @@ export default function RootLayout({
           </ToastProvider>
         </AuthProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

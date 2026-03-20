@@ -20,6 +20,7 @@
     "@tiptap/starter-kit": "^3.19.0",
     "@types/dompurify": "^3.0.5",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
     "date-fns-tz": "^3.2.0",
     "dompurify": "^3.3.3",
     "googleapis": "^171.4.0",
