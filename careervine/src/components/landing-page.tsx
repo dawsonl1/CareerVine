@@ -379,9 +379,14 @@ export default function LandingPage() {
       {/* ── Footer ── */}
       <footer className="border-t border-outline-variant px-6 py-4 flex items-center justify-between text-xs text-muted-foreground">
         <span>&copy; {new Date().getFullYear()} CareerVine</span>
-        <a href="/privacy" className="hover:underline">
-          Privacy
-        </a>
+        <div className="flex items-center gap-4">
+          <a href="mailto:dawson@careervine.app" className="hover:underline">
+            dawson@careervine.app
+          </a>
+          <a href="/privacy" className="hover:underline">
+            Privacy
+          </a>
+        </div>
       </footer>
     </div>
   );

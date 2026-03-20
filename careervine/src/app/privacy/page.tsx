@@ -120,8 +120,8 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-lg font-medium mb-3">10. Contact</h2>
             <p className="text-muted-foreground leading-relaxed">
               If you have any questions about this Privacy Policy, please contact us at{" "}
-              <a href="mailto:dawsonlpitcher@gmail.com" className="text-primary hover:underline">
-                dawsonlpitcher@gmail.com
+              <a href="mailto:dawson@careervine.app" className="text-primary hover:underline">
+                dawson@careervine.app
               </a>
               .
             </p>
