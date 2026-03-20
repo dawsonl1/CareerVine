@@ -208,7 +208,7 @@ export const contactsImportSchema = z.object({
 // ── Transcripts ────────────────────────────────────────────────────────
 
 export const transcriptTranscribeSchema = z.object({
-  meetingId: z.number().int(),
+  meetingId: z.number().int().optional(),
   attachmentObjectPath: z.string().min(1, "attachmentObjectPath is required"),
 });
 

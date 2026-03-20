@@ -9,7 +9,11 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
  * Transcribes an audio/video file using Deepgram with speaker diarization.
  * The file must already be uploaded to Supabase Storage.
  *
- * Input:  { meetingId: number, attachmentObjectPath: string }
+ * When meetingId is provided (editing an existing meeting), segments are saved
+ * server-side. When omitted (creating a new meeting), only the transcription
+ * results are returned for the client to save after meeting creation.
+ *
+ * Input:  { meetingId?: number, attachmentObjectPath: string }
  * Output: { segments: TranscriptSegment[], rawText: string }
  */
 export const POST = withApiHandler({
@@ -20,30 +24,35 @@ export const POST = withApiHandler({
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!apiKey) throw new ApiError("Deepgram API key not configured", 500);
 
-    // Get a signed URL for the audio file from Supabase Storage
     const serviceClient = createSupabaseServiceClient();
-    const { data: signedUrlData, error: urlError } = await serviceClient.storage
+
+    // Get signed URL and verify meeting ownership in parallel (when meetingId provided)
+    const signedUrlPromise = serviceClient.storage
       .from("attachments")
-      .createSignedUrl(attachmentObjectPath, 3600); // 1 hour expiry
-    if (urlError || !signedUrlData?.signedUrl) {
+      .createSignedUrl(attachmentObjectPath, 3600);
+
+    const ownershipPromise = meetingId
+      ? serviceClient
+          .from("meetings")
+          .select("id")
+          .eq("id", meetingId)
+          .eq("user_id", user.id)
+          .single()
+      : Promise.resolve({ data: null, error: null });
+
+    const [signedUrlResult, ownershipResult] = await Promise.all([signedUrlPromise, ownershipPromise]);
+
+    if (signedUrlResult.error || !signedUrlResult.data?.signedUrl) {
       throw new ApiError("Failed to get signed URL for audio file", 500);
     }
-
-    // Verify the user owns this meeting
-    const { data: meeting, error: meetingError } = await serviceClient
-      .from("meetings")
-      .select("id")
-      .eq("id", meetingId)
-      .eq("user_id", user.id)
-      .single();
-    if (meetingError || !meeting) {
+    if (meetingId && (ownershipResult.error || !ownershipResult.data)) {
       throw new ApiError("Meeting not found", 404);
     }
 
     // Call Deepgram pre-recorded API with diarization
     const deepgram = createClient(apiKey);
     const { result, error: dgError } = await deepgram.listen.prerecorded.transcribeUrl(
-      { url: signedUrlData.signedUrl },
+      { url: signedUrlResult.data.signedUrl },
       {
         model: "nova-3",
         diarize: true,
@@ -73,19 +82,8 @@ export const POST = withApiHandler({
       .map((s: any) => `${s.speaker_label}: ${s.content}`)
       .join("\n\n");
 
-    // Save segments to database
-    if (segments.length > 0) {
-      const rows = segments.map((s: any) => ({
-        meeting_id: meetingId,
-        ordinal: s.ordinal,
-        speaker_label: s.speaker_label,
-        contact_id: null,
-        started_at: s.started_at,
-        ended_at: s.ended_at,
-        content: s.content,
-      }));
-
-      // Clear existing segments first
+    // Only persist to DB when editing an existing meeting
+    if (meetingId && segments.length > 0) {
       await serviceClient
         .from("transcript_segments")
         .delete()
@@ -93,22 +91,29 @@ export const POST = withApiHandler({
 
       const { error: insertError } = await serviceClient
         .from("transcript_segments")
-        .insert(rows);
+        .insert(segments.map((s: any) => ({
+          meeting_id: meetingId,
+          ordinal: s.ordinal,
+          speaker_label: s.speaker_label,
+          contact_id: null,
+          started_at: s.started_at,
+          ended_at: s.ended_at,
+          content: s.content,
+        })));
       if (insertError) {
         console.error("[transcribe] Segment insert error:", insertError);
         throw new ApiError("Failed to save transcript segments", 500);
       }
-    }
 
-    // Update meeting with raw transcript and metadata
-    await serviceClient
-      .from("meetings")
-      .update({
-        transcript: rawText,
-        transcript_source: "audio_deepgram",
-        transcript_parsed: true,
-      })
-      .eq("id", meetingId);
+      await serviceClient
+        .from("meetings")
+        .update({
+          transcript: rawText,
+          transcript_source: "audio_deepgram",
+          transcript_parsed: true,
+        })
+        .eq("id", meetingId);
+    }
 
     return { segments, rawText };
   },

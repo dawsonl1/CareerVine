@@ -1,9 +1,19 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Upload, FileText, Mic, Loader2 } from "lucide-react";
-import { parseTranscript, type TranscriptSegment } from "@/lib/transcript-parser";
+import { parseTranscript, type ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import { inputClasses } from "@/lib/form-styles";
+
+/** Debounce a callback by `delay` ms. Returns a stable function ref. */
+function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+  const timer = useRef<ReturnType<typeof setTimeout>>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useCallback(((...args: any[]) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => fn(...args), delay);
+  }) as T, [fn, delay]);
+}
 
 type TranscriptMode = "paste" | "file" | "audio";
 
@@ -12,7 +22,7 @@ interface TranscriptUploaderProps {
   value: string;
   onChange: (value: string) => void;
   /** Called when segments are parsed (from any mode) */
-  onSegmentsParsed?: (segments: TranscriptSegment[], source: string) => void;
+  onSegmentsParsed?: (segments: ParsedTranscriptTurn[], source: string) => void;
   /** Called when an audio/video file is selected for transcription */
   onAudioFile?: (file: File) => void;
   /** Whether an audio transcription is in progress */
@@ -42,9 +52,7 @@ export default function TranscriptUploader({
   const audioRef = useRef<HTMLInputElement>(null);
 
   // ── Paste mode ───────────────────────────────────────────
-  const handlePasteChange = (text: string) => {
-    onChange(text);
-    // Auto-parse on paste if there's enough content
+  const debouncedParse = useDebouncedCallback((text: string) => {
     if (text.length > 50) {
       const result = parseTranscript(text);
       if (result.segments.length > 0 && result.confidence >= 0.3) {
@@ -56,6 +64,11 @@ export default function TranscriptUploader({
     } else {
       setParseStatus(null);
     }
+  }, 400);
+
+  const handlePasteChange = (text: string) => {
+    onChange(text);
+    debouncedParse(text);
   };
 
   // ── Text file upload ─────────────────────────────────────

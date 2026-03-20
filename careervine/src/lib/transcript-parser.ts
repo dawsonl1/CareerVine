@@ -9,16 +9,20 @@
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-export interface TranscriptSegment {
+export interface ParsedTranscriptTurn {
   speaker_label: string;
   started_at: number | null;  // seconds from start
   ended_at: number | null;
   content: string;
 }
 
+export type TranscriptFormat =
+  | "zoom" | "zoom-multiline" | "google-meet" | "teams"
+  | "vtt" | "srt" | "generic" | "unknown";
+
 export interface ParseResult {
-  segments: TranscriptSegment[];
-  format: string;
+  segments: ParsedTranscriptTurn[];
+  format: TranscriptFormat;
   confidence: number; // 0–1
 }
 
@@ -46,7 +50,7 @@ function tryZoomTimestampFirst(text: string): ParseResult | null {
   // Pattern: timestamp at start of line, then speaker name with colon, then text
   const linePattern = /^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+?):\s*(.*)$/;
   const lines = text.split("\n");
-  const segments: TranscriptSegment[] = [];
+  const segments: ParsedTranscriptTurn[] = [];
   let matched = 0;
 
   for (const line of lines) {
@@ -81,9 +85,9 @@ function tryZoomTimestampFirst(text: string): ParseResult | null {
 function tryZoomMultiLine(text: string): ParseResult | null {
   const headerPattern = /^(.+?)\s{2,}(\d{1,2}:\d{2}(?::\d{2})?)\s*$/;
   const lines = text.split("\n");
-  const segments: TranscriptSegment[] = [];
+  const segments: ParsedTranscriptTurn[] = [];
   let matched = 0;
-  let current: TranscriptSegment | null = null;
+  let current: ParsedTranscriptTurn | null = null;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -121,7 +125,7 @@ function tryZoomMultiLine(text: string): ParseResult | null {
  */
 function tryGoogleMeet(text: string): ParseResult | null {
   const lines = text.split("\n");
-  const segments: TranscriptSegment[] = [];
+  const segments: ParsedTranscriptTurn[] = [];
   let matched = 0;
   const tsPattern = /^\d{1,2}:\d{2}(?::\d{2})?$/;
 
@@ -168,9 +172,9 @@ function tryGoogleMeet(text: string): ParseResult | null {
 function tryTeams(text: string): ParseResult | null {
   const headerPattern = /^(\d{1,2}:\d{2}(?::\d{2})?)\s*--\s*(.+)$/;
   const lines = text.split("\n");
-  const segments: TranscriptSegment[] = [];
+  const segments: ParsedTranscriptTurn[] = [];
   let matched = 0;
-  let current: TranscriptSegment | null = null;
+  let current: ParsedTranscriptTurn | null = null;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -211,7 +215,7 @@ function tryVtt(text: string): ParseResult | null {
   const cuePattern = /^(\d{2}:\d{2}[:.]\d{3})\s*-->\s*(\d{2}:\d{2}[:.]\d{3})/;
   const speakerTag = /<v\s+([^>]+)>([\s\S]*?)(?:<\/v>)?$/;
   const lines = text.split("\n");
-  const segments: TranscriptSegment[] = [];
+  const segments: ParsedTranscriptTurn[] = [];
   let matched = 0;
 
   let i = 0;
@@ -263,7 +267,7 @@ function tryVtt(text: string): ParseResult | null {
 function trySrt(text: string): ParseResult | null {
   const cuePattern = /^(\d{2}:\d{2}:\d{2}),\d{3}\s*-->\s*(\d{2}:\d{2}:\d{2}),\d{3}/;
   const lines = text.split("\n");
-  const segments: TranscriptSegment[] = [];
+  const segments: ParsedTranscriptTurn[] = [];
   let matched = 0;
 
   let i = 0;
@@ -314,7 +318,7 @@ function tryGenericSpeaker(text: string): ParseResult | null {
   // Speaker name: 1-40 chars, no digits at start, followed by colon and text
   const pattern = /^([A-Za-z][^:]{0,39}):\s+(.+)$/;
   const lines = text.split("\n");
-  const segments: TranscriptSegment[] = [];
+  const segments: ParsedTranscriptTurn[] = [];
   let matched = 0;
   const speakers = new Set<string>();
 
@@ -382,9 +386,9 @@ export function parseTranscript(rawText: string): ParseResult {
  * Merge consecutive segments from the same speaker into one segment.
  * Preserves the first timestamp and takes the last end timestamp.
  */
-function mergeConsecutiveSpeakers(segments: TranscriptSegment[]): TranscriptSegment[] {
+function mergeConsecutiveSpeakers(segments: ParsedTranscriptTurn[]): ParsedTranscriptTurn[] {
   if (segments.length <= 1) return segments;
-  const merged: TranscriptSegment[] = [{ ...segments[0] }];
+  const merged: ParsedTranscriptTurn[] = [{ ...segments[0] }];
 
   for (let i = 1; i < segments.length; i++) {
     const prev = merged[merged.length - 1];

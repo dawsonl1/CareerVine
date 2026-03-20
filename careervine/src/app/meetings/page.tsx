@@ -181,7 +181,7 @@ export default function MeetingsPage() {
             getAttachmentsForMeeting(m.id),
           ];
           // Only load segments for meetings that have parsed transcripts
-          if ((m as any).transcript_parsed) {
+          if (m.transcript_parsed) {
             promises.push(getTranscriptSegments(m.id));
           }
           const [items, atts, segs] = await Promise.all(promises);
@@ -350,8 +350,10 @@ export default function MeetingsPage() {
           }, action.contactIds);
         }
       }
-      // Save parsed transcript segments if any (skip for audio — server already saved them)
-      if (pendingSegments.length > 0 && pendingTranscriptSource !== "audio_deepgram") {
+      // Save parsed transcript segments if any
+      // Skip for audio when editing — server already saved them
+      const serverAlreadySaved = pendingTranscriptSource === "audio_deepgram" && editingMeeting;
+      if (pendingSegments.length > 0 && !serverAlreadySaved) {
         try {
           await createTranscriptSegments(meetingId, pendingSegments);
           await updateMeeting(meetingId, {
@@ -661,7 +663,7 @@ export default function MeetingsPage() {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({
-                                  meetingId: editingMeeting?.id ?? 0,
+                                  ...(editingMeeting ? { meetingId: editingMeeting.id } : {}),
                                   attachmentObjectPath: attachment.object_path,
                                 }),
                               });
@@ -1120,19 +1122,14 @@ export default function MeetingsPage() {
                     {showSpeakerResolver === meeting.id && meetingSegments[meeting.id] && (
                       <div className="mb-3">
                         <SpeakerResolver
-                          segments={meetingSegments[meeting.id].map(s => ({
-                            speaker_label: s.speaker_label,
-                            started_at: s.started_at,
-                            ended_at: s.ended_at,
-                            content: s.content,
-                          }))}
+                          segments={meetingSegments[meeting.id]}
                           meetingContacts={meeting.meeting_contacts.map(mc => ({ id: mc.contacts.id, name: mc.contacts.name }))}
                           allContacts={allContacts}
                           onResolve={async (mappings) => {
                             try {
-                              for (const m of mappings) {
-                                await updateSpeakerContact(meeting.id, m.speakerLabel, m.contactId);
-                              }
+                              await Promise.all(mappings.map(m =>
+                                updateSpeakerContact(meeting.id, m.speakerLabel, m.contactId)
+                              ));
                               // Reload segments
                               const segs = await getTranscriptSegments(meeting.id);
                               setMeetingSegments(prev => ({ ...prev, [meeting.id]: segs }));

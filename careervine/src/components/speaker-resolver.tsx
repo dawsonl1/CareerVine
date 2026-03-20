@@ -4,8 +4,6 @@ import { useState, useEffect } from "react";
 import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { SimpleContact } from "@/lib/types";
-import type { TranscriptSegment } from "@/lib/transcript-parser";
-
 interface SpeakerMapping {
   speakerLabel: string;
   contactId: number | null;
@@ -13,7 +11,7 @@ interface SpeakerMapping {
 
 interface SpeakerResolverProps {
   /** Unique speaker labels from the parsed transcript */
-  segments: TranscriptSegment[];
+  segments: { speaker_label: string }[];
   /** Contacts associated with this meeting */
   meetingContacts: SimpleContact[];
   /** All user contacts (for broader matching) */
@@ -95,13 +93,11 @@ export default function SpeakerResolver({
     );
   };
 
-  // Combine meeting contacts + all contacts, deduped, meeting contacts first
-  const contactOptions = allContacts
-    ? [
-        ...meetingContacts,
-        ...allContacts.filter((c) => !meetingContacts.some((mc) => mc.id === c.id)),
-      ]
-    : meetingContacts;
+  // Other contacts not in this meeting (computed once for the dropdown)
+  const meetingContactIds = new Set(meetingContacts.map((c) => c.id));
+  const otherContacts = (allContacts || [])
+    .filter((c) => !meetingContactIds.has(c.id))
+    .slice(0, 50);
 
   if (uniqueSpeakers.length === 0) return null;
 
@@ -139,16 +135,13 @@ export default function SpeakerResolver({
                   ))}
                 </optgroup>
               )}
-              {allContacts && allContacts.filter((c) => !meetingContacts.some((mc) => mc.id === c.id)).length > 0 && (
+              {otherContacts.length > 0 && (
                 <optgroup label="Other contacts">
-                  {allContacts
-                    .filter((c) => !meetingContacts.some((mc) => mc.id === c.id))
-                    .slice(0, 50) // Limit dropdown size
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
+                  {otherContacts.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
                 </optgroup>
               )}
             </select>
