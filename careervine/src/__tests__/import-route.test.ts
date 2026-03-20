@@ -153,7 +153,7 @@ describe('Import flow integration', () => {
 
       const result = buildContactData(profileData, 'user-123', 42);
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         user_id: 'user-123',
         name: 'Jane Doe',
         linkedin_url: 'https://linkedin.com/in/jane-doe',
@@ -164,6 +164,7 @@ describe('Import flow integration', () => {
         expected_graduation: null,
         follow_up_frequency_days: 90,
       });
+      expect(result.status_derived_at).toBeDefined();
     });
 
     it('builds minimal payload with defaults', () => {

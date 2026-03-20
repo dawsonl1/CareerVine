@@ -37,6 +37,7 @@ export function buildContactData(profileData: any, userId: string, locationId: n
     notes,
     contact_status: profileData.contact_status || 'professional',
     expected_graduation: profileData.expected_graduation || null,
+    status_derived_at: new Date().toISOString(),
     follow_up_frequency_days: parseFollowUpFrequency(profileData.follow_up_frequency) ?? (profileData.follow_up_frequency_days || null),
   };
 }
@@ -50,7 +51,10 @@ export function buildUpdateData(profileData: any): Record<string, any> {
   if (profileData.linkedin_url || profileData.profileUrl) {
     updateData.linkedin_url = profileData.linkedin_url || profileData.profileUrl;
   }
-  if (profileData.contact_status) updateData.contact_status = profileData.contact_status;
+  if (profileData.contact_status) {
+    updateData.contact_status = profileData.contact_status;
+    updateData.status_derived_at = new Date().toISOString();
+  }
   if (profileData.expected_graduation) updateData.expected_graduation = profileData.expected_graduation;
 
   if (profileData.generated_notes || profileData.notes) {

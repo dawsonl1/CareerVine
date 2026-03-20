@@ -3,6 +3,7 @@ import { contactsCheckDuplicateSchema } from "@/lib/api-schemas";
 import { calculateNameMatchConfidence } from '@/lib/duplicate-helpers';
 import { sanitizeForPostgrest } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
+import { shouldRederiveStatus, deriveContactStatusFromDB } from '@/lib/profile-helpers';
 
 export async function OPTIONS() {
   return handleOptions();
@@ -21,6 +22,35 @@ export const POST = withApiHandler({
 
     const duplicates = await findPotentialDuplicates(supabase, user.id, { linkedinUrl, name, email });
 
+    // Lazy re-derivation: check each match for stale contact_status
+    for (const match of duplicates.matches) {
+      if (shouldRederiveStatus(match.status_derived_at)) {
+        const { data: education } = await supabase
+          .from('contact_schools')
+          .select('end_year')
+          .eq('contact_id', match.id);
+
+        if (education && education.length > 0) {
+          const derived = deriveContactStatusFromDB(education);
+          await supabase
+            .from('contacts')
+            .update({
+              contact_status: derived.contact_status,
+              expected_graduation: derived.expected_graduation,
+              status_derived_at: new Date().toISOString(),
+            })
+            .eq('id', match.id);
+          match.contact_status = derived.contact_status;
+        } else {
+          // No education data — just update the timestamp to avoid rechecking
+          await supabase
+            .from('contacts')
+            .update({ status_derived_at: new Date().toISOString() })
+            .eq('id', match.id);
+        }
+      }
+    }
+
     return {
       duplicates: duplicates.matches
     };
@@ -34,7 +64,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
   if (searchData.linkedinUrl) {
     const { data } = await supabase
       .from('contacts')
-      .select('id, name, linkedin_url')
+      .select('id, name, linkedin_url, contact_status, status_derived_at, industry, notes')
       .eq('user_id', userId)
       .eq('linkedin_url', searchData.linkedinUrl);
 
@@ -53,7 +83,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       .from('contact_emails')
       .select(`
         contact_id,
-        contacts!inner(id, name, linkedin_url)
+        contacts!inner(id, name, linkedin_url, contact_status, status_derived_at, industry, notes)
       `)
       .eq('email', searchData.email)
       .eq('contacts.user_id', userId);
@@ -76,7 +106,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       const last = sanitizeForPostgrest(names[names.length - 1]);
       const { data } = await supabase
         .from('contacts')
-        .select('id, name, linkedin_url')
+        .select('id, name, linkedin_url, contact_status, status_derived_at, industry, notes')
         .eq('user_id', userId)
         .or(`name.ilike.%${first}%,name.ilike.%${last}%`);
 

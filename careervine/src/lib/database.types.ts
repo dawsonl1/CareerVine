@@ -51,6 +51,7 @@ export type Database = {
           preferred_contact_value: string | null;   // Contact details
           contact_status: string | null;            // 'student' or 'professional'
           expected_graduation: string | null;       // e.g. "May 2027"
+          status_derived_at: string | null;         // When contact_status was last derived/set
           location_id: number | null;    // Foreign key to locations table
         };
         Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id">;
