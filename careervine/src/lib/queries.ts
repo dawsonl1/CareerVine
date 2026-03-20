@@ -152,12 +152,15 @@ export async function updateContact(
  * @throws Error if deletion fails
  */
 export async function deleteContact(id: number) {
-  // Clean up profile photo from storage before deleting the contact row
-  const { data: contact } = await supabase
+  // Delete the contact and return photo_url for storage cleanup (single round-trip)
+  const { data: contact, error } = await supabase
     .from("contacts")
-    .select("photo_url")
+    .delete()
     .eq("id", id)
+    .select("photo_url")
     .single();
+
+  if (error) throw error;
 
   if (contact?.photo_url) {
     try {
@@ -171,17 +174,10 @@ export async function deleteContact(id: number) {
         await supabase.storage.from('contact-photos').remove([storagePath]);
       }
     } catch (err) {
-      // Photo cleanup failure should not block contact deletion
+      // Photo cleanup failure should not block — contact is already deleted
       console.warn(`[deleteContact] Photo cleanup failed for contact ${id}:`, err);
     }
   }
-
-  const { error } = await supabase
-    .from("contacts")
-    .delete()
-    .eq("id", id);
-
-  if (error) throw error;
 }
 
 /**
@@ -1328,5 +1324,91 @@ export async function deleteAttachment(attachmentId: number, objectPath: string)
 
   // Remove attachment record
   const { error } = await supabase.from("attachments").delete().eq("id", attachmentId);
+  if (error) throw error;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Transcript Segments
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Bulk-insert parsed transcript segments for a meeting.
+ * Deletes any existing segments first (idempotent re-parse).
+ */
+export async function createTranscriptSegments(
+  meetingId: number,
+  segments: { speaker_label: string; contact_id?: number | null; started_at?: number | null; ended_at?: number | null; content: string }[],
+) {
+  // Clear existing segments
+  await supabase.from("transcript_segments").delete().eq("meeting_id", meetingId);
+
+  if (segments.length === 0) return [];
+
+  const rows = segments.map((s, i) => ({
+    meeting_id: meetingId,
+    ordinal: i,
+    speaker_label: s.speaker_label,
+    contact_id: s.contact_id ?? null,
+    started_at: s.started_at ?? null,
+    ended_at: s.ended_at ?? null,
+    content: s.content,
+  }));
+
+  const { data, error } = await supabase
+    .from("transcript_segments")
+    .insert(rows)
+    .select();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Get all transcript segments for a meeting, ordered by position.
+ */
+export async function getTranscriptSegments(meetingId: number) {
+  const { data, error } = await supabase
+    .from("transcript_segments")
+    .select("*, contacts:contact_id(id, name)")
+    .eq("meeting_id", meetingId)
+    .order("ordinal");
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update the resolved contact for a single segment.
+ */
+export async function updateSegmentContact(segmentId: number, contactId: number | null) {
+  const { error } = await supabase
+    .from("transcript_segments")
+    .update({ contact_id: contactId })
+    .eq("id", segmentId);
+  if (error) throw error;
+}
+
+/**
+ * Bulk-update contact_id for all segments matching a speaker label in a meeting.
+ */
+export async function updateSpeakerContact(
+  meetingId: number,
+  speakerLabel: string,
+  contactId: number | null,
+) {
+  const { error } = await supabase
+    .from("transcript_segments")
+    .update({ contact_id: contactId })
+    .eq("meeting_id", meetingId)
+    .eq("speaker_label", speakerLabel);
+  if (error) throw error;
+}
+
+/**
+ * Delete all transcript segments for a meeting.
+ */
+export async function deleteTranscriptSegments(meetingId: number) {
+  const { error } = await supabase
+    .from("transcript_segments")
+    .delete()
+    .eq("meeting_id", meetingId);
   if (error) throw error;
 }

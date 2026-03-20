@@ -257,6 +257,10 @@ async function scrapeCurrentProfile() {
 
 // ---- Navigation detection ----
 
+function clearLatestProfileStorage() {
+  clearLatestProfileStorage();
+}
+
 let lastProfileId = extractProfileId(window.location.href);
 
 function extractProfileId(url) {
@@ -280,18 +284,18 @@ function handleProfileNavigation() {
     if (isPanelOpen) {
       tryLoadFromCache(currentProfileId).then((hit) => {
         if (!hit) {
-          chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
+          clearLatestProfileStorage();
           emit('newprofile', { profileId: currentProfileId });
           if (autoScrapeEnabled) {
             analyzeCurrentProfile(currentProfileId, true);
           }
         }
       }).catch(() => {
-        chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
+        clearLatestProfileStorage();
         emit('newprofile', { profileId: currentProfileId });
       });
     } else {
-      chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
+      clearLatestProfileStorage();
       emit('newprofile', { profileId: currentProfileId });
     }
   } else if (!currentProfileId && lastProfileId) {
@@ -300,7 +304,7 @@ function handleProfileNavigation() {
     lastAnalyzedProfileId = null;
     lastCheckedProfileId = null;
 
-    chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
+    clearLatestProfileStorage();
     emit('leftprofile');
   }
 }

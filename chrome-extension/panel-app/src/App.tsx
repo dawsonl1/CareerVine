@@ -913,6 +913,7 @@ const App: React.FC = () => {
   const [webappBaseUrl, setWebappBaseUrl] = useState("https://www.dawsonsprojects.com");
   const [existingContact, setExistingContact] = useState<any>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState(false);
   
   const checkAuthentication = async () => {
     try {
@@ -973,6 +974,7 @@ const App: React.FC = () => {
     chrome?.storage?.local?.get?.(['autoScrapeEnabled', 'latestPhotoUrl'], (result: any) => {
       setAutoScrape(result?.autoScrapeEnabled || false);
       setPhotoUrl(result?.latestPhotoUrl || null);
+      setPhotoError(false);
     });
     // Get webapp URL from config (strips /api from apiBaseUrl)
     chrome?.runtime?.sendMessage?.({ action: 'getConfig' }, (response: any) => {
@@ -1015,6 +1017,7 @@ const App: React.FC = () => {
       setProgressStage(null);
       setProgressPercent(0);
       setPhotoUrl(null);
+      setPhotoError(false);
     };
 
     const handleStorageChange = (
@@ -1031,6 +1034,7 @@ const App: React.FC = () => {
       }
       if (area === "local" && changes.latestPhotoUrl) {
         setPhotoUrl(changes.latestPhotoUrl.newValue || null);
+        setPhotoError(false);
       }
     };
 
@@ -1526,17 +1530,13 @@ const App: React.FC = () => {
 
         {/* Profile Section */}
         <section className="cv-profile-section">
-          <div className="cv-avatar">
-            {photoUrl ? (
+          <div className={`cv-avatar${!photoUrl || photoError ? ' cv-avatar-fallback' : ''}`}>
+            {photoUrl && !photoError ? (
               <img
                 src={photoUrl}
                 alt={profileName}
                 className="cv-avatar-img"
-                onError={(e) => {
-                  // Fallback to User icon if image fails to load
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  (e.target as HTMLImageElement).parentElement!.classList.add('cv-avatar-fallback');
-                }}
+                onError={() => setPhotoError(true)}
               />
             ) : (
               <User className="w-8 h-8 text-green-700" />

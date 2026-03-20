@@ -430,18 +430,22 @@ async function downloadAndStorePhoto(supabase: SupabaseClient, userId: string, c
     throw new Error(`Photo fetch failed with status ${response.status}`);
   }
 
+  // Guard against unexpectedly large payloads
+  const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+  if (contentLength > 5 * 1024 * 1024) {
+    console.warn(`[import] Photo too large: ${contentLength} bytes`);
+    return;
+  }
+
   const imageBuffer = await response.arrayBuffer();
   const storagePath = `${userId}/${contactId}.jpg`;
 
-  // On re-import: delete existing photo first (ignore errors — file may not exist)
-  await supabase.storage.from('contact-photos').remove([storagePath]);
-
-  // Upload new photo
+  // Upload photo (upsert handles re-imports atomically)
   const { error: uploadError } = await supabase.storage
     .from('contact-photos')
     .upload(storagePath, imageBuffer, {
       contentType: response.headers.get('content-type') || 'image/jpeg',
-      upsert: false,
+      upsert: true,
     });
   if (uploadError) throw uploadError;
 
