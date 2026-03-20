@@ -243,24 +243,35 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
   for (const exp of experience) {
     if (!exp.company) continue;
 
-    // Find or create company
+    // Find or create company (upsert-style to avoid race conditions)
     let company;
     const { data: existingCompany } = await supabase
       .from('companies')
-      .select('*')
+      .select('id, name')
       .ilike('name', exp.company)
-      .single();
+      .maybeSingle();
 
     if (existingCompany) {
       company = existingCompany;
     } else {
-      const { data: newCompany } = await supabase
+      // Try insert; if another request created it concurrently, fetch it
+      const { data: newCompany, error: insertErr } = await supabase
         .from('companies')
         .insert({ name: exp.company })
         .select()
         .single();
-      company = newCompany;
+      if (insertErr) {
+        const { data: retry } = await supabase
+          .from('companies')
+          .select('id, name')
+          .ilike('name', exp.company)
+          .maybeSingle();
+        company = retry;
+      } else {
+        company = newCompany;
+      }
     }
+    if (!company) continue;
 
     // Skip if this exact relationship already exists
     const { data: existingRel } = await supabase
@@ -290,24 +301,34 @@ async function addEducationToContact(supabase: any, contactId: number, education
   for (const edu of education) {
     if (!edu.school) continue;
 
-    // Find or create school
+    // Find or create school (upsert-style to avoid race conditions)
     let school;
     const { data: existingSchool } = await supabase
       .from('schools')
-      .select('*')
+      .select('id, name')
       .ilike('name', edu.school)
-      .single();
+      .maybeSingle();
 
     if (existingSchool) {
       school = existingSchool;
     } else {
-      const { data: newSchool } = await supabase
+      const { data: newSchool, error: insertErr } = await supabase
         .from('schools')
         .insert({ name: edu.school })
         .select()
         .single();
-      school = newSchool;
+      if (insertErr) {
+        const { data: retry } = await supabase
+          .from('schools')
+          .select('id, name')
+          .ilike('name', edu.school)
+          .maybeSingle();
+        school = retry;
+      } else {
+        school = newSchool;
+      }
     }
+    if (!school) continue;
 
     // Skip if this exact relationship already exists
     const { data: existingRel } = await supabase
@@ -331,27 +352,17 @@ async function addEducationToContact(supabase: any, contactId: number, education
 }
 
 async function findOrCreateLocation(supabase: any, location: { city: string | null; state: string | null; country: string }) {
-  // Try to find existing with exact match
-  let query = supabase.from('locations').select('*');
-  
-  if (location.city) {
-    query = query.eq('city', location.city);
-  } else {
-    query = query.is('city', null);
+  function buildLookup() {
+    let q = supabase.from('locations').select('*');
+    q = location.city ? q.eq('city', location.city) : q.is('city', null);
+    q = location.state ? q.eq('state', location.state) : q.is('state', null);
+    return q.eq('country', location.country);
   }
-  
-  if (location.state) {
-    query = query.eq('state', location.state);
-  } else {
-    query = query.is('state', null);
-  }
-  
-  query = query.eq('country', location.country);
-  
-  const { data: existing } = await query.maybeSingle();
+
+  const { data: existing } = await buildLookup().maybeSingle();
   if (existing) return existing;
 
-  // Create new
+  // Create new; if concurrent insert, retry the lookup
   const { data, error } = await supabase
     .from('locations')
     .insert({
@@ -361,7 +372,11 @@ async function findOrCreateLocation(supabase: any, location: { city: string | nu
     })
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    const { data: retry } = await buildLookup().maybeSingle();
+    if (retry) return retry;
+    throw error;
+  }
   return data;
 }
 

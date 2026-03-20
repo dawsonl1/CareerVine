@@ -91,7 +91,7 @@ export default function ContactDetailPage() {
   const loadContact = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await getContactById(contactId);
+      const data = await getContactById(contactId, user.id);
       setContact(data as Contact);
     } catch {
       router.push("/contacts");

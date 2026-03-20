@@ -18,20 +18,20 @@
 
 ## Data Integrity (Priority 2)
 
-- [ ] **#8** Race condition in find-or-create (companies/schools/locations) — use upsert or ON CONFLICT
+- [x] **#8** Race condition in find-or-create (companies/schools/locations) — insert-then-retry-lookup on conflict
 - [ ] **#9** Non-atomic delete-then-insert in replaceContacts helpers — wrap in transaction or use RPC
-- [ ] **#10** `access_token!` assertion crashes if refresh token revoked (gmail.ts:105, calendar.ts:51)
+- [x] **#10** `access_token!` assertion crashes if refresh token revoked — try/catch with connection cleanup and user-facing error
 - [ ] **#11** Token refresh race condition between Gmail and Calendar clients
-- [ ] **#12** Malformed email Date header crashes batch sync (gmail.ts:245)
+- [x] **#12** Malformed email Date header crashes batch sync — safe parse with null fallback
 
 ## Correctness (Priority 3)
 
 - [x] **#13** `updated_at` set on table without that column — removed
 - [x] **#14** Missing error checks on insert/update results — added
-- [ ] **#15** `getContactById` has no `user_id` filter — add for defense-in-depth
+- [x] **#15** `getContactById` has no `user_id` filter — added optional userId param, call site passes user.id
 - [ ] **#16** Calendar events created without timezone — pass timezone explicitly
 - [ ] **#17** `loadingEmails` permanently false in contact-emails-tab — wire up properly
-- [ ] **#18** `createSupabaseBrowserClient()` called every render in auth-provider — stabilize with useState
+- [x] **#18** `createSupabaseBrowserClient()` called every render in auth-provider — stabilized with useState initializer
 - [ ] **#19** Contacts page no auth loading check — flash of empty state before auth resolves
 - [ ] **#20** Dashboard links go to /contacts instead of /contacts/{id}
 - [x] **#21** Duplicate import branches doing same thing — collapsed

@@ -32,9 +32,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   // Loading state to show spinners while checking authentication
   const [loading, setLoading] = useState(true);
-  
-  // Create a single Supabase client instance for browser-side operations
-  const supabase = createSupabaseBrowserClient();
+
+  // Stable Supabase client — created once per mount, not on every render
+  const [supabase] = useState(() => createSupabaseBrowserClient());
 
   // useEffect runs on component mount to check for existing session
   // This handles page refreshes and returning users

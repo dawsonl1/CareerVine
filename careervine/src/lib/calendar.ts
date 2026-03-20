@@ -42,17 +42,25 @@ export async function getCalendarClient(userId: string) {
   // Refresh if token is expired or about to expire (within 5 min)
   const expiresAt = new Date(conn.token_expires_at).getTime();
   if (Date.now() > expiresAt - 5 * 60_000) {
-    const { credentials } = await oauth2Client.refreshAccessToken();
+    let credentials;
+    try {
+      ({ credentials } = await oauth2Client.refreshAccessToken());
+    } catch {
+      await supabase.from("gmail_connections").delete().eq("user_id", userId);
+      throw new Error("Calendar session expired. Please reconnect your Gmail/Calendar account.");
+    }
     oauth2Client.setCredentials(credentials);
 
-    await supabase
-      .from("gmail_connections")
-      .update({
-        access_token: credentials.access_token!,
-        token_expires_at: new Date(credentials.expiry_date || Date.now() + 3600_000).toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", userId);
+    if (credentials.access_token) {
+      await supabase
+        .from("gmail_connections")
+        .update({
+          access_token: credentials.access_token,
+          token_expires_at: new Date(credentials.expiry_date || Date.now() + 3600_000).toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId);
+    }
   }
 
   return google.calendar({ version: "v3", auth: oauth2Client });
