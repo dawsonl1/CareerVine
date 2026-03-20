@@ -9,6 +9,7 @@ import {
   MapPin,
   User,
   ExternalLink,
+  Mail,
   Pencil,
 } from "lucide-react";
 
@@ -55,6 +56,7 @@ type ProfileData = {
   linkedin_url?: string | null;
   follow_up_frequency?: string | null;
   current_company?: string | null;
+  email?: string | null;
 };
 
 const FOLLOW_UP_OPTIONS = [
@@ -741,6 +743,15 @@ const EditPanel: React.FC<{
             />
           </div>
           <div className="cv-info-row">
+            <Mail />
+            <InlineInput
+              value={profile.email || ""}
+              onChange={(v) => onChange('email', v)}
+              placeholder="Email address"
+              className="cv-inline-meta"
+            />
+          </div>
+          <div className="cv-info-row">
             <Clock />
             <SimpleDropdown
               value={profile.follow_up_frequency || ""}
@@ -1125,6 +1136,7 @@ const App: React.FC = () => {
       const payload = {
         ...profile,
         name: profile.name || `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim(),
+        contactInfo: profile.email ? { email: profile.email } : undefined,
       };
       const response = await chrome?.runtime?.sendMessage?.({
         action: "importData",
@@ -1568,6 +1580,15 @@ const App: React.FC = () => {
               </div>
             ) : null;
           })()}
+          <div className="cv-info-row">
+            <Mail />
+            <InlineInput
+              value={profile.email || ""}
+              onChange={(v) => setProfileField('email', v)}
+              placeholder="Email address"
+              className="cv-inline-meta"
+            />
+          </div>
           <div className="cv-info-row">
             <Clock />
             <SimpleDropdown

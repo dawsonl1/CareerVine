@@ -191,6 +191,27 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
     }
   }
 
+  // Upsert primary email if provided
+  if (profileData.contactInfo?.email) {
+    const { data: existingEmails } = await supabase
+      .from('contact_emails')
+      .select('id, email, is_primary')
+      .eq('contact_id', contactId);
+
+    const existing = (existingEmails || []).find(
+      (e: any) => e.email.toLowerCase() === profileData.contactInfo!.email!.toLowerCase()
+    );
+    if (!existing) {
+      // If no emails exist yet, make it primary; otherwise add as non-primary
+      const hasPrimary = (existingEmails || []).some((e: any) => e.is_primary);
+      await supabase.from('contact_emails').insert({
+        contact_id: contactId,
+        email: profileData.contactInfo.email,
+        is_primary: !hasPrimary,
+      });
+    }
+  }
+
   const tags = profileData.suggested_tags || profileData.tags;
   if (tags && tags.length > 0) {
     await addTagsToContact(supabase, contactId, tags, userId);
