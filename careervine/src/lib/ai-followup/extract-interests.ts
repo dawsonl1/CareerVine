@@ -4,7 +4,7 @@
  * Uses OpenAI structured outputs to guarantee valid JSON.
  */
 
-import OpenAI from "openai";
+import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { formatContextForLLM, type ContactContext } from "./gather-context";
 
 export interface Interest {
@@ -69,8 +69,8 @@ const RESPONSE_SCHEMA = {
 export async function extractInterests(
   context: ContactContext,
 ): Promise<ExtractedInterests> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const openai = getOpenAIClient();
+  const model = DEFAULT_MODEL;
 
   const formattedContext = formatContextForLLM(context);
 

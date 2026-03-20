@@ -1,7 +1,7 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailAiWriteSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import OpenAI from "openai";
+import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 
 /**
  * POST /api/gmail/ai-write
@@ -155,8 +155,8 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
 
     // ── Call OpenAI ──
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const openai = getOpenAIClient();
+    const model = DEFAULT_MODEL;
 
     const response = await openai.responses.create({
       model,

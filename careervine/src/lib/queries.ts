@@ -603,9 +603,11 @@ export async function removeSchoolsFromContact(contactId: number) {
  */
 export async function createActionItem(
   actionItem: Database["public"]["Tables"]["follow_up_action_items"]["Insert"],
-  contactIds?: number[]
+  contactIds?: number[],
+  client?: typeof supabase
 ) {
-  const { data, error } = await supabase
+  const db = client ?? supabase;
+  const { data, error } = await db
     .from("follow_up_action_items")
     .insert(actionItem)
     .select()
@@ -616,7 +618,7 @@ export async function createActionItem(
   // Insert into junction table
   const ids = contactIds ?? (actionItem.contact_id ? [actionItem.contact_id] : []);
   if (ids.length > 0) {
-    const { error: junctionError } = await supabase
+    const { error: junctionError } = await db
       .from("action_item_contacts")
       .insert(ids.map((cid) => ({ action_item_id: data.id, contact_id: cid })));
     if (junctionError) throw junctionError;

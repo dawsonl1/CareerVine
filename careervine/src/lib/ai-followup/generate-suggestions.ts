@@ -8,7 +8,7 @@
  * Suggestions are never persisted — saving one creates an action item.
  */
 
-import OpenAI from "openai";
+import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { gatherContactContext, formatContextForLLM } from "./gather-context";
 import { SuggestionReasonType, ActionItemSource } from "@/lib/constants";
@@ -275,8 +275,8 @@ export async function generateLlmSuggestions(
     .join("\n\n");
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const openai = getOpenAIClient();
+    const model = DEFAULT_MODEL;
 
     const response = await openai.chat.completions.create({
       model,

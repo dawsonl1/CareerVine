@@ -1,5 +1,5 @@
-import OpenAI from "openai";
-import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { withApiHandler } from "@/lib/api-handler";
+import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { transcriptParseSchema } from "@/lib/api-schemas";
 
 /**
@@ -15,11 +15,8 @@ export const POST = withApiHandler({
   schema: transcriptParseSchema,
   handler: async ({ body }) => {
     const { rawText } = body;
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new ApiError("OpenAI API key not configured", 500);
-
-    const openai = new OpenAI({ apiKey });
-    const model = process.env.OPENAI_MODEL ?? "gpt-5-mini";
+    const openai = getOpenAIClient();
+    const model = DEFAULT_MODEL;
 
     const segmentSchema = {
       name: "transcript_segments",

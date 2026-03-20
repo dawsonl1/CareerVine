@@ -6,7 +6,7 @@
  * something worth sharing, or falls back gracefully.
  */
 
-import OpenAI from "openai";
+import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { searchNews, searchWeb, type SerperResult } from "@/lib/serper";
 import type { Interest, ExtractedInterests } from "./extract-interests";
 
@@ -133,8 +133,8 @@ async function searchForTopic(query: string): Promise<SerperResult[]> {
 export async function findArticle(
   extracted: ExtractedInterests,
 ): Promise<ArticleResult | null> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const openai = getOpenAIClient();
+  const model = DEFAULT_MODEL;
 
   // Combine interests + profile fallbacks, interests first
   const allTopics = [

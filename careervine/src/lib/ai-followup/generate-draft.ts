@@ -5,7 +5,7 @@
  * Produces both the email body (HTML) and subject line.
  */
 
-import OpenAI from "openai";
+import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import createDOMPurify from "dompurify";
 // @ts-expect-error -- jsdom has no bundled types; @types/jsdom is a devDep
 import { JSDOM } from "jsdom";
@@ -84,8 +84,8 @@ export async function generateDraft(params: {
 }): Promise<DraftResult> {
   const { senderFirstName, contact, interest, article } = params;
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const openai = getOpenAIClient();
+  const model = DEFAULT_MODEL;
 
   // Generate email body
   const bodyResponse = await openai.chat.completions.create({

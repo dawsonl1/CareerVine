@@ -1,5 +1,5 @@
-import OpenAI from 'openai';
-import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { withApiHandler } from "@/lib/api-handler";
+import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { extensionParseProfileSchema } from "@/lib/api-schemas";
 import { addIsCurrentToExperience, addIsCurrentToEducation, deriveCurrentRole, deriveContactStatus } from '@/lib/profile-helpers';
 import { handleOptions } from '@/lib/extension-auth';
@@ -20,13 +20,8 @@ export const POST = withApiHandler({
   handler: async ({ body }) => {
     const { cleanedText, profileUrl } = body;
 
-    // Initialize OpenAI client
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-
-    // Parse the LinkedIn text using the new Responses API with structured JSON output
-    const model = process.env.OPENAI_MODEL ?? 'gpt-5-mini';
+    const openai = getOpenAIClient();
+    const model = DEFAULT_MODEL;
 
     // Optimized schema - only request what we actually need from AI
     const linkedinProfileSchema = {

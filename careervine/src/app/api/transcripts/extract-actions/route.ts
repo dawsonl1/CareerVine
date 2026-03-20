@@ -1,5 +1,5 @@
-import OpenAI from "openai";
-import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { withApiHandler } from "@/lib/api-handler";
+import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { transcriptExtractActionsSchema } from "@/lib/api-schemas";
 import { matchSpeakerToAttendee, resolveDueDate } from "@/lib/transcript-action-helpers";
 
@@ -17,11 +17,8 @@ export const POST = withApiHandler({
   handler: async ({ body }) => {
     const { transcript, attendees, meetingDate } = body;
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new ApiError("OpenAI API key not configured", 500);
-
-    const openai = new OpenAI({ apiKey });
-    const model = process.env.OPENAI_MODEL ?? "gpt-5-mini";
+    const openai = getOpenAIClient();
+    const model = DEFAULT_MODEL;
 
     const actionItemSchema = {
       name: "extracted_action_items",
