@@ -1,6 +1,7 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { suggestionsSaveSchema } from "@/lib/api-schemas";
 import { ActionItemSource } from "@/lib/constants";
+import { invalidateSuggestionCache } from "@/lib/ai-followup/generate-suggestions";
 
 export const POST = withApiHandler({
   schema: suggestionsSaveSchema,
@@ -34,6 +35,9 @@ export const POST = withApiHandler({
       .insert({ action_item_id: actionItem.id, contact_id: body.contactId });
 
     if (junctionError) throw junctionError;
+
+    // Invalidate cached suggestions so dedup picks up the new item
+    invalidateSuggestionCache(user.id);
 
     return { success: true, actionItem };
   },

@@ -16,35 +16,48 @@ import type { Suggestion, SuggestionContact } from "./suggestion-types";
 
 const MAX_SUGGESTIONS = 5;
 const MAX_LLM_CONTACTS = 5;
+const CACHE_TTL_MS = 60_000; // 60s cache to avoid duplicate work across pages
+
+// ── In-memory cache ────────────────────────────────────────────────────
+
+const suggestionCache = new Map<string, { suggestions: Suggestion[]; expiresAt: number }>();
+
+/** Invalidate cached suggestions for a user (e.g. after saving one). */
+export function invalidateSuggestionCache(userId: string) {
+  suggestionCache.delete(userId);
+}
 
 // ── Data Fetching ──────────────────────────────────────────────────────
 
 export async function fetchSuggestionCandidates(userId: string): Promise<SuggestionContact[]> {
   const service = createSupabaseServiceClient();
 
-  // Fetch contacts with profile fields
-  const { data: contacts, error } = await service
-    .from("contacts")
-    .select("id, name, photo_url, industry, contact_status, expected_graduation, follow_up_frequency_days, notes")
-    .eq("user_id", userId);
+  // Fetch contacts and last-touch data in parallel (independent queries)
+  const [contactsResult, touchResult] = await Promise.all([
+    service
+      .from("contacts")
+      .select("id, name, photo_url, industry, contact_status, expected_graduation, follow_up_frequency_days, notes")
+      .eq("user_id", userId),
+    service.rpc("get_contacts_with_last_touch", { p_user_id: userId }),
+  ]);
 
-  if (error || !contacts) return [];
+  const contacts = contactsResult.data;
+  if (contactsResult.error || !contacts) return [];
 
-  // Fetch last touch dates
-  const { data: touchData } = await service.rpc("get_contacts_with_last_touch", { p_user_id: userId });
   const touchMap = new Map<number, { last_touch: string | null; days_since_touch: number | null }>();
-  for (const t of touchData || []) {
+  for (const t of touchResult.data || []) {
     touchMap.set(t.id, { last_touch: t.last_touch, days_since_touch: t.days_since_touch });
   }
 
-  // Fetch interaction counts per contact
-  const { data: interactionCounts } = await service
+  // Fetch interaction counts (select only contact_id, count client-side)
+  const contactIds = contacts.map((c) => c.id);
+  const { data: interactionRows } = await service
     .from("interactions")
     .select("contact_id")
-    .in("contact_id", contacts.map((c) => c.id));
+    .in("contact_id", contactIds);
 
   const countMap = new Map<number, number>();
-  for (const row of interactionCounts || []) {
+  for (const row of interactionRows || []) {
     countMap.set(row.contact_id, (countMap.get(row.contact_id) || 0) + 1);
   }
 
@@ -330,6 +343,12 @@ export async function generateLlmSuggestions(
 // ── Orchestrator ───────────────────────────────────────────────────────
 
 export async function generateSuggestions(userId: string): Promise<Suggestion[]> {
+  // Check cache first to avoid duplicate work across dashboard/action-items navigation
+  const cached = suggestionCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.suggestions;
+  }
+
   const service = createSupabaseServiceClient();
 
   // Fetch candidates and existing AI action items in parallel
@@ -382,5 +401,10 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
     }
   }
 
-  return unique.slice(0, MAX_SUGGESTIONS);
+  const result = unique.slice(0, MAX_SUGGESTIONS);
+
+  // Cache for 60s to avoid re-running on page navigation
+  suggestionCache.set(userId, { suggestions: result, expiresAt: Date.now() + CACHE_TTL_MS });
+
+  return result;
 }

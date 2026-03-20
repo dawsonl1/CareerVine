@@ -26,12 +26,6 @@ function makeContact(overrides: Partial<SuggestionContact> = {}): SuggestionCont
   };
 }
 
-function daysFromNow(days: number, base: Date = new Date()): string {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
-}
-
 // ── Graduation Suggestions ───────────────────────────────────────────────
 
 describe("generateGraduationSuggestions", () => {

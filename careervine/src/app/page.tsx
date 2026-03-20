@@ -47,7 +47,7 @@ import { useToast } from "@/components/ui/toast";
 import { getHealthColor, healthBgColors, healthLabels, healthRingColors, CRITICAL_OVERDUE_DAYS, type HealthColor } from "@/lib/health-helpers";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import type { AiDraftContext } from "@/components/compose-email-context";
-import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
+import { useSuggestions } from "@/hooks/use-suggestions";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"];
@@ -118,8 +118,7 @@ export default function Home() {
   const aiDraftsRef = useRef<Map<number, AiDraft>>(new Map());
 
   // Smart suggestions
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const { suggestions, loading: suggestionsLoading, save: saveSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions();
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -276,55 +275,18 @@ export default function Home() {
     });
   }, [openCompose]);
 
-  // Load smart suggestions
-  const loadSuggestions = useCallback(async () => {
-    setSuggestionsLoading(true);
-    try {
-      const res = await fetch("/api/suggestions/generate", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setSuggestions(data.suggestions || []);
-      }
-    } catch {
-      // silent
-    } finally {
-      setSuggestionsLoading(false);
-    }
-  }, []);
-
-  // Save a suggestion as an action item
-  const saveSuggestion = useCallback(async (s: Suggestion) => {
-    try {
-      const res = await fetch("/api/suggestions/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contactId: s.contactId,
-          title: s.suggestedTitle,
-          description: s.suggestedDescription,
-          reasonType: s.reasonType,
-          headline: s.headline,
-          evidence: s.evidence,
-        }),
+  // Wrap saveSuggestion with toast feedback
+  const saveSuggestion = useCallback(async (s: Parameters<typeof saveSuggestionRaw>[0]) => {
+    const ok = await saveSuggestionRaw(s);
+    if (ok) {
+      toast("Saved to action items", {
+        variant: "success",
+        actions: [{ label: "View", onClick: () => window.location.assign("/action-items") }],
       });
-      if (res.ok) {
-        setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
-        toast("Saved to action items", {
-          variant: "success",
-          actions: [{ label: "View", onClick: () => window.location.assign("/action-items") }],
-        });
-      } else {
-        toast("Failed to save suggestion", { variant: "error" });
-      }
-    } catch {
+    } else {
       toast("Failed to save suggestion", { variant: "error" });
     }
-  }, [toast]);
-
-  // Dismiss a suggestion
-  const dismissSuggestion = useCallback((s: Suggestion) => {
-    setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
-  }, []);
+  }, [saveSuggestionRaw, toast]);
 
   useEffect(() => {
     if (user) loadData();
@@ -342,12 +304,9 @@ export default function Home() {
   }, [dataLoaded, gmailConnected, followUps, loadAndGenerateAiDrafts]);
 
   // Load smart suggestions once after data loads
-  const hasTriggeredSuggestions = useRef(false);
   useEffect(() => {
-    if (!dataLoaded || hasTriggeredSuggestions.current) return;
-    hasTriggeredSuggestions.current = true;
-    loadSuggestions();
-  }, [dataLoaded, loadSuggestions]);
+    if (dataLoaded) triggerSuggestions();
+  }, [dataLoaded, triggerSuggestions]);
 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();

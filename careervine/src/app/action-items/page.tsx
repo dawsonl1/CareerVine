@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
@@ -12,7 +12,7 @@ import type { Database } from "@/lib/database.types";
 import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { ActionItemSource } from "@/lib/constants";
-import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
+import { useSuggestions } from "@/hooks/use-suggestions";
 import { Select } from "@/components/ui/select";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, sortByPriorityThenDate } from "@/lib/priority-helpers";
@@ -37,8 +37,6 @@ export default function ActionItemsPage() {
   const [loading, setLoading] = useState(true);
 
   // Smart suggestions
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
 
   // Detail modal
@@ -87,56 +85,22 @@ export default function ActionItemsPage() {
     finally { setLoading(false); }
   }, [user]);
 
-  const loadSuggestions = useCallback(async () => {
-    setSuggestionsLoading(true);
-    try {
-      const res = await fetch("/api/suggestions/generate", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setSuggestions(data.suggestions || []);
-      }
-    } catch {
-      // silent
-    } finally {
-      setSuggestionsLoading(false);
-    }
-  }, []);
+  const { suggestions, loading: suggestionsLoading, save: saveSuggestionRaw, triggerOnce: triggerSuggestions } = useSuggestions({
+    onSave: loadActionItems,
+  });
 
-  const saveSuggestion = useCallback(async (s: Suggestion) => {
-    try {
-      const res = await fetch("/api/suggestions/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contactId: s.contactId,
-          title: s.suggestedTitle,
-          description: s.suggestedDescription,
-          reasonType: s.reasonType,
-          headline: s.headline,
-          evidence: s.evidence,
-        }),
-      });
-      if (res.ok) {
-        setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
-        await loadActionItems();
-        toastSuccess("Saved as action item");
-      } else {
-        toastError("Failed to save suggestion");
-      }
-    } catch {
-      toastError("Failed to save suggestion");
-    }
-  }, [loadActionItems, toastSuccess, toastError]);
+  const saveSuggestion = useCallback(async (s: Parameters<typeof saveSuggestionRaw>[0]) => {
+    const ok = await saveSuggestionRaw(s);
+    if (ok) toastSuccess("Saved as action item");
+    else toastError("Failed to save suggestion");
+  }, [saveSuggestionRaw, toastSuccess, toastError]);
 
   useEffect(() => { if (user) { loadActionItems(); loadContacts(); } }, [user, loadActionItems, loadContacts]);
 
-  // Load suggestions once
-  const hasTriggeredSuggestions = useRef(false);
+  // Load suggestions once after initial data loads
   useEffect(() => {
-    if (!user || loading || hasTriggeredSuggestions.current) return;
-    hasTriggeredSuggestions.current = true;
-    loadSuggestions();
-  }, [user, loading, loadSuggestions]);
+    if (!loading) triggerSuggestions();
+  }, [loading, triggerSuggestions]);
 
   const { execute: deferDelete } = useDeferredAction<ActionItem>({
     action: async (item) => { await deleteActionItem(item.id); },
@@ -321,7 +285,7 @@ export default function ActionItemsPage() {
     );
   };
 
-  const isAiSuggestion = (item: ActionItem) => (item as any).source === ActionItemSource.AiSuggestion;
+  const isAiSuggestion = (item: ActionItem) => item.source === ActionItemSource.AiSuggestion;
 
   const renderItem = (item: ActionItem, overdue: boolean) => (
     <Card
@@ -351,9 +315,9 @@ export default function ActionItemsPage() {
               {item.meetings && <span> · <Calendar className="inline h-3 w-3 mb-0.5" /> {item.meetings.meeting_type}</span>}
               {isAiSuggestion(item) && <span> · AI suggestion</span>}
             </p>
-            {isAiSuggestion(item) && (item as any).suggestion_headline && (
+            {isAiSuggestion(item) && item.suggestion_headline && (
               <p className="mt-1 text-sm text-muted-foreground italic line-clamp-1">
-                &ldquo;{(item as any).suggestion_evidence || (item as any).suggestion_headline}&rdquo;
+                &ldquo;{item.suggestion_evidence || item.suggestion_headline}&rdquo;
               </p>
             )}
             {!isAiSuggestion(item) && item.description && (
