@@ -249,16 +249,14 @@ export const suggestionsSaveSchema = z.object({
 
 export const transcriptMatchSpeakersSchema = z.object({
   speakerLabels: z.array(z.string().min(1)).min(1),
-  speakerSamples: z.record(z.string(), z.string()),
-  attendeeIds: z.array(z.number().int()),
+  speakerSamples: z.record(z.string(), z.string().max(5000)),
   contactContext: z.array(z.object({
     id: z.number().int(),
     name: z.string(),
-    role: z.string().optional(),
-    company: z.string().optional(),
+    industry: z.string().optional(),
     emails: z.array(z.string()).optional(),
   })),
-  meetingTitle: z.string().optional(),
+  meetingTitle: z.string().max(500).optional(),
 });
 
 export const transcriptExtractActionsSchema = z.object({

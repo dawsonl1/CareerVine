@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ConfirmDiscardDialog } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { useToast } from "@/components/ui/toast";
 import { createMeeting, addContactsToMeeting, getMeetingsForContact } from "@/lib/queries";
 import type { ContactMeeting } from "@/lib/types";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
@@ -17,7 +18,9 @@ interface AddMeetingModalProps {
 }
 
 export function AddMeetingModal({ contactId, userId, onClose, onMeetingsChange }: AddMeetingModalProps) {
+  const { error: toastError } = useToast();
   const [saving, setSaving] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [form, setForm] = useState({
     date: new Date().toISOString().split("T")[0],
     time: "",
@@ -26,6 +29,14 @@ export function AddMeetingModal({ contactId, userId, onClose, onMeetingsChange }
   });
 
   const hasUnsavedChanges = !!(form.meeting_type || form.notes.trim() || form.time);
+
+  const attemptClose = useCallback(() => {
+    if (hasUnsavedChanges) {
+      setShowConfirm(true);
+    } else {
+      onClose();
+    }
+  }, [hasUnsavedChanges, onClose]);
 
   const handleSave = async () => {
     if (!form.date || !form.meeting_type) return;
@@ -53,6 +64,7 @@ export function AddMeetingModal({ contactId, userId, onClose, onMeetingsChange }
       onClose();
     } catch (err) {
       console.error("Error creating meeting:", err);
+      toastError("Failed to create meeting");
     } finally {
       setSaving(false);
     }
@@ -107,7 +119,7 @@ export function AddMeetingModal({ contactId, userId, onClose, onMeetingsChange }
           />
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="text" onClick={onClose}>
+          <Button type="button" variant="text" onClick={attemptClose}>
             Cancel
           </Button>
           <Button
@@ -120,6 +132,14 @@ export function AddMeetingModal({ contactId, userId, onClose, onMeetingsChange }
           </Button>
         </div>
       </div>
+
+      {showConfirm && (
+        <ConfirmDiscardDialog
+          message="You have unsaved changes that will be lost."
+          onDiscard={() => { setShowConfirm(false); onClose(); }}
+          onKeepEditing={() => setShowConfirm(false)}
+        />
+      )}
     </Modal>
   );
 }

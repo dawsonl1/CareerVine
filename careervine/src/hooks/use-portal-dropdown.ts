@@ -36,16 +36,28 @@ export function usePortalDropdown(
     return () => document.removeEventListener("mousedown", handler);
   }, [open, containerRef]);
 
-  // Position the dropdown relative to the trigger button
+  // Position the dropdown relative to the trigger button, updating on scroll/resize
   useEffect(() => {
     if (!open || !triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const top = spaceBelow >= dropdownHeight ? rect.bottom + 8 : rect.top - dropdownHeight - 8;
-    setDropdownPos({
-      top: Math.max(8, top),
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - dropdownWidth - 16)),
-    });
+
+    const updatePosition = () => {
+      if (!triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const top = spaceBelow >= dropdownHeight ? rect.bottom + 8 : rect.top - dropdownHeight - 8;
+      setDropdownPos({
+        top: Math.max(8, top),
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - dropdownWidth - 16)),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("scroll", updatePosition, { capture: true, passive: true });
+    window.addEventListener("resize", updatePosition, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
   }, [open, dropdownHeight, dropdownWidth]);
 
   const toggle = useCallback(() => setOpen((prev) => !prev), []);

@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
 import { usePortalDropdown } from "@/hooks/use-portal-dropdown";
@@ -54,6 +54,13 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
   const [period, setPeriod] = useState<"AM" | "PM">(
     currentH24 !== null && currentH24 >= 12 ? "PM" : "AM"
   );
+
+  // Sync AM/PM toggle when parent changes value externally
+  useEffect(() => {
+    if (currentH24 !== null) {
+      setPeriod(currentH24 >= 12 ? "PM" : "AM");
+    }
+  }, [currentH24]);
 
   const selectHour = (h12: number) => {
     const h24 = to24(h12, period);

@@ -126,6 +126,7 @@ export default function MeetingsPage() {
           email: allEmails[0] || undefined,
           emails: allEmails,
           photo_url: c.photo_url,
+          industry: c.industry || undefined,
         };
       });
       setAllContacts(contacts);

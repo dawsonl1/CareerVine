@@ -66,8 +66,7 @@ export const POST = withApiHandler({
     const contactProfiles = contactContext
       .map((c) => {
         const parts = [`ID: ${c.id}, Name: ${c.name}`];
-        if (c.role) parts.push(`Role: ${c.role}`);
-        if (c.company) parts.push(`Company: ${c.company}`);
+        if (c.industry) parts.push(`Industry: ${c.industry}`);
         if (c.emails?.length) parts.push(`Email: ${c.emails.join(", ")}`);
         return parts.join(", ");
       })
@@ -86,7 +85,7 @@ export const POST = withApiHandler({
       "For each speaker label, determine which contact (if any) is the most likely match. " +
       "Use these signals to match speakers:\n" +
       "- Name similarity: If the speaker label contains a name that matches a contact, that is a strong signal.\n" +
-      "- Role/topic references: If a speaker discusses topics related to a contact's role (e.g., 'the design team' from a Designer), that is a moderate signal.\n" +
+      "- Industry/topic references: If a speaker discusses topics related to a contact's industry, that is a moderate signal.\n" +
       "- Context clues: References to companies, projects, or specific expertise.\n" +
       "- For generic labels like 'Speaker 0' or 'Speaker 1', rely on content analysis.\n\n" +
       "Rules:\n" +
@@ -136,7 +135,10 @@ export const POST = withApiHandler({
 
     const rawMatches = parsed.matches || [];
 
-    // Normalize the response
+    // Build set of valid contact IDs to filter out hallucinated matches
+    const validContactIds = new Set(contactContext.map((c) => c.id));
+
+    // Normalize the response and filter invalid contact IDs
     const matches = rawMatches.map((m: {
       speaker_label: string;
       contact_id: number | null;
@@ -144,8 +146,8 @@ export const POST = withApiHandler({
       reason: string;
     }) => ({
       speakerLabel: m.speaker_label,
-      contactId: m.contact_id,
-      confidence: Math.max(0, Math.min(1, m.confidence)),
+      contactId: m.contact_id !== null && validContactIds.has(m.contact_id) ? m.contact_id : null,
+      confidence: Math.max(0, Math.min(1, m.confidence)) || 0,
       reason: m.reason,
     }));
 

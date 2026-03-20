@@ -160,9 +160,12 @@ export function DatePicker({ value, onChange, required, placeholder = "Select da
             <button
               type="button"
               onClick={() => {
-                setViewYear(today.getFullYear());
-                setViewMonth(today.getMonth());
-                selectDay(today.getDate());
+                const y = today.getFullYear();
+                const m = today.getMonth();
+                setViewYear(y);
+                setViewMonth(m);
+                onChange(`${y}-${String(m + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
+                setOpen(false);
               }}
               className="text-xs font-medium text-primary hover:underline px-2 py-1 cursor-pointer"
             >

@@ -211,6 +211,7 @@ export default function SpeakerResolver({
     return allContactsList.map((c) => ({
       id: c.id,
       name: c.name,
+      industry: (c as any).industry || undefined,
       emails: [...(c.emails || []), ...(c.email ? [c.email] : [])].filter(Boolean),
     }));
   }, [allContacts, meetingContacts]);
@@ -221,7 +222,6 @@ export default function SpeakerResolver({
 
     try {
       const contactContext = buildContactContext();
-      const attendeeIds = meetingContacts.map((c) => c.id);
 
       // Only send unmatched speakers to AI
       const unmatchedLabels = mappings
@@ -241,7 +241,6 @@ export default function SpeakerResolver({
         body: JSON.stringify({
           speakerLabels: unmatchedLabels,
           speakerSamples,
-          attendeeIds,
           contactContext,
           meetingTitle,
         }),
