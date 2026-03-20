@@ -154,10 +154,18 @@ export default function ContactPreviewPage() {
         .filter(Boolean).join(", ")
     : "";
 
+  const initials = (profileData.first_name?.[0] || fullName[0] || "?") +
+    (profileData.last_name?.[0] || fullName.split(" ")[1]?.[0] || "");
+
+  // Derive current role from experience
+  const currentRole = profileData.experience?.find(
+    (exp) => exp.is_current || exp.end_month === "Present" || !exp.end_month
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-6 py-8">
         {/* Back button */}
         <button
           onClick={() => router.push("/contacts")}
@@ -167,170 +175,187 @@ export default function ContactPreviewPage() {
           Back to Contacts
         </button>
 
-        {/* Header */}
-        <div className="bg-surface-container-low rounded-2xl p-6 mb-6">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <User className="w-8 h-8 text-primary" />
+        {/* Hero header card */}
+        <div className="bg-surface-container-low rounded-2xl overflow-hidden mb-6">
+          {/* Gradient banner */}
+          <div className="h-24 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
+
+          <div className="px-6 pb-6 -mt-12">
+            <div className="flex items-end justify-between gap-4 flex-wrap">
+              {/* Avatar + Identity */}
+              <div className="flex items-end gap-4">
+                <div className="w-20 h-20 rounded-full bg-primary/15 border-4 border-surface-container-low flex items-center justify-center shrink-0">
+                  <span className="text-xl font-semibold text-primary select-none">
+                    {initials.toUpperCase()}
+                  </span>
+                </div>
+                <div className="pb-1">
+                  <h1 className="text-2xl font-semibold text-foreground leading-tight">{fullName}</h1>
+                  {currentRole && (
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      {currentRole.title} at {currentRole.company}
+                    </p>
+                  )}
+                </div>
               </div>
-              <div>
-                <h1 className="text-2xl font-semibold text-foreground">{fullName}</h1>
-                {profileData.industry && (
-                  <p className="text-sm text-muted-foreground mt-1">{profileData.industry}</p>
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 pb-1">
+                {profileData.linkedin_url && (
+                  <a
+                    href={profileData.linkedin_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-sm text-primary hover:underline px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    LinkedIn
+                  </a>
                 )}
-                {locationStr && (
-                  <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                    <MapPin className="w-3 h-3" /> {locationStr}
-                  </p>
+                {saved ? (
+                  <div className="flex items-center gap-2 text-green-700 px-4 py-2">
+                    <Check className="w-5 h-5" />
+                    <span className="font-medium text-sm">Saved! Redirecting...</span>
+                  </div>
+                ) : (
+                  <Button onClick={handleSave} disabled={saving} className="min-w-[140px]">
+                    {saving ? (
+                      <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving...</>
+                    ) : (
+                      "Save to Contacts"
+                    )}
+                  </Button>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              {profileData.linkedin_url && (
-                <a
-                  href={profileData.linkedin_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1 text-sm text-primary hover:underline"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  LinkedIn
-                </a>
+            {/* Meta row: industry, location, tags */}
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+              {profileData.industry && (
+                <span>{profileData.industry}</span>
+              )}
+              {locationStr && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5" /> {locationStr}
+                </span>
+              )}
+              {profileData.follow_up_frequency && (
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5" /> Follow up {profileData.follow_up_frequency.toLowerCase()}
+                </span>
               )}
             </div>
-          </div>
 
-          {/* Preview badge */}
-          <div className="mt-4 flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            <AlertCircle className="w-4 h-4" />
-            This contact is not yet saved in your CareerVine database.
+            {/* Tags inline */}
+            {profileData.suggested_tags && profileData.suggested_tags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {profileData.suggested_tags.map((tag, i) => (
+                  <span
+                    key={i}
+                    className="px-2.5 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded-full"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {error && (
+              <p className="text-sm text-red-600 mt-3">{error}</p>
+            )}
           </div>
         </div>
 
-        {/* Save bar */}
-        <div className="bg-surface-container-low rounded-2xl p-4 mb-6 flex items-center justify-between">
-          {saved ? (
-            <div className="flex items-center gap-2 text-green-700">
-              <Check className="w-5 h-5" />
-              <span className="font-medium">Contact saved! Redirecting...</span>
-            </div>
-          ) : (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Save this contact to start tracking interactions, meetings, and follow-ups.
-              </p>
-              <Button onClick={handleSave} disabled={saving} className="min-w-[140px]">
-                {saving ? (
-                  <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving...</>
-                ) : (
-                  "Save to Contacts"
-                )}
-              </Button>
-            </>
-          )}
-          {error && (
-            <p className="text-sm text-red-600 mt-2">{error}</p>
-          )}
+        {/* Content: two-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Sidebar: Notes */}
+          <div className="lg:col-span-1 space-y-6">
+            {profileData.generated_notes && (
+              <div className="bg-surface-container-low rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <FileText className="w-4 h-4 text-muted-foreground" />
+                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">About</h2>
+                </div>
+                <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                  {profileData.generated_notes}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Main content: Experience + Education */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Experience */}
+            {profileData.experience && profileData.experience.length > 0 && (
+              <div className="bg-surface-container-low rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Briefcase className="w-4 h-4 text-muted-foreground" />
+                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Experience</h2>
+                </div>
+                <div className="relative">
+                  {/* Timeline line */}
+                  <div className="absolute left-[5px] top-2 bottom-2 w-px bg-outline/50" />
+                  <div className="space-y-5">
+                    {profileData.experience.map((exp, i) => (
+                      <div key={i} className="flex gap-4 relative">
+                        {/* Timeline dot */}
+                        <div className={`w-[11px] h-[11px] rounded-full mt-1.5 shrink-0 z-10 ${
+                          i === 0 ? "bg-primary" : "bg-outline"
+                        }`} />
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground leading-snug">{exp.title}</p>
+                          <p className="text-sm text-muted-foreground">{exp.company}</p>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                            {(exp.start_month || exp.end_month) && (
+                              <p className="text-xs text-muted-foreground">
+                                {exp.start_month || "?"} — {exp.end_month || "Present"}
+                              </p>
+                            )}
+                            {exp.location && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                <MapPin className="w-3 h-3" /> {exp.location}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Education */}
+            {profileData.education && profileData.education.length > 0 && (
+              <div className="bg-surface-container-low rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <GraduationCap className="w-4 h-4 text-muted-foreground" />
+                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Education</h2>
+                </div>
+                <div className="space-y-4">
+                  {profileData.education.map((edu, i) => (
+                    <div key={i} className="flex gap-4">
+                      <div className="w-[11px] h-[11px] rounded-full bg-outline mt-1.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground leading-snug">{edu.school}</p>
+                        {(edu.degree || edu.field_of_study) && (
+                          <p className="text-sm text-muted-foreground">
+                            {edu.degree}{edu.degree && edu.field_of_study ? " — " : ""}{edu.field_of_study}
+                          </p>
+                        )}
+                        {(edu.start_year || edu.end_year) && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {edu.start_year || "?"} — {edu.end_year || "Present"}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-
-        {/* Notes */}
-        {profileData.generated_notes && (
-          <div className="bg-surface-container-low rounded-2xl p-6 mb-6">
-            <div className="flex items-center gap-2 mb-3">
-              <FileText className="w-5 h-5 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">Notes</h2>
-            </div>
-            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-              {profileData.generated_notes}
-            </p>
-          </div>
-        )}
-
-        {/* Tags */}
-        {profileData.suggested_tags && profileData.suggested_tags.length > 0 && (
-          <div className="bg-surface-container-low rounded-2xl p-6 mb-6">
-            <h2 className="text-lg font-semibold mb-3">Suggested Tags</h2>
-            <div className="flex flex-wrap gap-2">
-              {profileData.suggested_tags.map((tag, i) => (
-                <span
-                  key={i}
-                  className="px-3 py-1 text-xs font-medium bg-primary/10 text-primary rounded-full"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Experience */}
-        {profileData.experience && profileData.experience.length > 0 && (
-          <div className="bg-surface-container-low rounded-2xl p-6 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Briefcase className="w-5 h-5 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">Experience</h2>
-            </div>
-            <div className="space-y-4">
-              {profileData.experience.map((exp, i) => (
-                <div key={i} className="border-l-2 border-outline pl-4">
-                  <p className="font-medium text-foreground">{exp.title}</p>
-                  <p className="text-sm text-muted-foreground">{exp.company}</p>
-                  {(exp.start_month || exp.end_month) && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {exp.start_month || "?"} — {exp.end_month || "Present"}
-                    </p>
-                  )}
-                  {exp.location && (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
-                      <MapPin className="w-3 h-3" /> {exp.location}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Education */}
-        {profileData.education && profileData.education.length > 0 && (
-          <div className="bg-surface-container-low rounded-2xl p-6 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <GraduationCap className="w-5 h-5 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">Education</h2>
-            </div>
-            <div className="space-y-4">
-              {profileData.education.map((edu, i) => (
-                <div key={i} className="border-l-2 border-outline pl-4">
-                  <p className="font-medium text-foreground">{edu.school}</p>
-                  {(edu.degree || edu.field_of_study) && (
-                    <p className="text-sm text-muted-foreground">
-                      {edu.degree}{edu.degree && edu.field_of_study ? " — " : ""}{edu.field_of_study}
-                    </p>
-                  )}
-                  {(edu.start_year || edu.end_year) && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {edu.start_year || "?"} — {edu.end_year || "Present"}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Follow-up info */}
-        {profileData.follow_up_frequency && (
-          <div className="bg-surface-container-low rounded-2xl p-6 mb-6">
-            <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
-                Suggested follow-up: {profileData.follow_up_frequency}
-              </span>
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
