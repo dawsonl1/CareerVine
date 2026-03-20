@@ -94,6 +94,14 @@ describe("resolveDueDate", () => {
     expect(resolveDueDate("end of week", meetingDate)).toBe("2026-03-20");
   });
 
+  it("resolves 'end of week' on a Friday to that same Friday", () => {
+    expect(resolveDueDate("end of week", "2026-03-20")).toBe("2026-03-20");
+  });
+
+  it("resolves 'this week' on a Friday to that same Friday", () => {
+    expect(resolveDueDate("this week", "2026-03-20")).toBe("2026-03-20");
+  });
+
   it("resolves 'next month'", () => {
     expect(resolveDueDate("next month", meetingDate)).toBe("2026-04-01");
   });

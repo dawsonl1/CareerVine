@@ -484,7 +484,7 @@ export type Database = {
           created_at: string | null;     // Creation timestamp
           completed_at: string | null;   // Completion timestamp
           priority: string | null;       // 'high' | 'medium' | 'low' | null
-          source: string;                // 'manual' | 'ai_suggestion'
+          source: string;                // 'manual' | 'ai_suggestion' | 'ai_transcript'
           suggestion_reason_type: string | null;  // Type of AI suggestion reason
           suggestion_headline: string | null;     // AI-generated contextual headline
           suggestion_evidence: string | null;     // Evidence backing the suggestion

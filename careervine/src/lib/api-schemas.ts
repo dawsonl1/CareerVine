@@ -250,7 +250,7 @@ export const transcriptExtractActionsSchema = z.object({
   transcript: z.string().min(1).max(200000),
   attendees: z.array(z.object({
     id: z.number().int(),
-    name: z.string(),
+    name: z.string().max(100),
   })),
   meetingDate: z.string().min(1),
 });

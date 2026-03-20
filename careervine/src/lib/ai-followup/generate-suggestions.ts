@@ -142,8 +142,6 @@ export function generateNoInteractionCadenceSuggestions(
     if (c.days_since_touch === null) continue;
     if (c.days_since_touch < c.follow_up_frequency_days) continue;
 
-    const daysOverdue = c.days_since_touch - c.follow_up_frequency_days;
-
     suggestions.push({
       id: `nointeract-${c.id}`,
       contactId: c.id,

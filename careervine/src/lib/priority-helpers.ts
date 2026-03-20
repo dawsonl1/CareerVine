@@ -14,9 +14,9 @@ export function getPriorityOrder(priority: string | null): number {
 }
 
 export const PRIORITY_COLORS = {
-  high: { dot: "bg-red-500", text: "text-red-600", label: "High" },
-  medium: { dot: "bg-amber-400", text: "text-amber-600", label: "Medium" },
-  low: { dot: "bg-blue-400", text: "text-blue-600", label: "Low" },
+  high: { dot: "bg-red-500", badge: "bg-red-500 text-white", text: "text-red-600", label: "High" },
+  medium: { dot: "bg-amber-400", badge: "bg-amber-600 text-white", text: "text-amber-600", label: "Medium" },
+  low: { dot: "bg-blue-400", badge: "bg-blue-600 text-white", text: "text-blue-600", label: "Low" },
 } as const;
 
 export const PRIORITY_OPTIONS = [
@@ -34,6 +34,7 @@ export function sortByPriorityThenDate<T extends { priority?: string | null; due
   const pa = getPriorityOrder(a.priority ?? null);
   const pb = getPriorityOrder(b.priority ?? null);
   if (pa !== pb) return pa - pb;
+  if (!a.due_at && !b.due_at) return 0;
   if (!a.due_at) return 1;
   if (!b.due_at) return -1;
   return new Date(a.due_at).getTime() - new Date(b.due_at).getTime();

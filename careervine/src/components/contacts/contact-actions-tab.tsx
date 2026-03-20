@@ -10,7 +10,7 @@ import { createActionItem, updateActionItem, deleteActionItem, replaceContactsFo
 import type { Contact, ContactMeeting } from "@/lib/types";
 import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare } from "lucide-react";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
-import { PRIORITY_COLORS, getPriorityOrder } from "@/lib/priority-helpers";
+import { PRIORITY_COLORS, PRIORITY_OPTIONS, getPriorityOrder } from "@/lib/priority-helpers";
 
 import { inputClasses } from "@/lib/form-styles";
 
@@ -307,9 +307,20 @@ export function ContactActionsTab({
                   placeholder="Optional details…"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
-                <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
+                  <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Priority</label>
+                  <Select
+                    value={newPriority}
+                    onChange={setNewPriority}
+                    options={PRIORITY_OPTIONS}
+                    placeholder="No priority"
+                  />
+                </div>
               </div>
               {meetings.length > 0 && (
                 <div>

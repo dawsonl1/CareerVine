@@ -237,7 +237,8 @@ export function TranscriptActionSuggestions({
               <button
                 type="button"
                 onClick={() => dismissSuggestion(s._key)}
-                className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
+                disabled={savingKeys.has(s._key)}
+                className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
                 title="Dismiss"
               >
                 <X className="h-3.5 w-3.5" />

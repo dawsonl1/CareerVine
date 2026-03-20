@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
@@ -162,11 +162,18 @@ export default function ActionItemsPage() {
     deferComplete(item);
   };
 
+  // Track the latest optimistic priority per item to avoid stale-closure reverts on rapid clicks
+  const latestPriorityRef = useRef<Map<number, string | null>>(new Map());
+
   const cyclePriority = async (e: React.MouseEvent, item: ActionItem) => {
     e.stopPropagation();
     const cycle: (string | null)[] = [null, "high", "medium", "low"];
-    const currentIdx = cycle.indexOf(item.priority);
+    // Use the latest optimistic value if a cycle is already in-flight
+    const currentPriority = latestPriorityRef.current.get(item.id) ?? item.priority;
+    const currentIdx = cycle.indexOf(currentPriority);
     const nextPriority = cycle[(currentIdx + 1) % cycle.length];
+
+    latestPriorityRef.current.set(item.id, nextPriority);
 
     // Optimistic update
     setActionItems((prev) =>
@@ -176,10 +183,15 @@ export default function ActionItemsPage() {
     try {
       await updateActionItem(item.id, { priority: nextPriority });
     } catch {
-      // Revert on failure
-      setActionItems((prev) =>
-        prev.map((a) => (a.id === item.id ? { ...a, priority: item.priority } : a))
-      );
+      // Revert to the latest optimistic value (not the stale closure value)
+      const revertTo = latestPriorityRef.current.get(item.id);
+      // Only revert if this call's target is still the latest
+      if (revertTo === nextPriority) {
+        latestPriorityRef.current.delete(item.id);
+        setActionItems((prev) =>
+          prev.map((a) => (a.id === item.id ? { ...a, priority: item.priority } : a))
+        );
+      }
       toastError("Failed to update priority");
     }
   };
@@ -285,7 +297,7 @@ export default function ActionItemsPage() {
     );
   };
 
-  const isAiSuggestion = (item: ActionItem) => item.source === ActionItemSource.AiSuggestion;
+  const isAiGenerated = (item: ActionItem) => item.source !== ActionItemSource.Manual;
 
   const renderItem = (item: ActionItem, overdue: boolean) => (
     <Card
@@ -304,7 +316,7 @@ export default function ActionItemsPage() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              {isAiSuggestion(item) && (
+              {isAiGenerated(item) && (
                 <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
               )}
               {renderPriorityDot(item)}
@@ -313,14 +325,14 @@ export default function ActionItemsPage() {
             <p className="text-sm text-muted-foreground">
               {(item.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || item.contacts?.name || "No contact"}
               {item.meetings && <span> · <Calendar className="inline h-3 w-3 mb-0.5" /> {item.meetings.meeting_type}</span>}
-              {isAiSuggestion(item) && <span> · AI suggestion</span>}
+              {isAiGenerated(item) && <span> · {item.source === ActionItemSource.AiSuggestion ? "AI suggestion" : "From transcript"}</span>}
             </p>
-            {isAiSuggestion(item) && item.suggestion_headline && (
+            {isAiGenerated(item) && item.suggestion_headline && (
               <p className="mt-1 text-sm text-muted-foreground italic line-clamp-1">
                 &ldquo;{item.suggestion_evidence || item.suggestion_headline}&rdquo;
               </p>
             )}
-            {!isAiSuggestion(item) && item.description && (
+            {!isAiGenerated(item) && item.description && (
               <p className="mt-1.5 text-sm text-muted-foreground line-clamp-1">{item.description}</p>
             )}
             <p className={`mt-1.5 text-xs ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
@@ -580,8 +592,8 @@ export default function ActionItemsPage() {
                     <h2 className="text-[22px] leading-7 font-normal text-foreground">{selectedItem.title}</h2>
                     {selectedItem.priority && (
                       <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                        PRIORITY_COLORS[selectedItem.priority as keyof typeof PRIORITY_COLORS].dot
-                      } text-white capitalize`}>
+                        PRIORITY_COLORS[selectedItem.priority as keyof typeof PRIORITY_COLORS].badge
+                      } capitalize`}>
                         {selectedItem.priority}
                       </span>
                     )}

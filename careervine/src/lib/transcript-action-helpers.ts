@@ -91,10 +91,11 @@ export function resolveDueDate(hint: string | null, meetingDate: string): string
     return toISODate(base);
   }
 
-  // "end of week" / "this week" → Friday of the same week
+  // "end of week" / "this week" → Friday of the same week (or today if already Friday)
   if (h.includes("end of week") || h === "this week") {
     const currentDay = base.getUTCDay();
-    const daysUntilFriday = (5 - currentDay + 7) % 7 || 7;
+    const daysUntilFriday = (5 - currentDay + 7) % 7;
+    if (daysUntilFriday === 0) return toISODate(base); // already Friday
     base.setUTCDate(base.getUTCDate() + daysUntilFriday);
     return toISODate(base);
   }
