@@ -1195,36 +1195,39 @@
 /* Status Messages */
 .cv-status {
   position: fixed;
-  bottom: 100px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 12px 20px;
+  bottom: 80px;
+  right: 16px;
+  padding: 10px 16px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   z-index: 100;
-  animation: slideUp 0.3s ease;
+  max-width: 280px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  animation: slideInRight 0.3s ease;
 }
 
-@keyframes slideUp {
+@keyframes slideInRight {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(10px);
+    transform: translateX(12px);
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
+    transform: translateX(0);
   }
 }
 
 .cv-status-success {
-  background: #d4edda;
-  color: #155724;
+  background: #ecfdf3;
+  color: #166534;
+  border: 1px solid #bbf7d0;
 }
 
 .cv-status-error {
-  background: #f8d7da;
-  color: #721c24;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
 }
 
 /* Login Form Styles */
