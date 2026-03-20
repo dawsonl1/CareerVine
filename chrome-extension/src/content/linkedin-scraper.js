@@ -148,6 +148,43 @@ class LinkedInScraper {
     // Delegate to the shared pure function (loaded via identify-sections.js)
     return window._identifySections(lines);
   }
+
+  /**
+   * Extract the viewed profile's photo URL from the DOM.
+   * Returns a 400x400 LinkedIn CDN URL, or null if no real photo found.
+   */
+  extractProfilePhotoUrl() {
+    const main = document.querySelector('main') || document.body;
+
+    // Strategy 1: 400x400 image (best quality, already correct size)
+    const img400 = main.querySelector('img[src*="profile-displayphoto-shrink_400_400"]')
+      || main.querySelector('img[src*="profile-displayphoto-scale_400_400"]');
+    if (img400) {
+      const src = img400.getAttribute('src');
+      if (src && src.includes('media.licdn.com/dms/image')) return src;
+    }
+
+    // Strategy 2: 100x100 shrink — rewrite to 400x400
+    const imgShrink100 = main.querySelector('img[src*="profile-displayphoto-shrink_100_100"]');
+    if (imgShrink100) {
+      const src = imgShrink100.getAttribute('src');
+      if (src && src.includes('media.licdn.com/dms/image')) {
+        return src.replace(/profile-displayphoto-shrink_100_100/g, 'profile-displayphoto-shrink_400_400');
+      }
+    }
+
+    // Strategy 3: 100x100 scale — rewrite to 400x400
+    const imgScale100 = main.querySelector('img[src*="profile-displayphoto-scale_100_100"]');
+    if (imgScale100) {
+      const src = imgScale100.getAttribute('src');
+      if (src && src.includes('media.licdn.com/dms/image')) {
+        return src.replace(/profile-displayphoto-scale_100_100/g, 'profile-displayphoto-scale_400_400');
+      }
+    }
+
+    // No real photo found (ghost avatar or no photo element)
+    return null;
+  }
 }
 
 window.LinkedInScraper = LinkedInScraper;

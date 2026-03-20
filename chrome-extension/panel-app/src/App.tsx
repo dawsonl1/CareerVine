@@ -912,6 +912,7 @@ const App: React.FC = () => {
   const [savedContactId, setSavedContactId] = useState<number | null>(null);
   const [webappBaseUrl, setWebappBaseUrl] = useState("https://www.dawsonsprojects.com");
   const [existingContact, setExistingContact] = useState<any>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   
   const checkAuthentication = async () => {
     try {
@@ -967,10 +968,11 @@ const App: React.FC = () => {
     }
   };
 
-  // Load auto-scrape setting and webapp base URL
+  // Load auto-scrape setting, photo URL, and webapp base URL
   useEffect(() => {
-    chrome?.storage?.local?.get?.(['autoScrapeEnabled'], (result: any) => {
+    chrome?.storage?.local?.get?.(['autoScrapeEnabled', 'latestPhotoUrl'], (result: any) => {
       setAutoScrape(result?.autoScrapeEnabled || false);
+      setPhotoUrl(result?.latestPhotoUrl || null);
     });
     // Get webapp URL from config (strips /api from apiBaseUrl)
     chrome?.runtime?.sendMessage?.({ action: 'getConfig' }, (response: any) => {
@@ -1012,6 +1014,7 @@ const App: React.FC = () => {
       setErrorText(null);
       setProgressStage(null);
       setProgressPercent(0);
+      setPhotoUrl(null);
     };
 
     const handleStorageChange = (
@@ -1025,6 +1028,9 @@ const App: React.FC = () => {
           setLoading(false);
           // DB match check is handled by content.js checkProfileInDB — no duplicate call needed
         }
+      }
+      if (area === "local" && changes.latestPhotoUrl) {
+        setPhotoUrl(changes.latestPhotoUrl.newValue || null);
       }
     };
 
@@ -1521,7 +1527,20 @@ const App: React.FC = () => {
         {/* Profile Section */}
         <section className="cv-profile-section">
           <div className="cv-avatar">
-            <User className="w-8 h-8 text-green-700" />
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={profileName}
+                className="cv-avatar-img"
+                onError={(e) => {
+                  // Fallback to User icon if image fails to load
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  (e.target as HTMLImageElement).parentElement!.classList.add('cv-avatar-fallback');
+                }}
+              />
+            ) : (
+              <User className="w-8 h-8 text-green-700" />
+            )}
           </div>
           <div className="cv-profile-info">
             <h1 className="cv-profile-name">{profileName}</h1>

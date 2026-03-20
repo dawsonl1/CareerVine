@@ -238,13 +238,14 @@ async function scrapeCurrentProfile() {
     dispatchProgress('scrolling', 15);
     const scraper = new window.LinkedInScraper();
     const cleanedText = await scraper.scrapeAndClean();
+    const photoUrl = scraper.extractProfilePhotoUrl();
 
     if (!isExtensionContextValid()) return { scraped: false };
 
     dispatchProgress('parsing', 60);
     await chrome.runtime.sendMessage({
       action: 'parseProfile',
-      data: { cleanedText, profileUrl: window.location.href }
+      data: { cleanedText, profileUrl: window.location.href, photoUrl }
     });
 
     lastScrapeTimestamp = Date.now();
@@ -279,18 +280,18 @@ function handleProfileNavigation() {
     if (isPanelOpen) {
       tryLoadFromCache(currentProfileId).then((hit) => {
         if (!hit) {
-          chrome.storage.local.remove(['latestProfile']);
+          chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
           emit('newprofile', { profileId: currentProfileId });
           if (autoScrapeEnabled) {
             analyzeCurrentProfile(currentProfileId, true);
           }
         }
       }).catch(() => {
-        chrome.storage.local.remove(['latestProfile']);
+        chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
         emit('newprofile', { profileId: currentProfileId });
       });
     } else {
-      chrome.storage.local.remove(['latestProfile']);
+      chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
       emit('newprofile', { profileId: currentProfileId });
     }
   } else if (!currentProfileId && lastProfileId) {
@@ -299,7 +300,7 @@ function handleProfileNavigation() {
     lastAnalyzedProfileId = null;
     lastCheckedProfileId = null;
 
-    chrome.storage.local.remove(['latestProfile']);
+    chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
     emit('leftprofile');
   }
 }

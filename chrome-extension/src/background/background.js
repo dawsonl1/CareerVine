@@ -168,7 +168,17 @@ async function handleParseProfile(data, sendResponse) {
       profileUrl: data.profileUrl
     });
 
-    await chrome.storage.local.set({ latestProfile: result.profileData });
+    // Store profile data and photo URL separately
+    // photoUrl is DOM-scraped, not AI-parsed — kept outside latestProfile
+    const storageUpdate = { latestProfile: result.profileData };
+    if (data.photoUrl) {
+      storageUpdate.latestPhotoUrl = data.photoUrl;
+    } else {
+      // Clear stale photo from a previous profile
+      await chrome.storage.local.remove(['latestPhotoUrl']);
+    }
+    await chrome.storage.local.set(storageUpdate);
+
     sendResponse({ success: true, profileData: result.profileData });
   } catch (error) {
     sendResponse({ error: error.message });
@@ -177,7 +187,13 @@ async function handleParseProfile(data, sendResponse) {
 
 async function handleImportData(data, sendResponse) {
   try {
-    const result = await authenticatedPost('/contacts/import', { profileData: data });
+    // Read the DOM-scraped photo URL and include it in the import payload
+    const { latestPhotoUrl } = await chrome.storage.local.get(['latestPhotoUrl']);
+    const importPayload = { profileData: data };
+    if (latestPhotoUrl) {
+      importPayload.photoUrl = latestPhotoUrl;
+    }
+    const result = await authenticatedPost('/contacts/import', importPayload);
 
     // Add to recent contacts in storage
     const { recentContacts = [] } = await chrome.storage.local.get(['recentContacts']);
@@ -273,7 +289,7 @@ async function handleCheckDuplicate(data, sendResponse) {
 
 async function handleLogout(sendResponse) {
   try {
-    await chrome.storage.local.remove(['session', 'latestProfile', 'recentContacts', 'autoScrapeEnabled', 'profileCache']);
+    await chrome.storage.local.remove(['session', 'latestProfile', 'latestPhotoUrl', 'recentContacts', 'autoScrapeEnabled', 'profileCache']);
     sendResponse({ success: true });
   } catch (error) {
     sendResponse({ error: error.message });
