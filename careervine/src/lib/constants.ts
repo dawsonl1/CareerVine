@@ -54,6 +54,7 @@ export const GmailLabel = {
 export const ActionItemSource = {
   Manual: "manual",
   AiSuggestion: "ai_suggestion",
+  AiTranscript: "ai_transcript",
 } as const;
 
 // ── AI suggestion reason types ────────────────────────────────────────
@@ -63,4 +64,5 @@ export const SuggestionReasonType = {
   NoInteractionCadence: "no_interaction_cadence",
   DecayWarning: "decay_warning",
   LlmPersonalized: "llm_personalized",
+  TranscriptExtracted: "transcript_extracted",
 } as const;

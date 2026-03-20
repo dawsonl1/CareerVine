@@ -38,6 +38,7 @@ import { ContactPicker } from "@/components/ui/contact-picker";
 import TranscriptUploader from "@/components/transcript-uploader";
 import TranscriptViewer from "@/components/transcript-viewer";
 import SpeakerResolver from "@/components/speaker-resolver";
+import { TranscriptActionSuggestions } from "@/components/meetings/transcript-action-suggestions";
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 
@@ -1217,6 +1218,16 @@ export default function MeetingsPage() {
                       segments={meetingSegments[meeting.id]}
                       rawText={meeting.transcript}
                     />
+                    {meeting.transcript && user && (
+                      <TranscriptActionSuggestions
+                        meetingId={meeting.id}
+                        userId={user.id}
+                        transcript={meeting.transcript}
+                        attendees={meeting.meeting_contacts.map((mc) => ({ id: mc.contacts.id, name: mc.contacts.name }))}
+                        meetingDate={meeting.meeting_date}
+                        onActionCreated={() => reloadMeetingActions(meeting.id)}
+                      />
+                    )}
                   </div>
                 )}
 

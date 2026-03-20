@@ -243,6 +243,18 @@ export const suggestionsSaveSchema = z.object({
   evidence: z.string().min(1),
 });
 
+// ── Transcript Action Extraction ──────────────────────────────────────
+
+export const transcriptExtractActionsSchema = z.object({
+  meetingId: z.number().int(),
+  transcript: z.string().min(1).max(200000),
+  attendees: z.array(z.object({
+    id: z.number().int(),
+    name: z.string(),
+  })),
+  meetingDate: z.string().min(1),
+});
+
 // ── Extension ──────────────────────────────────────────────────────────
 
 export const extensionParseProfileSchema = z.object({

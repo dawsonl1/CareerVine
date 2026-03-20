@@ -489,7 +489,7 @@ export type Database = {
           suggestion_headline: string | null;     // AI-generated contextual headline
           suggestion_evidence: string | null;     // Evidence backing the suggestion
         };
-        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority" | "source"> & {
+        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority" | "source" | "suggestion_reason_type" | "suggestion_headline" | "suggestion_evidence"> & {
           priority?: string | null;
           source?: string;
           suggestion_reason_type?: string | null;
