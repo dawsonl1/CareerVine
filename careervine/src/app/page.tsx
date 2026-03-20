@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
+import { getHealthColor, healthStyles, healthLabels, type HealthColor } from "@/lib/health-helpers";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"];
@@ -59,31 +60,6 @@ type ContactHealth = {
   follow_up_frequency_days: number | null;
   last_touch: string | null;
   days_since_touch: number | null;
-};
-
-/**
- * Classify a contact into a health bucket based on days since last touch.
- */
-function getHealthColor(daysSince: number | null): "green" | "yellow" | "orange" | "red" {
-  if (daysSince === null) return "red"; // never contacted
-  if (daysSince <= 14) return "green";
-  if (daysSince <= 30) return "yellow";
-  if (daysSince <= 60) return "orange";
-  return "red";
-}
-
-const healthStyles = {
-  green: "bg-[#c8e6c9] text-[#1b5e20] ring-[#66bb6a]/30",
-  yellow: "bg-[#fff9c4] text-[#f57f17] ring-[#ffee58]/30",
-  orange: "bg-[#ffe0b2] text-[#e65100] ring-[#ffa726]/30",
-  red: "bg-[#ffcdd2] text-[#b71c1c] ring-[#ef5350]/30",
-};
-
-const healthLabels = {
-  green: "Active (< 2 weeks)",
-  yellow: "Cooling (2-4 weeks)",
-  orange: "At risk (1-2 months)",
-  red: "Cold (2+ months / never)",
 };
 
 export default function Home() {
@@ -173,57 +149,40 @@ export default function Home() {
 
   // ── Derived data ──
 
-  // Reach Out Today: combine overdue follow-ups + stale contacts (60+ days no touch)
+  // Reach Out Today: only contacts with a cadence that are due/overdue
   const reachOutToday = useMemo(() => {
-    // Start with overdue follow-ups (already sorted by most overdue)
     const items: { id: number; name: string; reason: string; urgency: number }[] = [];
-    const seen = new Set<number>();
 
-    for (const f of followUps.slice(0, 8)) {
-      seen.add(f.id);
+    for (const f of followUps) {
       const reason =
         f.days_overdue === 0
           ? "Follow-up due today"
           : `Follow-up ${f.days_overdue}d overdue`;
-      items.push({ id: f.id, name: f.name, reason, urgency: f.days_overdue + 100 });
-    }
-
-    // Add stale contacts not already in follow-ups
-    for (const c of contactHealth) {
-      if (seen.has(c.id)) continue;
-      if (c.days_since_touch === null) {
-        items.push({ id: c.id, name: c.name, reason: "Never contacted", urgency: 50 });
-        seen.add(c.id);
-      } else if (c.days_since_touch >= 30) {
-        items.push({
-          id: c.id,
-          name: c.name,
-          reason: `Last contact ${c.days_since_touch}d ago`,
-          urgency: c.days_since_touch,
-        });
-        seen.add(c.id);
-      }
+      items.push({ id: f.id, name: f.name, reason, urgency: f.days_overdue });
     }
 
     return items.sort((a, b) => b.urgency - a.urgency).slice(0, 6);
-  }, [followUps, contactHealth]);
+  }, [followUps]);
+
+  // Total overdue count (for "View all" link)
+  const totalOverdue = followUps.length;
 
   // Health grid stats
   const healthStats = useMemo(() => {
-    const counts = { green: 0, yellow: 0, orange: 0, red: 0 };
+    const counts: Record<HealthColor, number> = { green: 0, yellow: 0, orange: 0, red: 0, gray: 0 };
     for (const c of contactHealth) {
-      counts[getHealthColor(c.days_since_touch)]++;
+      counts[getHealthColor(c.days_since_touch, c.follow_up_frequency_days)]++;
     }
     return counts;
   }, [contactHealth]);
 
   // Sorted health grid (memoized to avoid re-sorting on every render)
   const sortedHealthGrid = useMemo(() => {
-    const order = { red: 0, orange: 1, yellow: 2, green: 3 };
+    const order: Record<HealthColor, number> = { red: 0, orange: 1, yellow: 2, green: 3, gray: 4 };
     return [...contactHealth]
       .sort((a, b) => {
-        const aColor = getHealthColor(a.days_since_touch);
-        const bColor = getHealthColor(b.days_since_touch);
+        const aColor = getHealthColor(a.days_since_touch, a.follow_up_frequency_days);
+        const bColor = getHealthColor(b.days_since_touch, b.follow_up_frequency_days);
         if (order[aColor] !== order[bColor]) return order[aColor] - order[bColor];
         return a.name.localeCompare(b.name);
       })
@@ -457,14 +416,14 @@ export default function Home() {
                     <Link key={item.id} href={`/contacts/${item.id}`}>
                       <Card
                         variant="outlined"
-                        className={`state-layer ${item.urgency >= 100 ? "border-destructive/40" : ""}`}
+                        className={`state-layer ${item.urgency > 7 ? "border-destructive/40" : ""}`}
                       >
                         <CardContent className="p-4 flex items-center gap-3">
                           <div
                             className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-xs font-medium ${
-                              item.urgency >= 100
+                              item.urgency > 7
                                 ? "bg-error-container text-on-error-container"
-                                : item.urgency >= 50
+                                : item.urgency > 0
                                 ? "bg-[#ffe0b2] text-[#e65100]"
                                 : "bg-secondary-container text-on-secondary-container"
                             }`}
@@ -475,7 +434,7 @@ export default function Home() {
                             <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
                             <p className="text-xs text-muted-foreground truncate">{item.reason}</p>
                           </div>
-                          {item.urgency >= 100 && (
+                          {item.urgency > 7 && (
                             <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
                           )}
                         </CardContent>
@@ -483,6 +442,14 @@ export default function Home() {
                     </Link>
                   ))}
                 </div>
+                {totalOverdue > 6 && (
+                  <Link
+                    href="/contacts"
+                    className="flex items-center gap-0.5 mt-3 text-xs font-medium text-primary hover:underline"
+                  >
+                    View all {totalOverdue} overdue <ArrowRight className="h-3 w-3" />
+                  </Link>
+                )}
               </div>
             )}
 
@@ -504,20 +471,22 @@ export default function Home() {
 
                 {/* Health summary bar */}
                 <div className="flex gap-3 mb-4">
-                  {(["green", "yellow", "orange", "red"] as const).map((color) => (
-                    <div key={color} className="flex items-center gap-1.5">
-                      <div className={`w-3 h-3 rounded-full ${healthStyles[color].split(" ")[0]}`} />
-                      <span className="text-xs text-muted-foreground">
-                        {healthStats[color]}
-                      </span>
-                    </div>
+                  {(["green", "yellow", "orange", "red", "gray"] as const).map((color) => (
+                    healthStats[color] > 0 ? (
+                      <div key={color} className="flex items-center gap-1.5">
+                        <div className={`w-3 h-3 rounded-full ${healthStyles[color].split(" ")[0]}`} />
+                        <span className="text-xs text-muted-foreground">
+                          {healthStats[color]}
+                        </span>
+                      </div>
+                    ) : <span key={color} />
                   ))}
                 </div>
 
                 {/* Contact grid */}
                 <div className="flex flex-wrap gap-2">
                   {sortedHealthGrid.map((c) => {
-                      const color = getHealthColor(c.days_since_touch);
+                      const color = getHealthColor(c.days_since_touch, c.follow_up_frequency_days);
                       return (
                         <Link key={c.id} href={`/contacts/${c.id}`} title={`${c.name} — ${
                           c.days_since_touch === null
@@ -538,7 +507,7 @@ export default function Home() {
 
                 {/* Legend */}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
-                  {(["green", "yellow", "orange", "red"] as const).map((color) => (
+                  {(["green", "yellow", "orange", "red", "gray"] as const).map((color) => (
                     <span key={color} className="text-[10px] text-muted-foreground flex items-center gap-1">
                       <span className={`inline-block w-2 h-2 rounded-full ${healthStyles[color].split(" ")[0]}`} />
                       {healthLabels[color]}
