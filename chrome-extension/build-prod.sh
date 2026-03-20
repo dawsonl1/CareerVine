@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Read version from manifest
-VERSION=$(grep -oP '"version"\s*:\s*"\K[^"]+' manifest.json)
+VERSION=$(node -p "require('./manifest.json').version")
 ZIP_NAME="careervine-extension-v${VERSION}.zip"
 
 echo "==> Building CareerVine Extension v${VERSION} for production..."
@@ -34,7 +34,7 @@ trap cleanup EXIT
 
 # ── 2. Switch background.js to production environment ───────
 echo "    Setting ENV = 'production' in background.js"
-sed -i "s/^const ENV = 'development';/const ENV = 'production';/" src/background/background.js
+sed -i'' -e "s/^const ENV = 'development';/const ENV = 'production';/" src/background/background.js
 
 # Verify the swap worked
 if grep -q "const ENV = 'development'" src/background/background.js; then
