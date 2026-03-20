@@ -178,95 +178,90 @@ export default function ContactPreviewPage() {
           Back to Contacts
         </button>
 
-        {/* Hero header card */}
-        <div className="bg-surface-container-low rounded-2xl overflow-hidden mb-6">
-          {/* Gradient banner */}
-          <div className="h-24 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
+        {/* Header card */}
+        <div className="bg-surface-container-low rounded-2xl p-6 mb-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            {/* Avatar + Identity */}
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <span className="text-lg font-semibold text-primary select-none">
+                  {initials}
+                </span>
+              </div>
+              <div>
+                <h1 className="text-2xl font-semibold text-foreground leading-tight">{fullName}</h1>
+                {current_title && current_company && (
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    {current_title} at {current_company}
+                  </p>
+                )}
+              </div>
+            </div>
 
-          <div className="px-6 pb-6 -mt-12">
-            <div className="flex items-end justify-between gap-4 flex-wrap">
-              {/* Avatar + Identity */}
-              <div className="flex items-end gap-4">
-                <div className="w-20 h-20 rounded-full bg-primary/15 border-4 border-surface-container-low flex items-center justify-center shrink-0">
-                  <span className="text-xl font-semibold text-primary select-none">
-                    {initials}
-                  </span>
+            {/* Actions */}
+            <div className="flex items-center gap-3">
+              {profileData.linkedin_url && (
+                <a
+                  href={profileData.linkedin_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 text-sm text-primary hover:underline px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  LinkedIn
+                </a>
+              )}
+              {saved ? (
+                <div className="flex items-center gap-2 text-green-700 px-4 py-2">
+                  <Check className="w-5 h-5" />
+                  <span className="font-medium text-sm">Saved! Redirecting...</span>
                 </div>
-                <div className="pb-1">
-                  <h1 className="text-2xl font-semibold text-foreground leading-tight">{fullName}</h1>
-                  {current_title && current_company && (
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      {current_title} at {current_company}
-                    </p>
+              ) : (
+                <Button onClick={handleSave} disabled={saving} className="min-w-[140px]">
+                  {saving ? (
+                    <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving...</>
+                  ) : (
+                    "Save to Contacts"
                   )}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-3 pb-1">
-                {profileData.linkedin_url && (
-                  <a
-                    href={profileData.linkedin_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1.5 text-sm text-primary hover:underline px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    LinkedIn
-                  </a>
-                )}
-                {saved ? (
-                  <div className="flex items-center gap-2 text-green-700 px-4 py-2">
-                    <Check className="w-5 h-5" />
-                    <span className="font-medium text-sm">Saved! Redirecting...</span>
-                  </div>
-                ) : (
-                  <Button onClick={handleSave} disabled={saving} className="min-w-[140px]">
-                    {saving ? (
-                      <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving...</>
-                    ) : (
-                      "Save to Contacts"
-                    )}
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Meta row: industry, location, tags */}
-            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
-              {profileData.industry && (
-                <span>{profileData.industry}</span>
-              )}
-              {locationStr && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" /> {locationStr}
-                </span>
-              )}
-              {profileData.follow_up_frequency && (
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" /> Follow up {profileData.follow_up_frequency.toLowerCase()}
-                </span>
+                </Button>
               )}
             </div>
+          </div>
 
-            {/* Tags inline */}
-            {profileData.suggested_tags && profileData.suggested_tags.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {profileData.suggested_tags.map((tag, i) => (
-                  <span
-                    key={i}
-                    className="px-2.5 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded-full"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+          {/* Meta row: industry, location */}
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+            {profileData.industry && (
+              <span>{profileData.industry}</span>
             )}
-
-            {error && (
-              <p className="text-sm text-red-600 mt-3">{error}</p>
+            {locationStr && (
+              <span className="flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5" /> {locationStr}
+              </span>
+            )}
+            {profileData.follow_up_frequency && (
+              <span className="flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" /> Follow up {profileData.follow_up_frequency.toLowerCase()}
+              </span>
             )}
           </div>
+
+          {/* Tags inline */}
+          {profileData.suggested_tags && profileData.suggested_tags.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {profileData.suggested_tags.map((tag, i) => (
+                <span
+                  key={i}
+                  className="px-2.5 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded-full"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {error && (
+            <p className="text-sm text-red-600 mt-3">{error}</p>
+          )}
         </div>
 
         {/* Content: two-column layout */}
