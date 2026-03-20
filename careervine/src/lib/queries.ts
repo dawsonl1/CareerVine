@@ -152,27 +152,21 @@ export async function updateContact(
  * @throws Error if deletion fails
  */
 export async function deleteContact(id: number) {
-  // Delete the contact and return photo_url for storage cleanup (single round-trip)
+  // Delete the contact and return user_id + photo_url for storage cleanup (single round-trip)
   const { data: contact, error } = await supabase
     .from("contacts")
     .delete()
     .eq("id", id)
-    .select("photo_url")
+    .select("user_id, photo_url")
     .single();
 
   if (error) throw error;
 
-  if (contact?.photo_url) {
+  if (contact?.photo_url && contact.user_id) {
     try {
-      // Extract the storage path from the public URL
-      // Public URLs have the form: .../object/public/contact-photos/{userId}/{contactId}.jpg
-      const url = new URL(contact.photo_url);
-      const marker = '/object/public/contact-photos/';
-      const markerIndex = url.pathname.indexOf(marker);
-      if (markerIndex !== -1) {
-        const storagePath = url.pathname.slice(markerIndex + marker.length);
-        await supabase.storage.from('contact-photos').remove([storagePath]);
-      }
+      // Derive the storage path directly — no URL parsing needed
+      const storagePath = `${contact.user_id}/${id}.jpg`;
+      await supabase.storage.from('contact-photos').remove([storagePath]);
     } catch (err) {
       // Photo cleanup failure should not block — contact is already deleted
       console.warn(`[deleteContact] Photo cleanup failed for contact ${id}:`, err);

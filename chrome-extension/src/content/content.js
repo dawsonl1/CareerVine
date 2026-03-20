@@ -100,23 +100,30 @@ async function getCachedProfile(profileId) {
   return null;
 }
 
-async function setCachedProfile(profileId, data) {
+async function setCachedProfile(profileId, data, photoUrl) {
   const { profileCache = {} } = await chrome.storage.local.get(['profileCache']);
   const now = Date.now();
   const cleaned = {};
   for (const [key, val] of Object.entries(profileCache)) {
     if (now - val.timestamp < CACHE_TTL_MS) cleaned[key] = val;
   }
-  cleaned[profileId] = { data, timestamp: now };
+  cleaned[profileId] = { data, photoUrl: photoUrl || null, timestamp: now };
   await chrome.storage.local.set({ profileCache: cleaned });
 }
 
 async function tryLoadFromCache(profileId) {
-  const cached = await getCachedProfile(profileId);
-  if (cached) {
-    await chrome.storage.local.set({ latestProfile: cached });
+  const { profileCache = {} } = await chrome.storage.local.get(['profileCache']);
+  const entry = profileCache[profileId];
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+    const storageUpdate = { latestProfile: entry.data };
+    if (entry.photoUrl) {
+      storageUpdate.latestPhotoUrl = entry.photoUrl;
+    } else {
+      await chrome.storage.local.remove(['latestPhotoUrl']);
+    }
+    await chrome.storage.local.set(storageUpdate);
     lastAnalyzedProfileId = profileId;
-    emit('cachedhit', { profileData: cached });
+    emit('cachedhit', { profileData: entry.data });
     return true;
   }
   return false;
@@ -163,8 +170,8 @@ function analyzeCurrentProfile(profileId, calledFromNav = false) {
       isAnalyzing = false;
       if (result?.scraped) {
         lastAnalyzedProfileId = profileId;
-        const { latestProfile } = await chrome.storage.local.get(['latestProfile']);
-        if (latestProfile) await setCachedProfile(profileId, latestProfile);
+        const { latestProfile, latestPhotoUrl } = await chrome.storage.local.get(['latestProfile', 'latestPhotoUrl']);
+        if (latestProfile) await setCachedProfile(profileId, latestProfile, latestPhotoUrl);
       }
       dispatchProgress('done', 100);
       emit('analyzing', { analyzing: false });

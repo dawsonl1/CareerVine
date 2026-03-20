@@ -453,14 +453,15 @@ async function downloadAndStorePhoto(supabase: SupabaseClient, userId: string, c
     });
   if (uploadError) throw uploadError;
 
-  // Get the public URL and update the contact record
+  // Get the public URL with cache-busting timestamp and update the contact record
   const { data: publicUrlData } = supabase.storage
     .from('contact-photos')
     .getPublicUrl(storagePath);
+  const photoUrlWithCacheBust = `${publicUrlData.publicUrl}?t=${Date.now()}`;
 
   const { error: updateError } = await supabase
     .from('contacts')
-    .update({ photo_url: publicUrlData.publicUrl })
+    .update({ photo_url: photoUrlWithCacheBust })
     .eq('id', contactId)
     .eq('user_id', userId);
   if (updateError) throw updateError;

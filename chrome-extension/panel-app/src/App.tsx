@@ -1129,6 +1129,7 @@ const App: React.FC = () => {
       const response = await chrome?.runtime?.sendMessage?.({
         action: "importData",
         data: payload,
+        photoUrl: photoUrl,
       });
 
       if (response?.success) {

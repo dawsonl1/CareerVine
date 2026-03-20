@@ -106,7 +106,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await handleParseProfile(message.data, sendResponse);
         break;
       case 'importData':
-        await handleImportData(message.data, sendResponse);
+        await handleImportData(message.data, message.photoUrl, sendResponse);
         break;
       case 'authenticate':
         await handleAuthentication(message.credentials, sendResponse);
@@ -185,13 +185,12 @@ async function handleParseProfile(data, sendResponse) {
   }
 }
 
-async function handleImportData(data, sendResponse) {
+async function handleImportData(data, photoUrl, sendResponse) {
   try {
-    // Read the DOM-scraped photo URL and include it in the import payload
-    const { latestPhotoUrl } = await chrome.storage.local.get(['latestPhotoUrl']);
+    // photoUrl is passed directly from the panel — no global storage read needed
     const importPayload = { profileData: data };
-    if (latestPhotoUrl) {
-      importPayload.photoUrl = latestPhotoUrl;
+    if (photoUrl) {
+      importPayload.photoUrl = photoUrl;
     }
     const result = await authenticatedPost('/contacts/import', importPayload);
 
