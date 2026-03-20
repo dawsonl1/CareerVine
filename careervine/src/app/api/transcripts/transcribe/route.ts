@@ -1,4 +1,4 @@
-import { createClient } from "@deepgram/sdk";
+import { DeepgramClient } from "@deepgram/sdk";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { transcriptTranscribeSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
@@ -55,25 +55,24 @@ export const POST = withApiHandler({
     }
 
     // Call Deepgram pre-recorded API with diarization
-    const deepgram = createClient(apiKey);
-    const { result, error: dgError } = await deepgram.listen.prerecorded.transcribeUrl(
-      { url: signedUrlResult.data.signedUrl },
-      {
+    const deepgram = new DeepgramClient({ apiKey });
+    let result;
+    try {
+      result = await deepgram.listen.v1.media.transcribeUrl({
+        url: signedUrlResult.data.signedUrl,
         model: "nova-3",
         diarize: true,
         punctuate: true,
         smart_format: true,
         utterances: true,
-      },
-    );
-
-    if (dgError) {
+      });
+    } catch (dgError) {
       console.error("[transcribe] Deepgram error:", dgError);
       throw new ApiError("Transcription failed. Please try again.", 500);
     }
 
     // Map Deepgram utterances to our segment format
-    const utterances = result?.results?.utterances ?? [];
+    const utterances = ("results" in result ? result.results?.utterances : undefined) ?? [];
     const segments = utterances.map((u: any, i: number) => ({
       speaker_label: `Speaker ${u.speaker}`,
       started_at: u.start ?? null,

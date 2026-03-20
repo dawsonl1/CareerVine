@@ -717,6 +717,7 @@ export default function MeetingsPage() {
                               // Upload audio to storage first
                               attachment = await uploadAttachment(user.id, file);
                               setPendingAudioAttachment(attachment);
+                              if (!attachment) throw new Error("Upload failed");
                               // Call transcription API
                               const res = await fetch("/api/transcripts/transcribe", {
                                 method: "POST",
