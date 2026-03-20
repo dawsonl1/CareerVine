@@ -4,7 +4,35 @@
  */
 
 class LinkedInScraper {
+  /**
+   * Wait for LinkedIn to inject key profile sections into the DOM.
+   * LinkedIn is an SPA — after navigation, the header renders first
+   * and Experience/Education sections arrive via async API calls.
+   * Without this wait, the scraper may scroll before sections exist.
+   */
+  async waitForSections() {
+    const MAX_WAIT = 5000;   // Give up after 5 seconds
+    const POLL_INTERVAL = 200;
+    let elapsed = 0;
+
+    while (elapsed < MAX_WAIT) {
+      const mainText = (document.querySelector('main') || document.body).innerText || '';
+      // Check if at least Experience OR Education section header is present
+      if (mainText.includes('Experience') || mainText.includes('Education')) {
+        // Found a section — give LinkedIn a brief moment to finish injecting siblings
+        await new Promise(r => setTimeout(r, 300));
+        return;
+      }
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+      elapsed += POLL_INTERVAL;
+    }
+    // Timed out — proceed anyway with whatever content is available
+  }
+
   async scrapeAndClean() {
+    // Wait for LinkedIn to finish rendering profile sections into the DOM
+    await this.waitForSections();
+
     // Scroll progressively through the page to trigger LinkedIn's
     // lazy-loading for each section (Experience, Education, etc.).
     // A single jump to scrollHeight misses sections that haven't

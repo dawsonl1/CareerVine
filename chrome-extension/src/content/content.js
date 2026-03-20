@@ -183,7 +183,7 @@ function analyzeCurrentProfile(profileId, calledFromNav = false) {
   };
 
   if (calledFromNav) {
-    setTimeout(doScrape, 1000);
+    setTimeout(doScrape, 2000);
   } else {
     doScrape();
   }
