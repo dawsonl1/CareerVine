@@ -212,10 +212,18 @@ function BentoCard({
 }) {
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className={`
         group relative rounded-2xl border cursor-pointer overflow-hidden
-        flex flex-col transition-all duration-300 ease-out
+        flex flex-col transition-all duration-300 ease-out outline-none focus-visible:ring-2 focus-visible:ring-primary
         ${
           isActive
             ? "border-primary/40 shadow-lg ring-1 ring-primary/20"

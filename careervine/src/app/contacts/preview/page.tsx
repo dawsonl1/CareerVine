@@ -43,6 +43,8 @@ type ProfileData = {
   follow_up_frequency?: string;
   current_company?: string;
   photo_url?: string;
+  email?: string | null;
+  contactInfo?: { email?: string };
 };
 
 export default function ContactPreviewPage() {
@@ -104,10 +106,20 @@ export default function ContactPreviewPage() {
     setError(null);
 
     try {
+      // Wrap top-level email into contactInfo so the import API can find it
+      const payload = {
+        profileData: {
+          ...profileData,
+          ...(profileData.email && !profileData.contactInfo
+            ? { contactInfo: { email: profileData.email } }
+            : {}),
+        },
+        photoUrl: profileData.photo_url,
+      };
       const res = await fetch("/api/contacts/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileData, photoUrl: profileData.photo_url }),
+        body: JSON.stringify(payload),
       });
       const result = await res.json();
 

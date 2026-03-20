@@ -191,8 +191,9 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
     }
   }
 
-  // Upsert primary email if provided
-  if (profileData.contactInfo?.email) {
+  // Upsert primary email if provided (basic format check)
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (profileData.contactInfo?.email && emailRegex.test(profileData.contactInfo.email) && profileData.contactInfo.email.length <= 320) {
     const { data: existingEmails } = await supabase
       .from('contact_emails')
       .select('id, email, is_primary')
