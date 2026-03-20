@@ -182,6 +182,7 @@ const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null =>
     linkedin_url: data.linkedin_url ?? "",
     follow_up_frequency: data.follow_up_frequency ?? "",
     current_company: currentExp?.company ?? null,
+    email: data.email ?? null,
   };
 };
 

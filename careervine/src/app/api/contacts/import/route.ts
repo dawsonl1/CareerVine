@@ -204,11 +204,14 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
     if (!existing) {
       // If no emails exist yet, make it primary; otherwise add as non-primary
       const hasPrimary = (existingEmails || []).some((e: any) => e.is_primary);
-      await supabase.from('contact_emails').insert({
+      const { error: emailError } = await supabase.from('contact_emails').insert({
         contact_id: contactId,
         email: profileData.contactInfo.email,
         is_primary: !hasPrimary,
       });
+      if (emailError) {
+        console.warn(`[import] Failed to add email for contact ${contactId}:`, emailError.message);
+      }
     }
   }
 
