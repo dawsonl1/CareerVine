@@ -14,7 +14,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
-import AuthForm from "@/components/auth-form";
+import LandingPage from "@/components/landing-page";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -204,7 +204,7 @@ export default function Home() {
     );
   }
 
-  if (!user) return <AuthForm />;
+  if (!user) return <LandingPage />;
 
   const isNewUser = dataLoaded && contactHealth.length === 0;
 
