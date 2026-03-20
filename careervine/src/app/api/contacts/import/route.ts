@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server-client';
-import { parseFollowUpFrequency, sanitizeForPostgrest, buildContactData, buildUpdateData } from '@/lib/import-helpers';
+import { parseFollowUpFrequency, sanitizeForPostgrest, buildUpdateData } from '@/lib/import-helpers';
 
 /**
  * API endpoint for importing contacts from Chrome extension

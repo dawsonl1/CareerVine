@@ -21,9 +21,18 @@ export async function refreshTokenIfNeeded(
   let credentials;
   try {
     ({ credentials } = await oauth2Client.refreshAccessToken());
-  } catch {
-    await supabase.from("gmail_connections").delete().eq("user_id", userId);
-    throw new Error(`${serviceName} session expired. Please reconnect your account.`);
+  } catch (err: any) {
+    // Only delete the connection for permanent auth failures (revoked/expired refresh token).
+    // Transient errors (network, 5xx) should not destroy the user's connection.
+    const isRevoked =
+      err?.response?.data?.error === "invalid_grant" ||
+      err?.message?.includes("invalid_grant") ||
+      err?.code === 401;
+    if (isRevoked) {
+      await supabase.from("gmail_connections").delete().eq("user_id", userId);
+      throw new Error(`${serviceName} session expired. Please reconnect your account.`);
+    }
+    throw err;
   }
   oauth2Client.setCredentials(credentials);
 

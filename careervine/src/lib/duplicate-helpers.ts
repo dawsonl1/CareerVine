@@ -8,6 +8,11 @@ export function calculateNameMatchConfidence(searchName: string, existingName: s
   const searchNames = searchName.toLowerCase().split(' ').filter(n => n.length > 1);
   const existingNames = existingName.toLowerCase().split(' ').filter(n => n.length > 1);
 
+  // Guard against empty arrays (all single-char name parts) to avoid NaN from 0/0
+  if (searchNames.length === 0 && existingNames.length === 0) {
+    return searchName.toLowerCase() === existingName.toLowerCase() ? 90 : 0;
+  }
+
   let matches = 0;
 
   searchNames.forEach(sn => {

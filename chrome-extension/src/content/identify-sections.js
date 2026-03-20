@@ -156,5 +156,8 @@ function identifySections(lines) {
 // Content-script global (for scraper) — in test/module contexts this is harmless
 try { window._identifySections = identifySections; } catch (_) { /* not in browser */ }
 
-// ES module export (for tests via vitest)
-export { identifySections };
+// CJS/ESM export (for tests via vitest) — must not use bare `export` which is
+// a parse-time SyntaxError in Chrome content scripts (classic, non-module context)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { identifySections };
+}
