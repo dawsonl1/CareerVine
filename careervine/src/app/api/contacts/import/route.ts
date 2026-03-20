@@ -362,6 +362,8 @@ async function addEducationToContact(supabase: SupabaseClient, contactId: number
       school_id: school.id,
       degree: edu.degree || null,
       field_of_study: edu.field_of_study || null,
+      start_year: edu.start_year ? parseInt(String(edu.start_year), 10) || null : null,
+      end_year: edu.end_year ? parseInt(String(edu.end_year), 10) || null : null,
     });
   }
   if (toInsert.length > 0) {

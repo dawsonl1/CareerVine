@@ -41,7 +41,7 @@ export const POST = withApiHandler({
             companies(name)
           ),
           contact_schools(
-            degree, field_of_study, is_current,
+            degree, field_of_study, start_year, end_year,
             schools(name)
           )
         `)
@@ -84,14 +84,17 @@ export const POST = withApiHandler({
         const schools = contact.contact_schools as unknown as Array<{
           degree: string | null;
           field_of_study: string | null;
-          is_current: boolean;
+          start_year: number | null;
+          end_year: number | null;
           schools: { name: string } | null;
         }> | null;
         if (schools?.length) {
           const eduStrs = schools.map((cs) => {
             const name = cs.schools?.name || "Unknown";
             const deg = [cs.degree, cs.field_of_study].filter(Boolean).join(" in ");
-            return deg ? `${deg} from ${name}` : name;
+            const years = [cs.start_year, cs.end_year].filter(Boolean).join("–");
+            const base = deg ? `${deg} from ${name}` : name;
+            return years ? `${base} (${years})` : base;
           });
           parts.push(`Education: ${eduStrs.join("; ")}`);
         }
