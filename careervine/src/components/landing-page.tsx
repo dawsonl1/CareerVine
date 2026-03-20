@@ -234,31 +234,14 @@ function BentoCard({
       </div>
 
       {/* Visual icon area */}
-      <div className="relative h-40 mx-4 mb-4 rounded-xl bg-primary-container/30 flex items-center justify-center overflow-hidden">
+      <div className="relative h-40 mx-4 mb-4 rounded-xl bg-surface-container flex items-center justify-center overflow-hidden">
         <feature.icon
           className={`
             h-16 w-16 transition-all duration-300
-            ${isActive ? "text-primary scale-110" : "text-primary/60 group-hover:text-primary/80 group-hover:scale-105"}
+            ${isActive ? "text-primary/70 scale-110" : "text-muted-foreground/30 group-hover:text-muted-foreground/50 group-hover:scale-105"}
           `}
           strokeWidth={1.2}
         />
-      </div>
-
-      {/* Arrow button */}
-      <div className="absolute bottom-6 left-6">
-        <div
-          className={`
-            w-9 h-9 rounded-full border flex items-center justify-center
-            transition-all duration-300
-            ${
-              isActive
-                ? "bg-primary border-primary text-on-primary rotate-45"
-                : "border-outline-variant text-muted-foreground group-hover:border-primary/40 group-hover:text-primary"
-            }
-          `}
-        >
-          <ArrowRight className="h-4 w-4" />
-        </div>
       </div>
     </div>
   );
