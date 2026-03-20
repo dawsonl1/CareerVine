@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Duplicate check error:', error);
     return NextResponse.json({
-      error: error instanceof Error ? error.message : 'Duplicate check failed'
+      error: 'Duplicate check failed'
     }, { status: 500, headers: corsHeaders });
   }
 }

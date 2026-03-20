@@ -120,7 +120,7 @@ export async function GET() {
   } catch (error) {
     console.error("Inbox API error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to load inbox" },
+      { error: "Failed to load inbox" },
       { status: 500 },
     );
   }

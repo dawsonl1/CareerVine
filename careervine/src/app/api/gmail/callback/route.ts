@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
     const baseUrl = new URL(request.url).origin;
     return NextResponse.redirect(
       `${baseUrl}/settings?gmail=error&reason=${encodeURIComponent(
-        error instanceof Error ? error.message : "Unknown error"
+        "Unknown error"
       )}`
     );
   }

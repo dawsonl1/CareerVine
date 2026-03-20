@@ -34,7 +34,7 @@ export async function POST(
   } catch (error) {
     console.error("Move email error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to move email" },
+      { error: "Failed to move email" },
       { status: 500 },
     );
   }

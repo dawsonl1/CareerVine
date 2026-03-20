@@ -40,7 +40,7 @@ export async function PATCH(
   } catch (error) {
     console.error("Update calendar event error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to update event" },
+      { error: "Failed to update event" },
       { status: 500 }
     );
   }
@@ -74,7 +74,7 @@ export async function DELETE(
   } catch (error) {
     console.error("Delete calendar event error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to delete event" },
+      { error: "Failed to delete event" },
       { status: 500 }
     );
   }

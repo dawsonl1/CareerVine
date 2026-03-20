@@ -61,7 +61,7 @@ export async function PUT(
   } catch (error) {
     console.error("Update scheduled email error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to update" },
+      { error: "Failed to update" },
       { status: 500 }
     );
   }
@@ -133,7 +133,7 @@ export async function DELETE(
   } catch (error) {
     console.error("Cancel scheduled email error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to cancel" },
+      { error: "Failed to cancel" },
       { status: 500 }
     );
   }

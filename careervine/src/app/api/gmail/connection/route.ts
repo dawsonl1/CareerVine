@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const service = createSupabaseServiceClient();
     const { data, error } = await service
       .from("gmail_connections")
-      .select("*")
+      .select("id, gmail_address, last_gmail_sync_at, created_at, calendar_scopes_granted, calendar_last_synced_at, availability_standard, availability_priority, calendar_list, busy_calendar_ids, calendar_timezone")
       .eq("user_id", user.id)
       .single();
 
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Connection fetch error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch connection" },
+      { error: "Failed to fetch connection" },
       { status: 500 }
     );
   }

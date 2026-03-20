@@ -101,7 +101,7 @@ export async function PUT(
   } catch (error) {
     console.error("Follow-up update error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to update follow-up" },
+      { error: "Failed to update follow-up" },
       { status: 500 }
     );
   }
@@ -160,7 +160,7 @@ export async function DELETE(
   } catch (error) {
     console.error("Follow-up cancel error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to cancel follow-up" },
+      { error: "Failed to cancel follow-up" },
       { status: 500 }
     );
   }

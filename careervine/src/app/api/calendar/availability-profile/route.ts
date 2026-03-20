@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Availability profile error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to save availability profile" },
+      { error: "Failed to save availability profile" },
       { status: 500 }
     );
   }

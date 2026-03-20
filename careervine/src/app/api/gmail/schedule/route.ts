@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Scheduled emails fetch error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch scheduled emails" },
+      { error: "Failed to fetch scheduled emails" },
       { status: 500 }
     );
   }
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Schedule email error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to schedule email" },
+      { error: "Failed to schedule email" },
       { status: 500 }
     );
   }

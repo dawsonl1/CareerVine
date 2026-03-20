@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Import error:', error);
     return NextResponse.json({ 
-      error: error instanceof Error ? error.message : 'Import failed' 
+      error: 'Import failed'
     }, { status: 500, headers: corsHeaders });
   }
 }

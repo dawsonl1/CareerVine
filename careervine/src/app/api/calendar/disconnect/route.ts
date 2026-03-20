@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Calendar disconnect error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to disconnect calendar" },
+      { error: "Failed to disconnect calendar" },
       { status: 500 }
     );
   }

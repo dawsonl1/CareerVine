@@ -32,7 +32,7 @@ export async function POST(
   } catch (error) {
     console.error("Mark as read error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to mark as read" },
+      { error: "Failed to mark as read" },
       { status: 500 },
     );
   }

@@ -205,7 +205,6 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
     });
   } catch (error) {
     console.error("AI write error:", error);
-    const msg = error instanceof Error ? error.message : "Failed to generate email";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "Failed to generate email" }, { status: 500 });
   }
 }

@@ -19,7 +19,7 @@ export async function POST() {
   } catch (error) {
     console.error("Scheduled email processing error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to process scheduled emails" },
+      { error: "Failed to process scheduled emails" },
       { status: 500 }
     );
   }

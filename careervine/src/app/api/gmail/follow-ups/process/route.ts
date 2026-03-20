@@ -20,7 +20,7 @@ export async function POST() {
   } catch (error) {
     console.error("Follow-up processing error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to process follow-ups" },
+      { error: "Failed to process follow-ups" },
       { status: 500 }
     );
   }

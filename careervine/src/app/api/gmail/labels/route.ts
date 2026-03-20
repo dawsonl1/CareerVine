@@ -23,7 +23,7 @@ export async function GET() {
   } catch (error) {
     console.error("Gmail labels error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch labels" },
+      { error: "Failed to fetch labels" },
       { status: 500 },
     );
   }

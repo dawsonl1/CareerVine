@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Follow-ups fetch error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch follow-ups" },
+      { error: "Failed to fetch follow-ups" },
       { status: 500 }
     );
   }
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Follow-up creation error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to create follow-up" },
+      { error: "Failed to create follow-up" },
       { status: 500 }
     );
   }

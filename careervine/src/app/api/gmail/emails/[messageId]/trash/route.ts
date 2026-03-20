@@ -31,7 +31,7 @@ export async function POST(
   } catch (error) {
     console.error("Trash email error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to trash email" },
+      { error: "Failed to trash email" },
       { status: 500 },
     );
   }
@@ -66,7 +66,7 @@ export async function DELETE(
   } catch (error) {
     console.error("Untrash email error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to restore email" },
+      { error: "Failed to restore email" },
       { status: 500 },
     );
   }

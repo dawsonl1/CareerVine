@@ -37,7 +37,7 @@ export async function POST(
   } catch (error) {
     console.error("Hide email error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to hide email" },
+      { error: "Failed to hide email" },
       { status: 500 },
     );
   }
@@ -78,7 +78,7 @@ export async function DELETE(
   } catch (error) {
     console.error("Unhide email error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to unhide email" },
+      { error: "Failed to unhide email" },
       { status: 500 },
     );
   }
