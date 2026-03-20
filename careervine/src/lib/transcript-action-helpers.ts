@@ -7,6 +7,8 @@
 interface Attendee {
   id: number;
   name: string;
+  email?: string;
+  emails?: string[];
 }
 
 /**
@@ -38,6 +40,20 @@ export function matchSpeakerToAttendee(
     const parts = a.name.toLowerCase().trim().split(/\s+/);
     const attendeeLast = parts[parts.length - 1];
     if (attendeeLast === speaker && speaker.length > 2) return a;
+  }
+
+  // Email-based match (speaker label contains an email matching a contact)
+  const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+  const emailMatch = speakerName.match(emailPattern);
+  if (emailMatch) {
+    const extractedEmail = emailMatch[0].toLowerCase();
+    for (const a of attendees) {
+      const allEmails = [
+        ...(a.emails || []),
+        ...(a.email ? [a.email] : []),
+      ].map((e) => e.toLowerCase());
+      if (allEmails.includes(extractedEmail)) return a;
+    }
   }
 
   return null;

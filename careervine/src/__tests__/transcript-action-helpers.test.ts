@@ -43,6 +43,35 @@ describe("matchSpeakerToAttendee", () => {
     const atts = [{ id: 1, name: "J. Smith" }];
     expect(matchSpeakerToAttendee("J", atts)).toBeNull();
   });
+
+  it("matches by email in speaker label", () => {
+    const atts = [
+      { id: 1, name: "John Smith", email: "john@example.com" },
+      { id: 2, name: "Jane Doe", emails: ["jane@example.com", "jdoe@work.com"] },
+    ];
+    expect(matchSpeakerToAttendee("john@example.com", atts)).toEqual({ id: 1, name: "John Smith", email: "john@example.com" });
+  });
+
+  it("matches email from emails array", () => {
+    const atts = [
+      { id: 1, name: "Jane Doe", emails: ["jane@example.com", "jdoe@work.com"] },
+    ];
+    expect(matchSpeakerToAttendee("jdoe@work.com", atts)).toEqual({ id: 1, name: "Jane Doe", emails: ["jane@example.com", "jdoe@work.com"] });
+  });
+
+  it("matches email embedded in longer label", () => {
+    const atts = [
+      { id: 1, name: "John Smith", email: "john@example.com" },
+    ];
+    expect(matchSpeakerToAttendee("John (john@example.com)", atts)).toEqual({ id: 1, name: "John Smith", email: "john@example.com" });
+  });
+
+  it("does not match when email does not match any contact", () => {
+    const atts = [
+      { id: 1, name: "John Smith", email: "john@example.com" },
+    ];
+    expect(matchSpeakerToAttendee("unknown@other.com", atts)).toBeNull();
+  });
 });
 
 describe("resolveDueDate", () => {

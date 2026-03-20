@@ -1196,6 +1196,7 @@ export default function MeetingsPage() {
                           segments={meetingSegments[meeting.id]}
                           meetingContacts={meeting.meeting_contacts.map(mc => ({ id: mc.contacts.id, name: mc.contacts.name }))}
                           allContacts={allContacts}
+                          meetingTitle={(meeting as any).title || undefined}
                           onResolve={async (mappings) => {
                             try {
                               await Promise.all(mappings.map(m =>
