@@ -241,6 +241,8 @@ export const suggestionsSaveSchema = z.object({
   reasonType: z.string().min(1),
   headline: z.string().min(1),
   evidence: z.string().min(1),
+  /** When true, creates the action item as already completed (user already did it) */
+  completed: z.boolean().optional(),
 });
 
 // ── Transcript Action Extraction ──────────────────────────────────────

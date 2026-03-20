@@ -57,6 +57,32 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
     }
   }, [onSave]);
 
+  /** Mark a suggestion as already done — creates a completed action item. */
+  const complete = useCallback(async (s: Suggestion): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/suggestions/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: s.contactId,
+          title: s.suggestedTitle,
+          description: s.suggestedDescription,
+          reasonType: s.reasonType,
+          headline: s.headline,
+          evidence: s.evidence,
+          completed: true,
+        }),
+      });
+      if (res.ok) {
+        setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const dismiss = useCallback((s: Suggestion) => {
     setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
   }, []);
@@ -68,5 +94,5 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
     load();
   }, [load]);
 
-  return { suggestions, loading, load, save, dismiss, triggerOnce };
+  return { suggestions, loading, load, save, complete, dismiss, triggerOnce };
 }

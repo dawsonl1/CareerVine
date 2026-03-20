@@ -85,7 +85,7 @@ export default function ActionItemsPage() {
     finally { setLoading(false); }
   }, [user]);
 
-  const { suggestions, loading: suggestionsLoading, save: saveSuggestionRaw, triggerOnce: triggerSuggestions } = useSuggestions({
+  const { suggestions, loading: suggestionsLoading, save: saveSuggestionRaw, complete: completeSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions({
     onSave: loadActionItems,
   });
 
@@ -94,6 +94,12 @@ export default function ActionItemsPage() {
     if (ok) toastSuccess("Saved as action item");
     else toastError("Failed to save suggestion");
   }, [saveSuggestionRaw, toastSuccess, toastError]);
+
+  const completeSuggestion = useCallback(async (s: Parameters<typeof completeSuggestionRaw>[0]) => {
+    const ok = await completeSuggestionRaw(s);
+    if (ok) toastSuccess("Marked as done");
+    else toastError("Failed to mark as done");
+  }, [completeSuggestionRaw, toastSuccess, toastError]);
 
   useEffect(() => { if (user) { loadActionItems(); loadContacts(); } }, [user, loadActionItems, loadContacts]);
 
@@ -449,13 +455,32 @@ export default function ActionItemsPage() {
                             {s.daysSinceContact !== null && ` · ${s.daysSinceContact}d`}
                           </p>
                         </div>
-                        <Button
-                          variant="tonal"
-                          size="sm"
-                          onClick={() => saveSuggestion(s)}
-                        >
-                          <Bookmark className="h-3.5 w-3.5" /> Save
-                        </Button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => completeSuggestion(s)}
+                            className="p-2 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
+                            title="I already did this"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => saveSuggestion(s)}
+                            className="p-2 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
+                            title="Save for later"
+                          >
+                            <Bookmark className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => dismissSuggestion(s)}
+                            className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+                            title="Not interested"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

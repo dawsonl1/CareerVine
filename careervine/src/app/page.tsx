@@ -39,6 +39,7 @@ import {
   X,
   Loader2,
   Bookmark,
+  Check,
 } from "lucide-react";
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
@@ -118,7 +119,7 @@ export default function Home() {
   const aiDraftsRef = useRef<Map<number, AiDraft>>(new Map());
 
   // Smart suggestions
-  const { suggestions, loading: suggestionsLoading, save: saveSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions();
+  const { suggestions, loading: suggestionsLoading, save: saveSuggestionRaw, complete: completeSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions();
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -287,6 +288,15 @@ export default function Home() {
       toast("Failed to save suggestion", { variant: "error" });
     }
   }, [saveSuggestionRaw, toast]);
+
+  const completeSuggestion = useCallback(async (s: Parameters<typeof completeSuggestionRaw>[0]) => {
+    const ok = await completeSuggestionRaw(s);
+    if (ok) {
+      toast("Marked as done", { variant: "success" });
+    } else {
+      toast("Failed to mark as done", { variant: "error" });
+    }
+  }, [completeSuggestionRaw, toast]);
 
   useEffect(() => {
     if (user) loadData();
@@ -741,9 +751,17 @@ export default function Home() {
                             <div className="flex items-center gap-1 shrink-0">
                               <button
                                 type="button"
+                                onClick={() => completeSuggestion(s)}
+                                className="p-2 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
+                                title="I already did this"
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => saveSuggestion(s)}
                                 className="p-2 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
-                                title="Save as action item"
+                                title="Save for later"
                               >
                                 <Bookmark className="h-4 w-4" />
                               </button>
@@ -751,7 +769,7 @@ export default function Home() {
                                 type="button"
                                 onClick={() => dismissSuggestion(s)}
                                 className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-                                title="Dismiss"
+                                title="Not interested"
                               >
                                 <X className="h-4 w-4" />
                               </button>

@@ -7,6 +7,7 @@ import { invalidateSuggestionCache } from "@/lib/ai-followup/generate-suggestion
 export const POST = withApiHandler({
   schema: suggestionsSaveSchema,
   handler: async ({ user, supabase, body }) => {
+    const now = new Date().toISOString();
     const actionItem = await createActionItem(
       {
         user_id: user.id,
@@ -14,9 +15,9 @@ export const POST = withApiHandler({
         title: body.title,
         description: body.description || null,
         due_at: null,
-        is_completed: false,
-        created_at: new Date().toISOString(),
-        completed_at: null,
+        is_completed: !!body.completed,
+        created_at: now,
+        completed_at: body.completed ? now : null,
         source: ActionItemSource.AiSuggestion,
         suggestion_reason_type: body.reasonType,
         suggestion_headline: body.headline,
