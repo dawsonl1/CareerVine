@@ -205,6 +205,25 @@ export const contactsImportSchema = z.object({
   photoUrl: z.string().url().optional(),
 });
 
+// ── Transcripts ────────────────────────────────────────────────────────
+
+export const transcriptTranscribeSchema = z.object({
+  meetingId: z.number().int(),
+  attachmentObjectPath: z.string().min(1, "attachmentObjectPath is required"),
+});
+
+export const transcriptParseSchema = z.object({
+  rawText: z.string().min(1, "rawText is required"),
+});
+
+export const transcriptSpeakerResolveSchema = z.object({
+  meetingId: z.number().int(),
+  mappings: z.array(z.object({
+    speakerLabel: z.string(),
+    contactId: z.number().int().nullable(),
+  })),
+});
+
 // ── Extension ──────────────────────────────────────────────────────────
 
 export const extensionParseProfileSchema = z.object({

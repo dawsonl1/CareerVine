@@ -164,3 +164,13 @@ export type EmailDraft = Database["public"]["Tables"]["email_drafts"]["Row"];
 
 /** Email template — user-defined AI email generation template */
 export type EmailTemplate = Database["public"]["Tables"]["email_templates"]["Row"];
+
+// ── Transcript types ──
+
+/** Single transcript segment row */
+export type TranscriptSegmentRow = Database["public"]["Tables"]["transcript_segments"]["Row"];
+
+/** Transcript segment with optional resolved contact name */
+export type TranscriptSegment = TranscriptSegmentRow & {
+  contacts?: { id: number; name: string } | null;
+};

@@ -26,13 +26,17 @@ import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { getMeetings, createMeeting, updateMeeting, deleteMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting, createActionItem, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, createInteraction, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment } from "@/lib/queries";
-import type { Meeting, SimpleContact, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact } from "@/lib/types";
+import { getMeetings, createMeeting, updateMeeting, deleteMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting, createActionItem, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, createInteraction, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment, createTranscriptSegments, getTranscriptSegments, updateSpeakerContact } from "@/lib/queries";
+import type { Meeting, SimpleContact, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact, TranscriptSegment } from "@/lib/types";
 import { Plus, Calendar, X, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, Video } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { Select } from "@/components/ui/select";
 import { ContactPicker } from "@/components/ui/contact-picker";
+import TranscriptUploader from "@/components/transcript-uploader";
+import TranscriptViewer from "@/components/transcript-viewer";
+import SpeakerResolver from "@/components/speaker-resolver";
+import type { TranscriptSegment as ParsedSegment } from "@/lib/transcript-parser";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
@@ -90,6 +94,13 @@ export default function MeetingsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [contactEmailsMap, setContactEmailsMap] = useState<Record<number, string[]>>({});
   const [inviteEmailMap, setInviteEmailMap] = useState<Record<number, string>>({});
+
+  // Transcript segments
+  const [pendingSegments, setPendingSegments] = useState<ParsedSegment[]>([]);
+  const [pendingTranscriptSource, setPendingTranscriptSource] = useState<string | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [meetingSegments, setMeetingSegments] = useState<Record<number, TranscriptSegment[]>>({});
+  const [showSpeakerResolver, setShowSpeakerResolver] = useState<number | null>(null);
 
   const checkCalendarConnection = useCallback(async () => {
     try {
@@ -157,21 +168,29 @@ export default function MeetingsPage() {
           }
         } catch {}
       }
-      // Load action items and attachments for each meeting
+      // Load action items, attachments, and transcript segments for each meeting
       const actionsMap: MeetingActionsMap = {};
       const attMap: typeof meetingAttachments = {};
+      const segMap: Record<number, TranscriptSegment[]> = {};
       await Promise.all(data.map(async (m) => {
         try {
-          const [items, atts] = await Promise.all([
+          const promises: Promise<any>[] = [
             getActionItemsForMeeting(m.id),
             getAttachmentsForMeeting(m.id),
-          ]);
+          ];
+          // Only load segments for meetings that have parsed transcripts
+          if ((m as any).transcript_parsed) {
+            promises.push(getTranscriptSegments(m.id));
+          }
+          const [items, atts, segs] = await Promise.all(promises);
           if (items.length > 0) actionsMap[m.id] = items as ActionItemWithContacts[];
           if (atts.length > 0) attMap[m.id] = atts as typeof meetingAttachments[number];
+          if (segs?.length > 0) segMap[m.id] = segs as TranscriptSegment[];
         } catch {}
       }));
       setMeetingActions(actionsMap);
       setMeetingAttachments(attMap);
+      setMeetingSegments(segMap);
     }
     catch (e) { console.error("Error loading meetings:", e); }
     finally { setLoading(false); }
@@ -329,6 +348,19 @@ export default function MeetingsPage() {
           }, action.contactIds);
         }
       }
+      // Save parsed transcript segments if any
+      if (pendingSegments.length > 0) {
+        try {
+          await createTranscriptSegments(meetingId, pendingSegments);
+          await updateMeeting(meetingId, {
+            transcript_source: pendingTranscriptSource || "paste",
+            transcript_parsed: true,
+          } as any);
+        } catch (e) {
+          console.warn("Failed to save transcript segments:", e);
+        }
+      }
+
       await loadMeetings();
       closeForm();
       toastSuccess(editingMeeting ? "Meeting updated" : "Meeting created");
@@ -392,6 +424,9 @@ export default function MeetingsPage() {
     setIncludeMeetLink(true);
     setMeetingDuration(60);
     setInviteEmailMap({});
+    setPendingSegments([]);
+    setPendingTranscriptSource(null);
+    setIsTranscribing(false);
   };
 
   const addPendingAction = () => {
@@ -606,7 +641,46 @@ export default function MeetingsPage() {
                       </div>
                       <div>
                         <label className={labelClasses}>Transcript</label>
-                        <textarea value={formData.transcript} onChange={(e) => setFormData({ ...formData, transcript: e.target.value })} className={`${inputClasses} !h-auto py-3`} rows={10} placeholder="Paste your full meeting transcript here…" />
+                        <TranscriptUploader
+                          value={formData.transcript}
+                          onChange={(v) => setFormData({ ...formData, transcript: v })}
+                          onSegmentsParsed={(segs, source) => {
+                            setPendingSegments(segs);
+                            setPendingTranscriptSource(source);
+                          }}
+                          onAudioFile={async (file) => {
+                            if (!user) return;
+                            setIsTranscribing(true);
+                            try {
+                              // Upload audio to storage first
+                              const attachment = await uploadAttachment(user.id, file);
+                              // Call transcription API
+                              const res = await fetch("/api/transcripts/transcribe", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  meetingId: editingMeeting?.id ?? 0,
+                                  attachmentObjectPath: attachment.object_path,
+                                }),
+                              });
+                              if (res.ok) {
+                                const data = await res.json();
+                                setFormData((prev) => ({ ...prev, transcript: data.rawText || "" }));
+                                setPendingSegments(data.segments || []);
+                                setPendingTranscriptSource("audio_deepgram");
+                                toastSuccess(`Transcribed ${data.segments?.length || 0} segments`);
+                              } else {
+                                const err = await res.json().catch(() => ({}));
+                                toastError(err.error || "Transcription failed");
+                              }
+                            } catch (e) {
+                              toastError("Transcription failed");
+                            } finally {
+                              setIsTranscribing(false);
+                            }
+                          }}
+                          isTranscribing={isTranscribing}
+                        />
                       </div>
                     </>
                   )
@@ -1027,12 +1101,53 @@ export default function MeetingsPage() {
                   </div>
                 )}
 
-                {meeting.transcript && (
+                {(meeting.transcript || meetingSegments[meeting.id]?.length > 0) && (
                   <div className="mt-4 ml-[52px]">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Transcript</h4>
-                    <div className="bg-surface-container-low rounded-[12px] p-4 max-h-48 overflow-y-auto">
-                      <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed">{meeting.transcript}</p>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Transcript</h4>
+                      {meetingSegments[meeting.id]?.length > 0 && (
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline cursor-pointer"
+                          onClick={() => setShowSpeakerResolver(showSpeakerResolver === meeting.id ? null : meeting.id)}
+                        >
+                          {showSpeakerResolver === meeting.id ? "Hide" : "Match speakers"}
+                        </button>
+                      )}
                     </div>
+                    {showSpeakerResolver === meeting.id && meetingSegments[meeting.id] && (
+                      <div className="mb-3">
+                        <SpeakerResolver
+                          segments={meetingSegments[meeting.id].map(s => ({
+                            speaker_label: s.speaker_label,
+                            started_at: s.started_at,
+                            ended_at: s.ended_at,
+                            content: s.content,
+                          }))}
+                          meetingContacts={meeting.meeting_contacts.map(mc => ({ id: mc.contacts.id, name: mc.contacts.name }))}
+                          allContacts={allContacts}
+                          onResolve={async (mappings) => {
+                            try {
+                              for (const m of mappings) {
+                                await updateSpeakerContact(meeting.id, m.speakerLabel, m.contactId);
+                              }
+                              // Reload segments
+                              const segs = await getTranscriptSegments(meeting.id);
+                              setMeetingSegments(prev => ({ ...prev, [meeting.id]: segs }));
+                              setShowSpeakerResolver(null);
+                              toastSuccess("Speaker mappings saved");
+                            } catch {
+                              toastError("Failed to save speaker mappings");
+                            }
+                          }}
+                          onDismiss={() => setShowSpeakerResolver(null)}
+                        />
+                      </div>
+                    )}
+                    <TranscriptViewer
+                      segments={meetingSegments[meeting.id]}
+                      rawText={meeting.transcript}
+                    />
                   </div>
                 )}
 

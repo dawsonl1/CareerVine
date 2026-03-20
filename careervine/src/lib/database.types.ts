@@ -164,9 +164,29 @@ export type Database = {
           private_notes: string | null;  // Private reminders for future meetings
           calendar_description: string | null; // Description for Google Calendar invite
           transcript: string | null;      // Full transcript if available
+          transcript_source: string | null; // How the transcript was added (paste, upload_txt, upload_vtt, upload_pdf, audio_deepgram)
+          transcript_parsed: boolean;     // Whether transcript has been parsed into segments
+          transcript_attachment_id: number | null; // Reference to uploaded file
         };
         Insert: Omit<Database["public"]["Tables"]["meetings"]["Row"], "id">;
         Update: Partial<Database["public"]["Tables"]["meetings"]["Insert"]>;
+      };
+
+      // Transcript segments - structured speaker-attributed transcript turns
+      transcript_segments: {
+        Row: {
+          id: number;
+          meeting_id: number;
+          ordinal: number;
+          speaker_label: string;
+          contact_id: number | null;
+          started_at: number | null;
+          ended_at: number | null;
+          content: string;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["transcript_segments"]["Row"], "id" | "created_at">;
+        Update: Partial<Database["public"]["Tables"]["transcript_segments"]["Insert"]>;
       };
       
       // Meeting contacts - many-to-many relationship for attendees
