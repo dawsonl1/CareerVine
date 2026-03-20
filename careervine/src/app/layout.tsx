@@ -24,6 +24,7 @@ import { ComposeEmailModal } from "@/components/compose-email-modal";
 import { QuickCaptureProvider } from "@/components/quick-capture-context";
 import { QuickCaptureModal } from "@/components/quick-capture-modal";
 import { ToastProvider } from "@/components/ui/toast";
+import { Analytics } from "@vercel/analytics/next";
 
 // Configure Geist fonts for the application
 const geistSans = Geist({
@@ -74,6 +75,7 @@ export default function RootLayout({
             </ComposeEmailProvider>
           </ToastProvider>
         </AuthProvider>
+        <Analytics />
       </body>
     </html>
   );
