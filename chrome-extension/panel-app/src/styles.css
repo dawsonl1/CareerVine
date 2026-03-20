@@ -1203,7 +1203,6 @@
   font-weight: 500;
   z-index: 100;
   max-width: 280px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   animation: slideInRight 0.3s ease;
 }
 
@@ -1219,15 +1218,13 @@
 }
 
 .cv-status-success {
-  background: #ecfdf3;
-  color: #166534;
-  border: 1px solid #bbf7d0;
+  background: #d4edda;
+  color: #155724;
 }
 
 .cv-status-error {
-  background: #fef2f2;
-  color: #991b1b;
-  border: 1px solid #fecaca;
+  background: #f8d7da;
+  color: #721c24;
 }
 
 /* Login Form Styles */
