@@ -764,15 +764,22 @@
 .cv-inline-date-row {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   margin-top: 1px;
-  max-width: 260px;
 }
 
 .cv-date-picker-wrapper {
   position: relative;
   flex: 0 1 auto;
   min-width: 0;
+}
+
+/* Tighten date inputs — no side padding so they sit flush with separator */
+.cv-inline-date-row .cv-inline-input {
+  padding-left: 0;
+  padding-right: 0;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .cv-inline-date {
@@ -803,14 +810,14 @@
   pointer-events: none;
   height: 0;
   overflow: hidden;
-  padding: 2px 4px;
+  padding: 0;
 }
 
 .cv-inline-date-sep {
   color: #7e7a7a;
   font-size: 14px;
   flex-shrink: 0;
-  padding: 0 2px;
+  padding: 0 4px;
 }
 
 /* Date suggestion dropdown */
@@ -1136,10 +1143,10 @@
   background: #e5e5e5;
 }
 
-/* Status Messages */
+/* Status Messages — positioned within the panel, just above the footer */
 .cv-status {
-  position: fixed;
-  bottom: 90px;
+  position: absolute;
+  bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
   padding: 8px 20px;
