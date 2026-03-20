@@ -483,8 +483,9 @@ export type Database = {
           is_completed: boolean;          // Completion status
           created_at: string | null;     // Creation timestamp
           completed_at: string | null;   // Completion timestamp
+          priority: string | null;       // 'high' | 'medium' | 'low' | null
         };
-        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id">;
+        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority"> & { priority?: string | null };
         Update: Partial<Database["public"]["Tables"]["follow_up_action_items"]["Insert"]>;
       };
     };

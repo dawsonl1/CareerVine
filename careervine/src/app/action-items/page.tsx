@@ -1,22 +1,3 @@
-/**
- * Action Items page — M3 styled task management
- *
- * Displays pending and completed action items for the authenticated user.
- *
- * Features:
- *   - Pending items list with contact chips, due dates, overdue highlighting
- *   - Completed items section (collapsible)
- *   - Create modal: title, description, contacts (ContactPicker), due date, meeting link
- *   - Edit modal: same fields as create
- *   - Toggle complete/incomplete with one click
- *   - Delete with confirmation
- *   - Click an item to view detail modal with linked meeting info
- *
- * Data flow:
- *   loadActionItems() → getActionItems(userId) + getCompletedActionItems(userId)
- *   Contacts loaded via getContacts(userId) for the ContactPicker
- */
-
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -28,9 +9,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getActionItems, updateActionItem, createActionItem, getContacts, getCompletedActionItems, deleteActionItem, replaceContactsForActionItem } from "@/lib/queries";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { Database } from "@/lib/database.types";
-import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown } from "lucide-react";
+import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
+import { PRIORITY_COLORS, PRIORITY_OPTIONS, sortByPriorityThenDate } from "@/lib/priority-helpers";
 
 type MeetingRow = Database["public"]["Tables"]["meetings"]["Row"];
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
@@ -61,6 +43,7 @@ export default function ActionItemsPage() {
   const [editDueDate, setEditDueDate] = useState("");
   const [editContactIds, setEditContactIds] = useState<number[]>([]);
   const [editMeetingId, setEditMeetingId] = useState<number | null>(null);
+  const [editPriority, setEditPriority] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
   // Create modal
@@ -71,6 +54,7 @@ export default function ActionItemsPage() {
   const [newDueDate, setNewDueDate] = useState("");
   const [newContactIds, setNewContactIds] = useState<number[]>([]);
   const [newMeetingId, setNewMeetingId] = useState<number | null>(null);
+  const [newPriority, setNewPriority] = useState("");
   const [newSaving, setNewSaving] = useState(false);
 
   const loadContacts = useCallback(async () => {
@@ -102,9 +86,9 @@ export default function ActionItemsPage() {
     undoMessage: (item) => `"${item.title}" deleted`,
     onUndo: (item) => {
       if (item.is_completed) {
-        setCompletedItems((prev) => [...prev, item]);
+        setCompletedItems((prev) => prev.some((a) => a.id === item.id) ? prev : [...prev, item]);
       } else {
-        setActionItems((prev) => [...prev, item]);
+        setActionItems((prev) => prev.some((a) => a.id === item.id) ? prev : [...prev, item]);
       }
     },
     onError: () => toastError("Failed to delete action item"),
@@ -120,9 +104,8 @@ export default function ActionItemsPage() {
     },
     onUndo: (item) => {
       setCompletedItems((prev) => prev.filter((a) => a.id !== item.id));
-      setActionItems((prev) => [...prev, item]);
+      setActionItems((prev) => prev.some((a) => a.id === item.id) ? prev : [...prev, item]);
     },
-    onCommit: () => { loadActionItems(); },
     onError: () => toastError("Failed to complete action item"),
     extraActions: (item) => {
       const contactId = item.contacts?.id || item.action_item_contacts?.[0]?.contact_id;
@@ -158,16 +141,38 @@ export default function ActionItemsPage() {
     deferComplete(item);
   };
 
+  const cyclePriority = async (e: React.MouseEvent, item: ActionItem) => {
+    e.stopPropagation();
+    const cycle: (string | null)[] = [null, "high", "medium", "low"];
+    const currentIdx = cycle.indexOf(item.priority);
+    const nextPriority = cycle[(currentIdx + 1) % cycle.length];
+
+    // Optimistic update
+    setActionItems((prev) =>
+      prev.map((a) => (a.id === item.id ? { ...a, priority: nextPriority } : a))
+    );
+
+    try {
+      await updateActionItem(item.id, { priority: nextPriority });
+    } catch {
+      // Revert on failure
+      setActionItems((prev) =>
+        prev.map((a) => (a.id === item.id ? { ...a, priority: item.priority } : a))
+      );
+      toastError("Failed to update priority");
+    }
+  };
+
   const openEdit = async (e: React.MouseEvent, item: ActionItem) => {
     e.stopPropagation();
     setEditingItem(item);
     setEditTitle(item.title);
     setEditDescription(item.description || "");
     setEditDueDate(item.due_at ? item.due_at.split("T")[0] : "");
-    // Derive contact IDs from junction table, fallback to legacy contact_id
     const ids = item.action_item_contacts?.map(ac => ac.contact_id) ?? (item.contact_id ? [item.contact_id] : []);
     setEditContactIds(ids);
     setEditMeetingId(item.meeting_id);
+    setEditPriority(item.priority || "");
   };
 
   const saveEdit = async () => {
@@ -180,6 +185,7 @@ export default function ActionItemsPage() {
         due_at: editDueDate || null,
         contact_id: editContactIds[0] ?? null,
         meeting_id: editMeetingId,
+        priority: editPriority || null,
       });
       await replaceContactsForActionItem(editingItem.id, editContactIds);
       await loadActionItems();
@@ -190,6 +196,16 @@ export default function ActionItemsPage() {
     finally { setEditSaving(false); }
   };
 
+  const resetCreate = () => {
+    setShowCreate(false);
+    setNewTitle("");
+    setNewDescription("");
+    setNewDueDate("");
+    setNewContactIds([]);
+    setNewMeetingId(null);
+    setNewPriority("");
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -197,25 +213,62 @@ export default function ActionItemsPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex items-center gap-3 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-            <span className="text-sm">Loading action items…</span>
+            <span className="text-sm">Loading action items...</span>
           </div>
         </div>
       </div>
     );
   }
 
-  const overdueItems = actionItems.filter(item =>
-    item.due_at && new Date(item.due_at) < new Date()
-  );
-  const upcomingItems = actionItems.filter(item =>
-    !item.due_at || new Date(item.due_at) >= new Date()
-  );
+  // Group items into four sections
+  const now = new Date();
+  const todayStr = now.toISOString().split("T")[0];
+
+  const endOfWeek = new Date(now);
+  endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
+  endOfWeek.setHours(23, 59, 59, 999);
+  const endOfWeekStr = endOfWeek.toISOString().split("T")[0];
+
+  const overdueItems = actionItems
+    .filter((item) => item.due_at && item.due_at.split("T")[0] < todayStr)
+    .sort(sortByPriorityThenDate);
+
+  const thisWeekItems = actionItems
+    .filter((item) => item.due_at && item.due_at.split("T")[0] >= todayStr && item.due_at.split("T")[0] <= endOfWeekStr)
+    .sort(sortByPriorityThenDate);
+
+  const laterItems = actionItems
+    .filter((item) => item.due_at && item.due_at.split("T")[0] > endOfWeekStr)
+    .sort(sortByPriorityThenDate);
+
+  const noDueDateItems = actionItems
+    .filter((item) => !item.due_at)
+    .sort(sortByPriorityThenDate);
+
+  const totalPending = actionItems.length;
+
+  const renderPriorityDot = (item: ActionItem) => {
+    const p = item.priority as keyof typeof PRIORITY_COLORS | null;
+    return (
+      <button
+        onClick={(e) => cyclePriority(e, item)}
+        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-surface-container"
+        title={p ? `Priority: ${PRIORITY_COLORS[p].label} (click to change)` : "Set priority"}
+      >
+        {p ? (
+          <span className={`w-2 h-2 rounded-full ${PRIORITY_COLORS[p].dot}`} />
+        ) : (
+          <span className="w-2 h-2 rounded-full bg-outline-variant opacity-0 group-hover/item:opacity-100 transition-opacity" />
+        )}
+      </button>
+    );
+  };
 
   const renderItem = (item: ActionItem, overdue: boolean) => (
     <Card
       key={item.id}
       variant="outlined"
-      className={`state-layer cursor-pointer transition-all ${overdue ? "border-destructive/40" : ""}`}
+      className={`state-layer cursor-pointer transition-all group/item ${overdue ? "border-destructive/40" : ""}`}
       onClick={() => setSelectedItem(item)}
     >
       <CardContent className="p-5">
@@ -227,7 +280,10 @@ export default function ActionItemsPage() {
             }
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-base font-medium text-foreground">{item.title}</h3>
+            <div className="flex items-center gap-1.5">
+              {renderPriorityDot(item)}
+              <h3 className="text-base font-medium text-foreground">{item.title}</h3>
+            </div>
             <p className="text-sm text-muted-foreground">
               {(item.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || item.contacts?.name || "No contact"}
               {item.meetings && <span> · <Calendar className="inline h-3 w-3 mb-0.5" /> {item.meetings.meeting_type}</span>}
@@ -254,6 +310,41 @@ export default function ActionItemsPage() {
     </Card>
   );
 
+  const renderSection = (
+    title: string,
+    items: ActionItem[],
+    icon: React.ReactNode,
+    overdue: boolean,
+    titleClass = "text-muted-foreground"
+  ) => {
+    if (items.length === 0) return null;
+    return (
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          {icon}
+          <h2 className={`text-base font-medium ${titleClass}`}>
+            {title} ({items.length})
+          </h2>
+        </div>
+        <div className="space-y-3">
+          {items.map((item) => renderItem(item, overdue))}
+        </div>
+      </div>
+    );
+  };
+
+  const prioritySelect = (value: string, onChange: (val: string) => void) => (
+    <div>
+      <label className="block text-xs font-medium text-muted-foreground mb-1.5">Priority</label>
+      <Select
+        value={value}
+        onChange={onChange}
+        options={PRIORITY_OPTIONS}
+        placeholder="No priority"
+      />
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
@@ -271,55 +362,55 @@ export default function ActionItemsPage() {
           </Button>
         </div>
 
-        {/* Overdue section */}
-        {overdueItems.length > 0 && (
-          <div className="mb-10">
-            <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              <h2 className="text-base font-medium text-destructive">
-                Overdue ({overdueItems.length})
-              </h2>
-            </div>
-            <div className="space-y-3">
-              {overdueItems.map((item) => renderItem(item, true))}
-            </div>
-          </div>
+        {/* Sections */}
+        {renderSection(
+          "Overdue",
+          overdueItems,
+          <AlertTriangle className="h-5 w-5 text-destructive" />,
+          true,
+          "text-destructive"
         )}
 
-        {/* Upcoming section */}
-        <div>
-          <h2 className="text-base font-medium text-muted-foreground mb-4">
-            Upcoming{upcomingItems.length > 0 ? ` (${upcomingItems.length})` : ""}
-          </h2>
+        {renderSection(
+          "Due this week",
+          thisWeekItems,
+          <CalendarDays className="h-5 w-5 text-primary" />,
+          false,
+          "text-foreground"
+        )}
 
-          {upcomingItems.length === 0 && overdueItems.length === 0 ? (
-            <Card variant="outlined" className="text-center py-16">
-              <CardContent>
-                <CheckSquare className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
-                <p className="text-base text-foreground mb-1">All clear</p>
-                <p className="text-sm text-muted-foreground mb-2">
-                  No pending action items. Create one to track a follow-up, introduction, or commitment.
-                </p>
-                <p className="text-xs text-muted-foreground mb-6">
-                  Action items can also be created from meetings — they&apos;ll automatically link back.
-                </p>
-                <Button onClick={() => setShowCreate(true)} variant="tonal">
-                  <Plus className="h-[18px] w-[18px]" /> Create action item
-                </Button>
-              </CardContent>
-            </Card>
-          ) : upcomingItems.length === 0 ? (
-            <Card variant="filled" className="text-center py-10">
-              <CardContent>
-                <p className="text-sm text-muted-foreground">No upcoming items — just overdue ones above.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {upcomingItems.map((item) => renderItem(item, false))}
-            </div>
-          )}
-        </div>
+        {renderSection(
+          "Due later",
+          laterItems,
+          <Clock className="h-5 w-5 text-muted-foreground" />,
+          false
+        )}
+
+        {renderSection(
+          "No due date",
+          noDueDateItems,
+          <Minus className="h-5 w-5 text-muted-foreground" />,
+          false
+        )}
+
+        {/* Empty state */}
+        {totalPending === 0 && (
+          <Card variant="outlined" className="text-center py-16">
+            <CardContent>
+              <CheckSquare className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
+              <p className="text-base text-foreground mb-1">All clear</p>
+              <p className="text-sm text-muted-foreground mb-2">
+                No pending action items. Create one to track a follow-up, introduction, or commitment.
+              </p>
+              <p className="text-xs text-muted-foreground mb-6">
+                Action items can also be created from meetings — they&apos;ll automatically link back.
+              </p>
+              <Button onClick={() => setShowCreate(true)} variant="tonal">
+                <Plus className="h-[18px] w-[18px]" /> Create action item
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Completed section */}
         {completedItems.length > 0 && (
@@ -380,7 +471,16 @@ export default function ActionItemsPage() {
             <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
               <div className="px-6 pt-6 pb-2 flex items-start justify-between">
                 <div>
-                  <h2 className="text-[22px] leading-7 font-normal text-foreground">{selectedItem.title}</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[22px] leading-7 font-normal text-foreground">{selectedItem.title}</h2>
+                    {selectedItem.priority && (
+                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                        PRIORITY_COLORS[selectedItem.priority as keyof typeof PRIORITY_COLORS].dot
+                      } text-white capitalize`}>
+                        {selectedItem.priority}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground mt-1">{(() => { const names = selectedItem.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", "); return names ? `For ${names}` : selectedItem.contacts ? `For ${selectedItem.contacts.name}` : "No contact assigned"; })()}</p>
                 </div>
                 <button onClick={() => setSelectedItem(null)} className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
@@ -388,7 +488,6 @@ export default function ActionItemsPage() {
                 </button>
               </div>
               <div className="px-6 pb-6 space-y-4">
-                {/* Details */}
                 {selectedItem.description && (
                   <p className="text-sm text-muted-foreground">{selectedItem.description}</p>
                 )}
@@ -403,7 +502,6 @@ export default function ActionItemsPage() {
                   )}
                 </div>
 
-                {/* Linked meeting */}
                 {selectedItem.meetings && (
                   <div className="pt-3 border-t border-outline-variant">
                     <h3 className="text-sm font-medium text-foreground flex items-center gap-2 mb-3">
@@ -428,7 +526,6 @@ export default function ActionItemsPage() {
                   </div>
                 )}
 
-                {/* Actions */}
                 <div className="flex justify-between pt-2">
                   <Button variant="danger" size="sm" onClick={(e) => { removeItem(e, selectedItem); }}>
                     <Trash2 className="h-4 w-4" /> Delete
@@ -456,7 +553,7 @@ export default function ActionItemsPage() {
         {/* Create modal */}
         {showCreate && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/32" onClick={() => { setShowCreate(false); setNewTitle(""); setNewDescription(""); setNewDueDate(""); setNewContactIds([]); setNewMeetingId(null); }} />
+            <div className="absolute inset-0 bg-black/32" onClick={resetCreate} />
             <div className="relative w-full max-w-md bg-surface-container-high rounded-[28px] shadow-lg">
               <div className="px-6 pt-6 pb-4">
                 <h2 className="text-[22px] leading-7 font-normal text-foreground">New action item</h2>
@@ -469,7 +566,7 @@ export default function ActionItemsPage() {
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
                     className={inputClasses}
-                    placeholder="Follow up about…"
+                    placeholder="Follow up about..."
                     autoFocus
                   />
                 </div>
@@ -504,15 +601,18 @@ export default function ActionItemsPage() {
                     onChange={(e) => setNewDescription(e.target.value)}
                     className={`${inputClasses} !h-auto py-3`}
                     rows={2}
-                    placeholder="Optional details…"
+                    placeholder="Optional details..."
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
-                  <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
+                    <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
+                  </div>
+                  {prioritySelect(newPriority, setNewPriority)}
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button type="button" variant="text" onClick={() => { setShowCreate(false); setNewTitle(""); setNewDescription(""); setNewDueDate(""); setNewContactIds([]); setNewMeetingId(null); }}>Cancel</Button>
+                  <Button type="button" variant="text" onClick={resetCreate}>Cancel</Button>
                   <Button
                     type="button"
                     disabled={!newTitle.trim() || newContactIds.length === 0 || newSaving}
@@ -531,13 +631,9 @@ export default function ActionItemsPage() {
                           is_completed: false,
                           created_at: new Date().toISOString(),
                           completed_at: null,
+                          priority: newPriority || null,
                         }, newContactIds);
-                        setShowCreate(false);
-                        setNewTitle("");
-                        setNewDescription("");
-                        setNewDueDate("");
-                        setNewContactIds([]);
-                        setNewMeetingId(null);
+                        resetCreate();
                         await loadActionItems();
                         toastSuccess("Action item created");
                       } catch (err) { toastError("Failed to create action item"); }
@@ -568,7 +664,7 @@ export default function ActionItemsPage() {
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
                     className={inputClasses}
-                    placeholder="Follow up about…"
+                    placeholder="Follow up about..."
                     autoFocus
                   />
                 </div>
@@ -603,12 +699,15 @@ export default function ActionItemsPage() {
                     onChange={(e) => setEditDescription(e.target.value)}
                     className={`${inputClasses} !h-auto py-3`}
                     rows={3}
-                    placeholder="Optional details…"
+                    placeholder="Optional details..."
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
-                  <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="No due date" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
+                    <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="No due date" />
+                  </div>
+                  {prioritySelect(editPriority, setEditPriority)}
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <Button type="button" variant="text" onClick={() => { setEditingItem(null); }}>Cancel</Button>

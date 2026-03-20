@@ -10,6 +10,7 @@ import { createActionItem, updateActionItem, deleteActionItem, replaceContactsFo
 import type { Contact, ContactMeeting } from "@/lib/types";
 import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare } from "lucide-react";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
+import { PRIORITY_COLORS, getPriorityOrder } from "@/lib/priority-helpers";
 
 import { inputClasses } from "@/lib/form-styles";
 
@@ -18,6 +19,7 @@ type ActionItem = {
   title: string;
   description: string | null;
   due_at: string | null;
+  priority?: string | null;
   is_completed: boolean;
   meetings: { id: number; meeting_type: string; meeting_date: string } | null;
   action_item_contacts?: { contact_id: number; contacts: { id: number; name: string } | null }[];
@@ -63,6 +65,7 @@ export function ContactActionsTab({
   const [newDescription, setNewDescription] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
   const [newMeetingId, setNewMeetingId] = useState<number | null>(null);
+  const [newPriority, setNewPriority] = useState("");
   const [saving, setSaving] = useState(false);
 
   const { error: toastError } = useToast();
@@ -81,7 +84,10 @@ export function ContactActionsTab({
     action: async (item) => { await deleteActionItem(item.id); },
     undoMessage: (item) => `"${item.title}" deleted`,
     onUndo: (item) => {
-      onActionsChange([...actions, item], completedActions);
+      onActionsChange(
+        actions.some((a) => a.id === item.id) ? actions : [...actions, item],
+        completedActions,
+      );
     },
     onError: () => toastError("Failed to delete action item"),
   });
@@ -93,22 +99,24 @@ export function ContactActionsTab({
     undoMessage: (item) => `"${item.title}" completed`,
     onUndo: (item) => {
       onActionsChange(
-        [...actions, item],
+        actions.some((a) => a.id === item.id) ? actions : [...actions, item],
         completedActions.filter((a) => a.id !== item.id),
       );
     },
-    onCommit: () => { reloadActions(); },
     onError: () => toastError("Failed to complete action item"),
   });
 
-  // Show ALL action items, sorted: overdue first, then upcoming by date, then no due date
+  // Sort: overdue first, then by priority (high→medium→low→null), then by date
   const now = new Date();
   const filtered = [...actions].sort((a, b) => {
-    const aDate = a.due_at ? new Date(a.due_at).getTime() : Infinity;
-    const bDate = b.due_at ? new Date(b.due_at).getTime() : Infinity;
     const aOverdue = a.due_at && new Date(a.due_at) < now ? 0 : 1;
     const bOverdue = b.due_at && new Date(b.due_at) < now ? 0 : 1;
     if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+    const pa = getPriorityOrder(a.priority ?? null);
+    const pb = getPriorityOrder(b.priority ?? null);
+    if (pa !== pb) return pa - pb;
+    const aDate = a.due_at ? new Date(a.due_at).getTime() : Infinity;
+    const bDate = b.due_at ? new Date(b.due_at).getTime() : Infinity;
     return aDate - bDate;
   });
 
@@ -172,6 +180,12 @@ export function ContactActionsTab({
             ) : (
               <div key={action.id} className="flex items-center gap-2 text-sm group">
                 <CheckSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                {action.priority && (
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_COLORS[action.priority as keyof typeof PRIORITY_COLORS]?.dot || ""}`}
+                    title={`${action.priority} priority`}
+                  />
+                )}
                 <span className="text-foreground flex-1 min-w-0 truncate">{action.title}</span>
                 {action.due_at && (
                   <span
@@ -202,7 +216,7 @@ export function ContactActionsTab({
                     onClick={() => {
                       onActionsChange(
                         actions.filter((a) => a.id !== action.id),
-                        [{ ...action, is_completed: true, completed_at: new Date().toISOString() } as unknown as CompletedAction, ...completedActions],
+                        [{ id: action.id, title: action.title, due_at: action.due_at, is_completed: true, completed_at: new Date().toISOString(), meetings: action.meetings }, ...completedActions],
                       );
                       deferComplete(action);
                     }}
@@ -355,12 +369,14 @@ export function ContactActionsTab({
                         is_completed: false,
                         created_at: new Date().toISOString(),
                         completed_at: null,
+                        priority: newPriority || null,
                       });
                       setShowModal(false);
                       setNewTitle("");
                       setNewDescription("");
                       setNewDueDate("");
                       setNewMeetingId(null);
+                      setNewPriority("");
                       await reloadActions();
                     } catch (err) {
                       console.error("Error creating action item:", err);
