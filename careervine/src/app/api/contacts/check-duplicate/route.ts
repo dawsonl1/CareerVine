@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server-client';
 import { calculateNameMatchConfidence } from '@/lib/duplicate-helpers';
+import { sanitizeForPostgrest } from '@/lib/import-helpers';
 
 // CORS headers for Chrome extension
 const corsHeaders = {
@@ -108,9 +109,8 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
 
     if (names.length >= 2) {
       // Sanitize for PostgREST filter syntax
-      const sanitize = (s: string) => s.replace(/[%_\\.,()'"]/g, '');
-      const first = sanitize(names[0]);
-      const last = sanitize(names[names.length - 1]);
+      const first = sanitizeForPostgrest(names[0]);
+      const last = sanitizeForPostgrest(names[names.length - 1]);
       const { data } = await supabase
         .from('contacts')
         .select('*')

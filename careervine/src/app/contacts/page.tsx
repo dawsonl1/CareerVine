@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
@@ -57,17 +58,7 @@ export default function ContactsPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(true);
   const searchRef = useRef<HTMLDivElement>(null);
-
-  // Close search suggestions on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setShowSearchSuggestions(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useClickOutside(searchRef, useCallback(() => setShowSearchSuggestions(false), []), showSearchSuggestions);
 
   // Create contact form state
   const [showForm, setShowForm] = useState(false);

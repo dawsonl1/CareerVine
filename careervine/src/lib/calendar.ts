@@ -9,6 +9,8 @@ import { google } from "googleapis";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getOAuth2Client, refreshTokenIfNeeded } from "@/lib/oauth-helpers";
 
+const DEFAULT_TIMEZONE = "America/New_York";
+
 /**
  * Load tokens from DB, refresh if expired, return an authenticated Calendar client.
  * Reuses the same gmail_connections row as Gmail — tokens are shared.
@@ -193,8 +195,8 @@ export async function createCalendarEvent(
   const requestBody: any = {
     summary: options.summary,
     description: options.description || "",
-    start: { dateTime: options.startTime, timeZone: options.timeZone || "America/New_York" },
-    end: { dateTime: options.endTime, timeZone: options.timeZone || "America/New_York" },
+    start: { dateTime: options.startTime, timeZone: options.timeZone || DEFAULT_TIMEZONE },
+    end: { dateTime: options.endTime, timeZone: options.timeZone || DEFAULT_TIMEZONE },
   };
 
   if (options.attendeeEmails && options.attendeeEmails.length > 0) {

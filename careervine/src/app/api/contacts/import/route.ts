@@ -274,13 +274,13 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
     if (!company) continue;
 
     // Skip if this exact relationship already exists
-    const { data: existingRel } = await supabase
+    let relQuery = supabase
       .from('contact_companies')
       .select('id')
       .eq('contact_id', contactId)
-      .eq('company_id', company.id)
-      .eq('title', exp.title || null)
-      .maybeSingle();
+      .eq('company_id', company.id);
+    relQuery = exp.title ? relQuery.eq('title', exp.title) : relQuery.is('title', null);
+    const { data: existingRel } = await relQuery.maybeSingle();
 
     if (!existingRel) {
       await supabase
