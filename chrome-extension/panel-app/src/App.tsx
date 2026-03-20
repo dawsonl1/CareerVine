@@ -37,6 +37,7 @@ type Education = {
   field_of_study: string;
   start_year: string | null;
   end_year: string | null;
+  is_current?: boolean;
 };
 
 type ProfileData = {
@@ -56,10 +57,19 @@ type ProfileData = {
   current_company?: string | null;
 };
 
+const FOLLOW_UP_OPTIONS = [
+  "No follow-up",
+  "2 weeks",
+  "2 months",
+  "3 months",
+  "6 months",
+  "1 year",
+];
+
 // Client-side contact status derivation (mirrors backend deriveContactStatus)
 const deriveContactStatus = (education: Education[]): { contact_status: 'student' | 'professional'; expected_graduation: string | null } => {
   const currentYear = new Date().getFullYear();
-  const hasCurrentEducation = education.some(edu => (edu as any).is_current);
+  const hasCurrentEducation = education.some(edu => edu.is_current);
   const futureGraduation = education.find(edu => {
     const endYear = parseInt(edu.end_year || "");
     return endYear && endYear > currentYear;
@@ -499,6 +509,31 @@ const InlineInput: React.FC<{
   />
 );
 
+// Contact status toggle — reused in view mode and edit mode
+const StatusToggle: React.FC<{
+  value: "student" | "professional" | null;
+  onChange: (status: "student" | "professional") => void;
+}> = ({ value, onChange }) => (
+  <div className="cv-status-toggle-row">
+    <button
+      type="button"
+      className={`cv-status-toggle-btn ${value === 'student' ? 'cv-status-active' : ''}`}
+      onClick={() => onChange('student')}
+    >
+      <GraduationCap className="w-4 h-4" />
+      Student
+    </button>
+    <button
+      type="button"
+      className={`cv-status-toggle-btn ${value === 'professional' ? 'cv-status-active' : ''}`}
+      onClick={() => onChange('professional')}
+    >
+      <Briefcase className="w-4 h-4" />
+      Professional
+    </button>
+  </div>
+);
+
 // Month/Year picker — inline input with dropdown suggestions
 const MonthYearPicker: React.FC<{
   value: string;
@@ -666,24 +701,10 @@ const EditPanel: React.FC<{
         </section>
 
         {/* Contact Status Toggle */}
-        <div className="cv-status-toggle-row">
-          <button
-            type="button"
-            className={`cv-status-toggle-btn ${profile.contact_status === 'student' ? 'cv-status-active' : ''}`}
-            onClick={() => onChange('contact_status', 'student')}
-          >
-            <GraduationCap className="w-4 h-4" />
-            Student
-          </button>
-          <button
-            type="button"
-            className={`cv-status-toggle-btn ${profile.contact_status === 'professional' ? 'cv-status-active' : ''}`}
-            onClick={() => onChange('contact_status', 'professional')}
-          >
-            <Briefcase className="w-4 h-4" />
-            Professional
-          </button>
-        </div>
+        <StatusToggle
+          value={profile.contact_status}
+          onChange={(status) => onChange('contact_status', status)}
+        />
 
         {/* Quick Info — same icon rows as view mode */}
         <div className="cv-quick-info">
@@ -701,14 +722,7 @@ const EditPanel: React.FC<{
             <SimpleDropdown
               value={profile.follow_up_frequency || ""}
               onChange={(value) => onChange('follow_up_frequency', value)}
-              options={[
-                "No follow-up",
-                "2 weeks",
-                "2 months",
-                "3 months",
-                "6 months",
-                "1 year"
-              ]}
+              options={FOLLOW_UP_OPTIONS}
               placeholder="Follow-up frequency"
               className="cv-edit-followup"
             />
@@ -1430,7 +1444,7 @@ const App: React.FC = () => {
   };
 
   // Update a single field on profile without entering edit mode
-  const setProfileField = (field: string, value: any) => {
+  const setProfileField = <K extends keyof ProfileData>(field: K, value: ProfileData[K]) => {
     setProfile(prev => prev ? { ...prev, [field]: value } : prev);
   };
 
@@ -1493,24 +1507,10 @@ const App: React.FC = () => {
         </section>
 
         {/* Contact Status Toggle */}
-        <div className="cv-status-toggle-row">
-          <button
-            type="button"
-            className={`cv-status-toggle-btn ${profile.contact_status === 'student' ? 'cv-status-active' : ''}`}
-            onClick={() => setProfileField('contact_status', 'student')}
-          >
-            <GraduationCap className="w-4 h-4" />
-            Student
-          </button>
-          <button
-            type="button"
-            className={`cv-status-toggle-btn ${profile.contact_status === 'professional' ? 'cv-status-active' : ''}`}
-            onClick={() => setProfileField('contact_status', 'professional')}
-          >
-            <Briefcase className="w-4 h-4" />
-            Professional
-          </button>
-        </div>
+        <StatusToggle
+          value={profile.contact_status}
+          onChange={(status) => setProfileField('contact_status', status)}
+        />
 
         {/* Quick Info */}
         <div className="cv-quick-info">
@@ -1529,14 +1529,7 @@ const App: React.FC = () => {
             <SimpleDropdown
               value={profile.follow_up_frequency || ""}
               onChange={(value) => setProfileField('follow_up_frequency', value)}
-              options={[
-                "No follow-up",
-                "2 weeks",
-                "2 months",
-                "3 months",
-                "6 months",
-                "1 year"
-              ]}
+              options={FOLLOW_UP_OPTIONS}
               placeholder="Follow-up frequency"
               className="cv-view-followup"
             />
