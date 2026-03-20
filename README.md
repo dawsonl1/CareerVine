@@ -15,11 +15,11 @@ The core insight is that **conversations are the atomic unit of a relationship**
 ### Key workflows
 
 - **Log a conversation, capture what matters** — Quick-capture from anywhere in the app. Notes, attendees, and action items are tied to the conversation where they happened, not floating in a vacuum.
-- **Never drop a follow-up** — Set a cadence per contact (weekly, monthly, quarterly). The dashboard shows who's overdue with color-coded health indicators so you can prioritize at a glance.
+- **Never drop a follow-up** — Set a cadence per contact (weekly, monthly, quarterly). The two-column dashboard shows your action items, overdue contacts, and AI suggestions on the left with network health on the right. Mark tasks done, log interactions, and save suggestions without ever leaving the page.
 - **One-click LinkedIn import** — A Chrome extension scrapes a LinkedIn profile and saves the contact with work history, education, and photo. No manual data entry.
 - **Email as a first-class feature** — Threaded Gmail inbox, AI-powered composition, scheduled sends, and multi-stage follow-up sequences that auto-cancel when the person replies.
 - **Calendar that knows your network** — Google Calendar sync with week and list views. Create a meeting in CareerVine and it generates a Calendar event with Meet link and attendee invites.
-- **Transcripts to notes** — Upload audio or paste a transcript. Speakers are identified and matched to attendees, so your meeting notes write themselves.
+- **Transcripts to notes** — Upload audio or paste a transcript. AI-powered speaker matching identifies who said what by analyzing conversation context, roles, and names — with confidence scores and one-click confirmation instead of tedious manual dropdowns.
 
 ### Design decisions I'm proud of
 
@@ -42,7 +42,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 | Auth | Supabase Auth |
 | APIs | Gmail API, Google Calendar API, OpenAI API, Deepgram API |
 | Rich text | Tiptap editor |
-| Testing | Vitest + React Testing Library (278 tests) |
+| Testing | Vitest + React Testing Library (341 tests) |
 | Deployment | Vercel |
 | Browser extension | Chrome Manifest V3, Shadow DOM isolation |
 
