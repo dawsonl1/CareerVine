@@ -107,20 +107,31 @@ export default function Home() {
 
   const loadData = useCallback(async () => {
     if (!user) return;
-    try {
-      const [items, dueContacts, healthData] = await Promise.all([
-        getActionItems(user.id),
-        getContactsDueForFollowUp(user.id),
-        getContactsWithLastTouch(user.id),
-      ]);
-      setActionItems((items as ActionItem[]).slice(0, 10));
-      setFollowUps(dueContacts);
-      setContactHealth(healthData);
-    } catch (e) {
-      console.error("Error loading home data:", e);
-    } finally {
-      setDataLoaded(true);
+    const results = await Promise.allSettled([
+      getActionItems(user.id),
+      getContactsDueForFollowUp(user.id),
+      getContactsWithLastTouch(user.id),
+    ]);
+
+    if (results[0].status === "fulfilled") {
+      setActionItems((results[0].value as ActionItem[]).slice(0, 10));
+    } else {
+      console.error("Failed to load action items:", results[0].reason?.message ?? results[0].reason);
     }
+
+    if (results[1].status === "fulfilled") {
+      setFollowUps(results[1].value);
+    } else {
+      console.error("Failed to load follow-ups:", results[1].reason?.message ?? results[1].reason);
+    }
+
+    if (results[2].status === "fulfilled") {
+      setContactHealth(results[2].value);
+    } else {
+      console.error("Failed to load contact health:", results[2].reason?.message ?? results[2].reason);
+    }
+
+    setDataLoaded(true);
   }, [user]);
 
   useEffect(() => {
