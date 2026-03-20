@@ -47,7 +47,7 @@ class PopupManager {
     if (signupLink) {
       signupLink.addEventListener('click', (e) => {
         e.preventDefault();
-        chrome.tabs.create({ url: 'https://www.dawsonsprojects.com/auth' });
+        chrome.tabs.create({ url: 'https://www.careervine.app/auth' });
       });
     }
 

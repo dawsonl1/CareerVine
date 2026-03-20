@@ -19,7 +19,7 @@ function ensureConfig() {
         config = await response.json();
       } catch (error) {
         config = {
-          apiBaseUrl: 'https://dawsonsprojects.com/api',
+          apiBaseUrl: 'https://www.careervine.app/api',
           supabaseUrl: 'https://iycrlwqjetkwaauzxrhd.supabase.co',
           supabaseAnonKey: 'sb_publishable_1WPOaIis1MzOM3SUuW1wMw_l5ZGr3n3',
           environment: 'production'

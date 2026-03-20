@@ -910,7 +910,7 @@ const App: React.FC = () => {
     typeof window !== 'undefined' && window.location?.href?.includes('linkedin.com/in/')
   );
   const [savedContactId, setSavedContactId] = useState<number | null>(null);
-  const [webappBaseUrl, setWebappBaseUrl] = useState("https://www.dawsonsprojects.com");
+  const [webappBaseUrl, setWebappBaseUrl] = useState("https://www.careervine.app");
   const [existingContact, setExistingContact] = useState<any>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState(false);

@@ -5,7 +5,7 @@ set -euo pipefail
 # CareerVine Chrome Extension — Production Build Script
 #
 # Produces a Chrome Web Store-ready ZIP that connects to
-# https://dawsonsprojects.com instead of localhost.
+# https://www.careervine.app instead of localhost.
 #
 # Usage:  ./build-prod.sh
 # Output: careervine-extension-v<VERSION>.zip in this directory
