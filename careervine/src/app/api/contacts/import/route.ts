@@ -261,18 +261,18 @@ async function addExperienceToContact(supabase: any, contactId: number, experien
   const validExps = experience.filter(exp => exp.company);
   if (validExps.length === 0) return;
 
-  // Batch lookup: fetch matching companies in one filtered query
+  // Batch lookup: fetch matching companies concurrently (parameterized, handles special chars)
   const companyNames = [...new Set(validExps.map(exp => exp.company))];
-  const companyFilter = companyNames.map(n => `name.ilike.${sanitizeForPostgrest(n)}`).join(',');
-  const { data: existingCompanies } = await supabase
-    .from('companies')
-    .select('id, name')
-    .or(companyFilter);
+  const companyResults = await Promise.all(
+    companyNames.map(name =>
+      supabase.from('companies').select('id, name').ilike('name', name).maybeSingle()
+    )
+  );
 
   // Build a case-insensitive lookup map
   const companyMap = new Map<string, { id: number; name: string }>();
-  for (const c of existingCompanies || []) {
-    companyMap.set(c.name.toLowerCase(), c);
+  for (const { data } of companyResults) {
+    if (data) companyMap.set(data.name.toLowerCase(), data);
   }
 
   // Create missing companies
@@ -334,17 +334,17 @@ async function addEducationToContact(supabase: any, contactId: number, education
   const validEdus = education.filter(edu => edu.school);
   if (validEdus.length === 0) return;
 
-  // Batch lookup: fetch matching schools in one filtered query
+  // Batch lookup: fetch matching schools concurrently (parameterized, handles special chars)
   const schoolNames = [...new Set(validEdus.map(edu => edu.school))];
-  const schoolFilter = schoolNames.map(n => `name.ilike.${sanitizeForPostgrest(n)}`).join(',');
-  const { data: existingSchools } = await supabase
-    .from('schools')
-    .select('id, name')
-    .or(schoolFilter);
+  const schoolResults = await Promise.all(
+    schoolNames.map(name =>
+      supabase.from('schools').select('id, name').ilike('name', name).maybeSingle()
+    )
+  );
 
   const schoolMap = new Map<string, { id: number; name: string }>();
-  for (const s of existingSchools || []) {
-    schoolMap.set(s.name.toLowerCase(), s);
+  for (const { data } of schoolResults) {
+    if (data) schoolMap.set(data.name.toLowerCase(), data);
   }
 
   // Create missing schools
