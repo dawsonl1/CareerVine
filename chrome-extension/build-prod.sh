@@ -26,15 +26,20 @@ cp src/background/background.js src/background/background.js.bak
 
 # Cleanup function: always restore dev state, even on failure
 cleanup() {
-  echo "==> Restoring development files..."
-  mv manifest.json.bak manifest.json
-  mv src/background/background.js.bak src/background/background.js
+  mv manifest.json.bak manifest.json 2>/dev/null || true
+  mv src/background/background.js.bak src/background/background.js 2>/dev/null || true
+  rm -f src/background/background.js-e  # stale BSD sed backup
 }
 trap cleanup EXIT
 
 # ── 2. Switch background.js to production environment ───────
 echo "    Setting ENV = 'production' in background.js"
-sed -i'' -e "s/^const ENV = 'development';/const ENV = 'production';/" src/background/background.js
+node -e "
+  const fs = require('fs');
+  const file = 'src/background/background.js';
+  const src = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, src.replace(/^const ENV = 'development';/m, \"const ENV = 'production';\"));
+"
 
 # Verify the swap worked
 if grep -q "const ENV = 'development'" src/background/background.js; then
@@ -97,7 +102,7 @@ zip -r "$ZIP_NAME" \
   assets/ \
   env/production.json \
   -x "*.bak" \
-  -x "src/background/background.js.bak"
+  -x "*-e"
 
 # ── 7. Summary ──────────────────────────────────────────────
 ZIP_SIZE=$(du -h "$ZIP_NAME" | cut -f1)
