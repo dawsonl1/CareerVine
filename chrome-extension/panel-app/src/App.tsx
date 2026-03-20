@@ -454,71 +454,86 @@ const AutoResizeTextarea: React.FC<{
 };
 
 
+// Inline edit input — looks like display text, reveals as editable on focus
+const InlineInput: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  className?: string;
+}> = ({ value, onChange, placeholder, className = "" }) => (
+  <input
+    type="text"
+    className={`cv-inline-input ${className}`}
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    placeholder={placeholder}
+  />
+);
+
 // Edit Panel Component
 const EditPanel: React.FC<{
   profile: ProfileData;
   onChange: (field: string, value: any) => void;
   onSave: () => void;
   onCancel: () => void;
-}> = ({ 
-  profile, 
-  onChange, 
-  onSave, 
+}> = ({
+  profile,
+  onChange,
+  onSave,
   onCancel
 }) => {
   return (
-    <div className="cv-panel">
+    <div className="cv-panel cv-panel-editing">
       {/* Header */}
       <header className="cv-header">
         <button className="cv-back-btn" onClick={onCancel}>
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h2 className="cv-header-title">Edit Profile</h2>
+        <h2 className="cv-header-title">Editing</h2>
       </header>
 
       {/* Main Content */}
       <main className="cv-main">
-        {/* Profile Section */}
+        {/* Profile Section — mirrors view layout */}
         <section className="cv-profile-section">
           <div className="cv-avatar">
             <User className="w-8 h-8 text-green-700" />
           </div>
           <div className="cv-profile-info">
-            <input
-              type="text"
-              className="cv-edit-name"
+            <InlineInput
               value={profile.name || ""}
-              onChange={(e) => onChange('name', e.target.value)}
-              placeholder="Profile Name"
+              onChange={(v) => onChange('name', v)}
+              placeholder="Name"
+              className="cv-inline-name"
+            />
+            <InlineInput
+              value={profile.industry || ""}
+              onChange={(v) => onChange('industry', v)}
+              placeholder="Industry"
+              className="cv-inline-industry"
             />
           </div>
         </section>
 
-        {/* Quick Info */}
-        <section className="cv-quick-info-section">
+        {/* Quick Info — same icon rows as view mode */}
+        <div className="cv-quick-info">
           <div className="cv-info-row">
-            <MapPin className="w-4 h-4 text-gray-400" />
-            <div className="cv-location-input-wrapper">
-              <input
-                type="text"
-                className="cv-edit-input cv-edit-location"
-                value={profile?.location?.city || ""}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  onChange('location.city', value);
-                }}
-                placeholder="City name"
-              />
-            </div>
+            <MapPin />
+            <InlineInput
+              value={profile?.location?.city || ""}
+              onChange={(v) => onChange('location.city', v)}
+              placeholder="City, State"
+              className="cv-inline-meta"
+            />
           </div>
           <div className="cv-info-row">
-            <Clock className="w-4 h-4 text-gray-400" />
+            <Clock />
             <SimpleDropdown
               value={profile.follow_up_frequency || ""}
               onChange={(value) => onChange('follow_up_frequency', value)}
               options={[
                 "No follow-up",
-                "2 weeks", 
+                "2 weeks",
                 "2 months",
                 "3 months",
                 "6 months",
@@ -529,16 +544,16 @@ const EditPanel: React.FC<{
             />
           </div>
           <div className="cv-info-row cv-notes-row">
-            <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <FileText />
             <AutoResizeTextarea
               value={profile.generated_notes || ""}
               onChange={(value) => onChange('generated_notes', value)}
-              placeholder="Add notes about this contact..."
-              className="cv-edit-notes"
-              minHeight={60}
+              placeholder="Add notes..."
+              className="cv-inline-notes"
+              minHeight={40}
             />
           </div>
-        </section>
+        </div>
 
         {/* Experience Section */}
         {profile.experience.length > 0 && (
@@ -550,49 +565,39 @@ const EditPanel: React.FC<{
           <div className="cv-experience-list">
             {profile.experience.map((exp, index) => (
               <div key={exp.id} className="cv-job-item">
-                <input
-                  type="text"
-                  className="cv-edit-input cv-edit-title"
+                <InlineInput
                   value={exp.title || ""}
-                  onChange={(e) => onChange(`experience.${index}.title`, e.target.value)}
+                  onChange={(v) => onChange(`experience.${index}.title`, v)}
                   placeholder="Job Title"
+                  className="cv-inline-job-title"
                 />
-                <input
-                  type="text"
-                  className="cv-edit-input cv-edit-company"
+                <InlineInput
                   value={exp.company || ""}
-                  onChange={(e) => onChange(`experience.${index}.company`, e.target.value)}
+                  onChange={(v) => onChange(`experience.${index}.company`, v)}
                   placeholder="Company"
+                  className="cv-inline-job-company"
                 />
-                <div className="cv-edit-dates">
-                  <input
-                    type="text"
-                    className="cv-edit-input cv-edit-date"
+                <div className="cv-inline-date-row">
+                  <InlineInput
                     value={exp.start_month || ""}
-                    onChange={(e) => onChange(`experience.${index}.start_month`, e.target.value)}
-                    placeholder="Start (e.g., Aug 2024)"
+                    onChange={(v) => onChange(`experience.${index}.start_month`, v)}
+                    placeholder="Start"
+                    className="cv-inline-date"
                   />
-                  <span className="cv-edit-date-separator">-</span>
-                  <input
-                    type="text"
-                    className="cv-edit-input cv-edit-date"
+                  <span className="cv-inline-date-sep">-</span>
+                  <InlineInput
                     value={exp.end_month || ""}
-                    onChange={(e) => onChange(`experience.${index}.end_month`, e.target.value)}
-                    placeholder="End (e.g., Present)"
+                    onChange={(v) => onChange(`experience.${index}.end_month`, v)}
+                    placeholder="End"
+                    className="cv-inline-date"
                   />
                 </div>
-                <div className="cv-location-input-wrapper">
-                  <input
-                    type="text"
-                    className="cv-edit-input cv-edit-location"
-                    value={exp.location || ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      onChange(`experience.${index}.location`, value);
-                    }}
-                    placeholder="City name"
-                  />
-                </div>
+                <InlineInput
+                  value={exp.location || ""}
+                  onChange={(v) => onChange(`experience.${index}.location`, v)}
+                  placeholder="Location"
+                  className="cv-inline-job-location"
+                />
               </div>
             ))}
           </div>
@@ -609,42 +614,39 @@ const EditPanel: React.FC<{
           <div className="cv-education-list">
             {profile.education.map((edu, index) => (
               <div key={edu.id} className="cv-edu-item">
-                <input
-                  type="text"
-                  className="cv-edit-input cv-edit-school"
+                <InlineInput
                   value={edu.school || ""}
-                  onChange={(e) => onChange(`education.${index}.school`, e.target.value)}
-                  placeholder="School Name"
+                  onChange={(v) => onChange(`education.${index}.school`, v)}
+                  placeholder="School"
+                  className="cv-inline-edu-school"
                 />
-                <input
-                  type="text"
-                  className="cv-edit-input cv-edit-degree"
-                  value={edu.degree || ""}
-                  onChange={(e) => onChange(`education.${index}.degree`, e.target.value)}
-                  placeholder="Degree (e.g., Bachelor's, Master's, PhD)"
-                />
-                <input
-                  type="text"
-                  className="cv-edit-input cv-edit-field"
-                  value={edu.field_of_study || ""}
-                  onChange={(e) => onChange(`education.${index}.field_of_study`, e.target.value)}
-                  placeholder="Field of Study (e.g., Computer Science, Business)"
-                />
-                <div className="cv-edit-dates">
-                  <input
-                    type="text"
-                    className="cv-edit-input cv-edit-date"
-                    value={edu.start_year || ""}
-                    onChange={(e) => onChange(`education.${index}.start_year`, e.target.value)}
-                    placeholder="Start Year"
+                <div className="cv-inline-degree-row">
+                  <InlineInput
+                    value={edu.degree || ""}
+                    onChange={(v) => onChange(`education.${index}.degree`, v)}
+                    placeholder="Degree"
+                    className="cv-inline-edu-degree"
                   />
-                  <span className="cv-edit-date-separator">-</span>
-                  <input
-                    type="text"
-                    className="cv-edit-input cv-edit-date"
+                  <InlineInput
+                    value={edu.field_of_study || ""}
+                    onChange={(v) => onChange(`education.${index}.field_of_study`, v)}
+                    placeholder="Field of study"
+                    className="cv-inline-edu-degree"
+                  />
+                </div>
+                <div className="cv-inline-date-row">
+                  <InlineInput
+                    value={edu.start_year || ""}
+                    onChange={(v) => onChange(`education.${index}.start_year`, v)}
+                    placeholder="Start"
+                    className="cv-inline-date"
+                  />
+                  <span className="cv-inline-date-sep">-</span>
+                  <InlineInput
                     value={edu.end_year || ""}
-                    onChange={(e) => onChange(`education.${index}.end_year`, e.target.value)}
-                    placeholder="End Year"
+                    onChange={(v) => onChange(`education.${index}.end_year`, v)}
+                    placeholder="End"
+                    className="cv-inline-date"
                   />
                 </div>
               </div>
@@ -653,7 +655,7 @@ const EditPanel: React.FC<{
         </section>
         )}
       </main>
-      
+
       {/* Footer */}
       <footer className="cv-edit-footer">
         <button className="cv-cancel-btn" onClick={onCancel}>
