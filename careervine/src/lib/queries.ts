@@ -32,7 +32,7 @@ const supabase = createSupabaseBrowserClient();
  * @returns Promise<Contact[]> - Array of contacts with all related data
  * @throws Error if query fails
  */
-export async function getContacts(userId: string) {
+export async function getContacts(userId: string, limit = 500) {
   const { data, error } = await supabase
     .from("contacts")
     .select(`
@@ -53,8 +53,9 @@ export async function getContacts(userId: string) {
         tags(*)
       )
     `)
-    .eq("user_id", userId)  // RLS ensures users can only see their own contacts
-    .order("name");         // Sort alphabetically by name
+    .eq("user_id", userId)
+    .order("name")
+    .limit(limit);
 
   if (error) throw error;
   return data;
@@ -177,7 +178,8 @@ export async function getMeetings(userId: string) {
       )
     `)
     .eq("user_id", userId)
-    .order("meeting_date", { ascending: false });  // Most recent first
+    .order("meeting_date", { ascending: false })
+    .limit(200);
 
   if (error) throw error;
   return data;
@@ -334,7 +336,8 @@ export async function getAllInteractions(userId: string) {
     .from("interactions")
     .select("*, contacts!inner(id, name)")
     .eq("contacts.user_id", userId)
-    .order("interaction_date", { ascending: false });
+    .order("interaction_date", { ascending: false })
+    .limit(500);
 
   if (error) throw error;
   return data || [];
@@ -1160,7 +1163,8 @@ export async function getEmailsForContact(userId: string, contactId: number) {
     .select("*")
     .eq("user_id", userId)
     .eq("matched_contact_id", contactId)
-    .order("date", { ascending: false });
+    .order("date", { ascending: false })
+    .limit(500);
   if (error) throw error;
   return data || [];
 }
