@@ -40,13 +40,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // This handles page refreshes and returning users
   useEffect(() => {
     const getSession = async () => {
-      // Check if there's an existing session in browser storage
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      // Update state with session data
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
+      try {
+        // Check if there's an existing session in browser storage
+        const { data: { session } } = await supabase.auth.getSession();
+
+        // Update state with session data
+        setSession(session);
+        setUser(session?.user ?? null);
+      } catch {
+        // Stale or invalid refresh token — treat as signed out
+        setSession(null);
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
     };
 
     // Immediately check for existing session
