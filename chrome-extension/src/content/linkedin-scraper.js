@@ -5,31 +5,43 @@
 
 class LinkedInScraper {
   async scrapeAndClean() {
-    // Always scroll to load lazy-loaded content — LinkedIn renders section anchors
-    // in the initial DOM but lazy-loads the actual content within them, so checking
-    // for element existence is unreliable
-    const scrollSteps = 3 + Math.floor(Math.random() * 3); // 3-5 scrolls
+    // Scroll the full page to force LinkedIn to lazy-load all section content.
+    // Strategy: scroll in viewport-sized chunks to the bottom, pausing at each
+    // step so LinkedIn's intersection observers fire and render content.
+    const viewportH = window.innerHeight;
     let scrolledTo = 0;
-    for (let i = 0; i < scrollSteps; i++) {
-      const currentHeight = document.body.scrollHeight;
-      const remaining = currentHeight - scrolledTo;
-      const fraction = 0.3 + Math.random() * 0.5;
-      scrolledTo = Math.min(scrolledTo + remaining * fraction, currentHeight);
+    let prevHeight = document.body.scrollHeight;
+
+    // Phase 1: scroll down in chunks until we've hit the true bottom
+    // (page height can grow as lazy content loads, so keep going until stable)
+    let stableCount = 0;
+    while (stableCount < 2) {
+      const target = scrolledTo + viewportH * (0.7 + Math.random() * 0.3);
+      scrolledTo = Math.min(target, document.body.scrollHeight);
       window.scrollTo({ top: scrolledTo, behavior: 'smooth' });
-      const delay = 600 + Math.floor(Math.random() * 1400);
+      const delay = 400 + Math.floor(Math.random() * 400);
       await new Promise(resolve => setTimeout(resolve, delay));
-    }
-    // Final scroll near bottom to trigger remaining lazy content
-    const bottomOffset = 50 + Math.floor(Math.random() * 200);
-    window.scrollTo({ top: document.body.scrollHeight - bottomOffset, behavior: 'smooth' });
-    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-    // Scroll back near top (not exact zero — humans don't do that)
-    if (Math.random() > 0.3) {
-      await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 800));
-      window.scrollTo({ top: Math.floor(Math.random() * 150), behavior: 'smooth' });
+
+      const newHeight = document.body.scrollHeight;
+      if (scrolledTo >= newHeight - viewportH) {
+        // We're near the bottom — check if page height is still growing
+        if (newHeight === prevHeight) {
+          stableCount++;
+        } else {
+          stableCount = 0;
+          prevHeight = newHeight;
+        }
+        // Nudge to absolute bottom to trigger any final lazy loads
+        window.scrollTo({ top: newHeight, behavior: 'smooth' });
+        await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 300));
+      }
     }
 
-    // Wait for lazy-loaded content to finish rendering after scrolling
+    // Phase 2: scroll back to top
+    await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 400));
+    window.scrollTo({ top: Math.floor(Math.random() * 150), behavior: 'smooth' });
+
+    // Wait for any final rendering
     await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
 
     // Extract all text from main content area
