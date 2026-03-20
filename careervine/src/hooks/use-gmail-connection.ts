@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import { useAuth } from "@/components/auth-provider";
 
 /**
@@ -17,75 +17,97 @@ export type GmailConnectionData = {
   calendar_timezone: string;
 };
 
-// Module-level cache so multiple hook instances share one fetch per session
-let cachedData: GmailConnectionData | null = null;
+// ── Module-level store ──────────────────────────────────────────────────
+// All hook instances subscribe to the same store so refresh() notifies everyone.
+
+type StoreState = {
+  data: GmailConnectionData | null;
+  loading: boolean;
+};
+
+let state: StoreState = { data: null, loading: true };
 let fetchPromise: Promise<GmailConnectionData | null> | null = null;
+const listeners = new Set<() => void>();
+
+function getSnapshot(): StoreState {
+  return state;
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function emit() {
+  // Create new reference so useSyncExternalStore detects the change
+  state = { ...state };
+  listeners.forEach((l) => l());
+}
+
+function setState(patch: Partial<StoreState>) {
+  state = { ...state, ...patch };
+  listeners.forEach((l) => l());
+}
 
 function fetchConnection(): Promise<GmailConnectionData | null> {
   if (fetchPromise) return fetchPromise;
   fetchPromise = fetch("/api/gmail/connection")
-    .then((res) => res.json())
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
     .then((data) => {
       const conn = data.connection || null;
-      cachedData = conn;
+      setState({ data: conn, loading: false });
       fetchPromise = null;
       return conn;
     })
     .catch(() => {
+      setState({ data: null, loading: false });
       fetchPromise = null;
       return null;
     });
   return fetchPromise;
 }
 
+// SSR-safe snapshot (always loading, no data)
+const serverSnapshot: StoreState = { data: null, loading: true };
+function getServerSnapshot(): StoreState {
+  return serverSnapshot;
+}
+
 /**
  * Shared hook for /api/gmail/connection data.
- * Deduplicates fetches: all components mounting simultaneously share one request.
- * Returns cached data on subsequent mounts within the same page session.
+ * All instances share one store — refresh() from any component updates all of them.
  */
 export function useGmailConnection() {
   const { user } = useAuth();
-  const [data, setData] = useState<GmailConnectionData | null>(cachedData);
-  const [loading, setLoading] = useState(!cachedData);
+  const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const refresh = useCallback(async () => {
-    // Invalidate cache and refetch
-    cachedData = null;
-    fetchPromise = null;
-    setLoading(true);
-    const result = await fetchConnection();
-    setData(result);
-    setLoading(false);
-  }, []);
-
+  // Trigger initial fetch when user is available
   useEffect(() => {
     if (!user) return;
-    if (cachedData) {
-      setData(cachedData);
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    fetchConnection().then((result) => {
-      if (!cancelled) {
-        setData(result);
-        setLoading(false);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [user]);
+    if (snap.data !== null || fetchPromise) return; // already have data or in-flight
+    fetchConnection();
+  }, [user, snap.data]);
+
+  const refresh = useCallback(async () => {
+    fetchPromise = null;
+    setState({ loading: true });
+    await fetchConnection();
+  }, []);
 
   return {
-    data,
-    loading,
+    data: snap.data,
+    loading: snap.loading,
     refresh,
-    calendarConnected: data?.calendar_scopes_granted || false,
-    calendarLastSynced: data?.calendar_last_synced_at || null,
+    calendarConnected: snap.data?.calendar_scopes_granted || false,
+    calendarLastSynced: snap.data?.calendar_last_synced_at || null,
   };
 }
 
 /** Reset the cache (call after disconnect operations) */
 export function invalidateGmailConnectionCache() {
-  cachedData = null;
   fetchPromise = null;
+  setState({ data: null, loading: true });
 }

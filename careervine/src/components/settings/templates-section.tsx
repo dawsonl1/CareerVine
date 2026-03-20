@@ -46,7 +46,9 @@ export default function TemplatesSection() {
           id: editingTemplate.id || undefined,
           name: editingTemplate.name.trim(),
           prompt: editingTemplate.prompt.trim(),
-          sort_order: templates.length,
+          sort_order: editingTemplate.id
+            ? templates.find((t) => t.id === editingTemplate.id)?.sort_order ?? templates.length
+            : templates.length,
         }),
       });
       if (!res.ok) throw new Error("Failed to save");

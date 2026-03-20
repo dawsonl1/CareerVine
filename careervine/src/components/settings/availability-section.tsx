@@ -36,6 +36,9 @@ export default function AvailabilitySection() {
   const [busyCalendarIds, setBusyCalendarIds] = useState<string[]>(["primary"]);
   const [savingBusyCalendars, setSavingBusyCalendars] = useState(false);
   const [calendarTimezone, setCalendarTimezone] = useState("");
+  const [savedAvailability, setSavedAvailability] = useState(false);
+  const [savedBusyCalendars, setSavedBusyCalendars] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   // Hydrate local state from shared connection data
   useEffect(() => {
@@ -48,17 +51,27 @@ export default function AvailabilitySection() {
   }, [connData]);
 
   const handleSaveAvailability = async () => {
+    setSaveError("");
+    // Validate endTime > startTime for enabled days
+    const profile = activeTab === "standard" ? standard : priority;
+    const invalidDay = profile.workingDays.find((d) => d.enabled && d.endTime <= d.startTime);
+    if (invalidDay) {
+      setSaveError(`${dayLabels[invalidDay.day]}: end time must be after start time.`);
+      return;
+    }
     try {
       setSaving(true);
-      const profile = activeTab === "standard" ? standard : priority;
       const res = await fetch("/api/calendar/availability-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profile: activeTab, data: profile }),
       });
       if (!res.ok) throw new Error("Failed to save availability");
+      setSavedAvailability(true);
+      setTimeout(() => setSavedAvailability(false), 2500);
     } catch (err) {
       console.error("Error saving availability:", err);
+      setSaveError(err instanceof Error ? err.message : "Failed to save availability");
     } finally {
       setSaving(false);
     }
@@ -67,13 +80,17 @@ export default function AvailabilitySection() {
   const handleSaveBusyCalendars = async () => {
     try {
       setSavingBusyCalendars(true);
-      await fetch("/api/calendar/busy-calendars", {
+      const res = await fetch("/api/calendar/busy-calendars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ busyCalendarIds }),
       });
+      if (!res.ok) throw new Error("Failed to save calendar selection");
+      setSavedBusyCalendars(true);
+      setTimeout(() => setSavedBusyCalendars(false), 2500);
     } catch (err) {
       console.error("Error saving busy calendars:", err);
+      setSaveError(err instanceof Error ? err.message : "Failed to save calendar selection");
     } finally {
       setSavingBusyCalendars(false);
     }
@@ -222,10 +239,17 @@ export default function AvailabilitySection() {
             ))}
           </div>
 
+          {saveError && <p className="text-sm text-destructive mt-3">{saveError}</p>}
+
           <div className="flex items-center gap-3 pt-4">
             <Button type="button" loading={saving} onClick={handleSaveAvailability}>
               Save availability
             </Button>
+            {savedAvailability && (
+              <span className="inline-flex items-center gap-1 text-sm text-primary font-medium animate-pulse">
+                Saved
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -271,6 +295,11 @@ export default function AvailabilitySection() {
             >
               Save calendar selection
             </Button>
+            {savedBusyCalendars && (
+              <span className="inline-flex items-center gap-1 text-sm text-primary font-medium animate-pulse mt-4">
+                Saved
+              </span>
+            )}
           </CardContent>
         </Card>
       )}

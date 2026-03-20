@@ -166,7 +166,7 @@ export const POST = withApiHandler({
         results.push({
           contactId,
           draft: null,
-          error: err instanceof Error ? err.message : "Unknown error",
+          error: "Failed to generate draft",
         });
       }
     }

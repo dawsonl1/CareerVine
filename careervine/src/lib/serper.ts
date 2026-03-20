@@ -99,10 +99,17 @@ export async function searchWeb(
 
   const data: SerperSearchResponse = await response.json();
 
-  return (data.organic || []).map((item) => ({
-    title: item.title,
-    url: item.link,
-    snippet: item.snippet,
-    source: new URL(item.link).hostname.replace("www.", ""),
-  }));
+  return (data.organic || []).flatMap((item) => {
+    try {
+      return [{
+        title: item.title,
+        url: item.link,
+        snippet: item.snippet,
+        source: new URL(item.link).hostname.replace("www.", ""),
+      }];
+    } catch {
+      // Skip results with malformed URLs
+      return [];
+    }
+  });
 }
