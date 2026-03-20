@@ -785,7 +785,7 @@ const EditPanel: React.FC<{
                       placeholder="Start"
                       className="cv-inline-date"
                     />
-                    <span className="cv-inline-date-sep">-</span>
+                    <span className="cv-inline-date-sep">{'\u2013'}</span>
                     <MonthYearPicker
                       value={exp.end_month || ""}
                       onChange={(v) => onChange(`experience.${index}.end_month`, v)}
@@ -849,7 +849,7 @@ const EditPanel: React.FC<{
                       className="cv-inline-date"
                       yearOnly
                     />
-                    <span className="cv-inline-date-sep">-</span>
+                    <span className="cv-inline-date-sep">{'\u2013'}</span>
                     <MonthYearPicker
                       value={edu.end_year || ""}
                       onChange={(v) => onChange(`education.${index}.end_year`, v)}

@@ -818,6 +818,8 @@
   font-size: 14px;
   flex-shrink: 0;
   padding: 0 4px;
+  line-height: 1;
+  align-self: center;
 }
 
 /* Date suggestion dropdown */
