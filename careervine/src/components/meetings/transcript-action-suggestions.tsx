@@ -118,7 +118,7 @@ export function TranscriptActionSuggestions({
   };
 
   // Not yet triggered — show the button
-  if (!hasRun && !loading) {
+  if (!hasRun && !loading && !error) {
     return (
       <button
         type="button"
@@ -216,7 +216,7 @@ export function TranscriptActionSuggestions({
                 )}
                 {!s.contactName && (
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground italic">
-                    <User className="h-3 w-3" /> {s.assignedSpeaker}
+                    <User className="h-3 w-3" /> {s.assignedSpeaker || "Unassigned"}
                   </span>
                 )}
               </div>

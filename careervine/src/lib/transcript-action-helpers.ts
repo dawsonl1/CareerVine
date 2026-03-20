@@ -47,6 +47,7 @@ const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "frid
 
 /**
  * Resolve a relative date hint (e.g., "by Friday", "next week") to an ISO date string.
+ * Uses UTC throughout to avoid timezone-dependent date shifts.
  * Returns null if the hint can't be parsed.
  */
 export function resolveDueDate(hint: string | null, meetingDate: string): string | null {
@@ -63,7 +64,7 @@ export function resolveDueDate(hint: string | null, meetingDate: string): string
 
   // "tomorrow"
   if (h === "tomorrow") {
-    base.setDate(base.getDate() + 1);
+    base.setUTCDate(base.getUTCDate() + 1);
     return toISODate(base);
   }
 
@@ -73,40 +74,40 @@ export function resolveDueDate(hint: string | null, meetingDate: string): string
     const targetDay = DAY_NAMES.indexOf(dayMatch[1]);
     if (targetDay >= 0) {
       const isNext = h.includes("next");
-      const currentDay = base.getDay();
+      const currentDay = base.getUTCDay();
       let daysAhead = (targetDay - currentDay + 7) % 7;
       if (daysAhead === 0) daysAhead = 7; // same day = next week
       if (isNext) daysAhead += 7;
-      base.setDate(base.getDate() + daysAhead);
+      base.setUTCDate(base.getUTCDate() + daysAhead);
       return toISODate(base);
     }
   }
 
   // "next week" → Monday of next week
   if (h.includes("next week")) {
-    const currentDay = base.getDay();
+    const currentDay = base.getUTCDay();
     const daysUntilMonday = (8 - currentDay) % 7 || 7;
-    base.setDate(base.getDate() + daysUntilMonday);
+    base.setUTCDate(base.getUTCDate() + daysUntilMonday);
     return toISODate(base);
   }
 
   // "end of week" / "this week" → Friday of the same week
   if (h.includes("end of week") || h === "this week") {
-    const currentDay = base.getDay();
+    const currentDay = base.getUTCDay();
     const daysUntilFriday = (5 - currentDay + 7) % 7 || 7;
-    base.setDate(base.getDate() + daysUntilFriday);
+    base.setUTCDate(base.getUTCDate() + daysUntilFriday);
     return toISODate(base);
   }
 
   // "end of month" / "end of the month"
   if (h.includes("end of") && h.includes("month")) {
-    base.setMonth(base.getMonth() + 1, 0); // last day of current month
+    base.setUTCMonth(base.getUTCMonth() + 1, 0); // last day of current month
     return toISODate(base);
   }
 
   // "next month"
   if (h.includes("next month")) {
-    base.setMonth(base.getMonth() + 1, 1);
+    base.setUTCMonth(base.getUTCMonth() + 1, 1);
     return toISODate(base);
   }
 
@@ -115,9 +116,9 @@ export function resolveDueDate(hint: string | null, meetingDate: string): string
   if (inMatch) {
     const n = parseInt(inMatch[1]);
     const unit = inMatch[2];
-    if (unit === "day") base.setDate(base.getDate() + n);
-    else if (unit === "week") base.setDate(base.getDate() + n * 7);
-    else if (unit === "month") base.setMonth(base.getMonth() + n);
+    if (unit === "day") base.setUTCDate(base.getUTCDate() + n);
+    else if (unit === "week") base.setUTCDate(base.getUTCDate() + n * 7);
+    else if (unit === "month") base.setUTCMonth(base.getUTCMonth() + n);
     return toISODate(base);
   }
 
@@ -125,5 +126,8 @@ export function resolveDueDate(hint: string | null, meetingDate: string): string
 }
 
 function toISODate(date: Date): string {
-  return date.toISOString().split("T")[0];
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
