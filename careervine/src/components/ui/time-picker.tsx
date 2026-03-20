@@ -14,9 +14,9 @@
 
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
-import { useClickOutside } from "@/hooks/use-click-outside";
 
 interface TimePickerProps {
   value: string; // HH:MM (24h)
@@ -41,6 +41,8 @@ function to24(h12: number, period: "AM" | "PM"): number {
 export function TimePicker({ value, onChange, placeholder = "Select time" }: TimePickerProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
 
   // Parse current value
   const parts = value ? value.split(":").map(Number) : [null, null];
@@ -51,8 +53,29 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
     currentH24 !== null && currentH24 >= 12 ? "PM" : "AM"
   );
 
-  // Close on outside click
-  useClickOutside(ref, useCallback(() => setOpen(false), []));
+  // Close on outside click — check both trigger container and portaled dropdown
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (ref.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Position the dropdown relative to the trigger button
+  useEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const dropdownHeight = 340;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top = spaceBelow >= dropdownHeight ? rect.bottom + 8 : rect.top - dropdownHeight - 8;
+    setDropdownPos({ top: Math.max(8, top), left: Math.max(8, Math.min(rect.left, window.innerWidth - 296)) });
+  }, [open]);
 
   const selectHour = (h12: number) => {
     const h24 = to24(h12, period);
@@ -88,6 +111,7 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
     <div ref={ref} className="relative">
       {/* Trigger */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
         className="w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm flex items-center justify-between gap-2"
@@ -98,9 +122,14 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
         <Clock className="h-5 w-5 text-muted-foreground shrink-0" />
       </button>
 
-      {/* Dropdown */}
-      {open && (
-        <div className="absolute z-50 mt-2 left-0 w-[280px] bg-surface-container-high rounded-[16px] shadow-lg border border-outline-variant p-4 animate-in fade-in-0 zoom-in-95">
+      {/* Dropdown — rendered via portal to avoid overflow clipping */}
+      {open && dropdownPos && createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed z-[200] w-[280px] bg-surface-container-high rounded-[16px] shadow-lg border border-outline-variant p-4 animate-in fade-in-0 zoom-in-95"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* AM/PM toggle */}
           <div className="flex items-center justify-center gap-1 mb-4">
             {(["AM", "PM"] as const).map((p) => (
@@ -156,7 +185,8 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
               </button>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

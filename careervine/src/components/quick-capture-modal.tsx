@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { ContactPicker } from "@/components/ui/contact-picker";
 import { DatePicker } from "@/components/ui/date-picker";
+import { ConfirmDiscardDialog } from "@/components/ui/modal";
 import { getContacts, createInteraction, createActionItem } from "@/lib/queries";
 import {
   X,
@@ -49,6 +50,33 @@ export function QuickCaptureModal() {
   const [newActionTitle, setNewActionTitle] = useState("");
   const [newActionDue, setNewActionDue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showConfirmDiscard, setShowConfirmDiscard] = useState(false);
+
+  const hasUnsavedChanges = notes.trim().length > 0 || pendingActions.length > 0 || newActionTitle.trim().length > 0;
+
+  const attemptClose = useCallback(() => {
+    if (hasUnsavedChanges) {
+      setShowConfirmDiscard(true);
+    } else {
+      close();
+    }
+  }, [hasUnsavedChanges, close]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (showConfirmDiscard) {
+          setShowConfirmDiscard(false);
+        } else {
+          attemptClose();
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, attemptClose, showConfirmDiscard]);
 
   // Load contacts list only when modal is opened
   useEffect(() => {
@@ -155,7 +183,7 @@ export function QuickCaptureModal() {
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40" onClick={close} />
+      <div className="absolute inset-0 bg-black/40" onClick={attemptClose} />
 
       {/* Modal */}
       <div className="relative w-full sm:max-w-lg max-h-[100dvh] sm:max-h-[85vh] bg-background rounded-t-[28px] sm:rounded-[28px] shadow-xl overflow-y-auto">
@@ -163,7 +191,7 @@ export function QuickCaptureModal() {
         <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-6 pt-6 pb-4 border-b border-outline-variant">
           <h2 className="text-lg font-medium text-foreground">Log a conversation</h2>
           <button
-            onClick={close}
+            onClick={attemptClose}
             className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
           >
             <X className="h-5 w-5" />
@@ -296,7 +324,7 @@ export function QuickCaptureModal() {
 
         {/* Footer */}
         <div className="sticky bottom-0 bg-background border-t border-outline-variant px-6 py-4 flex justify-end gap-2">
-          <Button variant="text" onClick={close}>
+          <Button variant="text" onClick={attemptClose}>
             Cancel
           </Button>
           <Button
@@ -308,6 +336,15 @@ export function QuickCaptureModal() {
           </Button>
         </div>
       </div>
+
+      {/* Confirm discard dialog */}
+      {showConfirmDiscard && (
+        <ConfirmDiscardDialog
+          message="You have unsaved changes that will be lost."
+          onDiscard={() => { setShowConfirmDiscard(false); close(); }}
+          onKeepEditing={() => setShowConfirmDiscard(false)}
+        />
+      )}
     </div>
   );
 }

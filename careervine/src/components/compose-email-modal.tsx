@@ -176,12 +176,20 @@ export function ComposeEmailModal() {
   // Close suggestions on outside click
   useClickOutside(suggestionsRef, useCallback(() => setShowSuggestions(false), []), showSuggestions);
 
+  const [draftSavedVisible, setDraftSavedVisible] = useState(false);
+  const draftSavedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Auto-save draft on content change (debounced 2s)
   useEffect(() => {
     if (!isOpen || sent || scheduled) return;
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      saveDraft({ to, cc, bcc, subject, bodyHtml });
+    autoSaveTimerRef.current = setTimeout(async () => {
+      await saveDraft({ to, cc, bcc, subject, bodyHtml });
+      if (to.trim() || subject.trim() || bodyHtml.trim()) {
+        setDraftSavedVisible(true);
+        if (draftSavedTimer.current) clearTimeout(draftSavedTimer.current);
+        draftSavedTimer.current = setTimeout(() => setDraftSavedVisible(false), 2000);
+      }
     }, 2000);
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -624,6 +632,12 @@ export function ComposeEmailModal() {
                 >
                   Save draft
                 </Button>
+                {draftSavedVisible && (
+                  <span className="text-xs text-muted-foreground animate-in fade-in-0 duration-300">
+                    <Check className="inline h-3 w-3 mr-0.5" />
+                    Draft saved
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {!showSchedule ? (

@@ -15,9 +15,9 @@
 
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
-import { useClickOutside } from "@/hooks/use-click-outside";
 
 interface DatePickerProps {
   value: string; // YYYY-MM-DD
@@ -35,14 +35,37 @@ const MONTHS = [
 export function DatePicker({ value, onChange, required, placeholder = "Select date" }: DatePickerProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
 
   const today = new Date();
   const selected = value ? new Date(value + "T00:00:00") : null;
   const [viewYear, setViewYear] = useState(selected?.getFullYear() ?? today.getFullYear());
   const [viewMonth, setViewMonth] = useState(selected?.getMonth() ?? today.getMonth());
 
-  // Close on outside click
-  useClickOutside(ref, useCallback(() => setOpen(false), []));
+  // Close on outside click — check both the trigger container and the portaled dropdown
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (ref.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Position the dropdown relative to the trigger button
+  useEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const dropdownHeight = 380; // approximate max height
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top = spaceBelow >= dropdownHeight ? rect.bottom + 8 : rect.top - dropdownHeight - 8;
+    setDropdownPos({ top: Math.max(8, top), left: Math.max(8, Math.min(rect.left, window.innerWidth - 316)) });
+  }, [open]);
 
   const firstDay = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
@@ -81,6 +104,7 @@ export function DatePicker({ value, onChange, required, placeholder = "Select da
 
       {/* Trigger */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
         className="w-full h-14 px-4 bg-surface-container-low text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm flex items-center justify-between gap-2"
@@ -91,9 +115,14 @@ export function DatePicker({ value, onChange, required, placeholder = "Select da
         <Calendar className="h-5 w-5 text-muted-foreground shrink-0" />
       </button>
 
-      {/* Dropdown calendar */}
-      {open && (
-        <div className="absolute z-50 mt-2 left-0 w-[300px] bg-surface-container-high rounded-[16px] shadow-lg border border-outline-variant p-4 animate-in fade-in-0 zoom-in-95">
+      {/* Dropdown calendar — rendered via portal to avoid overflow clipping */}
+      {open && dropdownPos && createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed z-[200] w-[300px] bg-surface-container-high rounded-[16px] shadow-lg border border-outline-variant p-4 animate-in fade-in-0 zoom-in-95"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* Month/year header */}
           <div className="flex items-center justify-between mb-3">
             <button type="button" onClick={prevMonth} className="state-layer p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
@@ -162,7 +191,8 @@ export function DatePicker({ value, onChange, required, placeholder = "Select da
               Today
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
