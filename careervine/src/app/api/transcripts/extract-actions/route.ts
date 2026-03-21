@@ -32,7 +32,7 @@ export const POST = withApiHandler({
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["title", "assigned_to", "evidence"],
+              required: ["title", "description", "assigned_to", "due_date_hint", "evidence"],
               properties: {
                 title: {
                   type: "string",
