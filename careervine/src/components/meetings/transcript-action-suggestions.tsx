@@ -14,7 +14,7 @@ function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
     <>
       <button
         type="button"
-        onClick={() => inputRef.current?.showPicker?.()}
+        onClick={() => { if (inputRef.current?.showPicker) inputRef.current.showPicker(); else inputRef.current?.click(); }}
         className="inline-flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
       >
         <Calendar className="h-3 w-3" />

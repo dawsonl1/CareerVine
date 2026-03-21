@@ -11,6 +11,7 @@ import type { Contact, ContactMeeting } from "@/lib/types";
 import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare, Hourglass, Handshake } from "lucide-react";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, getPriorityOrder } from "@/lib/priority-helpers";
+import { ActionDirection } from "@/lib/constants";
 
 import { inputClasses } from "@/lib/form-styles";
 
@@ -116,14 +117,14 @@ export function ContactActionsTab({
   const contactName = allContacts.find((c) => c.id === contactId)?.name ?? "them";
   const hasDirections = filtered.some((a) => a.direction);
 
-  const myTasks = filtered.filter((a) => a.direction !== "waiting_on" && a.direction !== "mutual");
-  const waitingTasks = filtered.filter((a) => a.direction === "waiting_on");
-  const mutualTasks = filtered.filter((a) => a.direction === "mutual");
+  const myTasks = filtered.filter((a) => a.direction !== ActionDirection.WaitingOn && a.direction !== ActionDirection.Mutual);
+  const waitingTasks = filtered.filter((a) => a.direction === ActionDirection.WaitingOn);
+  const mutualTasks = filtered.filter((a) => a.direction === ActionDirection.Mutual);
 
   // Completed counts per direction for progress display
-  const completedMy = completedActions.filter((a) => a.direction !== "waiting_on" && a.direction !== "mutual").length;
-  const completedWaiting = completedActions.filter((a) => a.direction === "waiting_on").length;
-  const completedMutual = completedActions.filter((a) => a.direction === "mutual").length;
+  const completedMy = completedActions.filter((a) => a.direction !== ActionDirection.WaitingOn && a.direction !== ActionDirection.Mutual).length;
+  const completedWaiting = completedActions.filter((a) => a.direction === ActionDirection.WaitingOn).length;
+  const completedMutual = completedActions.filter((a) => a.direction === ActionDirection.Mutual).length;
 
   const renderActionRow = (action: ActionItem, icon: React.ReactNode, showWaitingDays?: boolean) =>
     editingId === action.id ? (
@@ -340,9 +341,9 @@ export function ContactActionsTab({
               );
             }
 
-            const completedMyItems = completedActions.filter((a) => a.direction !== "waiting_on" && a.direction !== "mutual");
-            const completedWaitingItems = completedActions.filter((a) => a.direction === "waiting_on");
-            const completedMutualItems = completedActions.filter((a) => a.direction === "mutual");
+            const completedMyItems = completedActions.filter((a) => a.direction !== ActionDirection.WaitingOn && a.direction !== ActionDirection.Mutual);
+            const completedWaitingItems = completedActions.filter((a) => a.direction === ActionDirection.WaitingOn);
+            const completedMutualItems = completedActions.filter((a) => a.direction === ActionDirection.Mutual);
 
             return (
               <div className="space-y-3 mt-2">

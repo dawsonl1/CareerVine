@@ -602,7 +602,11 @@ export default function ActionItemsPage() {
               </h2>
             </div>
             <div className="space-y-3">
-              {waitingOnItems.map((item) => renderWaitingItem(item))}
+              {[...waitingOnItems].sort((a, b) => {
+                const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+                const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                return aTime - bTime; // oldest first (most urgent)
+              }).map((item) => renderWaitingItem(item))}
             </div>
           </div>
         )}

@@ -11,7 +11,7 @@
 import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { gatherContactContext, formatContextForLLM } from "./gather-context";
-import { SuggestionReasonType, ActionItemSource } from "@/lib/constants";
+import { SuggestionReasonType, ActionItemSource, ActionDirection } from "@/lib/constants";
 import type { Suggestion, SuggestionContact } from "./suggestion-types";
 
 const MAX_SUGGESTIONS = 5;
@@ -460,7 +460,7 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
       .from("follow_up_action_items")
       .select("id, contact_id, title, suggestion_evidence, created_at, contacts(name, photo_url, industry)")
       .eq("user_id", userId)
-      .eq("direction", "waiting_on")
+      .eq("direction", ActionDirection.WaitingOn)
       .eq("is_completed", false),
   ]);
 

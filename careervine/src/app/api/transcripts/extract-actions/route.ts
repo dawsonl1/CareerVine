@@ -84,7 +84,7 @@ export const POST = withApiHandler({
       "- Be thorough — catch follow-up messages, scheduled check-ins, and offers of help from the contact\n" +
       "- For date ranges like '4-6 weeks', use the midpoint as the due_date_hint ('in 5 weeks')\n" +
       (attendeeList
-        ? `\nThe meeting attendees are: ${attendeeList}. The FIRST person listed is the user (the app owner). Use these names when identifying who committed to each task.`
+        ? `\nThe other meeting attendees (contacts) are: ${attendeeList}. The user is the app owner — they are NOT in this list. In the transcript, the user is typically the person asking questions, seeking advice, or driving the conversation. Use context clues to determine which speaker is the user vs. the contact.`
         : "\nIdentify speakers by their labels in the transcript. The first speaker is likely the user.") +
       "\n\nReturn an empty array if no concrete action items are found.";
 
