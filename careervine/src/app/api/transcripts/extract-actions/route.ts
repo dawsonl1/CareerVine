@@ -63,12 +63,24 @@ const ACTION_ITEM_SCHEMA = {
 export const POST = withApiHandler({
   schema: transcriptExtractActionsSchema,
   handler: async ({ body }) => {
-    const { transcript, attendees, meetingDate } = body;
+    const { transcript, attendees, meetingDate, userName } = body;
 
     const openai = getOpenAIClient();
     const model = DEFAULT_MODEL;
 
     const attendeeList = attendees.map((a) => a.name).join(", ");
+
+    // Build participant context for the prompt
+    let participantContext: string;
+    if (userName && attendeeList) {
+      participantContext = `\nThe USER is "${userName}". The other attendees (contacts) are: ${attendeeList}. ` +
+        `When "${userName}" commits to something, that is a my_task. When ${attendeeList} commits to something for the user, that is waiting_on.`;
+    } else if (attendeeList) {
+      participantContext = `\nThe contacts in this meeting are: ${attendeeList}. ` +
+        "The user is the app owner (not listed above). Use context clues in the transcript to identify which speaker is the user.";
+    } else {
+      participantContext = "\nIdentify speakers by their labels in the transcript. The first speaker is likely the user.";
+    }
 
     const instructions =
       "You are analyzing a meeting transcript to extract action items from ALL participants. " +
@@ -83,9 +95,7 @@ export const POST = withApiHandler({
       "- Write titles from the user's perspective: 'Send Alex your resume' (my_task), 'Alex will review your project' (waiting_on), 'Schedule check-in with Alex in 4 weeks' (mutual)\n" +
       "- Be thorough — catch follow-up messages, scheduled check-ins, and offers of help from the contact\n" +
       "- For date ranges like '4-6 weeks', use the midpoint as the due_date_hint ('in 5 weeks')\n" +
-      (attendeeList
-        ? `\nThe other meeting attendees (contacts) are: ${attendeeList}. The user is the app owner — they are NOT in this list. In the transcript, the user is typically the person asking questions, seeking advice, or driving the conversation. Use context clues to determine which speaker is the user vs. the contact.`
-        : "\nIdentify speakers by their labels in the transcript. The first speaker is likely the user.") +
+      participantContext +
       "\n\nReturn an empty array if no concrete action items are found.";
 
     // Truncate very long transcripts

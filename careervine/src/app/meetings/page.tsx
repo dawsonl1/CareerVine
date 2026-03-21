@@ -1224,6 +1224,7 @@ export default function MeetingsPage() {
                       <TranscriptActionSuggestions
                         meetingId={meeting.id}
                         userId={user.id}
+                        userName={user.user_metadata?.first_name || user.user_metadata?.name || undefined}
                         transcript={meeting.transcript}
                         attendees={meeting.meeting_contacts.map((mc) => ({ id: mc.contacts.id, name: mc.contacts.name }))}
                         meetingDate={meeting.meeting_date}

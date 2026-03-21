@@ -267,6 +267,7 @@ export const transcriptExtractActionsSchema = z.object({
     name: z.string().max(100),
   })),
   meetingDate: z.string().min(1),
+  userName: z.string().max(100).optional(),
 });
 
 // ── Extension ──────────────────────────────────────────────────────────

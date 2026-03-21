@@ -59,6 +59,7 @@ const DIRECTION_CONFIG: Record<Direction, { icon: typeof CheckSquare; label: str
 interface TranscriptActionSuggestionsProps {
   meetingId: number;
   userId: string;
+  userName?: string;
   transcript: string;
   attendees: { id: number; name: string }[];
   meetingDate: string;
@@ -68,6 +69,7 @@ interface TranscriptActionSuggestionsProps {
 export function TranscriptActionSuggestions({
   meetingId,
   userId,
+  userName,
   transcript,
   attendees,
   meetingDate,
@@ -103,6 +105,7 @@ export function TranscriptActionSuggestions({
           transcript,
           attendees,
           meetingDate,
+          userName,
         }),
       });
 
