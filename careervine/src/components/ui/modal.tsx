@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * M3 Dialog / Modal component
  *

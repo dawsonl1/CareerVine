@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, type RefObject } from "react";
 
 /** Close a dropdown/modal when the user clicks outside the referenced element. */
