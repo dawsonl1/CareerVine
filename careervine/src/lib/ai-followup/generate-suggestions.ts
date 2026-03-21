@@ -36,7 +36,7 @@ export async function fetchSuggestionCandidates(userId: string): Promise<Suggest
   const [contactsResult, touchResult] = await Promise.all([
     service
       .from("contacts")
-      .select("id, name, photo_url, industry, contact_status, expected_graduation, follow_up_frequency_days, notes")
+      .select("id, name, photo_url, industry, contact_status, expected_graduation, follow_up_frequency_days, notes, met_through")
       .eq("user_id", userId),
     service.rpc("get_contacts_with_last_touch", { p_user_id: userId }),
   ]);
@@ -187,6 +187,55 @@ export function generateDecayWarningSuggestions(
       score,
       suggestedTitle: `Reconnect with ${c.name}`,
       suggestedDescription: `You've had ${c.interaction_count} conversations but it's been ${c.days_since_touch} days since the last one. Consider setting a follow-up cadence.`,
+      daysSinceContact: c.days_since_touch,
+    });
+  }
+
+  return suggestions;
+}
+
+export function generateFirstTouchSuggestions(
+  contacts: SuggestionContact[],
+  today: Date = new Date(),
+): Suggestion[] {
+  const suggestions: Suggestion[] = [];
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  for (const c of contacts) {
+    // Never contacted, no cadence (NoInteractionCadence handles those), added recently
+    if (c.interaction_count > 0) continue;
+    if (c.follow_up_frequency_days) continue; // handled by NoInteractionCadence
+    if (c.days_since_touch === null) continue; // no touch data at all
+    if (c.days_since_touch > 30) continue; // too old — don't nag about stale contacts
+
+    // Build contextual suggested action
+    let suggestedTitle: string;
+    let suggestedDescription: string;
+
+    if (c.met_through) {
+      suggestedTitle = `Send ${c.name} a warm intro referencing ${c.met_through}`;
+      suggestedDescription = `You met ${c.name} through ${c.met_through}. Send a brief message to introduce yourself and start the conversation.`;
+    } else if (c.industry) {
+      suggestedTitle = `Introduce yourself to ${c.name}`;
+      suggestedDescription = `Send a brief intro message. You could mention shared interest in ${c.industry} as a conversation starter.`;
+    } else {
+      suggestedTitle = `Send an intro message to ${c.name}`;
+      suggestedDescription = "Break the ice with a brief, friendly introduction. Mention how you found them or why you'd like to connect.";
+    }
+
+    suggestions.push({
+      id: `firsttouch-${c.id}`,
+      contactId: c.id,
+      contactName: c.name,
+      contactPhotoUrl: c.photo_url,
+      contactIndustry: c.industry,
+      headline: `You haven't reached out to ${c.name} yet`,
+      evidence: `Added ${c.days_since_touch} day${c.days_since_touch === 1 ? "" : "s"} ago${c.met_through ? ` · Met through ${c.met_through}` : ""}`,
+      reasonType: SuggestionReasonType.FirstTouch,
+      score: 72,
+      suggestedTitle,
+      suggestedDescription,
       daysSinceContact: c.days_since_touch,
     });
   }
@@ -366,6 +415,7 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
   const allRuleBased = [
     ...generateGraduationSuggestions(contacts, today),
     ...generateNoInteractionCadenceSuggestions(contacts),
+    ...generateFirstTouchSuggestions(contacts, today),
     ...generateDecayWarningSuggestions(contacts),
   ];
 

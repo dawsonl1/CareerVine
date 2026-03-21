@@ -27,6 +27,7 @@ export interface SuggestionContact {
   expected_graduation: string | null;
   follow_up_frequency_days: number | null;
   notes: string | null;
+  met_through: string | null;
   last_touch: string | null;
   days_since_touch: number | null;
   interaction_count: number;

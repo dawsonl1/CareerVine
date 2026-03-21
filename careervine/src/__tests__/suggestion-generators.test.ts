@@ -3,6 +3,7 @@ import {
   generateGraduationSuggestions,
   generateNoInteractionCadenceSuggestions,
   generateDecayWarningSuggestions,
+  generateFirstTouchSuggestions,
 } from "@/lib/ai-followup/generate-suggestions";
 import { SuggestionReasonType } from "@/lib/constants";
 import type { SuggestionContact } from "@/lib/ai-followup/suggestion-types";
@@ -19,6 +20,7 @@ function makeContact(overrides: Partial<SuggestionContact> = {}): SuggestionCont
     expected_graduation: null,
     follow_up_frequency_days: null,
     notes: null,
+    met_through: null,
     last_touch: null,
     days_since_touch: null,
     interaction_count: 0,
@@ -244,5 +246,108 @@ describe("generateDecayWarningSuggestions", () => {
     })];
     const result = generateDecayWarningSuggestions(contacts);
     expect(result).toHaveLength(1);
+  });
+});
+
+// ── First Touch Suggestions ──────────────────────────────────────────────
+
+describe("generateFirstTouchSuggestions", () => {
+  const today = new Date("2026-03-20");
+
+  it("suggests for new contact with no interactions and no cadence", () => {
+    const contacts = [makeContact({
+      interaction_count: 0,
+      follow_up_frequency_days: null,
+      days_since_touch: 5,
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(1);
+    expect(result[0].reasonType).toBe(SuggestionReasonType.FirstTouch);
+    expect(result[0].score).toBe(72);
+    expect(result[0].headline).toContain("haven't reached out");
+  });
+
+  it("uses met_through context when available", () => {
+    const contacts = [makeContact({
+      interaction_count: 0,
+      follow_up_frequency_days: null,
+      days_since_touch: 3,
+      met_through: "Career Fair 2026",
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(1);
+    expect(result[0].suggestedTitle).toContain("Career Fair 2026");
+    expect(result[0].evidence).toContain("Career Fair 2026");
+  });
+
+  it("uses industry context when no met_through", () => {
+    const contacts = [makeContact({
+      interaction_count: 0,
+      follow_up_frequency_days: null,
+      days_since_touch: 7,
+      industry: "Finance",
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(1);
+    expect(result[0].suggestedDescription).toContain("Finance");
+  });
+
+  it("skips contacts with interactions", () => {
+    const contacts = [makeContact({
+      interaction_count: 1,
+      follow_up_frequency_days: null,
+      days_since_touch: 5,
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("skips contacts with cadence (handled by NoInteractionCadence)", () => {
+    const contacts = [makeContact({
+      interaction_count: 0,
+      follow_up_frequency_days: 14,
+      days_since_touch: 5,
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("skips contacts added more than 30 days ago", () => {
+    const contacts = [makeContact({
+      interaction_count: 0,
+      follow_up_frequency_days: null,
+      days_since_touch: 35,
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("includes contacts at exactly 30 days", () => {
+    const contacts = [makeContact({
+      interaction_count: 0,
+      follow_up_frequency_days: null,
+      days_since_touch: 30,
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(1);
+  });
+
+  it("skips contacts with null days_since_touch", () => {
+    const contacts = [makeContact({
+      interaction_count: 0,
+      follow_up_frequency_days: null,
+      days_since_touch: null,
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("pluralizes days correctly", () => {
+    const one = [makeContact({ interaction_count: 0, days_since_touch: 1 })];
+    const five = [makeContact({ interaction_count: 0, days_since_touch: 5 })];
+    const r1 = generateFirstTouchSuggestions(one, today);
+    const r5 = generateFirstTouchSuggestions(five, today);
+    expect(r1[0].evidence).toContain("1 day ago");
+    expect(r5[0].evidence).toContain("5 days ago");
   });
 });

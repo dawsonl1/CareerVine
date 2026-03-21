@@ -63,6 +63,7 @@ export const SuggestionReasonType = {
   Graduation: "graduation",
   NoInteractionCadence: "no_interaction_cadence",
   DecayWarning: "decay_warning",
+  FirstTouch: "first_touch",
   LlmPersonalized: "llm_personalized",
   TranscriptExtracted: "transcript_extracted",
 } as const;
