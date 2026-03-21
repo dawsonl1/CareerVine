@@ -488,13 +488,19 @@ export type Database = {
           suggestion_reason_type: string | null;  // Type of AI suggestion reason
           suggestion_headline: string | null;     // AI-generated contextual headline
           suggestion_evidence: string | null;     // Evidence backing the suggestion
+          direction: string | null;               // 'my_task' | 'waiting_on' | 'mutual'
+          assigned_speaker: string | null;        // Original speaker label from transcript
+          related_action_item_id: number | null;  // FK to linked paired item
         };
-        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority" | "source" | "suggestion_reason_type" | "suggestion_headline" | "suggestion_evidence"> & {
+        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority" | "source" | "suggestion_reason_type" | "suggestion_headline" | "suggestion_evidence" | "direction" | "assigned_speaker" | "related_action_item_id"> & {
           priority?: string | null;
           source?: string;
           suggestion_reason_type?: string | null;
           suggestion_headline?: string | null;
           suggestion_evidence?: string | null;
+          direction?: string | null;
+          assigned_speaker?: string | null;
+          related_action_item_id?: number | null;
         };
         Update: Partial<Database["public"]["Tables"]["follow_up_action_items"]["Insert"]>;
       };

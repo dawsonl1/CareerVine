@@ -1,11 +1,36 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { createActionItem } from "@/lib/queries";
 import { ActionItemSource, SuggestionReasonType } from "@/lib/constants";
-import { Sparkles, Check, X, Calendar, User, AlertTriangle } from "lucide-react";
+import { Sparkles, Check, X, Calendar, User, AlertTriangle, CheckSquare, Hourglass, Handshake, Pencil } from "lucide-react";
+
+/** Compact inline date picker — renders as a small "Add date" button that opens a native date input */
+function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => inputRef.current?.showPicker?.()}
+        className="inline-flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
+      >
+        <Calendar className="h-3 w-3" />
+        Add date
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        className="sr-only"
+        onChange={(e) => { if (e.target.value) onSelect(e.target.value); }}
+      />
+    </>
+  );
+}
+
+type Direction = "my_task" | "waiting_on" | "mutual";
 
 interface TranscriptSuggestion {
   _key: string;
@@ -16,7 +41,20 @@ interface TranscriptSuggestion {
   dueDate: string | null;
   evidence: string;
   assignedSpeaker: string;
+  direction: Direction;
 }
+
+const DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
+  { value: "my_task", label: "My task" },
+  { value: "waiting_on", label: "Waiting on them" },
+  { value: "mutual", label: "Mutual" },
+];
+
+const DIRECTION_CONFIG: Record<Direction, { icon: typeof CheckSquare; label: string; color: string }> = {
+  my_task: { icon: CheckSquare, label: "Your commitments", color: "text-primary" },
+  waiting_on: { icon: Hourglass, label: "Waiting on", color: "text-amber-600 dark:text-amber-400" },
+  mutual: { icon: Handshake, label: "Mutual", color: "text-muted-foreground" },
+};
 
 interface TranscriptActionSuggestionsProps {
   meetingId: number;
@@ -42,6 +80,16 @@ export function TranscriptActionSuggestions({
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the edit input when editing starts
+  useEffect(() => {
+    if (editingKey && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingKey]);
 
   const extractActions = useCallback(async () => {
     setLoading(true);
@@ -64,9 +112,9 @@ export function TranscriptActionSuggestions({
       }
 
       const data = await res.json();
-      // Assign stable keys to each suggestion
       const keyed = (data.suggestions || []).map((s: Omit<TranscriptSuggestion, "_key">, i: number) => ({
         ...s,
+        direction: s.direction || "my_task",
         _key: `${i}-${s.title.slice(0, 20)}`,
       }));
       setSuggestions(keyed);
@@ -78,6 +126,10 @@ export function TranscriptActionSuggestions({
       setLoading(false);
     }
   }, [meetingId, transcript, attendees, meetingDate]);
+
+  const updateSuggestion = useCallback((key: string, updates: Partial<TranscriptSuggestion>) => {
+    setSuggestions((prev) => prev.map((s) => s._key === key ? { ...s, ...updates } : s));
+  }, []);
 
   const acceptSuggestion = async (suggestion: TranscriptSuggestion) => {
     setSavingKeys((prev) => new Set(prev).add(suggestion._key));
@@ -95,8 +147,10 @@ export function TranscriptActionSuggestions({
         completed_at: null,
         source: ActionItemSource.AiTranscript,
         suggestion_reason_type: SuggestionReasonType.TranscriptExtracted,
-        suggestion_headline: `From meeting transcript`,
+        suggestion_headline: "From meeting transcript",
         suggestion_evidence: suggestion.evidence,
+        direction: suggestion.direction,
+        assigned_speaker: suggestion.assignedSpeaker,
       }, contactIds);
 
       setSuggestions((prev) => prev.filter((s) => s._key !== suggestion._key));
@@ -173,20 +227,138 @@ export function TranscriptActionSuggestions({
     );
   }
 
+  // Group by direction
+  const groups: { direction: Direction; items: TranscriptSuggestion[] }[] = [];
+  const myTasks = suggestions.filter((s) => s.direction === "my_task");
+  const waitingOn = suggestions.filter((s) => s.direction === "waiting_on");
+  const mutual = suggestions.filter((s) => s.direction === "mutual");
+  if (myTasks.length > 0) groups.push({ direction: "my_task", items: myTasks });
+  if (waitingOn.length > 0) groups.push({ direction: "waiting_on", items: waitingOn });
+  if (mutual.length > 0) groups.push({ direction: "mutual", items: mutual });
+
+  // Derive contact name for "Waiting on" header
+  const waitingContactName = waitingOn[0]?.contactName || waitingOn[0]?.assignedSpeaker || "them";
+
   // Format a YYYY-MM-DD date string without timezone shifting
   const formatDate = (dateStr: string) => {
     const [y, m, d] = dateStr.split("-").map(Number);
-    const date = new Date(y, m - 1, d); // local time, no UTC shift
+    const date = new Date(y, m - 1, d);
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  // Show suggestions
+  const renderSuggestionCard = (s: TranscriptSuggestion) => {
+    const isEditing = editingKey === s._key;
+    const isSaving = savingKeys.has(s._key);
+
+    return (
+      <div
+        key={s._key}
+        className="p-3 rounded-[8px] bg-surface-container"
+      >
+        {/* Title row — editable inline */}
+        <div className="flex items-start gap-2">
+          <div className="flex-1 min-w-0">
+            {isEditing ? (
+              <input
+                ref={editInputRef}
+                type="text"
+                value={s.title}
+                onChange={(e) => updateSuggestion(s._key, { title: e.target.value })}
+                onBlur={() => setEditingKey(null)}
+                onKeyDown={(e) => { if (e.key === "Enter") setEditingKey(null); }}
+                className="w-full text-sm font-medium text-foreground bg-transparent border-b border-primary outline-none pb-0.5"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditingKey(s._key)}
+                className="text-sm font-medium text-foreground text-left w-full cursor-text hover:text-primary transition-colors group flex items-center gap-1"
+              >
+                <span className="truncate">{s.title}</span>
+                <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0" />
+              </button>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="tonal"
+              size="sm"
+              onClick={() => acceptSuggestion(s)}
+              loading={isSaving}
+              disabled={isSaving || !s.title.trim()}
+            >
+              <Check className="h-3.5 w-3.5" /> Add
+            </Button>
+            <button
+              type="button"
+              onClick={() => dismissSuggestion(s._key)}
+              disabled={isSaving}
+              className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Metadata row — direction selector, date picker, contact */}
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+          {/* Direction selector */}
+          <select
+            value={s.direction}
+            onChange={(e) => updateSuggestion(s._key, { direction: e.target.value as Direction })}
+            className="h-7 px-2 text-[11px] font-medium rounded-full border border-outline-variant bg-surface-container-low text-foreground cursor-pointer focus:outline-none focus:border-primary"
+          >
+            {DIRECTION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+
+          {/* Due date — clickable to set/clear */}
+          {s.dueDate ? (
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <Calendar className="h-3 w-3" />
+              <button
+                type="button"
+                onClick={() => updateSuggestion(s._key, { dueDate: null })}
+                className="hover:line-through cursor-pointer"
+                title="Remove due date"
+              >
+                {formatDate(s.dueDate)}
+              </button>
+            </span>
+          ) : (
+            <InlineDatePicker onSelect={(val) => updateSuggestion(s._key, { dueDate: val })} />
+          )}
+
+          {/* Contact indicator */}
+          {s.contactName ? (
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <User className="h-3 w-3" /> {s.contactName}
+            </span>
+          ) : s.assignedSpeaker ? (
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground italic">
+              <User className="h-3 w-3" /> {s.assignedSpeaker}
+            </span>
+          ) : null}
+        </div>
+
+        {/* Evidence quote */}
+        <p className="mt-1.5 text-xs text-muted-foreground italic line-clamp-2">
+          &ldquo;{s.evidence}&rdquo;
+        </p>
+      </div>
+    );
+  };
+
   return (
     <div className="mt-3">
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-3">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Suggested action items ({suggestions.length})
+          Extracted action items ({suggestions.length})
         </span>
       </div>
       {truncated && (
@@ -194,58 +366,29 @@ export function TranscriptActionSuggestions({
           This transcript was truncated for analysis. Action items near the end may not be detected.
         </p>
       )}
-      <div className="space-y-2">
-        {suggestions.map((s) => (
-          <div
-            key={s._key}
-            className="flex items-start gap-3 p-3 rounded-[8px] bg-surface-container"
-          >
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground">{s.title}</p>
-              <div className="flex flex-wrap items-center gap-2 mt-1">
-                {s.contactName && (
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <User className="h-3 w-3" /> {s.contactName}
-                  </span>
-                )}
-                {s.dueDate && (
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <Calendar className="h-3 w-3" />
-                    {formatDate(s.dueDate)}
-                  </span>
-                )}
-                {!s.contactName && (
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground italic">
-                    <User className="h-3 w-3" /> {s.assignedSpeaker || "Unassigned"}
-                  </span>
-                )}
+
+      <div className="space-y-4">
+        {groups.map(({ direction, items }) => {
+          const config = DIRECTION_CONFIG[direction];
+          const Icon = config.icon;
+          const label = direction === "waiting_on"
+            ? `${config.label} ${waitingContactName}`
+            : config.label;
+
+          return (
+            <div key={direction}>
+              <div className={`flex items-center gap-1.5 mb-2 ${config.color}`}>
+                <Icon className="h-3.5 w-3.5" />
+                <span className="text-xs font-medium uppercase tracking-wider">
+                  {label} ({items.length})
+                </span>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground italic line-clamp-2">
-                &ldquo;{s.evidence}&rdquo;
-              </p>
+              <div className="space-y-2">
+                {items.map(renderSuggestionCard)}
+              </div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Button
-                variant="tonal"
-                size="sm"
-                onClick={() => acceptSuggestion(s)}
-                loading={savingKeys.has(s._key)}
-                disabled={savingKeys.has(s._key)}
-              >
-                <Check className="h-3.5 w-3.5" /> Add
-              </Button>
-              <button
-                type="button"
-                onClick={() => dismissSuggestion(s._key)}
-                disabled={savingKeys.has(s._key)}
-                className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
-                title="Dismiss"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
