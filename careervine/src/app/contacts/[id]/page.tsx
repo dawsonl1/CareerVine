@@ -59,7 +59,7 @@ type TabKey = (typeof TABS)[number]["key"];
 
 export default function ContactDetailPage() {
   const { user } = useAuth();
-  const { gmailConnected } = useCompose();
+  const { gmailConnected, gmailLoading } = useCompose();
   const { open: openQuickCapture } = useQuickCapture();
   const { success: toastSuccess, error: toastError } = useToast();
   const router = useRouter();
@@ -344,6 +344,10 @@ export default function ContactDetailPage() {
                     onScheduledEmailCancel={handleScheduledEmailCancel}
                     onReloadEmails={loadContactEmails}
                   />
+                ) : gmailLoading ? (
+                  <div className="py-8 flex justify-center">
+                    <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  </div>
                 ) : (
                   <div className="text-center py-8">
                     <p className="text-sm text-muted-foreground mb-2">Gmail not connected.</p>

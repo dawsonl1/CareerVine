@@ -57,7 +57,7 @@ type SidebarTab = "inbox" | "sent" | "scheduled" | "followups" | "drafts" | "tra
 export default function InboxPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const { gmailConnected, openCompose } = useCompose();
+  const { gmailConnected, gmailLoading, openCompose } = useCompose();
 
   const [activeTab, setActiveTab] = useState<SidebarTab>("inbox");
   const [loading, setLoading] = useState(true);
@@ -501,7 +501,7 @@ export default function InboxPage() {
 
   // ── Not connected ──
 
-  if (!loading && !gmailConnected) {
+  if (!loading && !gmailLoading && !gmailConnected) {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />

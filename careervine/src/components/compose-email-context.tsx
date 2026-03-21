@@ -39,6 +39,7 @@ type ComposeContextValue = {
   replyQuotedHtml: string;
   aiDraftContext: AiDraftContext | null;
   gmailConnected: boolean;
+  gmailLoading: boolean;
   gmailAddress: string;
   unreadCount: number;
   openCompose: (opts?: ComposeOptions) => void;
@@ -57,6 +58,7 @@ const ComposeContext = createContext<ComposeContextValue>({
   replyQuotedHtml: "",
   aiDraftContext: null,
   gmailConnected: false,
+  gmailLoading: true,
   gmailAddress: "",
   unreadCount: 0,
   openCompose: () => {},
@@ -70,6 +72,7 @@ export function useCompose() {
 export function ComposeEmailProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
+  const [gmailLoading, setGmailLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [prefillTo, setPrefillTo] = useState("");
   const [prefillName, setPrefillName] = useState("");
@@ -86,7 +89,8 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     if (!user) return;
     getGmailConnection(user.id)
       .then((conn) => setGmailConn(conn as GmailConnection | null))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setGmailLoading(false));
   }, [user]);
 
   const fetchUnreadCount = useCallback(() => {
@@ -166,6 +170,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         replyQuotedHtml,
         aiDraftContext: aiDraftCtx,
         gmailConnected: !!gmailConn,
+        gmailLoading,
         gmailAddress: gmailConn?.gmail_address || "",
         unreadCount,
         openCompose,
