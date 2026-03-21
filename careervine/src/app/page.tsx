@@ -41,6 +41,7 @@ import {
   Loader2,
   Bookmark,
   Check,
+  Hourglass,
 } from "lucide-react";
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
@@ -545,86 +546,104 @@ export default function Home() {
             {/* ── LEFT COLUMN: Actions ── */}
             <div>
             {/* ── Action items (front and center) ── */}
-            <div className="mb-10">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <CheckSquare className="h-5 w-5 text-primary" />
-                  <h2 className="text-base font-medium text-foreground">Pending follow-ups</h2>
-                  {actionItems.length > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {actionItems.length} item{actionItems.length !== 1 ? "s" : ""}
-                    </span>
+            {(() => {
+              const myItems = actionItems.filter((i) => (i as any).direction !== "waiting_on");
+              const waitingCount = actionItems.filter((i) => (i as any).direction === "waiting_on").length;
+              return (
+                <div className="mb-10">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <CheckSquare className="h-5 w-5 text-primary" />
+                      <h2 className="text-base font-medium text-foreground">Pending follow-ups</h2>
+                      {myItems.length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          {myItems.length} item{myItems.length !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                    <Link
+                      href="/action-items"
+                      className="text-sm font-medium text-primary flex items-center gap-0.5 hover:underline"
+                    >
+                      View all <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+
+                  {myItems.length === 0 ? (
+                    <Card variant="filled" className="text-center py-8">
+                      <CardContent>
+                        <CheckSquare className="mx-auto h-8 w-8 text-muted-foreground/40 mb-2" />
+                        <p className="text-sm text-muted-foreground">No pending action items</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Action items created from meetings will appear here.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {myItems.map((item) => {
+                        const today = new Date().toISOString().split("T")[0];
+                        const overdue = item.due_at && item.due_at.split("T")[0] < today;
+                        const contactId = item.contacts?.id ?? (item as any).action_item_contacts?.[0]?.contact_id;
+                        const contactName = item.contacts?.name ?? (item as any).action_item_contacts?.[0]?.contacts?.name;
+                        const href = contactId ? `/contacts/${contactId}` : "/action-items";
+                        return (
+                          <Card
+                            key={item.id}
+                            variant="outlined"
+                            className={`${overdue ? "border-destructive/40" : ""}`}
+                          >
+                            <CardContent className="p-4 flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => markActionDone(item.id)}
+                                className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors group ${
+                                  overdue
+                                    ? "bg-error-container hover:bg-green-100 dark:hover:bg-green-900/30"
+                                    : "bg-primary-container hover:bg-green-100 dark:hover:bg-green-900/30"
+                                }`}
+                                title="Mark as done"
+                              >
+                                <Check className="h-[18px] w-[18px] hidden group-hover:block text-green-600" />
+                                {overdue ? (
+                                  <AlertTriangle className="h-[18px] w-[18px] text-on-error-container group-hover:hidden" />
+                                ) : (
+                                  <CheckSquare className="h-[18px] w-[18px] text-on-primary-container group-hover:hidden" />
+                                )}
+                              </button>
+                              <Link href={href} className="flex-1 min-w-0">
+                                <p className="text-[15px] font-medium text-foreground truncate">
+                                  {item.title}
+                                </p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {contactName}
+                                  {item.due_at &&
+                                    ` · ${overdue ? "Overdue" : "Due"}: ${new Date(
+                                      item.due_at
+                                    ).toLocaleDateString()}`}
+                                </p>
+                              </Link>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Waiting on indicator */}
+                  {waitingCount > 0 && (
+                    <Link
+                      href="/action-items"
+                      className="flex items-center gap-2 mt-3 text-sm text-amber-600 dark:text-amber-400 hover:underline"
+                    >
+                      <Hourglass className="h-4 w-4" />
+                      Waiting on {waitingCount} response{waitingCount !== 1 ? "s" : ""}
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
                   )}
                 </div>
-                <Link
-                  href="/action-items"
-                  className="text-sm font-medium text-primary flex items-center gap-0.5 hover:underline"
-                >
-                  View all <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-
-              {actionItems.length === 0 ? (
-                <Card variant="filled" className="text-center py-8">
-                  <CardContent>
-                    <CheckSquare className="mx-auto h-8 w-8 text-muted-foreground/40 mb-2" />
-                    <p className="text-sm text-muted-foreground">No pending action items</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Action items created from meetings will appear here.
-                    </p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-1.5">
-                  {actionItems.map((item) => {
-                    const today = new Date().toISOString().split("T")[0];
-                    const overdue = item.due_at && item.due_at.split("T")[0] < today;
-                    const contactId = item.contacts?.id ?? (item as any).action_item_contacts?.[0]?.contact_id;
-                    const contactName = item.contacts?.name ?? (item as any).action_item_contacts?.[0]?.contacts?.name;
-                    const href = contactId ? `/contacts/${contactId}` : "/action-items";
-                    return (
-                      <Card
-                        key={item.id}
-                        variant="outlined"
-                        className={`${overdue ? "border-destructive/40" : ""}`}
-                      >
-                        <CardContent className="p-4 flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => markActionDone(item.id)}
-                            className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors group ${
-                              overdue
-                                ? "bg-error-container hover:bg-green-100 dark:hover:bg-green-900/30"
-                                : "bg-primary-container hover:bg-green-100 dark:hover:bg-green-900/30"
-                            }`}
-                            title="Mark as done"
-                          >
-                            <Check className="h-[18px] w-[18px] hidden group-hover:block text-green-600" />
-                            {overdue ? (
-                              <AlertTriangle className="h-[18px] w-[18px] text-on-error-container group-hover:hidden" />
-                            ) : (
-                              <CheckSquare className="h-[18px] w-[18px] text-on-primary-container group-hover:hidden" />
-                            )}
-                          </button>
-                          <Link href={href} className="flex-1 min-w-0">
-                            <p className="text-[15px] font-medium text-foreground truncate">
-                              {item.title}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {contactName}
-                              {item.due_at &&
-                                ` · ${overdue ? "Overdue" : "Due"}: ${new Date(
-                                  item.due_at
-                                ).toLocaleDateString()}`}
-                            </p>
-                          </Link>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+              );
+            })()}
 
             {/* ── Reach Out Today ── */}
             {reachOutToday.length > 0 && (

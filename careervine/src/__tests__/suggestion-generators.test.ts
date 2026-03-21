@@ -4,6 +4,7 @@ import {
   generateNoInteractionCadenceSuggestions,
   generateDecayWarningSuggestions,
   generateFirstTouchSuggestions,
+  generateWaitingOnNudgeSuggestions,
 } from "@/lib/ai-followup/generate-suggestions";
 import { SuggestionReasonType } from "@/lib/constants";
 import type { SuggestionContact } from "@/lib/ai-followup/suggestion-types";
@@ -349,5 +350,73 @@ describe("generateFirstTouchSuggestions", () => {
     const r5 = generateFirstTouchSuggestions(five, today);
     expect(r1[0].evidence).toContain("1 day ago");
     expect(r5[0].evidence).toContain("5 days ago");
+  });
+});
+
+// ── Waiting On Nudge Suggestions ─────────────────────────────────────────
+
+describe("generateWaitingOnNudgeSuggestions", () => {
+  const today = new Date("2026-03-20");
+
+  function makeWaitingItem(overrides: Partial<{
+    id: number;
+    contact_id: number | null;
+    title: string;
+    suggestion_evidence: string | null;
+    created_at: string | null;
+    contacts: { name: string; photo_url: string | null; industry: string | null } | null;
+  }> = {}) {
+    return {
+      id: 1,
+      contact_id: 42,
+      title: "Review your project and give feedback",
+      suggestion_evidence: "I'm happy to give feedback",
+      created_at: "2026-03-05T00:00:00.000Z", // 15 days ago
+      contacts: { name: "Alex Chen", photo_url: null, industry: "Tech" },
+      ...overrides,
+    };
+  }
+
+  const emailMap = new Map<number, boolean>([[42, true]]);
+
+  it("suggests nudge for waiting-on item older than 7 days", () => {
+    const items = [makeWaitingItem()];
+    const result = generateWaitingOnNudgeSuggestions(items, emailMap, today);
+    expect(result).toHaveLength(1);
+    expect(result[0].reasonType).toBe(SuggestionReasonType.WaitingOnNudge);
+    expect(result[0].score).toBe(70);
+    expect(result[0].headline).toContain("Alex Chen");
+    expect(result[0].headline).toContain("15 days ago");
+    expect(result[0].suggestedTitle).toContain("Alex Chen");
+  });
+
+  it("skips items less than 7 days old", () => {
+    const items = [makeWaitingItem({ created_at: "2026-03-16T00:00:00.000Z" })]; // 4 days ago
+    const result = generateWaitingOnNudgeSuggestions(items, emailMap, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("skips items without contact_id", () => {
+    const items = [makeWaitingItem({ contact_id: null })];
+    const result = generateWaitingOnNudgeSuggestions(items, emailMap, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("skips items without created_at", () => {
+    const items = [makeWaitingItem({ created_at: null })];
+    const result = generateWaitingOnNudgeSuggestions(items, emailMap, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("skips contacts without email", () => {
+    const items = [makeWaitingItem({ contact_id: 99 })]; // not in emailMap
+    const result = generateWaitingOnNudgeSuggestions(items, emailMap, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("includes evidence from suggestion_evidence", () => {
+    const items = [makeWaitingItem({ suggestion_evidence: "Send me your work anytime" })];
+    const result = generateWaitingOnNudgeSuggestions(items, emailMap, today);
+    expect(result[0].evidence).toBe("Send me your work anytime");
   });
 });

@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getActionItems, updateActionItem, createActionItem, getContacts, getCompletedActionItems, deleteActionItem, replaceContactsForActionItem } from "@/lib/queries";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { Database } from "@/lib/database.types";
-import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark } from "lucide-react";
+import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark, Hourglass, Handshake } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { ActionItemSource } from "@/lib/constants";
 import { useSuggestions } from "@/hooks/use-suggestions";
@@ -259,6 +259,10 @@ export default function ActionItemsPage() {
     );
   }
 
+  // Separate "waiting on" items from user's own tasks
+  const myItems = actionItems.filter((item) => (item as any).direction !== "waiting_on");
+  const waitingOnItems = actionItems.filter((item) => (item as any).direction === "waiting_on");
+
   // Group items into four sections
   const now = new Date();
   const todayStr = now.toISOString().split("T")[0];
@@ -268,23 +272,24 @@ export default function ActionItemsPage() {
   endOfWeek.setHours(23, 59, 59, 999);
   const endOfWeekStr = endOfWeek.toISOString().split("T")[0];
 
-  const overdueItems = actionItems
+  const overdueItems = myItems
     .filter((item) => item.due_at && item.due_at.split("T")[0] < todayStr)
     .sort(sortByPriorityThenDate);
 
-  const thisWeekItems = actionItems
+  const thisWeekItems = myItems
     .filter((item) => item.due_at && item.due_at.split("T")[0] >= todayStr && item.due_at.split("T")[0] <= endOfWeekStr)
     .sort(sortByPriorityThenDate);
 
-  const laterItems = actionItems
+  const laterItems = myItems
     .filter((item) => item.due_at && item.due_at.split("T")[0] > endOfWeekStr)
     .sort(sortByPriorityThenDate);
 
-  const noDueDateItems = actionItems
+  const noDueDateItems = myItems
     .filter((item) => !item.due_at)
     .sort(sortByPriorityThenDate);
 
-  const totalPending = actionItems.length;
+  const totalPending = myItems.length;
+  const totalWaiting = waitingOnItems.length;
 
   const renderPriorityDot = (item: ActionItem) => {
     const p = item.priority as keyof typeof PRIORITY_COLORS | null;
@@ -324,6 +329,9 @@ export default function ActionItemsPage() {
             <div className="flex items-center gap-1.5">
               {isAiGenerated(item) && (
                 <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+              )}
+              {(item as any).direction === "mutual" && (
+                <span title="Mutual task"><Handshake className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" /></span>
               )}
               {renderPriorityDot(item)}
               <h3 className="text-base font-medium text-foreground">{item.title}</h3>
@@ -380,6 +388,55 @@ export default function ActionItemsPage() {
           {items.map((item) => renderItem(item, overdue))}
         </div>
       </div>
+    );
+  };
+
+  const renderWaitingItem = (item: ActionItem) => {
+    const createdDate = item.created_at ? new Date(item.created_at) : null;
+    const daysWaiting = createdDate
+      ? Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    return (
+      <Card
+        key={item.id}
+        variant="outlined"
+        className="state-layer cursor-pointer transition-all group/item"
+        onClick={() => setSelectedItem(item)}
+      >
+        <CardContent className="p-5">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-amber-100 dark:bg-amber-900/30">
+              <Hourglass className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                {isAiGenerated(item) && (
+                  <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                )}
+                {renderPriorityDot(item)}
+                <h3 className="text-base font-medium text-foreground">{item.title}</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {(item.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || item.contacts?.name || "No contact"}
+                {item.meetings && <span> · <Calendar className="inline h-3 w-3 mb-0.5" /> {item.meetings.meeting_type}</span>}
+                {isAiGenerated(item) && <span> · {item.source === ActionItemSource.AiSuggestion ? "AI suggestion" : "From transcript"}</span>}
+              </p>
+              <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                {daysWaiting !== null ? `${daysWaiting} day${daysWaiting !== 1 ? "s" : ""} waiting` : "Waiting"}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <button onClick={(e) => openEdit(e, item)} className="state-layer p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
+                <Pencil className="h-[18px] w-[18px]" />
+              </button>
+              <Button variant="tonal" size="sm" onClick={(e) => markDone(e, item)}>
+                <Check className="h-4 w-4" /> Done
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     );
   };
 
@@ -535,8 +592,23 @@ export default function ActionItemsPage() {
           false
         )}
 
+        {/* Waiting on others */}
+        {waitingOnItems.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <Hourglass className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              <h2 className="text-base font-medium text-amber-600 dark:text-amber-400">
+                Waiting on others ({waitingOnItems.length})
+              </h2>
+            </div>
+            <div className="space-y-3">
+              {waitingOnItems.map((item) => renderWaitingItem(item))}
+            </div>
+          </div>
+        )}
+
         {/* Empty state */}
-        {totalPending === 0 && (
+        {totalPending === 0 && totalWaiting === 0 && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
               <CheckSquare className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />

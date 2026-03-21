@@ -8,7 +8,7 @@ import { Select } from "@/components/ui/select";
 import { ContactPicker } from "@/components/ui/contact-picker";
 import { createActionItem, updateActionItem, deleteActionItem, replaceContactsForActionItem, getActionItemsForContact, getCompletedActionItemsForContact } from "@/lib/queries";
 import type { Contact, ContactMeeting } from "@/lib/types";
-import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare, Hourglass, Handshake } from "lucide-react";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, getPriorityOrder } from "@/lib/priority-helpers";
 
@@ -21,6 +21,8 @@ type ActionItem = {
   due_at: string | null;
   priority?: string | null;
   is_completed: boolean;
+  direction?: string | null;
+  created_at?: string | null;
   meetings: { id: number; meeting_type: string; meeting_date: string } | null;
   action_item_contacts?: { contact_id: number; contacts: { id: number; name: string } | null }[];
 };
@@ -31,6 +33,7 @@ type CompletedAction = {
   due_at: string | null;
   is_completed: boolean;
   completed_at: string | null;
+  direction?: string | null;
   meetings: { id: number; meeting_type: string; meeting_date: string } | null;
 };
 
@@ -110,6 +113,142 @@ export function ContactActionsTab({
     return aDate - bDate;
   });
 
+  const contactName = allContacts.find((c) => c.id === contactId)?.name ?? "them";
+  const hasDirections = filtered.some((a) => a.direction);
+
+  const myTasks = filtered.filter((a) => a.direction !== "waiting_on" && a.direction !== "mutual");
+  const waitingTasks = filtered.filter((a) => a.direction === "waiting_on");
+  const mutualTasks = filtered.filter((a) => a.direction === "mutual");
+
+  // Completed counts per direction for progress display
+  const completedMy = completedActions.filter((a) => a.direction !== "waiting_on" && a.direction !== "mutual").length;
+  const completedWaiting = completedActions.filter((a) => a.direction === "waiting_on").length;
+  const completedMutual = completedActions.filter((a) => a.direction === "mutual").length;
+
+  const renderActionRow = (action: ActionItem, icon: React.ReactNode, showWaitingDays?: boolean) =>
+    editingId === action.id ? (
+      <div key={action.id} className="p-3 rounded-[8px] bg-surface-container space-y-2">
+        <input
+          type="text"
+          value={editTitle}
+          onChange={(e) => setEditTitle(e.target.value)}
+          className={`${inputClasses} !h-10 text-sm`}
+          placeholder="Title"
+        />
+        <textarea
+          value={editDescription}
+          onChange={(e) => setEditDescription(e.target.value)}
+          className={`${inputClasses} !h-auto py-2 text-sm`}
+          rows={2}
+          placeholder="Description (optional)"
+        />
+        <ContactPicker
+          allContacts={allContacts.map((c) => ({ id: c.id, name: c.name }))}
+          selectedIds={editContactIds}
+          onChange={setEditContactIds}
+        />
+        <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="No due date" />
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="text" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={async () => {
+              try {
+                await updateActionItem(action.id, {
+                  title: editTitle.trim(),
+                  description: editDescription.trim() || null,
+                  due_at: editDueDate || null,
+                });
+                await replaceContactsForActionItem(action.id, editContactIds);
+                await reloadActions();
+                setEditingId(null);
+              } catch (err) {
+                console.error("Error updating action:", err);
+              }
+            }}
+          >
+            Save
+          </Button>
+        </div>
+      </div>
+    ) : (
+      <div key={action.id} className="flex items-center gap-2 text-sm group">
+        {icon}
+        {action.priority && (
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_COLORS[action.priority as keyof typeof PRIORITY_COLORS]?.dot || ""}`}
+            title={`${action.priority} priority`}
+          />
+        )}
+        <span className="text-foreground flex-1 min-w-0 truncate">{action.title}</span>
+        {showWaitingDays ? (
+          (() => {
+            const daysWaiting = action.created_at
+              ? Math.floor((Date.now() - new Date(action.created_at).getTime()) / 86400000)
+              : null;
+            return daysWaiting !== null ? (
+              <span className="text-xs shrink-0 text-muted-foreground">{daysWaiting}d waiting</span>
+            ) : null;
+          })()
+        ) : (
+          action.due_at && (
+            <span
+              className={`text-xs shrink-0 ${
+                new Date(action.due_at) < new Date() ? "text-destructive font-medium" : "text-muted-foreground"
+              }`}
+            >
+              {new Date(action.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </span>
+          )
+        )}
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={() => {
+              setEditingId(action.id);
+              setEditTitle(action.title);
+              setEditDescription(action.description || "");
+              setEditDueDate(action.due_at ? action.due_at.split("T")[0] : "");
+              setEditContactIds(action.action_item_contacts?.map((ac) => ac.contact_id) || []);
+            }}
+            className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
+            title="Edit"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onActionsChange(
+                actions.filter((a) => a.id !== action.id),
+                [{ id: action.id, title: action.title, due_at: action.due_at, is_completed: true, completed_at: new Date().toISOString(), direction: action.direction, meetings: action.meetings }, ...completedActions],
+              );
+              deferComplete(action);
+            }}
+            className="p-1 rounded-full text-muted-foreground hover:text-primary cursor-pointer"
+            title="Mark done"
+          >
+            <Check className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onActionsChange(
+                actions.filter((a) => a.id !== action.id),
+                completedActions,
+              );
+              deferDelete(action);
+            }}
+            className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"
+            title="Delete"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+    );
+
   return (
     <div>
       <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-3">
@@ -118,120 +257,49 @@ export function ContactActionsTab({
 
       {filtered.length === 0 ? (
         <p className="text-xs text-muted-foreground py-1">No pending action items.</p>
-      ) : (
+      ) : !hasDirections ? (
         <div className="space-y-1.5 mb-3">
           {filtered.map((action) =>
-            editingId === action.id ? (
-              <div key={action.id} className="p-3 rounded-[8px] bg-surface-container space-y-2">
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className={`${inputClasses} !h-10 text-sm`}
-                  placeholder="Title"
-                />
-                <textarea
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  className={`${inputClasses} !h-auto py-2 text-sm`}
-                  rows={2}
-                  placeholder="Description (optional)"
-                />
-                <ContactPicker
-                  allContacts={allContacts.map((c) => ({ id: c.id, name: c.name }))}
-                  selectedIds={editContactIds}
-                  onChange={setEditContactIds}
-                />
-                <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="No due date" />
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="text" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        await updateActionItem(action.id, {
-                          title: editTitle.trim(),
-                          description: editDescription.trim() || null,
-                          due_at: editDueDate || null,
-                        });
-                        await replaceContactsForActionItem(action.id, editContactIds);
-                        await reloadActions();
-                        setEditingId(null);
-                      } catch (err) {
-                        console.error("Error updating action:", err);
-                      }
-                    }}
-                  >
-                    Save
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div key={action.id} className="flex items-center gap-2 text-sm group">
-                <CheckSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                {action.priority && (
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_COLORS[action.priority as keyof typeof PRIORITY_COLORS]?.dot || ""}`}
-                    title={`${action.priority} priority`}
-                  />
+            renderActionRow(action, <CheckSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />)
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4 mb-3">
+          {myTasks.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
+                <CheckSquare className="h-3 w-3" /> Your commitments ({completedMy} of {myTasks.length + completedMy} done)
+              </p>
+              <div className="space-y-1.5">
+                {myTasks.map((action) =>
+                  renderActionRow(action, <CheckSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />)
                 )}
-                <span className="text-foreground flex-1 min-w-0 truncate">{action.title}</span>
-                {action.due_at && (
-                  <span
-                    className={`text-xs shrink-0 ${
-                      new Date(action.due_at) < new Date() ? "text-destructive font-medium" : "text-muted-foreground"
-                    }`}
-                  >
-                    {new Date(action.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                  </span>
-                )}
-                <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingId(action.id);
-                      setEditTitle(action.title);
-                      setEditDescription(action.description || "");
-                      setEditDueDate(action.due_at ? action.due_at.split("T")[0] : "");
-                      setEditContactIds(action.action_item_contacts?.map((ac) => ac.contact_id) || []);
-                    }}
-                    className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
-                    title="Edit"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onActionsChange(
-                        actions.filter((a) => a.id !== action.id),
-                        [{ id: action.id, title: action.title, due_at: action.due_at, is_completed: true, completed_at: new Date().toISOString(), meetings: action.meetings }, ...completedActions],
-                      );
-                      deferComplete(action);
-                    }}
-                    className="p-1 rounded-full text-muted-foreground hover:text-primary cursor-pointer"
-                    title="Mark done"
-                  >
-                    <Check className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onActionsChange(
-                        actions.filter((a) => a.id !== action.id),
-                        completedActions,
-                      );
-                      deferDelete(action);
-                    }}
-                    className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"
-                    title="Delete"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
               </div>
-            )
+            </div>
+          )}
+          {waitingTasks.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
+                <Hourglass className="h-3 w-3" /> Waiting on {contactName} ({completedWaiting} of {waitingTasks.length + completedWaiting} done)
+              </p>
+              <div className="space-y-1.5">
+                {waitingTasks.map((action) =>
+                  renderActionRow(action, <Hourglass className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />, true)
+                )}
+              </div>
+            </div>
+          )}
+          {mutualTasks.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
+                <Handshake className="h-3 w-3" /> Mutual ({completedMutual} of {mutualTasks.length + completedMutual} done)
+              </p>
+              <div className="space-y-1.5">
+                {mutualTasks.map((action) =>
+                  renderActionRow(action, <Handshake className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />)
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -250,21 +318,61 @@ export function ContactActionsTab({
             <ChevronDown className={`h-3 w-3 transition-transform ${showCompleted ? "rotate-0" : "-rotate-90"}`} />
             Completed ({completedActions.length})
           </button>
-          {showCompleted && (
-            <div className="space-y-1.5 mt-2">
-              {completedActions.map((action) => (
-                <div key={action.id} className="flex items-center gap-2 text-sm">
-                  <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
-                  <span className="text-muted-foreground line-through">{action.title}</span>
-                  {action.completed_at && (
-                    <span className="text-xs text-muted-foreground">
-                      · {new Date(action.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </span>
-                  )}
+          {showCompleted && (() => {
+            const hasCompletedDirections = completedActions.some((a) => a.direction);
+            const completedRow = (action: CompletedAction) => (
+              <div key={action.id} className="flex items-center gap-2 text-sm">
+                <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="text-muted-foreground line-through">{action.title}</span>
+                {action.completed_at && (
+                  <span className="text-xs text-muted-foreground">
+                    · {new Date(action.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </span>
+                )}
+              </div>
+            );
+
+            if (!hasCompletedDirections) {
+              return (
+                <div className="space-y-1.5 mt-2">
+                  {completedActions.map(completedRow)}
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            }
+
+            const completedMyItems = completedActions.filter((a) => a.direction !== "waiting_on" && a.direction !== "mutual");
+            const completedWaitingItems = completedActions.filter((a) => a.direction === "waiting_on");
+            const completedMutualItems = completedActions.filter((a) => a.direction === "mutual");
+
+            return (
+              <div className="space-y-3 mt-2">
+                {completedMyItems.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
+                      <CheckSquare className="h-3 w-3" /> Your commitments
+                    </p>
+                    <div className="space-y-1.5">{completedMyItems.map(completedRow)}</div>
+                  </div>
+                )}
+                {completedWaitingItems.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
+                      <Hourglass className="h-3 w-3" /> Waiting on {contactName}
+                    </p>
+                    <div className="space-y-1.5">{completedWaitingItems.map(completedRow)}</div>
+                  </div>
+                )}
+                {completedMutualItems.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
+                      <Handshake className="h-3 w-3" /> Mutual
+                    </p>
+                    <div className="space-y-1.5">{completedMutualItems.map(completedRow)}</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 

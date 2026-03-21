@@ -64,6 +64,7 @@ export const SuggestionReasonType = {
   NoInteractionCadence: "no_interaction_cadence",
   DecayWarning: "decay_warning",
   FirstTouch: "first_touch",
+  WaitingOnNudge: "waiting_on_nudge",
   LlmPersonalized: "llm_personalized",
   TranscriptExtracted: "transcript_extracted",
 } as const;

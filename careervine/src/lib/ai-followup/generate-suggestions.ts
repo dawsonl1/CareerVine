@@ -241,6 +241,56 @@ export function generateFirstTouchSuggestions(
   return suggestions;
 }
 
+// ── "Waiting On" Nudge Generator ──────────────────────────────────────
+
+interface WaitingOnItem {
+  id: number;
+  contact_id: number | null;
+  title: string;
+  suggestion_evidence: string | null;
+  created_at: string | null;
+  contacts: { name: string; photo_url: string | null; industry: string | null } | null;
+}
+
+export function generateWaitingOnNudgeSuggestions(
+  waitingOnItems: WaitingOnItem[],
+  contactEmails: Map<number, boolean>,
+  today: Date = new Date(),
+): Suggestion[] {
+  const suggestions: Suggestion[] = [];
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+  for (const item of waitingOnItems) {
+    if (!item.contact_id || !item.created_at) continue;
+    if (!contactEmails.has(item.contact_id)) continue; // must have email for follow-up
+
+    const createdAt = new Date(item.created_at);
+    const elapsed = today.getTime() - createdAt.getTime();
+    if (elapsed < sevenDaysMs) continue;
+
+    const daysWaiting = Math.floor(elapsed / (24 * 60 * 60 * 1000));
+    const contactName = item.contacts?.name || "Contact";
+    const truncatedTitle = item.title.length > 60 ? item.title.slice(0, 57) + "..." : item.title;
+
+    suggestions.push({
+      id: `waitnudge-${item.id}`,
+      contactId: item.contact_id,
+      contactName,
+      contactPhotoUrl: item.contacts?.photo_url ?? null,
+      contactIndustry: item.contacts?.industry ?? null,
+      headline: `${contactName} offered to ${truncatedTitle.charAt(0).toLowerCase()}${truncatedTitle.slice(1)} ${daysWaiting} days ago`,
+      evidence: item.suggestion_evidence || "",
+      reasonType: SuggestionReasonType.WaitingOnNudge,
+      score: 70,
+      suggestedTitle: `Send ${contactName} a friendly check-in`,
+      suggestedDescription: `They offered ${daysWaiting} days ago — a brief, polite follow-up goes a long way.`,
+      daysSinceContact: daysWaiting,
+    });
+  }
+
+  return suggestions;
+}
+
 // ── LLM Batch Generator ───────────────────────────────────────────────
 
 const LLM_SYSTEM_PROMPT = `You analyze a user's professional network contacts and their interaction history to suggest who they should reach out to and why.
@@ -396,8 +446,8 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
 
   const service = createSupabaseServiceClient();
 
-  // Fetch candidates and existing AI action items in parallel
-  const [contacts, existingAiItems] = await Promise.all([
+  // Fetch candidates, existing AI action items, and waiting-on items in parallel
+  const [contacts, existingAiItems, waitingOnResult, contactEmailsResult] = await Promise.all([
     fetchSuggestionCandidates(userId),
     service
       .from("follow_up_action_items")
@@ -406,7 +456,34 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
       .eq("source", ActionItemSource.AiSuggestion)
       .eq("is_completed", false)
       .then(({ data }) => new Set((data || []).map((r) => r.contact_id).filter(Boolean) as number[])),
+    service
+      .from("follow_up_action_items")
+      .select("id, contact_id, title, suggestion_evidence, created_at, contacts(name, photo_url, industry)")
+      .eq("user_id", userId)
+      .eq("direction", "waiting_on")
+      .eq("is_completed", false),
+    service
+      .from("contact_emails")
+      .select("contact_id")
+      .in("contact_id", [] as number[]) // placeholder — populated after contacts load
+      .then(({ data }) => new Set((data || []).map((r) => r.contact_id))),
   ]);
+
+  // Build a set of contact IDs that have emails (for nudge eligibility)
+  // Re-query with actual contact IDs since we couldn't know them above
+  const contactIds = contacts.map((c) => c.id);
+  const { data: emailRows } = contactIds.length > 0
+    ? await service.from("contact_emails").select("contact_id").in("contact_id", contactIds)
+    : { data: [] };
+  const contactsWithEmail = new Map<number, boolean>();
+  for (const row of emailRows || []) {
+    contactsWithEmail.set(row.contact_id, true);
+  }
+
+  const waitingOnItems = (waitingOnResult.data || []).map((row: any) => ({
+    ...row,
+    contacts: Array.isArray(row.contacts) ? row.contacts[0] || null : row.contacts,
+  })) as WaitingOnItem[];
 
   // Run rule-based generators
   const today = new Date();
@@ -415,6 +492,7 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
     ...generateNoInteractionCadenceSuggestions(contacts),
     ...generateFirstTouchSuggestions(contacts, today),
     ...generateDecayWarningSuggestions(contacts),
+    ...generateWaitingOnNudgeSuggestions(waitingOnItems, contactsWithEmail, today),
   ];
 
   // Deduplicate: remove contacts that already have pending AI action items
