@@ -95,8 +95,9 @@ export const POST = withApiHandler({
         },
       });
     } catch (err) {
-      console.error("[extract-actions] OpenAI API error:", err);
-      throw new ApiError("Failed to extract action items. Please try again.", 500);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[extract-actions] OpenAI API error:", errMsg);
+      throw new ApiError(`Failed to extract action items: ${errMsg}`, 500);
     }
 
     const responseText = response.output_text || "";
