@@ -105,7 +105,7 @@ export function AddMeetingModal({ contactId, userId, onClose, onMeetingsChange }
             value={form.meeting_type}
             onChange={(val) => setForm({ ...form, meeting_type: val })}
             placeholder="Select type..."
-            options={MEETING_TYPE_OPTIONS}
+            options={[...MEETING_TYPE_OPTIONS]}
           />
         </div>
         <div>

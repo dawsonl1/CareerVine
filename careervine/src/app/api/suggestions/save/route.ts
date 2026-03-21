@@ -12,6 +12,7 @@ export const POST = withApiHandler({
       {
         user_id: user.id,
         contact_id: body.contactId,
+        meeting_id: null,
         title: body.title,
         description: body.description || null,
         due_at: null,

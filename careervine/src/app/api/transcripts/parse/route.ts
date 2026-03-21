@@ -1,4 +1,4 @@
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { transcriptParseSchema } from "@/lib/api-schemas";
 

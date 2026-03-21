@@ -6,6 +6,7 @@
  * something worth sharing, or falls back gracefully.
  */
 
+import OpenAI from "openai";
 import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
 import { searchNews, searchWeb, type SerperResult } from "@/lib/serper";
 import type { Interest, ExtractedInterests } from "./extract-interests";
