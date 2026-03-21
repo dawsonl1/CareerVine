@@ -199,8 +199,6 @@ export function generateFirstTouchSuggestions(
   today: Date = new Date(),
 ): Suggestion[] {
   const suggestions: Suggestion[] = [];
-  const thirtyDaysAgo = new Date(today);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   for (const c of contacts) {
     // Never contacted, no cadence (NoInteractionCadence handles those), added recently
