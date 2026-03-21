@@ -20,6 +20,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 - **Email as a first-class feature** — Threaded Gmail inbox, AI-powered composition, scheduled sends, and multi-stage follow-up sequences that auto-cancel when the person replies.
 - **Calendar that knows your network** — Google Calendar sync with week and list views. Create a meeting in CareerVine and it generates a Calendar event with Meet link and attendee invites.
 - **Transcripts to notes** — Upload audio or paste a transcript. AI-powered speaker matching identifies who said what by analyzing conversation context, roles, and names — with confidence scores and one-click confirmation instead of tedious manual dropdowns.
+- **"Waiting on" tracking** — After a conversation, the AI extracts not just your action items but also what the other person committed to doing for you. These show up in a separate "Waiting on others" section. After 7 days, the app nudges you to send a gentle follow-up — so you never forget to cash in on an offer of help.
 
 ### Design decisions I'm proud of
 
