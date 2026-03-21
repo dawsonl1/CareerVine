@@ -158,12 +158,18 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
     const openai = getOpenAIClient();
     const model = DEFAULT_MODEL;
 
-    const response = await openai.responses.create({
-      model,
-      instructions: systemPrompt,
-      input: userParts.join("\n"),
-      max_output_tokens: 2000,
-    });
+    let response;
+    try {
+      response = await openai.responses.create({
+        model,
+        instructions: systemPrompt,
+        input: userParts.join("\n"),
+        max_output_tokens: 2000,
+      });
+    } catch (err) {
+      console.error("[ai-write] OpenAI API error:", err);
+      throw new ApiError("Failed to generate email. Please try again.", 500);
+    }
 
     const emailHtml = response.output_text || "";
 
@@ -174,13 +180,17 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
     // Also generate a subject line if none provided
     let generatedSubject: string | null = null;
     if (!subject) {
-      const subjectResponse = await openai.responses.create({
-        model,
-        instructions: "Generate a concise, professional email subject line for the following email. Return ONLY the subject line text, nothing else. No quotes.",
-        input: emailHtml,
-        max_output_tokens: 100,
-      });
-      generatedSubject = subjectResponse.output_text?.trim() || null;
+      try {
+        const subjectResponse = await openai.responses.create({
+          model,
+          instructions: "Generate a concise, professional email subject line for the following email. Return ONLY the subject line text, nothing else. No quotes.",
+          input: emailHtml,
+          max_output_tokens: 100,
+        });
+        generatedSubject = subjectResponse.output_text?.trim() || null;
+      } catch {
+        // Subject generation is best-effort; use null if it fails
+      }
     }
 
     return {

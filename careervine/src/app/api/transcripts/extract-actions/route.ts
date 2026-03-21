@@ -80,18 +80,24 @@ export const POST = withApiHandler({
     const maxChars = 50000;
     const truncated = transcript.length > maxChars ? transcript.slice(0, maxChars) : transcript;
 
-    const response = await openai.responses.create({
-      model,
-      instructions,
-      input: truncated,
-      max_output_tokens: 4000,
-      text: {
-        format: {
-          type: "json_schema",
-          ...actionItemSchema,
+    let response;
+    try {
+      response = await openai.responses.create({
+        model,
+        instructions,
+        input: truncated,
+        max_output_tokens: 4000,
+        text: {
+          format: {
+            type: "json_schema",
+            ...actionItemSchema,
+          },
         },
-      },
-    });
+      });
+    } catch (err) {
+      console.error("[extract-actions] OpenAI API error:", err);
+      throw new ApiError("Failed to extract action items. Please try again.", 500);
+    }
 
     const responseText = response.output_text || "";
     if (!responseText.trim()) {

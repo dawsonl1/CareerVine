@@ -121,19 +121,25 @@ export const POST = withApiHandler({
       "Extract a geographic job location for each experience if available (e.g., 'San Francisco, CA'). " +
       "Ignore work arrangement terms like remote, hybrid, internship, contract, freelance, part-time, full-time, temporary, or self-employed as locations. ";
 
-    const response = await openai.responses.create({
-      model,
-      service_tier: "priority", // Use default speed for balanced performance
-      instructions,
-      input: cleanedText,
-      max_output_tokens: 4000,
-      text: {
-        format: {
-          type: "json_schema",
-          ...linkedinProfileSchema
+    let response;
+    try {
+      response = await openai.responses.create({
+        model,
+        service_tier: "priority",
+        instructions,
+        input: cleanedText,
+        max_output_tokens: 4000,
+        text: {
+          format: {
+            type: "json_schema",
+            ...linkedinProfileSchema
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      console.error("[parse-profile] OpenAI API error:", err);
+      throw new ApiError("Failed to parse profile. Please try again.", 500);
+    }
 
     const responseText = response.output_text || '';
 

@@ -56,18 +56,24 @@ export const POST = withApiHandler({
     const maxChars = 50000;
     const truncated = rawText.length > maxChars ? rawText.slice(0, maxChars) : rawText;
 
-    const response = await openai.responses.create({
-      model,
-      instructions,
-      input: truncated,
-      max_output_tokens: 16000,
-      text: {
-        format: {
-          type: "json_schema",
-          ...segmentSchema,
+    let response;
+    try {
+      response = await openai.responses.create({
+        model,
+        instructions,
+        input: truncated,
+        max_output_tokens: 16000,
+        text: {
+          format: {
+            type: "json_schema",
+            ...segmentSchema,
+          },
         },
-      },
-    });
+      });
+    } catch (err) {
+      console.error("[transcripts/parse] OpenAI API error:", err);
+      throw new ApiError("Failed to parse transcript. Please try again.", 500);
+    }
 
     const responseText = response.output_text || "";
     if (!responseText.trim()) {
