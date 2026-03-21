@@ -447,7 +447,7 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
   const service = createSupabaseServiceClient();
 
   // Fetch candidates, existing AI action items, and waiting-on items in parallel
-  const [contacts, existingAiItems, waitingOnResult, contactEmailsResult] = await Promise.all([
+  const [contacts, existingAiItems, waitingOnResult] = await Promise.all([
     fetchSuggestionCandidates(userId),
     service
       .from("follow_up_action_items")
@@ -462,15 +462,9 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
       .eq("user_id", userId)
       .eq("direction", "waiting_on")
       .eq("is_completed", false),
-    service
-      .from("contact_emails")
-      .select("contact_id")
-      .in("contact_id", [] as number[]) // placeholder — populated after contacts load
-      .then(({ data }) => new Set((data || []).map((r) => r.contact_id))),
   ]);
 
   // Build a set of contact IDs that have emails (for nudge eligibility)
-  // Re-query with actual contact IDs since we couldn't know them above
   const contactIds = contacts.map((c) => c.id);
   const { data: emailRows } = contactIds.length > 0
     ? await service.from("contact_emails").select("contact_id").in("contact_id", contactIds)

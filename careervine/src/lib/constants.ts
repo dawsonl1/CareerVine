@@ -69,6 +69,14 @@ export const SuggestionReasonType = {
   TranscriptExtracted: "transcript_extracted",
 } as const;
 
+// ── Action item direction ─────────────────────────────────────────────
+
+export const ActionDirection = {
+  MyTask: "my_task",
+  WaitingOn: "waiting_on",
+  Mutual: "mutual",
+} as const;
+
 // ── Meeting type options (shared across meeting forms) ───────────────
 
 export const MEETING_TYPE_OPTIONS = [

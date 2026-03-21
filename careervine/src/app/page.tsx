@@ -43,6 +43,7 @@ import {
   Check,
   Hourglass,
 } from "lucide-react";
+import { ActionDirection } from "@/lib/constants";
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
 import { useCompose } from "@/components/compose-email-context";
@@ -547,8 +548,8 @@ export default function Home() {
             <div>
             {/* ── Action items (front and center) ── */}
             {(() => {
-              const myItems = actionItems.filter((i) => (i as any).direction !== "waiting_on");
-              const waitingCount = actionItems.filter((i) => (i as any).direction === "waiting_on").length;
+              const myItems = actionItems.filter((i) => i.direction !== ActionDirection.WaitingOn);
+              const waitingCount = actionItems.length - myItems.length;
               return (
                 <div className="mb-10">
                   <div className="flex items-center justify-between mb-3">

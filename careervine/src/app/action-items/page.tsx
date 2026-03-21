@@ -11,7 +11,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import type { Database } from "@/lib/database.types";
 import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark, Hourglass, Handshake } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
-import { ActionItemSource } from "@/lib/constants";
+import { ActionItemSource, ActionDirection } from "@/lib/constants";
 import { useSuggestions } from "@/hooks/use-suggestions";
 import { Select } from "@/components/ui/select";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
@@ -260,8 +260,8 @@ export default function ActionItemsPage() {
   }
 
   // Separate "waiting on" items from user's own tasks
-  const myItems = actionItems.filter((item) => (item as any).direction !== "waiting_on");
-  const waitingOnItems = actionItems.filter((item) => (item as any).direction === "waiting_on");
+  const myItems = actionItems.filter((item) => item.direction !== ActionDirection.WaitingOn);
+  const waitingOnItems = actionItems.filter((item) => item.direction === ActionDirection.WaitingOn);
 
   // Group items into four sections
   const now = new Date();
@@ -330,7 +330,7 @@ export default function ActionItemsPage() {
               {isAiGenerated(item) && (
                 <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
               )}
-              {(item as any).direction === "mutual" && (
+              {item.direction === ActionDirection.Mutual && (
                 <span title="Mutual task"><Handshake className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" /></span>
               )}
               {renderPriorityDot(item)}
