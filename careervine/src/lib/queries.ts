@@ -1553,12 +1553,15 @@ export async function getHomeStats(userId: string) {
 }
 
 /**
- * Get daily activity counts for the last 12 weeks (84 days) for the heatmap.
+ * Get daily activity counts for the last year (53 weeks) for the heatmap.
+ * Start date is aligned to the nearest Sunday ~1 year ago, end date is today.
  */
 export async function getActivityHeatmap(userId: string) {
   const now = new Date();
+  // Go back ~1 year and align to Sunday
   const start = new Date(now);
-  start.setDate(start.getDate() - 83); // 84 days including today
+  start.setFullYear(start.getFullYear() - 1);
+  start.setDate(start.getDate() - start.getDay()); // Align to Sunday
   start.setHours(0, 0, 0, 0);
   const startStr = start.toISOString().split("T")[0];
 
@@ -1605,17 +1608,18 @@ export async function getActivityHeatmap(userId: string) {
     }
   }
 
-  // Build array for 84 days
+  // Build array from start (Sunday ~1 year ago) through today
   const result: { date: string; count: number; dayOfWeek: number }[] = [];
-  for (let i = 0; i < 84; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
+  const todayStr = now.toISOString().split("T")[0];
+  const d = new Date(start);
+  while (d.toISOString().split("T")[0] <= todayStr) {
     const dateStr = d.toISOString().split("T")[0];
     result.push({
       date: dateStr,
       count: dayMap.get(dateStr) || 0,
       dayOfWeek: d.getDay(),
     });
+    d.setDate(d.getDate() + 1);
   }
 
   return result;

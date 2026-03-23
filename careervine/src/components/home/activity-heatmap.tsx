@@ -13,7 +13,7 @@ interface ActivityHeatmapProps {
 }
 
 const COLORS = [
-  "#f0f0f0", // 0 activity
+  "#ebedf0", // 0 activity
   "#d4e8d0", // light
   "#94d58f", // medium
   "#4caf50", // medium-heavy
@@ -30,14 +30,17 @@ function getColor(count: number, max: number): string {
   return COLORS[4];
 }
 
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
   const [tooltip, setTooltip] = useState<{ date: string; count: number; x: number; y: number } | null>(null);
 
-  const { weeks, maxCount } = useMemo(() => {
+  const { weeks, maxCount, monthLabels } = useMemo(() => {
+    if (data.length === 0) return { weeks: [], maxCount: 1, monthLabels: [] };
+
     const max = Math.max(...data.map((d) => d.count), 1);
-    // Group by week (columns)
+
+    // Group into weeks (each week is a column, Sun=0 at top)
     const wks: HeatmapDay[][] = [];
     let currentWeek: HeatmapDay[] = [];
 
@@ -49,46 +52,79 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
       }
     }
 
-    return { weeks: wks, maxCount: max };
+    // Build month labels — positioned at the first week that starts a new month
+    const labels: { label: string; weekIndex: number }[] = [];
+    let lastMonth = -1;
+
+    for (let wi = 0; wi < wks.length; wi++) {
+      // Use the first day of the week to determine the month
+      const firstDay = wks[wi][0];
+      if (!firstDay) continue;
+      const month = new Date(firstDay.date + "T12:00:00").getMonth();
+      if (month !== lastMonth) {
+        labels.push({ label: MONTH_NAMES[month], weekIndex: wi });
+        lastMonth = month;
+      }
+    }
+
+    return { weeks: wks, maxCount: max, monthLabels: labels };
   }, [data]);
 
   if (data.length === 0) return null;
 
-  const cellSize = 14;
+  const cellSize = 13;
   const gap = 3;
+  const step = cellSize + gap;
+  const dayLabelWidth = 32;
+  const monthLabelHeight = 16;
 
   return (
     <div className="relative">
-      <div className="flex gap-1">
-        {/* Day labels */}
-        <div className="flex flex-col justify-between pr-1" style={{ height: 7 * (cellSize + gap) - gap }}>
-          {DAY_LABELS.map((label, i) => (
+      {/* Month labels row */}
+      <div className="flex" style={{ paddingLeft: dayLabelWidth, height: monthLabelHeight }}>
+        <div className="relative w-full">
+          {monthLabels.map((ml) => (
             <span
-              key={label}
-              className="text-[10px] text-muted-foreground leading-none"
-              style={{ height: cellSize, display: "flex", alignItems: "center" }}
+              key={`${ml.label}-${ml.weekIndex}`}
+              className="absolute text-[10px] text-muted-foreground"
+              style={{ left: ml.weekIndex * step }}
             >
-              {i % 2 === 1 ? label : ""}
+              {ml.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex">
+        {/* Day labels */}
+        <div
+          className="flex flex-col shrink-0"
+          style={{ width: dayLabelWidth, height: 7 * step - gap }}
+        >
+          {["", "Mon", "", "Wed", "", "Fri", ""].map((label, i) => (
+            <span
+              key={i}
+              className="text-[10px] text-muted-foreground leading-none"
+              style={{ height: cellSize, marginBottom: i < 6 ? gap : 0, display: "flex", alignItems: "center" }}
+            >
+              {label}
             </span>
           ))}
         </div>
 
         {/* Grid */}
-        <div className="flex gap-[3px]">
+        <div className="flex overflow-x-auto" style={{ gap }}>
           {weeks.map((week, wi) => (
-            <div key={wi} className="flex flex-col gap-[3px]">
+            <div key={wi} className="flex flex-col" style={{ gap }}>
               {/* Pad first week if it doesn't start on Sunday */}
               {wi === 0 &&
                 Array.from({ length: week[0]?.dayOfWeek || 0 }).map((_, i) => (
-                  <div
-                    key={`pad-${i}`}
-                    style={{ width: cellSize, height: cellSize }}
-                  />
+                  <div key={`pad-${i}`} style={{ width: cellSize, height: cellSize }} />
                 ))}
               {week.map((day) => (
                 <div
                   key={day.date}
-                  className="rounded-[3px] transition-colors cursor-default"
+                  className="rounded-[2px] cursor-default"
                   style={{
                     width: cellSize,
                     height: cellSize,
@@ -96,18 +132,24 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
                   }}
                   onMouseEnter={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
-                    setTooltip({ date: day.date, count: day.count, x: rect.left, y: rect.top });
+                    setTooltip({ date: day.date, count: day.count, x: rect.left + rect.width / 2, y: rect.top });
                   }}
                   onMouseLeave={() => setTooltip(null)}
                 />
               ))}
+              {/* Pad last week if it doesn't end on Saturday */}
+              {wi === weeks.length - 1 &&
+                week[week.length - 1] &&
+                Array.from({ length: 6 - week[week.length - 1].dayOfWeek }).map((_, i) => (
+                  <div key={`pad-end-${i}`} style={{ width: cellSize, height: cellSize }} />
+                ))}
             </div>
           ))}
         </div>
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-1.5 mt-2">
+      <div className="flex items-center justify-end gap-1.5 mt-2">
         <span className="text-[10px] text-muted-foreground">Less</span>
         {COLORS.map((color, i) => (
           <div
@@ -117,20 +159,23 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
           />
         ))}
         <span className="text-[10px] text-muted-foreground">More</span>
-        <span className="text-[10px] text-muted-foreground ml-2">12 weeks</span>
       </div>
 
       {/* Tooltip */}
       {tooltip && (
         <div
-          className="fixed z-50 px-2 py-1 rounded-md bg-foreground text-background text-[11px] pointer-events-none whitespace-nowrap"
-          style={{ left: tooltip.x, top: tooltip.y - 30 }}
+          className="fixed z-50 px-2.5 py-1.5 rounded-lg bg-foreground text-background text-[11px] pointer-events-none whitespace-nowrap -translate-x-1/2"
+          style={{ left: tooltip.x, top: tooltip.y - 34 }}
         >
+          <strong>
+            {tooltip.count} {tooltip.count === 1 ? "activity" : "activities"}
+          </strong>{" "}
+          on{" "}
           {new Date(tooltip.date + "T12:00:00").toLocaleDateString("en-US", {
             month: "short",
             day: "numeric",
+            year: "numeric",
           })}
-          : {tooltip.count} {tooltip.count === 1 ? "activity" : "activities"}
         </div>
       )}
     </div>
