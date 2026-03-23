@@ -1412,3 +1412,268 @@ export async function deleteTranscriptSegments(meetingId: number) {
     .eq("meeting_id", meetingId);
   if (error) throw error;
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  HOME PAGE DATA
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Get contacts created in the last 7 days that have no logged meetings or interactions.
+ */
+export async function getRecentUncontactedContacts(userId: string) {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const cutoff = sevenDaysAgo.toISOString();
+
+  const { data: contacts, error } = await supabase
+    .from("contacts")
+    .select("id, name, photo_url, industry, created_at, contact_emails(email)")
+    .eq("user_id", userId)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  if (!contacts || contacts.length === 0) return [];
+
+  const contactIds = contacts.map((c) => c.id);
+
+  // Check which contacts have meetings
+  const { data: meetingLinks } = await supabase
+    .from("meeting_contacts")
+    .select("contact_id")
+    .in("contact_id", contactIds);
+
+  // Check which contacts have interactions
+  const { data: interactionLinks } = await supabase
+    .from("interactions")
+    .select("contact_id")
+    .in("contact_id", contactIds);
+
+  const contacted = new Set<number>();
+  if (meetingLinks) meetingLinks.forEach((ml) => contacted.add(ml.contact_id));
+  if (interactionLinks) interactionLinks.forEach((i) => contacted.add(i.contact_id));
+
+  return contacts
+    .filter((c) => !contacted.has(c.id))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      photo_url: c.photo_url,
+      industry: c.industry,
+      created_at: c.created_at,
+      emails: (c.contact_emails || []).map((e: { email: string }) => e.email),
+    }));
+}
+
+/**
+ * Get aggregated home page stats: this week + last week for trend comparison.
+ */
+export async function getHomeStats(userId: string) {
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay()); // Sunday
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  const startOfLastWeek = new Date(startOfWeek);
+  startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+
+  const thisWeekStr = startOfWeek.toISOString();
+  const lastWeekStr = startOfLastWeek.toISOString();
+
+  // Conversations (meetings) this week
+  const { count: convThisWeek } = await supabase
+    .from("meetings")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("meeting_date", thisWeekStr.split("T")[0]);
+
+  const { count: convLastWeek } = await supabase
+    .from("meetings")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("meeting_date", lastWeekStr.split("T")[0])
+    .lt("meeting_date", thisWeekStr.split("T")[0]);
+
+  // Pending action items
+  const { count: pendingItems } = await supabase
+    .from("follow_up_action_items")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("is_completed", false);
+
+  // Completed action items this week
+  const { count: completedThisWeek } = await supabase
+    .from("follow_up_action_items")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("is_completed", true)
+    .gte("completed_at", thisWeekStr);
+
+  const { count: completedLastWeek } = await supabase
+    .from("follow_up_action_items")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("is_completed", true)
+    .gte("completed_at", lastWeekStr)
+    .lt("completed_at", thisWeekStr);
+
+  // Contacts added this week
+  const { count: contactsThisWeek } = await supabase
+    .from("contacts")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", thisWeekStr);
+
+  const { count: contactsLastWeek } = await supabase
+    .from("contacts")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", lastWeekStr)
+    .lt("created_at", thisWeekStr);
+
+  // Messages sent this week (interactions count as touchpoints too)
+  const { count: interactionsThisWeek } = await supabase
+    .from("interactions")
+    .select("*", { count: "exact", head: true })
+    .gte("interaction_date", thisWeekStr.split("T")[0]);
+
+  const { count: interactionsLastWeek } = await supabase
+    .from("interactions")
+    .select("*", { count: "exact", head: true })
+    .gte("interaction_date", lastWeekStr.split("T")[0])
+    .lt("interaction_date", thisWeekStr.split("T")[0]);
+
+  return {
+    conversations: { thisWeek: convThisWeek || 0, lastWeek: convLastWeek || 0 },
+    pendingItems: pendingItems || 0,
+    completedItems: { thisWeek: completedThisWeek || 0, lastWeek: completedLastWeek || 0 },
+    contactsAdded: { thisWeek: contactsThisWeek || 0, lastWeek: contactsLastWeek || 0 },
+    touchpoints: { thisWeek: (interactionsThisWeek || 0) + (convThisWeek || 0), lastWeek: (interactionsLastWeek || 0) + (convLastWeek || 0) },
+  };
+}
+
+/**
+ * Get daily activity counts for the last 12 weeks (84 days) for the heatmap.
+ */
+export async function getActivityHeatmap(userId: string) {
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - 83); // 84 days including today
+  start.setHours(0, 0, 0, 0);
+  const startStr = start.toISOString().split("T")[0];
+
+  // Get meetings in range
+  const { data: meetings } = await supabase
+    .from("meetings")
+    .select("meeting_date")
+    .eq("user_id", userId)
+    .gte("meeting_date", startStr);
+
+  // Get completed action items in range
+  const { data: completedItems } = await supabase
+    .from("follow_up_action_items")
+    .select("completed_at")
+    .eq("user_id", userId)
+    .eq("is_completed", true)
+    .gte("completed_at", start.toISOString());
+
+  // Get interactions in range
+  const { data: interactions } = await supabase
+    .from("interactions")
+    .select("interaction_date")
+    .gte("interaction_date", startStr);
+
+  // Build day map
+  const dayMap = new Map<string, number>();
+
+  if (meetings) {
+    for (const m of meetings) {
+      const d = m.meeting_date?.split("T")[0];
+      if (d) dayMap.set(d, (dayMap.get(d) || 0) + 1);
+    }
+  }
+  if (completedItems) {
+    for (const a of completedItems) {
+      const d = a.completed_at?.split("T")[0];
+      if (d) dayMap.set(d, (dayMap.get(d) || 0) + 1);
+    }
+  }
+  if (interactions) {
+    for (const i of interactions) {
+      const d = i.interaction_date;
+      if (d) dayMap.set(d, (dayMap.get(d) || 0) + 1);
+    }
+  }
+
+  // Build array for 84 days
+  const result: { date: string; count: number; dayOfWeek: number }[] = [];
+  for (let i = 0; i < 84; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const dateStr = d.toISOString().split("T")[0];
+    result.push({
+      date: dateStr,
+      count: dayMap.get(dateStr) || 0,
+      dayOfWeek: d.getDay(),
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Get network health summary for the donut chart.
+ * Returns counts by category: healthy, due, overdue, neverContacted, noCadence.
+ */
+export async function getNetworkHealthSummary(userId: string) {
+  const contacts = await getContactsWithLastTouch(userId);
+
+  const summary = { healthy: 0, dueSoon: 0, overdue: 0, neverContacted: 0, noCadence: 0, total: contacts.length };
+
+  for (const c of contacts) {
+    if (!c.follow_up_frequency_days) {
+      if (c.days_since_touch === null) summary.neverContacted++;
+      else summary.noCadence++;
+      continue;
+    }
+    if (c.days_since_touch === null) {
+      summary.neverContacted++;
+      continue;
+    }
+    const ratio = c.days_since_touch / c.follow_up_frequency_days;
+    if (ratio <= 0.85) summary.healthy++;
+    else if (ratio <= 1.0) summary.dueSoon++;
+    else summary.overdue++;
+  }
+
+  return summary;
+}
+
+/**
+ * Get contacts that are 2x+ past their follow-up cadence (neglected relationships).
+ */
+export async function getNeglectedContacts(userId: string) {
+  const contacts = await getContactsWithLastTouch(userId);
+
+  return contacts
+    .filter((c) => {
+      if (!c.follow_up_frequency_days || c.follow_up_frequency_days <= 0) return false;
+      if (c.days_since_touch === null) return true; // Never contacted with cadence set
+      return c.days_since_touch >= c.follow_up_frequency_days * 2;
+    })
+    .sort((a, b) => {
+      const aRatio = a.days_since_touch !== null && a.follow_up_frequency_days
+        ? a.days_since_touch / a.follow_up_frequency_days : 999;
+      const bRatio = b.days_since_touch !== null && b.follow_up_frequency_days
+        ? b.days_since_touch / b.follow_up_frequency_days : 999;
+      return bRatio - aRatio;
+    })
+    .slice(0, 5)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      photo_url: c.photo_url,
+      days_since_touch: c.days_since_touch,
+      follow_up_frequency_days: c.follow_up_frequency_days,
+    }));
+}
