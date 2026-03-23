@@ -4,7 +4,8 @@ import { useState, useCallback } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
-import { inputClasses } from "@/lib/form-styles";
+import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { ActionDirection } from "@/lib/constants";
 import type { PendingAction } from "./types";
 
 interface ActionItemsSectionProps {
@@ -16,7 +17,7 @@ interface ActionItemsSectionProps {
 export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction }: ActionItemsSectionProps) {
   const [title, setTitle] = useState("");
   const [dueAt, setDueAt] = useState("");
-  const [direction, setDirection] = useState<"my_task" | "waiting_on">("my_task");
+  const [direction, setDirection] = useState<"my_task" | "waiting_on">(ActionDirection.MyTask);
 
   const addAction = useCallback(() => {
     if (!title.trim()) return;
@@ -30,12 +31,12 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
     });
     setTitle("");
     setDueAt("");
-    setDirection("my_task");
+    setDirection(ActionDirection.MyTask);
   }, [title, dueAt, direction, onAddAction]);
 
   return (
     <div className="border-t border-outline-variant pt-5">
-      <label className="text-xs font-medium text-muted-foreground mb-2 block">
+      <label className={labelClasses}>
         Follow-ups
       </label>
 
@@ -45,11 +46,11 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
           {pendingActions.map((action, i) => (
             <div key={i} className="flex items-center gap-2 p-2 rounded-[8px] bg-surface-container-low">
               <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${
-                action.direction === "waiting_on"
+                action.direction === ActionDirection.WaitingOn
                   ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                   : "bg-primary/10 text-primary"
               }`}>
-                {action.direction === "waiting_on" ? "Waiting" : "My task"}
+                {action.direction === ActionDirection.WaitingOn ? "Waiting" : "My task"}
               </span>
               <span className="text-sm text-foreground flex-1 truncate">{action.title}</span>
               {action.dueAt && (
@@ -73,9 +74,9 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
       <div className="flex gap-1 mb-2">
         <button
           type="button"
-          onClick={() => setDirection("my_task")}
+          onClick={() => setDirection(ActionDirection.MyTask)}
           className={`text-xs font-medium px-3 py-1 rounded-full cursor-pointer transition-colors ${
-            direction === "my_task"
+            direction === ActionDirection.MyTask
               ? "bg-primary text-on-primary"
               : "bg-surface-container text-foreground hover:bg-surface-container-high"
           }`}
@@ -84,9 +85,9 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
         </button>
         <button
           type="button"
-          onClick={() => setDirection("waiting_on")}
+          onClick={() => setDirection(ActionDirection.WaitingOn)}
           className={`text-xs font-medium px-3 py-1 rounded-full cursor-pointer transition-colors ${
-            direction === "waiting_on"
+            direction === ActionDirection.WaitingOn
               ? "bg-amber-600 text-white dark:bg-amber-500"
               : "bg-surface-container text-foreground hover:bg-surface-container-high"
           }`}

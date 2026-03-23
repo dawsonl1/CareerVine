@@ -22,7 +22,7 @@ import {
   addAttachmentToMeeting,
 } from "@/lib/queries";
 import { CONVERSATION_TYPE_OPTIONS, ActionItemSource } from "@/lib/constants";
-import { inputClasses } from "@/lib/form-styles";
+import { inputClasses, labelClasses } from "@/lib/form-styles";
 import {
   X,
   Coffee,
@@ -281,26 +281,31 @@ export function ConversationModal() {
         }
       }
 
-      // Create pending action items
-      for (const action of pendingActions) {
-        const contactIds = action.contactIds.length > 0
-          ? action.contactIds
-          : form.selectedContactIds;
-        await createActionItem({
-          user_id: user.id,
-          contact_id: contactIds[0] || null,
-          meeting_id: meetingId,
-          title: action.title,
-          description: action.description || null,
-          due_at: action.dueAt || null,
-          is_completed: false,
-          created_at: new Date().toISOString(),
-          completed_at: null,
-          direction: action.direction,
-          source: action.source === "ai_transcript" ? ActionItemSource.AiTranscript : undefined,
-          suggestion_evidence: action.evidence || undefined,
-          assigned_speaker: action.assignedSpeaker || undefined,
-        }, contactIds);
+      // Create pending action items in parallel
+      if (pendingActions.length > 0) {
+        const now = new Date().toISOString();
+        await Promise.allSettled(
+          pendingActions.map((action) => {
+            const contactIds = action.contactIds.length > 0
+              ? action.contactIds
+              : form.selectedContactIds;
+            return createActionItem({
+              user_id: user.id,
+              contact_id: contactIds[0] || null,
+              meeting_id: meetingId,
+              title: action.title,
+              description: action.description || null,
+              due_at: action.dueAt || null,
+              is_completed: false,
+              created_at: now,
+              completed_at: null,
+              direction: action.direction,
+              source: action.source === "ai_transcript" ? ActionItemSource.AiTranscript : undefined,
+              suggestion_evidence: action.evidence || undefined,
+              assigned_speaker: action.assignedSpeaker || undefined,
+            }, contactIds);
+          })
+        );
       }
 
       // Handle transcript segments
@@ -387,7 +392,7 @@ export function ConversationModal() {
         <div className="p-6 space-y-5">
           {/* Contact picker */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+            <label className={labelClasses}>
               Who did you talk to?
             </label>
             <ContactPicker
@@ -400,7 +405,7 @@ export function ConversationModal() {
 
           {/* Meeting name */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+            <label className={labelClasses}>
               Meeting name (optional)
             </label>
             <input
@@ -414,7 +419,7 @@ export function ConversationModal() {
 
           {/* Type chips */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+            <label className={labelClasses}>
               Type
             </label>
             <div className="flex flex-wrap gap-2">
@@ -443,7 +448,7 @@ export function ConversationModal() {
           {/* Date + optional Time */}
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+              <label className={labelClasses}>
                 When
               </label>
               <DatePicker
@@ -452,7 +457,7 @@ export function ConversationModal() {
               />
             </div>
             <div className="w-[140px]">
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+              <label className={labelClasses}>
                 Time (optional)
               </label>
               <TimePicker
@@ -489,6 +494,7 @@ export function ConversationModal() {
               meetingId={editMeeting?.id ?? null}
               userId={user?.id || ""}
               userName={user?.user_metadata?.full_name || undefined}
+              allContacts={allContacts}
               onAiActionAccepted={(action) => setPendingActions((prev) => [...prev, action])}
               onActionCreated={() => {
                 window.dispatchEvent(new CustomEvent("careervine:conversation-logged"));

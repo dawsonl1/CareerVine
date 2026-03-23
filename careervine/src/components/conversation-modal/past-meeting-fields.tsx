@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { ChevronDown, ChevronUp, Sparkles, Loader2 } from "lucide-react";
-import { inputClasses } from "@/lib/form-styles";
+import { ChevronDown, ChevronUp, Sparkles } from "lucide-react";
+import { inputClasses, labelClasses } from "@/lib/form-styles";
 import TranscriptUploader from "@/components/transcript-uploader";
 import { TranscriptActionSuggestions } from "@/components/meetings/transcript-action-suggestions";
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
@@ -17,6 +17,7 @@ interface PastMeetingFieldsProps {
   meetingId: number | null;
   userId: string;
   userName?: string;
+  allContacts: { id: number; name: string }[];
   onAiActionAccepted: (action: PendingAction) => void;
   onActionCreated: () => void;
 }
@@ -29,6 +30,7 @@ export function PastMeetingFields({
   meetingId,
   userId,
   userName,
+  allContacts,
   onAiActionAccepted,
   onActionCreated,
 }: PastMeetingFieldsProps) {
@@ -36,7 +38,10 @@ export function PastMeetingFields({
 
   const hasNotesOrTranscript = form.notes.trim().length > 0 || form.transcript.trim().length > 0;
 
-  const attendees = form.selectedContactIds.map((id) => ({ id, name: "" })); // names filled by parent
+  const attendees = form.selectedContactIds.map((id) => ({
+    id,
+    name: allContacts.find((c) => c.id === id)?.name || "",
+  }));
 
   const handleSegmentsParsed = useCallback(
     (segments: ParsedTranscriptTurn[], source: string) => {
@@ -95,7 +100,7 @@ export function PastMeetingFields({
     <>
       {/* Notes */}
       <div>
-        <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+        <label className={labelClasses}>
           Notes (optional)
         </label>
         <textarea

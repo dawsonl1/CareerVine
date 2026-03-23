@@ -1,6 +1,6 @@
 "use client";
 
-import { inputClasses } from "@/lib/form-styles";
+import { inputClasses, labelClasses } from "@/lib/form-styles";
 import type { ConversationFormState } from "./types";
 
 const DURATION_OPTIONS = [
@@ -46,14 +46,13 @@ export function FutureMeetingFields({
   allContacts,
 }: FutureMeetingFieldsProps) {
   const selectedContacts = form.selectedContactIds
-    .map((id) => ({ id, name: allContacts.find((c) => c.id === id)?.name || "Contact" }))
-    .filter(Boolean);
+    .map((id) => ({ id, name: allContacts.find((c) => c.id === id)?.name || "Contact" }));
 
   return (
     <>
       {/* Private reminder notes */}
       <div>
-        <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+        <label className={labelClasses}>
           Private reminder notes (optional)
         </label>
         <textarea
@@ -157,7 +156,7 @@ export function FutureMeetingFields({
             <>
               {/* Calendar description */}
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                <label className={labelClasses}>
                   Calendar invite description (optional)
                 </label>
                 <textarea
@@ -188,7 +187,7 @@ export function FutureMeetingFields({
 
               {/* Duration chips */}
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                <label className={labelClasses}>
                   Duration
                 </label>
                 <div className="flex flex-wrap gap-1.5">
