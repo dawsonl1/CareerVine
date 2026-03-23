@@ -20,6 +20,7 @@ import {
   createTranscriptSegments,
   deleteTranscriptSegments,
   addAttachmentToMeeting,
+  deleteAttachment,
 } from "@/lib/queries";
 import { CONVERSATION_TYPE_OPTIONS, ActionItemSource } from "@/lib/constants";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
@@ -73,7 +74,7 @@ const emptyTranscriptState: TranscriptState = {
 
 export function ConversationModal() {
   const { user } = useAuth();
-  const { isOpen, prefillContactId, editMeeting, editMeetingActions, close } = useQuickCapture();
+  const { isOpen, prefillContactId, editMeeting, close } = useQuickCapture();
   const { success: toastSuccess, error: toastError } = useToast();
   const { calendarConnected } = useGmailConnection();
 
@@ -96,27 +97,34 @@ export function ConversationModal() {
   const hasDate = !!form.date;
   const isFutureMeeting = (() => {
     if (!form.date) return false;
-    const dateStr = form.time ? `${form.date}T${form.time}` : form.date;
+    // Always use T00:00:00 for date-only to force local-time parsing (date-only strings parse as UTC)
+    const dateStr = form.time ? `${form.date}T${form.time}` : `${form.date}T00:00:00`;
     return new Date(dateStr) > new Date();
   })();
   const isPastMeeting = hasDate && !isFutureMeeting;
 
   const isEditMode = !!editMeeting;
 
-  const hasUnsavedChanges =
-    form.notes.trim().length > 0 ||
-    form.privateNotes.trim().length > 0 ||
-    form.transcript.trim().length > 0 ||
-    form.title.trim().length > 0 ||
-    pendingActions.length > 0;
+  // Track initial form snapshot to detect real changes (works for both new and edit mode)
+  const [initialFormSnapshot, setInitialFormSnapshot] = useState("");
+  const currentSnapshot = JSON.stringify({ ...form, pendingActions: pendingActions.length });
+  const hasUnsavedChanges = currentSnapshot !== initialFormSnapshot;
+
+  const closeAndCleanup = useCallback(() => {
+    // Clean up orphaned audio attachment if user didn't save
+    if (transcriptState.pendingAudioAttachment) {
+      deleteAttachment(transcriptState.pendingAudioAttachment.id, transcriptState.pendingAudioAttachment.object_path).catch(() => {});
+    }
+    close();
+  }, [close, transcriptState.pendingAudioAttachment]);
 
   const attemptClose = useCallback(() => {
-    if (hasUnsavedChanges && !isEditMode) {
+    if (hasUnsavedChanges) {
       setShowConfirmDiscard(true);
     } else {
-      close();
+      closeAndCleanup();
     }
-  }, [hasUnsavedChanges, isEditMode, close]);
+  }, [hasUnsavedChanges, closeAndCleanup]);
 
   // Close on Escape
   useEffect(() => {
@@ -157,18 +165,34 @@ export function ConversationModal() {
       setPendingActions([]);
       setTranscriptState(emptyTranscriptState);
       setInviteEmailMap({});
+      setMeetingDuration(60);
+      // Snapshot for edit mode discard detection
+      const editForm = {
+        selectedContactIds: editMeeting.meeting_contacts.map((mc) => mc.contact_id),
+        title: editMeeting.title || "",
+        meetingType: editMeeting.meeting_type || "coffee",
+        date: dateStr,
+        time: timeStr,
+        notes: editMeeting.notes || "",
+        privateNotes: editMeeting.private_notes || "",
+        transcript: editMeeting.transcript || "",
+        calendarDescription: editMeeting.calendar_description || "",
+      };
+      setInitialFormSnapshot(JSON.stringify({ ...editForm, pendingActions: 0 }));
     } else {
       // New mode
-      setForm({
+      const newForm = {
         ...emptyForm,
         selectedContactIds: prefillContactId ? [prefillContactId] : [],
-      });
+      };
+      setForm(newForm);
       setPendingActions([]);
       setTranscriptState(emptyTranscriptState);
       setInviteEmailMap({});
       setAddToCalendar(calendarConnected);
       setIncludeMeetLink(true);
       setMeetingDuration(60);
+      setInitialFormSnapshot(JSON.stringify({ ...newForm, pendingActions: 0 }));
     }
   }, [isOpen, editMeeting, prefillContactId, calendarConnected]);
 
@@ -240,9 +264,10 @@ export function ConversationModal() {
         // Create Google Calendar event for future meetings
         if (addToCalendar && calendarConnected && isFutureMeeting && form.time) {
           try {
-            const attendeeEmails = form.selectedContactIds.map((id) => {
-              return inviteEmailMap[id] || contactEmailsMap[id]?.[0] || null;
-            }).filter(Boolean) as string[];
+            const attendeeEmails = form.selectedContactIds
+              .filter((id) => inviteEmailMap[id] !== "") // skip explicitly uninvited
+              .map((id) => inviteEmailMap[id] || contactEmailsMap[id]?.[0] || null)
+              .filter(Boolean) as string[];
 
             const startTime = new Date(dateTime).toISOString();
             const endTime = new Date(new Date(dateTime).getTime() + meetingDuration * 60000).toISOString();
@@ -518,7 +543,7 @@ export function ConversationModal() {
           message="You have unsaved changes that will be lost."
           onDiscard={() => {
             setShowConfirmDiscard(false);
-            close();
+            closeAndCleanup();
           }}
           onKeepEditing={() => setShowConfirmDiscard(false)}
         />

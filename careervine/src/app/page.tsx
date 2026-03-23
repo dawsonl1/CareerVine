@@ -316,6 +316,13 @@ export default function Home() {
     if (user) loadData();
   }, [user, loadData]);
 
+  // Refresh when a conversation is logged via the unified modal
+  useEffect(() => {
+    const handler = () => loadData();
+    window.addEventListener("careervine:conversation-logged", handler);
+    return () => window.removeEventListener("careervine:conversation-logged", handler);
+  }, [loadData]);
+
   // Load AI drafts + trigger generation once after data loads
   const hasTriggeredGeneration = useRef(false);
   useEffect(() => {
@@ -428,7 +435,7 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <Navigation />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Greeting */}
         <div className="mb-10 flex items-start justify-between">
           <div>

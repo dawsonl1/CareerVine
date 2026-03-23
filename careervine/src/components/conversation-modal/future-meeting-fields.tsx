@@ -84,7 +84,8 @@ export function FutureMeetingFields({
                 const emails = contactEmailsMap[contact.id] || [];
                 const hasEmail = emails.length > 0;
                 const inviteEnabled = addToCalendar && hasEmail;
-                const isInvited = inviteEnabled && (inviteEmailMap[contact.id] !== undefined || emails.length > 0);
+                // Default: invited (not in map). Explicitly uninvited: map value is ""
+                const isInvited = inviteEnabled && inviteEmailMap[contact.id] !== "";
 
                 return (
                   <div key={contact.id} className="flex items-center gap-3">
@@ -95,9 +96,11 @@ export function FutureMeetingFields({
                         onChange={() => {
                           setInviteEmailMap((prev) => {
                             const next = { ...prev };
-                            if (next[contact.id] !== undefined) {
-                              delete next[contact.id];
+                            if (isInvited) {
+                              // Uninvite: mark as explicitly excluded
+                              next[contact.id] = "";
                             } else {
+                              // Re-invite: set to first email (or remove the exclusion)
                               next[contact.id] = emails[0];
                             }
                             return next;

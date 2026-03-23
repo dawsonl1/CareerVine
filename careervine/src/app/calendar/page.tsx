@@ -13,6 +13,7 @@ import type { Meeting, SimpleContact } from "@/lib/types";
 import { RefreshCw, Lock, RotateCcw, Video, MapPin, List, LayoutGrid, ChevronLeft, ChevronRight, Pencil, X, Plus, Search } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { Toggle } from "@/components/ui/toggle";
+import { CONVERSATION_TYPE_OPTIONS } from "@/lib/constants";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -322,7 +323,7 @@ export default function CalendarPage() {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex items-center gap-3 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
             <span className="text-sm">Loading calendar…</span>
@@ -335,7 +336,7 @@ export default function CalendarPage() {
   return (
     <div className="min-h-screen bg-background" onClick={() => selectedEvent && setSelectedEvent(null)}>
       <Navigation />
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
 
         {/* ── Header ── */}
         <div className="mb-6 flex items-center justify-between gap-4 flex-wrap">
@@ -637,11 +638,7 @@ export default function CalendarPage() {
                   <div><label className={labelClasses}>Time</label><TimePicker value={formData.meeting_time} onChange={v => setFormData({...formData, meeting_time: v})} /></div>
                   <div>
                     <label className={labelClasses}>Type *</label>
-                    <Select required value={formData.meeting_type} onChange={v => setFormData({...formData, meeting_type: v})} placeholder="Select…" options={[
-                      { value: "coffee", label: "Coffee Chat" }, { value: "video", label: "Video Call" },
-                      { value: "phone", label: "Phone Call" }, { value: "in-person", label: "In-Person" },
-                      { value: "conference", label: "Conference" }, { value: "other", label: "Other" },
-                    ]} />
+                    <Select required value={formData.meeting_type} onChange={v => setFormData({...formData, meeting_type: v})} placeholder="Select…" options={[...CONVERSATION_TYPE_OPTIONS]} />
                   </div>
                 </div>
                 {/* Contacts */}
