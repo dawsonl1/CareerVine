@@ -43,7 +43,7 @@ import { inputClasses } from "@/lib/form-styles";
 export default function MeetingsPage() {
   const { user } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
-  const { calendarConnected } = useGmailConnection();
+  const { calendarConnected, loading: connectionLoading } = useGmailConnection();
   const { open: openConversationModal, openEdit: openEditModal } = useQuickCapture();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,7 +227,7 @@ export default function MeetingsPage() {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex items-center gap-3 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
             <span className="text-sm">Loading meetings…</span>
@@ -240,7 +240,7 @@ export default function MeetingsPage() {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Header */}
         <div className="flex justify-between items-center mb-10">
           <div>
@@ -257,7 +257,7 @@ export default function MeetingsPage() {
         </div>
 
         {/* Calendar not connected banner */}
-        {!calendarConnected && !loading && (
+        {!calendarConnected && !loading && !connectionLoading && (
           <div className="flex gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 mb-5">
             <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="flex-1">

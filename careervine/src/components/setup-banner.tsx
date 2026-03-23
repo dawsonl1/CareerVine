@@ -17,7 +17,7 @@ const DISMISSED_KEY = "setup-banner-dismissed";
  */
 export default function SetupBanner() {
   const { user } = useAuth();
-  const { gmailConnected } = useCompose();
+  const { gmailConnected, gmailLoading } = useCompose();
   const { calendarConnected, loading } = useGmailConnection();
   // Read sessionStorage synchronously to avoid fetch race
   const [dismissed, setDismissed] = useState(() =>
@@ -31,7 +31,7 @@ export default function SetupBanner() {
   };
 
   // Don't render if: no user, still loading, dismissed, or everything is connected
-  if (!user || loading || dismissed) return null;
+  if (!user || loading || gmailLoading || dismissed) return null;
   if (gmailConnected && calendarConnected) return null;
 
   const needsGmail = !gmailConnected;
