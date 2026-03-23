@@ -41,6 +41,7 @@ import SpeakerResolver from "@/components/speaker-resolver";
 import { TranscriptActionSuggestions } from "@/components/meetings/transcript-action-suggestions";
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
+import { useQuickCapture } from "@/components/quick-capture-context";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
@@ -50,6 +51,7 @@ export default function MeetingsPage() {
   const { user } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
   const { calendarConnected } = useGmailConnection();
+  const { open: openConversationModal, openEdit: openEditModal } = useQuickCapture();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -204,6 +206,16 @@ export default function MeetingsPage() {
       loadInteractions();
     }
   }, [user, loadMeetings, loadContacts, loadInteractions]);
+
+  // Refresh when a conversation is logged via the unified modal
+  useEffect(() => {
+    const handler = () => {
+      loadMeetings();
+      loadInteractions();
+    };
+    window.addEventListener("careervine:conversation-logged", handler);
+    return () => window.removeEventListener("careervine:conversation-logged", handler);
+  }, [loadMeetings, loadInteractions]);
 
   const reloadMeetingActions = async (meetingId: number) => {
     try {
@@ -520,15 +532,8 @@ export default function MeetingsPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button onClick={() => setShowForm(true)}>
-              <Plus className="h-[18px] w-[18px]" /> Add meeting
-            </Button>
-            <Button variant="tonal" onClick={() => {
-              setInteractionContactId(null);
-              setInteractionForm({ interaction_date: new Date().toISOString().split("T")[0], interaction_type: "", summary: "" });
-              setShowInteractionModal(true);
-            }}>
-              <MessageSquare className="h-[18px] w-[18px]" /> Add interaction
+            <Button onClick={() => openConversationModal()}>
+              <Plus className="h-[18px] w-[18px]" /> Log conversation
             </Button>
           </div>
         </div>
@@ -1003,15 +1008,8 @@ export default function MeetingsPage() {
                 Meetings support notes, transcripts, and action items. Interactions are lighter — just a date and summary.
               </p>
               <div className="flex justify-center gap-2">
-                <Button onClick={() => setShowForm(true)}>
-                  <Plus className="h-[18px] w-[18px]" /> Add meeting
-                </Button>
-                <Button variant="tonal" onClick={() => {
-                  setInteractionContactId(null);
-                  setInteractionForm({ interaction_date: new Date().toISOString().split("T")[0], interaction_type: "", summary: "" });
-                  setShowInteractionModal(true);
-                }}>
-                  <MessageSquare className="h-[18px] w-[18px]" /> Add interaction
+                <Button onClick={() => openConversationModal()}>
+                  <Plus className="h-[18px] w-[18px]" /> Log conversation
                 </Button>
               </div>
             </CardContent>
@@ -1116,7 +1114,7 @@ export default function MeetingsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => handleEdit(meeting)} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors">
+                    <button onClick={() => openEditModal(meeting, meetingActions[meeting.id] || [])} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors">
                       <Pencil className="h-[18px] w-[18px]" />
                     </button>
                     <button

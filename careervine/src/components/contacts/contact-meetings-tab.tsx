@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { updateMeeting, getMeetingsForContact } from "@/lib/queries";
 import type { ContactMeeting } from "@/lib/types";
 import { Calendar, Pencil, ChevronDown, Plus } from "lucide-react";
-import { AddMeetingModal } from "@/components/contacts/add-meeting-modal";
+import { useQuickCapture } from "@/components/quick-capture-context";
 
 import { inputClasses } from "@/lib/form-styles";
 
@@ -23,7 +23,16 @@ export function ContactMeetingsTab({ contactId, userId, meetings, loading, onMee
   const [editNotes, setEditNotes] = useState("");
   const [editTranscript, setEditTranscript] = useState("");
   const [saving, setSaving] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const { open: openConversationModal } = useQuickCapture();
+
+  // Refresh meetings when a conversation is logged
+  useEffect(() => {
+    const handler = () => {
+      getMeetingsForContact(contactId).then(onMeetingsChange).catch(() => {});
+    };
+    window.addEventListener("careervine:conversation-logged", handler);
+    return () => window.removeEventListener("careervine:conversation-logged", handler);
+  }, [contactId, onMeetingsChange]);
 
   const handleSave = async (meeting: ContactMeeting) => {
     setSaving(true);
@@ -177,20 +186,11 @@ export function ContactMeetingsTab({ contactId, userId, meetings, loading, onMee
           type="button"
           variant="tonal"
           size="sm"
-          onClick={() => setShowAddModal(true)}
+          onClick={() => openConversationModal(contactId)}
         >
           <Plus className="h-4 w-4" /> Add meeting
         </Button>
       </div>
-
-      {showAddModal && (
-        <AddMeetingModal
-          contactId={contactId}
-          userId={userId}
-          onClose={() => setShowAddModal(false)}
-          onMeetingsChange={onMeetingsChange}
-        />
-      )}
     </div>
   );
 }
