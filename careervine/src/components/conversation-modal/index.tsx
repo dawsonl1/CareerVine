@@ -93,12 +93,13 @@ export function ConversationModal() {
 
   const savingRef = useRef(false);
 
-  // Derive whether this is a future meeting
+  const hasDate = !!form.date;
   const isFutureMeeting = (() => {
     if (!form.date) return false;
     const dateStr = form.time ? `${form.date}T${form.time}` : form.date;
     return new Date(dateStr) > new Date();
   })();
+  const isPastMeeting = hasDate && !isFutureMeeting;
 
   const isEditMode = !!editMeeting;
 
@@ -449,8 +450,8 @@ export function ConversationModal() {
             </div>
           </div>
 
-          {/* Conditional fields based on past/future */}
-          {isFutureMeeting ? (
+          {/* Conditional fields based on past/future — hidden until date is picked */}
+          {isFutureMeeting && (
             <FutureMeetingFields
               form={form}
               setForm={setForm}
@@ -466,32 +467,31 @@ export function ConversationModal() {
               setInviteEmailMap={setInviteEmailMap}
               allContacts={allContacts}
             />
-          ) : (
-            <PastMeetingFields
-              form={form}
-              setForm={setForm}
-              transcriptState={transcriptState}
-              setTranscriptState={setTranscriptState}
-              meetingId={editMeeting?.id ?? null}
-              userId={user?.id || ""}
-              userName={user?.user_metadata?.full_name || undefined}
-              allContacts={allContacts}
-              onAiActionAccepted={(action) => setPendingActions((prev) => [...prev, action])}
-              onActionCreated={() => {
-                window.dispatchEvent(new CustomEvent("careervine:conversation-logged"));
-              }}
-            />
           )}
-
-          {/* Follow-ups section (past meetings only) */}
-          {!isFutureMeeting && (
-            <ActionItemsSection
-              pendingActions={pendingActions}
-              onAddAction={(action) => setPendingActions((prev) => [...prev, action])}
-              onRemoveAction={(index) =>
-                setPendingActions((prev) => prev.filter((_, i) => i !== index))
-              }
-            />
+          {isPastMeeting && (
+            <>
+              <PastMeetingFields
+                form={form}
+                setForm={setForm}
+                transcriptState={transcriptState}
+                setTranscriptState={setTranscriptState}
+                meetingId={editMeeting?.id ?? null}
+                userId={user?.id || ""}
+                userName={user?.user_metadata?.full_name || undefined}
+                allContacts={allContacts}
+                onAiActionAccepted={(action) => setPendingActions((prev) => [...prev, action])}
+                onActionCreated={() => {
+                  window.dispatchEvent(new CustomEvent("careervine:conversation-logged"));
+                }}
+              />
+              <ActionItemsSection
+                pendingActions={pendingActions}
+                onAddAction={(action) => setPendingActions((prev) => [...prev, action])}
+                onRemoveAction={(index) =>
+                  setPendingActions((prev) => prev.filter((_, i) => i !== index))
+                }
+              />
+            </>
           )}
         </div>
 
