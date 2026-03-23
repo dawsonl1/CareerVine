@@ -5,7 +5,7 @@ import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { createActionItem } from "@/lib/queries";
 import { ActionItemSource, SuggestionReasonType } from "@/lib/constants";
-import { Sparkles, Check, X, Calendar, User, AlertTriangle, CheckSquare, Hourglass, Handshake, Pencil } from "lucide-react";
+import { Sparkles, Check, X, Calendar, User, AlertTriangle, CheckSquare, Hourglass, Pencil } from "lucide-react";
 
 /** Compact inline date picker — renders as a small "Add date" button that opens a native date input */
 function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
@@ -30,7 +30,7 @@ function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
   );
 }
 
-type Direction = "my_task" | "waiting_on" | "mutual";
+type Direction = "my_task" | "waiting_on";
 
 interface TranscriptSuggestion {
   _key: string;
@@ -47,13 +47,11 @@ interface TranscriptSuggestion {
 const DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
   { value: "my_task", label: "My task" },
   { value: "waiting_on", label: "Waiting on them" },
-  { value: "mutual", label: "Mutual" },
 ];
 
 const DIRECTION_CONFIG: Record<Direction, { icon: typeof CheckSquare; label: string; color: string }> = {
   my_task: { icon: CheckSquare, label: "Your commitments", color: "text-primary" },
   waiting_on: { icon: Hourglass, label: "Waiting on", color: "text-amber-600 dark:text-amber-400" },
-  mutual: { icon: Handshake, label: "Mutual", color: "text-muted-foreground" },
 };
 
 interface TranscriptActionSuggestionsProps {
@@ -234,10 +232,8 @@ export function TranscriptActionSuggestions({
   const groups: { direction: Direction; items: TranscriptSuggestion[] }[] = [];
   const myTasks = suggestions.filter((s) => s.direction === "my_task");
   const waitingOn = suggestions.filter((s) => s.direction === "waiting_on");
-  const mutual = suggestions.filter((s) => s.direction === "mutual");
   if (myTasks.length > 0) groups.push({ direction: "my_task", items: myTasks });
   if (waitingOn.length > 0) groups.push({ direction: "waiting_on", items: waitingOn });
-  if (mutual.length > 0) groups.push({ direction: "mutual", items: mutual });
 
   // Derive contact name for "Waiting on" header
   const waitingContactName = waitingOn[0]?.contactName || waitingOn[0]?.assignedSpeaker || "them";

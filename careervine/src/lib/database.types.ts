@@ -488,7 +488,7 @@ export type Database = {
           suggestion_reason_type: string | null;  // Type of AI suggestion reason
           suggestion_headline: string | null;     // AI-generated contextual headline
           suggestion_evidence: string | null;     // Evidence backing the suggestion
-          direction: string | null;               // 'my_task' | 'waiting_on' | 'mutual'
+          direction: string | null;               // 'my_task' | 'waiting_on'
           assigned_speaker: string | null;        // Original speaker label from transcript
           related_action_item_id: number | null;  // FK to linked paired item
         };

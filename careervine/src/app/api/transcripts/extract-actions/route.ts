@@ -7,7 +7,7 @@ import { matchSpeakerToAttendee, resolveDueDate } from "@/lib/transcript-action-
  * POST /api/transcripts/extract-actions
  *
  * Sends a meeting transcript to OpenAI and extracts concrete action items
- * with ownership direction (my_task, waiting_on, mutual).
+ * with ownership direction (my_task, waiting_on).
  *
  * Input:  { meetingId, transcript, attendees: [{id, name}], meetingDate }
  * Output: { suggestions: [{ title, description, contactId, contactName, dueDate, evidence, assignedSpeaker, direction }] }
@@ -29,7 +29,7 @@ const ACTION_ITEM_SCHEMA = {
           properties: {
             title: {
               type: "string",
-              description: "A concise, actionable task description written from the user's perspective. For user's tasks: 'Send Alex your resume'. For contact's tasks: 'Alex will review your resume and give feedback'. For mutual: 'Schedule follow-up check-in with Alex'.",
+              description: "A concise, actionable task description written from the user's perspective. For user's tasks: 'Send Alex your resume'. For contact's tasks: 'Alex will review your resume and give feedback'.",
             },
             description: {
               type: ["string", "null"],
@@ -41,8 +41,8 @@ const ACTION_ITEM_SCHEMA = {
             },
             direction: {
               type: "string",
-              enum: ["my_task", "waiting_on", "mutual"],
-              description: "Who owns this action: 'my_task' = the user committed to doing this, 'waiting_on' = the contact offered or committed to doing this for the user, 'mutual' = both parties agreed to do this together",
+              enum: ["my_task", "waiting_on"],
+              description: "Who owns this action: 'my_task' = the user committed to doing this (including joint/mutual agreements since the user needs to initiate), 'waiting_on' = the contact offered or committed to doing this for the user",
             },
             due_date_hint: {
               type: ["string", "null"],
@@ -85,14 +85,13 @@ export const POST = withApiHandler({
     const instructions =
       "You are analyzing a meeting transcript to extract action items from ALL participants. " +
       "An action item is a specific commitment, task, follow-up, or deliverable that someone agreed to do.\n\n" +
-      "Extract THREE types of commitments:\n" +
-      "1. **my_task** — Things the USER explicitly committed to doing (sending documents, writing something, following up)\n" +
-      "2. **waiting_on** — Things the CONTACT explicitly offered or committed to doing for the user (reviewing work, sending resources, making introductions). These are valuable — the user needs to track offers made to them so they can follow up if needed.\n" +
-      "3. **mutual** — Things BOTH parties agreed to do together (scheduling a follow-up meeting, reconnecting in N weeks)\n\n" +
+      "Extract TWO types of commitments:\n" +
+      "1. **my_task** — Things the USER explicitly committed to doing (sending documents, writing something, following up). Also classify joint/mutual agreements here (e.g., scheduling a follow-up together) since the user is the one who needs to initiate.\n" +
+      "2. **waiting_on** — Things the CONTACT explicitly offered or committed to doing for the user (reviewing work, sending resources, making introductions). These are valuable — the user needs to track offers made to them so they can follow up if needed.\n\n" +
       "Rules:\n" +
       "- Extract CONCRETE commitments only — things someone explicitly said they would do\n" +
       "- Do NOT extract vague social niceties ('we should catch up sometime') or things that already happened\n" +
-      "- Write titles from the user's perspective: 'Send Alex your resume' (my_task), 'Alex will review your project' (waiting_on), 'Schedule check-in with Alex in 4 weeks' (mutual)\n" +
+      "- Write titles from the user's perspective: 'Send Alex your resume' (my_task), 'Alex will review your project' (waiting_on), 'Schedule check-in with Alex in 4 weeks' (my_task)\n" +
       "- Be thorough — catch follow-up messages, scheduled check-ins, and offers of help from the contact\n" +
       "- For date ranges like '4-6 weeks', use the midpoint as the due_date_hint ('in 5 weeks')\n" +
       participantContext +
@@ -142,7 +141,7 @@ export const POST = withApiHandler({
       title: string;
       description: string | null;
       assigned_to: string;
-      direction: "my_task" | "waiting_on" | "mutual";
+      direction: "my_task" | "waiting_on";
       due_date_hint: string | null;
       evidence: string;
     }) => {
