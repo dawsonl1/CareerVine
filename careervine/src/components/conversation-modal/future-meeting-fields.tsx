@@ -26,6 +26,8 @@ interface FutureMeetingFieldsProps {
   contactEmailsMap: Record<number, string[]>;
   inviteEmailMap: Record<number, string>;
   setInviteEmailMap: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  excludedInviteIds: Set<number>;
+  setExcludedInviteIds: React.Dispatch<React.SetStateAction<Set<number>>>;
   allContacts: { id: number; name: string }[];
 }
 
@@ -42,6 +44,8 @@ export function FutureMeetingFields({
   contactEmailsMap,
   inviteEmailMap,
   setInviteEmailMap,
+  excludedInviteIds,
+  setExcludedInviteIds,
   allContacts,
 }: FutureMeetingFieldsProps) {
   const selectedContacts = form.selectedContactIds
@@ -84,8 +88,7 @@ export function FutureMeetingFields({
                 const emails = contactEmailsMap[contact.id] || [];
                 const hasEmail = emails.length > 0;
                 const inviteEnabled = addToCalendar && hasEmail;
-                // Default: invited (not in map). Explicitly uninvited: map value is ""
-                const isInvited = inviteEnabled && inviteEmailMap[contact.id] !== "";
+                const isInvited = inviteEnabled && !excludedInviteIds.has(contact.id);
 
                 return (
                   <div key={contact.id} className="flex items-center gap-3">
@@ -94,14 +97,12 @@ export function FutureMeetingFields({
                         checked={isInvited}
                         disabled={!addToCalendar || !hasEmail}
                         onChange={() => {
-                          setInviteEmailMap((prev) => {
-                            const next = { ...prev };
+                          setExcludedInviteIds((prev) => {
+                            const next = new Set(prev);
                             if (isInvited) {
-                              // Uninvite: mark as explicitly excluded
-                              next[contact.id] = "";
+                              next.add(contact.id);
                             } else {
-                              // Re-invite: set to first email (or remove the exclusion)
-                              next[contact.id] = emails[0];
+                              next.delete(contact.id);
                             }
                             return next;
                           });

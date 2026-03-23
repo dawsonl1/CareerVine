@@ -84,6 +84,7 @@ export function ConversationModal() {
   const [transcriptState, setTranscriptState] = useState<TranscriptState>(emptyTranscriptState);
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const [inviteEmailMap, setInviteEmailMap] = useState<Record<number, string>>({});
+  const [excludedInviteIds, setExcludedInviteIds] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [showConfirmDiscard, setShowConfirmDiscard] = useState(false);
 
@@ -165,6 +166,7 @@ export function ConversationModal() {
       setPendingActions([]);
       setTranscriptState(emptyTranscriptState);
       setInviteEmailMap({});
+      setExcludedInviteIds(new Set());
       setMeetingDuration(60);
       // Snapshot for edit mode discard detection
       const editForm = {
@@ -189,6 +191,7 @@ export function ConversationModal() {
       setPendingActions([]);
       setTranscriptState(emptyTranscriptState);
       setInviteEmailMap({});
+      setExcludedInviteIds(new Set());
       setAddToCalendar(calendarConnected);
       setIncludeMeetLink(true);
       setMeetingDuration(60);
@@ -265,7 +268,7 @@ export function ConversationModal() {
         if (addToCalendar && calendarConnected && isFutureMeeting && form.time) {
           try {
             const attendeeEmails = form.selectedContactIds
-              .filter((id) => inviteEmailMap[id] !== "") // skip explicitly uninvited
+              .filter((id) => !excludedInviteIds.has(id))
               .map((id) => inviteEmailMap[id] || contactEmailsMap[id]?.[0] || null)
               .filter(Boolean) as string[];
 
@@ -492,6 +495,8 @@ export function ConversationModal() {
               contactEmailsMap={contactEmailsMap}
               inviteEmailMap={inviteEmailMap}
               setInviteEmailMap={setInviteEmailMap}
+              excludedInviteIds={excludedInviteIds}
+              setExcludedInviteIds={setExcludedInviteIds}
               allContacts={allContacts}
             />
           )}
