@@ -149,18 +149,15 @@ export function PastMeetingFields({
           />
         )
       ) : (
-        <button
-          type="button"
-          disabled={!hasNotesOrTranscript}
-          onClick={() => {/* Save first, then extract — handled by parent save flow */}}
-          className="flex items-center gap-2 text-xs text-muted-foreground mt-2 cursor-not-allowed"
+        <span
+          className={`flex items-center gap-2 text-xs mt-2 ${
+            hasNotesOrTranscript ? "text-primary/50" : "text-muted-foreground/50"
+          }`}
           title={hasNotesOrTranscript ? "Save the conversation first, then edit it to generate AI action items" : "Add notes or a transcript first"}
         >
           <Sparkles className="h-3.5 w-3.5" />
-          <span className={hasNotesOrTranscript ? "text-primary/50" : ""}>
-            Suggest action items from transcript
-          </span>
-        </button>
+          Suggest action items from transcript
+        </span>
       )}
     </>
   );

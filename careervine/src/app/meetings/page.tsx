@@ -28,8 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getMeetings, deleteMeeting, getContacts, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment, getTranscriptSegments, updateSpeakerContact } from "@/lib/queries";
 import type { Meeting, SimpleContact, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact, TranscriptSegment } from "@/lib/types";
-import { ContactAvatar } from "@/components/contacts/contact-avatar";
-import { Plus, Calendar, X, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, Video, AlertCircle } from "lucide-react";
+import { Plus, Calendar, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { DatePicker } from "@/components/ui/date-picker";
 import { ContactPicker } from "@/components/ui/contact-picker";
@@ -39,7 +38,7 @@ import { TranscriptActionSuggestions } from "@/components/meetings/transcript-ac
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { useQuickCapture } from "@/components/quick-capture-context";
 
-import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { inputClasses } from "@/lib/form-styles";
 
 export default function MeetingsPage() {
   const { user } = useAuth();
@@ -77,11 +76,15 @@ export default function MeetingsPage() {
     if (!user) return;
     try {
       const data = await getContacts(user.id);
-      const contacts = (data as any[]).map((c) => ({
-        id: c.id,
-        name: c.name,
-        photo_url: c.photo_url,
-      }));
+      const contacts = (data as any[]).map((c) => {
+        const emails = (c.contact_emails || []).map((e: any) => e.email).filter(Boolean) as string[];
+        return {
+          id: c.id,
+          name: c.name,
+          email: emails[0] || undefined,
+          photo_url: c.photo_url,
+        };
+      });
       setAllContacts(contacts);
     } catch (e) { console.error("Error loading contacts:", e); }
   }, [user]);
@@ -224,7 +227,7 @@ export default function MeetingsPage() {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex items-center gap-3 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
             <span className="text-sm">Loading meetings…</span>
@@ -237,7 +240,7 @@ export default function MeetingsPage() {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Header */}
         <div className="flex justify-between items-center mb-10">
           <div>
