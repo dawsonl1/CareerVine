@@ -77,7 +77,7 @@ export function ConversationModal() {
   const { success: toastSuccess, error: toastError } = useToast();
   const { calendarConnected } = useGmailConnection();
 
-  const { contacts: allContacts, emailsMap: contactEmailsMap } = useContactsWithEmails();
+  const { contacts: allContacts, emailsMap: contactEmailsMap } = useContactsWithEmails({ enabled: isOpen });
 
   const [form, setForm] = useState<ConversationFormState>(emptyForm);
   const [transcriptState, setTranscriptState] = useState<TranscriptState>(emptyTranscriptState);

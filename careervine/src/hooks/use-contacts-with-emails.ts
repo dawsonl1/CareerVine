@@ -14,23 +14,24 @@ export type SimpleContactWithEmail = {
 };
 
 /**
- * Shared hook for loading contacts with their email addresses.
+ * Hook for loading contacts with their email addresses.
  * Returns a simplified contact list and a map of contactId → email addresses.
- * All consumers share the same fetch — deduped by the user ID.
+ * Pass `enabled: false` to defer fetching until needed (e.g., when a modal opens).
  */
-export function useContactsWithEmails() {
+export function useContactsWithEmails({ enabled = true }: { enabled?: boolean } = {}) {
   const { user } = useAuth();
+  const userId = user?.id;
   const [contacts, setContacts] = useState<SimpleContactWithEmail[]>([]);
   const [emailsMap, setEmailsMap] = useState<Record<number, string[]>>({});
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     setLoading(true);
     try {
-      const data = await getContacts(user.id);
+      const data = await getContacts(userId);
       const map: Record<number, string[]> = {};
-      const list = (data as any[]).map((c) => {
+      const list = (data as any[]).map((c: any) => {
         const emails = (c.contact_emails || [])
           .map((e: any) => e.email)
           .filter(Boolean) as string[];
@@ -51,11 +52,11 @@ export function useContactsWithEmails() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (enabled) load();
+  }, [load, enabled]);
 
   return { contacts, emailsMap, loading, refresh: load };
 }

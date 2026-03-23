@@ -152,7 +152,8 @@ export default function MeetingsPage() {
       setMeetings(data as unknown as Meeting[]);
 
       // Load calendar events for meetings that have a linked calendar_event_id
-      const calEventIds = (data as any[]).map(m => m.calendar_event_id).filter(Boolean);
+      const typedMeetings = data as unknown as Meeting[];
+      const calEventIds = typedMeetings.map(m => m.calendar_event_id).filter(Boolean);
       if (calEventIds.length > 0) {
         try {
           const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser-client");
@@ -164,7 +165,7 @@ export default function MeetingsPage() {
             .eq("user_id", user.id);
           if (calEvents) {
             const calMap: Record<number, { google_event_id: string; attendees: Array<{ email: string; name: string; responseStatus: string }> }> = {};
-            for (const m of data as any[]) {
+            for (const m of typedMeetings) {
               const ce = calEvents.find((c: any) => c.google_event_id === m.calendar_event_id);
               if (ce) calMap[m.id] = { google_event_id: ce.google_event_id, attendees: ce.attendees || [] };
             }
@@ -298,11 +299,11 @@ export default function MeetingsPage() {
         await replaceContactsForMeeting(editingMeeting.id, selectedContactIds);
         meetingId = editingMeeting.id;
 
-        if ((editingMeeting as any).calendar_event_id) {
+        if (editingMeeting.calendar_event_id) {
           try {
             const startTime = new Date(dateTime).toISOString();
             const endTime = new Date(new Date(dateTime).getTime() + meetingDuration * 60000).toISOString();
-            await fetch(`/api/calendar/events/${(editingMeeting as any).calendar_event_id}`, {
+            await fetch(`/api/calendar/events/${editingMeeting.calendar_event_id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || formData.notes || undefined, startTime, endTime }),
@@ -438,14 +439,14 @@ export default function MeetingsPage() {
     setIsTranscribing(false);
     setPendingAudioAttachment(null);
     // Calculate actual duration from the meeting's calendar event if available
-    if ((meeting as any).calendar_event_id) {
+    if (meeting.calendar_event_id) {
       try {
         const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser-client");
         const supabase = createSupabaseBrowserClient();
         const { data: calEvent } = await supabase
           .from("calendar_events")
           .select("start_at, end_at")
-          .eq("google_event_id", (meeting as any).calendar_event_id)
+          .eq("google_event_id", meeting.calendar_event_id)
           .eq("user_id", user!.id)
           .single();
         if (calEvent?.start_at && calEvent?.end_at) {

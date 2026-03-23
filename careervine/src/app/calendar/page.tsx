@@ -181,7 +181,7 @@ export default function CalendarPage() {
     if (!user) return;
     const meetings = await getMeetings(user.id) as Meeting[];
     const map: Record<string, Meeting> = {};
-    meetings.forEach(m => { if ((m as any).calendar_event_id) map[(m as any).calendar_event_id] = m; });
+    meetings.forEach(m => { if (m.calendar_event_id) map[m.calendar_event_id] = m; });
     setLinkedMeetings(map);
   };
 

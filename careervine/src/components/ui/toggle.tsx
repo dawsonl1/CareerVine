@@ -14,7 +14,7 @@ export function Toggle({ checked, onChange, disabled, className = "" }: TogglePr
       role="switch"
       aria-checked={checked}
       disabled={disabled}
-      onClick={() => !disabled && onChange(!checked)}
+      onClick={() => onChange(!checked)}
       className={`relative w-10 h-6 rounded-full transition-colors ${
         checked ? "bg-primary" : "bg-outline"
       } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${className}`}
