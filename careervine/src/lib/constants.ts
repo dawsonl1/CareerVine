@@ -74,18 +74,21 @@ export const SuggestionReasonType = {
 export const ActionDirection = {
   MyTask: "my_task",
   WaitingOn: "waiting_on",
-  Mutual: "mutual",
 } as const;
 
-// ── Meeting type options (shared across meeting forms) ───────────────
+// ── Meeting / conversation type options ──────────────────────────────
 
-export const MEETING_TYPE_OPTIONS = [
-  { value: "coffee", label: "Coffee Chat" },
-  { value: "phone", label: "Phone Call" },
-  { value: "video", label: "Video Call" },
-  { value: "in-person", label: "In Person" },
-  { value: "lunch", label: "Lunch/Dinner" },
-  { value: "interview", label: "Interview" },
-  { value: "networking", label: "Networking Event" },
-  { value: "other", label: "Other" },
+/** Unified type list for the conversation modal (with icon names for dynamic import) */
+export const CONVERSATION_TYPE_OPTIONS = [
+  { value: "coffee", label: "Coffee Chat", iconName: "Coffee" },
+  { value: "phone", label: "Phone Call", iconName: "Phone" },
+  { value: "video", label: "Video Call", iconName: "Video" },
+  { value: "in-person", label: "In Person", iconName: "Users" },
+  { value: "lunch", label: "Lunch/Dinner", iconName: "UtensilsCrossed" },
+  { value: "conference", label: "Conference", iconName: "Building2" },
+  { value: "networking", label: "Networking Event", iconName: "Globe" },
+  { value: "other", label: "Other", iconName: "MessageSquare" },
 ] as const;
+
+/** @deprecated Use CONVERSATION_TYPE_OPTIONS instead */
+export const MEETING_TYPE_OPTIONS = CONVERSATION_TYPE_OPTIONS;

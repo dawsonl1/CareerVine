@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getActionItems, updateActionItem, createActionItem, getContacts, getCompletedActionItems, deleteActionItem, replaceContactsForActionItem } from "@/lib/queries";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { Database } from "@/lib/database.types";
-import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark, Hourglass, Handshake } from "lucide-react";
+import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark, Hourglass } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { ActionItemSource, ActionDirection } from "@/lib/constants";
 import { useSuggestions } from "@/hooks/use-suggestions";
@@ -329,9 +329,6 @@ export default function ActionItemsPage() {
             <div className="flex items-center gap-1.5">
               {isAiGenerated(item) && (
                 <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-              )}
-              {item.direction === ActionDirection.Mutual && (
-                <span title="Mutual task"><Handshake className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" /></span>
               )}
               {renderPriorityDot(item)}
               <h3 className="text-base font-medium text-foreground">{item.title}</h3>

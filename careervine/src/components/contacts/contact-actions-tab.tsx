@@ -8,7 +8,7 @@ import { Select } from "@/components/ui/select";
 import { ContactPicker } from "@/components/ui/contact-picker";
 import { createActionItem, updateActionItem, deleteActionItem, replaceContactsForActionItem, getActionItemsForContact, getCompletedActionItemsForContact } from "@/lib/queries";
 import type { Contact, ContactMeeting } from "@/lib/types";
-import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare, Hourglass, Handshake } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare, Hourglass } from "lucide-react";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, getPriorityOrder } from "@/lib/priority-helpers";
 import { ActionDirection } from "@/lib/constants";
@@ -117,14 +117,12 @@ export function ContactActionsTab({
   const contactName = allContacts.find((c) => c.id === contactId)?.name ?? "them";
   const hasDirections = filtered.some((a) => a.direction);
 
-  const myTasks = filtered.filter((a) => a.direction !== ActionDirection.WaitingOn && a.direction !== ActionDirection.Mutual);
+  const myTasks = filtered.filter((a) => a.direction !== ActionDirection.WaitingOn);
   const waitingTasks = filtered.filter((a) => a.direction === ActionDirection.WaitingOn);
-  const mutualTasks = filtered.filter((a) => a.direction === ActionDirection.Mutual);
 
   // Completed counts per direction for progress display
-  const completedMy = completedActions.filter((a) => a.direction !== ActionDirection.WaitingOn && a.direction !== ActionDirection.Mutual).length;
+  const completedMy = completedActions.filter((a) => a.direction !== ActionDirection.WaitingOn).length;
   const completedWaiting = completedActions.filter((a) => a.direction === ActionDirection.WaitingOn).length;
-  const completedMutual = completedActions.filter((a) => a.direction === ActionDirection.Mutual).length;
 
   const renderActionRow = (action: ActionItem, icon: React.ReactNode, showWaitingDays?: boolean) =>
     editingId === action.id ? (
@@ -290,18 +288,6 @@ export function ContactActionsTab({
               </div>
             </div>
           )}
-          {mutualTasks.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
-                <Handshake className="h-3 w-3" /> Mutual ({completedMutual} of {mutualTasks.length + completedMutual} done)
-              </p>
-              <div className="space-y-1.5">
-                {mutualTasks.map((action) =>
-                  renderActionRow(action, <Handshake className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />)
-                )}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -341,9 +327,8 @@ export function ContactActionsTab({
               );
             }
 
-            const completedMyItems = completedActions.filter((a) => a.direction !== ActionDirection.WaitingOn && a.direction !== ActionDirection.Mutual);
+            const completedMyItems = completedActions.filter((a) => a.direction !== ActionDirection.WaitingOn);
             const completedWaitingItems = completedActions.filter((a) => a.direction === ActionDirection.WaitingOn);
-            const completedMutualItems = completedActions.filter((a) => a.direction === ActionDirection.Mutual);
 
             return (
               <div className="space-y-3 mt-2">
@@ -361,14 +346,6 @@ export function ContactActionsTab({
                       <Hourglass className="h-3 w-3" /> Waiting on {contactName}
                     </p>
                     <div className="space-y-1.5">{completedWaitingItems.map(completedRow)}</div>
-                  </div>
-                )}
-                {completedMutualItems.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
-                      <Handshake className="h-3 w-3" /> Mutual
-                    </p>
-                    <div className="space-y-1.5">{completedMutualItems.map(completedRow)}</div>
                   </div>
                 )}
               </div>

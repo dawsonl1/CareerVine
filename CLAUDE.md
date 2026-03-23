@@ -47,3 +47,9 @@ This file contains a growing ruleset that improves over time. **At session start
 5. [UX] Prioritize user experience above all else. Every UI decision must favor clean, intuitive design that serves real functionality and utility — never add visual clutter, unnecessary complexity, or decorative elements that don't help the user accomplish their goals. The product exists to meaningfully improve users' lives, so every interaction should feel effortless and purposeful.
 
 6. [PROCESS] Always write implementation plans to `/home/braxtong/Dawson/CareerVine/.claude/plans/` as a markdown file before starting non-trivial features — because the user wants plans persisted and reviewable on disk, not just in conversation context.
+
+7. [PROCESS] After completing a user-facing feature, update the project README to reflect the new capability from a product perspective — describe what the feature does for the user and why it matters, not implementation details. The README should read like a product page that sells the app's value, not a technical changelog.
+
+8. [PROCESS] Always run `git pull` before pushing — because the user frequently pushes empty commits from their local machine to retrigger Vercel deployments (hobby plan limitation), which causes the remote to diverge from this machine's local history. A pre-push pull prevents rejected pushes.
+
+9. [PROCESS] Always number plan files in `.claude/plans/` with a two-digit sequential prefix (e.g., `19-feature-name.md`). Check the highest existing number and increment by one — because the user navigates plans by number, not alphabetically.
