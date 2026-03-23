@@ -136,22 +136,31 @@ export function PastMeetingFields({
       </div>
 
       {/* AI Generate Action Items */}
-      {meetingId && hasNotesOrTranscript && (
-        <TranscriptActionSuggestions
-          meetingId={meetingId}
-          userId={userId}
-          userName={userName}
-          transcript={form.transcript || form.notes}
-          attendees={attendees}
-          meetingDate={form.date}
-          onActionCreated={onActionCreated}
-        />
-      )}
-      {!meetingId && hasNotesOrTranscript && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+      {meetingId ? (
+        hasNotesOrTranscript && (
+          <TranscriptActionSuggestions
+            meetingId={meetingId}
+            userId={userId}
+            userName={userName}
+            transcript={form.transcript || form.notes}
+            attendees={attendees}
+            meetingDate={form.date}
+            onActionCreated={onActionCreated}
+          />
+        )
+      ) : (
+        <button
+          type="button"
+          disabled={!hasNotesOrTranscript}
+          onClick={() => {/* Save first, then extract — handled by parent save flow */}}
+          className="flex items-center gap-2 text-xs text-muted-foreground mt-2 cursor-not-allowed"
+          title={hasNotesOrTranscript ? "Save the conversation first, then edit it to generate AI action items" : "Add notes or a transcript first"}
+        >
           <Sparkles className="h-3.5 w-3.5" />
-          <span>Save the conversation first to generate AI action items</span>
-        </div>
+          <span className={hasNotesOrTranscript ? "text-primary/50" : ""}>
+            Suggest action items from transcript
+          </span>
+        </button>
       )}
     </>
   );

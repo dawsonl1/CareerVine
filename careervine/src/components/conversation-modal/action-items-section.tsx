@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { ActionDirection } from "@/lib/constants";
@@ -97,7 +96,7 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
       </div>
 
       {/* Add action item inline */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-stretch">
         <input
           type="text"
           value={title}
@@ -114,16 +113,16 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
         <div className="w-[140px] shrink-0">
           <DatePicker value={dueAt} onChange={setDueAt} placeholder="Due date" />
         </div>
-        <Button
-          type="button"
-          variant="tonal"
-          size="sm"
-          onClick={addAction}
-          disabled={!title.trim()}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
       </div>
+      <button
+        type="button"
+        onClick={addAction}
+        disabled={!title.trim()}
+        className="mt-2 flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 disabled:text-muted-foreground disabled:cursor-not-allowed cursor-pointer transition-colors"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add follow-up
+      </button>
     </div>
   );
 }

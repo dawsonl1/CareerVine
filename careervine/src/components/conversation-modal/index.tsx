@@ -438,16 +438,18 @@ export function ConversationModal() {
                 onChange={(val) => setForm((prev) => ({ ...prev, date: val }))}
               />
             </div>
-            <div className="w-[140px]">
-              <label className={labelClasses}>
-                Time (optional)
-              </label>
-              <TimePicker
-                value={form.time}
-                onChange={(val) => setForm((prev) => ({ ...prev, time: val }))}
-                placeholder="Time"
-              />
-            </div>
+            {hasDate && (
+              <div className="w-[140px]">
+                <label className={labelClasses}>
+                  Time (optional)
+                </label>
+                <TimePicker
+                  value={form.time}
+                  onChange={(val) => setForm((prev) => ({ ...prev, time: val }))}
+                  placeholder="Time"
+                />
+              </div>
+            )}
           </div>
 
           {/* Conditional fields based on past/future — hidden until date is picked */}
