@@ -55,8 +55,8 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 const emptyForm: ConversationFormState = {
   selectedContactIds: [],
   title: "",
-  meetingType: "coffee",
-  date: new Date().toISOString().split("T")[0],
+  meetingType: "",
+  date: "",
   time: "",
   notes: "",
   privateNotes: "",
@@ -161,7 +161,6 @@ export function ConversationModal() {
       setForm({
         ...emptyForm,
         selectedContactIds: prefillContactId ? [prefillContactId] : [],
-        date: new Date().toISOString().split("T")[0],
       });
       setPendingActions([]);
       setTranscriptState(emptyTranscriptState);
@@ -357,7 +356,7 @@ export function ConversationModal() {
       <div className="absolute inset-0 bg-black/40" onClick={attemptClose} />
 
       {/* Modal */}
-      <div className="relative w-full sm:max-w-lg max-h-[100dvh] sm:max-h-[85vh] bg-background rounded-t-[28px] sm:rounded-[28px] shadow-xl overflow-y-auto">
+      <div className="relative w-full sm:max-w-2xl max-h-[100dvh] sm:max-h-[85vh] bg-background rounded-t-[28px] sm:rounded-[28px] shadow-xl overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-6 pt-6 pb-4 border-b border-outline-variant">
           <h2 className="text-lg font-medium text-foreground">
@@ -504,7 +503,7 @@ export function ConversationModal() {
           <Button
             onClick={handleSave}
             loading={saving}
-            disabled={form.selectedContactIds.length === 0}
+            disabled={form.selectedContactIds.length === 0 || !form.meetingType || !form.date}
           >
             {isEditMode ? "Update" : "Save conversation"}
           </Button>
