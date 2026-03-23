@@ -14,7 +14,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 
 ### Key workflows
 
-- **Log a conversation, capture what matters** — Quick-capture from anywhere in the app. Notes, attendees, and action items are tied to the conversation where they happened, not floating in a vacuum.
+- **Log a conversation, capture what matters** — One unified modal, accessible from anywhere in the app. Log a past meeting with notes, transcripts, and AI-generated action items — or schedule a future meeting with Google Calendar invites, Meet links, and private reminder notes. The same clean interface whether you're on the dashboard, a contact's profile, or the activity page.
 - **Never drop a follow-up** — Set a cadence per contact (weekly, monthly, quarterly). The two-column dashboard shows your action items, overdue contacts, and AI suggestions on the left with network health on the right. Mark tasks done, log interactions, and save suggestions without ever leaving the page.
 - **One-click LinkedIn import** — A Chrome extension scrapes a LinkedIn profile and saves the contact with work history, education, and photo. No manual data entry.
 - **Email as a first-class feature** — Threaded Gmail inbox, AI-powered composition, scheduled sends, and multi-stage follow-up sequences that auto-cancel when the person replies.
@@ -30,7 +30,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 - **AI email drafts grounded in real conversations.** The AI compose feature optionally pulls in meeting notes and transcripts as context, with a 32KB token budget to keep quality high. The prompt explicitly blocks generic phrases like "I stumbled upon" to keep emails sounding like you actually wrote them.
 - **Conversation-first data model.** Action items link back to the meeting where you made the promise. Timeline shows everything chronologically across meetings, emails, and interactions. A task isn't just a task — it's a record of a commitment you made to a specific person at a specific time.
 - **Chrome extension that doesn't fight the host page.** The LinkedIn sidebar uses a closed Shadow DOM with `all: initial` on the host element, so LinkedIn's CSS can't leak in and the extension can't break LinkedIn. Profile photos are extracted with a three-tier fallback strategy (400x400 first, URL rewrite from 100x100, graceful null). Duplicate detection runs before scraping even starts.
-- **Multi-contact conversation logging.** Real networking events involve multiple people. Quick-capture lets you log one conversation with multiple contacts, creating interactions for all of them in parallel. If creation fails for some contacts, it still succeeds for the others and shows a partial-success toast.
+- **One modal for everything.** Past coffee chat? Future informational interview? Same modal, different fields. The unified conversation modal adapts to context: past dates show notes, transcript upload, and AI action item extraction. Future dates show private reminder notes, Google Calendar integration, and attendee invites. Eight conversation types, multi-contact support, and direction-aware action items (your tasks vs. what you're waiting on).
 
 ## Tech stack
 
@@ -43,7 +43,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 | Auth | Supabase Auth |
 | APIs | Gmail API, Google Calendar API, OpenAI API, Deepgram API |
 | Rich text | Tiptap editor |
-| Testing | Vitest + React Testing Library (341 tests) |
+| Testing | Vitest + React Testing Library (356 tests) |
 | Deployment | Vercel |
 | Browser extension | Chrome Manifest V3, Shadow DOM isolation |
 
