@@ -1,6 +1,7 @@
 "use client";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { Toggle } from "@/components/ui/toggle";
 import type { ConversationFormState } from "./types";
 
 const DURATION_OPTIONS = [
@@ -22,11 +23,9 @@ interface FutureMeetingFieldsProps {
   setIncludeMeetLink: (v: boolean) => void;
   meetingDuration: number;
   setMeetingDuration: (v: number) => void;
-  /** Map of contactId → email addresses */
   contactEmailsMap: Record<number, string[]>;
   inviteEmailMap: Record<number, string>;
   setInviteEmailMap: React.Dispatch<React.SetStateAction<Record<number, string>>>;
-  /** Contact names for invite toggles */
   allContacts: { id: number; name: string }[];
 }
 
@@ -67,24 +66,14 @@ export function FutureMeetingFields({
       {/* Google Calendar section */}
       {calendarConnected && (
         <div className="border-t border-outline-variant pt-5 space-y-4">
-          {/* Add to Google Calendar toggle */}
           <label className="flex items-center gap-3 cursor-pointer">
-            <div
-              className={`relative w-10 h-6 rounded-full transition-colors ${
-                addToCalendar ? "bg-primary" : "bg-outline"
-              }`}
-              onClick={() => {
-                const next = !addToCalendar;
+            <Toggle
+              checked={addToCalendar}
+              onChange={(next) => {
                 setAddToCalendar(next);
                 if (!next) setIncludeMeetLink(false);
               }}
-            >
-              <div
-                className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                  addToCalendar ? "left-5" : "left-1"
-                }`}
-              />
-            </div>
+            />
             <span className="text-sm text-foreground">Add to Google Calendar</span>
           </label>
 
@@ -100,13 +89,10 @@ export function FutureMeetingFields({
                 return (
                   <div key={contact.id} className="flex items-center gap-3">
                     <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
-                      <div
-                        className={`relative w-10 h-6 rounded-full transition-colors shrink-0 ${
-                          isInvited ? "bg-primary" : "bg-outline"
-                        } ${!addToCalendar ? "opacity-50" : ""}`}
-                        onClick={() => {
-                          if (!addToCalendar) return;
-                          if (!hasEmail) return;
+                      <Toggle
+                        checked={isInvited}
+                        disabled={!addToCalendar || !hasEmail}
+                        onChange={() => {
                           setInviteEmailMap((prev) => {
                             const next = { ...prev };
                             if (next[contact.id] !== undefined) {
@@ -117,13 +103,7 @@ export function FutureMeetingFields({
                             return next;
                           });
                         }}
-                      >
-                        <div
-                          className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                            isInvited ? "left-5" : "left-1"
-                          }`}
-                        />
-                      </div>
+                      />
                       <span className="text-sm text-foreground truncate">
                         Invite {contact.name}
                       </span>
@@ -134,7 +114,6 @@ export function FutureMeetingFields({
                     {!addToCalendar && (
                       <span className="text-[10px] text-muted-foreground shrink-0">Enable calendar first</span>
                     )}
-                    {/* Email selector for multi-email contacts */}
                     {hasEmail && emails.length > 1 && inviteEnabled && (
                       <select
                         value={inviteEmailMap[contact.id] || emails[0]}
@@ -154,7 +133,6 @@ export function FutureMeetingFields({
 
           {addToCalendar && (
             <>
-              {/* Calendar description */}
               <div>
                 <label className={labelClasses}>
                   Calendar invite description (optional)
@@ -168,28 +146,13 @@ export function FutureMeetingFields({
                 />
               </div>
 
-              {/* Google Meet toggle */}
               <label className="flex items-center gap-3 cursor-pointer">
-                <div
-                  className={`relative w-10 h-6 rounded-full transition-colors ${
-                    includeMeetLink ? "bg-primary" : "bg-outline"
-                  }`}
-                  onClick={() => setIncludeMeetLink(!includeMeetLink)}
-                >
-                  <div
-                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                      includeMeetLink ? "left-5" : "left-1"
-                    }`}
-                  />
-                </div>
+                <Toggle checked={includeMeetLink} onChange={setIncludeMeetLink} />
                 <span className="text-sm text-foreground">Include Google Meet link</span>
               </label>
 
-              {/* Duration chips */}
               <div>
-                <label className={labelClasses}>
-                  Duration
-                </label>
+                <label className={labelClasses}>Duration</label>
                 <div className="flex flex-wrap gap-1.5">
                   {DURATION_OPTIONS.map((opt) => (
                     <button

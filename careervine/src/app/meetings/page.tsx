@@ -44,6 +44,7 @@ import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { useQuickCapture } from "@/components/quick-capture-context";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { Toggle } from "@/components/ui/toggle";
 
 const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", title: "", notes: "", privateNotes: "", calendarDescription: "", transcript: "" };
 
@@ -875,17 +876,7 @@ export default function MeetingsPage() {
                         <Calendar className="h-4 w-4 text-muted-foreground" />
                         Add to Google Calendar
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setAddToCalendar(!addToCalendar)}
-                        className={`relative w-10 h-6 rounded-full transition-colors ${
-                          addToCalendar ? "bg-primary" : "bg-outline-variant"
-                        }`}
-                      >
-                        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
-                          addToCalendar ? "left-5" : "left-1"
-                        }`} />
-                      </button>
+                      <Toggle checked={addToCalendar} onChange={setAddToCalendar} />
                     </div>
                     {addToCalendar && (
                       <>
@@ -903,17 +894,7 @@ export default function MeetingsPage() {
                           <label className="text-sm text-muted-foreground flex items-center gap-2">
                             <Video className="h-4 w-4" /> Include Google Meet link
                           </label>
-                          <button
-                            type="button"
-                            onClick={() => setIncludeMeetLink(!includeMeetLink)}
-                            className={`relative w-10 h-6 rounded-full transition-colors ${
-                              includeMeetLink ? "bg-primary" : "bg-outline-variant"
-                            }`}
-                          >
-                            <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
-                              includeMeetLink ? "left-5" : "left-1"
-                            }`} />
-                          </button>
+                          <Toggle checked={includeMeetLink} onChange={setIncludeMeetLink} />
                         </div>
                         <div>
                           <label className={labelClasses}>Meeting duration</label>

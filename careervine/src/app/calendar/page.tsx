@@ -12,6 +12,7 @@ import { getMeetings, createMeeting, updateMeeting, getContacts, addContactsToMe
 import type { Meeting, SimpleContact } from "@/lib/types";
 import { RefreshCw, Lock, RotateCcw, Video, MapPin, List, LayoutGrid, ChevronLeft, ChevronRight, Pencil, X, Plus, Search } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { Toggle } from "@/components/ui/toggle";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -704,9 +705,7 @@ export default function CalendarPage() {
                   <div className="rounded-[12px] border border-outline-variant/60 p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <label className="text-sm text-muted-foreground">Add to Google Calendar</label>
-                      <button type="button" onClick={() => setAddToCalendar(!addToCalendar)} className={`relative w-10 h-6 rounded-full transition-colors ${addToCalendar ? "bg-primary" : "bg-outline-variant"}`}>
-                        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${addToCalendar ? "left-5" : "left-1"}`} />
-                      </button>
+                      <Toggle checked={addToCalendar} onChange={setAddToCalendar} />
                     </div>
                     {addToCalendar && (
                       <>
@@ -715,9 +714,7 @@ export default function CalendarPage() {
                         </div>
                         <div className="flex items-center justify-between">
                           <label className="text-sm text-muted-foreground flex items-center gap-2"><Video className="h-4 w-4" /> Include Google Meet link</label>
-                          <button type="button" onClick={() => setIncludeMeetLink(!includeMeetLink)} className={`relative w-10 h-6 rounded-full transition-colors ${includeMeetLink ? "bg-primary" : "bg-outline-variant"}`}>
-                            <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${includeMeetLink ? "left-5" : "left-1"}`} />
-                          </button>
+                          <Toggle checked={includeMeetLink} onChange={setIncludeMeetLink} />
                         </div>
                         <div><label className={labelClasses}>Duration</label>
                           <select value={meetingDuration} onChange={e => setMeetingDuration(Number(e.target.value))} className={inputClasses}>

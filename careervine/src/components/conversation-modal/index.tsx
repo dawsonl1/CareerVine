@@ -5,13 +5,13 @@ import { useAuth } from "@/components/auth-provider";
 import { useQuickCapture } from "@/components/quick-capture-context";
 import { useToast } from "@/components/ui/toast";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
+import { useContactsWithEmails } from "@/hooks/use-contacts-with-emails";
 import { Button } from "@/components/ui/button";
 import { ContactPicker } from "@/components/ui/contact-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { ConfirmDiscardDialog } from "@/components/ui/modal";
 import {
-  getContacts,
   createMeeting,
   updateMeeting,
   addContactsToMeeting,
@@ -77,11 +77,11 @@ export function ConversationModal() {
   const { success: toastSuccess, error: toastError } = useToast();
   const { calendarConnected } = useGmailConnection();
 
+  const { contacts: allContacts, emailsMap: contactEmailsMap } = useContactsWithEmails();
+
   const [form, setForm] = useState<ConversationFormState>(emptyForm);
   const [transcriptState, setTranscriptState] = useState<TranscriptState>(emptyTranscriptState);
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
-  const [allContacts, setAllContacts] = useState<{ id: number; name: string }[]>([]);
-  const [contactEmailsMap, setContactEmailsMap] = useState<Record<number, string[]>>({});
   const [inviteEmailMap, setInviteEmailMap] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [showConfirmDiscard, setShowConfirmDiscard] = useState(false);
@@ -132,24 +132,6 @@ export function ConversationModal() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [isOpen, attemptClose, showConfirmDiscard]);
-
-  // Load contacts when modal opens
-  useEffect(() => {
-    if (user && isOpen) {
-      getContacts(user.id)
-        .then((data) => {
-          const emailsMap: Record<number, string[]> = {};
-          const contacts = (data as any[]).map((c) => {
-            const emails = (c.contact_emails || []).map((e: any) => e.email).filter(Boolean);
-            if (emails.length > 0) emailsMap[c.id] = emails;
-            return { id: c.id, name: c.name };
-          });
-          setAllContacts(contacts);
-          setContactEmailsMap(emailsMap);
-        })
-        .catch(() => {});
-    }
-  }, [user, isOpen]);
 
   // Reset form when opened
   useEffect(() => {
@@ -222,11 +204,11 @@ export function ConversationModal() {
         meetingId = editMeeting.id;
 
         // Update calendar event if one exists
-        if ((editMeeting as any).calendar_event_id) {
+        if (editMeeting.calendar_event_id) {
           try {
             const startTime = new Date(dateTime).toISOString();
             const endTime = new Date(new Date(dateTime).getTime() + meetingDuration * 60000).toISOString();
-            await fetch(`/api/calendar/events/${(editMeeting as any).calendar_event_id}`, {
+            await fetch(`/api/calendar/events/${editMeeting.calendar_event_id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

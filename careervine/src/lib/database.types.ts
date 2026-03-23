@@ -167,11 +167,13 @@ export type Database = {
           transcript_source: string | null; // How the transcript was added (paste, upload_txt, upload_vtt, upload_pdf, audio_deepgram)
           transcript_parsed: boolean;     // Whether transcript has been parsed into segments
           transcript_attachment_id: number | null; // Reference to uploaded file
+          calendar_event_id: string | null; // Google Calendar event ID (links to calendar_events)
         };
-        Insert: Omit<Database["public"]["Tables"]["meetings"]["Row"], "id" | "transcript_parsed" | "transcript_source" | "transcript_attachment_id"> & {
+        Insert: Omit<Database["public"]["Tables"]["meetings"]["Row"], "id" | "transcript_parsed" | "transcript_source" | "transcript_attachment_id" | "calendar_event_id"> & {
           transcript_parsed?: boolean;
           transcript_source?: string | null;
           transcript_attachment_id?: number | null;
+          calendar_event_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["meetings"]["Insert"]>;
       };
