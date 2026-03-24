@@ -344,7 +344,21 @@ function ActionListItem({
           <p className="text-xl font-medium text-foreground truncate">{item.contactName}</p>
           <span className="text-base text-muted-foreground shrink-0">{item.lastContactedLabel}</span>
         </div>
-        <p className="text-lg text-muted-foreground mt-0.5 line-clamp-2" title={item.primaryText}>{item.primaryText}</p>
+        <p
+          className="text-lg text-muted-foreground mt-0.5 line-clamp-2"
+          ref={(el) => {
+            if (el) {
+              // Only show title tooltip when text is actually clamped
+              if (el.scrollHeight > el.clientHeight) {
+                el.title = item.primaryText;
+              } else {
+                el.removeAttribute("title");
+              }
+            }
+          }}
+        >
+          {item.primaryText}
+        </p>
         <span
           className={`inline-block mt-1 px-3 py-1 rounded text-sm font-medium uppercase tracking-wide ${labels.badgeBg} ${labels.badgeText}`}
         >
