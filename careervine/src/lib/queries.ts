@@ -1586,38 +1586,62 @@ export async function getActivityHeatmap(userId: string) {
     .select("interaction_date")
     .gte("interaction_date", startStr);
 
-  // Build day map
-  const dayMap = new Map<string, number>();
+  // Build day map with breakdown by type
+  type DayBreakdown = { conversations: number; actions: number; contacts: number };
+  const dayMap = new Map<string, DayBreakdown>();
+  const getDay = (date: string) => {
+    const existing = dayMap.get(date);
+    if (existing) return existing;
+    const fresh = { conversations: 0, actions: 0, contacts: 0 };
+    dayMap.set(date, fresh);
+    return fresh;
+  };
 
   if (meetings) {
     for (const m of meetings) {
       const d = m.meeting_date?.split("T")[0];
-      if (d) dayMap.set(d, (dayMap.get(d) || 0) + 1);
+      if (d) getDay(d).conversations++;
     }
   }
   if (completedItems) {
     for (const a of completedItems) {
       const d = a.completed_at?.split("T")[0];
-      if (d) dayMap.set(d, (dayMap.get(d) || 0) + 1);
+      if (d) getDay(d).actions++;
     }
   }
   if (interactions) {
     for (const i of interactions) {
       const d = i.interaction_date;
-      if (d) dayMap.set(d, (dayMap.get(d) || 0) + 1);
+      if (d) getDay(d).conversations++;
+    }
+  }
+
+  // Also count contacts added per day
+  const { data: newContacts } = await supabase
+    .from("contacts")
+    .select("created_at")
+    .eq("user_id", userId)
+    .gte("created_at", start.toISOString());
+
+  if (newContacts) {
+    for (const c of newContacts) {
+      const d = c.created_at?.split("T")[0];
+      if (d) getDay(d).contacts++;
     }
   }
 
   // Build array from start (Sunday ~1 year ago) through today
-  const result: { date: string; count: number; dayOfWeek: number }[] = [];
+  const result: { date: string; count: number; dayOfWeek: number; conversations: number; actions: number; contacts: number }[] = [];
   const todayStr = now.toISOString().split("T")[0];
   const d = new Date(start);
   while (d.toISOString().split("T")[0] <= todayStr) {
     const dateStr = d.toISOString().split("T")[0];
+    const breakdown = dayMap.get(dateStr) || { conversations: 0, actions: 0, contacts: 0 };
     result.push({
       date: dateStr,
-      count: dayMap.get(dateStr) || 0,
+      count: breakdown.conversations + breakdown.actions + breakdown.contacts,
       dayOfWeek: d.getDay(),
+      ...breakdown,
     });
     d.setDate(d.getDate() + 1);
   }

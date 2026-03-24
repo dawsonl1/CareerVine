@@ -6,6 +6,9 @@ interface HeatmapDay {
   date: string;
   count: number;
   dayOfWeek: number;
+  conversations?: number;
+  actions?: number;
+  contacts?: number;
 }
 
 interface ActivityHeatmapProps {
@@ -33,7 +36,7 @@ function getColor(count: number, max: number): string {
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
-  const [tooltip, setTooltip] = useState<{ date: string; count: number; x: number; y: number } | null>(null);
+  const [tooltip, setTooltip] = useState<{ date: string; count: number; conversations: number; actions: number; contacts: number; x: number; y: number } | null>(null);
 
   const { weeks, maxCount, monthLabels } = useMemo(() => {
     if (data.length === 0) return { weeks: [], maxCount: 1, monthLabels: [] };
@@ -132,7 +135,7 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
                   }}
                   onMouseEnter={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
-                    setTooltip({ date: day.date, count: day.count, x: rect.left + rect.width / 2, y: rect.top });
+                    setTooltip({ date: day.date, count: day.count, conversations: day.conversations || 0, actions: day.actions || 0, contacts: day.contacts || 0, x: rect.left + rect.width / 2, y: rect.top });
                   }}
                   onMouseLeave={() => setTooltip(null)}
                 />
@@ -164,18 +167,25 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
       {/* Tooltip */}
       {tooltip && (
         <div
-          className="fixed z-50 px-2.5 py-1.5 rounded-lg bg-foreground text-background text-[11px] pointer-events-none whitespace-nowrap -translate-x-1/2"
-          style={{ left: tooltip.x, top: tooltip.y - 34 }}
+          className="fixed z-50 px-3 py-2 rounded-lg bg-foreground text-background text-xs pointer-events-none -translate-x-1/2"
+          style={{ left: tooltip.x, top: tooltip.y - (tooltip.count > 0 ? 70 : 38) }}
         >
-          <strong>
-            {tooltip.count} {tooltip.count === 1 ? "activity" : "activities"}
-          </strong>{" "}
-          on{" "}
-          {new Date(tooltip.date + "T12:00:00").toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })}
+          <p className="font-medium mb-0.5">
+            {new Date(tooltip.date + "T12:00:00").toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </p>
+          {tooltip.count === 0 ? (
+            <p className="text-background/70">No activity</p>
+          ) : (
+            <div className="space-y-0.5 text-background/90">
+              {tooltip.conversations > 0 && <p>{tooltip.conversations} conversation{tooltip.conversations !== 1 ? "s" : ""} held</p>}
+              {tooltip.actions > 0 && <p>{tooltip.actions} action{tooltip.actions !== 1 ? "s" : ""} taken</p>}
+              {tooltip.contacts > 0 && <p>{tooltip.contacts} contact{tooltip.contacts !== 1 ? "s" : ""} added</p>}
+            </div>
+          )}
         </div>
       )}
     </div>

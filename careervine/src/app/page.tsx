@@ -222,13 +222,27 @@ export default function Home() {
 
   // ── Build unified action list ──
 
+  // Build last-touch lookup from contactHealth
+  const lastTouchLookup = useMemo(() => {
+    const map = new Map<number, number | null>();
+    for (const c of contactHealth) map.set(c.id, c.days_since_touch);
+    return map;
+  }, [contactHealth]);
+
+  function formatLastContacted(daysSince: number | null): string {
+    if (daysSince === null) return "Never contacted";
+    if (daysSince === 0) return "Contacted today";
+    if (daysSince === 1) return "1 day ago";
+    return `${daysSince}d ago`;
+  }
+
   const unifiedItems = useMemo<UnifiedActionItem[]>(() => {
     const items: UnifiedActionItem[] = [];
 
     // Action items
     const today = new Date().toISOString().split("T")[0];
     for (const ai of actionItems) {
-      if (ai.direction === "waiting_on") continue; // Skip waiting-on items
+      if (ai.direction === "waiting_on") continue;
       const isOverdue = ai.due_at ? ai.due_at.split("T")[0] < today : false;
       const dueLabel = ai.due_at
         ? isOverdue
@@ -236,15 +250,18 @@ export default function Home() {
           : `Due ${new Date(ai.due_at).toLocaleDateString()}`
         : "No due date";
       const contactName = ai.contacts?.name || "Unknown";
+      const contactId = ai.contacts?.id || 0;
+      const daysSince = lastTouchLookup.get(contactId) ?? null;
 
       items.push({
         id: `ai-${ai.id}`,
         type: "action_item",
-        contactId: ai.contacts?.id || 0,
+        contactId,
         contactName,
         contactPhotoUrl: ai.contacts?.photo_url || null,
         primaryText: `${ai.title} · ${dueLabel}`,
         secondaryText: ai.description || "",
+        lastContactedLabel: formatLastContacted(daysSince),
         priority: isOverdue ? 100 : ai.due_at ? 50 : 10,
         actionItemId: ai.id,
         dueAt: ai.due_at || undefined,
@@ -254,9 +271,9 @@ export default function Home() {
 
     // Reach out contacts
     for (const f of followUps) {
-      const lastLabel = f.last_touch
-        ? `Last: ${Math.floor((Date.now() - new Date(f.last_touch).getTime()) / (1000 * 60 * 60 * 24))}d ago`
-        : "Never contacted";
+      const daysSince = f.last_touch
+        ? Math.floor((Date.now() - new Date(f.last_touch).getTime()) / (1000 * 60 * 60 * 24))
+        : null;
       const overdueLabel = f.days_overdue > 0 ? `${f.days_overdue}d overdue` : "Due today";
 
       items.push({
@@ -265,8 +282,9 @@ export default function Home() {
         contactId: f.id,
         contactName: f.name,
         contactPhotoUrl: f.photo_url,
-        primaryText: `${overdueLabel} · ${lastLabel}`,
+        primaryText: overdueLabel,
         secondaryText: "",
+        lastContactedLabel: formatLastContacted(daysSince),
         priority: 60 + Math.min(f.days_overdue, 30),
         daysOverdue: f.days_overdue,
       });
@@ -282,17 +300,17 @@ export default function Home() {
         contactPhotoUrl: s.contactPhotoUrl,
         primaryText: s.headline,
         secondaryText: s.suggestedTitle,
+        lastContactedLabel: formatLastContacted(s.daysSinceContact),
         priority: 5 + s.score / 10,
         daysSinceContact: s.daysSinceContact,
         suggestion: s,
       });
     }
 
-    // Sort by priority descending
     items.sort((a, b) => b.priority - a.priority);
 
     return items;
-  }, [actionItems, followUps, suggestions]);
+  }, [actionItems, followUps, suggestions, lastTouchLookup]);
 
   // ── Unified action list callbacks ──
 
@@ -409,7 +427,6 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* ═══ Band 1: Header ═══ */}
         <GreetingHeader
-          firstName={user?.user_metadata?.first_name || "there"}
           onLogConversation={() => openQuickCapture()}
         />
 
