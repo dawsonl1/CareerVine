@@ -13,6 +13,7 @@ const ICON_SIZE = 32;
 const EXPANDED_PADDING_X = 24;
 const GAP = 10;
 const TYPE_SPEED = 40; // ms per character
+const DELETE_SPEED = 25; // ms per character when deleting (faster than typing)
 const TYPE_START_DELAY = 250; // ms before typing starts (let width expand first)
 
 export function LogConversationFab({ onClick }: LogConversationFabProps) {
@@ -58,15 +59,38 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
     typeTimerRef.current = setTimeout(typeNext, TYPE_START_DELAY);
   }, []);
 
+  const [isDeleting, setIsDeleting] = useState(false);
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const stopTyping = useCallback(() => {
+    // Stop any in-progress typing
     if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
-    if (cursorTimerRef.current) clearInterval(cursorTimerRef.current);
-    setDisplayedChars(0);
-    setShowCursor(false);
+
+    // Start deleting characters
+    setIsDeleting(true);
+    setShowCursor(true);
+
+    const deleteNext = () => {
+      setDisplayedChars((prev) => {
+        if (prev <= 1) {
+          // Done deleting
+          setIsDeleting(false);
+          setShowCursor(false);
+          if (cursorTimerRef.current) clearInterval(cursorTimerRef.current);
+          return 0;
+        }
+        deleteTimerRef.current = setTimeout(deleteNext, DELETE_SPEED);
+        return prev - 1;
+      });
+    };
+    deleteTimerRef.current = setTimeout(deleteNext, DELETE_SPEED);
   }, []);
 
   useEffect(() => {
     if (isHovered) {
+      // Cancel any in-progress delete
+      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+      setIsDeleting(false);
       startTyping();
     } else {
       stopTyping();
@@ -74,14 +98,17 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
     return () => {
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       if (cursorTimerRef.current) clearInterval(cursorTimerRef.current);
+      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
     };
   }, [isHovered, startTyping, stopTyping]);
 
-  const width = isHovered && expandedWidth > 0 ? expandedWidth : COLLAPSED_SIZE;
+  // Keep button expanded while deleting
+  const isExpanded = isHovered || isDeleting;
+  const width = isExpanded && expandedWidth > 0 ? expandedWidth : COLLAPSED_SIZE;
 
   // When collapsed, center the icon: (72 - 32) / 2 = 20px
   // When expanded, use the normal padding
-  const iconPaddingLeft = isHovered ? EXPANDED_PADDING_X : (COLLAPSED_SIZE - ICON_SIZE) / 2;
+  const iconPaddingLeft = isExpanded ? EXPANDED_PADDING_X : (COLLAPSED_SIZE - ICON_SIZE) / 2;
 
   return (
     <button
@@ -99,8 +126,8 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
         className="flex items-center shrink-0"
         style={{
           paddingLeft: iconPaddingLeft,
-          paddingRight: isHovered ? EXPANDED_PADDING_X : 0,
-          gap: isHovered ? GAP : 0,
+          paddingRight: isExpanded ? EXPANDED_PADDING_X : 0,
+          gap: isExpanded ? GAP : 0,
           transition: "padding-left 500ms cubic-bezier(0.4, 0, 0.2, 1), padding-right 500ms cubic-bezier(0.4, 0, 0.2, 1), gap 500ms cubic-bezier(0.4, 0, 0.2, 1)",
         }}
       >
@@ -118,7 +145,7 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
         {/* Typed text + cursor */}
         <span className="text-lg font-medium whitespace-nowrap">
           {FULL_TEXT.slice(0, displayedChars)}
-          {isHovered && (
+          {isExpanded && displayedChars > 0 && (
             <span
               className="inline-block w-[2px] h-[1.1em] bg-primary-foreground align-middle ml-[1px]"
               style={{ opacity: showCursor ? 1 : 0 }}
