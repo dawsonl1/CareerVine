@@ -223,19 +223,10 @@ export async function updateContact(
  * Append a note to a contact's existing notes, separated by newlines.
  */
 export async function appendContactNote(contactId: number, note: string) {
-  const { data: existing } = await supabase
-    .from("contacts")
-    .select("notes")
-    .eq("id", contactId)
-    .single();
-
-  const current = existing?.notes || "";
-  const updated = current ? `${current}\n\n${note}` : note;
-
-  const { error } = await supabase
-    .from("contacts")
-    .update({ notes: updated })
-    .eq("id", contactId);
+  const { error } = await supabase.rpc("append_contact_note", {
+    p_contact_id: contactId,
+    p_note: note,
+  });
   if (error) throw error;
 }
 
