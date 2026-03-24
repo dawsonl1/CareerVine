@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import {
@@ -19,6 +19,89 @@ import {
   Plus,
 } from "lucide-react";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
+
+// ── Action button with colored hover + animated label ──
+
+function ActionButton({
+  icon,
+  label,
+  color,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  color: string;
+  onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div className="relative flex flex-col items-center">
+      <button
+        type="button"
+        onClick={onClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className="p-3 rounded-full transition-colors duration-150 cursor-pointer"
+        style={{
+          color: hovered ? color : "var(--color-muted-foreground)",
+          backgroundColor: hovered ? `${color}12` : "transparent",
+        }}
+      >
+        <span className="block h-6 w-6">{icon}</span>
+      </button>
+      <span
+        className="absolute top-full mt-0.5 text-[11px] font-medium whitespace-nowrap pointer-events-none transition-all duration-150"
+        style={{
+          color,
+          opacity: hovered ? 1 : 0,
+          transform: hovered ? "translateY(0)" : "translateY(-4px)",
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function ActionLink({
+  icon,
+  label,
+  color,
+  href,
+}: {
+  icon: ReactNode;
+  label: string;
+  color: string;
+  href: string;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div className="relative flex flex-col items-center">
+      <Link
+        href={href}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className="p-3 rounded-full transition-colors duration-150"
+        style={{
+          color: hovered ? color : "var(--color-muted-foreground)",
+          backgroundColor: hovered ? `${color}12` : "transparent",
+        }}
+      >
+        <span className="block h-6 w-6">{icon}</span>
+      </Link>
+      <span
+        className="absolute top-full mt-0.5 text-[11px] font-medium whitespace-nowrap pointer-events-none transition-all duration-150"
+        style={{
+          color,
+          opacity: hovered ? 1 : 0,
+          transform: hovered ? "translateY(0)" : "translateY(-4px)",
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
 
 // ── Types ──
 
@@ -367,31 +450,27 @@ function ActionListItem({
       </Link>
 
       {/* Inline actions */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-0.5 shrink-0">
         {/* Complete / did it — not for recently added */}
         {item.type !== "recently_added" && (
-          <button
-            type="button"
+          <ActionButton
+            icon={<Check className="h-6 w-6" />}
+            label={item.type === "suggestion" ? "Did this" : "Done"}
+            color="#16a34a"
             onClick={() => onComplete(item)}
-            className="p-3 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
-            title={item.type === "suggestion" ? "I did this" : "Mark as done"}
-          >
-            <Check className="h-6 w-6" />
-          </button>
+          />
         )}
 
         {/* Snooze */}
         <div className="relative">
-          <button
-            type="button"
+          <ActionButton
+            icon={<Clock className="h-6 w-6" />}
+            label="Snooze"
+            color="#d97706"
             onClick={() =>
               setSnoozeState(showSnoozeMenu ? null : { itemId: item.id, showMenu: true })
             }
-            className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-            title="Snooze"
-          >
-            <Clock className="h-6 w-6" />
-          </button>
+          />
           {showSnoozeMenu && (
             <div data-snooze-menu className="absolute right-0 top-full mt-1 z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1.5 min-w-[180px]">
               {[
@@ -441,86 +520,71 @@ function ActionListItem({
 
         {/* Type-specific actions */}
         {item.type === "action_item" && (
-          <Link
+          <ActionLink
+            icon={<ArrowRight className="h-6 w-6" />}
+            label="Profile"
+            color="#475569"
             href={`/contacts/${item.contactId}`}
-            className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors"
-            title="Go to contact"
-          >
-            <ArrowRight className="h-6 w-6" />
-          </Link>
+          />
         )}
 
         {item.type === "reach_out" && (
           <>
-            <button
-              type="button"
+            <ActionButton
+              icon={<MessageSquare className="h-6 w-6" />}
+              label="Log"
+              color="#2563eb"
               onClick={() => onLogInteraction(item.contactId)}
-              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-              title="Log interaction"
-            >
-              <MessageSquare className="h-6 w-6" />
-            </button>
+            />
             {item.hasEmail && (
-              <button
-                type="button"
+              <ActionButton
+                icon={<Mail className="h-6 w-6" />}
+                label="Email"
+                color="#0d9488"
                 onClick={() => onDraftEmail(item.contactId)}
-                className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-                title="Draft message"
-              >
-                <Mail className="h-6 w-6" />
-              </button>
+              />
             )}
           </>
         )}
 
         {item.type === "suggestion" && (
           <>
-            <button
-              type="button"
+            <ActionButton
+              icon={<Bookmark className="h-6 w-6" />}
+              label="Save"
+              color="#2d6a30"
               onClick={() => onSave(item)}
-              className="p-3 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
-              title="Save for later"
-            >
-              <Bookmark className="h-6 w-6" />
-            </button>
-            <button
-              type="button"
+            />
+            <ActionButton
+              icon={<X className="h-6 w-6" />}
+              label="Dismiss"
+              color="#dc2626"
               onClick={() => onDismiss(item)}
-              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-              title="Dismiss"
-            >
-              <X className="h-6 w-6" />
-            </button>
+            />
           </>
         )}
 
         {item.type === "recently_added" && (
           <>
-            <button
-              type="button"
+            <ActionButton
+              icon={<MessageSquare className="h-6 w-6" />}
+              label="Log"
+              color="#2563eb"
               onClick={() => onLogInteraction(item.contactId)}
-              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-              title="Log interaction"
-            >
-              <MessageSquare className="h-6 w-6" />
-            </button>
-            <button
-              type="button"
+            />
+            <ActionButton
+              icon={<Pencil className="h-6 w-6" />}
+              label="Note"
+              color="#7c3aed"
               onClick={() => onNote(item.contactId)}
-              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-              title="Add note"
-            >
-              <Pencil className="h-6 w-6" />
-            </button>
+            />
             {item.hasEmail && (
-              <button
-                type="button"
+              <ActionButton
+                icon={<Mail className="h-6 w-6" />}
+                label="Intro"
+                color="#0d9488"
                 onClick={() => onIntro(item.contactId)}
-                className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-                title="Send intro message"
-              >
-                <Mail className="h-6 w-6" />
-              </button>
+              />
             )}
           </>
         )}
