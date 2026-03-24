@@ -97,15 +97,32 @@ export function NetworkingStats({
   ] : [];
 
   const statCards: StatCard[] = [
-    { label: "Conversations this week", value: stats.conversations.thisWeek, previousValue: stats.conversations.lastWeek },
+    {
+      label: "Conversations this week",
+      value: stats.conversations.thisWeek,
+      previousValue: stats.conversations.lastWeek,
+      tooltipLines: [
+        `${stats.conversations.thisWeek} meetings logged this week`,
+        `${stats.conversations.lastWeek} last week`,
+        ...(stats.completedItems.thisWeek > 0 ? [`${stats.completedItems.thisWeek} action items completed`] : []),
+      ],
+    },
     {
       label: "Relationships on track",
       value: rot?.percentage ?? 0,
-      previousValue: rot?.percentage ?? 0, // No week-over-week for now
+      previousValue: rot?.percentage ?? 0,
       isPercentage: true,
       tooltipLines: rotTooltip,
     },
-    { label: "Contacts added", value: stats.contactsAdded.thisWeek, previousValue: stats.contactsAdded.lastWeek },
+    {
+      label: "Contacts added",
+      value: stats.contactsAdded.thisWeek,
+      previousValue: stats.contactsAdded.lastWeek,
+      tooltipLines: [
+        `${stats.contactsAdded.thisWeek} new contacts this week`,
+        `${stats.contactsAdded.lastWeek} last week`,
+      ],
+    },
   ];
 
   // Compute trend
