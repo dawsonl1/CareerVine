@@ -61,6 +61,13 @@ type FollowUpContact = {
   emails: string[];
 };
 
+function formatLastContacted(daysSince: number | null): string {
+  if (daysSince === null) return "Never contacted";
+  if (daysSince === 0) return "Contacted today";
+  if (daysSince === 1) return "1 day ago";
+  return `${daysSince}d ago`;
+}
+
 export default function Home() {
   const { user, loading } = useAuth();
   const { open: openQuickCapture } = useQuickCapture();
@@ -308,12 +315,6 @@ export default function Home() {
     return map;
   }, [contactHealth]);
 
-  function formatLastContacted(daysSince: number | null): string {
-    if (daysSince === null) return "Never contacted";
-    if (daysSince === 0) return "Contacted today";
-    if (daysSince === 1) return "1 day ago";
-    return `${daysSince}d ago`;
-  }
 
   const unifiedItems = useMemo<UnifiedActionItem[]>(() => {
     const items: UnifiedActionItem[] = [];

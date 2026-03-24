@@ -92,3 +92,11 @@ export const CONVERSATION_TYPE_OPTIONS = [
 
 /** @deprecated Use CONVERSATION_TYPE_OPTIONS instead */
 export const MEETING_TYPE_OPTIONS = CONVERSATION_TYPE_OPTIONS;
+
+// ── Home page constants ──────────────────────────────────────────────
+
+/** Contacts added within this many days appear in "Recently Added" */
+export const RECENTLY_ADDED_DAYS = 7;
+
+/** Days to suppress a contact from AI suggestions after snooze/dismiss */
+export const SUGGESTION_COOLDOWN_DAYS = 21;

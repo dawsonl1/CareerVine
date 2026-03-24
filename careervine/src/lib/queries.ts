@@ -13,9 +13,66 @@
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import type { Database } from "@/lib/database.types";
+import { RECENTLY_ADDED_DAYS, SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 
 // Create a single Supabase client instance for browser-side operations
 const supabase = createSupabaseBrowserClient();
+
+// ── Shared helpers ──
+
+/** Get the ISO cutoff string for the "Recently Added" window */
+function getRecentCutoff(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - RECENTLY_ADDED_DAYS);
+  return d.toISOString();
+}
+
+/** Get a suggestion cooldown timestamp (now + SUGGESTION_COOLDOWN_DAYS) */
+function getSuggestionCooldownTimestamp(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + SUGGESTION_COOLDOWN_DAYS);
+  return d.toISOString();
+}
+
+/**
+ * Build a map of contact_id → last touch date string.
+ * Shared across multiple queries that need last-touch data.
+ */
+async function buildLastTouchMap(contactIds: number[]): Promise<Map<number, string>> {
+  if (contactIds.length === 0) return new Map();
+
+  const [{ data: meetingLinks }, { data: interactions }] = await Promise.all([
+    supabase
+      .from("meeting_contacts")
+      .select("contact_id, meetings(meeting_date)")
+      .in("contact_id", contactIds),
+    supabase
+      .from("interactions")
+      .select("contact_id, interaction_date")
+      .in("contact_id", contactIds),
+  ]);
+
+  const map = new Map<number, string>();
+  if (meetingLinks) {
+    for (const ml of meetingLinks as unknown as { contact_id: number; meetings: { meeting_date: string } }[]) {
+      const date = ml.meetings?.meeting_date;
+      if (!date) continue;
+      const prev = map.get(ml.contact_id);
+      if (!prev || date > prev) map.set(ml.contact_id, date);
+    }
+  }
+  if (interactions) {
+    for (const i of interactions) {
+      const date = i.interaction_date;
+      if (!date) continue;
+      const prev = map.get(i.contact_id);
+      if (!prev || date > prev) map.set(i.contact_id, date);
+    }
+  }
+  return map;
+}
+
+// ── Query functions ──
 
 /**
  * Fetch all contacts for a user with their related data
@@ -850,13 +907,12 @@ export async function snoozeActionItem(id: number, until: string) {
  * Also sets suggestion_cooldown_until to 3 weeks from now.
  */
 export async function snoozeContact(contactId: number, until: string) {
-  const cooldown = new Date();
-  cooldown.setDate(cooldown.getDate() + 21);
+  const cooldown = getSuggestionCooldownTimestamp();
   const { error } = await supabase
     .from("contacts")
     .update({
       reach_out_snoozed_until: until,
-      suggestion_cooldown_until: cooldown.toISOString(),
+      suggestion_cooldown_until: cooldown,
     })
     .eq("id", contactId);
   if (error) throw error;
@@ -867,13 +923,12 @@ export async function snoozeContact(contactId: number, until: string) {
  * Also sets suggestion_cooldown_until to 3 weeks from now.
  */
 export async function skipContactFirstOutreach(contactId: number) {
-  const cooldown = new Date();
-  cooldown.setDate(cooldown.getDate() + 21);
+  const cooldown = getSuggestionCooldownTimestamp();
   const { error } = await supabase
     .from("contacts")
     .update({
       first_outreach_skipped: true,
-      suggestion_cooldown_until: cooldown.toISOString(),
+      suggestion_cooldown_until: cooldown,
     })
     .eq("id", contactId);
   if (error) throw error;
@@ -883,11 +938,10 @@ export async function skipContactFirstOutreach(contactId: number) {
  * Set suggestion cooldown on a contact (e.g., after dismissing an AI suggestion).
  */
 export async function setSuggestionCooldown(contactId: number) {
-  const cooldown = new Date();
-  cooldown.setDate(cooldown.getDate() + 21);
+  const cooldown = getSuggestionCooldownTimestamp();
   const { error } = await supabase
     .from("contacts")
-    .update({ suggestion_cooldown_until: cooldown.toISOString() })
+    .update({ suggestion_cooldown_until: cooldown })
     .eq("id", contactId);
   if (error) throw error;
 }
@@ -1079,11 +1133,8 @@ export async function getContactsWithLastTouch(userId: string) {
  */
 export async function getContactsDueForFollowUp(userId: string) {
   const now = new Date().toISOString();
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const recentCutoff = sevenDaysAgo.toISOString();
+  const recentCutoff = getRecentCutoff();
 
-  // 1. Get all contacts (with or without cadence), excluding snoozed
   const { data: contacts, error: cErr } = await supabase
     .from("contacts")
     .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, contact_emails(email)")
@@ -1094,39 +1145,7 @@ export async function getContactsDueForFollowUp(userId: string) {
   if (!contacts || contacts.length === 0) return [];
 
   const contactIds = contacts.map((c) => c.id);
-
-  // 2. Get latest meeting date per contact via meeting_contacts
-  const { data: meetingLinks } = await supabase
-    .from("meeting_contacts")
-    .select("contact_id, meetings(meeting_date)")
-    .in("contact_id", contactIds);
-
-  // 3. Get latest interaction date per contact
-  const { data: interactions } = await supabase
-    .from("interactions")
-    .select("contact_id, interaction_date")
-    .in("contact_id", contactIds);
-
-  // 4. Compute last touchpoint per contact
-  const lastTouchMap = new Map<number, string>();
-
-  if (meetingLinks) {
-    for (const ml of meetingLinks as unknown as { contact_id: number; meetings: { meeting_date: string } }[]) {
-      const date = ml.meetings?.meeting_date;
-      if (!date) continue;
-      const prev = lastTouchMap.get(ml.contact_id);
-      if (!prev || date > prev) lastTouchMap.set(ml.contact_id, date);
-    }
-  }
-
-  if (interactions) {
-    for (const i of interactions) {
-      const date = i.interaction_date;
-      if (!date) continue;
-      const prev = lastTouchMap.get(i.contact_id);
-      if (!prev || date > prev) lastTouchMap.set(i.contact_id, date);
-    }
-  }
+  const lastTouchMap = await buildLastTouchMap(contactIds);
 
   // 5. Filter to contacts that are due
   const today = new Date();
@@ -1528,9 +1547,7 @@ export async function deleteTranscriptSegments(meetingId: number) {
  * Get contacts created in the last 7 days that have no logged meetings or interactions.
  */
 export async function getRecentUncontactedContacts(userId: string) {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const cutoff = sevenDaysAgo.toISOString();
+  const cutoff = getRecentCutoff();
   const now = new Date().toISOString();
 
   const { data: contacts, error } = await supabase
@@ -1582,9 +1599,7 @@ export async function getRecentUncontactedContacts(userId: string) {
  * (upper bound for reach-out) + recently added uncontacted contacts.
  */
 export async function getActionListCounts(userId: string) {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const cutoff = sevenDaysAgo.toISOString();
+  const cutoff = getRecentCutoff();
 
   const [actionResult, followUpResult, recentResult] = await Promise.all([
     // Count incomplete action items (excluding waiting_on)
@@ -1629,11 +1644,8 @@ export async function getActionListCounts(userId: string) {
  * Returns percentage + breakdown for tooltip.
  */
 export async function getRelationshipsOnTrack(userId: string) {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const recentCutoff = sevenDaysAgo.toISOString();
+  const recentCutoff = getRecentCutoff();
 
-  // Get all contacts (we need cadence + created_at + skip status)
   const { data: contacts, error } = await supabase
     .from("contacts")
     .select("id, follow_up_frequency_days, created_at, first_outreach_skipped")
@@ -1644,35 +1656,7 @@ export async function getRelationshipsOnTrack(userId: string) {
   }
 
   const contactIds = contacts.map((c) => c.id);
-
-  // Get last touch per contact
-  const { data: meetingLinks } = await supabase
-    .from("meeting_contacts")
-    .select("contact_id, meetings(meeting_date)")
-    .in("contact_id", contactIds);
-
-  const { data: interactions } = await supabase
-    .from("interactions")
-    .select("contact_id, interaction_date")
-    .in("contact_id", contactIds);
-
-  const lastTouchMap = new Map<number, string>();
-  if (meetingLinks) {
-    for (const ml of meetingLinks as unknown as { contact_id: number; meetings: { meeting_date: string } }[]) {
-      const date = ml.meetings?.meeting_date;
-      if (!date) continue;
-      const prev = lastTouchMap.get(ml.contact_id);
-      if (!prev || date > prev) lastTouchMap.set(ml.contact_id, date);
-    }
-  }
-  if (interactions) {
-    for (const i of interactions) {
-      const date = i.interaction_date;
-      if (!date) continue;
-      const prev = lastTouchMap.get(i.contact_id);
-      if (!prev || date > prev) lastTouchMap.set(i.contact_id, date);
-    }
-  }
+  const lastTouchMap = await buildLastTouchMap(contactIds);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -1841,68 +1825,27 @@ export async function getHomeStats(userId: string) {
   const thisWeekStr = startOfWeek.toISOString();
   const lastWeekStr = startOfLastWeek.toISOString();
 
-  // Conversations (meetings) this week
-  const { count: convThisWeek } = await supabase
-    .from("meetings")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("meeting_date", thisWeekStr.split("T")[0]);
-
-  const { count: convLastWeek } = await supabase
-    .from("meetings")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("meeting_date", lastWeekStr.split("T")[0])
-    .lt("meeting_date", thisWeekStr.split("T")[0]);
-
-  // Pending action items
-  const { count: pendingItems } = await supabase
-    .from("follow_up_action_items")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("is_completed", false);
-
-  // Completed action items this week
-  const { count: completedThisWeek } = await supabase
-    .from("follow_up_action_items")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("is_completed", true)
-    .gte("completed_at", thisWeekStr);
-
-  const { count: completedLastWeek } = await supabase
-    .from("follow_up_action_items")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("is_completed", true)
-    .gte("completed_at", lastWeekStr)
-    .lt("completed_at", thisWeekStr);
-
-  // Contacts added this week
-  const { count: contactsThisWeek } = await supabase
-    .from("contacts")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("created_at", thisWeekStr);
-
-  const { count: contactsLastWeek } = await supabase
-    .from("contacts")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("created_at", lastWeekStr)
-    .lt("created_at", thisWeekStr);
-
-  // Messages sent this week (interactions count as touchpoints too)
-  const { count: interactionsThisWeek } = await supabase
-    .from("interactions")
-    .select("*", { count: "exact", head: true })
-    .gte("interaction_date", thisWeekStr.split("T")[0]);
-
-  const { count: interactionsLastWeek } = await supabase
-    .from("interactions")
-    .select("*", { count: "exact", head: true })
-    .gte("interaction_date", lastWeekStr.split("T")[0])
-    .lt("interaction_date", thisWeekStr.split("T")[0]);
+  const [
+    { count: convThisWeek },
+    { count: convLastWeek },
+    { count: pendingItems },
+    { count: completedThisWeek },
+    { count: completedLastWeek },
+    { count: contactsThisWeek },
+    { count: contactsLastWeek },
+    { count: interactionsThisWeek },
+    { count: interactionsLastWeek },
+  ] = await Promise.all([
+    supabase.from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", thisWeekStr.split("T")[0]),
+    supabase.from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", lastWeekStr.split("T")[0]).lt("meeting_date", thisWeekStr.split("T")[0]),
+    supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", false),
+    supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", thisWeekStr),
+    supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", lastWeekStr).lt("completed_at", thisWeekStr),
+    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", thisWeekStr),
+    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", lastWeekStr).lt("created_at", thisWeekStr),
+    supabase.from("interactions").select("*", { count: "exact", head: true }).gte("interaction_date", thisWeekStr.split("T")[0]),
+    supabase.from("interactions").select("*", { count: "exact", head: true }).gte("interaction_date", lastWeekStr.split("T")[0]).lt("interaction_date", thisWeekStr.split("T")[0]),
+  ]);
 
   return {
     conversations: { thisWeek: convThisWeek || 0, lastWeek: convLastWeek || 0 },
@@ -1926,34 +1869,12 @@ export async function getActivityHeatmap(userId: string) {
   start.setHours(0, 0, 0, 0);
   const startStr = start.toISOString().split("T")[0];
 
-  // Get meetings in range
-  const { data: meetings } = await supabase
-    .from("meetings")
-    .select("meeting_date")
-    .eq("user_id", userId)
-    .gte("meeting_date", startStr);
-
-  // Get completed action items in range
-  const { data: completedItems } = await supabase
-    .from("follow_up_action_items")
-    .select("completed_at")
-    .eq("user_id", userId)
-    .eq("is_completed", true)
-    .gte("completed_at", start.toISOString());
-
-  // Get interactions in range
-  const { data: interactions } = await supabase
-    .from("interactions")
-    .select("interaction_date")
-    .gte("interaction_date", startStr);
-
-  // Get sent emails in range (counts as "actions taken")
-  const { data: sentEmails } = await supabase
-    .from("email_messages")
-    .select("date")
-    .eq("user_id", userId)
-    .eq("direction", "sent")
-    .gte("date", startStr);
+  const [{ data: meetings }, { data: completedItems }, { data: interactions }, { data: sentEmails }] = await Promise.all([
+    supabase.from("meetings").select("meeting_date").eq("user_id", userId).gte("meeting_date", startStr),
+    supabase.from("follow_up_action_items").select("completed_at").eq("user_id", userId).eq("is_completed", true).gte("completed_at", start.toISOString()),
+    supabase.from("interactions").select("interaction_date").gte("interaction_date", startStr),
+    supabase.from("email_messages").select("date").eq("user_id", userId).eq("direction", "sent").gte("date", startStr),
+  ]);
 
   // Build day map with breakdown by type
   type DayBreakdown = { conversations: number; actions: number; contacts: number };

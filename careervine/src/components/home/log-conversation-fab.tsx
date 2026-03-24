@@ -55,7 +55,8 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
       if (charIndex < FULL_TEXT.length) {
         typeTimerRef.current = setTimeout(typeNext, TYPE_SPEED);
       } else {
-        // Done typing — keep cursor visible
+        // Done typing — stop blink, keep cursor visible
+        if (cursorTimerRef.current) clearInterval(cursorTimerRef.current);
         setShowCursor(true);
       }
     };
