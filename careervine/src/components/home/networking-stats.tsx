@@ -89,7 +89,7 @@ export function NetworkingStats({
       <h2 className="text-[28px] font-medium text-foreground mb-6">Network Overview</h2>
 
       {/* Two-column layout: left (KPIs + charts) | right (Needs Attention) */}
-      <div className="flex flex-col lg:flex-row gap-12 items-start">
+      <div className="flex flex-col lg:flex-row gap-8 items-start">
         {/* Left column: KPIs on top, heatmap + donut below */}
         <div className="min-w-0 flex-1">
           {/* Stat counters — 3 cards */}
