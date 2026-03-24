@@ -14,10 +14,7 @@ import { useAuth } from "@/components/auth-provider";
 import LandingPage from "@/components/landing-page";
 import Navigation from "@/components/navigation";
 import {
-  getActionItems,
-  getContactsDueForFollowUp,
-  getContactsWithLastTouch,
-  getRecentUncontactedContacts,
+  getHomeCoreData,
   getActionListCounts,
   getContactEmailLookup,
   getRelationshipsOnTrack,
@@ -137,19 +134,13 @@ export default function Home() {
 
   const loadCoreData = useCallback(async () => {
     if (!user) return;
-    const results = await Promise.allSettled([
-      getActionItems(user.id),
-      getContactsDueForFollowUp(user.id),
-      getContactsWithLastTouch(user.id),
-      getRecentUncontactedContacts(user.id),
-    ]);
-
-    if (results[0].status === "fulfilled") setActionItems((results[0].value as ActionItem[]).slice(0, 15));
-    if (results[1].status === "fulfilled") setFollowUps(results[1].value);
-    if (results[2].status === "fulfilled") setContactHealth(results[2].value);
-    if (results[3].status === "fulfilled") {
+    try {
+      const data = await getHomeCoreData(user.id);
+      setActionItems((data.actionItems as ActionItem[]).slice(0, 15));
+      setFollowUps(data.followUps);
+      setContactHealth(data.contactHealth);
       setNewContacts(
-        results[3].value.map((c) => ({
+        data.recentlyAdded.map((c) => ({
           id: c.id,
           name: c.name,
           photo_url: c.photo_url,
@@ -157,8 +148,9 @@ export default function Home() {
           created_at: c.created_at ?? null,
         }))
       );
+    } catch {
+      // silent
     }
-
     setDataLoaded(true);
   }, [user]);
 

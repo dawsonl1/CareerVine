@@ -1630,6 +1630,138 @@ export async function getRecentUncontactedContacts(userId: string) {
 }
 
 /**
+ * Combined home page data fetch — loads action items + all contact-derived data
+ * in minimal queries. Replaces separate calls to getActionItems, getContactsDueForFollowUp,
+ * getContactsWithLastTouch, and getRecentUncontactedContacts.
+ *
+ * Query breakdown:
+ * 1. Action items (1 query)
+ * 2. All contacts with emails (1 query)
+ * 3. Last-touch map from meeting_contacts + interactions (2 queries in parallel)
+ * Total: 4 queries (down from ~10+ when calling functions individually)
+ */
+export async function getHomeCoreData(userId: string) {
+  const now = new Date().toISOString();
+  const recentCutoff = getRecentCutoff();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Fetch action items + all contacts in parallel
+  const [actionItemsResult, contactsResult] = await Promise.all([
+    supabase
+      .from("follow_up_action_items")
+      .select("*, contacts(*), meetings(*), action_item_contacts(contact_id, contacts(id, name))")
+      .eq("user_id", userId)
+      .eq("is_completed", false)
+      .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
+      .order("due_at", { ascending: true, nullsFirst: false }),
+    supabase
+      .from("contacts")
+      .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, contact_emails(email)")
+      .eq("user_id", userId)
+      .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
+      .order("name"),
+  ]);
+
+  if (actionItemsResult.error) throw actionItemsResult.error;
+  if (contactsResult.error) throw contactsResult.error;
+
+  const actionItems = actionItemsResult.data || [];
+  const allContacts = contactsResult.data || [];
+  const contactIds = allContacts.map((c) => c.id);
+
+  // Build last-touch map (2 queries in parallel)
+  const lastTouchMap = await buildLastTouchMap(contactIds);
+
+  // ── Derive contactHealth (for lastTouchLookup) ──
+  const contactHealth = allContacts.map((c) => {
+    const lastTouch = lastTouchMap.get(c.id) || null;
+    const daysSinceTouch = lastTouch
+      ? Math.floor((today.getTime() - new Date(lastTouch).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+    return {
+      id: c.id,
+      name: c.name,
+      days_since_touch: daysSinceTouch,
+      follow_up_frequency_days: c.follow_up_frequency_days,
+    };
+  });
+
+  // ── Derive followUps (reach out contacts) ──
+  const followUps = allContacts
+    .map((c) => {
+      const lastTouch = lastTouchMap.get(c.id);
+      const lastTouchDate = lastTouch ? new Date(lastTouch) : null;
+      const freqDays = c.follow_up_frequency_days;
+      const neverContacted = !lastTouchDate;
+      const noCadence = !freqDays;
+      const isRecent = c.created_at >= recentCutoff;
+
+      if (neverContacted && (isRecent || c.first_outreach_skipped)) return null;
+
+      if (noCadence) {
+        if (!neverContacted || !isRecent) {
+          return {
+            id: c.id, name: c.name, industry: c.industry, photo_url: c.photo_url,
+            follow_up_frequency_days: 0, last_touch: lastTouch || null,
+            days_overdue: 0, never_contacted: neverContacted, no_cadence: true,
+            emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
+          };
+        }
+        return null;
+      }
+
+      let daysOverdue: number;
+      if (neverContacted) {
+        const dueDate = new Date(c.created_at);
+        dueDate.setDate(dueDate.getDate() + freqDays);
+        daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+      } else {
+        const dueDate = new Date(lastTouchDate);
+        dueDate.setDate(dueDate.getDate() + freqDays);
+        daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+      }
+      if (daysOverdue < 0) return null;
+
+      return {
+        id: c.id, name: c.name, industry: c.industry, photo_url: c.photo_url,
+        follow_up_frequency_days: freqDays, last_touch: lastTouch || null,
+        days_overdue: daysOverdue, never_contacted: neverContacted, no_cadence: false,
+        emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
+      };
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null)
+    .sort((a, b) => {
+      if (a.no_cadence && !b.no_cadence) return 1;
+      if (!a.no_cadence && b.no_cadence) return -1;
+      return b.days_overdue - a.days_overdue;
+    });
+
+  // ── Derive recentlyAdded (uncontacted contacts in last 7 days) ──
+  const contacted = new Set<number>();
+  for (const [id] of lastTouchMap) contacted.add(id);
+
+  const recentlyAdded = allContacts
+    .filter((c) => {
+      if (c.first_outreach_skipped) return false;
+      if (c.created_at < recentCutoff) return false;
+      if (contacted.has(c.id)) return false;
+      return true;
+    })
+    .slice(0, 10)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      photo_url: c.photo_url,
+      industry: c.industry,
+      created_at: c.created_at,
+      emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
+    }));
+
+  return { actionItems, contactHealth, followUps, recentlyAdded };
+}
+
+/**
  * Fast count of action list items — fires first on page load so the calendar
  * can predict its height before the full data loads.
  * Returns: action items (non-waiting_on) + contacts with follow-up frequency
