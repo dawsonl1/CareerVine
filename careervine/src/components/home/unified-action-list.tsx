@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Mail,
   Bookmark,
+  Pencil,
   X,
   Chrome,
   Calendar,
@@ -21,7 +22,7 @@ import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
 
 // ── Types ──
 
-export type ActionItemType = "action_item" | "reach_out" | "suggestion";
+export type ActionItemType = "action_item" | "reach_out" | "suggestion" | "recently_added";
 
 export interface UnifiedActionItem {
   id: string;
@@ -39,9 +40,10 @@ export interface UnifiedActionItem {
   daysOverdue?: number;
   daysSinceContact?: number | null;
   suggestion?: Suggestion;
+  hasEmail?: boolean;
 }
 
-type FilterType = "all" | "action_item" | "reach_out" | "suggestion";
+type FilterType = "all" | "action_item" | "reach_out" | "suggestion" | "recently_added";
 
 interface SnoozeState {
   itemId: string;
@@ -52,6 +54,7 @@ const typeLabels: Record<ActionItemType, { badgeBg: string; badgeText: string; l
   action_item: { badgeBg: "bg-[#fef3c7]", badgeText: "text-[#92400e]", label: "ACTION ITEM" },
   reach_out: { badgeBg: "bg-[#fee2e2]", badgeText: "text-[#991b1b]", label: "REACH OUT" },
   suggestion: { badgeBg: "bg-[#bcebf1]", badgeText: "text-[#001f23]", label: "SUGGESTION" },
+  recently_added: { badgeBg: "bg-[#e8e0ff]", badgeText: "text-[#3b1f7a]", label: "RECENTLY ADDED" },
 };
 
 // ── Onboarding items for new users ──
@@ -119,6 +122,8 @@ interface UnifiedActionListProps {
   onSave: (item: UnifiedActionItem) => void;
   onLogInteraction: (contactId: number) => void;
   onDraftEmail: (contactId: number) => void;
+  onNote: (contactId: number) => void;
+  onIntro: (contactId: number) => void;
   isEmpty: boolean;
   onLogConversation: () => void;
   calendarConnected: boolean;
@@ -133,6 +138,8 @@ export function UnifiedActionList({
   onSave,
   onLogInteraction,
   onDraftEmail,
+  onNote,
+  onIntro,
   isEmpty,
   onLogConversation,
   calendarConnected,
@@ -143,7 +150,7 @@ export function UnifiedActionList({
   const PAGE_SIZE = 5;
 
   const counts = useMemo(() => {
-    const c = { action_item: 0, reach_out: 0, suggestion: 0 };
+    const c = { action_item: 0, reach_out: 0, suggestion: 0, recently_added: 0 };
     for (const item of items) c[item.type]++;
     return c;
   }, [items]);
@@ -166,6 +173,9 @@ export function UnifiedActionList({
     { key: "action_item", label: `Action Items (${counts.action_item})` },
     { key: "reach_out", label: `Reach Out (${counts.reach_out})` },
     { key: "suggestion", label: `Suggestions (${counts.suggestion})` },
+    ...(counts.recently_added > 0
+      ? [{ key: "recently_added" as FilterType, label: `Recently Added (${counts.recently_added})` }]
+      : []),
   ];
 
   return (
@@ -227,6 +237,8 @@ export function UnifiedActionList({
                   onSave={onSave}
                   onLogInteraction={onLogInteraction}
                   onDraftEmail={onDraftEmail}
+                  onNote={onNote}
+                  onIntro={onIntro}
                   snoozeState={snoozeState}
                   setSnoozeState={setSnoozeState}
                 />
@@ -276,6 +288,8 @@ function ActionListItem({
   onSave,
   onLogInteraction,
   onDraftEmail,
+  onNote,
+  onIntro,
   snoozeState,
   setSnoozeState,
 }: {
@@ -286,6 +300,8 @@ function ActionListItem({
   onSave: (item: UnifiedActionItem) => void;
   onLogInteraction: (contactId: number) => void;
   onDraftEmail: (contactId: number) => void;
+  onNote: (contactId: number) => void;
+  onIntro: (contactId: number) => void;
   snoozeState: SnoozeState | null;
   setSnoozeState: (s: SnoozeState | null) => void;
 }) {
@@ -317,18 +333,20 @@ function ActionListItem({
 
       {/* Inline actions */}
       <div className="flex items-center gap-1 shrink-0">
-        {/* Complete / did it */}
-        <button
-          type="button"
-          onClick={() => onComplete(item)}
-          className="p-3 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
-          title={item.type === "suggestion" ? "I did this" : "Mark as done"}
-        >
-          <Check className="h-6 w-6" />
-        </button>
+        {/* Complete / did it — not for recently added */}
+        {item.type !== "recently_added" && (
+          <button
+            type="button"
+            onClick={() => onComplete(item)}
+            className="p-3 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
+            title={item.type === "suggestion" ? "I did this" : "Mark as done"}
+          >
+            <Check className="h-6 w-6" />
+          </button>
+        )}
 
-        {/* Snooze */}
-        <div className="relative">
+        {/* Snooze — not for recently added */}
+        {item.type !== "recently_added" && <div className="relative">
           <button
             type="button"
             onClick={() =>
@@ -360,7 +378,7 @@ function ActionListItem({
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Type-specific actions */}
         {item.type === "action_item" && (
@@ -412,6 +430,37 @@ function ActionListItem({
             >
               <X className="h-6 w-6" />
             </button>
+          </>
+        )}
+
+        {item.type === "recently_added" && (
+          <>
+            <button
+              type="button"
+              onClick={() => onLogInteraction(item.contactId)}
+              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+              title="Log interaction"
+            >
+              <MessageSquare className="h-6 w-6" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onNote(item.contactId)}
+              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+              title="Add note"
+            >
+              <Pencil className="h-6 w-6" />
+            </button>
+            {item.hasEmail && (
+              <button
+                type="button"
+                onClick={() => onIntro(item.contactId)}
+                className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+                title="Send intro message"
+              >
+                <Mail className="h-6 w-6" />
+              </button>
+            )}
           </>
         )}
       </div>

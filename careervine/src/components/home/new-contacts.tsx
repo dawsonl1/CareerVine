@@ -8,6 +8,7 @@ export interface NewContact {
   name: string;
   photo_url: string | null;
   emails: string[];
+  created_at: string | null;
 }
 
 interface NewContactsProps {

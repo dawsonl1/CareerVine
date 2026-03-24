@@ -34,7 +34,7 @@ import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { LogConversationFab } from "@/components/home/log-conversation-fab";
 import { UnifiedActionList, type UnifiedActionItem } from "@/components/home/unified-action-list";
 import { TodaySchedule, type ScheduleEvent } from "@/components/home/today-schedule";
-import { NewContacts, type NewContact } from "@/components/home/new-contacts";
+import { type NewContact } from "@/components/home/new-contacts";
 import { NetworkingStats } from "@/components/home/networking-stats";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
@@ -107,6 +107,7 @@ export default function Home() {
           name: c.name,
           photo_url: c.photo_url,
           emails: c.emails,
+          created_at: c.created_at ?? null,
         }))
       );
     }
@@ -311,10 +312,30 @@ export default function Home() {
       });
     }
 
+    // Recently added contacts
+    for (const nc of newContacts) {
+      const daysAgo = nc.created_at
+        ? Math.floor((Date.now() - new Date(nc.created_at).getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
+      const addedLabel = daysAgo === 0 ? "Added today" : daysAgo === 1 ? "Added yesterday" : `Added ${daysAgo}d ago`;
+      items.push({
+        id: `nc-${nc.id}`,
+        type: "recently_added",
+        contactId: nc.id,
+        contactName: nc.name,
+        contactPhotoUrl: nc.photo_url,
+        primaryText: addedLabel,
+        secondaryText: "",
+        lastContactedLabel: "Never contacted",
+        priority: 30, // Below urgent action items & reach out, above suggestions
+        hasEmail: nc.emails.length > 0,
+      });
+    }
+
     items.sort((a, b) => b.priority - a.priority);
 
     return items;
-  }, [actionItems, followUps, suggestions, lastTouchLookup]);
+  }, [actionItems, followUps, suggestions, newContacts, lastTouchLookup]);
 
   // ── Unified action list callbacks ──
 
@@ -394,11 +415,13 @@ export default function Home() {
   );
 
   const handleNewContactIntro = useCallback(
-    (contactId: number, email: string) => {
+    (contactId: number) => {
       const contact = newContacts.find((c) => c.id === contactId);
+      if (!contact) return;
+      const email = contact.emails[0] || "";
       openCompose({
         to: email,
-        name: contact?.name || "",
+        name: contact.name,
         subject: "",
         bodyHtml: "",
       });
@@ -443,23 +466,19 @@ export default function Home() {
             onSave={handleSave}
             onLogInteraction={handleLogInteraction}
             onDraftEmail={handleDraftEmail}
+            onNote={handleNewContactNote}
+            onIntro={handleNewContactIntro}
             isEmpty={isEmpty}
             onLogConversation={() => openQuickCapture()}
             calendarConnected={calendarConnected}
           />
 
-          {/* Right: Schedule + New contacts */}
-          <div className="space-y-8">
+          {/* Right: Schedule */}
+          <div>
             <TodaySchedule
               events={scheduleEvents}
               loading={scheduleLoading}
               calendarConnected={calendarConnected}
-            />
-            <NewContacts
-              contacts={newContacts}
-              onLog={handleLogInteraction}
-              onNote={handleNewContactNote}
-              onIntro={handleNewContactIntro}
             />
           </div>
         </div>
