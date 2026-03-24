@@ -1586,6 +1586,14 @@ export async function getActivityHeatmap(userId: string) {
     .select("interaction_date")
     .gte("interaction_date", startStr);
 
+  // Get sent emails in range (counts as "actions taken")
+  const { data: sentEmails } = await supabase
+    .from("email_messages")
+    .select("date")
+    .eq("user_id", userId)
+    .eq("direction", "sent")
+    .gte("date", startStr);
+
   // Build day map with breakdown by type
   type DayBreakdown = { conversations: number; actions: number; contacts: number };
   const dayMap = new Map<string, DayBreakdown>();
@@ -1606,6 +1614,12 @@ export async function getActivityHeatmap(userId: string) {
   if (completedItems) {
     for (const a of completedItems) {
       const d = a.completed_at?.split("T")[0];
+      if (d) getDay(d).actions++;
+    }
+  }
+  if (sentEmails) {
+    for (const e of sentEmails) {
+      const d = e.date?.split("T")[0];
       if (d) getDay(d).actions++;
     }
   }
