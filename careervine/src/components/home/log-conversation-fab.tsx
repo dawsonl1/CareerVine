@@ -128,7 +128,7 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
         width,
         transition: "width 500ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 300ms ease",
       }}
-      className="fixed bottom-8 right-8 z-40 flex items-center bg-primary text-primary-foreground rounded-full shadow-lg hover:shadow-xl cursor-pointer h-[72px] overflow-hidden"
+      className="fixed bottom-10 right-10 z-40 flex items-center bg-primary text-primary-foreground rounded-full shadow-lg hover:shadow-xl cursor-pointer h-[72px] overflow-hidden"
     >
       <div
         className="flex items-center shrink-0"
