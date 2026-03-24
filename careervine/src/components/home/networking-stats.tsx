@@ -93,7 +93,7 @@ export function NetworkingStats({
       <StatCounters stats={statCards} />
 
       {/* Heatmap + donut + neglected contacts — all inline */}
-      <div className="mt-6 flex flex-col lg:flex-row gap-6 items-start">
+      <div className="mt-6 flex flex-col lg:flex-row gap-12 items-start">
         {/* Heatmap */}
         <div className="min-w-0 shrink-0">
           <ActivityHeatmap data={heatmapData} />

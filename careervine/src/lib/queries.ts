@@ -1558,9 +1558,9 @@ export async function getHomeStats(userId: string) {
  */
 export async function getActivityHeatmap(userId: string) {
   const now = new Date();
-  // Go back ~4 months and align to Sunday
+  // Go back ~6 months and align to Sunday
   const start = new Date(now);
-  start.setMonth(start.getMonth() - 4);
+  start.setMonth(start.getMonth() - 6);
   start.setDate(start.getDate() - start.getDay()); // Align to Sunday
   start.setHours(0, 0, 0, 0);
   const startStr = start.toISOString().split("T")[0];
