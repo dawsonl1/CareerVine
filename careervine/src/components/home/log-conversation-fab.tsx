@@ -62,14 +62,14 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="fixed bottom-8 right-8 z-40 flex items-center gap-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:shadow-xl transition-shadow cursor-pointer h-14 px-4"
-      style={{ minWidth: 56 }}
+      className="fixed bottom-8 right-8 z-40 flex items-center gap-2.5 bg-primary text-primary-foreground rounded-full shadow-lg hover:shadow-xl transition-shadow cursor-pointer h-16 px-5"
+      style={{ minWidth: 64 }}
     >
-      <Plus className="h-6 w-6 shrink-0" />
+      <Plus className="h-7 w-7 shrink-0" />
       {showText && (
-        <span className="text-sm font-medium whitespace-nowrap overflow-hidden pr-1">
+        <span className="text-base font-medium whitespace-nowrap overflow-hidden pr-1">
           {displayText}
-          <span className="inline-block w-[2px] h-[14px] bg-primary-foreground/70 ml-[1px] align-middle animate-pulse" />
+          <span className="inline-block w-[2px] h-[16px] bg-primary-foreground/70 ml-[1px] align-middle animate-pulse" />
         </span>
       )}
     </button>

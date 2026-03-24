@@ -89,15 +89,15 @@ function OnboardingList({
       {items.map((item) => (
         <div
           key={item.id}
-          className="flex items-center gap-4 py-4 px-5 cursor-pointer hover:bg-surface-container-low transition-colors"
+          className="flex items-center gap-4 py-5 px-5 cursor-pointer hover:bg-surface-container-low transition-colors"
           onClick={item.id === "onboard-log" ? onLogConversation : item.id === "onboard-calendar" ? () => window.location.assign("/settings?tab=integrations") : undefined}
         >
-          <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center shrink-0">
+          <div className="w-14 h-14 rounded-full bg-surface-container-high flex items-center justify-center shrink-0">
             {item.icon}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-base font-medium text-foreground">{item.title}</p>
-            <p className="text-sm text-muted-foreground">{item.subtitle}</p>
+            <p className="text-lg font-medium text-foreground">{item.title}</p>
+            <p className="text-base text-muted-foreground">{item.subtitle}</p>
           </div>
           <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
         </div>
@@ -158,7 +158,7 @@ export function UnifiedActionList({
 
   return (
     <div>
-      <h2 className="text-xl font-medium text-foreground mb-4">Up Next</h2>
+      <h2 className="text-2xl font-medium text-foreground mb-4">Up Next</h2>
 
       {/* Filter bar */}
       {!isEmpty && (
@@ -168,7 +168,7 @@ export function UnifiedActionList({
               key={f.key}
               type="button"
               onClick={() => setActiveFilter(f.key)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors cursor-pointer ${
+              className={`px-5 py-2.5 rounded-full text-base font-medium transition-colors cursor-pointer ${
                 activeFilter === f.key
                   ? "bg-primary text-primary-foreground"
                   : "bg-surface-container-high text-foreground hover:bg-surface-container-highest"
@@ -252,23 +252,23 @@ function ActionListItem({
   const showSnoozeMenu = snoozeState?.itemId === item.id && snoozeState.showMenu;
 
   return (
-    <div className="flex items-center gap-4 py-4 px-5 group hover:bg-surface-container-low transition-colors">
+    <div className="flex items-center gap-4 py-5 px-5 group hover:bg-surface-container-low transition-colors">
       {/* Avatar */}
       <ContactAvatar
         name={item.contactName}
         photoUrl={item.contactPhotoUrl}
-        className="w-12 h-12 text-sm shrink-0"
+        className="w-14 h-14 text-base shrink-0"
       />
 
       {/* Content */}
       <Link href={`/contacts/${item.contactId}`} className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-base font-medium text-foreground truncate">{item.contactName}</p>
+          <p className="text-lg font-medium text-foreground truncate">{item.contactName}</p>
           <span className="text-sm text-muted-foreground shrink-0">{item.lastContactedLabel}</span>
         </div>
-        <p className="text-sm text-muted-foreground truncate mt-0.5">{item.primaryText}</p>
+        <p className="text-base text-muted-foreground truncate mt-0.5">{item.primaryText}</p>
         <span
-          className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${labels.badgeBg} ${labels.badgeText}`}
+          className={`inline-block mt-1 px-2.5 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${labels.badgeBg} ${labels.badgeText}`}
         >
           {labels.label}
         </span>
@@ -280,7 +280,7 @@ function ActionListItem({
         <button
           type="button"
           onClick={() => onComplete(item)}
-          className="p-2.5 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
+          className="p-3 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
           title={item.type === "suggestion" ? "I did this" : "Mark as done"}
         >
           <Check className="h-5 w-5" />
@@ -293,7 +293,7 @@ function ActionListItem({
             onClick={() =>
               setSnoozeState(showSnoozeMenu ? null : { itemId: item.id, showMenu: true })
             }
-            className="p-2.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+            className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
             title="Snooze"
           >
             <Clock className="h-5 w-5" />
@@ -325,7 +325,7 @@ function ActionListItem({
         {item.type === "action_item" && (
           <Link
             href={`/contacts/${item.contactId}`}
-            className="p-2.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors"
+            className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors"
             title="Go to contact"
           >
             <ArrowRight className="h-5 w-5" />
@@ -337,7 +337,7 @@ function ActionListItem({
             <button
               type="button"
               onClick={() => onLogInteraction(item.contactId)}
-              className="p-2.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
               title="Log interaction"
             >
               <MessageSquare className="h-5 w-5" />
@@ -345,7 +345,7 @@ function ActionListItem({
             <button
               type="button"
               onClick={() => onDraftEmail(item.contactId)}
-              className="p-2.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
               title="Draft message"
             >
               <Mail className="h-5 w-5" />
@@ -358,7 +358,7 @@ function ActionListItem({
             <button
               type="button"
               onClick={() => onSave(item)}
-              className="p-2.5 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
+              className="p-3 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
               title="Save for later"
             >
               <Bookmark className="h-5 w-5" />
@@ -366,7 +366,7 @@ function ActionListItem({
             <button
               type="button"
               onClick={() => onDismiss(item)}
-              className="p-2.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
               title="Dismiss"
             >
               <X className="h-5 w-5" />

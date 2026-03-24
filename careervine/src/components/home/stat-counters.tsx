@@ -14,9 +14,9 @@ interface StatCountersProps {
 
 function TrendArrow({ current, previous }: { current: number; previous: number }) {
   const diff = current - previous;
-  if (diff > 0) return <TrendingUp className="h-4 w-4 text-green-600" />;
-  if (diff < 0) return <TrendingDown className="h-4 w-4 text-red-500" />;
-  return <Minus className="h-4 w-4 text-muted-foreground" />;
+  if (diff > 0) return <TrendingUp className="h-5 w-5 text-green-600" />;
+  if (diff < 0) return <TrendingDown className="h-5 w-5 text-red-500" />;
+  return <Minus className="h-5 w-5 text-muted-foreground" />;
 }
 
 export function StatCounters({ stats }: StatCountersProps) {
@@ -27,17 +27,17 @@ export function StatCounters({ stats }: StatCountersProps) {
         return (
           <div
             key={stat.label}
-            className="rounded-xl bg-surface-container-low px-5 py-4"
+            className="rounded-xl bg-surface-container-low px-6 py-5"
           >
             <div className="flex items-center gap-2">
-              <span className="text-3xl font-semibold text-foreground tabular-nums">
+              <span className="text-4xl font-semibold text-foreground tabular-nums">
                 {stat.value}
               </span>
               <TrendArrow current={stat.value} previous={stat.previousValue} />
             </div>
-            <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
+            <p className="text-base text-muted-foreground mt-1">{stat.label}</p>
             {diff !== 0 && (
-              <p className={`text-xs mt-0.5 ${diff > 0 ? "text-green-600" : "text-red-500"}`}>
+              <p className={`text-sm mt-0.5 ${diff > 0 ? "text-green-600" : "text-red-500"}`}>
                 {diff > 0 ? "+" : ""}
                 {diff} vs last week
               </p>

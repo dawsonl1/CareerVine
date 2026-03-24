@@ -22,7 +22,7 @@ export function NewContacts({ contacts, onLog, onNote, onIntro }: NewContactsPro
 
   return (
     <div>
-      <h3 className="text-xl font-medium text-foreground mb-4">
+      <h3 className="text-2xl font-medium text-foreground mb-4">
         New Contacts{" "}
         <span className="text-muted-foreground font-normal">({contacts.length})</span>
       </h3>
@@ -37,9 +37,9 @@ export function NewContacts({ contacts, onLog, onNote, onIntro }: NewContactsPro
               <ContactAvatar
                 name={contact.name}
                 photoUrl={contact.photo_url}
-                className="w-10 h-10 text-sm shrink-0"
+                className="w-12 h-12 text-sm shrink-0"
               />
-              <span className="text-base text-foreground truncate flex-1 min-w-0">
+              <span className="text-lg text-foreground truncate flex-1 min-w-0">
                 {contact.name}
               </span>
               <div className="flex items-center gap-1 shrink-0">
@@ -49,7 +49,7 @@ export function NewContacts({ contacts, onLog, onNote, onIntro }: NewContactsPro
                   className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
                   title="Log interaction"
                 >
-                  <MessageSquare className="h-4 w-4" />
+                  <MessageSquare className="h-5 w-5" />
                 </button>
                 <button
                   type="button"
@@ -57,7 +57,7 @@ export function NewContacts({ contacts, onLog, onNote, onIntro }: NewContactsPro
                   className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
                   title="Add note"
                 >
-                  <Pencil className="h-4 w-4" />
+                  <Pencil className="h-5 w-5" />
                 </button>
                 {hasEmail && (
                   <button
@@ -66,7 +66,7 @@ export function NewContacts({ contacts, onLog, onNote, onIntro }: NewContactsPro
                     className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
                     title="Send intro message"
                   >
-                    <Mail className="h-4 w-4" />
+                    <Mail className="h-5 w-5" />
                   </button>
                 )}
               </div>

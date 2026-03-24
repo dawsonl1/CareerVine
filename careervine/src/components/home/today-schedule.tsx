@@ -27,7 +27,7 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
   if (loading) {
     return (
       <div>
-        <h3 className="text-xl font-medium text-foreground mb-4">Today</h3>
+        <h3 className="text-2xl font-medium text-foreground mb-4">Today</h3>
         <div className="space-y-2">
           {[1, 2].map((i) => (
             <div key={i} className="h-16 rounded-lg bg-surface-container-highest animate-pulse" />
@@ -39,15 +39,15 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
 
   return (
     <div>
-      <h3 className="text-xl font-medium text-foreground mb-4">Today</h3>
+      <h3 className="text-2xl font-medium text-foreground mb-4">Today</h3>
 
       {!calendarConnected && (
         <Link
           href="/settings?tab=integrations"
           className="block rounded-xl border border-dashed border-outline-variant p-5 text-center hover:bg-surface-container-low transition-colors"
         >
-          <Calendar className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">
+          <Calendar className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
+          <p className="text-base text-muted-foreground">
             Connect Google Calendar to see your schedule
           </p>
         </Link>
@@ -55,7 +55,7 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
 
       {calendarConnected && events.length === 0 && (
         <div className="rounded-xl bg-surface-container-low p-5 text-center">
-          <p className="text-sm text-muted-foreground">Nothing scheduled today</p>
+          <p className="text-base text-muted-foreground">Nothing scheduled today</p>
         </div>
       )}
 
@@ -72,10 +72,10 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
                 className="rounded-lg px-4 py-3 hover:bg-surface-container-low transition-colors"
               >
                 <div className="flex items-baseline gap-3">
-                  <span className="text-sm text-muted-foreground tabular-nums w-16 shrink-0">
+                  <span className="text-base text-muted-foreground tabular-nums w-[72px] shrink-0">
                     {time}
                   </span>
-                  <span className="text-base font-medium text-foreground truncate">
+                  <span className="text-lg font-medium text-foreground truncate">
                     {event.title || "Untitled event"}
                   </span>
                 </div>
@@ -87,12 +87,12 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
                     <ContactAvatar
                       name={event.contact.name}
                       photoUrl={event.contact.photo_url}
-                      className="w-6 h-6 text-[9px]"
+                      className="w-7 h-7 text-[10px]"
                     />
-                    <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors truncate">
+                    <span className="text-base text-muted-foreground group-hover:text-foreground transition-colors truncate">
                       {event.contact.name}
                     </span>
-                    <span className="text-xs text-muted-foreground/70 truncate">
+                    <span className="text-sm text-muted-foreground/70 truncate">
                       {event.contact.lastTouchLabel}
                     </span>
                   </Link>

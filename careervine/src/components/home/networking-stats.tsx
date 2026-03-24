@@ -58,7 +58,7 @@ export function NetworkingStats({
   if (loading) {
     return (
       <div>
-        <h2 className="text-xl font-medium text-foreground mb-5">Network Overview</h2>
+        <h2 className="text-2xl font-medium text-foreground mb-5">Network Overview</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="h-24 rounded-xl bg-surface-container-highest animate-pulse" />
@@ -87,7 +87,7 @@ export function NetworkingStats({
 
   return (
     <div>
-      <h2 className="text-xl font-medium text-foreground mb-5">Network Overview</h2>
+      <h2 className="text-2xl font-medium text-foreground mb-5">Network Overview</h2>
 
       {/* Stat counters */}
       <StatCounters stats={statCards} />
@@ -99,7 +99,7 @@ export function NetworkingStats({
           <ActivityHeatmap data={heatmapData} />
           {/* Trend line — under heatmap */}
           {(totalThisWeek > 0 || totalLastWeek > 0) && (
-            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="mt-3 flex items-center gap-2 text-base text-muted-foreground">
               {trendPct > 0 ? (
                 <TrendingUp className="h-4 w-4 text-green-600" />
               ) : trendPct < 0 ? (
