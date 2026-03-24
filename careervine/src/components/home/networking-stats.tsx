@@ -58,13 +58,13 @@ export function NetworkingStats({
   if (loading) {
     return (
       <div>
-        <h2 className="text-lg font-medium text-foreground mb-4">Network Overview</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <h2 className="text-xl font-medium text-foreground mb-5">Network Overview</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-20 rounded-xl bg-surface-container-highest animate-pulse" />
+            <div key={i} className="h-24 rounded-xl bg-surface-container-highest animate-pulse" />
           ))}
         </div>
-        <div className="h-32 rounded-xl bg-surface-container-highest animate-pulse" />
+        <div className="h-36 rounded-xl bg-surface-container-highest animate-pulse" />
       </div>
     );
   }
@@ -87,17 +87,19 @@ export function NetworkingStats({
 
   return (
     <div>
-      <h2 className="text-lg font-medium text-foreground mb-4">Network Overview</h2>
+      <h2 className="text-xl font-medium text-foreground mb-5">Network Overview</h2>
 
       {/* Stat counters */}
       <StatCounters stats={statCards} />
 
-      {/* Heatmap + donut side by side */}
+      {/* Heatmap + donut side by side, neglected contacts below */}
       <div className="mt-6 flex flex-col lg:flex-row gap-6 items-start">
+        {/* Heatmap */}
         <div className="min-w-0 overflow-x-auto flex-1">
           <ActivityHeatmap data={heatmapData} />
         </div>
 
+        {/* Donut */}
         {healthSummary && healthSummary.total > 0 && (
           <div className="shrink-0">
             <NetworkDonut data={healthSummary} />
@@ -111,6 +113,7 @@ export function NetworkingStats({
           <NeglectedContacts contacts={neglectedContacts} />
         )}
 
+        {/* Trend line */}
         {(totalThisWeek > 0 || totalLastWeek > 0) && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             {trendPct > 0 ? (

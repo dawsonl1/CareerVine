@@ -1,11 +1,5 @@
 @import "tailwindcss";
 
-/* Scale all rem-based values (text, padding, spacing) up 25%.
-   Container widths use px so they don't also grow wider. */
-html {
-  font-size: 20px; /* 125% of default 16px */
-}
-
 /*
  * CareerVine — Material Design 3 color system
  *
