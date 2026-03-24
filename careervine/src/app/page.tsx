@@ -207,7 +207,7 @@ export default function Home() {
       const ok = await saveSuggestionRaw(s);
       if (ok) {
         toast("Saved to action items", { variant: "success" });
-        loadCoreData(); // Reload so the new action item appears immediately
+        loadCoreData();
       } else {
         toast("Failed to save", { variant: "error" });
       }
@@ -428,7 +428,6 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <Navigation />
 
-      {/* FAB — fixed bottom-right */}
       <LogConversationFab onClick={() => openQuickCapture()} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
