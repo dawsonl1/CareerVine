@@ -19,6 +19,7 @@ import {
   getContactsWithLastTouch,
   getRecentUncontactedContacts,
   getActionListCounts,
+  getContactEmailLookup,
   getRelationshipsOnTrack,
   getNetworkingStreak,
   getHomeStats,
@@ -155,7 +156,7 @@ export default function Home() {
 
   const loadSchedule = useCallback(async () => {
     if (!user) return;
-    if (gmailLoading) return; // Wait until we know the calendar connection state
+    if (gmailLoading) return;
     if (!calendarConnected) {
       setScheduleLoading(false);
       return;
@@ -164,22 +165,46 @@ export default function Home() {
       const today = new Date();
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
       const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
-      const res = await fetch(`/api/calendar/events?start=${encodeURIComponent(startOfDay)}&end=${encodeURIComponent(endOfDay)}`);
-      if (res.ok) {
-        const data = await res.json();
-        // TODO: match attendees to known contacts for prep context
+
+      const [eventsRes, emailLookup] = await Promise.all([
+        fetch(`/api/calendar/events?start=${encodeURIComponent(startOfDay)}&end=${encodeURIComponent(endOfDay)}`),
+        getContactEmailLookup(user.id),
+      ]);
+
+      if (eventsRes.ok) {
+        const data = await eventsRes.json();
         setScheduleEvents(
-          (data.events || []).map((e: any) => ({
-            id: e.id,
-            title: e.title,
-            start_at: e.start_at,
-            end_at: e.end_at,
-            description: e.description || null,
-            location: e.location || null,
-            meet_link: e.meet_link || null,
-            zoom_link: e.zoom_link || null,
-            attendees: e.attendees || [],
-          }))
+          (data.events || []).map((e: any) => {
+            // Match first attendee email to a known contact
+            const attendees = e.attendees || [];
+            let contact: ScheduleEvent["contact"] | undefined;
+            for (const a of attendees) {
+              if (!a.email) continue;
+              const match = emailLookup.get(a.email.toLowerCase());
+              if (match) {
+                const daysSince = lastTouchLookup.get(match.id);
+                contact = {
+                  id: match.id,
+                  name: match.name,
+                  photo_url: match.photo_url,
+                  lastTouchLabel: formatLastContacted(daysSince ?? null),
+                };
+                break;
+              }
+            }
+            return {
+              id: e.id,
+              title: e.title,
+              start_at: e.start_at,
+              end_at: e.end_at,
+              description: e.description || null,
+              location: e.location || null,
+              meet_link: e.meet_link || null,
+              zoom_link: e.zoom_link || null,
+              attendees,
+              contact,
+            };
+          })
         );
       }
     } catch {
@@ -187,7 +212,7 @@ export default function Home() {
     } finally {
       setScheduleLoading(false);
     }
-  }, [user, calendarConnected, gmailLoading]);
+  }, [user, calendarConnected, gmailLoading, lastTouchLookup]);
 
   const loadBand3 = useCallback(async () => {
     if (!user) return;
@@ -251,10 +276,14 @@ export default function Home() {
       // Fire count query first, then everything else in parallel
       loadCounts();
       loadCoreData();
-      loadSchedule();
       loadBand3();
     }
-  }, [user, loadCounts, loadCoreData, loadSchedule, loadBand3]);
+  }, [user, loadCounts, loadCoreData, loadBand3]);
+
+  // Load schedule after core data so lastTouchLookup is available for contact matching
+  useEffect(() => {
+    if (dataLoaded) loadSchedule();
+  }, [dataLoaded, loadSchedule]);
 
   // Refresh when a conversation is logged
   useEffect(() => {

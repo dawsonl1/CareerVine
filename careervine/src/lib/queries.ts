@@ -72,6 +72,32 @@ async function buildLastTouchMap(contactIds: number[]): Promise<Map<number, stri
   return map;
 }
 
+/**
+ * Build a lookup map of email address → contact info.
+ * Used to match calendar event attendees to known contacts.
+ */
+export async function getContactEmailLookup(userId: string) {
+  const { data, error } = await supabase
+    .from("contact_emails")
+    .select("email, contact_id, contacts!inner(id, name, photo_url, user_id)")
+    .eq("contacts.user_id", userId);
+  if (error) throw error;
+
+  const map = new Map<string, { id: number; name: string; photo_url: string | null }>();
+  if (data) {
+    for (const row of data as unknown as { email: string; contact_id: number; contacts: { id: number; name: string; photo_url: string | null } }[]) {
+      if (row.email && row.contacts) {
+        map.set(row.email.toLowerCase(), {
+          id: row.contacts.id,
+          name: row.contacts.name,
+          photo_url: row.contacts.photo_url,
+        });
+      }
+    }
+  }
+  return map;
+}
+
 // ── Query functions ──
 
 /**
