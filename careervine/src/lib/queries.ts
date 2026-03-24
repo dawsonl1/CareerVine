@@ -1083,12 +1083,11 @@ export async function getContactsDueForFollowUp(userId: string) {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const recentCutoff = sevenDaysAgo.toISOString();
 
-  // 1. Get all contacts that have a follow-up frequency configured, excluding snoozed
+  // 1. Get all contacts (with or without cadence), excluding snoozed
   const { data: contacts, error: cErr } = await supabase
     .from("contacts")
     .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, contact_emails(email)")
     .eq("user_id", userId)
-    .not("follow_up_frequency_days", "is", null)
     .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
     .order("name");
   if (cErr) throw cErr;
@@ -1137,12 +1136,40 @@ export async function getContactsDueForFollowUp(userId: string) {
     .map((c) => {
       const lastTouch = lastTouchMap.get(c.id);
       const lastTouchDate = lastTouch ? new Date(lastTouch) : null;
-      const freqDays = c.follow_up_frequency_days!;
-      let daysOverdue: number;
+      const freqDays = c.follow_up_frequency_days;
       const neverContacted = !lastTouchDate;
+      const noCadence = !freqDays;
 
+      // Exclude never-contacted contacts that are still in the Recently Added window (< 7 days)
+      // or that have been skipped
+      const isRecent = c.created_at >= recentCutoff;
+      if (neverContacted && (isRecent || c.first_outreach_skipped)) {
+        return null;
+      }
+
+      // Contacts with no cadence: include if they've been contacted before or are past 7 days
+      // They have no overdue calculation — they just appear with days_overdue = 0
+      if (noCadence) {
+        // Only include if: contacted before, or past 7 days and never contacted
+        if (!neverContacted || !isRecent) {
+          return {
+            id: c.id,
+            name: c.name,
+            industry: c.industry,
+            photo_url: c.photo_url,
+            follow_up_frequency_days: 0,
+            last_touch: lastTouch || null,
+            days_overdue: 0,
+            never_contacted: neverContacted,
+            no_cadence: true,
+            emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
+          };
+        }
+        return null;
+      }
+
+      let daysOverdue: number;
       if (neverContacted) {
-        // Never contacted — calculate overdue from created_at, not full cadence
         const createdDate = new Date(c.created_at);
         const dueDate = new Date(createdDate);
         dueDate.setDate(dueDate.getDate() + freqDays);
@@ -1153,12 +1180,7 @@ export async function getContactsDueForFollowUp(userId: string) {
         daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
       }
 
-      // Exclude never-contacted contacts that are still in the Recently Added window (< 7 days)
-      // or that have been skipped
-      const isRecent = c.created_at >= recentCutoff;
-      if (neverContacted && (isRecent || c.first_outreach_skipped)) {
-        return null;
-      }
+      if (daysOverdue < 0) return null; // Not yet due
 
       return {
         id: c.id,
@@ -1169,11 +1191,17 @@ export async function getContactsDueForFollowUp(userId: string) {
         last_touch: lastTouch || null,
         days_overdue: daysOverdue,
         never_contacted: neverContacted,
+        no_cadence: false,
         emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
       };
     })
-    .filter((c): c is NonNullable<typeof c> => c !== null && c.days_overdue >= 0)
-    .sort((a, b) => b.days_overdue - a.days_overdue);
+    .filter((c): c is NonNullable<typeof c> => c !== null)
+    .sort((a, b) => {
+      // No-cadence contacts sort to the end
+      if (a.no_cadence && !b.no_cadence) return 1;
+      if (!a.no_cadence && b.no_cadence) return -1;
+      return b.days_overdue - a.days_overdue;
+    });
 }
 
 /**
@@ -1587,6 +1615,215 @@ export async function getActionListCounts(userId: string) {
     reachOut: followUpResult.count ?? 0,
     recentlyAdded: recentResult.count ?? 0,
   };
+}
+
+/**
+ * Calculate "Relationships on track" percentage.
+ *
+ * Denominator: contacts that have been contacted at least once OR
+ * are past the 7-day Recently Added window (excluding first_outreach_skipped).
+ *
+ * Numerator: contacts where days_since_last_touch <= follow_up_frequency_days.
+ * Contacts with no cadence set are automatically NOT on track.
+ *
+ * Returns percentage + breakdown for tooltip.
+ */
+export async function getRelationshipsOnTrack(userId: string) {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const recentCutoff = sevenDaysAgo.toISOString();
+
+  // Get all contacts (we need cadence + created_at + skip status)
+  const { data: contacts, error } = await supabase
+    .from("contacts")
+    .select("id, follow_up_frequency_days, created_at, first_outreach_skipped")
+    .eq("user_id", userId);
+  if (error) throw error;
+  if (!contacts || contacts.length === 0) {
+    return { percentage: 100, onTrack: 0, total: 0, breakdown: { withCadenceOnTrack: 0, withCadenceOverdue: 0, noCadence: 0, neverContactedPast7d: 0 } };
+  }
+
+  const contactIds = contacts.map((c) => c.id);
+
+  // Get last touch per contact
+  const { data: meetingLinks } = await supabase
+    .from("meeting_contacts")
+    .select("contact_id, meetings(meeting_date)")
+    .in("contact_id", contactIds);
+
+  const { data: interactions } = await supabase
+    .from("interactions")
+    .select("contact_id, interaction_date")
+    .in("contact_id", contactIds);
+
+  const lastTouchMap = new Map<number, string>();
+  if (meetingLinks) {
+    for (const ml of meetingLinks as unknown as { contact_id: number; meetings: { meeting_date: string } }[]) {
+      const date = ml.meetings?.meeting_date;
+      if (!date) continue;
+      const prev = lastTouchMap.get(ml.contact_id);
+      if (!prev || date > prev) lastTouchMap.set(ml.contact_id, date);
+    }
+  }
+  if (interactions) {
+    for (const i of interactions) {
+      const date = i.interaction_date;
+      if (!date) continue;
+      const prev = lastTouchMap.get(i.contact_id);
+      if (!prev || date > prev) lastTouchMap.set(i.contact_id, date);
+    }
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let onTrack = 0;
+  let total = 0;
+  let withCadenceOnTrack = 0;
+  let withCadenceOverdue = 0;
+  let noCadence = 0;
+  let neverContactedPast7d = 0;
+
+  for (const c of contacts) {
+    if (c.first_outreach_skipped) continue;
+
+    const lastTouch = lastTouchMap.get(c.id);
+    const hasBeenContacted = !!lastTouch;
+    const isRecent = c.created_at >= recentCutoff;
+
+    // Include if: contacted at least once, OR past 7-day window
+    if (!hasBeenContacted && isRecent) continue; // Still in Recently Added — skip
+
+    total++;
+
+    if (!hasBeenContacted) {
+      // Past 7 days, never contacted
+      neverContactedPast7d++;
+      if (c.follow_up_frequency_days) {
+        // Has cadence — check if overdue from created_at
+        const createdDate = new Date(c.created_at);
+        const dueDate = new Date(createdDate);
+        dueDate.setDate(dueDate.getDate() + c.follow_up_frequency_days);
+        if (today <= dueDate) {
+          onTrack++;
+          withCadenceOnTrack++;
+        } else {
+          withCadenceOverdue++;
+        }
+      } else {
+        noCadence++;
+        // No cadence = not on track
+      }
+      continue;
+    }
+
+    // Has been contacted
+    if (!c.follow_up_frequency_days) {
+      noCadence++;
+      // No cadence = not on track
+      continue;
+    }
+
+    const lastTouchDate = new Date(lastTouch);
+    const daysSince = Math.floor((today.getTime() - lastTouchDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysSince <= c.follow_up_frequency_days) {
+      onTrack++;
+      withCadenceOnTrack++;
+    } else {
+      withCadenceOverdue++;
+    }
+  }
+
+  const percentage = total > 0 ? Math.round((onTrack / total) * 100) : 100;
+
+  return {
+    percentage,
+    onTrack,
+    total,
+    breakdown: {
+      withCadenceOnTrack,
+      withCadenceOverdue,
+      noCadence,
+      neverContactedPast7d,
+    },
+  };
+}
+
+/**
+ * Get the user's current networking streak — consecutive days with at least
+ * one activity (meeting logged, action item completed, or interaction).
+ * Counts backward from yesterday (today is still in progress).
+ */
+export async function getNetworkingStreak(userId: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Look back up to 365 days
+  const lookback = new Date(today);
+  lookback.setDate(lookback.getDate() - 365);
+  const lookbackStr = lookback.toISOString().split("T")[0];
+
+  // Get all activity dates
+  const [meetingsRes, completedRes, interactionsRes] = await Promise.all([
+    supabase
+      .from("meetings")
+      .select("meeting_date")
+      .eq("user_id", userId)
+      .gte("meeting_date", lookbackStr),
+    supabase
+      .from("follow_up_action_items")
+      .select("completed_at")
+      .eq("user_id", userId)
+      .eq("is_completed", true)
+      .gte("completed_at", lookback.toISOString()),
+    supabase
+      .from("interactions")
+      .select("interaction_date")
+      .gte("interaction_date", lookbackStr),
+  ]);
+
+  const activeDays = new Set<string>();
+
+  if (meetingsRes.data) {
+    for (const m of meetingsRes.data) {
+      if (m.meeting_date) activeDays.add(m.meeting_date.split("T")[0]);
+    }
+  }
+  if (completedRes.data) {
+    for (const a of completedRes.data) {
+      if (a.completed_at) activeDays.add(a.completed_at.split("T")[0]);
+    }
+  }
+  if (interactionsRes.data) {
+    for (const i of interactionsRes.data) {
+      if (i.interaction_date) activeDays.add(i.interaction_date.split("T")[0]);
+    }
+  }
+
+  // Count consecutive days backward from yesterday
+  let streak = 0;
+  const checkDate = new Date(today);
+  // Include today if there's activity
+  const todayStr = today.toISOString().split("T")[0];
+  if (activeDays.has(todayStr)) {
+    streak = 1;
+    checkDate.setDate(checkDate.getDate() - 1);
+  } else {
+    // Start from yesterday
+    checkDate.setDate(checkDate.getDate() - 1);
+  }
+
+  while (true) {
+    const dateStr = checkDate.toISOString().split("T")[0];
+    if (activeDays.has(dateStr)) {
+      streak++;
+      checkDate.setDate(checkDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+
+  return { streak };
 }
 
 /**

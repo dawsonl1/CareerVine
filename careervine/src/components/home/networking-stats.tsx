@@ -4,7 +4,7 @@ import { StatCounters, type StatCard } from "./stat-counters";
 import { ActivityHeatmap } from "./activity-heatmap";
 import { NetworkDonut } from "./network-donut";
 import { NeglectedContacts } from "./neglected-contacts";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Flame } from "lucide-react";
 
 interface HeatmapDay {
   date: string;
@@ -40,11 +40,25 @@ interface HomeStatsData {
   touchpoints: { thisWeek: number; lastWeek: number };
 }
 
+export interface RelationshipsOnTrackData {
+  percentage: number;
+  onTrack: number;
+  total: number;
+  breakdown: {
+    withCadenceOnTrack: number;
+    withCadenceOverdue: number;
+    noCadence: number;
+    neverContactedPast7d: number;
+  };
+}
+
 interface NetworkingStatsProps {
   stats: HomeStatsData | null;
   heatmapData: HeatmapDay[];
   healthSummary: NetworkHealthData | null;
   neglectedContacts: NeglectedContact[];
+  relationshipsOnTrack: RelationshipsOnTrackData | null;
+  streak: number;
   loading: boolean;
 }
 
@@ -53,6 +67,8 @@ export function NetworkingStats({
   heatmapData,
   healthSummary,
   neglectedContacts,
+  relationshipsOnTrack,
+  streak,
   loading,
 }: NetworkingStatsProps) {
   if (loading) {
@@ -71,9 +87,24 @@ export function NetworkingStats({
 
   if (!stats) return null;
 
+  const rot = relationshipsOnTrack;
+  const rotTooltip = rot ? [
+    `${rot.onTrack} of ${rot.total} relationships on track`,
+    `${rot.breakdown.withCadenceOnTrack} within cadence`,
+    `${rot.breakdown.withCadenceOverdue} overdue`,
+    ...(rot.breakdown.noCadence > 0 ? [`${rot.breakdown.noCadence} no cadence set`] : []),
+    ...(rot.breakdown.neverContactedPast7d > 0 ? [`${rot.breakdown.neverContactedPast7d} never contacted`] : []),
+  ] : [];
+
   const statCards: StatCard[] = [
     { label: "Conversations this week", value: stats.conversations.thisWeek, previousValue: stats.conversations.lastWeek },
-    { label: "Action items", value: stats.pendingItems, previousValue: stats.pendingItems },
+    {
+      label: "Relationships on track",
+      value: rot?.percentage ?? 0,
+      previousValue: rot?.percentage ?? 0, // No week-over-week for now
+      isPercentage: true,
+      tooltipLines: rotTooltip,
+    },
     { label: "Contacts added", value: stats.contactsAdded.thisWeek, previousValue: stats.contactsAdded.lastWeek },
   ];
 
@@ -100,9 +131,10 @@ export function NetworkingStats({
             {/* Heatmap */}
             <div className="min-w-0 shrink-0">
               <ActivityHeatmap data={heatmapData} />
-              {/* Trend line — under heatmap */}
+              {/* Trend line + streak — under heatmap */}
+              <div className="mt-3 flex items-center justify-between">
               {(totalThisWeek > 0 || totalLastWeek > 0) && (
-                <div className="mt-3 flex items-center gap-2.5 text-lg text-muted-foreground">
+                <div className="flex items-center gap-2.5 text-lg text-muted-foreground">
                   {trendPct > 0 ? (
                     <TrendingUp className="h-4 w-4 text-green-600" />
                   ) : trendPct < 0 ? (
@@ -119,6 +151,16 @@ export function NetworkingStats({
                   </span>
                 </div>
               )}
+
+              {/* Streak */}
+              {streak > 0 && (
+                <div className="flex items-center gap-1.5 text-base text-muted-foreground">
+                  <Flame className="h-4 w-4 text-orange-500" />
+                  <span className="font-medium tabular-nums">{streak}</span>
+                  <span>day{streak !== 1 ? "s" : ""}</span>
+                </div>
+              )}
+              </div>
             </div>
 
             {/* Donut */}

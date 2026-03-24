@@ -19,6 +19,8 @@ import {
   getContactsWithLastTouch,
   getRecentUncontactedContacts,
   getActionListCounts,
+  getRelationshipsOnTrack,
+  getNetworkingStreak,
   getHomeStats,
   getActivityHeatmap,
   getNetworkHealthSummary,
@@ -55,6 +57,7 @@ type FollowUpContact = {
   last_touch: string | null;
   days_overdue: number;
   never_contacted: boolean;
+  no_cadence: boolean;
   emails: string[];
 };
 
@@ -82,6 +85,8 @@ export default function Home() {
   const [healthSummary, setHealthSummary] = useState<Awaited<ReturnType<typeof getNetworkHealthSummary>> | null>(null);
   const [neglectedContacts, setNeglectedContactsList] = useState<Awaited<ReturnType<typeof getNeglectedContacts>>>([]);
   const [band3Loading, setBand3Loading] = useState(true);
+  const [relationshipsOnTrack, setRelationshipsOnTrack] = useState<Awaited<ReturnType<typeof getRelationshipsOnTrack>> | null>(null);
+  const [streak, setStreak] = useState(0);
 
   // Calendar height prediction from fast count query
   // >= 3 items: assume 5 visible rows (suggestions will fill gaps). Never resize.
@@ -183,12 +188,16 @@ export default function Home() {
         getActivityHeatmap(user.id),
         getNetworkHealthSummary(user.id),
         getNeglectedContacts(user.id),
+        getRelationshipsOnTrack(user.id),
+        getNetworkingStreak(user.id),
       ]);
 
       if (results[0].status === "fulfilled") setHomeStats(results[0].value);
       if (results[1].status === "fulfilled") setHeatmapData(results[1].value);
       if (results[2].status === "fulfilled") setHealthSummary(results[2].value);
       if (results[3].status === "fulfilled") setNeglectedContactsList(results[3].value);
+      if (results[4].status === "fulfilled") setRelationshipsOnTrack(results[4].value);
+      if (results[5].status === "fulfilled") setStreak(results[5].value.streak);
     } catch {
       // silent
     } finally {
@@ -346,7 +355,9 @@ export default function Home() {
         : null;
 
       let primaryText: string;
-      if (f.never_contacted) {
+      if (f.no_cadence) {
+        primaryText = f.never_contacted ? "No cadence set · Never contacted" : "No cadence set";
+      } else if (f.never_contacted) {
         primaryText = f.days_overdue > 0
           ? `Send first message · ${f.days_overdue}d overdue`
           : "Send first message · Due today";
@@ -616,6 +627,8 @@ export default function Home() {
             heatmapData={heatmapData}
             healthSummary={healthSummary}
             neglectedContacts={neglectedContacts}
+            relationshipsOnTrack={relationshipsOnTrack}
+            streak={streak}
             loading={band3Loading}
           />
         )}
