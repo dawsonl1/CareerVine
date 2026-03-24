@@ -152,6 +152,19 @@ export function UnifiedActionList({
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [snoozeState, setSnoozeState] = useState<SnoozeState | null>(null);
   const [page, setPage] = useState(0);
+
+  // Close snooze dropdown on click outside
+  useEffect(() => {
+    if (!snoozeState?.showMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Don't close if clicking inside a snooze menu
+      if (target.closest("[data-snooze-menu]")) return;
+      setSnoozeState(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [snoozeState?.showMenu]);
   const PAGE_SIZE = 5;
 
   const counts = useMemo(() => {
@@ -363,7 +376,7 @@ function ActionListItem({
             <Clock className="h-6 w-6" />
           </button>
           {showSnoozeMenu && (
-            <div className="absolute right-0 top-full mt-1 z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1.5 min-w-[180px]">
+            <div data-snooze-menu className="absolute right-0 top-full mt-1 z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1.5 min-w-[180px]">
               {[
                 { action: { type: "days" as const, days: 1 }, label: "1 day" },
                 { action: { type: "days" as const, days: 3 }, label: "3 days" },
