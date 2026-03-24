@@ -75,12 +75,17 @@ export default function Home() {
   const { calendarConnected, loading: gmailLoading } = useGmailConnection();
 
   // ── SWR cache: hydrate from localStorage on mount for instant revisit ──
+  const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
   const cacheKey = user ? `careervine:home:${user.id}` : null;
   const cachedData = useMemo(() => {
     if (!cacheKey || typeof window === "undefined") return null;
     try {
       const raw = localStorage.getItem(cacheKey);
-      return raw ? JSON.parse(raw) : null;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      // Expire cache after 5 minutes
+      if (parsed._ts && Date.now() - parsed._ts > CACHE_MAX_AGE_MS) return null;
+      return parsed;
     } catch { return null; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey]);
@@ -164,6 +169,7 @@ export default function Home() {
       if (cacheKey) {
         try {
           localStorage.setItem(cacheKey, JSON.stringify({
+            _ts: Date.now(),
             actionItems: items,
             followUps: data.followUps,
             contactHealth: data.contactHealth,
@@ -316,6 +322,16 @@ export default function Home() {
     window.addEventListener("careervine:conversation-logged", handler);
     return () => window.removeEventListener("careervine:conversation-logged", handler);
   }, [loadCoreData, loadBand3]);
+
+  // Background refresh every 5 minutes (runs even when tab is hidden)
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      loadCoreData();
+      loadBand3();
+    }, CACHE_MAX_AGE_MS);
+    return () => clearInterval(interval);
+  }, [user, loadCoreData, loadBand3]);
 
   // Load suggestions once after data loads
   useEffect(() => {
