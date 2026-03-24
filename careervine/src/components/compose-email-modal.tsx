@@ -25,10 +25,12 @@ export function ComposeEmailModal() {
   const {
     isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml,
     replyThreadId, replyInReplyTo, replyReferences, replyQuotedHtml,
-    aiDraftContext, gmailAddress, closeCompose,
+    aiDraftContext, isIntro, gmailAddress, closeCompose,
   } = useCompose();
 
   const [showAiContext, setShowAiContext] = useState(false);
+  const [introPromptVisible, setIntroPromptVisible] = useState(false);
+  const [introGenerating, setIntroGenerating] = useState(false);
 
   const isReply = !!replyThreadId;
 
@@ -120,6 +122,8 @@ export function ComposeEmailModal() {
       setShowSchedule(false);
       setScheduleDatetime("");
       setShowAiContext(false);
+      setIntroPromptVisible(isIntro && !prefillBodyHtml);
+      setIntroGenerating(false);
       draftIdRef.current = null;
       sentOrScheduledRef.current = false;
       setContactSuggestions([]);
@@ -552,11 +556,77 @@ export function ComposeEmailModal() {
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-2.5">
-              <RichTextEditor
-                content={bodyHtml}
-                onChange={setBodyHtml}
-                placeholder={isReply ? "Write your reply…" : "Write your message…"}
-              />
+              {/* Intro AI draft prompt — shown when compose opened for intro and body is empty */}
+              {introPromptVisible && !introGenerating && (
+                <div className="flex flex-col items-center justify-center py-12 animate-in fade-in duration-300">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIntroGenerating(true);
+                      setIntroPromptVisible(false);
+                      try {
+                        const res = await fetch("/api/gmail/ai-write", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            prompt: "Write a warm, professional introduction email. This is the first time I'm reaching out to this person.",
+                            recipientEmail: to,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setBodyHtml(data.bodyHtml);
+                          if (data.subject && !subject.trim()) {
+                            setSubject(data.subject);
+                          }
+                        }
+                      } catch {
+                        // silent — user can still type manually
+                      } finally {
+                        setIntroGenerating(false);
+                      }
+                    }}
+                    className="flex items-center gap-3 px-6 py-4 rounded-2xl border-2 border-dashed border-primary/30 text-primary hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group"
+                  >
+                    <Sparkles className="h-5 w-5 group-hover:scale-110 transition-transform" />
+                    <span className="text-base font-medium">Draft an introduction email</span>
+                  </button>
+                  <p className="text-sm text-muted-foreground mt-3">or start typing below</p>
+                </div>
+              )}
+
+              {/* Loading state for intro generation */}
+              {introGenerating && (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="w-48 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+                    <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: "60%", animation: "introProgress 3s ease-in-out infinite" }} />
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-4 animate-pulse">Crafting your introduction...</p>
+                  <style>{`
+                    @keyframes introProgress {
+                      0% { width: 10%; }
+                      50% { width: 75%; }
+                      100% { width: 95%; }
+                    }
+                  `}</style>
+                </div>
+              )}
+
+              <div
+                className={`transition-opacity duration-300 ${introPromptVisible ? "opacity-0 h-0 overflow-hidden" : "opacity-100"}`}
+                onClick={() => { if (introPromptVisible) setIntroPromptVisible(false); }}
+              >
+                <RichTextEditor
+                  content={bodyHtml}
+                  onChange={(html) => {
+                    setBodyHtml(html);
+                    if (introPromptVisible && html.replace(/<[^>]*>/g, "").trim()) {
+                      setIntroPromptVisible(false);
+                    }
+                  }}
+                  placeholder={isReply ? "Write your reply…" : "Write your message…"}
+                />
+              </div>
 
               {/* Quoted original message for replies */}
               {isReply && replyQuotedHtml && (

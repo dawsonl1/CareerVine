@@ -430,14 +430,16 @@ function ActionListItem({
             >
               <MessageSquare className="h-6 w-6" />
             </button>
-            <button
-              type="button"
-              onClick={() => onDraftEmail(item.contactId)}
-              className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
-              title="Draft message"
-            >
-              <Mail className="h-6 w-6" />
-            </button>
+            {item.hasEmail && (
+              <button
+                type="button"
+                onClick={() => onDraftEmail(item.contactId)}
+                className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+                title="Draft message"
+              >
+                <Mail className="h-6 w-6" />
+              </button>
+            )}
           </>
         )}
 

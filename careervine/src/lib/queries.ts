@@ -1086,7 +1086,7 @@ export async function getContactsDueForFollowUp(userId: string) {
   // 1. Get all contacts that have a follow-up frequency configured, excluding snoozed
   const { data: contacts, error: cErr } = await supabase
     .from("contacts")
-    .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped")
+    .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, contact_emails(email)")
     .eq("user_id", userId)
     .not("follow_up_frequency_days", "is", null)
     .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
@@ -1169,6 +1169,7 @@ export async function getContactsDueForFollowUp(userId: string) {
         last_touch: lastTouch || null,
         days_overdue: daysOverdue,
         never_contacted: neverContacted,
+        emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
       };
     })
     .filter((c): c is NonNullable<typeof c> => c !== null && c.days_overdue >= 0)

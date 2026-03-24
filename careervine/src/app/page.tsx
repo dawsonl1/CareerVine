@@ -55,6 +55,7 @@ type FollowUpContact = {
   last_touch: string | null;
   days_overdue: number;
   never_contacted: boolean;
+  emails: string[];
 };
 
 export default function Home() {
@@ -350,6 +351,7 @@ export default function Home() {
         lastContactedLabel: f.never_contacted ? "Never contacted" : formatLastContacted(daysSince),
         priority: 60 + Math.min(f.days_overdue, 30),
         daysOverdue: f.days_overdue,
+        hasEmail: f.emails.length > 0,
       });
     }
 
@@ -494,14 +496,15 @@ export default function Home() {
 
   const handleDraftEmail = useCallback(
     (contactId: number) => {
-      // Find the contact to get their name for the compose modal
       const contact = followUps.find((f) => f.id === contactId);
       if (contact) {
+        const email = contact.emails[0] || "";
         openCompose({
-          to: "",
+          to: email,
           name: contact.name,
           subject: "",
           bodyHtml: "",
+          isIntro: contact.never_contacted,
         });
       }
     },
@@ -528,6 +531,7 @@ export default function Home() {
         name: contact.name,
         subject: "",
         bodyHtml: "",
+        isIntro: true,
       });
     },
     [newContacts, openCompose]
