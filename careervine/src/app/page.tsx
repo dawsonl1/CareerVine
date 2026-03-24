@@ -31,7 +31,7 @@ import { useToast } from "@/components/ui/toast";
 import { useSuggestions } from "@/hooks/use-suggestions";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 
-import { GreetingHeader } from "@/components/home/greeting-header";
+import { LogConversationFab } from "@/components/home/log-conversation-fab";
 import { UnifiedActionList, type UnifiedActionItem } from "@/components/home/unified-action-list";
 import { TodaySchedule, type ScheduleEvent } from "@/components/home/today-schedule";
 import { NewContacts, type NewContact } from "@/components/home/new-contacts";
@@ -428,12 +428,10 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <Navigation />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        {/* ═══ Band 1: Header ═══ */}
-        <GreetingHeader
-          onLogConversation={() => openQuickCapture()}
-        />
+      {/* FAB — fixed bottom-right */}
+      <LogConversationFab onClick={() => openQuickCapture()} />
 
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* ═══ Band 2: Workspace ═══ */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8 mb-12">
           {/* Left: Unified action list */}
