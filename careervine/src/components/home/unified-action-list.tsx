@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import {
   Check,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   ArrowRight,
   MessageSquare,
@@ -137,6 +139,8 @@ export function UnifiedActionList({
 }: UnifiedActionListProps) {
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [snoozeState, setSnoozeState] = useState<SnoozeState | null>(null);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 5;
 
   const counts = useMemo(() => {
     const c = { action_item: 0, reach_out: 0, suggestion: 0 };
@@ -148,6 +152,14 @@ export function UnifiedActionList({
     if (activeFilter === "all") return items;
     return items.filter((i) => i.type === activeFilter);
   }, [items, activeFilter]);
+
+  const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
+  const paginatedItems = filteredItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const handleFilterChange = useCallback((key: FilterType) => {
+    setActiveFilter(key);
+    setPage(0);
+  }, []);
 
   const filters: { key: FilterType; label: string }[] = [
     { key: "all", label: "All" },
@@ -167,7 +179,7 @@ export function UnifiedActionList({
             <button
               key={f.key}
               type="button"
-              onClick={() => setActiveFilter(f.key)}
+              onClick={() => handleFilterChange(f.key)}
               className={`px-5 py-2.5 rounded-full text-base font-medium transition-colors cursor-pointer ${
                 activeFilter === f.key
                   ? "bg-primary text-primary-foreground"
@@ -198,28 +210,57 @@ export function UnifiedActionList({
 
       {/* Action list */}
       {!loading && !isEmpty && (
-        <div className="rounded-xl border border-outline-variant overflow-hidden divide-y divide-outline-variant/50">
-          {filteredItems.length === 0 ? (
-            <div className="py-10 text-center text-base text-muted-foreground">
-              No items in this category
+        <>
+          <div className="rounded-xl border border-outline-variant overflow-hidden divide-y divide-outline-variant/50">
+            {filteredItems.length === 0 ? (
+              <div className="py-10 text-center text-base text-muted-foreground">
+                No items in this category
+              </div>
+            ) : (
+              paginatedItems.map((item) => (
+                <ActionListItem
+                  key={item.id}
+                  item={item}
+                  onComplete={onComplete}
+                  onSnooze={onSnooze}
+                  onDismiss={onDismiss}
+                  onSave={onSave}
+                  onLogInteraction={onLogInteraction}
+                  onDraftEmail={onDraftEmail}
+                  snoozeState={snoozeState}
+                  setSnoozeState={setSnoozeState}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-3 px-1">
+              <span className="text-sm text-muted-foreground">
+                {`${page * PAGE_SIZE + 1} - ${Math.min((page + 1) * PAGE_SIZE, filteredItems.length)} of ${filteredItems.length}`}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
             </div>
-          ) : (
-            filteredItems.map((item) => (
-              <ActionListItem
-                key={item.id}
-                item={item}
-                onComplete={onComplete}
-                onSnooze={onSnooze}
-                onDismiss={onDismiss}
-                onSave={onSave}
-                onLogInteraction={onLogInteraction}
-                onDraftEmail={onDraftEmail}
-                snoozeState={snoozeState}
-                setSnoozeState={setSnoozeState}
-              />
-            ))
           )}
-        </div>
+        </>
       )}
     </div>
   );
