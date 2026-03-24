@@ -205,10 +205,14 @@ export default function Home() {
   const saveSuggestion = useCallback(
     async (s: Parameters<typeof saveSuggestionRaw>[0]) => {
       const ok = await saveSuggestionRaw(s);
-      if (ok) toast("Saved to action items", { variant: "success" });
-      else toast("Failed to save", { variant: "error" });
+      if (ok) {
+        toast("Saved to action items", { variant: "success" });
+        loadCoreData(); // Reload so the new action item appears immediately
+      } else {
+        toast("Failed to save", { variant: "error" });
+      }
     },
-    [saveSuggestionRaw, toast]
+    [saveSuggestionRaw, toast, loadCoreData]
   );
 
   const completeSuggestion = useCallback(
