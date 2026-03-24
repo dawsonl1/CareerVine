@@ -1644,12 +1644,16 @@ export async function getActivityHeatmap(userId: string) {
     }
   }
 
-  // Build array from start (Sunday ~1 year ago) through today
+  // Helper to format date as YYYY-MM-DD in local timezone (avoids UTC shift)
+  const toLocalDateStr = (dt: Date) =>
+    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+
+  // Build array from start through today (local dates)
   const result: { date: string; count: number; dayOfWeek: number; conversations: number; actions: number; contacts: number }[] = [];
-  const todayStr = now.toISOString().split("T")[0];
+  const todayStr = toLocalDateStr(now);
   const d = new Date(start);
-  while (d.toISOString().split("T")[0] <= todayStr) {
-    const dateStr = d.toISOString().split("T")[0];
+  while (toLocalDateStr(d) <= todayStr) {
+    const dateStr = toLocalDateStr(d);
     const breakdown = dayMap.get(dateStr) || { conversations: 0, actions: 0, contacts: 0 };
     result.push({
       date: dateStr,
