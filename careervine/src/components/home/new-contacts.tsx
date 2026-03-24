@@ -22,7 +22,7 @@ export function NewContacts({ contacts, onLog, onNote, onIntro }: NewContactsPro
 
   return (
     <div>
-      <h3 className="text-xl font-medium text-foreground mb-4">
+      <h3 className="text-lg font-medium text-foreground mb-3">
         New Contacts{" "}
         <span className="text-muted-foreground font-normal">({contacts.length})</span>
       </h3>
@@ -32,41 +32,41 @@ export function NewContacts({ contacts, onLog, onNote, onIntro }: NewContactsPro
           return (
             <div
               key={contact.id}
-              className="flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low transition-colors"
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-surface-container-low transition-colors"
             >
               <ContactAvatar
                 name={contact.name}
                 photoUrl={contact.photo_url}
-                className="w-10 h-10 text-sm shrink-0"
+                className="w-8 h-8 text-xs shrink-0"
               />
-              <span className="text-base text-foreground truncate flex-1 min-w-0">
+              <span className="text-sm text-foreground truncate flex-1 min-w-0">
                 {contact.name}
               </span>
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center gap-0.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => onLog(contact.id)}
-                  className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+                  className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
                   title="Log interaction"
                 >
-                  <MessageSquare className="h-4 w-4" />
+                  <MessageSquare className="h-3.5 w-3.5" />
                 </button>
                 <button
                   type="button"
                   onClick={() => onNote(contact.id)}
-                  className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+                  className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
                   title="Add note"
                 >
-                  <Pencil className="h-4 w-4" />
+                  <Pencil className="h-3.5 w-3.5" />
                 </button>
                 {hasEmail && (
                   <button
                     type="button"
                     onClick={() => onIntro(contact.id, contact.emails[0])}
-                    className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
                     title="Send intro message"
                   >
-                    <Mail className="h-4 w-4" />
+                    <Mail className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>

@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Scale the entire app to 125% so default zoom feels right */
+html {
+  zoom: 1.25;
+}
+
 /*
  * CareerVine — Material Design 3 color system
  *
