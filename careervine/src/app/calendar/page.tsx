@@ -13,6 +13,7 @@ import type { Meeting, SimpleContact } from "@/lib/types";
 import { RefreshCw, Lock, RotateCcw, Video, MapPin, List, LayoutGrid, ChevronLeft, ChevronRight, Pencil, X, Plus, Search } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { Toggle } from "@/components/ui/toggle";
+import { useToast } from "@/components/ui/toast";
 import { CONVERSATION_TYPE_OPTIONS } from "@/lib/constants";
 
 // Day grid parameters: 7am–10pm = 15 hours
@@ -53,6 +54,7 @@ function snapMins(raw: number) { return Math.round(raw / 15) * 15; }
 
 export default function CalendarPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
 
   // ── Core
   const [loading, setLoading] = useState(true);
@@ -160,7 +162,10 @@ export default function CalendarPage() {
   useEffect(() => { if (user) loadData(); }, [user, loadData]);
 
   const loadEvents = async () => {
-    const res = await fetch("/api/calendar/events");
+    const now = new Date();
+    const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
+    const res = await fetch(`/api/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
     const data = await res.json();
     if (data.events) setEvents(data.events.sort((a: CalendarEvent, b: CalendarEvent) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
   };
@@ -267,6 +272,17 @@ export default function CalendarPage() {
           transcript: formData.transcript || null,
         });
         await replaceContactsForMeeting(editingMeeting.id, selectedContactIds);
+        // Update linked Google Calendar event if one exists
+        if (calendarConnected && editingMeeting.calendar_event_id && formData.meeting_time) {
+          const effectiveDuration = meetingDuration > 0 ? meetingDuration : 60;
+          const startTime = new Date(dateTime).toISOString();
+          const endTime = new Date(new Date(dateTime).getTime() + effectiveDuration * 60000).toISOString();
+          await fetch(`/api/calendar/events/${encodeURIComponent(editingMeeting.calendar_event_id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime }),
+          }).catch(() => {}); // Best-effort — don't fail the whole save
+        }
       } else {
         const created = await createMeeting({
           user_id: user.id, meeting_date: dateTime, meeting_type: formData.meeting_type,
@@ -278,16 +294,21 @@ export default function CalendarPage() {
         if (selectedContactIds.length > 0) await addContactsToMeeting(created.id, selectedContactIds);
         // Always create on Google Calendar when connected and time is set
         if (calendarConnected && formData.meeting_time) {
+          const effectiveDuration = meetingDuration > 0 ? meetingDuration : 60; // Default 1 hour
           const attendeeEmails = selectedContactIds.map(id => inviteEmailMap[id] || contactEmailsMap[id]?.[0] || allContacts.find(c => c.id === id)?.email || null).filter(Boolean) as string[];
           const startTime = new Date(dateTime).toISOString();
-          const endTime = new Date(new Date(dateTime).getTime() + meetingDuration * 60000).toISOString();
+          const endTime = new Date(new Date(dateTime).getTime() + effectiveDuration * 60000).toISOString();
           await fetch("/api/calendar/create-event", { method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime, attendeeEmails, conferenceType: includeMeetLink ? "meet" : "none", meetingId: created.id }) });
         }
       }
       await loadLinkedMeetings(); await loadEvents();
       closeMeetingForm();
-    } catch (err) { console.error("Error saving meeting:", err); }
+      toast(editingMeeting ? "Meeting updated" : "Meeting created", { variant: "success" });
+    } catch (err) {
+      console.error("Error saving meeting:", err);
+      toast("Failed to save meeting", { variant: "error" });
+    }
   };
 
   // ── Drag-to-create (week view)
@@ -370,7 +391,7 @@ export default function CalendarPage() {
               <button onClick={() => setView("list")} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${view === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-surface-container-low"}`}><List className="h-4 w-4" /> List</button>
               <button onClick={() => setView("week")} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${view === "week" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-surface-container-low"}`}><LayoutGrid className="h-4 w-4" /> Week</button>
             </div>
-            {view === "list" && <Button variant="tonal" onClick={() => openNewMeetingForm()}><Plus className="h-5 w-5" /> Add meeting</Button>}
+            <Button variant="tonal" onClick={() => openNewMeetingForm()}><Plus className="h-5 w-5" /> Add meeting</Button>
             <Button onClick={handleSync} loading={syncing}><RefreshCw className={`h-5 w-5 ${syncing ? "animate-spin" : ""}`} /> Sync</Button>
           </div>
         </div>
@@ -470,7 +491,7 @@ export default function CalendarPage() {
                               if (event.is_private) return;
                               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                               const alignRight = rect.left > window.innerWidth / 2;
-                              setBubblePos({ top: rect.top + window.scrollY, left: alignRight ? rect.left - 4 : rect.right + 4, alignRight });
+                              setBubblePos({ top: rect.top, left: alignRight ? rect.left - 4 : rect.right + 4, alignRight });
                               setSelectedEvent(isSelected ? null : event);
                             }}
                             className={`absolute left-0.5 right-0.5 rounded px-1 py-0.5 overflow-hidden text-[10px] leading-tight cursor-pointer transition-shadow hover:shadow-md ${
@@ -696,8 +717,8 @@ export default function CalendarPage() {
                     <div><label className={labelClasses}>Transcript</label><textarea value={formData.transcript} onChange={e => setFormData({...formData, transcript: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={8} placeholder="Paste transcript…" /></div>
                   </>
                 )}
-                {/* Calendar options — always shown when connected */}
-                {calendarConnected && !editingMeeting && (
+                {/* Calendar options — shown when connected and time is set */}
+                {calendarConnected && !editingMeeting && formData.meeting_time && (
                   <div className="rounded-[12px] border border-outline-variant/60 p-5 space-y-4">
                     <div><label className={labelClasses}>Calendar invite description</label>
                       <textarea value={formData.calendarDescription} onChange={e => setFormData({...formData, calendarDescription: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={2} placeholder="Agenda or notes for the invite…" />
