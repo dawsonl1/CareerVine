@@ -246,11 +246,17 @@ export default function ContactDetailPage() {
         {/* Back link */}
         <div className="mb-6">
           <button
-            onClick={() => router.push("/contacts")}
+            onClick={() => {
+              if (window.history.length > 1) {
+                router.back();
+              } else {
+                router.push("/contacts");
+              }
+            }}
             className="inline-flex items-center gap-1.5 text-base text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
             <ChevronLeft className="h-5 w-5" />
-            All contacts
+            Back
           </button>
         </div>
 
