@@ -152,7 +152,7 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-end gap-1.5 mt-2">
+      <div className="flex items-center gap-1.5 mt-2">
         <span className="text-[10px] text-muted-foreground">Less</span>
         {COLORS.map((color, i) => (
           <div

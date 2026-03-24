@@ -107,32 +107,32 @@ export function NetworkingStats({
         )}
       </div>
 
-      {/* Neglected contacts + trend */}
-      <div className="mt-6 flex flex-col sm:flex-row gap-6 items-start justify-between">
-        {neglectedContacts.length > 0 && (
-          <NeglectedContacts contacts={neglectedContacts} />
-        )}
-
-        {/* Trend line */}
-        {(totalThisWeek > 0 || totalLastWeek > 0) && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {trendPct > 0 ? (
-              <TrendingUp className="h-4 w-4 text-green-600" />
-            ) : trendPct < 0 ? (
-              <TrendingDown className="h-4 w-4 text-red-500" />
-            ) : (
-              <Minus className="h-4 w-4" />
-            )}
-            <span>
-              This week vs last:{" "}
-              <span className={trendPct > 0 ? "text-green-600" : trendPct < 0 ? "text-red-500" : ""}>
-                {trendPct > 0 ? "+" : ""}
-                {trendPct}% {trendPct > 0 ? "more" : trendPct < 0 ? "less" : ""} active
-              </span>
+      {/* Trend line */}
+      {(totalThisWeek > 0 || totalLastWeek > 0) && (
+        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+          {trendPct > 0 ? (
+            <TrendingUp className="h-4 w-4 text-green-600" />
+          ) : trendPct < 0 ? (
+            <TrendingDown className="h-4 w-4 text-red-500" />
+          ) : (
+            <Minus className="h-4 w-4" />
+          )}
+          <span>
+            This week vs last:{" "}
+            <span className={trendPct > 0 ? "text-green-600" : trendPct < 0 ? "text-red-500" : ""}>
+              {trendPct > 0 ? "+" : ""}
+              {trendPct}% {trendPct > 0 ? "more" : trendPct < 0 ? "less" : ""} active
             </span>
-          </div>
-        )}
-      </div>
+          </span>
+        </div>
+      )}
+
+      {/* Neglected contacts */}
+      {neglectedContacts.length > 0 && (
+        <div className="mt-6">
+          <NeglectedContacts contacts={neglectedContacts} />
+        </div>
+      )}
     </div>
   );
 }
