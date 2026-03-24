@@ -193,9 +193,9 @@ export default function Home() {
       const totalItems = counts.actionItems + counts.reachOut + counts.recentlyAdded;
 
       if (totalItems < 3) {
-        // Few items — predict small, will measure once after core data loads
+        // Few items — predict with +2 buffer, then measure once after core data loads
         setPredictedCountLow(true);
-        const visibleRows = totalItems;
+        const visibleRows = totalItems + 2;
         const height = 48 + 48 + visibleRows * 104;
         setPredictedListHeight(height);
       } else {
