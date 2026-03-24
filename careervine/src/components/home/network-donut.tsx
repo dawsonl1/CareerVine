@@ -78,7 +78,7 @@ export function NetworkDonut({ data }: NetworkDonutProps) {
           <div
             ref={tooltipRef}
             className="fixed z-[9999] px-4 py-2.5 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg pointer-events-none"
-            style={{ left: posRef.current.x + 14, top: posRef.current.y + 14 }}
+            style={{ left: posRef.current.x + 14, top: posRef.current.y - 60 }}
           >
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full" style={{ backgroundColor: hoveredArc.color }} />

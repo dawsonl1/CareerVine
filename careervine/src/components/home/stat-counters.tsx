@@ -46,7 +46,7 @@ export function StatCounters({ stats }: StatCountersProps) {
                 <div
                   ref={tooltipRef}
                   className="fixed z-[9999] px-4 py-3 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg min-w-[220px] pointer-events-none"
-                  style={{ left: posRef.current.x + 14, top: posRef.current.y + 14 }}
+                  style={{ left: posRef.current.x + 14, top: posRef.current.y - 60 }}
                 >
                   {stat.tooltipLines.map((line, i) => (
                     <p key={i} className="text-sm text-foreground whitespace-nowrap">

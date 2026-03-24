@@ -42,8 +42,9 @@ export function useCursorTooltip() {
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     posRef.current = { x: e.clientX, y: e.clientY };
     if (tooltipRef.current) {
+      const tooltipHeight = tooltipRef.current.offsetHeight;
       tooltipRef.current.style.left = `${e.clientX + 14}px`;
-      tooltipRef.current.style.top = `${e.clientY + 14}px`;
+      tooltipRef.current.style.top = `${e.clientY - tooltipHeight - 8}px`;
     }
   }, []);
 
