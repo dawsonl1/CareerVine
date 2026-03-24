@@ -29,7 +29,7 @@ const MIN_EVENT_HEIGHT = 28; // minimum event block height
 const LABEL_WIDTH = 48; // width for hour labels
 const TITLE_HEIGHT = 48; // approximate height of the "Today" heading + margin
 const MAX_LATE_HOUR = 22; // don't show past 10 PM unless events exist later
-const MIN_EARLY_HOUR = 5; // don't show before 5 AM unless events exist earlier
+const MIN_EARLY_HOUR = 7; // don't show before 7 AM unless events exist earlier
 
 /**
  * Compute the minimum hour range needed to show all events.
