@@ -19,8 +19,8 @@ export function NeglectedContacts({ contacts }: NeglectedContactsProps) {
   if (contacts.length === 0) {
     return (
       <div className="rounded-xl bg-surface-container-low p-4 text-center">
-        <p className="text-base text-green-600 font-medium">All caught up</p>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-lg text-green-600 font-medium">All caught up</p>
+        <p className="text-base text-muted-foreground mt-0.5">
           No relationships need urgent attention
         </p>
       </div>
@@ -29,24 +29,24 @@ export function NeglectedContacts({ contacts }: NeglectedContactsProps) {
 
   return (
     <div>
-      <p className="text-base font-medium text-foreground mb-3">
+      <p className="text-lg font-medium text-foreground mb-3">
         Needs Attention
       </p>
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {contacts.slice(0, 3).map((c) => (
           <Link
             key={c.id}
             href={`/contacts/${c.id}`}
-            className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-surface-container-low transition-colors"
+            className="flex items-center gap-3.5 rounded-lg px-4 py-2.5 hover:bg-surface-container-low transition-colors"
           >
             <ContactAvatar
               name={c.name}
               photoUrl={c.photo_url}
-              className="w-9 h-9 text-xs shrink-0"
+              className="w-11 h-11 text-sm shrink-0"
             />
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-foreground truncate">{c.name}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-base text-foreground truncate">{c.name}</p>
+              <p className="text-sm text-muted-foreground">
                 {c.days_since_touch === null
                   ? "Never contacted"
                   : `${c.days_since_touch}d since contact`}
@@ -55,7 +55,7 @@ export function NeglectedContacts({ contacts }: NeglectedContactsProps) {
           </Link>
         ))}
         {contacts.length > 3 && (
-          <p className="text-xs text-muted-foreground px-3">
+          <p className="text-sm text-muted-foreground px-4">
             +{contacts.length - 3} more past cadence
           </p>
         )}

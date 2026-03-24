@@ -75,11 +75,11 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
 
   if (data.length === 0) return null;
 
-  const cellSize = 15;
+  const cellSize = 17;
   const gap = 4;
   const step = cellSize + gap;
-  const dayLabelWidth = 36;
-  const monthLabelHeight = 20;
+  const dayLabelWidth = 40;
+  const monthLabelHeight = 22;
 
   return (
     <div className="relative">
@@ -89,7 +89,7 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
           {monthLabels.map((ml) => (
             <span
               key={`${ml.label}-${ml.weekIndex}`}
-              className="absolute text-xs text-muted-foreground"
+              className="absolute text-sm text-muted-foreground"
               style={{ left: ml.weekIndex * step }}
             >
               {ml.label}
@@ -107,7 +107,7 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
           {["", "Mon", "", "Wed", "", "Fri", ""].map((label, i) => (
             <span
               key={i}
-              className="text-xs text-muted-foreground leading-none"
+              className="text-sm text-muted-foreground leading-none"
               style={{ height: cellSize, marginBottom: i < 6 ? gap : 0, display: "flex", alignItems: "center" }}
             >
               {label}
@@ -153,15 +153,15 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
 
       {/* Legend */}
       <div className="flex items-center gap-1.5 mt-2">
-        <span className="text-xs text-muted-foreground">Less</span>
+        <span className="text-sm text-muted-foreground">Less</span>
         {COLORS.map((color, i) => (
           <div
             key={i}
-            className="rounded-[2px]"
-            style={{ width: 12, height: 12, backgroundColor: color }}
+            className="rounded-[3px]"
+            style={{ width: 14, height: 14, backgroundColor: color }}
           />
         ))}
-        <span className="text-xs text-muted-foreground">More</span>
+        <span className="text-sm text-muted-foreground">More</span>
       </div>
 
       {/* Tooltip */}

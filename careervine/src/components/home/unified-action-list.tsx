@@ -170,7 +170,7 @@ export function UnifiedActionList({
 
   return (
     <div>
-      <h2 className="text-2xl font-medium text-foreground mb-4">Up Next</h2>
+      <h2 className="text-[28px] font-medium text-foreground mb-5">Up Next</h2>
 
       {/* Filter bar */}
       {!isEmpty && (
@@ -293,23 +293,23 @@ function ActionListItem({
   const showSnoozeMenu = snoozeState?.itemId === item.id && snoozeState.showMenu;
 
   return (
-    <div className="flex items-center gap-4 py-5 px-5 group hover:bg-surface-container-low transition-colors">
+    <div className="flex items-center gap-5 py-5 px-6 group hover:bg-surface-container-low transition-colors">
       {/* Avatar */}
       <ContactAvatar
         name={item.contactName}
         photoUrl={item.contactPhotoUrl}
-        className="w-14 h-14 text-base shrink-0"
+        className="w-[60px] h-[60px] text-lg shrink-0"
       />
 
       {/* Content */}
       <Link href={`/contacts/${item.contactId}`} className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-lg font-medium text-foreground truncate">{item.contactName}</p>
-          <span className="text-sm text-muted-foreground shrink-0">{item.lastContactedLabel}</span>
+        <div className="flex items-center gap-2.5">
+          <p className="text-xl font-medium text-foreground truncate">{item.contactName}</p>
+          <span className="text-base text-muted-foreground shrink-0">{item.lastContactedLabel}</span>
         </div>
-        <p className="text-base text-muted-foreground truncate mt-0.5">{item.primaryText}</p>
+        <p className="text-lg text-muted-foreground truncate mt-0.5">{item.primaryText}</p>
         <span
-          className={`inline-block mt-1 px-2.5 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${labels.badgeBg} ${labels.badgeText}`}
+          className={`inline-block mt-1 px-3 py-1 rounded text-sm font-medium uppercase tracking-wide ${labels.badgeBg} ${labels.badgeText}`}
         >
           {labels.label}
         </span>
@@ -324,7 +324,7 @@ function ActionListItem({
           className="p-3 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
           title={item.type === "suggestion" ? "I did this" : "Mark as done"}
         >
-          <Check className="h-5 w-5" />
+          <Check className="h-6 w-6" />
         </button>
 
         {/* Snooze */}
@@ -337,7 +337,7 @@ function ActionListItem({
             className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
             title="Snooze"
           >
-            <Clock className="h-5 w-5" />
+            <Clock className="h-6 w-6" />
           </button>
           {showSnoozeMenu && (
             <div className="absolute right-0 top-full mt-1 z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1.5 min-w-[140px]">
@@ -369,7 +369,7 @@ function ActionListItem({
             className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors"
             title="Go to contact"
           >
-            <ArrowRight className="h-5 w-5" />
+            <ArrowRight className="h-6 w-6" />
           </Link>
         )}
 
@@ -381,7 +381,7 @@ function ActionListItem({
               className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
               title="Log interaction"
             >
-              <MessageSquare className="h-5 w-5" />
+              <MessageSquare className="h-6 w-6" />
             </button>
             <button
               type="button"
@@ -389,7 +389,7 @@ function ActionListItem({
               className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
               title="Draft message"
             >
-              <Mail className="h-5 w-5" />
+              <Mail className="h-6 w-6" />
             </button>
           </>
         )}
@@ -402,7 +402,7 @@ function ActionListItem({
               className="p-3 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
               title="Save for later"
             >
-              <Bookmark className="h-5 w-5" />
+              <Bookmark className="h-6 w-6" />
             </button>
             <button
               type="button"
@@ -410,7 +410,7 @@ function ActionListItem({
               className="p-3 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
               title="Dismiss"
             >
-              <X className="h-5 w-5" />
+              <X className="h-6 w-6" />
             </button>
           </>
         )}

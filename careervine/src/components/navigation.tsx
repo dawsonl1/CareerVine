@@ -35,17 +35,17 @@ export default function Navigation() {
     <nav className="bg-background sticky top-0 z-50 border-b border-outline-variant">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Top bar */}
-        <div className="flex justify-between items-center h-16">
+        <div className="flex justify-between items-center h-[72px]">
           {/* Brand */}
           <Link href="/" className="flex items-center gap-2.5 group">
-            <Sprout className="h-7 w-7 text-primary" />
-            <span className="text-[22px] font-medium tracking-tight text-foreground">
+            <Sprout className="h-8 w-8 text-primary" />
+            <span className="text-[26px] font-medium tracking-tight text-foreground">
               CareerVine
             </span>
           </Link>
 
           {/* Desktop nav tabs */}
-          <div className="hidden md:flex items-center gap-1">
+          <div className="hidden md:flex items-center gap-1.5">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -53,13 +53,13 @@ export default function Navigation() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`state-layer flex items-center gap-2 px-4 h-10 rounded-full text-sm font-medium transition-colors ${
+                  className={`state-layer flex items-center gap-2.5 px-5 h-11 rounded-full text-base font-medium transition-colors ${
                     active
                       ? "bg-secondary-container text-on-secondary-container"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <Icon className="h-[18px] w-[18px]" />
+                  <Icon className="h-5 w-5" />
                   {item.label}
                 </Link>
               );
@@ -67,18 +67,18 @@ export default function Navigation() {
           </div>
 
           {/* User area */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {/* Inbox icon — always visible, shows indicator when not connected */}
             <Link
               href={gmailConnected ? "/inbox" : "/settings?tab=integrations"}
-              className={`state-layer relative w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+              className={`state-layer relative w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
                 pathname.startsWith("/inbox")
                   ? "bg-secondary-container text-on-secondary-container"
                   : "text-muted-foreground hover:text-foreground"
               }`}
               title={gmailConnected ? "Inbox" : "Connect Gmail to use Inbox"}
             >
-              <Inbox className="h-[18px] w-[18px]" />
+              <Inbox className="h-5 w-5" />
               {gmailConnected && unreadCount > 0 && (
                 <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
                   {unreadCount > 99 ? "99+" : unreadCount}
@@ -91,24 +91,24 @@ export default function Navigation() {
             {/* Calendar icon */}
             <Link
               href="/calendar"
-              className={`state-layer w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+              className={`state-layer w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
                 pathname.startsWith("/calendar")
                   ? "bg-secondary-container text-on-secondary-container"
                   : "text-muted-foreground hover:text-foreground"
               }`}
               title="Calendar"
             >
-              <Calendar className="h-[18px] w-[18px]" />
+              <Calendar className="h-5 w-5" />
             </Link>
             <div className="hidden sm:flex flex-col items-end ml-1">
-              <span className="text-sm font-medium text-foreground leading-tight">
+              <span className="text-base font-medium text-foreground leading-tight">
                 {user.user_metadata?.first_name || "User"}
               </span>
-              <span className="text-xs text-muted-foreground leading-tight">
+              <span className="text-sm text-muted-foreground leading-tight">
                 {user.email}
               </span>
             </div>
-            <Link href="/settings" className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-sm font-medium hover:ring-2 hover:ring-primary/30 transition-all" title="Settings">
+            <Link href="/settings" className="w-11 h-11 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-base font-medium hover:ring-2 hover:ring-primary/30 transition-all" title="Settings">
               {(user.user_metadata?.first_name?.[0] || user.email?.[0] || "U").toUpperCase()}
             </Link>
             <SignOutButton />
