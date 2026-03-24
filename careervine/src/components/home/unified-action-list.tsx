@@ -50,6 +50,11 @@ interface SnoozeState {
   showMenu: boolean;
 }
 
+export type SnoozeAction =
+  | { type: "days"; days: number }
+  | { type: "until_next_followup" }
+  | { type: "skip_contact" };
+
 const typeLabels: Record<ActionItemType, { badgeBg: string; badgeText: string; label: string }> = {
   action_item: { badgeBg: "bg-[#fef3c7]", badgeText: "text-[#92400e]", label: "ACTION ITEM" },
   reach_out: { badgeBg: "bg-[#fee2e2]", badgeText: "text-[#991b1b]", label: "REACH OUT" },
@@ -117,7 +122,7 @@ interface UnifiedActionListProps {
   items: UnifiedActionItem[];
   loading: boolean;
   onComplete: (item: UnifiedActionItem) => void;
-  onSnooze: (item: UnifiedActionItem, days: number) => void;
+  onSnooze: (item: UnifiedActionItem, action: SnoozeAction) => void;
   onDismiss: (item: UnifiedActionItem) => void;
   onSave: (item: UnifiedActionItem) => void;
   onLogInteraction: (contactId: number) => void;
@@ -295,7 +300,7 @@ function ActionListItem({
 }: {
   item: UnifiedActionItem;
   onComplete: (item: UnifiedActionItem) => void;
-  onSnooze: (item: UnifiedActionItem, days: number) => void;
+  onSnooze: (item: UnifiedActionItem, action: SnoozeAction) => void;
   onDismiss: (item: UnifiedActionItem) => void;
   onSave: (item: UnifiedActionItem) => void;
   onLogInteraction: (contactId: number) => void;
@@ -345,8 +350,8 @@ function ActionListItem({
           </button>
         )}
 
-        {/* Snooze — not for recently added */}
-        {item.type !== "recently_added" && <div className="relative">
+        {/* Snooze */}
+        <div className="relative">
           <button
             type="button"
             onClick={() =>
@@ -358,17 +363,17 @@ function ActionListItem({
             <Clock className="h-6 w-6" />
           </button>
           {showSnoozeMenu && (
-            <div className="absolute right-0 top-full mt-1 z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1.5 min-w-[140px]">
+            <div className="absolute right-0 top-full mt-1 z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1.5 min-w-[180px]">
               {[
-                { days: 1, label: "1 day" },
-                { days: 3, label: "3 days" },
-                { days: 7, label: "1 week" },
+                { action: { type: "days" as const, days: 1 }, label: "1 day" },
+                { action: { type: "days" as const, days: 3 }, label: "3 days" },
+                { action: { type: "days" as const, days: 7 }, label: "1 week" },
               ].map((opt) => (
                 <button
-                  key={opt.days}
+                  key={opt.label}
                   type="button"
                   onClick={() => {
-                    onSnooze(item, opt.days);
+                    onSnooze(item, opt.action);
                     setSnoozeState(null);
                   }}
                   className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
@@ -376,9 +381,33 @@ function ActionListItem({
                   {opt.label}
                 </button>
               ))}
+              {/* Type-specific final option */}
+              {item.type === "recently_added" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSnooze(item, { type: "skip_contact" });
+                    setSnoozeState(null);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-muted-foreground hover:bg-surface-container-highest transition-colors cursor-pointer border-t border-outline-variant/50 mt-1 pt-2"
+                >
+                  Skip Contact
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSnooze(item, { type: "until_next_followup" });
+                    setSnoozeState(null);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-muted-foreground hover:bg-surface-container-highest transition-colors cursor-pointer border-t border-outline-variant/50 mt-1 pt-2"
+                >
+                  Until next follow-up
+                </button>
+              )}
             </div>
           )}
-        </div>}
+        </div>
 
         {/* Type-specific actions */}
         {item.type === "action_item" && (

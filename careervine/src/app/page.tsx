@@ -24,6 +24,10 @@ import {
   getNetworkHealthSummary,
   getNeglectedContacts,
   updateActionItem,
+  snoozeActionItem,
+  snoozeContact,
+  skipContactFirstOutreach,
+  setSuggestionCooldown,
 } from "@/lib/queries";
 import type { Database } from "@/lib/database.types";
 import { useQuickCapture } from "@/components/quick-capture-context";
@@ -33,7 +37,7 @@ import { useSuggestions } from "@/hooks/use-suggestions";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 
 import { LogConversationFab } from "@/components/home/log-conversation-fab";
-import { UnifiedActionList, type UnifiedActionItem } from "@/components/home/unified-action-list";
+import { UnifiedActionList, type UnifiedActionItem, type SnoozeAction } from "@/components/home/unified-action-list";
 import { TodaySchedule, type ScheduleEvent } from "@/components/home/today-schedule";
 import { type NewContact } from "@/components/home/new-contacts";
 import { NetworkingStats } from "@/components/home/networking-stats";
@@ -50,6 +54,7 @@ type FollowUpContact = {
   follow_up_frequency_days: number;
   last_touch: string | null;
   days_overdue: number;
+  never_contacted: boolean;
 };
 
 export default function Home() {
@@ -324,7 +329,15 @@ export default function Home() {
       const daysSince = f.last_touch
         ? Math.floor((Date.now() - new Date(f.last_touch).getTime()) / (1000 * 60 * 60 * 24))
         : null;
-      const overdueLabel = f.days_overdue > 0 ? `${f.days_overdue}d overdue` : "Due today";
+
+      let primaryText: string;
+      if (f.never_contacted) {
+        primaryText = f.days_overdue > 0
+          ? `Send first message · ${f.days_overdue}d overdue`
+          : "Send first message · Due today";
+      } else {
+        primaryText = f.days_overdue > 0 ? `${f.days_overdue}d overdue` : "Due today";
+      }
 
       items.push({
         id: `ro-${f.id}`,
@@ -332,9 +345,9 @@ export default function Home() {
         contactId: f.id,
         contactName: f.name,
         contactPhotoUrl: f.photo_url,
-        primaryText: overdueLabel,
+        primaryText,
         secondaryText: "",
-        lastContactedLabel: formatLastContacted(daysSince),
+        lastContactedLabel: f.never_contacted ? "Never contacted" : formatLastContacted(daysSince),
         priority: 60 + Math.min(f.days_overdue, 30),
         daysOverdue: f.days_overdue,
       });
@@ -398,25 +411,71 @@ export default function Home() {
   );
 
   const handleSnooze = useCallback(
-    (item: UnifiedActionItem, _days: number) => {
-      // For now, just hide the item from the list
-      if (item.type === "action_item" && item.actionItemId) {
-        setActionItems((prev) => prev.filter((i) => i.id !== item.actionItemId));
-        toast(`Snoozed for ${_days} day${_days > 1 ? "s" : ""}`, { variant: "info" });
-      } else if (item.type === "reach_out") {
-        setFollowUps((prev) => prev.filter((f) => f.id !== item.contactId));
-        toast(`Snoozed for ${_days} day${_days > 1 ? "s" : ""}`, { variant: "info" });
-      } else if (item.type === "suggestion" && item.suggestion) {
-        dismissSuggestion(item.suggestion);
-        toast(`Snoozed for ${_days} day${_days > 1 ? "s" : ""}`, { variant: "info" });
+    async (item: UnifiedActionItem, action: SnoozeAction) => {
+      try {
+        if (action.type === "skip_contact") {
+          // Recently Added → permanent skip
+          await skipContactFirstOutreach(item.contactId);
+          setNewContacts((prev) => prev.filter((c) => c.id !== item.contactId));
+          toast("Contact skipped", { variant: "info" });
+          return;
+        }
+
+        // Calculate snooze-until timestamp
+        let until: string;
+        let label: string;
+
+        if (action.type === "until_next_followup") {
+          if (item.type === "action_item" && item.dueAt) {
+            until = item.dueAt;
+          } else {
+            // For reach out / suggestion: use the contact's follow-up frequency
+            const contact = followUps.find((f) => f.id === item.contactId);
+            const freqDays = contact?.follow_up_frequency_days || 30;
+            const nextDue = new Date();
+            nextDue.setDate(nextDue.getDate() + freqDays);
+            until = nextDue.toISOString();
+          }
+          label = "Snoozed until next follow-up";
+        } else {
+          const snoozeDate = new Date();
+          snoozeDate.setDate(snoozeDate.getDate() + action.days);
+          until = snoozeDate.toISOString();
+          label = `Snoozed for ${action.days} day${action.days > 1 ? "s" : ""}`;
+        }
+
+        if (item.type === "action_item" && item.actionItemId) {
+          await snoozeActionItem(item.actionItemId, until);
+          setActionItems((prev) => prev.filter((i) => i.id !== item.actionItemId));
+        } else if (item.type === "reach_out") {
+          await snoozeContact(item.contactId, until);
+          setFollowUps((prev) => prev.filter((f) => f.id !== item.contactId));
+        } else if (item.type === "recently_added") {
+          await snoozeContact(item.contactId, until);
+          setNewContacts((prev) => prev.filter((c) => c.id !== item.contactId));
+        } else if (item.type === "suggestion" && item.suggestion) {
+          // Save the suggestion as an action item, then snooze it
+          const ok = await saveSuggestionRaw(item.suggestion);
+          if (ok) {
+            await setSuggestionCooldown(item.contactId);
+          }
+          dismissSuggestion(item.suggestion);
+        }
+
+        toast(label, { variant: "info" });
+      } catch {
+        toast("Failed to snooze", { variant: "error" });
       }
     },
-    [toast, dismissSuggestion]
+    [toast, followUps, saveSuggestionRaw, dismissSuggestion]
   );
 
   const handleDismiss = useCallback(
-    (item: UnifiedActionItem) => {
-      if (item.suggestion) dismissSuggestion(item.suggestion);
+    async (item: UnifiedActionItem) => {
+      if (item.suggestion) {
+        dismissSuggestion(item.suggestion);
+        await setSuggestionCooldown(item.contactId);
+      }
     },
     [dismissSuggestion]
   );

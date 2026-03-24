@@ -55,11 +55,17 @@ export type Database = {
           location_id: number | null;    // Foreign key to locations table
           photo_url: string | null;      // Public URL of contact's profile photo in Supabase storage
           created_at: string;            // Auto-generated timestamp
+          reach_out_snoozed_until: string | null;  // Hide from reach-out/recently-added until this time
+          first_outreach_skipped: boolean;          // Permanently skip first outreach
+          suggestion_cooldown_until: string | null; // Suppress from AI suggestions until this time
         };
-        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until"> & {
           status_derived_at?: string | null;
           photo_url?: string | null;
           created_at?: string;
+          reach_out_snoozed_until?: string | null;
+          first_outreach_skipped?: boolean;
+          suggestion_cooldown_until?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;
       };
@@ -495,8 +501,9 @@ export type Database = {
           direction: string | null;               // 'my_task' | 'waiting_on'
           assigned_speaker: string | null;        // Original speaker label from transcript
           related_action_item_id: number | null;  // FK to linked paired item
+          snoozed_until: string | null;             // Hide until this time
         };
-        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority" | "source" | "suggestion_reason_type" | "suggestion_headline" | "suggestion_evidence" | "direction" | "assigned_speaker" | "related_action_item_id"> & {
+        Insert: Omit<Database["public"]["Tables"]["follow_up_action_items"]["Row"], "id" | "priority" | "source" | "suggestion_reason_type" | "suggestion_headline" | "suggestion_evidence" | "direction" | "assigned_speaker" | "related_action_item_id" | "snoozed_until"> & {
           priority?: string | null;
           source?: string;
           suggestion_reason_type?: string | null;
@@ -505,6 +512,7 @@ export type Database = {
           direction?: string | null;
           assigned_speaker?: string | null;
           related_action_item_id?: number | null;
+          snoozed_until?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["follow_up_action_items"]["Insert"]>;
       };

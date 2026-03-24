@@ -638,6 +638,7 @@ export async function createActionItem(
  * @throws Error if query fails
  */
 export async function getActionItems(userId: string) {
+  const now = new Date().toISOString();
   const { data, error } = await supabase
     .from("follow_up_action_items")
     .select(`
@@ -648,6 +649,7 @@ export async function getActionItems(userId: string) {
     `)
     .eq("user_id", userId)
     .eq("is_completed", false)
+    .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
     .order("due_at", { ascending: true, nullsFirst: false });
 
   if (error) throw error;
@@ -830,6 +832,64 @@ export async function updateActionItem(
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Snooze an action item until a given time.
+ */
+export async function snoozeActionItem(id: number, until: string) {
+  const { error } = await supabase
+    .from("follow_up_action_items")
+    .update({ snoozed_until: until })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * Snooze a contact's reach-out / recently-added card until a given time.
+ * Also sets suggestion_cooldown_until to 3 weeks from now.
+ */
+export async function snoozeContact(contactId: number, until: string) {
+  const cooldown = new Date();
+  cooldown.setDate(cooldown.getDate() + 21);
+  const { error } = await supabase
+    .from("contacts")
+    .update({
+      reach_out_snoozed_until: until,
+      suggestion_cooldown_until: cooldown.toISOString(),
+    })
+    .eq("id", contactId);
+  if (error) throw error;
+}
+
+/**
+ * Permanently skip first outreach for a contact.
+ * Also sets suggestion_cooldown_until to 3 weeks from now.
+ */
+export async function skipContactFirstOutreach(contactId: number) {
+  const cooldown = new Date();
+  cooldown.setDate(cooldown.getDate() + 21);
+  const { error } = await supabase
+    .from("contacts")
+    .update({
+      first_outreach_skipped: true,
+      suggestion_cooldown_until: cooldown.toISOString(),
+    })
+    .eq("id", contactId);
+  if (error) throw error;
+}
+
+/**
+ * Set suggestion cooldown on a contact (e.g., after dismissing an AI suggestion).
+ */
+export async function setSuggestionCooldown(contactId: number) {
+  const cooldown = new Date();
+  cooldown.setDate(cooldown.getDate() + 21);
+  const { error } = await supabase
+    .from("contacts")
+    .update({ suggestion_cooldown_until: cooldown.toISOString() })
+    .eq("id", contactId);
+  if (error) throw error;
 }
 
 // ── Contact Emails ──
@@ -1018,12 +1078,18 @@ export async function getContactsWithLastTouch(userId: string) {
  * compute how many days overdue they are.
  */
 export async function getContactsDueForFollowUp(userId: string) {
-  // 1. Get all contacts that have a follow-up frequency configured
+  const now = new Date().toISOString();
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const recentCutoff = sevenDaysAgo.toISOString();
+
+  // 1. Get all contacts that have a follow-up frequency configured, excluding snoozed
   const { data: contacts, error: cErr } = await supabase
     .from("contacts")
-    .select("id, name, industry, follow_up_frequency_days, photo_url")
+    .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped")
     .eq("user_id", userId)
     .not("follow_up_frequency_days", "is", null)
+    .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
     .order("name");
   if (cErr) throw cErr;
   if (!contacts || contacts.length === 0) return [];
@@ -1073,14 +1139,25 @@ export async function getContactsDueForFollowUp(userId: string) {
       const lastTouchDate = lastTouch ? new Date(lastTouch) : null;
       const freqDays = c.follow_up_frequency_days!;
       let daysOverdue: number;
+      const neverContacted = !lastTouchDate;
 
-      if (!lastTouchDate) {
-        // Never contacted — treat as maximally overdue
-        daysOverdue = freqDays;
+      if (neverContacted) {
+        // Never contacted — calculate overdue from created_at, not full cadence
+        const createdDate = new Date(c.created_at);
+        const dueDate = new Date(createdDate);
+        dueDate.setDate(dueDate.getDate() + freqDays);
+        daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
       } else {
         const dueDate = new Date(lastTouchDate);
         dueDate.setDate(dueDate.getDate() + freqDays);
         daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+      }
+
+      // Exclude never-contacted contacts that are still in the Recently Added window (< 7 days)
+      // or that have been skipped
+      const isRecent = c.created_at >= recentCutoff;
+      if (neverContacted && (isRecent || c.first_outreach_skipped)) {
+        return null;
       }
 
       return {
@@ -1091,9 +1168,10 @@ export async function getContactsDueForFollowUp(userId: string) {
         follow_up_frequency_days: freqDays,
         last_touch: lastTouch || null,
         days_overdue: daysOverdue,
+        never_contacted: neverContacted,
       };
     })
-    .filter((c) => c.days_overdue >= 0)
+    .filter((c): c is NonNullable<typeof c> => c !== null && c.days_overdue >= 0)
     .sort((a, b) => b.days_overdue - a.days_overdue);
 }
 
@@ -1424,11 +1502,14 @@ export async function getRecentUncontactedContacts(userId: string) {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const cutoff = sevenDaysAgo.toISOString();
+  const now = new Date().toISOString();
 
   const { data: contacts, error } = await supabase
     .from("contacts")
     .select("id, name, photo_url, industry, created_at, contact_emails(email)")
     .eq("user_id", userId)
+    .eq("first_outreach_skipped", false)
+    .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
     .gte("created_at", cutoff)
     .order("created_at", { ascending: false })
     .limit(10);
