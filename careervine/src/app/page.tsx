@@ -155,11 +155,16 @@ export default function Home() {
         const data = await res.json();
         // TODO: match attendees to known contacts for prep context
         setScheduleEvents(
-          (data.events || []).map((e: { id: number; title: string | null; start_at: string; end_at: string }) => ({
+          (data.events || []).map((e: any) => ({
             id: e.id,
             title: e.title,
             start_at: e.start_at,
             end_at: e.end_at,
+            description: e.description || null,
+            location: e.location || null,
+            meet_link: e.meet_link || null,
+            zoom_link: e.zoom_link || null,
+            attendees: e.attendees || [],
           }))
         );
       }
@@ -590,6 +595,7 @@ export default function Home() {
               loading={scheduleLoading}
               calendarConnected={calendarConnected}
               availableHeight={calendarAvailableHeight}
+              onLogConversation={(contactId) => openQuickCapture(contactId)}
             />
           </div>
         </div>

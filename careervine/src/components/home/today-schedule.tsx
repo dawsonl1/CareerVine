@@ -1,15 +1,26 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
-import { Calendar } from "lucide-react";
+import { Calendar, MapPin, Video, Clock, Users, X } from "lucide-react";
+
+export interface ScheduleEventAttendee {
+  email: string;
+  name?: string;
+  responseStatus?: string;
+}
 
 export interface ScheduleEvent {
   id: number;
   title: string | null;
   start_at: string;
   end_at: string;
+  description: string | null;
+  location: string | null;
+  meet_link: string | null;
+  zoom_link: string | null;
+  attendees: ScheduleEventAttendee[];
   contact?: {
     id: number;
     name: string;
@@ -24,6 +35,7 @@ interface TodayScheduleProps {
   calendarConnected: boolean;
   /** Height of the left column (action list) in px — used to expand hour range to fill space */
   availableHeight: number;
+  onLogConversation?: (contactId?: number) => void;
 }
 
 const HOUR_HEIGHT = 52; // px per hour
@@ -101,8 +113,199 @@ function formatHour(hour: number): string {
   return `${hour - 12} PM`;
 }
 
-export function TodaySchedule({ events, loading, calendarConnected, availableHeight }: TodayScheduleProps) {
+function formatTimeRange(startAt: string, endAt: string): string {
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  const fmt = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+}
+
+// ── Event Detail Popover ──
+
+function EventPopover({
+  event,
+  onClose,
+  onLogConversation,
+}: {
+  event: ScheduleEvent & { top: number; height: number; timeLabel: string };
+  onClose: () => void;
+  onLogConversation?: (contactId?: number) => void;
+}) {
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Close on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    // Delay to avoid the click that opened it from immediately closing it
+    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [onClose]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const meetingLink = event.meet_link || event.zoom_link;
+  const attendees = (event.attendees || []).filter((a) => a.email);
+
+  return (
+    <div
+      ref={popoverRef}
+      className="absolute z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant w-[300px] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+      style={{
+        // Position to the left of the event block, or overlay if not enough room
+        right: "calc(100% + 8px)",
+        top: Math.max(0, event.top - 20),
+      }}
+    >
+      {/* Action bar */}
+      <div className="flex items-center justify-end gap-1 px-3 pt-3 pb-1">
+        {onLogConversation && (
+          <button
+            type="button"
+            onClick={() => { onLogConversation(event.contact?.id); onClose(); }}
+            className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+            title="Log conversation"
+          >
+            <Calendar className="h-4 w-4" />
+          </button>
+        )}
+        {meetingLink && (
+          <a
+            href={meetingLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors"
+            title="Join meeting"
+          >
+            <Video className="h-4 w-4" />
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+          title="Close"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Event details */}
+      <div className="px-4 pb-4">
+        {/* Title */}
+        <div className="flex items-start gap-2.5 mb-2">
+          <div className="w-3 h-3 rounded-sm bg-primary mt-1.5 shrink-0" />
+          <div>
+            <p className="text-base font-medium text-foreground leading-snug">
+              {event.title || "Untitled event"}
+            </p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {formatDate(event.start_at)} · {formatTimeRange(event.start_at, event.end_at)}
+            </p>
+          </div>
+        </div>
+
+        {/* Location */}
+        {event.location && (
+          <div className="flex items-start gap-2.5 mt-3">
+            <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <p className="text-sm text-muted-foreground">{event.location}</p>
+          </div>
+        )}
+
+        {/* Meeting link */}
+        {meetingLink && (
+          <div className="flex items-start gap-2.5 mt-2">
+            <Video className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <a
+              href={meetingLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary hover:underline truncate"
+            >
+              {event.meet_link ? "Join Google Meet" : "Join Zoom"}
+            </a>
+          </div>
+        )}
+
+        {/* Attendees */}
+        {attendees.length > 0 && (
+          <div className="flex items-start gap-2.5 mt-3">
+            <Users className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              {attendees.slice(0, 5).map((a, i) => (
+                <p key={i} className="text-sm text-muted-foreground truncate">
+                  {a.name || a.email}
+                  {a.responseStatus === "declined" && (
+                    <span className="text-xs text-red-500 ml-1.5">declined</span>
+                  )}
+                  {a.responseStatus === "tentative" && (
+                    <span className="text-xs text-amber-500 ml-1.5">maybe</span>
+                  )}
+                </p>
+              ))}
+              {attendees.length > 5 && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  +{attendees.length - 5} more
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Description */}
+        {event.description && (
+          <div className="mt-3 pt-3 border-t border-outline-variant/50">
+            <p className="text-sm text-muted-foreground line-clamp-4 whitespace-pre-wrap">
+              {event.description}
+            </p>
+          </div>
+        )}
+
+        {/* Contact context */}
+        {event.contact && (
+          <div className="mt-3 pt-3 border-t border-outline-variant/50">
+            <Link
+              href={`/contacts/${event.contact.id}`}
+              className="flex items-center gap-2 hover:bg-surface-container-low rounded-lg p-1.5 -mx-1.5 transition-colors"
+            >
+              <ContactAvatar
+                name={event.contact.name}
+                photoUrl={event.contact.photo_url}
+                className="w-7 h-7 text-xs"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{event.contact.name}</p>
+                <p className="text-xs text-muted-foreground">{event.contact.lastTouchLabel}</p>
+              </div>
+            </Link>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ──
+
+export function TodaySchedule({ events, loading, calendarConnected, availableHeight, onLogConversation }: TodayScheduleProps) {
   const [now, setNow] = useState(new Date());
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
 
   // Update "now" every minute for the current-time indicator
   useEffect(() => {
@@ -204,38 +407,42 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
 
           {/* Event blocks */}
           {positionedEvents.map((event) => (
-            <div
-              key={event.id}
-              className="absolute rounded-lg bg-primary/10 border-l-[3px] border-primary px-3 py-1.5 overflow-hidden group hover:bg-primary/15 transition-colors cursor-default"
-              style={{
-                top: event.top,
-                height: event.height,
-                left: LABEL_WIDTH + 4,
-                right: 0,
-              }}
-            >
-              <p className="text-sm font-medium text-foreground truncate leading-tight">
-                {event.title || "Untitled event"}
-              </p>
-              {event.height >= 40 && (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {event.timeLabel}
+            <div key={event.id} className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }}>
+              <div
+                onClick={() => setSelectedEventId(selectedEventId === event.id ? null : event.id)}
+                className={`h-full rounded-lg border-l-[3px] border-primary px-3 py-1.5 overflow-hidden transition-colors cursor-pointer ${
+                  selectedEventId === event.id ? "bg-primary/20" : "bg-primary/10 hover:bg-primary/15"
+                }`}
+              >
+                <p className="text-sm font-medium text-foreground truncate leading-tight">
+                  {event.title || "Untitled event"}
                 </p>
-              )}
-              {event.contact && event.height >= 56 && (
-                <Link
-                  href={`/contacts/${event.contact.id}`}
-                  className="flex items-center gap-1.5 mt-1 hover:text-foreground transition-colors"
-                >
-                  <ContactAvatar
-                    name={event.contact.name}
-                    photoUrl={event.contact.photo_url}
-                    className="w-5 h-5 text-[10px]"
-                  />
-                  <span className="text-xs text-muted-foreground truncate">
-                    {event.contact.name}
-                  </span>
-                </Link>
+                {event.height >= 40 && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {event.timeLabel}
+                  </p>
+                )}
+                {event.contact && event.height >= 56 && (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <ContactAvatar
+                      name={event.contact.name}
+                      photoUrl={event.contact.photo_url}
+                      className="w-5 h-5 text-[10px]"
+                    />
+                    <span className="text-xs text-muted-foreground truncate">
+                      {event.contact.name}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Event detail popover */}
+              {selectedEventId === event.id && (
+                <EventPopover
+                  event={event}
+                  onClose={() => setSelectedEventId(null)}
+                  onLogConversation={onLogConversation}
+                />
               )}
             </div>
           ))}
