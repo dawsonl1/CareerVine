@@ -133,6 +133,79 @@ interface SnoozeState {
   showMenu: boolean;
 }
 
+// ── Note popover (inline quick-note input) ──
+
+function NotePopover({
+  onSave,
+  onCancel,
+}: {
+  onSave: (note: string) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onCancel();
+    };
+    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
+    return () => { clearTimeout(timer); document.removeEventListener("mousedown", handler); };
+  }, [onCancel]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
+  const handleSave = async () => {
+    if (!text.trim()) return;
+    setSaving(true);
+    await onSave(text.trim());
+  };
+
+  return (
+    <div
+      ref={ref}
+      className="absolute right-0 top-full mt-1 z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant w-[280px] animate-in fade-in zoom-in-95 duration-150"
+    >
+      <div className="p-3">
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Add a quick note..."
+          className="w-full h-20 px-3 py-2 text-sm bg-surface-container-low text-foreground rounded-lg border border-outline-variant/50 placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary resize-none"
+        />
+        <div className="flex items-center justify-end gap-2 mt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer rounded-full"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!text.trim() || saving}
+            className="px-4 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export type SnoozeAction =
   | { type: "days"; days: number }
   | { type: "until_next_followup" }
@@ -210,7 +283,7 @@ interface UnifiedActionListProps {
   onSave: (item: UnifiedActionItem) => void;
   onLogInteraction: (contactId: number) => void;
   onDraftEmail: (contactId: number) => void;
-  onNote: (contactId: number) => void;
+  onNote: (contactId: number, note: string) => Promise<void>;
   onIntro: (contactId: number) => void;
   isEmpty: boolean;
   onLogConversation: () => void;
@@ -234,6 +307,7 @@ export function UnifiedActionList({
 }: UnifiedActionListProps) {
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [snoozeState, setSnoozeState] = useState<SnoozeState | null>(null);
+  const [notePopoverItemId, setNotePopoverItemId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
 
   // Close snooze dropdown on click outside
@@ -402,7 +476,7 @@ function ActionListItem({
   onSave: (item: UnifiedActionItem) => void;
   onLogInteraction: (contactId: number) => void;
   onDraftEmail: (contactId: number) => void;
-  onNote: (contactId: number) => void;
+  onNote: (contactId: number, note: string) => Promise<void>;
   onIntro: (contactId: number) => void;
   snoozeState: SnoozeState | null;
   setSnoozeState: (s: SnoozeState | null) => void;
@@ -572,12 +646,23 @@ function ActionListItem({
               color="#2563eb"
               onClick={() => onLogInteraction(item.contactId)}
             />
-            <ActionButton
-              icon={<Pencil className="h-6 w-6" />}
-              label="Note"
-              color="#7c3aed"
-              onClick={() => onNote(item.contactId)}
-            />
+            <div className="relative">
+              <ActionButton
+                icon={<Pencil className="h-6 w-6" />}
+                label="Note"
+                color="#7c3aed"
+                onClick={() => setNotePopoverItemId(notePopoverItemId === item.id ? null : item.id)}
+              />
+              {notePopoverItemId === item.id && (
+                <NotePopover
+                  onSave={async (note) => {
+                    await onNote(item.contactId, note);
+                    setNotePopoverItemId(null);
+                  }}
+                  onCancel={() => setNotePopoverItemId(null)}
+                />
+              )}
+            </div>
             {item.hasEmail && (
               <ActionButton
                 icon={<Mail className="h-6 w-6" />}

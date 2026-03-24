@@ -220,6 +220,26 @@ export async function updateContact(
 }
 
 /**
+ * Append a note to a contact's existing notes, separated by newlines.
+ */
+export async function appendContactNote(contactId: number, note: string) {
+  const { data: existing } = await supabase
+    .from("contacts")
+    .select("notes")
+    .eq("id", contactId)
+    .single();
+
+  const current = existing?.notes || "";
+  const updated = current ? `${current}\n\n${note}` : note;
+
+  const { error } = await supabase
+    .from("contacts")
+    .update({ notes: updated })
+    .eq("id", contactId);
+  if (error) throw error;
+}
+
+/**
  * Delete a contact and all related data
  * 
  * Note: Due to foreign key constraints with ON DELETE CASCADE,

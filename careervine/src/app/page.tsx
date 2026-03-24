@@ -27,6 +27,7 @@ import {
   getNetworkHealthSummary,
   getNeglectedContacts,
   updateActionItem,
+  appendContactNote,
   snoozeActionItem,
   snoozeContact,
   skipContactFirstOutreach,
@@ -571,11 +572,15 @@ export default function Home() {
   // ── New contacts handlers ──
 
   const handleNewContactNote = useCallback(
-    (contactId: number) => {
-      // Navigate to contact page for now
-      window.location.assign(`/contacts/${contactId}`);
+    async (contactId: number, note: string) => {
+      try {
+        await appendContactNote(contactId, note);
+        toast("Note saved", { variant: "success" });
+      } catch {
+        toast("Failed to save note", { variant: "error" });
+      }
     },
-    []
+    [toast]
   );
 
   const handleNewContactIntro = useCallback(
