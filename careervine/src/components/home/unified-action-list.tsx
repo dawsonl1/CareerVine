@@ -337,7 +337,11 @@ export function UnifiedActionList({
   const PAGE_SIZE = 5;
 
   const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
-  const paginatedItems = filteredItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  // Clamp page when items are removed (e.g., snooze/complete on last page)
+  const clampedPage = totalPages > 0 ? Math.min(page, totalPages - 1) : 0;
+  if (clampedPage !== page) setPage(clampedPage);
+  const paginatedItems = filteredItems.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
 
   const handleFilterChange = useCallback((key: FilterType) => {
     setActiveFilter(key);

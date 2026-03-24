@@ -19,7 +19,6 @@ export interface ScheduleEvent {
   description: string | null;
   location: string | null;
   meet_link: string | null;
-  zoom_link: string | null;
   attendees: ScheduleEventAttendee[];
   contact?: {
     id: number;
@@ -65,8 +64,9 @@ function snapToInterval(hourFrac: number): number {
 function formatTime(hourFrac: number): string {
   const hours = Math.floor(hourFrac);
   const minutes = Math.round((hourFrac - hours) * 60);
+  if (hours === 0 || hours === 24) return `12:${String(minutes).padStart(2, "0")} AM`;
   const period = hours >= 12 ? "PM" : "AM";
-  const h = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+  const h = hours > 12 ? hours - 12 : hours;
   return `${h}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
@@ -185,7 +185,7 @@ function EventPopover({
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const meetingLink = event.meet_link || event.zoom_link;
+  const meetingLink = event.meet_link;
   const attendees = (event.attendees || []).filter((a) => a.email);
 
   return (
@@ -264,7 +264,7 @@ function EventPopover({
               rel="noopener noreferrer"
               className="text-sm text-primary hover:underline truncate"
             >
-              {event.meet_link ? "Join Google Meet" : "Join Zoom"}
+              Join Google Meet
             </a>
           </div>
         )}
@@ -341,6 +341,7 @@ function QuickAddCard({
   const [title, setTitle] = useState("");
   const [addMeet, setAddMeet] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -368,9 +369,11 @@ function QuickAddCard({
 
   const handleSave = async () => {
     setSaving(true);
+    setError("");
     try {
       await onSave(title || "(No title)", addMeet);
     } catch {
+      setError("Failed to create event");
       setSaving(false);
     }
   };
@@ -415,7 +418,7 @@ function QuickAddCard({
         </label>
       </div>
 
-      {/* Actions */}
+      {error && <p className="text-xs text-red-500 px-4 pb-1">{error}</p>}
       <div className="flex items-center justify-end gap-2 px-4 pb-3">
         <button
           type="button"
@@ -491,8 +494,9 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
     if (!gridRef.current) return startHour;
     const rect = gridRef.current.getBoundingClientRect();
     const relativeY = y - rect.top;
-    return snapToInterval(startHour + relativeY / HOUR_HEIGHT);
-  }, [startHour]);
+    const raw = snapToInterval(startHour + relativeY / HOUR_HEIGHT);
+    return Math.max(startHour, Math.min(endHour, raw));
+  }, [startHour, endHour]);
 
   const handleGridMouseDown = useCallback((e: React.MouseEvent) => {
     // Only start drag on the grid background, not on events or popovers

@@ -200,7 +200,6 @@ export default function Home() {
               description: e.description || null,
               location: e.location || null,
               meet_link: e.meet_link || null,
-              zoom_link: e.zoom_link || null,
               attendees,
               contact,
             };
@@ -480,10 +479,11 @@ export default function Home() {
         let label: string;
 
         if (action.type === "until_next_followup") {
-          if (item.type === "action_item" && item.dueAt) {
+          if (item.type === "action_item" && item.dueAt && new Date(item.dueAt) > new Date()) {
+            // Future due date — snooze until then
             until = item.dueAt;
           } else {
-            // For reach out / suggestion: use the contact's follow-up frequency
+            // Overdue action item, reach out, or suggestion: snooze for one cadence cycle from now
             const contact = followUps.find((f) => f.id === item.contactId);
             const freqDays = contact?.follow_up_frequency_days || 30;
             const nextDue = new Date();
@@ -508,10 +508,12 @@ export default function Home() {
           await snoozeContact(item.contactId, until);
           setNewContacts((prev) => prev.filter((c) => c.id !== item.contactId));
         } else if (item.type === "suggestion" && item.suggestion) {
-          // Save the suggestion as an action item, then snooze it
+          // Save the suggestion as an action item, snooze it, and set cooldown
           const ok = await saveSuggestionRaw(item.suggestion);
           if (ok) {
+            // Reload action items to get the newly created one, then snooze it
             await setSuggestionCooldown(item.contactId);
+            await snoozeContact(item.contactId, until);
           }
           dismissSuggestion(item.suggestion);
         }
@@ -528,7 +530,11 @@ export default function Home() {
     async (item: UnifiedActionItem) => {
       if (item.suggestion) {
         dismissSuggestion(item.suggestion);
-        await setSuggestionCooldown(item.contactId);
+        try {
+          await setSuggestionCooldown(item.contactId);
+        } catch {
+          // Cooldown failed — suggestion dismissed locally but may reappear on reload
+        }
       }
     },
     [dismissSuggestion]

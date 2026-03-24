@@ -247,7 +247,10 @@ export default function ContactDetailPage() {
         <div className="mb-6">
           <button
             onClick={() => {
-              if (window.history.length > 1) {
+              // Use back() only if the referrer is from our own app
+              const referrer = typeof document !== "undefined" ? document.referrer : "";
+              const isInternalReferrer = referrer && new URL(referrer).origin === window.location.origin;
+              if (isInternalReferrer) {
                 router.back();
               } else {
                 router.push("/contacts");

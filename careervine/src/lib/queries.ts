@@ -1657,9 +1657,8 @@ export async function getHomeCoreData(userId: string) {
       .order("due_at", { ascending: true, nullsFirst: false }),
     supabase
       .from("contacts")
-      .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, contact_emails(email)")
+      .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, reach_out_snoozed_until, contact_emails(email)")
       .eq("user_id", userId)
-      .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
       .order("name"),
   ]);
 
@@ -1688,8 +1687,14 @@ export async function getHomeCoreData(userId: string) {
   });
 
   // ── Derive followUps (reach out contacts) ──
+  // Filter snoozed contacts for followUps/recentlyAdded (but not contactHealth)
+  const isSnoozed = (c: { reach_out_snoozed_until: string | null }) =>
+    c.reach_out_snoozed_until && new Date(c.reach_out_snoozed_until) > new Date(now);
+
   const followUps = allContacts
     .map((c) => {
+      if (isSnoozed(c)) return null;
+
       const lastTouch = lastTouchMap.get(c.id);
       const lastTouchDate = lastTouch ? new Date(lastTouch) : null;
       const freqDays = c.follow_up_frequency_days;
@@ -1743,11 +1748,13 @@ export async function getHomeCoreData(userId: string) {
 
   const recentlyAdded = allContacts
     .filter((c) => {
+      if (isSnoozed(c)) return false;
       if (c.first_outreach_skipped) return false;
       if (c.created_at < recentCutoff) return false;
       if (contacted.has(c.id)) return false;
       return true;
     })
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 10)
     .map((c) => ({
       id: c.id,
@@ -2042,7 +2049,7 @@ export async function getActivityHeatmap(userId: string) {
     supabase.from("meetings").select("meeting_date").eq("user_id", userId).gte("meeting_date", startStr),
     supabase.from("follow_up_action_items").select("completed_at").eq("user_id", userId).eq("is_completed", true).gte("completed_at", start.toISOString()),
     supabase.from("interactions").select("interaction_date").gte("interaction_date", startStr),
-    supabase.from("email_messages").select("date").eq("user_id", userId).eq("direction", "sent").gte("date", startStr),
+    supabase.from("email_messages").select("date").eq("user_id", userId).eq("direction", "outbound").gte("date", startStr),
   ]);
 
   // Build day map with breakdown by type
