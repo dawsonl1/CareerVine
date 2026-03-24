@@ -24,8 +24,8 @@ const SEGMENTS = [
 export function NetworkDonut({ data }: NetworkDonutProps) {
   if (data.total === 0) return null;
 
-  const size = 120;
-  const strokeWidth = 16;
+  const size = 140;
+  const strokeWidth = 18;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const center = size / 2;
@@ -61,16 +61,16 @@ export function NetworkDonut({ data }: NetworkDonutProps) {
           ))}
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-lg font-semibold text-foreground">{data.total}</span>
+          <span className="text-xl font-semibold text-foreground">{data.total}</span>
         </div>
       </div>
 
       {/* Legend */}
       <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center">
         {arcs.map((arc) => (
-          <span key={arc.key} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <span key={arc.key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
-              className="inline-block w-2 h-2 rounded-full"
+              className="inline-block w-2.5 h-2.5 rounded-full"
               style={{ backgroundColor: arc.color }}
             />
             {Math.round(arc.pct * 100)}% {arc.label}
