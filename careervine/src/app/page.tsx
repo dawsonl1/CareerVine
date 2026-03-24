@@ -203,15 +203,24 @@ export default function Home() {
       const counts = await getActionListCounts(user.id);
       const totalItems = counts.actionItems + counts.reachOut + counts.recentlyAdded;
 
+      // Row height: py-5(40) + 60px avatar/content + badge(~24) + divider(1) ≈ 120px
+      // Title: 28px font + mb-5(20) ≈ 56px
+      // Filter bar: buttons(44) + mb-5(20) ≈ 64px
+      // Pagination: height(40) + mt-3(12) ≈ 52px
+      const ROW_HEIGHT = 120;
+      const TITLE_HEIGHT = 56;
+      const FILTER_HEIGHT = 64;
+      const PAGINATION_HEIGHT = 52;
+
       if (totalItems < 3) {
         // Few items — predict with +2 buffer, then measure once after core data loads
         setPredictedCountLow(true);
         const visibleRows = totalItems + 2;
-        const height = 48 + 48 + visibleRows * 104;
+        const height = TITLE_HEIGHT + FILTER_HEIGHT + visibleRows * ROW_HEIGHT;
         setPredictedListHeight(height);
       } else {
         // 3+ items: assume 5 visible rows (suggestions fill gaps, or paginated at 5)
-        const height = 48 + 48 + 5 * 104 + (totalItems > 5 ? 40 : 0);
+        const height = TITLE_HEIGHT + FILTER_HEIGHT + 5 * ROW_HEIGHT + (totalItems > 5 ? PAGINATION_HEIGHT : 0);
         setPredictedListHeight(height);
       }
     } catch {

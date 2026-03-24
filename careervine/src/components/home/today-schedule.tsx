@@ -71,7 +71,7 @@ function getMinHourRange(events: ScheduleEvent[]): [number, number] {
 
 /**
  * Expand the hour range to fill available space.
- * Alternates adding hours to the bottom then top, respecting bounds:
+ * Extends toward evening (10 PM) first, then toward morning (7 AM).
  * - Won't go past MAX_LATE_HOUR (10 PM) unless events already push past it
  * - Won't go before MIN_EARLY_HOUR (7 AM) unless events already push before it
  */
@@ -87,20 +87,14 @@ function expandHourRange(
   const lowerBound = Math.min(MIN_EARLY_HOUR, minStart);
   const upperBound = Math.max(MAX_LATE_HOUR, minEnd);
 
-  let addToBottom = true;
-  while (end - start < hoursNeeded) {
-    if (addToBottom && end < upperBound) {
-      end++;
-    } else if (!addToBottom && start > lowerBound) {
-      start--;
-    } else if (end < upperBound) {
-      end++;
-    } else if (start > lowerBound) {
-      start--;
-    } else {
-      break;
-    }
-    addToBottom = !addToBottom;
+  // Phase 1: extend toward evening first
+  while (end - start < hoursNeeded && end < upperBound) {
+    end++;
+  }
+
+  // Phase 2: extend toward morning if still need more space
+  while (end - start < hoursNeeded && start > lowerBound) {
+    start--;
   }
 
   return [start, end];
