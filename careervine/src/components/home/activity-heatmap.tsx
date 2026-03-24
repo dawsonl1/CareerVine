@@ -167,8 +167,8 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
       {/* Tooltip */}
       {tooltip && (
         <div
-          className="fixed z-50 px-3 py-2 rounded-lg bg-foreground text-background text-xs pointer-events-none -translate-x-1/2"
-          style={{ left: tooltip.x, top: tooltip.y - (tooltip.count > 0 ? 70 : 38) }}
+          className="fixed z-50 px-3 py-2 rounded-lg bg-foreground text-background text-xs pointer-events-none"
+          style={{ left: tooltip.x, top: tooltip.y - 8, transform: "translate(-50%, -100%)" }}
         >
           <p className="font-medium mb-0.5">
             {new Date(tooltip.date + "T12:00:00").toLocaleDateString("en-US", {
