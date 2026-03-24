@@ -373,7 +373,15 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
         </Link>
       )}
 
-      {calendarConnected && (
+      {calendarConnected && events.length === 0 && (
+        <div className="rounded-xl border border-outline-variant/50 px-5 py-8 text-center">
+          <Calendar className="h-7 w-7 text-muted-foreground/40 mx-auto mb-2.5" />
+          <p className="text-base text-muted-foreground">Nothing scheduled today</p>
+          <p className="text-sm text-muted-foreground/60 mt-1">Enjoy the open time</p>
+        </div>
+      )}
+
+      {calendarConnected && events.length > 0 && (
         <div className="relative" style={{ height: totalHeight }}>
           {/* Hour grid lines + labels */}
           {Array.from({ length: endHour - startHour + 1 }, (_, i) => {
