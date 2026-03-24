@@ -74,16 +74,27 @@ export default function Home() {
   const { toast } = useToast();
   const { calendarConnected, loading: gmailLoading } = useGmailConnection();
 
-  // ── Data state ──
-  const [actionItems, setActionItems] = useState<ActionItem[]>([]);
-  const [followUps, setFollowUps] = useState<FollowUpContact[]>([]);
-  const [contactHealth, setContactHealth] = useState<{ id: number; name: string; days_since_touch: number | null; follow_up_frequency_days: number | null }[]>([]);
-  const [dataLoaded, setDataLoaded] = useState(false);
+  // ── SWR cache: hydrate from localStorage on mount for instant revisit ──
+  const cacheKey = user ? `careervine:home:${user.id}` : null;
+  const cachedData = useMemo(() => {
+    if (!cacheKey || typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheKey]);
+
+  // ── Data state (hydrated from cache if available) ──
+  const [actionItems, setActionItems] = useState<ActionItem[]>(cachedData?.actionItems ?? []);
+  const [followUps, setFollowUps] = useState<FollowUpContact[]>(cachedData?.followUps ?? []);
+  const [contactHealth, setContactHealth] = useState<{ id: number; name: string; days_since_touch: number | null; follow_up_frequency_days: number | null }[]>(cachedData?.contactHealth ?? []);
+  const [dataLoaded, setDataLoaded] = useState(!!cachedData);
 
   // Band 2 right data
   const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
-  const [newContacts, setNewContacts] = useState<NewContact[]>([]);
+  const [newContacts, setNewContacts] = useState<NewContact[]>(cachedData?.newContacts ?? []);
 
   // Band 3 data
   const [homeStats, setHomeStats] = useState<Awaited<ReturnType<typeof getHomeStats>> | null>(null);
@@ -136,23 +147,35 @@ export default function Home() {
     if (!user) return;
     try {
       const data = await getHomeCoreData(user.id);
-      setActionItems((data.actionItems as ActionItem[]).slice(0, 15));
+      const items = (data.actionItems as ActionItem[]).slice(0, 15);
+      const nc = data.recentlyAdded.map((c) => ({
+        id: c.id,
+        name: c.name,
+        photo_url: c.photo_url,
+        emails: c.emails,
+        created_at: c.created_at ?? null,
+      }));
+      setActionItems(items);
       setFollowUps(data.followUps);
       setContactHealth(data.contactHealth);
-      setNewContacts(
-        data.recentlyAdded.map((c) => ({
-          id: c.id,
-          name: c.name,
-          photo_url: c.photo_url,
-          emails: c.emails,
-          created_at: c.created_at ?? null,
-        }))
-      );
+      setNewContacts(nc);
+
+      // Cache for instant revisit
+      if (cacheKey) {
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify({
+            actionItems: items,
+            followUps: data.followUps,
+            contactHealth: data.contactHealth,
+            newContacts: nc,
+          }));
+        } catch { /* storage full — ignore */ }
+      }
     } catch {
       // silent
     }
     setDataLoaded(true);
-  }, [user]);
+  }, [user, cacheKey]);
 
   const loadSchedule = useCallback(async () => {
     if (!user) return;
