@@ -126,6 +126,13 @@ export default function Home() {
     triggerOnce: triggerSuggestions,
   } = useSuggestions();
 
+  // Last-touch lookup — must be above loadSchedule which depends on it
+  const lastTouchLookup = useMemo(() => {
+    const map = new Map<number, number | null>();
+    for (const c of contactHealth) map.set(c.id, c.days_since_touch);
+    return map;
+  }, [contactHealth]);
+
   // ── Data loading ──
 
   const loadCoreData = useCallback(async () => {
@@ -341,11 +348,6 @@ export default function Home() {
   // ── Build unified action list ──
 
   // Build last-touch lookup from contactHealth
-  const lastTouchLookup = useMemo(() => {
-    const map = new Map<number, number | null>();
-    for (const c of contactHealth) map.set(c.id, c.days_since_touch);
-    return map;
-  }, [contactHealth]);
 
 
   const unifiedItems = useMemo<UnifiedActionItem[]>(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import {
@@ -417,6 +417,8 @@ export function UnifiedActionList({
                   onIntro={onIntro}
                   snoozeState={snoozeState}
                   setSnoozeState={setSnoozeState}
+                  notePopoverItemId={notePopoverItemId}
+                  setNotePopoverItemId={setNotePopoverItemId}
                 />
               ))
             )}
@@ -468,6 +470,8 @@ function ActionListItem({
   onIntro,
   snoozeState,
   setSnoozeState,
+  notePopoverItemId,
+  setNotePopoverItemId,
 }: {
   item: UnifiedActionItem;
   onComplete: (item: UnifiedActionItem) => void;
@@ -480,6 +484,8 @@ function ActionListItem({
   onIntro: (contactId: number) => void;
   snoozeState: SnoozeState | null;
   setSnoozeState: (s: SnoozeState | null) => void;
+  notePopoverItemId: string | null;
+  setNotePopoverItemId: (id: string | null) => void;
 }) {
   const labels = typeLabels[item.type];
   const showSnoozeMenu = snoozeState?.itemId === item.id && snoozeState.showMenu;

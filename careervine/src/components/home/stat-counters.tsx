@@ -1,16 +1,15 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { useCursorTooltip } from "@/components/ui/cursor-tooltip";
 
 export interface StatCard {
   label: string;
   value: number;
   previousValue: number;
-  /** If true, display value as percentage with % suffix */
   isPercentage?: boolean;
-  /** Tooltip lines shown on hover */
   tooltipLines?: string[];
 }
 
@@ -25,36 +24,9 @@ function TrendArrow({ current, previous }: { current: number; previous: number }
   return <Minus className="h-6 w-6 text-muted-foreground" />;
 }
 
-function CursorTooltip({ lines, posRef }: { lines: string[]; posRef: React.RefObject<{ x: number; y: number } | null> }) {
-  const pos = posRef.current || { x: 0, y: 0 };
-  return createPortal(
-    <div
-      className="fixed z-[9999] px-4 py-3 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg min-w-[220px] pointer-events-none"
-      style={{ left: pos.x + 14, top: pos.y + 14 }}
-    >
-      {lines.map((line, i) => (
-        <p key={i} className="text-sm text-foreground whitespace-nowrap">
-          {line}
-        </p>
-      ))}
-    </div>,
-    document.body
-  );
-}
-
 export function StatCounters({ stats }: StatCountersProps) {
   const [hoveredStat, setHoveredStat] = useState<string | null>(null);
-  const mousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    mousePosRef.current = { x: e.clientX, y: e.clientY };
-    // Update tooltip position directly via DOM to avoid re-renders
-    if (tooltipRef.current) {
-      tooltipRef.current.style.left = `${e.clientX + 14}px`;
-      tooltipRef.current.style.top = `${e.clientY + 14}px`;
-    }
-  }, []);
+  const { posRef, tooltipRef, handleMouseMove } = useCursorTooltip();
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -74,7 +46,7 @@ export function StatCounters({ stats }: StatCountersProps) {
                 <div
                   ref={tooltipRef}
                   className="fixed z-[9999] px-4 py-3 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg min-w-[220px] pointer-events-none"
-                  style={{ left: mousePosRef.current.x + 14, top: mousePosRef.current.y + 14 }}
+                  style={{ left: posRef.current.x + 14, top: posRef.current.y + 14 }}
                 >
                   {stat.tooltipLines.map((line, i) => (
                     <p key={i} className="text-sm text-foreground whitespace-nowrap">

@@ -368,7 +368,11 @@ function QuickAddCard({
 
   const handleSave = async () => {
     setSaving(true);
-    await onSave(title || "(No title)", addMeet);
+    try {
+      await onSave(title || "(No title)", addMeet);
+    } catch {
+      setSaving(false);
+    }
   };
 
   return (
@@ -550,22 +554,19 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
     const startMs = startDate.getTime() + newEventDraft.startHour * 60 * 60 * 1000;
     const endMs = startDate.getTime() + newEventDraft.endHour * 60 * 60 * 1000;
 
-    try {
-      await fetch("/api/calendar/create-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          summary: title,
-          startTime: new Date(startMs).toISOString(),
-          endTime: new Date(endMs).toISOString(),
-          conferenceType: addMeet ? "meet" : "none",
-        }),
-      });
-      setNewEventDraft(null);
-      onEventCreated?.();
-    } catch {
-      // silent
-    }
+    const res = await fetch("/api/calendar/create-event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: title,
+        startTime: new Date(startMs).toISOString(),
+        endTime: new Date(endMs).toISOString(),
+        conferenceType: addMeet ? "meet" : "none",
+      }),
+    });
+    if (!res.ok) throw new Error("Failed to create event");
+    setNewEventDraft(null);
+    onEventCreated?.();
   }, [newEventDraft, onEventCreated]);
 
   if (loading) {

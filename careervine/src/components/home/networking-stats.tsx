@@ -74,7 +74,7 @@ export function NetworkingStats({
   if (loading) {
     return (
       <div>
-        <h2 className="text-[28px] font-medium text-foreground mb-6">Network Overview</h2>
+        <h2 className="text-[28px] font-medium text-foreground mb-3">Network Overview</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-24 rounded-xl bg-surface-container-highest animate-pulse" />
@@ -134,7 +134,7 @@ export function NetworkingStats({
 
   return (
     <div>
-      <h2 className="text-[28px] font-medium text-foreground mb-6">Network Overview</h2>
+      <h2 className="text-[28px] font-medium text-foreground mb-3">Network Overview</h2>
 
       {/* Two-column layout: left (KPIs + charts) | right (Needs Attention) */}
       <div className="flex flex-col lg:flex-row gap-8 items-start">
