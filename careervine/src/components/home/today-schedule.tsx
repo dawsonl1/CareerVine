@@ -355,7 +355,7 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
     <div>
       <h3 className="text-[28px] font-medium text-foreground mb-8">Today</h3>
 
-      {!calendarConnected && (
+      {!calendarConnected && !loading && (
         <Link
           href="/settings?tab=integrations"
           className="block rounded-xl border border-dashed border-outline-variant p-5 text-center hover:bg-surface-container-low transition-colors"

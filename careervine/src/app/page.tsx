@@ -73,7 +73,7 @@ export default function Home() {
   const { open: openQuickCapture } = useQuickCapture();
   const { openCompose } = useCompose();
   const { toast } = useToast();
-  const { calendarConnected } = useGmailConnection();
+  const { calendarConnected, loading: gmailLoading } = useGmailConnection();
 
   // ── Data state ──
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
@@ -154,7 +154,9 @@ export default function Home() {
   }, [user]);
 
   const loadSchedule = useCallback(async () => {
-    if (!user || !calendarConnected) {
+    if (!user) return;
+    if (gmailLoading) return; // Wait until we know the calendar connection state
+    if (!calendarConnected) {
       setScheduleLoading(false);
       return;
     }
@@ -185,7 +187,7 @@ export default function Home() {
     } finally {
       setScheduleLoading(false);
     }
-  }, [user, calendarConnected]);
+  }, [user, calendarConnected, gmailLoading]);
 
   const loadBand3 = useCallback(async () => {
     if (!user) return;
