@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Calendar } from "lucide-react";
@@ -23,7 +24,73 @@ interface TodayScheduleProps {
   calendarConnected: boolean;
 }
 
+const HOUR_HEIGHT = 52; // px per hour
+const MIN_EVENT_HEIGHT = 28; // minimum event block height
+const LABEL_WIDTH = 48; // width for hour labels
+
+/**
+ * Compute the visible hour range: from 1 hour before the earliest event
+ * (or current hour) to 1 hour after the latest event, clamped to 0–24.
+ * Default to 8am–6pm if no events.
+ */
+function getHourRange(events: ScheduleEvent[]): [number, number] {
+  if (events.length === 0) {
+    const now = new Date();
+    const currentHour = now.getHours();
+    return [Math.max(0, currentHour - 1), Math.min(24, currentHour + 10)];
+  }
+
+  let earliest = 24;
+  let latest = 0;
+
+  for (const e of events) {
+    const start = new Date(e.start_at);
+    const end = new Date(e.end_at);
+    earliest = Math.min(earliest, start.getHours());
+    latest = Math.max(latest, end.getHours() + (end.getMinutes() > 0 ? 1 : 0));
+  }
+
+  return [Math.max(0, earliest - 1), Math.min(24, latest + 1)];
+}
+
+function formatHour(hour: number): string {
+  if (hour === 0 || hour === 24) return "12 AM";
+  if (hour === 12) return "12 PM";
+  if (hour < 12) return `${hour} AM`;
+  return `${hour - 12} PM`;
+}
+
 export function TodaySchedule({ events, loading, calendarConnected }: TodayScheduleProps) {
+  const [now, setNow] = useState(new Date());
+
+  // Update "now" every minute for the current-time indicator
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const [startHour, endHour] = useMemo(() => getHourRange(events), [events]);
+  const totalHeight = (endHour - startHour) * HOUR_HEIGHT;
+
+  // Current time position
+  const nowHour = now.getHours() + now.getMinutes() / 60;
+  const showNowLine = nowHour >= startHour && nowHour <= endHour;
+  const nowTop = (nowHour - startHour) * HOUR_HEIGHT;
+
+  // Position events
+  const positionedEvents = useMemo(() => {
+    return events.map((event) => {
+      const start = new Date(event.start_at);
+      const end = new Date(event.end_at);
+      const startFrac = start.getHours() + start.getMinutes() / 60;
+      const endFrac = end.getHours() + end.getMinutes() / 60;
+      const top = (startFrac - startHour) * HOUR_HEIGHT;
+      const height = Math.max((endFrac - startFrac) * HOUR_HEIGHT, MIN_EVENT_HEIGHT);
+      const timeLabel = start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      return { ...event, top, height, timeLabel };
+    });
+  }, [events, startHour]);
+
   if (loading) {
     return (
       <div>
@@ -53,53 +120,75 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
         </Link>
       )}
 
-      {calendarConnected && events.length === 0 && (
-        <div className="rounded-xl bg-surface-container-low p-5 text-center">
-          <p className="text-lg text-muted-foreground">Nothing scheduled today</p>
-        </div>
-      )}
-
-      {calendarConnected && events.length > 0 && (
-        <div className="space-y-1">
-          {events.map((event) => {
-            const time = new Date(event.start_at).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            });
+      {calendarConnected && (
+        <div className="relative" style={{ height: totalHeight }}>
+          {/* Hour grid lines + labels */}
+          {Array.from({ length: endHour - startHour + 1 }, (_, i) => {
+            const hour = startHour + i;
+            const top = i * HOUR_HEIGHT;
             return (
-              <div
-                key={event.id}
-                className="rounded-lg px-4 py-3 hover:bg-surface-container-low transition-colors"
-              >
-                <div className="flex items-baseline gap-3">
-                  <span className="text-lg text-muted-foreground tabular-nums w-[80px] shrink-0">
-                    {time}
-                  </span>
-                  <span className="text-xl font-medium text-foreground truncate">
-                    {event.title || "Untitled event"}
-                  </span>
-                </div>
-                {event.contact && (
-                  <Link
-                    href={`/contacts/${event.contact.id}`}
-                    className="flex items-center gap-2 mt-2 ml-[76px] group"
+              <div key={hour} className="absolute left-0 right-0" style={{ top }}>
+                <div className="flex items-start">
+                  <span
+                    className="text-xs text-muted-foreground/60 tabular-nums shrink-0 -translate-y-1/2"
+                    style={{ width: LABEL_WIDTH }}
                   >
-                    <ContactAvatar
-                      name={event.contact.name}
-                      photoUrl={event.contact.photo_url}
-                      className="w-8 h-8 text-xs"
-                    />
-                    <span className="text-lg text-muted-foreground group-hover:text-foreground transition-colors truncate">
-                      {event.contact.name}
-                    </span>
-                    <span className="text-base text-muted-foreground/70 truncate">
-                      {event.contact.lastTouchLabel}
-                    </span>
-                  </Link>
-                )}
+                    {hour < 24 ? formatHour(hour) : ""}
+                  </span>
+                  <div className="flex-1 border-t border-outline-variant/30" />
+                </div>
               </div>
             );
           })}
+
+          {/* Current time indicator */}
+          {showNowLine && (
+            <div
+              className="absolute right-0 z-20 flex items-center"
+              style={{ top: nowTop, left: LABEL_WIDTH - 4 }}
+            >
+              <div className="w-2 h-2 rounded-full bg-red-500" />
+              <div className="flex-1 border-t-2 border-red-500" />
+            </div>
+          )}
+
+          {/* Event blocks */}
+          {positionedEvents.map((event) => (
+            <div
+              key={event.id}
+              className="absolute rounded-lg bg-primary/10 border-l-[3px] border-primary px-3 py-1.5 overflow-hidden group hover:bg-primary/15 transition-colors cursor-default"
+              style={{
+                top: event.top,
+                height: event.height,
+                left: LABEL_WIDTH + 4,
+                right: 0,
+              }}
+            >
+              <p className="text-sm font-medium text-foreground truncate leading-tight">
+                {event.title || "Untitled event"}
+              </p>
+              {event.height >= 40 && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {event.timeLabel}
+                </p>
+              )}
+              {event.contact && event.height >= 56 && (
+                <Link
+                  href={`/contacts/${event.contact.id}`}
+                  className="flex items-center gap-1.5 mt-1 hover:text-foreground transition-colors"
+                >
+                  <ContactAvatar
+                    name={event.contact.name}
+                    photoUrl={event.contact.photo_url}
+                    className="w-5 h-5 text-[10px]"
+                  />
+                  <span className="text-xs text-muted-foreground truncate">
+                    {event.contact.name}
+                  </span>
+                </Link>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
