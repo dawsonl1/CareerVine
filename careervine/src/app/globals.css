@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
-/* Scale the entire app to 125% so default zoom feels right */
+/* Scale all rem-based values (text, padding, spacing) up 25%.
+   Container widths use px so they don't also grow wider. */
 html {
-  zoom: 1.25;
+  font-size: 20px; /* 125% of default 16px */
 }
 
 /*
