@@ -1714,7 +1714,6 @@ export async function getNeglectedContacts(userId: string) {
         ? b.days_since_touch / b.follow_up_frequency_days : 999;
       return bRatio - aRatio;
     })
-    .slice(0, 5)
     .map((c) => ({
       id: c.id,
       name: c.name,
