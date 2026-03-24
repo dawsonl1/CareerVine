@@ -19,6 +19,7 @@ const TYPE_START_DELAY = 250; // ms before typing starts (let width expand first
 export function LogConversationFab({ onClick }: LogConversationFabProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [displayedChars, setDisplayedChars] = useState(0);
+  const displayedCharsRef = useRef(0);
   const [showCursor, setShowCursor] = useState(false);
   const textRef = useRef<HTMLSpanElement>(null);
   const [expandedWidth, setExpandedWidth] = useState(0);
@@ -33,9 +34,8 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
     }
   }, []);
 
-  // Typing effect
+  // Typing effect — resumes from current position
   const startTyping = useCallback(() => {
-    setDisplayedChars(0);
     setShowCursor(true);
 
     // Start cursor blink
@@ -44,10 +44,13 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
       setShowCursor((prev) => !prev);
     }, 530);
 
-    // Start typing after delay
-    let charIndex = 0;
+    // Resume typing from wherever we are
+    let charIndex = displayedCharsRef.current;
+    if (charIndex >= FULL_TEXT.length) return; // Already fully typed
+
     const typeNext = () => {
       charIndex++;
+      displayedCharsRef.current = charIndex;
       setDisplayedChars(charIndex);
       if (charIndex < FULL_TEXT.length) {
         typeTimerRef.current = setTimeout(typeNext, TYPE_SPEED);
@@ -56,7 +59,9 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
         setShowCursor(true);
       }
     };
-    typeTimerRef.current = setTimeout(typeNext, TYPE_START_DELAY);
+    // If starting from 0, add a delay for the width to expand first
+    const delay = charIndex === 0 ? TYPE_START_DELAY : TYPE_SPEED;
+    typeTimerRef.current = setTimeout(typeNext, delay);
   }, []);
 
   const [isDeleting, setIsDeleting] = useState(false);
@@ -72,7 +77,9 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
 
     const deleteNext = () => {
       setDisplayedChars((prev) => {
-        if (prev <= 1) {
+        const next = prev - 1;
+        displayedCharsRef.current = next;
+        if (next <= 0) {
           // Done deleting
           setIsDeleting(false);
           setShowCursor(false);
@@ -80,7 +87,7 @@ export function LogConversationFab({ onClick }: LogConversationFabProps) {
           return 0;
         }
         deleteTimerRef.current = setTimeout(deleteNext, DELETE_SPEED);
-        return prev - 1;
+        return next;
       });
     };
     deleteTimerRef.current = setTimeout(deleteNext, DELETE_SPEED);
