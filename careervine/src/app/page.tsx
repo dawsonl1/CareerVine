@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/components/auth-provider";
 import LandingPage from "@/components/landing-page";
 import Navigation from "@/components/navigation";
@@ -18,6 +18,7 @@ import {
   getContactsDueForFollowUp,
   getContactsWithLastTouch,
   getRecentUncontactedContacts,
+  getActionListCounts,
   getHomeStats,
   getActivityHeatmap,
   getNetworkHealthSummary,
@@ -76,20 +77,8 @@ export default function Home() {
   const [neglectedContacts, setNeglectedContactsList] = useState<Awaited<ReturnType<typeof getNeglectedContacts>>>([]);
   const [band3Loading, setBand3Loading] = useState(true);
 
-  // Left column height measurement for calendar stretch
-  const leftColRef = useRef<HTMLDivElement>(null);
-  const [leftColHeight, setLeftColHeight] = useState(0);
-
-  useEffect(() => {
-    if (!leftColRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setLeftColHeight(entry.contentRect.height);
-      }
-    });
-    observer.observe(leftColRef.current);
-    return () => observer.disconnect();
-  }, []);
+  // Predicted action list height for calendar sizing (from fast count query)
+  const [predictedListHeight, setPredictedListHeight] = useState(0);
 
   // Suggestions
   const {
@@ -180,13 +169,30 @@ export default function Home() {
     }
   }, [user]);
 
+  // Predict action list height from fast counts — fires first so calendar sizes correctly
+  const loadCounts = useCallback(async () => {
+    if (!user) return;
+    try {
+      const counts = await getActionListCounts(user.id);
+      const totalItems = counts.actionItems + counts.reachOut + counts.recentlyAdded;
+      // Action list layout: title(48) + filterBar(48) + rows(min(items,5) × 104) + pagination(40 if >5)
+      const visibleRows = Math.min(totalItems, 5);
+      const height = 48 + 48 + visibleRows * 104 + (totalItems > 5 ? 40 : 0);
+      setPredictedListHeight(height);
+    } catch {
+      // silent — calendar will just use minimum range
+    }
+  }, [user]);
+
   useEffect(() => {
     if (user) {
+      // Fire count query first, then everything else in parallel
+      loadCounts();
       loadCoreData();
       loadSchedule();
       loadBand3();
     }
-  }, [user, loadCoreData, loadSchedule, loadBand3]);
+  }, [user, loadCounts, loadCoreData, loadSchedule, loadBand3]);
 
   // Refresh when a conversation is logged
   useEffect(() => {
@@ -472,23 +478,21 @@ export default function Home() {
         {/* ═══ Band 2: Workspace ═══ */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8 mb-12">
           {/* Left: Unified action list */}
-          <div ref={leftColRef}>
-            <UnifiedActionList
-              items={unifiedItems}
-              loading={!dataLoaded || suggestionsLoading}
-              onComplete={handleComplete}
-              onSnooze={handleSnooze}
-              onDismiss={handleDismiss}
-              onSave={handleSave}
-              onLogInteraction={handleLogInteraction}
-              onDraftEmail={handleDraftEmail}
-              onNote={handleNewContactNote}
-              onIntro={handleNewContactIntro}
-              isEmpty={isEmpty}
-              onLogConversation={() => openQuickCapture()}
-              calendarConnected={calendarConnected}
-            />
-          </div>
+          <UnifiedActionList
+            items={unifiedItems}
+            loading={!dataLoaded || suggestionsLoading}
+            onComplete={handleComplete}
+            onSnooze={handleSnooze}
+            onDismiss={handleDismiss}
+            onSave={handleSave}
+            onLogInteraction={handleLogInteraction}
+            onDraftEmail={handleDraftEmail}
+            onNote={handleNewContactNote}
+            onIntro={handleNewContactIntro}
+            isEmpty={isEmpty}
+            onLogConversation={() => openQuickCapture()}
+            calendarConnected={calendarConnected}
+          />
 
           {/* Right: Schedule */}
           <div>
@@ -496,7 +500,7 @@ export default function Home() {
               events={scheduleEvents}
               loading={scheduleLoading}
               calendarConnected={calendarConnected}
-              availableHeight={leftColHeight}
+              availableHeight={predictedListHeight}
             />
           </div>
         </div>

@@ -1466,6 +1466,48 @@ export async function getRecentUncontactedContacts(userId: string) {
 }
 
 /**
+ * Fast count of action list items — fires first on page load so the calendar
+ * can predict its height before the full data loads.
+ * Returns: action items (non-waiting_on) + contacts with follow-up frequency
+ * (upper bound for reach-out) + recently added uncontacted contacts.
+ */
+export async function getActionListCounts(userId: string) {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const cutoff = sevenDaysAgo.toISOString();
+
+  const [actionResult, followUpResult, recentResult] = await Promise.all([
+    // Count incomplete action items (excluding waiting_on)
+    supabase
+      .from("follow_up_action_items")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("is_completed", false)
+      .or("direction.is.null,direction.neq.waiting_on"),
+
+    // Upper bound for reach-out: contacts with a follow-up frequency set
+    supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .not("follow_up_frequency_days", "is", null),
+
+    // Recently added contacts (last 7 days)
+    supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .gte("created_at", cutoff),
+  ]);
+
+  return {
+    actionItems: actionResult.count ?? 0,
+    reachOut: followUpResult.count ?? 0,
+    recentlyAdded: recentResult.count ?? 0,
+  };
+}
+
+/**
  * Get aggregated home page stats: this week + last week for trend comparison.
  */
 export async function getHomeStats(userId: string) {
