@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Calendar } from "lucide-react";
@@ -22,6 +22,8 @@ interface TodayScheduleProps {
   events: ScheduleEvent[];
   loading: boolean;
   calendarConnected: boolean;
+  /** Height of the left column (action list) in px — used to expand hour range to fill space */
+  availableHeight: number;
 }
 
 const HOUR_HEIGHT = 52; // px per hour
@@ -34,7 +36,7 @@ const MIN_EARLY_HOUR = 7; // don't show before 7 AM unless events exist earlier
 /**
  * Compute the minimum hour range needed to show all events.
  * 1 hour padding before earliest event, 1 hour after latest.
- * If no events, center around current hour.
+ * If no events, center around current hour with a small window.
  */
 function getMinHourRange(events: ScheduleEvent[]): [number, number] {
   if (events.length === 0) {
@@ -59,7 +61,7 @@ function getMinHourRange(events: ScheduleEvent[]): [number, number] {
  * Expand the hour range to fill available space.
  * Alternates adding hours to the bottom then top, respecting bounds:
  * - Won't go past MAX_LATE_HOUR (10 PM) unless events already push past it
- * - Won't go before MIN_EARLY_HOUR (5 AM) unless events already push before it
+ * - Won't go before MIN_EARLY_HOUR (7 AM) unless events already push before it
  */
 function expandHourRange(
   minStart: number,
@@ -70,23 +72,20 @@ function expandHourRange(
   let start = minStart;
   let end = minEnd;
 
-  // The hard bounds: don't expand beyond these unless the minimum range already exceeds them
   const lowerBound = Math.min(MIN_EARLY_HOUR, minStart);
   const upperBound = Math.max(MAX_LATE_HOUR, minEnd);
 
-  let addToBottom = true; // alternate: bottom first, then top
+  let addToBottom = true;
   while (end - start < hoursNeeded) {
     if (addToBottom && end < upperBound) {
       end++;
     } else if (!addToBottom && start > lowerBound) {
       start--;
     } else if (end < upperBound) {
-      // Fallback: try the other direction
       end++;
     } else if (start > lowerBound) {
       start--;
     } else {
-      // Both bounds reached, can't expand further
       break;
     }
     addToBottom = !addToBottom;
@@ -102,10 +101,8 @@ function formatHour(hour: number): string {
   return `${hour - 12} PM`;
 }
 
-export function TodaySchedule({ events, loading, calendarConnected }: TodayScheduleProps) {
+export function TodaySchedule({ events, loading, calendarConnected, availableHeight }: TodayScheduleProps) {
   const [now, setNow] = useState(new Date());
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerHeight, setContainerHeight] = useState(0);
 
   // Update "now" every minute for the current-time indicator
   useEffect(() => {
@@ -113,25 +110,10 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
     return () => clearInterval(interval);
   }, []);
 
-  // Observe the container's available height
-  const measureHeight = useCallback(() => {
-    if (containerRef.current) {
-      setContainerHeight(containerRef.current.clientHeight);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new ResizeObserver(measureHeight);
-    observer.observe(containerRef.current);
-    measureHeight(); // initial measurement
-    return () => observer.disconnect();
-  }, [measureHeight]);
-
   const [minStart, minEnd] = useMemo(() => getMinHourRange(events), [events]);
 
-  // Available height for the grid = container height minus the title
-  const gridAvailable = Math.max(0, containerHeight - TITLE_HEIGHT);
+  // Available height for the grid = left column height minus the title area
+  const gridAvailable = Math.max(0, availableHeight - TITLE_HEIGHT);
 
   const [startHour, endHour] = useMemo(
     () => expandHourRange(minStart, minEnd, gridAvailable),
@@ -161,7 +143,7 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
 
   if (loading) {
     return (
-      <div ref={containerRef} className="h-full">
+      <div>
         <h3 className="text-[28px] font-medium text-foreground mb-5">Today</h3>
         <div className="space-y-2">
           {[1, 2].map((i) => (
@@ -173,7 +155,7 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
   }
 
   return (
-    <div ref={containerRef} className="h-full">
+    <div>
       <h3 className="text-[28px] font-medium text-foreground mb-5">Today</h3>
 
       {!calendarConnected && (

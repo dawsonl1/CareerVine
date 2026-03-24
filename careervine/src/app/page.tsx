@@ -76,6 +76,21 @@ export default function Home() {
   const [neglectedContacts, setNeglectedContactsList] = useState<Awaited<ReturnType<typeof getNeglectedContacts>>>([]);
   const [band3Loading, setBand3Loading] = useState(true);
 
+  // Left column height measurement for calendar stretch
+  const leftColRef = useRef<HTMLDivElement>(null);
+  const [leftColHeight, setLeftColHeight] = useState(0);
+
+  useEffect(() => {
+    if (!leftColRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setLeftColHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(leftColRef.current);
+    return () => observer.disconnect();
+  }, []);
+
   // Suggestions
   const {
     suggestions,
@@ -457,21 +472,23 @@ export default function Home() {
         {/* ═══ Band 2: Workspace ═══ */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8 mb-12">
           {/* Left: Unified action list */}
-          <UnifiedActionList
-            items={unifiedItems}
-            loading={!dataLoaded || suggestionsLoading}
-            onComplete={handleComplete}
-            onSnooze={handleSnooze}
-            onDismiss={handleDismiss}
-            onSave={handleSave}
-            onLogInteraction={handleLogInteraction}
-            onDraftEmail={handleDraftEmail}
-            onNote={handleNewContactNote}
-            onIntro={handleNewContactIntro}
-            isEmpty={isEmpty}
-            onLogConversation={() => openQuickCapture()}
-            calendarConnected={calendarConnected}
-          />
+          <div ref={leftColRef}>
+            <UnifiedActionList
+              items={unifiedItems}
+              loading={!dataLoaded || suggestionsLoading}
+              onComplete={handleComplete}
+              onSnooze={handleSnooze}
+              onDismiss={handleDismiss}
+              onSave={handleSave}
+              onLogInteraction={handleLogInteraction}
+              onDraftEmail={handleDraftEmail}
+              onNote={handleNewContactNote}
+              onIntro={handleNewContactIntro}
+              isEmpty={isEmpty}
+              onLogConversation={() => openQuickCapture()}
+              calendarConnected={calendarConnected}
+            />
+          </div>
 
           {/* Right: Schedule */}
           <div>
@@ -479,6 +496,7 @@ export default function Home() {
               events={scheduleEvents}
               loading={scheduleLoading}
               calendarConnected={calendarConnected}
+              availableHeight={leftColHeight}
             />
           </div>
         </div>
