@@ -177,11 +177,7 @@ export function UnifiedActionList({
   }, [items, activeFilter]);
 
   // Use smaller page size if any items in the current view have long text (2-line descriptions)
-  // Check if any items on the current page have 2-line descriptions
-  // Use 5 as initial slice size to check, then adjust if needed
-  const tentativeItems = filteredItems.slice(page * 5, (page + 1) * 5);
-  const pageHasLongText = tentativeItems.some((i) => i.primaryText.length > 45 || i.secondaryText.length > 45);
-  const PAGE_SIZE = pageHasLongText ? 4 : 5;
+  const PAGE_SIZE = 5;
 
   const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
   const paginatedItems = filteredItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
