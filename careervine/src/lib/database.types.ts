@@ -54,10 +54,12 @@ export type Database = {
           status_derived_at: string | null;         // When contact_status was last derived/set
           location_id: number | null;    // Foreign key to locations table
           photo_url: string | null;      // Public URL of contact's profile photo in Supabase storage
+          created_at: string;            // Auto-generated timestamp
         };
-        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url"> & {
+        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at"> & {
           status_derived_at?: string | null;
           photo_url?: string | null;
+          created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;
       };
