@@ -384,7 +384,7 @@ function QuickAddCard({
       className="absolute z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant w-[280px] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
       style={{
         right: "calc(100% + 8px)",
-        top: Math.max(0, draft.top - 10),
+        top: 0,
       }}
     >
       <div className="p-4">
@@ -504,6 +504,7 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
     if (target.closest("[data-event-block]") || target.closest("[data-popover]")) return;
     if (newEventDraft) { setNewEventDraft(null); return; } // Close any open draft
 
+    e.preventDefault(); // Prevent browser text-selection / drag that scrolls the page
     setSelectedEventId(null);
     setDragState({ startY: e.clientY, currentY: e.clientY, isDragging: false });
   }, [newEventDraft]);
