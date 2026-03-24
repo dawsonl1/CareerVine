@@ -329,11 +329,13 @@ function ActionListItem({
   return (
     <div className="flex items-center gap-5 py-5 px-6 group hover:bg-surface-container-low transition-colors">
       {/* Avatar */}
-      <ContactAvatar
-        name={item.contactName}
-        photoUrl={item.contactPhotoUrl}
-        className="w-[60px] h-[60px] text-lg shrink-0"
-      />
+      <Link href={`/contacts/${item.contactId}`} className="shrink-0">
+        <ContactAvatar
+          name={item.contactName}
+          photoUrl={item.contactPhotoUrl}
+          className="w-[60px] h-[60px] text-lg"
+        />
+      </Link>
 
       {/* Content */}
       <Link href={`/contacts/${item.contactId}`} className="flex-1 min-w-0">
