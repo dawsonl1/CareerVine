@@ -83,7 +83,6 @@ export default function CalendarPage() {
   const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [inviteEmailMap, setInviteEmailMap] = useState<Record<number, string>>({});
-  const [addToCalendar, setAddToCalendar] = useState(true);
   const [includeMeetLink, setIncludeMeetLink] = useState(true);
   const [meetingDuration, setMeetingDuration] = useState(60);
   const [calendarConnected, setCalendarConnected] = useState(false);
@@ -187,7 +186,7 @@ export default function CalendarPage() {
   };
 
   const checkCalendarConnection = async () => {
-    try { const r = await fetch("/api/calendar/availability"); if (r.ok) { setCalendarConnected(true); setAddToCalendar(true); } } catch {}
+    try { const r = await fetch("/api/calendar/availability"); if (r.ok) { setCalendarConnected(true); } } catch {}
   };
 
   const handleSync = async () => {
@@ -277,8 +276,8 @@ export default function CalendarPage() {
           transcript: formData.transcript || null,
         });
         if (selectedContactIds.length > 0) await addContactsToMeeting(created.id, selectedContactIds);
-        const isFuture = dateTime ? new Date(dateTime) > new Date() : false;
-        if (addToCalendar && calendarConnected && isFuture && formData.meeting_time) {
+        // Always create on Google Calendar when connected and time is set
+        if (calendarConnected && formData.meeting_time) {
           const attendeeEmails = selectedContactIds.map(id => inviteEmailMap[id] || contactEmailsMap[id]?.[0] || allContacts.find(c => c.id === id)?.email || null).filter(Boolean) as string[];
           const startTime = new Date(dateTime).toISOString();
           const endTime = new Date(new Date(dateTime).getTime() + meetingDuration * 60000).toISOString();
@@ -657,7 +656,7 @@ export default function CalendarPage() {
                               {c.name}
                               <button type="button" onClick={() => { setSelectedContactIds(selectedContactIds.filter(i => i !== id)); setInviteEmailMap(p => { const n = {...p}; delete n[id]; return n; }); }} className="p-0.5 rounded-full hover:bg-black/10 cursor-pointer"><X className="h-3.5 w-3.5" /></button>
                             </span>
-                            {emails.length > 1 && addToCalendar && (
+                            {emails.length > 1 && calendarConnected && (
                               <div className="flex items-center gap-1 pl-1 flex-wrap">
                                 <span className="text-[10px] text-muted-foreground">Invite:</span>
                                 {emails.map(email => (
@@ -697,30 +696,22 @@ export default function CalendarPage() {
                     <div><label className={labelClasses}>Transcript</label><textarea value={formData.transcript} onChange={e => setFormData({...formData, transcript: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={8} placeholder="Paste transcript…" /></div>
                   </>
                 )}
-                {/* Calendar options */}
-                {calendarConnected && isFutureMeeting && !editingMeeting && (
+                {/* Calendar options — always shown when connected */}
+                {calendarConnected && !editingMeeting && (
                   <div className="rounded-[12px] border border-outline-variant/60 p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="text-base text-muted-foreground">Add to Google Calendar</label>
-                      <Toggle checked={addToCalendar} onChange={setAddToCalendar} />
+                    <div><label className={labelClasses}>Calendar invite description</label>
+                      <textarea value={formData.calendarDescription} onChange={e => setFormData({...formData, calendarDescription: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={2} placeholder="Agenda or notes for the invite…" />
                     </div>
-                    {addToCalendar && (
-                      <>
-                        <div><label className={labelClasses}>Calendar invite description</label>
-                          <textarea value={formData.calendarDescription} onChange={e => setFormData({...formData, calendarDescription: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={2} placeholder="Agenda or notes for the invite…" />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <label className="text-base text-muted-foreground flex items-center gap-2.5"><Video className="h-5 w-5" /> Include Google Meet link</label>
-                          <Toggle checked={includeMeetLink} onChange={setIncludeMeetLink} />
-                        </div>
-                        <div><label className={labelClasses}>Duration</label>
-                          <select value={meetingDuration} onChange={e => setMeetingDuration(Number(e.target.value))} className={inputClasses}>
-                            {meetingDuration === 0 && <option value={0} disabled>Select duration…</option>}
-                            {[15,30,45,60,90,120].map(m => <option key={m} value={m}>{m < 60 ? `${m} min` : m === 60 ? "1 hour" : `${m/60} hours`}</option>)}
-                          </select>
-                        </div>
-                      </>
-                    )}
+                    <div className="flex items-center justify-between">
+                      <label className="text-base text-muted-foreground flex items-center gap-2.5"><Video className="h-5 w-5" /> Include Google Meet link</label>
+                      <Toggle checked={includeMeetLink} onChange={setIncludeMeetLink} />
+                    </div>
+                    <div><label className={labelClasses}>Duration</label>
+                      <select value={meetingDuration} onChange={e => setMeetingDuration(Number(e.target.value))} className={inputClasses}>
+                        {meetingDuration === 0 && <option value={0} disabled>Select duration…</option>}
+                        {[15,30,45,60,90,120].map(m => <option key={m} value={m}>{m < 60 ? `${m} min` : m === 60 ? "1 hour" : `${m/60} hours`}</option>)}
+                      </select>
+                    </div>
                   </div>
                 )}
                 <div className="flex justify-end gap-2.5 pt-3">
