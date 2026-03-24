@@ -304,8 +304,8 @@ Rules:
 - Be SPECIFIC — reference actual topics, dates, and details from the conversations
 - Suggest a concrete action ("ask how the launch went") not a vague reminder ("follow up")
 - If there's genuinely nothing to go on, return null for that contact
-- Headlines: under 80 characters, conversational tone
-- Suggested actions: under 100 characters, starts with a verb`;
+- Headlines: MUST be under 70 characters, conversational tone. This is critical — long headlines break the UI.
+- Suggested actions: MUST be under 80 characters, starts with a verb. Keep it concise.`;
 
 const LLM_RESPONSE_SCHEMA = {
   type: "json_schema" as const,

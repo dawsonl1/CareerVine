@@ -165,8 +165,6 @@ export function UnifiedActionList({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [snoozeState?.showMenu]);
-  const PAGE_SIZE = 5;
-
   const counts = useMemo(() => {
     const c = { action_item: 0, reach_out: 0, suggestion: 0, recently_added: 0 };
     for (const item of items) c[item.type]++;
@@ -177,6 +175,12 @@ export function UnifiedActionList({
     if (activeFilter === "all") return items;
     return items.filter((i) => i.type === activeFilter);
   }, [items, activeFilter]);
+
+  // Use smaller page size if any items in the current view have long text (2-line descriptions)
+  const hasLongText = useMemo(() => {
+    return filteredItems.some((i) => i.primaryText.length > 45 || i.secondaryText.length > 45);
+  }, [filteredItems]);
+  const PAGE_SIZE = hasLongText ? 4 : 5;
 
   const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
   const paginatedItems = filteredItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -197,7 +201,7 @@ export function UnifiedActionList({
   ];
 
   return (
-    <div>
+    <div className="min-w-0">
       <h2 className="text-[28px] font-medium text-foreground mb-5">Up Next</h2>
 
       {/* Filter bar */}
@@ -343,7 +347,7 @@ function ActionListItem({
           <p className="text-xl font-medium text-foreground truncate">{item.contactName}</p>
           <span className="text-base text-muted-foreground shrink-0">{item.lastContactedLabel}</span>
         </div>
-        <p className="text-lg text-muted-foreground truncate mt-0.5">{item.primaryText}</p>
+        <p className="text-lg text-muted-foreground mt-0.5 line-clamp-2">{item.primaryText}</p>
         <span
           className={`inline-block mt-1 px-3 py-1 rounded text-sm font-medium uppercase tracking-wide ${labels.badgeBg} ${labels.badgeText}`}
         >
