@@ -59,8 +59,8 @@ export function NetworkingStats({
     return (
       <div>
         <h2 className="text-[28px] font-medium text-foreground mb-6">Network Overview</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+          {[1, 2, 3].map((i) => (
             <div key={i} className="h-24 rounded-xl bg-surface-container-highest animate-pulse" />
           ))}
         </div>
@@ -75,7 +75,6 @@ export function NetworkingStats({
     { label: "Conversations this week", value: stats.conversations.thisWeek, previousValue: stats.conversations.lastWeek },
     { label: "Action items", value: stats.pendingItems, previousValue: stats.pendingItems },
     { label: "Contacts added", value: stats.contactsAdded.thisWeek, previousValue: stats.contactsAdded.lastWeek },
-    { label: "Touchpoints this week", value: stats.touchpoints.thisWeek, previousValue: stats.touchpoints.lastWeek },
   ];
 
   // Compute trend
@@ -89,48 +88,52 @@ export function NetworkingStats({
     <div>
       <h2 className="text-[28px] font-medium text-foreground mb-6">Network Overview</h2>
 
-      {/* Stat counters */}
-      <StatCounters stats={statCards} />
+      {/* Two-column layout: left (KPIs + charts) | right (Needs Attention) */}
+      <div className="flex flex-col lg:flex-row gap-8 items-start">
+        {/* Left column: KPIs on top, heatmap + donut below */}
+        <div className="min-w-0 flex-1">
+          {/* Stat counters — 3 cards */}
+          <StatCounters stats={statCards} />
 
-      {/* Heatmap + donut + neglected contacts — all inline */}
-      <div className="mt-6 flex flex-col lg:flex-row gap-12 items-start">
-        {/* Heatmap */}
-        <div className="min-w-0 shrink-0">
-          <ActivityHeatmap data={heatmapData} />
-          {/* Trend line — under heatmap */}
-          {(totalThisWeek > 0 || totalLastWeek > 0) && (
-            <div className="mt-3 flex items-center gap-2.5 text-lg text-muted-foreground">
-              {trendPct > 0 ? (
-                <TrendingUp className="h-4 w-4 text-green-600" />
-              ) : trendPct < 0 ? (
-                <TrendingDown className="h-4 w-4 text-red-500" />
-              ) : (
-                <Minus className="h-4 w-4" />
+          {/* Heatmap + donut row */}
+          <div className="mt-6 flex flex-col lg:flex-row gap-12 items-start">
+            {/* Heatmap */}
+            <div className="min-w-0 shrink-0">
+              <ActivityHeatmap data={heatmapData} />
+              {/* Trend line — under heatmap */}
+              {(totalThisWeek > 0 || totalLastWeek > 0) && (
+                <div className="mt-3 flex items-center gap-2.5 text-lg text-muted-foreground">
+                  {trendPct > 0 ? (
+                    <TrendingUp className="h-4 w-4 text-green-600" />
+                  ) : trendPct < 0 ? (
+                    <TrendingDown className="h-4 w-4 text-red-500" />
+                  ) : (
+                    <Minus className="h-4 w-4" />
+                  )}
+                  <span>
+                    This week vs last:{" "}
+                    <span className={trendPct > 0 ? "text-green-600" : trendPct < 0 ? "text-red-500" : ""}>
+                      {trendPct > 0 ? "+" : ""}
+                      {trendPct}% {trendPct > 0 ? "more" : trendPct < 0 ? "less" : ""} active
+                    </span>
+                  </span>
+                </div>
               )}
-              <span>
-                This week vs last:{" "}
-                <span className={trendPct > 0 ? "text-green-600" : trendPct < 0 ? "text-red-500" : ""}>
-                  {trendPct > 0 ? "+" : ""}
-                  {trendPct}% {trendPct > 0 ? "more" : trendPct < 0 ? "less" : ""} active
-                </span>
-              </span>
             </div>
-          )}
+
+            {/* Donut */}
+            {healthSummary && healthSummary.total > 0 && (
+              <div className="shrink-0">
+                <NetworkDonut data={healthSummary} />
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Donut */}
-        {healthSummary && healthSummary.total > 0 && (
-          <div className="shrink-0">
-            <NetworkDonut data={healthSummary} />
-          </div>
-        )}
-
-        {/* Neglected contacts */}
-        {neglectedContacts.length > 0 && (
-          <div className="shrink-0">
-            <NeglectedContacts contacts={neglectedContacts} />
-          </div>
-        )}
+        {/* Right column: Needs Attention — spans full height */}
+        <div className="shrink-0 w-full lg:w-auto">
+          <NeglectedContacts contacts={neglectedContacts} />
+        </div>
       </div>
     </div>
   );

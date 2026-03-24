@@ -17,7 +17,7 @@ interface NeglectedContactsProps {
   contacts: NeglectedContact[];
 }
 
-const PAGE_SIZE = 9; // 3x3 grid
+const PAGE_SIZE = 12; // 4x3 grid
 
 function getAttentionReason(c: NeglectedContact): { label: string; borderClass: string } {
   if (c.days_since_touch === null) {
@@ -91,7 +91,7 @@ export function NeglectedContacts({ contacts }: NeglectedContactsProps) {
       </div>
 
       {/* Photo grid */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         {pageContacts.map((c) => {
           const { label, borderClass } = getAttentionReason(c);
           return (

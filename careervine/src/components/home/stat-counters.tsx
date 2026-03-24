@@ -21,7 +21,7 @@ function TrendArrow({ current, previous }: { current: number; previous: number }
 
 export function StatCounters({ stats }: StatCountersProps) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
       {stats.map((stat) => {
         const diff = stat.value - stat.previousValue;
         return (
