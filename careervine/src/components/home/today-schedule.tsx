@@ -341,7 +341,7 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
   if (loading) {
     return (
       <div>
-        <h3 className="text-[28px] font-medium text-foreground mb-5">Today</h3>
+        <h3 className="text-[28px] font-medium text-foreground mb-8">Today</h3>
         <div className="space-y-2">
           {[1, 2].map((i) => (
             <div key={i} className="h-16 rounded-lg bg-surface-container-highest animate-pulse" />
@@ -353,7 +353,7 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
 
   return (
     <div>
-      <h3 className="text-[28px] font-medium text-foreground mb-5">Today</h3>
+      <h3 className="text-[28px] font-medium text-foreground mb-8">Today</h3>
 
       {!calendarConnected && (
         <Link
