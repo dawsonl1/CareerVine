@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Calendar } from "lucide-react";
@@ -27,17 +27,19 @@ interface TodayScheduleProps {
 const HOUR_HEIGHT = 52; // px per hour
 const MIN_EVENT_HEIGHT = 28; // minimum event block height
 const LABEL_WIDTH = 48; // width for hour labels
+const TITLE_HEIGHT = 48; // approximate height of the "Today" heading + margin
+const MAX_LATE_HOUR = 22; // don't show past 10 PM unless events exist later
+const MIN_EARLY_HOUR = 5; // don't show before 5 AM unless events exist earlier
 
 /**
- * Compute the visible hour range: from 1 hour before the earliest event
- * (or current hour) to 1 hour after the latest event, clamped to 0–24.
- * Default to 8am–6pm if no events.
+ * Compute the minimum hour range needed to show all events.
+ * 1 hour padding before earliest event, 1 hour after latest.
+ * If no events, center around current hour.
  */
-function getHourRange(events: ScheduleEvent[]): [number, number] {
+function getMinHourRange(events: ScheduleEvent[]): [number, number] {
   if (events.length === 0) {
-    const now = new Date();
-    const currentHour = now.getHours();
-    return [Math.max(0, currentHour - 1), Math.min(24, currentHour + 10)];
+    const currentHour = new Date().getHours();
+    return [Math.max(0, currentHour - 1), Math.min(24, currentHour + 4)];
   }
 
   let earliest = 24;
@@ -53,6 +55,46 @@ function getHourRange(events: ScheduleEvent[]): [number, number] {
   return [Math.max(0, earliest - 1), Math.min(24, latest + 1)];
 }
 
+/**
+ * Expand the hour range to fill available space.
+ * Alternates adding hours to the bottom then top, respecting bounds:
+ * - Won't go past MAX_LATE_HOUR (10 PM) unless events already push past it
+ * - Won't go before MIN_EARLY_HOUR (5 AM) unless events already push before it
+ */
+function expandHourRange(
+  minStart: number,
+  minEnd: number,
+  availableHeight: number
+): [number, number] {
+  const hoursNeeded = Math.ceil(availableHeight / HOUR_HEIGHT);
+  let start = minStart;
+  let end = minEnd;
+
+  // The hard bounds: don't expand beyond these unless the minimum range already exceeds them
+  const lowerBound = Math.min(MIN_EARLY_HOUR, minStart);
+  const upperBound = Math.max(MAX_LATE_HOUR, minEnd);
+
+  let addToBottom = true; // alternate: bottom first, then top
+  while (end - start < hoursNeeded) {
+    if (addToBottom && end < upperBound) {
+      end++;
+    } else if (!addToBottom && start > lowerBound) {
+      start--;
+    } else if (end < upperBound) {
+      // Fallback: try the other direction
+      end++;
+    } else if (start > lowerBound) {
+      start--;
+    } else {
+      // Both bounds reached, can't expand further
+      break;
+    }
+    addToBottom = !addToBottom;
+  }
+
+  return [start, end];
+}
+
 function formatHour(hour: number): string {
   if (hour === 0 || hour === 24) return "12 AM";
   if (hour === 12) return "12 PM";
@@ -62,6 +104,8 @@ function formatHour(hour: number): string {
 
 export function TodaySchedule({ events, loading, calendarConnected }: TodayScheduleProps) {
   const [now, setNow] = useState(new Date());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerHeight, setContainerHeight] = useState(0);
 
   // Update "now" every minute for the current-time indicator
   useEffect(() => {
@@ -69,7 +113,31 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
     return () => clearInterval(interval);
   }, []);
 
-  const [startHour, endHour] = useMemo(() => getHourRange(events), [events]);
+  // Observe the container's available height
+  const measureHeight = useCallback(() => {
+    if (containerRef.current) {
+      setContainerHeight(containerRef.current.clientHeight);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(measureHeight);
+    observer.observe(containerRef.current);
+    measureHeight(); // initial measurement
+    return () => observer.disconnect();
+  }, [measureHeight]);
+
+  const [minStart, minEnd] = useMemo(() => getMinHourRange(events), [events]);
+
+  // Available height for the grid = container height minus the title
+  const gridAvailable = Math.max(0, containerHeight - TITLE_HEIGHT);
+
+  const [startHour, endHour] = useMemo(
+    () => expandHourRange(minStart, minEnd, gridAvailable),
+    [minStart, minEnd, gridAvailable]
+  );
+
   const totalHeight = (endHour - startHour) * HOUR_HEIGHT;
 
   // Current time position
@@ -93,7 +161,7 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
 
   if (loading) {
     return (
-      <div>
+      <div ref={containerRef} className="h-full">
         <h3 className="text-[28px] font-medium text-foreground mb-5">Today</h3>
         <div className="space-y-2">
           {[1, 2].map((i) => (
@@ -105,7 +173,7 @@ export function TodaySchedule({ events, loading, calendarConnected }: TodaySched
   }
 
   return (
-    <div>
+    <div ref={containerRef} className="h-full">
       <h3 className="text-[28px] font-medium text-foreground mb-5">Today</h3>
 
       {!calendarConnected && (
