@@ -15,9 +15,9 @@ function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
       <button
         type="button"
         onClick={() => { if (inputRef.current?.showPicker) inputRef.current.showPicker(); else inputRef.current?.click(); }}
-        className="inline-flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
+        className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline cursor-pointer"
       >
-        <Calendar className="h-3 w-3" />
+        <Calendar className="h-3.5 w-3.5" />
         Add date
       </button>
       <input
@@ -178,9 +178,9 @@ export function TranscriptActionSuggestions({
       <button
         type="button"
         onClick={extractActions}
-        className="flex items-center gap-2 text-xs text-primary hover:underline cursor-pointer mt-2"
+        className="flex items-center gap-2.5 text-sm text-primary hover:underline cursor-pointer mt-2.5"
       >
-        <Sparkles className="h-3.5 w-3.5" />
+        <Sparkles className="h-4 w-4" />
         Suggest action items from transcript
       </button>
     );
@@ -189,13 +189,13 @@ export function TranscriptActionSuggestions({
   // Loading state
   if (loading) {
     return (
-      <div className="mt-3 space-y-2">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse" />
+      <div className="mt-4 space-y-2.5">
+        <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+          <Sparkles className="h-4 w-4 text-primary animate-pulse" />
           Analyzing transcript...
         </div>
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-14 rounded-[8px] bg-surface-container animate-pulse" />
+          <div key={i} className="h-16 rounded-[8px] bg-surface-container animate-pulse" />
         ))}
       </div>
     );
@@ -204,8 +204,8 @@ export function TranscriptActionSuggestions({
   // Error state
   if (error) {
     return (
-      <div className="mt-3 flex items-center gap-2 text-xs text-destructive">
-        <AlertTriangle className="h-3.5 w-3.5" />
+      <div className="mt-4 flex items-center gap-2.5 text-sm text-destructive">
+        <AlertTriangle className="h-4 w-4" />
         {error}
         <button
           type="button"
@@ -221,8 +221,8 @@ export function TranscriptActionSuggestions({
   // No suggestions found
   if (suggestions.length === 0) {
     return (
-      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-        <Sparkles className="h-3.5 w-3.5" />
+      <div className="mt-4 flex items-center gap-2.5 text-sm text-muted-foreground">
+        <Sparkles className="h-4 w-4" />
         No action items found in this transcript.
       </div>
     );
@@ -252,10 +252,10 @@ export function TranscriptActionSuggestions({
     return (
       <div
         key={s._key}
-        className="p-3 rounded-[8px] bg-surface-container"
+        className="p-4 rounded-[8px] bg-surface-container"
       >
         {/* Title row — editable inline */}
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-2.5">
           <div className="flex-1 min-w-0">
             {isEditing ? (
               <input
@@ -265,22 +265,22 @@ export function TranscriptActionSuggestions({
                 onChange={(e) => updateSuggestion(s._key, { title: e.target.value })}
                 onBlur={() => setEditingKey(null)}
                 onKeyDown={(e) => { if (e.key === "Enter") setEditingKey(null); }}
-                className="w-full text-sm font-medium text-foreground bg-transparent border-b border-primary outline-none pb-0.5"
+                className="w-full text-base font-medium text-foreground bg-transparent border-b border-primary outline-none pb-0.5"
               />
             ) : (
               <button
                 type="button"
                 onClick={() => setEditingKey(s._key)}
-                className="text-sm font-medium text-foreground text-left w-full cursor-text hover:text-primary transition-colors group flex items-center gap-1"
+                className="text-base font-medium text-foreground text-left w-full cursor-text hover:text-primary transition-colors group flex items-center gap-1.5"
               >
                 <span className="truncate">{s.title}</span>
-                <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0" />
+                <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0" />
               </button>
             )}
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <Button
               variant="tonal"
               size="sm"
@@ -288,27 +288,27 @@ export function TranscriptActionSuggestions({
               loading={isSaving}
               disabled={isSaving || !s.title.trim()}
             >
-              <Check className="h-3.5 w-3.5" /> Add
+              <Check className="h-4 w-4" /> Add
             </Button>
             <button
               type="button"
               onClick={() => dismissSuggestion(s._key)}
               disabled={isSaving}
-              className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+              className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
               title="Dismiss"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
         {/* Metadata row — direction selector, date picker, contact */}
-        <div className="flex flex-wrap items-center gap-2 mt-2">
+        <div className="flex flex-wrap items-center gap-2.5 mt-2.5">
           {/* Direction selector */}
           <select
             value={s.direction}
             onChange={(e) => updateSuggestion(s._key, { direction: e.target.value as Direction })}
-            className="h-7 px-2 text-[11px] font-medium rounded-full border border-outline-variant bg-surface-container-low text-foreground cursor-pointer focus:outline-none focus:border-primary"
+            className="h-8 px-2.5 text-xs font-medium rounded-full border border-outline-variant bg-surface-container-low text-foreground cursor-pointer focus:outline-none focus:border-primary"
           >
             {DIRECTION_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -317,8 +317,8 @@ export function TranscriptActionSuggestions({
 
           {/* Due date — clickable to set/clear */}
           {s.dueDate ? (
-            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-              <Calendar className="h-3 w-3" />
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Calendar className="h-3.5 w-3.5" />
               <button
                 type="button"
                 onClick={() => updateSuggestion(s._key, { dueDate: null })}
@@ -334,18 +334,18 @@ export function TranscriptActionSuggestions({
 
           {/* Contact indicator */}
           {s.contactName ? (
-            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-              <User className="h-3 w-3" /> {s.contactName}
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <User className="h-3.5 w-3.5" /> {s.contactName}
             </span>
           ) : s.assignedSpeaker ? (
-            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground italic">
-              <User className="h-3 w-3" /> {s.assignedSpeaker}
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground italic">
+              <User className="h-3.5 w-3.5" /> {s.assignedSpeaker}
             </span>
           ) : null}
         </div>
 
         {/* Evidence quote */}
-        <p className="mt-1.5 text-xs text-muted-foreground italic line-clamp-2">
+        <p className="mt-2 text-sm text-muted-foreground italic line-clamp-2">
           &ldquo;{s.evidence}&rdquo;
         </p>
       </div>
@@ -353,20 +353,20 @@ export function TranscriptActionSuggestions({
   };
 
   return (
-    <div className="mt-3">
-      <div className="flex items-center gap-2 mb-3">
-        <Sparkles className="h-3.5 w-3.5 text-primary" />
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+    <div className="mt-4">
+      <div className="flex items-center gap-2.5 mb-4">
+        <Sparkles className="h-4 w-4 text-primary" />
+        <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
           Extracted action items ({suggestions.length})
         </span>
       </div>
       {truncated && (
-        <p className="text-[11px] text-muted-foreground mb-2">
+        <p className="text-xs text-muted-foreground mb-2.5">
           This transcript was truncated for analysis. Action items near the end may not be detected.
         </p>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-5">
         {groups.map(({ direction, items }) => {
           const config = DIRECTION_CONFIG[direction];
           const Icon = config.icon;
@@ -376,13 +376,13 @@ export function TranscriptActionSuggestions({
 
           return (
             <div key={direction}>
-              <div className={`flex items-center gap-1.5 mb-2 ${config.color}`}>
-                <Icon className="h-3.5 w-3.5" />
-                <span className="text-xs font-medium uppercase tracking-wider">
+              <div className={`flex items-center gap-2 mb-2.5 ${config.color}`}>
+                <Icon className="h-4 w-4" />
+                <span className="text-sm font-medium uppercase tracking-wider">
                   {label} ({items.length})
                 </span>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {items.map(renderSuggestionCard)}
               </div>
             </div>

@@ -33,7 +33,7 @@ const AUDIO_ACCEPT = ".mp3,.m4a,.wav,.ogg,.flac,.mp4,.webm,.mov";
 const TEXT_ACCEPT = ".txt,.vtt,.srt";
 
 const tabStyle = (active: boolean) =>
-  `flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-[6px] transition-colors cursor-pointer ${
+  `flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[8px] transition-colors cursor-pointer ${
     active
       ? "bg-primary text-on-primary"
       : "text-muted-foreground hover:bg-surface-container"
@@ -132,17 +132,17 @@ export default function TranscriptUploader({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {/* Mode tabs */}
-      <div className="flex gap-1 p-1 bg-surface-container-low rounded-[8px]">
+      <div className="flex gap-1.5 p-1.5 bg-surface-container-low rounded-[10px]">
         <button type="button" className={tabStyle(mode === "paste")} onClick={() => setMode("paste")}>
-          <FileText className="h-3.5 w-3.5" /> Paste
+          <FileText className="h-4 w-4" /> Paste
         </button>
         <button type="button" className={tabStyle(mode === "file")} onClick={() => setMode("file")}>
-          <Upload className="h-3.5 w-3.5" /> Upload text
+          <Upload className="h-4 w-4" /> Upload text
         </button>
         <button type="button" className={tabStyle(mode === "audio")} onClick={() => setMode("audio")}>
-          <Mic className="h-3.5 w-3.5" /> Upload recording
+          <Mic className="h-4 w-4" /> Upload recording
         </button>
       </div>
 
@@ -151,7 +151,7 @@ export default function TranscriptUploader({
         <textarea
           value={value}
           onChange={(e) => handlePasteChange(e.target.value)}
-          className={`${inputClasses} !h-auto py-3`}
+          className={`${inputClasses} !h-auto py-4`}
           rows={10}
           placeholder="Paste your full meeting transcript here..."
         />
@@ -164,11 +164,11 @@ export default function TranscriptUploader({
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="w-full flex flex-col items-center justify-center gap-2 py-8 border-2 border-dashed border-outline rounded-[8px] text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer"
+            className="w-full flex flex-col items-center justify-center gap-2.5 py-10 border-2 border-dashed border-outline rounded-[10px] text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer"
           >
-            <Upload className="h-6 w-6" />
-            <span className="text-sm">Choose a transcript file</span>
-            <span className="text-xs">.txt, .vtt, .srt</span>
+            <Upload className="h-7 w-7" />
+            <span className="text-base">Choose a transcript file</span>
+            <span className="text-sm">.txt, .vtt, .srt</span>
           </button>
         </div>
       )}
@@ -178,20 +178,20 @@ export default function TranscriptUploader({
         <div>
           <input ref={audioRef} type="file" accept={AUDIO_ACCEPT} onChange={handleAudioFile} className="hidden" />
           {isTranscribing ? (
-            <div className="w-full flex flex-col items-center justify-center gap-2 py-8 border-2 border-dashed border-primary/50 rounded-[8px] text-primary">
-              <Loader2 className="h-6 w-6 animate-spin" />
-              <span className="text-sm font-medium">Transcribing audio...</span>
-              <span className="text-xs text-muted-foreground">This may take a minute depending on the file size</span>
+            <div className="w-full flex flex-col items-center justify-center gap-2.5 py-10 border-2 border-dashed border-primary/50 rounded-[10px] text-primary">
+              <Loader2 className="h-7 w-7 animate-spin" />
+              <span className="text-base font-medium">Transcribing audio...</span>
+              <span className="text-sm text-muted-foreground">This may take a minute depending on the file size</span>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => audioRef.current?.click()}
-              className="w-full flex flex-col items-center justify-center gap-2 py-8 border-2 border-dashed border-outline rounded-[8px] text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer"
+              className="w-full flex flex-col items-center justify-center gap-2.5 py-10 border-2 border-dashed border-outline rounded-[10px] text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer"
             >
-              <Mic className="h-6 w-6" />
-              <span className="text-sm">Choose an audio or video file</span>
-              <span className="text-xs">.mp3, .m4a, .wav, .mp4, .webm, .mov</span>
+              <Mic className="h-7 w-7" />
+              <span className="text-base">Choose an audio or video file</span>
+              <span className="text-sm">.mp3, .m4a, .wav, .mp4, .webm, .mov</span>
             </button>
           )}
         </div>
@@ -199,7 +199,7 @@ export default function TranscriptUploader({
 
       {/* Parse status */}
       {parseStatus && (
-        <p className="text-xs text-muted-foreground">{parseStatus}</p>
+        <p className="text-sm text-muted-foreground">{parseStatus}</p>
       )}
     </div>
   );

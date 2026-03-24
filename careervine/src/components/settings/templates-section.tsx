@@ -73,11 +73,11 @@ export default function TemplatesSection() {
 
   return (
     <Card variant="outlined">
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-base font-medium text-foreground">AI email templates</h2>
+      <CardContent className="p-7">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Sparkles className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-medium text-foreground">AI email templates</h2>
           </div>
           <Button
             type="button"
@@ -85,31 +85,31 @@ export default function TemplatesSection() {
             size="sm"
             onClick={() => setEditingTemplate({ name: "", prompt: "" })}
           >
-            <Plus className="h-3.5 w-3.5 mr-1" />
+            <Plus className="h-4 w-4 mr-1.5" />
             New template
           </Button>
         </div>
 
-        <p className="text-xs text-muted-foreground mb-4">
+        <p className="text-sm text-muted-foreground mb-5">
           Create custom templates for the &quot;Write with AI&quot; feature in the compose window. Your templates appear alongside the built-in presets.
         </p>
 
         {/* Template editor */}
         {editingTemplate && (
-          <div className="mb-4 p-4 rounded-xl bg-surface-container-low border border-outline-variant">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-medium text-foreground">
+          <div className="mb-5 p-5 rounded-xl bg-surface-container-low border border-outline-variant">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-base font-medium text-foreground">
                 {editingTemplate.id ? "Edit template" : "New template"}
               </p>
               <button
                 type="button"
                 onClick={() => { setEditingTemplate(null); setError(""); }}
-                className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
+                className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div>
                 <label className={labelClasses}>Template name</label>
                 <input
@@ -129,8 +129,8 @@ export default function TemplatesSection() {
                   placeholder='e.g., "Write a professional email requesting a referral for a position at their company."'
                 />
               </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <div className="flex items-center gap-2">
+              {error && <p className="text-base text-destructive">{error}</p>}
+              <div className="flex items-center gap-3">
                 <Button type="button" size="sm" onClick={handleSave} loading={saving}>
                   {editingTemplate.id ? "Save changes" : "Create template"}
                 </Button>
@@ -144,40 +144,40 @@ export default function TemplatesSection() {
 
         {/* Template list */}
         {loading ? (
-          <div className="flex items-center gap-3 text-muted-foreground">
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
-            <span className="text-sm">Loading templates...</span>
+          <div className="flex items-center gap-4 text-muted-foreground">
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
+            <span className="text-base">Loading templates...</span>
           </div>
         ) : templates.length === 0 ? (
-          <div className="text-center py-6">
-            <Sparkles className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No custom templates yet.</p>
-            <p className="text-xs text-muted-foreground mt-1">Built-in presets (Introduction, Follow-up, Thank you, etc.) are always available.</p>
+          <div className="text-center py-8">
+            <Sparkles className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-base text-muted-foreground">No custom templates yet.</p>
+            <p className="text-sm text-muted-foreground mt-1">Built-in presets (Introduction, Follow-up, Thank you, etc.) are always available.</p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {templates.map((t) => (
-              <div key={t.id} className="flex items-start gap-3 p-3 rounded-lg border border-outline-variant/50 hover:bg-surface-container-low/50 transition-colors">
+              <div key={t.id} className="flex items-start gap-4 p-4 rounded-lg border border-outline-variant/50 hover:bg-surface-container-low/50 transition-colors">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">{t.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{t.prompt}</p>
+                  <p className="text-base font-medium text-foreground">{t.name}</p>
+                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{t.prompt}</p>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => setEditingTemplate({ id: t.id, name: t.name, prompt: t.prompt })}
-                    className="p-1.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+                    className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors"
                     title="Edit"
                   >
-                    <Pencil className="h-3.5 w-3.5" />
+                    <Pencil className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDelete(t.id)}
-                    className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+                    className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
                     title="Delete"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               </div>

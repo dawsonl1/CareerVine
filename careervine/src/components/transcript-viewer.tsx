@@ -43,8 +43,8 @@ export default function TranscriptViewer({
   if (!segments?.length) {
     if (!rawText) return null;
     return (
-      <div className="bg-surface-container-low rounded-[12px] p-4 max-h-48 overflow-y-auto">
-        <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed">{rawText}</p>
+      <div className="bg-surface-container-low rounded-[14px] p-5 max-h-56 overflow-y-auto">
+        <p className="whitespace-pre-wrap text-base text-foreground leading-relaxed">{rawText}</p>
       </div>
     );
   }
@@ -60,23 +60,23 @@ export default function TranscriptViewer({
   const hasMore = segments.length > initialLimit;
 
   return (
-    <div className="bg-surface-container-low rounded-[12px] p-4 space-y-3 max-h-[400px] overflow-y-auto">
+    <div className="bg-surface-container-low rounded-[14px] p-5 space-y-4 max-h-[450px] overflow-y-auto">
       {visibleSegments.map((segment, i) => {
         const color = speakerColorMap.get(segment.speaker_label) || "text-foreground";
         const time = formatTime(segment.started_at);
         const contactName = segment.contacts?.name;
 
         return (
-          <div key={segment.id ?? i} className="flex gap-2">
-            <div className="flex-shrink-0 w-24">
-              <span className={`text-xs font-semibold ${color} block truncate`}>
+          <div key={segment.id ?? i} className="flex gap-2.5">
+            <div className="flex-shrink-0 w-28">
+              <span className={`text-sm font-semibold ${color} block truncate`}>
                 {contactName || segment.speaker_label}
               </span>
               {time && (
-                <span className="text-[10px] text-muted-foreground">{time}</span>
+                <span className="text-xs text-muted-foreground">{time}</span>
               )}
             </div>
-            <p className="text-sm text-foreground leading-relaxed flex-1">{segment.content}</p>
+            <p className="text-base text-foreground leading-relaxed flex-1">{segment.content}</p>
           </div>
         );
       })}
@@ -85,15 +85,15 @@ export default function TranscriptViewer({
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
+          className="flex items-center gap-1.5 text-sm text-primary hover:underline cursor-pointer"
         >
           {expanded ? (
             <>
-              <ChevronUp className="h-3 w-3" /> Show less
+              <ChevronUp className="h-3.5 w-3.5" /> Show less
             </>
           ) : (
             <>
-              <ChevronDown className="h-3 w-3" /> Show {segments.length - initialLimit} more
+              <ChevronDown className="h-3.5 w-3.5" /> Show {segments.length - initialLimit} more
             </>
           )}
         </button>

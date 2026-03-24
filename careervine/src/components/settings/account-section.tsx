@@ -106,35 +106,35 @@ export default function AccountSection() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-3 text-muted-foreground py-8">
-        <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-        <span className="text-sm">Loading profile...</span>
+      <div className="flex items-center gap-4 text-muted-foreground py-8">
+        <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+        <span className="text-base">Loading profile...</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {/* Profile */}
       <Card variant="outlined">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-lg font-medium">
+        <CardContent className="p-7">
+          <div className="flex items-center gap-4 mb-7">
+            <div className="w-14 h-14 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-xl font-medium">
               {(firstName?.[0] || user.email?.[0] || "U").toUpperCase()}
             </div>
             <div>
-              <p className="text-base font-medium text-foreground">
+              <p className="text-lg font-medium text-foreground">
                 {firstName || lastName ? `${firstName} ${lastName}`.trim() : "Your profile"}
               </p>
-              <p className="text-xs text-muted-foreground">{user.email}</p>
+              <p className="text-sm text-muted-foreground">{user.email}</p>
             </div>
           </div>
 
-          <form onSubmit={handleSave} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleSave} className="space-y-5">
+            <div className="grid grid-cols-2 gap-5">
               <div>
                 <label className={labelClasses}>
-                  <span className="inline-flex items-center gap-1"><User className="h-3 w-3" /> First name</span>
+                  <span className="inline-flex items-center gap-1.5"><User className="h-4 w-4" /> First name</span>
                 </label>
                 <input
                   type="text"
@@ -160,7 +160,7 @@ export default function AccountSection() {
 
             <div>
               <label className={labelClasses}>
-                <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> Email</span>
+                <span className="inline-flex items-center gap-1.5"><Mail className="h-4 w-4" /> Email</span>
               </label>
               <input
                 type="email"
@@ -168,12 +168,12 @@ export default function AccountSection() {
                 disabled
                 className={`${inputClasses} opacity-50 cursor-not-allowed`}
               />
-              <p className="text-[11px] text-muted-foreground mt-1">Email is managed through authentication and cannot be changed here.</p>
+              <p className="text-xs text-muted-foreground mt-1">Email is managed through authentication and cannot be changed here.</p>
             </div>
 
             <div>
               <label className={labelClasses}>
-                <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" /> Phone</span>
+                <span className="inline-flex items-center gap-1.5"><Phone className="h-4 w-4" /> Phone</span>
               </label>
               <input
                 type="tel"
@@ -184,13 +184,13 @@ export default function AccountSection() {
               />
             </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p className="text-base text-destructive">{error}</p>}
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-4 pt-3">
               <Button type="submit" loading={saving}>Save changes</Button>
               {saved && (
-                <span className="inline-flex items-center gap-1 text-sm text-primary font-medium animate-pulse">
-                  <Check className="h-4 w-4" /> Saved
+                <span className="inline-flex items-center gap-1.5 text-base text-primary font-medium animate-pulse">
+                  <Check className="h-5 w-5" /> Saved
                 </span>
               )}
             </div>
@@ -200,13 +200,13 @@ export default function AccountSection() {
 
       {/* Change password */}
       <Card variant="outlined">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <Lock className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-base font-medium text-foreground">Change password</h2>
+        <CardContent className="p-7">
+          <div className="flex items-center gap-3 mb-6">
+            <Lock className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-medium text-foreground">Change password</h2>
           </div>
 
-          <form onSubmit={handlePasswordChange} className="space-y-4">
+          <form onSubmit={handlePasswordChange} className="space-y-5">
             <div>
               <label className={labelClasses}>New password</label>
               <input
@@ -231,13 +231,13 @@ export default function AccountSection() {
               />
             </div>
 
-            {passwordError && <p className="text-sm text-destructive">{passwordError}</p>}
+            {passwordError && <p className="text-base text-destructive">{passwordError}</p>}
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-4 pt-3">
               <Button type="submit" loading={passwordSaving}>Update password</Button>
               {passwordSaved && (
-                <span className="inline-flex items-center gap-1 text-sm text-primary font-medium animate-pulse">
-                  <Check className="h-4 w-4" /> Password updated
+                <span className="inline-flex items-center gap-1.5 text-base text-primary font-medium animate-pulse">
+                  <Check className="h-5 w-5" /> Password updated
                 </span>
               )}
             </div>

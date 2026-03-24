@@ -164,7 +164,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
         type="button"
         onClick={() => { setOpen(!open); if (open) resetState(); }}
         disabled={generating}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
+        className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors cursor-pointer border ${
           generating
             ? "bg-primary-container text-on-primary-container border-primary/30"
             : open
@@ -173,43 +173,43 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
         }`}
       >
         {generating ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Sparkles className="h-3.5 w-3.5" />
+          <Sparkles className="h-4 w-4" />
         )}
         {generating ? "Writing…" : "Write with AI"}
-        {!generating && <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />}
+        {!generating && <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />}
       </button>
 
       {open && !generating && (
-        <div className="absolute left-0 top-10 z-50 w-80 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant overflow-hidden">
+        <div className="absolute left-0 top-11 z-50 w-[22rem] bg-surface-container-high rounded-xl shadow-lg border border-outline-variant overflow-hidden">
           {/* ── Meeting picker view ── */}
           {showMeetingPicker ? (
             <div>
-              <div className="px-3 py-2.5 border-b border-outline-variant/50">
+              <div className="px-4 py-3 border-b border-outline-variant/50">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-foreground">Include meeting notes?</p>
+                  <p className="text-sm font-medium text-foreground">Include meeting notes?</p>
                   <button
                     type="button"
                     onClick={() => { setShowMeetingPicker(false); setPendingPrompt(null); }}
-                    className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
+                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
+                <p className="text-xs text-muted-foreground mt-1">
                   Select meetings to give the AI more context. You can skip this.
                 </p>
               </div>
 
               {meetingsLoading ? (
-                <div className="px-3 py-4 flex items-center gap-2 text-muted-foreground text-xs">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading meetings…
+                <div className="px-4 py-5 flex items-center gap-2.5 text-muted-foreground text-sm">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading meetings…
                 </div>
               ) : meetings.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-muted-foreground">No meetings found with this contact.</div>
+                <div className="px-4 py-5 text-sm text-muted-foreground">No meetings found with this contact.</div>
               ) : (
-                <div className="max-h-48 overflow-y-auto py-1">
+                <div className="max-h-52 overflow-y-auto py-1">
                   {meetings.map((m) => {
                     const isSelected = selectedMeetingIds.includes(m.id);
                     return (
@@ -217,25 +217,25 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                         key={m.id}
                         type="button"
                         onClick={() => toggleMeeting(m.id)}
-                        className={`w-full text-left px-3 py-2 flex items-start gap-2.5 transition-colors cursor-pointer ${
+                        className={`w-full text-left px-4 py-2.5 flex items-start gap-3 transition-colors cursor-pointer ${
                           isSelected ? "bg-primary/[0.06]" : "hover:bg-surface-container-low"
                         }`}
                       >
-                        <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                        <div className={`mt-0.5 w-4.5 h-4.5 rounded border flex items-center justify-center shrink-0 ${
                           isSelected ? "bg-primary border-primary" : "border-outline-variant"
                         }`}>
-                          {isSelected && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+                          {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-foreground">
+                          <p className="text-sm font-medium text-foreground">
                             {new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                            <span className="ml-1.5 font-normal text-muted-foreground">({m.meeting_type})</span>
+                            <span className="ml-2 font-normal text-muted-foreground">({m.meeting_type})</span>
                           </p>
                           {m.notes && (
-                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{m.notes.substring(0, 80)}</p>
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">{m.notes.substring(0, 80)}</p>
                           )}
                           {m.transcript && !m.notes && (
-                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">Has transcript</p>
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">Has transcript</p>
                           )}
                         </div>
                       </button>
@@ -244,11 +244,11 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                 </div>
               )}
 
-              <div className="px-3 py-2.5 border-t border-outline-variant/50 flex items-center justify-between">
+              <div className="px-4 py-3 border-t border-outline-variant/50 flex items-center justify-between">
                 <button
                   type="button"
                   onClick={handleMeetingConfirm}
-                  className="text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
                 >
                   Skip
                 </button>
@@ -256,7 +256,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                   type="button"
                   onClick={handleMeetingConfirm}
                   disabled={selectedMeetingIds.length === 0}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors cursor-pointer ${
                     selectedMeetingIds.length > 0
                       ? "bg-primary text-primary-foreground"
                       : "bg-surface-container-low text-muted-foreground"
@@ -271,44 +271,44 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
           ) : showCustomPrompt ? (
             /* ── Custom prompt view ── */
             <div>
-              <div className="px-3 py-2.5 border-b border-outline-variant/50">
+              <div className="px-4 py-3 border-b border-outline-variant/50">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-foreground">Custom prompt</p>
+                  <p className="text-sm font-medium text-foreground">Custom prompt</p>
                   <button
                     type="button"
                     onClick={() => setShowCustomPrompt(false)}
-                    className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
+                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
-              <div className="p-3">
+              <div className="p-4">
                 <textarea
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.target.value)}
                   placeholder="Describe the email you want to write…&#10;&#10;e.g., &quot;Write a warm email asking about their new role at Google and suggest catching up over coffee&quot;"
-                  className="w-full h-24 px-3 py-2 text-xs bg-surface-container-low text-foreground rounded-lg border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary resize-none"
+                  className="w-full h-28 px-4 py-2.5 text-sm bg-surface-container-low text-foreground rounded-lg border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary resize-none"
                   autoFocus
                 />
                 {meetings.length > 0 && selectedMeetingIds.length > 0 && (
-                  <p className="text-[11px] text-primary mt-1.5 flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
+                  <p className="text-xs text-primary mt-2 flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5" />
                     {selectedMeetingIds.length} meeting{selectedMeetingIds.length > 1 ? "s" : ""} included
                   </p>
                 )}
               </div>
 
-              {error && <p className="text-xs text-destructive px-3 pb-2">{error}</p>}
+              {error && <p className="text-sm text-destructive px-4 pb-2.5">{error}</p>}
 
-              <div className="px-3 pb-3 flex items-center justify-between">
+              <div className="px-4 pb-4 flex items-center justify-between">
                 {meetings.length > 0 ? (
                   <button
                     type="button"
                     onClick={() => { setPendingPrompt(null); setShowMeetingPicker(true); setShowCustomPrompt(false); }}
-                    className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors flex items-center gap-1"
+                    className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors flex items-center gap-1.5"
                   >
-                    <Calendar className="h-3 w-3" />
+                    <Calendar className="h-3.5 w-3.5" />
                     {selectedMeetingIds.length > 0 ? "Change meetings" : "Add meeting notes"}
                   </button>
                 ) : <span />}
@@ -325,14 +325,14 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                     }
                   }}
                   disabled={!customPrompt.trim()}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors cursor-pointer ${
                     customPrompt.trim()
                       ? "bg-primary text-primary-foreground"
                       : "bg-surface-container-low text-muted-foreground"
                   }`}
                 >
-                  <span className="flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" /> Generate
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" /> Generate
                   </span>
                 </button>
               </div>
@@ -340,33 +340,33 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
           ) : (
             /* ── Template list view ── */
             <div>
-              <div className="px-3 py-2.5 border-b border-outline-variant/50">
-                <p className="text-xs font-medium text-foreground">Choose an email type</p>
+              <div className="px-4 py-3 border-b border-outline-variant/50">
+                <p className="text-sm font-medium text-foreground">Choose an email type</p>
                 {recipientName && (
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-1">
                     Writing to <span className="font-medium text-foreground">{recipientName}</span>
                     {contactId && " — contact info will be used for personalization"}
                   </p>
                 )}
               </div>
 
-              {error && <p className="text-xs text-destructive px-3 pt-2">{error}</p>}
+              {error && <p className="text-sm text-destructive px-4 pt-2.5">{error}</p>}
 
-              <div className="max-h-64 overflow-y-auto py-1">
+              <div className="max-h-72 overflow-y-auto py-1">
                 {allTemplates.map((t, i) => (
                   <button
                     key={`${t.isUser ? "u" : "p"}-${i}`}
                     type="button"
                     onClick={() => handleTemplateClick(t.prompt)}
-                    className="w-full text-left px-3 py-2.5 flex items-start gap-2.5 hover:bg-surface-container-low transition-colors cursor-pointer"
+                    className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-surface-container-low transition-colors cursor-pointer"
                   >
-                    <MessageSquare className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                    <MessageSquare className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-foreground">{t.name}</p>
-                      <p className="text-[11px] text-muted-foreground truncate mt-0.5">{t.prompt.substring(0, 80)}</p>
+                      <p className="text-sm font-medium text-foreground">{t.name}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">{t.prompt.substring(0, 80)}</p>
                     </div>
                     {t.isUser && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-container/50 text-on-primary-container shrink-0">Custom</span>
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary-container/50 text-on-primary-container shrink-0">Custom</span>
                     )}
                   </button>
                 ))}
@@ -377,12 +377,12 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                 <button
                   type="button"
                   onClick={() => setShowCustomPrompt(true)}
-                  className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 hover:bg-surface-container-low transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-surface-container-low transition-colors cursor-pointer"
                 >
-                  <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
                   <div>
-                    <p className="text-xs font-medium text-primary">Write your own prompt</p>
-                    <p className="text-[11px] text-muted-foreground">Describe exactly what you want</p>
+                    <p className="text-sm font-medium text-primary">Write your own prompt</p>
+                    <p className="text-xs text-muted-foreground">Describe exactly what you want</p>
                   </div>
                 </button>
               </div>

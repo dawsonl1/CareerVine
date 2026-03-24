@@ -106,7 +106,7 @@ export function PastMeetingFields({
         <textarea
           value={form.notes}
           onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
-          className={`${inputClasses} !h-auto py-3`}
+          className={`${inputClasses} !h-auto py-4`}
           rows={3}
           placeholder="What did you discuss?"
         />
@@ -117,13 +117,13 @@ export function PastMeetingFields({
         <button
           type="button"
           onClick={() => setShowTranscript((prev) => !prev)}
-          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
         >
-          {showTranscript ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {showTranscript ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           Transcript (optional)
         </button>
         {showTranscript && (
-          <div className="mt-2">
+          <div className="mt-2.5">
             <TranscriptUploader
               value={form.transcript}
               onChange={(val) => setForm((prev) => ({ ...prev, transcript: val }))}
@@ -150,12 +150,12 @@ export function PastMeetingFields({
         )
       ) : (
         <span
-          className={`flex items-center gap-2 text-xs mt-2 ${
+          className={`flex items-center gap-2.5 text-sm mt-2.5 ${
             hasNotesOrTranscript ? "text-primary/50" : "text-muted-foreground/50"
           }`}
           title={hasNotesOrTranscript ? "Save the conversation first, then edit it to generate AI action items" : "Add notes or a transcript first"}
         >
-          <Sparkles className="h-3.5 w-3.5" />
+          <Sparkles className="h-4 w-4" />
           Suggest action items from transcript
         </span>
       )}

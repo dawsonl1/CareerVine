@@ -109,9 +109,9 @@ export default function AvailabilitySection() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-3 text-muted-foreground py-8">
-        <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-        <span className="text-sm">Loading availability...</span>
+      <div className="flex items-center gap-4 text-muted-foreground py-8">
+        <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+        <span className="text-base">Loading availability...</span>
       </div>
     );
   }
@@ -119,16 +119,16 @@ export default function AvailabilitySection() {
   if (!calendarConnected) {
     return (
       <Card variant="outlined">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Calendar className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-base font-medium text-foreground">Availability</h2>
+        <CardContent className="p-7">
+          <div className="flex items-center gap-3 mb-5">
+            <Calendar className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-medium text-foreground">Availability</h2>
           </div>
-          <div className="flex gap-3 p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex gap-4 p-5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+            <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Google Calendar required</p>
-              <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+              <p className="text-base font-medium text-amber-800 dark:text-amber-300">Google Calendar required</p>
+              <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
                 Connect your Google Calendar in the{" "}
                 <Link href="/settings?tab=integrations" className="underline font-medium">Integrations</Link>{" "}
                 section to configure your availability and schedule meetings.
@@ -143,20 +143,20 @@ export default function AvailabilitySection() {
   const currentProfile = activeTab === "standard" ? standard : priority;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <Card variant="outlined">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <Calendar className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-base font-medium text-foreground">Working hours</h2>
+        <CardContent className="p-7">
+          <div className="flex items-center gap-3 mb-6">
+            <Calendar className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-medium text-foreground">Working hours</h2>
           </div>
 
           {/* Profile tabs */}
-          <div className="flex gap-2 mb-4 border-b border-outline-variant">
+          <div className="flex gap-3 mb-5 border-b border-outline-variant">
             <button
               type="button"
               onClick={() => setActiveTab("standard")}
-              className={`px-3 py-2 text-xs font-medium transition-colors ${
+              className={`px-4 py-2.5 text-sm font-medium transition-colors ${
                 activeTab === "standard"
                   ? "text-primary border-b-2 border-primary"
                   : "text-muted-foreground hover:text-foreground"
@@ -167,7 +167,7 @@ export default function AvailabilitySection() {
             <button
               type="button"
               onClick={() => setActiveTab("priority")}
-              className={`px-3 py-2 text-xs font-medium transition-colors ${
+              className={`px-4 py-2.5 text-sm font-medium transition-colors ${
                 activeTab === "priority"
                   ? "text-primary border-b-2 border-primary"
                   : "text-muted-foreground hover:text-foreground"
@@ -177,58 +177,58 @@ export default function AvailabilitySection() {
             </button>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             {currentProfile.workingDays.map((dayConfig, idx) => (
-              <div key={dayConfig.day} className="p-3 rounded-lg border border-outline-variant/50 hover:bg-surface-container-low/50 transition-colors">
-                <div className="flex items-center gap-3 mb-3">
+              <div key={dayConfig.day} className="p-4 rounded-lg border border-outline-variant/50 hover:bg-surface-container-low/50 transition-colors">
+                <div className="flex items-center gap-4 mb-4">
                   <input
                     type="checkbox"
                     checked={dayConfig.enabled}
                     onChange={(e) => updateDay(idx, { enabled: e.target.checked })}
-                    className="w-4 h-4 cursor-pointer"
+                    className="w-5 h-5 cursor-pointer"
                   />
-                  <label className="text-sm font-medium text-foreground flex-1 cursor-pointer">
+                  <label className="text-base font-medium text-foreground flex-1 cursor-pointer">
                     {dayLabels[dayConfig.day]}
                   </label>
                 </div>
                 {dayConfig.enabled && (
-                  <div className="grid grid-cols-2 gap-2 ml-7">
+                  <div className="grid grid-cols-2 gap-3 ml-9">
                     <div>
-                      <label className="text-[11px] text-muted-foreground">Start</label>
+                      <label className="text-xs text-muted-foreground">Start</label>
                       <input
                         type="time"
                         value={dayConfig.startTime}
                         onChange={(e) => updateDay(idx, { startTime: e.target.value })}
-                        className="w-full h-8 px-2 bg-surface-container-low text-foreground rounded text-xs border border-outline"
+                        className="w-full h-9 px-3 bg-surface-container-low text-foreground rounded text-sm border border-outline"
                       />
                     </div>
                     <div>
-                      <label className="text-[11px] text-muted-foreground">End</label>
+                      <label className="text-xs text-muted-foreground">End</label>
                       <input
                         type="time"
                         value={dayConfig.endTime}
                         onChange={(e) => updateDay(idx, { endTime: e.target.value })}
-                        className="w-full h-8 px-2 bg-surface-container-low text-foreground rounded text-xs border border-outline"
+                        className="w-full h-9 px-3 bg-surface-container-low text-foreground rounded text-sm border border-outline"
                       />
                     </div>
                     <div>
-                      <label className="text-[11px] text-muted-foreground">Buffer before (min)</label>
+                      <label className="text-xs text-muted-foreground">Buffer before (min)</label>
                       <input
                         type="number"
                         value={dayConfig.bufferBefore}
                         onChange={(e) => updateDay(idx, { bufferBefore: parseInt(e.target.value) || 0 })}
-                        className="w-full h-8 px-2 bg-surface-container-low text-foreground rounded text-xs border border-outline"
+                        className="w-full h-9 px-3 bg-surface-container-low text-foreground rounded text-sm border border-outline"
                         min="0"
                         step="5"
                       />
                     </div>
                     <div>
-                      <label className="text-[11px] text-muted-foreground">Buffer after (min)</label>
+                      <label className="text-xs text-muted-foreground">Buffer after (min)</label>
                       <input
                         type="number"
                         value={dayConfig.bufferAfter}
                         onChange={(e) => updateDay(idx, { bufferAfter: parseInt(e.target.value) || 0 })}
-                        className="w-full h-8 px-2 bg-surface-container-low text-foreground rounded text-xs border border-outline"
+                        className="w-full h-9 px-3 bg-surface-container-low text-foreground rounded text-sm border border-outline"
                         min="0"
                         step="5"
                       />
@@ -239,14 +239,14 @@ export default function AvailabilitySection() {
             ))}
           </div>
 
-          {saveError && <p className="text-sm text-destructive mt-3">{saveError}</p>}
+          {saveError && <p className="text-base text-destructive mt-4">{saveError}</p>}
 
-          <div className="flex items-center gap-3 pt-4">
+          <div className="flex items-center gap-4 pt-5">
             <Button type="button" loading={saving} onClick={handleSaveAvailability}>
               Save availability
             </Button>
             {savedAvailability && (
-              <span className="inline-flex items-center gap-1 text-sm text-primary font-medium animate-pulse">
+              <span className="inline-flex items-center gap-1.5 text-base text-primary font-medium animate-pulse">
                 Saved
               </span>
             )}
@@ -257,19 +257,19 @@ export default function AvailabilitySection() {
       {/* Busy calendars */}
       {calendarList.length > 0 && (
         <Card variant="outlined">
-          <CardContent className="p-6">
+          <CardContent className="p-7">
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-base font-medium text-foreground">Count as busy</h3>
+              <h3 className="text-lg font-medium text-foreground">Count as busy</h3>
               {calendarTimezone && (
-                <span className="text-[11px] text-muted-foreground">{calendarTimezone}</span>
+                <span className="text-xs text-muted-foreground">{calendarTimezone}</span>
               )}
             </div>
-            <p className="text-xs text-muted-foreground mb-4">
+            <p className="text-sm text-muted-foreground mb-5">
               Which calendars should block time when generating availability?
             </p>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {calendarList.map((cal) => (
-                <label key={cal.id} className="flex items-center gap-2.5 cursor-pointer">
+                <label key={cal.id} className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={busyCalendarIds.includes(cal.id)}
@@ -278,10 +278,10 @@ export default function AvailabilitySection() {
                         e.target.checked ? [...prev, cal.id] : prev.filter(id => id !== cal.id)
                       );
                     }}
-                    className="w-4 h-4 cursor-pointer"
+                    className="w-5 h-5 cursor-pointer"
                   />
-                  <span className="text-sm text-foreground flex-1">{cal.summary || cal.id}</span>
-                  <span className="text-[11px] text-muted-foreground capitalize">{cal.accessRole}</span>
+                  <span className="text-base text-foreground flex-1">{cal.summary || cal.id}</span>
+                  <span className="text-xs text-muted-foreground capitalize">{cal.accessRole}</span>
                 </label>
               ))}
             </div>
@@ -296,7 +296,7 @@ export default function AvailabilitySection() {
               Save calendar selection
             </Button>
             {savedBusyCalendars && (
-              <span className="inline-flex items-center gap-1 text-sm text-primary font-medium animate-pulse mt-4">
+              <span className="inline-flex items-center gap-1.5 text-base text-primary font-medium animate-pulse mt-5">
                 Saved
               </span>
             )}

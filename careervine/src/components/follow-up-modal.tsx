@@ -281,13 +281,13 @@ export function FollowUpModal({
 
       <div className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-3">
-          <h2 className="text-[22px] leading-7 font-normal text-foreground flex items-center gap-2">
+        <div className="flex items-center justify-between px-7 pt-6 pb-4">
+          <h2 className="text-2xl leading-8 font-normal text-foreground flex items-center gap-2.5">
             {saved ? (
               isEditing ? "Follow-ups updated" : "Follow-ups scheduled"
             ) : (
               <>
-                {isEditing ? <Pencil className="h-5 w-5" /> : <Clock className="h-5 w-5" />}
+                {isEditing ? <Pencil className="h-6 w-6" /> : <Clock className="h-6 w-6" />}
                 {isEditing ? "Edit" : "Schedule"} Follow-up{drafts.length > 1 ? "s" : ""}
               </>
             )}
@@ -297,31 +297,31 @@ export function FollowUpModal({
             onClick={onClose}
             className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
           >
-            <X className="h-5 w-5" />
+            <X className="h-6 w-6" />
           </button>
         </div>
 
         {saved ? (
-          <div className="px-6 pb-8 flex flex-col items-center gap-3 py-8">
-            <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center">
-              <Check className="h-6 w-6 text-primary" />
+          <div className="px-7 pb-8 flex flex-col items-center gap-4 py-8">
+            <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
+              <Check className="h-7 w-7 text-primary" />
             </div>
-            <p className="text-sm text-foreground font-medium">
+            <p className="text-base text-foreground font-medium">
               {drafts.length} follow-up{drafts.length !== 1 ? "s" : ""} {isEditing ? "updated" : "scheduled"}
             </p>
-            <p className="text-xs text-muted-foreground text-center max-w-xs">
+            <p className="text-sm text-muted-foreground text-center max-w-xs">
               They will be automatically cancelled if {contactName || recipientEmail} replies to the thread.
             </p>
           </div>
         ) : (
           <>
             {/* Auto-cancel notice */}
-            <div className="mx-6 mb-3 p-3 rounded-xl bg-tertiary-container/30 border border-tertiary/20">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-tertiary shrink-0 mt-0.5" />
-                <div className="text-xs text-on-tertiary-container">
+            <div className="mx-7 mb-4 p-4 rounded-xl bg-tertiary-container/30 border border-tertiary/20">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-5 w-5 text-tertiary shrink-0 mt-0.5" />
+                <div className="text-sm text-on-tertiary-container">
                   <p className="font-medium">Auto-cancel on reply</p>
-                  <p className="mt-0.5 text-muted-foreground">
+                  <p className="mt-1 text-muted-foreground text-sm">
                     If {contactName || recipientEmail} responds to this thread, all pending follow-ups will be automatically cancelled. The system checks for replies before each send.
                   </p>
                 </div>
@@ -329,20 +329,20 @@ export function FollowUpModal({
             </div>
 
             {/* Context */}
-            <div className="px-6 pb-2 text-xs text-muted-foreground space-y-0.5">
+            <div className="px-7 pb-2.5 text-sm text-muted-foreground space-y-1">
               <p><span className="font-medium">To:</span> {recipientEmail}</p>
               <p><span className="font-medium">Original:</span> {originalSubject}</p>
               <p><span className="font-medium">Sent:</span> {new Date(originalSentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} ({daysSinceOriginal} day{daysSinceOriginal !== 1 ? "s" : ""} ago)</p>
             </div>
 
             {/* Tabs */}
-            <div className="flex items-center gap-1 px-6 pt-2 pb-1 overflow-x-auto">
+            <div className="flex items-center gap-1.5 px-7 pt-2.5 pb-1.5 overflow-x-auto">
               {drafts.map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => setActiveTab(i)}
-                  className={`relative px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-colors shrink-0 ${
+                  className={`relative px-4 py-2 rounded-full text-sm font-medium cursor-pointer transition-colors shrink-0 ${
                     activeTab === i
                       ? "bg-primary text-primary-foreground"
                       : "bg-surface-container-low text-muted-foreground hover:text-foreground"
@@ -356,10 +356,10 @@ export function FollowUpModal({
                         e.stopPropagation();
                         removeFollowUp(i);
                       }}
-                      className="ml-1.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full hover:bg-primary-foreground/20 cursor-pointer"
+                      className="ml-2 inline-flex items-center justify-center w-4 h-4 rounded-full hover:bg-primary-foreground/20 cursor-pointer"
                       title="Remove this follow-up"
                     >
-                      <X className="h-2.5 w-2.5" />
+                      <X className="h-3 w-3" />
                     </button>
                   )}
                 </button>
@@ -367,21 +367,21 @@ export function FollowUpModal({
               <button
                 type="button"
                 onClick={addFollowUp}
-                className="px-2 py-1.5 rounded-full text-xs text-primary hover:bg-primary/10 cursor-pointer transition-colors flex items-center gap-1 shrink-0"
+                className="px-3 py-2 rounded-full text-sm text-primary hover:bg-primary/10 cursor-pointer transition-colors flex items-center gap-1.5 shrink-0"
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-3.5 w-3.5" />
                 Add
               </button>
             </div>
 
             {/* Active tab content */}
-            <div className="flex-1 overflow-y-auto min-h-0 px-6 pt-2 pb-3 space-y-3">
+            <div className="flex-1 overflow-y-auto min-h-0 px-7 pt-2.5 pb-4 space-y-4">
               {/* Days + time selector */}
               <div>
-                <label className="text-xs font-medium text-foreground block mb-1.5">
+                <label className="text-sm font-medium text-foreground block mb-2">
                   Send after
                 </label>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2.5 flex-wrap">
                   <input
                     type="number"
                     min={getMinDelay(activeTab)}
@@ -390,21 +390,21 @@ export function FollowUpModal({
                       const val = parseInt(e.target.value, 10);
                       if (!isNaN(val)) updateDraft(activeTab, { delayDays: val });
                     }}
-                    className="w-20 h-9 px-3 rounded-lg border border-outline bg-surface-container-low text-sm text-foreground focus:outline-none focus:border-primary"
+                    className="w-20 h-10 px-3 rounded-lg border border-outline bg-surface-container-low text-base text-foreground focus:outline-none focus:border-primary"
                   />
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-base text-muted-foreground">
                     {activeTab === 0 ? "days after original email" : "days after previous follow-up"}
                   </span>
-                  <span className="text-sm text-muted-foreground">at</span>
+                  <span className="text-base text-muted-foreground">at</span>
                   <input
                     type="time"
                     value={currentDraft.sendTime}
                     onChange={(e) => updateDraft(activeTab, { sendTime: e.target.value })}
-                    className="h-9 px-2 rounded-lg border border-outline bg-surface-container-low text-sm text-foreground focus:outline-none focus:border-primary"
+                    className="h-10 px-3 rounded-lg border border-outline bg-surface-container-low text-base text-foreground focus:outline-none focus:border-primary"
                   />
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
-                  <ChevronRight className="h-3 w-3" />
+                <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                  <ChevronRight className="h-3.5 w-3.5" />
                   Will send on {scheduledDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                   {" "}at {currentDraft.sendTime}
                   {" "}(day {absoluteDays[activeTab]} from original)
@@ -418,7 +418,7 @@ export function FollowUpModal({
 
               {/* Subject */}
               <div>
-                <label className="text-xs font-medium text-foreground block mb-1.5" htmlFor={`fu-subject-${activeTab}`}>
+                <label className="text-sm font-medium text-foreground block mb-2" htmlFor={`fu-subject-${activeTab}`}>
                   Subject
                 </label>
                 <input
@@ -426,15 +426,15 @@ export function FollowUpModal({
                   type="text"
                   value={currentDraft.subject}
                   onChange={(e) => updateDraft(activeTab, { subject: e.target.value })}
-                  className="w-full h-9 px-3 rounded-lg border border-outline bg-surface-container-low text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                  className="w-full h-10 px-4 rounded-lg border border-outline bg-surface-container-low text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
                   placeholder="Subject"
                 />
               </div>
 
               {/* Body */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium text-foreground">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-foreground">
                     Message
                   </label>
                   <button
@@ -462,12 +462,12 @@ export function FollowUpModal({
                       } catch {}
                       setGeneratingAi(false);
                     }}
-                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {generatingAi ? (
-                      <div className="animate-spin rounded-full h-3 w-3 border border-primary border-t-transparent" />
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border border-primary border-t-transparent" />
                     ) : (
-                      <Wand2 className="h-3 w-3" />
+                      <Wand2 className="h-3.5 w-3.5" />
                     )}
                     {generatingAi ? "Generating…" : "Write with AI"}
                   </button>
@@ -483,15 +483,15 @@ export function FollowUpModal({
 
             {/* Summary strip for multiple follow-ups */}
             {drafts.length > 1 && (
-              <div className="px-6 py-2 border-t border-outline-variant/50">
-                <p className="text-[11px] text-muted-foreground font-medium mb-1">
+              <div className="px-7 py-2.5 border-t border-outline-variant/50">
+                <p className="text-xs text-muted-foreground font-medium mb-1.5">
                   Schedule summary
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2.5">
                   {drafts.map((d, i) => (
                     <span
                       key={i}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs ${
                         activeTab === i
                           ? "bg-primary/15 text-primary font-medium"
                           : "bg-surface-container-low text-muted-foreground"
@@ -499,7 +499,7 @@ export function FollowUpModal({
                     >
                       #{i + 1}: {i === 0 ? `Day ${absoluteDays[i]}` : `+${d.delayDays}d (Day ${absoluteDays[i]})`}
                       {d.bodyHtml && d.bodyHtml !== "<p></p>" ? (
-                        <Check className="h-2.5 w-2.5 text-primary" />
+                        <Check className="h-3 w-3 text-primary" />
                       ) : (
                         <span className="text-destructive">*</span>
                       )}
@@ -511,16 +511,16 @@ export function FollowUpModal({
 
             {/* Error */}
             {error && (
-              <p className="text-sm text-destructive px-6 pt-1">{error}</p>
+              <p className="text-base text-destructive px-7 pt-1">{error}</p>
             )}
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-3 px-6 py-4">
+            <div className="flex items-center justify-end gap-4 px-7 py-5">
               <Button type="button" variant="text" onClick={onClose}>
                 Cancel
               </Button>
               <Button type="button" onClick={handleSave} loading={saving}>
-                {isEditing ? <Pencil className="h-4 w-4 mr-2" /> : <Clock className="h-4 w-4 mr-2" />}
+                {isEditing ? <Pencil className="h-5 w-5 mr-2" /> : <Clock className="h-5 w-5 mr-2" />}
                 {isEditing ? "Update" : "Schedule"} {drafts.length} follow-up{drafts.length !== 1 ? "s" : ""}
               </Button>
             </div>

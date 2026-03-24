@@ -107,36 +107,36 @@ export default function IntegrationsSection() {
   if (!user) return null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {gmailMessage && (
-        <div className={`p-3 rounded-xl text-sm font-medium ${gmailMessage.type === "success" ? "bg-primary-container/30 text-primary" : "bg-destructive/10 text-destructive"}`}>
-          {gmailMessage.type === "success" && <Check className="h-4 w-4 inline mr-1.5" />}
+        <div className={`p-4 rounded-xl text-base font-medium ${gmailMessage.type === "success" ? "bg-primary-container/30 text-primary" : "bg-destructive/10 text-destructive"}`}>
+          {gmailMessage.type === "success" && <Check className="h-5 w-5 inline mr-2" />}
           {gmailMessage.text}
         </div>
       )}
 
       {/* Gmail */}
       <Card variant="outlined">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <MailCheck className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-base font-medium text-foreground">Gmail</h2>
+        <CardContent className="p-7">
+          <div className="flex items-center gap-3 mb-6">
+            <MailCheck className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-medium text-foreground">Gmail</h2>
           </div>
 
           {gmailLoading ? (
-            <div className="flex items-center gap-3 text-muted-foreground">
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
-              <span className="text-sm">Checking connection...</span>
+            <div className="flex items-center gap-4 text-muted-foreground">
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
+              <span className="text-base">Checking connection...</span>
             </div>
           ) : gmailConn ? (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-primary-container/30">
-                <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center">
-                  <Mail className="h-4 w-4 text-on-primary-container" />
+            <div className="space-y-5">
+              <div className="flex items-center gap-4 p-4 rounded-lg bg-primary-container/30">
+                <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center">
+                  <Mail className="h-5 w-5 text-on-primary-container" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{gmailConn.gmail_address}</p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-base font-medium text-foreground truncate">{gmailConn.gmail_address}</p>
+                  <p className="text-xs text-muted-foreground">
                     {gmailConn.last_gmail_sync_at
                       ? `Last synced ${new Date(gmailConn.last_gmail_sync_at).toLocaleString()}`
                       : "Not yet synced"}
@@ -144,27 +144,27 @@ export default function IntegrationsSection() {
                 </div>
               </div>
 
-              {syncResult && <p className="text-sm text-primary font-medium">{syncResult}</p>}
+              {syncResult && <p className="text-base text-primary font-medium">{syncResult}</p>}
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
                 <Button type="button" onClick={handleGmailSync} loading={syncing}>
-                  <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
+                  <RefreshCw className={`h-5 w-5 mr-2 ${syncing ? "animate-spin" : ""}`} />
                   Sync now
                 </Button>
                 <Button type="button" variant="text" onClick={handleGmailDisconnect} loading={disconnecting}>
-                  <Unplug className="h-4 w-4 mr-2" />
+                  <Unplug className="h-5 w-5 mr-2" />
                   Disconnect
                 </Button>
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
+            <div className="space-y-5">
+              <p className="text-base text-muted-foreground">
                 Connect your Gmail account to view email history with your contacts, send emails, and track follow-ups.
               </p>
               <OAuthWarning />
               <Button href="/api/gmail/auth">
-                <Mail className="h-4 w-4 mr-2" />
+                <Mail className="h-5 w-5 mr-2" />
                 Connect Gmail
               </Button>
             </div>
@@ -174,44 +174,44 @@ export default function IntegrationsSection() {
 
       {/* Google Calendar */}
       <Card variant="outlined">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <Calendar className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-base font-medium text-foreground">Google Calendar</h2>
+        <CardContent className="p-7">
+          <div className="flex items-center gap-3 mb-6">
+            <Calendar className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-medium text-foreground">Google Calendar</h2>
           </div>
 
           {calendarLoading ? (
-            <div className="flex items-center gap-3 text-muted-foreground">
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-              <span className="text-sm">Checking connection...</span>
+            <div className="flex items-center gap-4 text-muted-foreground">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+              <span className="text-base">Checking connection...</span>
             </div>
           ) : calendarConnected ? (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-primary-container/30">
-                <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center">
-                  <Calendar className="h-4 w-4 text-on-primary-container" />
+            <div className="space-y-5">
+              <div className="flex items-center gap-4 p-4 rounded-lg bg-primary-container/30">
+                <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center">
+                  <Calendar className="h-5 w-5 text-on-primary-container" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">Calendar connected</p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-base font-medium text-foreground">Calendar connected</p>
+                  <p className="text-xs text-muted-foreground">
                     {calendarLastSynced ? `Last synced ${new Date(calendarLastSynced).toLocaleString()}` : "Not yet synced"}
                   </p>
                 </div>
               </div>
 
               <Button type="button" variant="text" onClick={handleDisconnectCalendar} loading={disconnectingCalendar}>
-                <Unplug className="h-4 w-4 mr-2" />
+                <Unplug className="h-5 w-5 mr-2" />
                 Disconnect
               </Button>
             </div>
           ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
+            <div className="space-y-5">
+              <p className="text-base text-muted-foreground">
                 Connect your Google Calendar to set your availability and schedule meetings with automatic Google Meet links.
               </p>
               <OAuthWarning />
               <Button href="/api/gmail/auth?scopes=calendar">
-                <Calendar className="h-4 w-4 mr-2" />
+                <Calendar className="h-5 w-5 mr-2" />
                 Connect Google Calendar
               </Button>
             </div>

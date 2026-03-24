@@ -99,9 +99,9 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
   if (loading) {
     return (
       <div className="py-8">
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-          <span className="text-sm">Loading interactions…</span>
+        <div className="flex items-center gap-4 text-muted-foreground">
+          <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+          <span className="text-base">Loading interactions…</span>
         </div>
       </div>
     );
@@ -115,25 +115,25 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
           <h1 className="text-[28px] leading-9 font-normal text-foreground">
             Interactions{contactName ? ` — ${contactName}` : ""}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-base text-muted-foreground mt-1">
             Track all your touchpoints with this contact
           </p>
         </div>
         <Button onClick={() => setShowForm(true)}>
-          <Plus className="h-[18px] w-[18px]" /> Add interaction
+          <Plus className="h-5 w-5" /> Add interaction
         </Button>
       </div>
 
       {/* Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
           <div className="absolute inset-0 bg-black/32" onClick={() => setShowForm(false)} />
           <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
-            <div className="px-6 pt-6 pb-4">
+            <div className="px-7 pt-7 pb-5">
               <h2 className="text-[22px] leading-7 font-normal text-foreground">{editingInteraction ? "Edit interaction" : "New interaction"}</h2>
             </div>
-            <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleSubmit} className="px-7 pb-7 space-y-5">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClasses}>Date & Time *</label>
                   <input type="datetime-local" required value={formData.interaction_date} onChange={(e) => setFormData({ ...formData, interaction_date: e.target.value })} className={inputClasses} />
@@ -162,7 +162,7 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
                 <label className={labelClasses}>Summary</label>
                 <textarea value={formData.summary} onChange={(e) => setFormData({ ...formData, summary: e.target.value })} className={`${inputClasses} !h-auto py-3`} rows={4} placeholder="What was discussed? Key takeaways?" />
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2.5 pt-3">
                 <Button type="button" variant="text" onClick={() => { setShowForm(false); setEditingInteraction(null); setFormData(emptyForm); }}>Cancel</Button>
                 <Button type="submit">{editingInteraction ? "Save" : "Create"}</Button>
               </div>
@@ -175,40 +175,40 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
       {interactions.length === 0 ? (
         <Card variant="outlined" className="text-center py-16">
           <CardContent>
-            <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-base text-foreground mb-1">No interactions yet</p>
-            <p className="text-sm text-muted-foreground mb-6">Record your first touchpoint.</p>
+            <MessageSquare className="mx-auto h-14 w-14 text-muted-foreground mb-5" />
+            <p className="text-lg text-foreground mb-1">No interactions yet</p>
+            <p className="text-base text-muted-foreground mb-7">Record your first touchpoint.</p>
             <Button onClick={() => setShowForm(true)}>
-              <Plus className="h-[18px] w-[18px]" /> Add interaction
+              <Plus className="h-5 w-5" /> Add interaction
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {interactions.map((interaction) => (
             <Card key={interaction.id} variant="outlined" className="state-layer group">
-              <CardContent className="p-5">
-                <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-full bg-tertiary-container flex items-center justify-center shrink-0">
-                    <MessageSquare className="h-5 w-5 text-on-tertiary-container" />
+              <CardContent className="p-6">
+                <div className="flex items-start gap-5">
+                  <div className="w-12 h-12 rounded-full bg-tertiary-container flex items-center justify-center shrink-0">
+                    <MessageSquare className="h-6 w-6 text-on-tertiary-container" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-base font-medium text-foreground capitalize">{interaction.interaction_type}</h3>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button type="button" onClick={() => handleEditInteraction(interaction)} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer transition-colors" title="Edit">
-                          <Pencil className="h-4 w-4" />
+                      <h3 className="text-lg font-medium text-foreground capitalize">{interaction.interaction_type}</h3>
+                      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button type="button" onClick={() => handleEditInteraction(interaction)} className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer transition-colors" title="Edit">
+                          <Pencil className="h-5 w-5" />
                         </button>
-                        <button type="button" onClick={() => handleDeleteInteraction(interaction.id)} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Delete">
-                          <Trash2 className="h-4 w-4" />
+                        <button type="button" onClick={() => handleDeleteInteraction(interaction.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Delete">
+                          <Trash2 className="h-5 w-5" />
                         </button>
                       </div>
                     </div>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-base text-muted-foreground">
                       {new Date(interaction.interaction_date).toLocaleString()}
                     </p>
                     {interaction.summary && (
-                      <p className="mt-3 text-sm text-muted-foreground whitespace-pre-wrap">
+                      <p className="mt-4 text-base text-muted-foreground whitespace-pre-wrap">
                         {interaction.summary}
                       </p>
                     )}

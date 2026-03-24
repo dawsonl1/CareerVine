@@ -257,9 +257,9 @@ export default function ActionItemsPage() {
       <div className="min-h-screen bg-background">
         <Navigation />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          <div className="flex items-center gap-3 text-muted-foreground">
-            <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-            <span className="text-sm">Loading action items...</span>
+          <div className="flex items-center gap-4 text-muted-foreground">
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+            <span className="text-base">Loading action items...</span>
           </div>
         </div>
       </div>
@@ -303,13 +303,13 @@ export default function ActionItemsPage() {
     return (
       <button
         onClick={(e) => cyclePriority(e, item)}
-        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-surface-container"
+        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-surface-container"
         title={p ? `Priority: ${PRIORITY_COLORS[p].label} (click to change)` : "Set priority"}
       >
         {p ? (
-          <span className={`w-2 h-2 rounded-full ${PRIORITY_COLORS[p].dot}`} />
+          <span className={`w-2.5 h-2.5 rounded-full ${PRIORITY_COLORS[p].dot}`} />
         ) : (
-          <span className="w-2 h-2 rounded-full bg-outline-variant opacity-0 group-hover/item:opacity-100 transition-opacity" />
+          <span className="w-2.5 h-2.5 rounded-full bg-outline-variant opacity-0 group-hover/item:opacity-100 transition-opacity" />
         )}
       </button>
     );
@@ -324,47 +324,47 @@ export default function ActionItemsPage() {
       className={`state-layer cursor-pointer transition-all group/item ${overdue ? "border-destructive/40" : ""}`}
       onClick={() => setSelectedItem(item)}
     >
-      <CardContent className="p-5">
-        <div className="flex items-start gap-4">
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${overdue ? "bg-error-container" : "bg-primary-container"}`}>
+      <CardContent className="p-6">
+        <div className="flex items-start gap-5">
+          <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${overdue ? "bg-error-container" : "bg-primary-container"}`}>
             {overdue
-              ? <AlertTriangle className="h-5 w-5 text-on-error-container" />
-              : <CheckSquare className="h-5 w-5 text-on-primary-container" />
+              ? <AlertTriangle className="h-6 w-6 text-on-error-container" />
+              : <CheckSquare className="h-6 w-6 text-on-primary-container" />
             }
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               {isAiGenerated(item) && (
-                <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                <Sparkles className="h-4 w-4 text-primary shrink-0" />
               )}
               {renderPriorityDot(item)}
-              <h3 className="text-base font-medium text-foreground">{item.title}</h3>
+              <h3 className="text-lg font-medium text-foreground">{item.title}</h3>
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               {(item.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || item.contacts?.name || "No contact"}
-              {item.meetings && <span> · <Calendar className="inline h-3 w-3 mb-0.5" /> {item.meetings.meeting_type}</span>}
+              {item.meetings && <span> · <Calendar className="inline h-4 w-4 mb-0.5" /> {item.meetings.meeting_type}</span>}
               {isAiGenerated(item) && <span> · {item.source === ActionItemSource.AiSuggestion ? "AI suggestion" : "From transcript"}</span>}
             </p>
             {isAiGenerated(item) && item.suggestion_headline && (
-              <p className="mt-1 text-sm text-muted-foreground italic line-clamp-1">
+              <p className="mt-1.5 text-base text-muted-foreground italic line-clamp-1">
                 &ldquo;{item.suggestion_evidence || item.suggestion_headline}&rdquo;
               </p>
             )}
             {!isAiGenerated(item) && item.description && (
-              <p className="mt-1.5 text-sm text-muted-foreground line-clamp-1">{item.description}</p>
+              <p className="mt-2 text-base text-muted-foreground line-clamp-1">{item.description}</p>
             )}
-            <p className={`mt-1.5 text-xs ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+            <p className={`mt-2 text-sm ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
               {item.due_at
                 ? `${overdue ? "Overdue" : "Due"}: ${new Date(item.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
                 : "No due date"}
             </p>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={(e) => openEdit(e, item)} className="state-layer p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
-              <Pencil className="h-[18px] w-[18px]" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={(e) => openEdit(e, item)} className="state-layer p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
+              <Pencil className="h-5 w-5" />
             </button>
             <Button variant={overdue ? "danger" : "tonal"} size="sm" onClick={(e) => markDone(e, item)}>
-              <Check className="h-4 w-4" /> Done
+              <Check className="h-5 w-5" /> Done
             </Button>
           </div>
         </div>
@@ -381,14 +381,14 @@ export default function ActionItemsPage() {
   ) => {
     if (items.length === 0) return null;
     return (
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
+      <div className="mb-10">
+        <div className="flex items-center gap-3 mb-5">
           {icon}
-          <h2 className={`text-base font-medium ${titleClass}`}>
+          <h2 className={`text-lg font-medium ${titleClass}`}>
             {title} ({items.length})
           </h2>
         </div>
-        <div className="space-y-3">
+        <div className="space-y-4">
           {items.map((item) => renderItem(item, overdue))}
         </div>
       </div>
@@ -408,34 +408,34 @@ export default function ActionItemsPage() {
         className="state-layer cursor-pointer transition-all group/item"
         onClick={() => setSelectedItem(item)}
       >
-        <CardContent className="p-5">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-amber-100 dark:bg-amber-900/30">
-              <Hourglass className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+        <CardContent className="p-6">
+          <div className="flex items-start gap-5">
+            <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-amber-100 dark:bg-amber-900/30">
+              <Hourglass className="h-6 w-6 text-amber-600 dark:text-amber-400" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 {isAiGenerated(item) && (
-                  <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
                 )}
                 {renderPriorityDot(item)}
-                <h3 className="text-base font-medium text-foreground">{item.title}</h3>
+                <h3 className="text-lg font-medium text-foreground">{item.title}</h3>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 {(item.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || item.contacts?.name || "No contact"}
-                {item.meetings && <span> · <Calendar className="inline h-3 w-3 mb-0.5" /> {item.meetings.meeting_type}</span>}
+                {item.meetings && <span> · <Calendar className="inline h-4 w-4 mb-0.5" /> {item.meetings.meeting_type}</span>}
                 {isAiGenerated(item) && <span> · {item.source === ActionItemSource.AiSuggestion ? "AI suggestion" : "From transcript"}</span>}
               </p>
-              <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
                 {daysWaiting !== null ? `${daysWaiting} day${daysWaiting !== 1 ? "s" : ""} waiting` : "Waiting"}
               </p>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <button onClick={(e) => openEdit(e, item)} className="state-layer p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
-                <Pencil className="h-[18px] w-[18px]" />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button onClick={(e) => openEdit(e, item)} className="state-layer p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
+                <Pencil className="h-5 w-5" />
               </button>
               <Button variant="tonal" size="sm" onClick={(e) => markDone(e, item)}>
-                <Check className="h-4 w-4" /> Done
+                <Check className="h-5 w-5" /> Done
               </Button>
             </div>
           </div>
@@ -446,7 +446,7 @@ export default function ActionItemsPage() {
 
   const prioritySelect = (value: string, onChange: (val: string) => void) => (
     <div>
-      <label className="block text-xs font-medium text-muted-foreground mb-1.5">Priority</label>
+      <label className="block text-sm font-medium text-muted-foreground mb-2">Priority</label>
       <Select
         value={value}
         onChange={onChange}
@@ -464,7 +464,7 @@ export default function ActionItemsPage() {
         <div className="flex items-center justify-between mb-10">
           <div>
             <h1 className="text-[28px] leading-9 font-normal text-foreground">Action Items</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-base text-muted-foreground mt-1">
               Follow up on important tasks and commitments
             </p>
           </div>
@@ -475,18 +475,18 @@ export default function ActionItemsPage() {
 
         {/* Suggested for you banner */}
         {(suggestionsLoading || (suggestions.length > 0 && !suggestionsCollapsed)) && (
-          <Card variant="filled" className="mb-8 border border-primary/10 bg-primary-container/5">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  <h2 className="text-base font-medium text-foreground">Suggested for you</h2>
+          <Card variant="filled" className="mb-10 border border-primary/10 bg-primary-container/5">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="h-6 w-6 text-primary" />
+                  <h2 className="text-lg font-medium text-foreground">Suggested for you</h2>
                 </div>
                 {suggestions.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setSuggestionsCollapsed(true)}
-                    className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                    className="text-sm text-muted-foreground hover:text-foreground cursor-pointer"
                   >
                     Collapse
                   </button>
@@ -494,58 +494,58 @@ export default function ActionItemsPage() {
               </div>
 
               {suggestionsLoading ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {[1, 2].map((i) => (
-                    <div key={i} className="h-16 rounded-[12px] bg-surface-container-highest animate-pulse" />
+                    <div key={i} className="h-18 rounded-[12px] bg-surface-container-highest animate-pulse" />
                   ))}
                 </div>
               ) : (
                 <>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {suggestions.map((s) => (
-                      <div key={s.id} className="flex items-start gap-3 p-3 rounded-[12px] bg-surface-container hover:bg-surface-container-high transition-colors">
+                      <div key={s.id} className="flex items-start gap-4 p-4 rounded-[12px] bg-surface-container hover:bg-surface-container-high transition-colors">
                         <ContactAvatar
                           name={s.contactName}
                           photoUrl={s.contactPhotoUrl}
-                          className="w-9 h-9 text-xs shrink-0"
+                          className="w-10 h-10 text-sm shrink-0"
                         />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{s.headline}</p>
-                          <p className="text-xs text-muted-foreground truncate">
+                          <p className="text-base font-medium text-foreground truncate">{s.headline}</p>
+                          <p className="text-sm text-muted-foreground truncate">
                             {s.suggestedTitle}
                             {s.daysSinceContact !== null && ` · ${s.daysSinceContact}d`}
                           </p>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             type="button"
                             onClick={() => completeSuggestion(s)}
-                            className="p-2 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
+                            className="p-2.5 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
                             title="I already did this"
                           >
-                            <Check className="h-4 w-4" />
+                            <Check className="h-5 w-5" />
                           </button>
                           <button
                             type="button"
                             onClick={() => saveSuggestion(s)}
-                            className="p-2 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
+                            className="p-2.5 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
                             title="Save for later"
                           >
-                            <Bookmark className="h-4 w-4" />
+                            <Bookmark className="h-5 w-5" />
                           </button>
                           <button
                             type="button"
                             onClick={() => dismissSuggestion(s)}
-                            className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
+                            className="p-2.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
                             title="Not interested"
                           >
-                            <X className="h-4 w-4" />
+                            <X className="h-5 w-5" />
                           </button>
                         </div>
                       </div>
                     ))}
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-3">
+                  <p className="text-xs text-muted-foreground mt-4">
                     These suggestions refresh each visit. Save the ones you want to keep.
                   </p>
                 </>
@@ -558,9 +558,9 @@ export default function ActionItemsPage() {
           <button
             type="button"
             onClick={() => setSuggestionsCollapsed(false)}
-            className="flex items-center gap-2 mb-6 text-sm text-primary hover:underline cursor-pointer"
+            className="flex items-center gap-3 mb-7 text-base text-primary hover:underline cursor-pointer"
           >
-            <Sparkles className="h-4 w-4" />
+            <Sparkles className="h-5 w-5" />
             Show {suggestions.length} suggestion{suggestions.length !== 1 ? "s" : ""}
           </button>
         )}
@@ -569,7 +569,7 @@ export default function ActionItemsPage() {
         {renderSection(
           "Overdue",
           overdueItems,
-          <AlertTriangle className="h-5 w-5 text-destructive" />,
+          <AlertTriangle className="h-6 w-6 text-destructive" />,
           true,
           "text-destructive"
         )}
@@ -577,7 +577,7 @@ export default function ActionItemsPage() {
         {renderSection(
           "Due this week",
           thisWeekItems,
-          <CalendarDays className="h-5 w-5 text-primary" />,
+          <CalendarDays className="h-6 w-6 text-primary" />,
           false,
           "text-foreground"
         )}
@@ -585,27 +585,27 @@ export default function ActionItemsPage() {
         {renderSection(
           "Due later",
           laterItems,
-          <Clock className="h-5 w-5 text-muted-foreground" />,
+          <Clock className="h-6 w-6 text-muted-foreground" />,
           false
         )}
 
         {renderSection(
           "No due date",
           noDueDateItems,
-          <Minus className="h-5 w-5 text-muted-foreground" />,
+          <Minus className="h-6 w-6 text-muted-foreground" />,
           false
         )}
 
         {/* Waiting on others */}
         {waitingOnItems.length > 0 && (
-          <div className="mb-8">
-            <div className="flex items-center gap-2 mb-4">
-              <Hourglass className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              <h2 className="text-base font-medium text-amber-600 dark:text-amber-400">
+          <div className="mb-10">
+            <div className="flex items-center gap-3 mb-5">
+              <Hourglass className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+              <h2 className="text-lg font-medium text-amber-600 dark:text-amber-400">
                 Waiting on others ({waitingOnItems.length})
               </h2>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {[...waitingOnItems].sort((a, b) => {
                 const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
                 const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -617,14 +617,14 @@ export default function ActionItemsPage() {
 
         {/* Empty state */}
         {totalPending === 0 && totalWaiting === 0 && (
-          <Card variant="outlined" className="text-center py-16">
+          <Card variant="outlined" className="text-center py-20">
             <CardContent>
-              <CheckSquare className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
-              <p className="text-base text-foreground mb-1">All clear</p>
-              <p className="text-sm text-muted-foreground mb-2">
+              <CheckSquare className="mx-auto h-14 w-14 text-muted-foreground/40 mb-5" />
+              <p className="text-lg text-foreground mb-1">All clear</p>
+              <p className="text-base text-muted-foreground mb-3">
                 No pending action items. Create one to track a follow-up, introduction, or commitment.
               </p>
-              <p className="text-xs text-muted-foreground mb-6">
+              <p className="text-sm text-muted-foreground mb-7">
                 Action items can also be created from meetings — they&apos;ll automatically link back.
               </p>
               <Button onClick={() => setShowCreate(true)} variant="tonal">
@@ -640,13 +640,13 @@ export default function ActionItemsPage() {
             <button
               type="button"
               onClick={() => setShowCompleted(!showCompleted)}
-              className="flex items-center gap-2 mb-4 text-base font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+              className="flex items-center gap-3 mb-5 text-lg font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
             >
-              <ChevronDown className={`h-4 w-4 transition-transform ${showCompleted ? "rotate-0" : "-rotate-90"}`} />
+              <ChevronDown className={`h-5 w-5 transition-transform ${showCompleted ? "rotate-0" : "-rotate-90"}`} />
               Completed ({completedItems.length})
             </button>
             {showCompleted && (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {completedItems.map((item) => (
                   <Card
                     key={item.id}
@@ -654,27 +654,27 @@ export default function ActionItemsPage() {
                     className="cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
                     onClick={() => setSelectedItem(item)}
                   >
-                    <CardContent className="p-5">
-                      <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
-                          <Check className="h-5 w-5 text-primary" />
+                    <CardContent className="p-6">
+                      <div className="flex items-start gap-5">
+                        <div className="w-11 h-11 rounded-full bg-surface-container flex items-center justify-center shrink-0">
+                          <Check className="h-6 w-6 text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-base font-medium text-muted-foreground line-through">{item.title}</h3>
-                          <p className="text-sm text-muted-foreground">
+                          <h3 className="text-lg font-medium text-muted-foreground line-through">{item.title}</h3>
+                          <p className="text-base text-muted-foreground">
                             {item.contacts?.name || "No contact"}
                             {item.completed_at && <span> · Completed {new Date(item.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
                           </p>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button onClick={(e) => { e.stopPropagation(); openEdit(e, item); }} className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
-                            <Pencil className="h-[18px] w-[18px]" />
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={(e) => { e.stopPropagation(); openEdit(e, item); }} className="p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
+                            <Pencil className="h-5 w-5" />
                           </button>
-                          <button onClick={(e) => restoreItem(e, item.id)} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Restore">
-                            <RotateCcw className="h-[18px] w-[18px]" />
+                          <button onClick={(e) => restoreItem(e, item.id)} className="p-2.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Restore">
+                            <RotateCcw className="h-5 w-5" />
                           </button>
-                          <button onClick={(e) => removeItem(e, item)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
-                            <Trash2 className="h-[18px] w-[18px]" />
+                          <button onClick={(e) => removeItem(e, item)} className="p-2.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
+                            <Trash2 className="h-5 w-5" />
                           </button>
                         </div>
                       </div>
@@ -691,29 +691,29 @@ export default function ActionItemsPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/32" onClick={() => setSelectedItem(null)} />
             <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
-              <div className="px-6 pt-6 pb-2 flex items-start justify-between">
+              <div className="px-7 pt-7 pb-3 flex items-start justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5">
                     <h2 className="text-[22px] leading-7 font-normal text-foreground">{selectedItem.title}</h2>
                     {selectedItem.priority && (
-                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                      <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${
                         PRIORITY_COLORS[selectedItem.priority as keyof typeof PRIORITY_COLORS].badge
                       } capitalize`}>
                         {selectedItem.priority}
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground mt-1">{(() => { const names = selectedItem.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", "); return names ? `For ${names}` : selectedItem.contacts ? `For ${selectedItem.contacts.name}` : "No contact assigned"; })()}</p>
+                  <p className="text-base text-muted-foreground mt-1">{(() => { const names = selectedItem.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", "); return names ? `For ${names}` : selectedItem.contacts ? `For ${selectedItem.contacts.name}` : "No contact assigned"; })()}</p>
                 </div>
-                <button onClick={() => setSelectedItem(null)} className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
-                  <X className="h-5 w-5" />
+                <button onClick={() => setSelectedItem(null)} className="p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
+                  <X className="h-6 w-6" />
                 </button>
               </div>
-              <div className="px-6 pb-6 space-y-4">
+              <div className="px-7 pb-7 space-y-5">
                 {selectedItem.description && (
-                  <p className="text-sm text-muted-foreground">{selectedItem.description}</p>
+                  <p className="text-base text-muted-foreground">{selectedItem.description}</p>
                 )}
-                <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                   <span>
                     {selectedItem.due_at
                       ? `Due: ${new Date(selectedItem.due_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
@@ -725,44 +725,44 @@ export default function ActionItemsPage() {
                 </div>
 
                 {selectedItem.meetings && (
-                  <div className="pt-3 border-t border-outline-variant">
-                    <h3 className="text-sm font-medium text-foreground flex items-center gap-2 mb-3">
-                      <Calendar className="h-4 w-4 text-primary" /> Linked meeting
+                  <div className="pt-4 border-t border-outline-variant">
+                    <h3 className="text-base font-medium text-foreground flex items-center gap-2.5 mb-4">
+                      <Calendar className="h-5 w-5 text-primary" /> Linked meeting
                     </h3>
-                    <div className="p-4 rounded-[12px] bg-surface-container">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-sm font-medium text-foreground capitalize">{selectedItem.meetings.meeting_type}</span>
-                        <span className="text-xs text-muted-foreground">
+                    <div className="p-5 rounded-[12px] bg-surface-container">
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="text-base font-medium text-foreground capitalize">{selectedItem.meetings.meeting_type}</span>
+                        <span className="text-sm text-muted-foreground">
                           {new Date(selectedItem.meetings.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </span>
                       </div>
                       {selectedItem.meetings.notes && (
-                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{selectedItem.meetings.notes}</p>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedItem.meetings.notes}</p>
                       )}
                       {selectedItem.meetings.transcript && (
-                        <div className="mt-3 bg-surface-container-low rounded-[8px] p-3 max-h-[60vh] overflow-y-auto">
-                          <pre className="whitespace-pre-wrap text-xs text-muted-foreground">{selectedItem.meetings.transcript}</pre>
+                        <div className="mt-4 bg-surface-container-low rounded-[8px] p-4 max-h-[60vh] overflow-y-auto">
+                          <pre className="whitespace-pre-wrap text-sm text-muted-foreground">{selectedItem.meetings.transcript}</pre>
                         </div>
                       )}
                     </div>
                   </div>
                 )}
 
-                <div className="flex justify-between pt-2">
+                <div className="flex justify-between pt-3">
                   <Button variant="danger" size="sm" onClick={(e) => { removeItem(e, selectedItem); }}>
-                    <Trash2 className="h-4 w-4" /> Delete
+                    <Trash2 className="h-5 w-5" /> Delete
                   </Button>
-                  <div className="flex gap-2">
+                  <div className="flex gap-3">
                     <Button variant="text" onClick={() => { setSelectedItem(null); openEdit({ stopPropagation: () => {} } as React.MouseEvent, selectedItem); }}>
-                      <Pencil className="h-4 w-4" /> Edit
+                      <Pencil className="h-5 w-5" /> Edit
                     </Button>
                     {selectedItem.is_completed ? (
                       <Button variant="tonal" onClick={(e) => { restoreItem(e, selectedItem.id); setSelectedItem(null); }}>
-                        <RotateCcw className="h-4 w-4" /> Restore
+                        <RotateCcw className="h-5 w-5" /> Restore
                       </Button>
                     ) : (
                       <Button onClick={(e) => markDone(e, selectedItem)}>
-                        <Check className="h-4 w-4" /> Mark done
+                        <Check className="h-5 w-5" /> Mark done
                       </Button>
                     )}
                   </div>
@@ -777,12 +777,12 @@ export default function ActionItemsPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/32" onClick={resetCreate} />
             <div className="relative w-full max-w-md bg-surface-container-high rounded-[28px] shadow-lg">
-              <div className="px-6 pt-6 pb-4">
+              <div className="px-7 pt-7 pb-5">
                 <h2 className="text-[22px] leading-7 font-normal text-foreground">New action item</h2>
               </div>
-              <div className="px-6 pb-6 space-y-4">
+              <div className="px-7 pb-7 space-y-5">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Title *</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-2">Title *</label>
                   <input
                     type="text"
                     value={newTitle}
@@ -793,8 +793,8 @@ export default function ActionItemsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Contacts *</label>
-                  <div className="flex flex-wrap gap-2">
+                  <label className="block text-sm font-medium text-muted-foreground mb-2">Contacts *</label>
+                  <div className="flex flex-wrap gap-2.5">
                     {allContacts.map((c) => (
                       <button
                         key={c.id}
@@ -804,20 +804,20 @@ export default function ActionItemsPage() {
                             ? newContactIds.filter((id) => id !== c.id)
                             : [...newContactIds, c.id]
                         )}
-                        className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium cursor-pointer transition-colors border ${
+                        className={`inline-flex items-center gap-2 h-9 px-4 rounded-full text-sm font-medium cursor-pointer transition-colors border ${
                           newContactIds.includes(c.id)
                             ? "bg-secondary-container text-on-secondary-container border-secondary-container"
                             : "bg-transparent text-foreground border-outline-variant hover:bg-surface-container"
                         }`}
                       >
-                        {newContactIds.includes(c.id) && <Check className="h-3.5 w-3.5" />}
+                        {newContactIds.includes(c.id) && <Check className="h-4 w-4" />}
                         {c.name}
                       </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-2">Description</label>
                   <textarea
                     value={newDescription}
                     onChange={(e) => setNewDescription(e.target.value)}
@@ -826,14 +826,14 @@ export default function ActionItemsPage() {
                     placeholder="Optional details..."
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
+                    <label className="block text-sm font-medium text-muted-foreground mb-2">Due date</label>
                     <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
                   </div>
                   {prioritySelect(newPriority, setNewPriority)}
                 </div>
-                <div className="flex justify-end gap-2 pt-2">
+                <div className="flex justify-end gap-3 pt-3">
                   <Button type="button" variant="text" onClick={resetCreate}>Cancel</Button>
                   <Button
                     type="button"
@@ -875,12 +875,12 @@ export default function ActionItemsPage() {
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/32" onClick={() => { setEditingItem(null); }} />
             <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[95vh] overflow-y-auto">
-              <div className="px-6 pt-6 pb-4">
+              <div className="px-7 pt-7 pb-5">
                 <h2 className="text-[22px] leading-7 font-normal text-foreground">Edit action item</h2>
               </div>
-              <div className="px-6 pb-6 space-y-4">
+              <div className="px-7 pb-7 space-y-5">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Title *</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-2">Title *</label>
                   <input
                     type="text"
                     value={editTitle}
@@ -891,8 +891,8 @@ export default function ActionItemsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Contacts</label>
-                  <div className="flex flex-wrap gap-2">
+                  <label className="block text-sm font-medium text-muted-foreground mb-2">Contacts</label>
+                  <div className="flex flex-wrap gap-2.5">
                     {allContacts.map((c) => (
                       <button
                         key={c.id}
@@ -902,20 +902,20 @@ export default function ActionItemsPage() {
                             ? editContactIds.filter((id) => id !== c.id)
                             : [...editContactIds, c.id]
                         )}
-                        className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium cursor-pointer transition-colors border ${
+                        className={`inline-flex items-center gap-2 h-9 px-4 rounded-full text-sm font-medium cursor-pointer transition-colors border ${
                           editContactIds.includes(c.id)
                             ? "bg-secondary-container text-on-secondary-container border-secondary-container"
                             : "bg-transparent text-foreground border-outline-variant hover:bg-surface-container"
                         }`}
                       >
-                        {editContactIds.includes(c.id) && <Check className="h-3.5 w-3.5" />}
+                        {editContactIds.includes(c.id) && <Check className="h-4 w-4" />}
                         {c.name}
                       </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-2">Description</label>
                   <textarea
                     value={editDescription}
                     onChange={(e) => setEditDescription(e.target.value)}
@@ -924,14 +924,14 @@ export default function ActionItemsPage() {
                     placeholder="Optional details..."
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
+                    <label className="block text-sm font-medium text-muted-foreground mb-2">Due date</label>
                     <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="No due date" />
                   </div>
                   {prioritySelect(editPriority, setEditPriority)}
                 </div>
-                <div className="flex justify-end gap-2 pt-2">
+                <div className="flex justify-end gap-3 pt-3">
                   <Button type="button" variant="text" onClick={() => { setEditingItem(null); }}>Cancel</Button>
                   <Button type="button" disabled={!editTitle.trim() || editSaving} loading={editSaving} onClick={saveEdit}>
                     Save

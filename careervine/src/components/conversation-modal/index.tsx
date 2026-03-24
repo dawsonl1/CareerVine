@@ -387,19 +387,19 @@ export function ConversationModal() {
       {/* Modal */}
       <div className="relative w-full sm:max-w-2xl max-h-[100dvh] sm:max-h-[85vh] bg-background rounded-t-[28px] sm:rounded-[28px] shadow-xl overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-6 pt-6 pb-4 border-b border-outline-variant">
-          <h2 className="text-lg font-medium text-foreground">
+        <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-7 pt-7 pb-5 border-b border-outline-variant">
+          <h2 className="text-xl font-medium text-foreground">
             {isEditMode ? "Edit meeting" : "Log a conversation"}
           </h2>
           <button
             onClick={attemptClose}
             className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X className="h-6 w-6" />
           </button>
         </div>
 
-        <div className="p-6 space-y-5">
+        <div className="p-7 space-y-6">
           {/* Contact picker */}
           <div>
             <label className={labelClasses}>
@@ -432,7 +432,7 @@ export function ConversationModal() {
             <label className={labelClasses}>
               Type
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2.5">
               {CONVERSATION_TYPE_OPTIONS.map((type) => {
                 const Icon = ICON_MAP[type.iconName];
                 const active = form.meetingType === type.value;
@@ -441,13 +441,13 @@ export function ConversationModal() {
                     key={type.value}
                     type="button"
                     onClick={() => setForm((prev) => ({ ...prev, meetingType: type.value }))}
-                    className={`inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-sm font-medium cursor-pointer transition-colors ${
+                    className={`inline-flex items-center gap-2 h-10 px-5 rounded-full text-base font-medium cursor-pointer transition-colors ${
                       active
                         ? "bg-secondary-container text-on-secondary-container"
                         : "bg-surface-container text-foreground hover:bg-surface-container-high"
                     }`}
                   >
-                    {Icon && <Icon className="h-4 w-4" />}
+                    {Icon && <Icon className="h-5 w-5" />}
                     {type.label}
                   </button>
                 );
@@ -456,7 +456,7 @@ export function ConversationModal() {
           </div>
 
           {/* Date + optional Time */}
-          <div className="flex gap-3">
+          <div className="flex gap-4">
             <div className="flex-1">
               <label className={labelClasses}>
                 When
@@ -528,7 +528,7 @@ export function ConversationModal() {
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-background border-t border-outline-variant px-6 py-4 flex justify-end gap-2">
+        <div className="sticky bottom-0 bg-background border-t border-outline-variant px-7 py-5 flex justify-end gap-3">
           <Button variant="text" onClick={attemptClose}>
             Cancel
           </Button>

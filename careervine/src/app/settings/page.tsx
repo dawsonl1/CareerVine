@@ -53,14 +53,14 @@ function SettingsPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <div className="mb-8">
           <h1 className="text-[28px] leading-9 font-normal text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage your account and integrations</p>
+          <p className="text-base text-muted-foreground mt-1">Manage your account and integrations</p>
         </div>
 
         <div className="flex flex-col md:flex-row gap-8">
           {/* Sidebar nav — desktop: left column, mobile: horizontal scroll */}
           <nav className="md:w-52 shrink-0">
             {/* Mobile: horizontal tabs */}
-            <div className="flex md:hidden gap-1 overflow-x-auto pb-2 -mx-1 px-1">
+            <div className="flex md:hidden gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.id;
@@ -69,13 +69,13 @@ function SettingsPage() {
                     key={tab.id}
                     type="button"
                     onClick={() => setTab(tab.id)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors cursor-pointer ${
                       active
                         ? "bg-secondary-container text-on-secondary-container"
                         : "text-muted-foreground hover:text-foreground hover:bg-surface-container-low"
                     }`}
                   >
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon className="h-4 w-4" />
                     {tab.label}
                   </button>
                 );
@@ -83,7 +83,7 @@ function SettingsPage() {
             </div>
 
             {/* Desktop: vertical sidebar */}
-            <div className="hidden md:flex flex-col gap-1">
+            <div className="hidden md:flex flex-col gap-1.5">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.id;
@@ -92,13 +92,13 @@ function SettingsPage() {
                     key={tab.id}
                     type="button"
                     onClick={() => setTab(tab.id)}
-                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-left cursor-pointer ${
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-base font-medium transition-colors text-left cursor-pointer ${
                       active
                         ? "bg-secondary-container text-on-secondary-container"
                         : "text-muted-foreground hover:text-foreground hover:bg-surface-container-low"
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className="h-5 w-5" />
                     {tab.label}
                   </button>
                 );

@@ -228,9 +228,9 @@ export default function MeetingsPage() {
       <div className="min-h-screen bg-background">
         <Navigation />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          <div className="flex items-center gap-3 text-muted-foreground">
-            <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-            <span className="text-sm">Loading meetings…</span>
+          <div className="flex items-center gap-4 text-muted-foreground">
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+            <span className="text-base">Loading meetings…</span>
           </div>
         </div>
       </div>
@@ -245,26 +245,26 @@ export default function MeetingsPage() {
         <div className="flex justify-between items-center mb-10">
           <div>
             <h1 className="text-[28px] leading-9 font-normal text-foreground">Activity</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-base text-muted-foreground mt-1">
               {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"} · {allInteractions.length} {allInteractions.length === 1 ? "interaction" : "interactions"}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2.5">
             <Button onClick={() => openConversationModal()}>
-              <Plus className="h-[18px] w-[18px]" /> Log conversation
+              <Plus className="h-5 w-5" /> Log conversation
             </Button>
           </div>
         </div>
 
         {/* Calendar not connected banner */}
         {!calendarConnected && !loading && !connectionLoading && (
-          <div className="flex gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 mb-5">
-            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex gap-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 mb-6">
+            <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              <p className="text-base font-medium text-amber-800 dark:text-amber-300">
                 Google Calendar not connected
               </p>
-              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+              <p className="text-sm text-amber-700 dark:text-amber-400 mt-0.5">
                 Connect your Google Calendar to add meetings to your calendar and generate Google Meet links.{" "}
                 <Link href="/settings?tab=integrations" className="underline font-medium">
                   Go to Integrations
@@ -275,14 +275,14 @@ export default function MeetingsPage() {
         )}
 
         {/* Search bar */}
-        <div className="relative mb-6">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <div className="relative mb-7">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search meetings and interactions…"
-            className="w-full h-11 pl-10 pr-4 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm"
+            className="w-full h-12 pl-11 pr-5 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-base"
           />
         </div>
 
@@ -291,17 +291,17 @@ export default function MeetingsPage() {
         {meetings.length === 0 && allInteractions.length === 0 && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
-              <Calendar className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
-              <p className="text-base text-foreground mb-1">No activity yet</p>
-              <p className="text-sm text-muted-foreground mb-2">
+              <Calendar className="mx-auto h-14 w-14 text-muted-foreground/40 mb-5" />
+              <p className="text-lg text-foreground mb-1">No activity yet</p>
+              <p className="text-base text-muted-foreground mb-2">
                 Record coffee chats, calls, and casual interactions to build a history with your contacts.
               </p>
-              <p className="text-xs text-muted-foreground mb-6">
+              <p className="text-sm text-muted-foreground mb-7">
                 Meetings support notes, transcripts, and action items. Interactions are lighter — just a date and summary.
               </p>
-              <div className="flex justify-center gap-2">
+              <div className="flex justify-center gap-2.5">
                 <Button onClick={() => openConversationModal()}>
-                  <Plus className="h-[18px] w-[18px]" /> Log conversation
+                  <Plus className="h-5 w-5" /> Log conversation
                 </Button>
               </div>
             </CardContent>
@@ -309,7 +309,7 @@ export default function MeetingsPage() {
         )}
 
         {/* Unified timeline: meetings + interactions sorted by date desc */}
-        <div className="space-y-3">
+        <div className="space-y-4">
           {(() => {
             const q = searchQuery.toLowerCase().trim();
             const matchesMeeting = (m: Meeting) => {
@@ -340,7 +340,7 @@ export default function MeetingsPage() {
 
             if (timeline.length === 0 && q) {
               return (
-                <div className="text-center py-16 text-muted-foreground text-sm">
+                <div className="text-center py-16 text-muted-foreground text-base">
                   No results for &ldquo;{searchQuery}&rdquo;
                 </div>
               );
@@ -348,15 +348,15 @@ export default function MeetingsPage() {
 
             return timeline.map((item) => item.kind === "interaction" ? (
               <div key={`i-${(item.data as InteractionWithContact).id}`} className="rounded-[16px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all duration-200">
-                <div className="p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="w-14 h-14 rounded-full bg-primary-container flex items-center justify-center shrink-0">
-                        <MessageSquare className="h-6 w-6 text-on-primary-container" />
+                <div className="p-6">
+                  <div className="flex items-center justify-between gap-5">
+                    <div className="flex items-center gap-5 min-w-0">
+                      <div className="w-16 h-16 rounded-full bg-primary-container flex items-center justify-center shrink-0">
+                        <MessageSquare className="h-7 w-7 text-on-primary-container" />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-base font-medium text-foreground capitalize">{(item.data as InteractionWithContact).interaction_type}</h3>
-                        <p className="text-sm text-muted-foreground">
+                        <h3 className="text-lg font-medium text-foreground capitalize">{(item.data as InteractionWithContact).interaction_type}</h3>
+                        <p className="text-base text-muted-foreground">
                           {new Date((item.data as InteractionWithContact).interaction_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         </p>
                       </div>
@@ -371,17 +371,17 @@ export default function MeetingsPage() {
                       }}
                       className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
                     >
-                      <Trash2 className="h-[18px] w-[18px]" />
+                      <Trash2 className="h-5 w-5" />
                     </button>
                   </div>
-                  <div className="mt-2 ml-[52px]">
-                    <span className="inline-flex items-center h-7 px-3 rounded-full bg-primary-container text-xs text-on-primary-container font-medium">
+                  <div className="mt-3 ml-[60px]">
+                    <span className="inline-flex items-center h-8 px-4 rounded-full bg-primary-container text-sm text-on-primary-container font-medium">
                       {(item.data as InteractionWithContact).contacts?.name}
                     </span>
                   </div>
                   {(item.data as InteractionWithContact).summary && (
-                    <div className="mt-3 ml-[52px]">
-                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{(item.data as InteractionWithContact).summary}</p>
+                    <div className="mt-4 ml-[60px]">
+                      <p className="text-base text-foreground leading-relaxed whitespace-pre-wrap">{(item.data as InteractionWithContact).summary}</p>
                     </div>
                   )}
                 </div>
@@ -390,24 +390,24 @@ export default function MeetingsPage() {
               const meeting = item.data as Meeting;
               return (
             <div key={`m-${meeting.id}`} className="rounded-[16px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all duration-200">
-              <div className="p-5">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="w-14 h-14 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
-                      <Calendar className="h-6 w-6 text-on-secondary-container" />
+              <div className="p-6">
+                <div className="flex items-center justify-between gap-5">
+                  <div className="flex items-center gap-5 min-w-0">
+                    <div className="w-16 h-16 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
+                      <Calendar className="h-7 w-7 text-on-secondary-container" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-base font-medium text-foreground">{(meeting as any).title || <span className="capitalize">{meeting.meeting_type}</span>}</h3>
-                      <p className="text-sm text-muted-foreground">
+                      <h3 className="text-lg font-medium text-foreground">{(meeting as any).title || <span className="capitalize">{meeting.meeting_type}</span>}</h3>
+                      <p className="text-base text-muted-foreground">
                         {new Date(meeting.meeting_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         {" · "}
                         {new Date(meeting.meeting_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <button onClick={() => openEditModal(meeting, meetingActions[meeting.id] || [])} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors">
-                      <Pencil className="h-[18px] w-[18px]" />
+                      <Pencil className="h-5 w-5" />
                     </button>
                     <button
                       onClick={async () => {
@@ -422,13 +422,13 @@ export default function MeetingsPage() {
                       }}
                       className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
                     >
-                      <Trash2 className="h-[18px] w-[18px]" />
+                      <Trash2 className="h-5 w-5" />
                     </button>
                   </div>
                 </div>
 
                 {meeting.meeting_contacts.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-3 ml-[52px]">
+                  <div className="flex flex-wrap gap-2 mt-4 ml-[60px]">
                     {meeting.meeting_contacts.map((mc: Meeting["meeting_contacts"][0]) => {
                       const calEvent = meetingCalendarMap[meeting.id];
                       const contactEmail = allContacts.find(c => c.id === mc.contact_id)?.email;
@@ -438,15 +438,15 @@ export default function MeetingsPage() {
                       const rsvpStyle = rsvp === "accepted" ? " text-primary" : rsvp === "declined" ? " text-destructive" : rsvp === "tentative" ? " text-yellow-600" : "";
                       const rsvpLabel = rsvp === "accepted" ? " ✓" : rsvp === "declined" ? " ✗" : rsvp === "tentative" ? " ?" : "";
                       return (
-                        <span key={mc.contact_id} className="inline-flex items-center h-7 px-3 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium">
+                        <span key={mc.contact_id} className="inline-flex items-center h-8 px-4 rounded-full bg-secondary-container text-sm text-on-secondary-container font-medium">
                           {mc.contacts.name}
                           {rsvpLabel && <span className={`ml-1 font-bold${rsvpStyle}`}>{rsvpLabel}</span>}
                         </span>
                       );
                     })}
                     {meetingCalendarMap[meeting.id] && (
-                      <span className="inline-flex items-center h-7 px-2.5 rounded-full bg-primary/10 text-[11px] text-primary font-medium gap-1">
-                        <Calendar className="h-3 w-3" />
+                      <span className="inline-flex items-center h-8 px-3 rounded-full bg-primary/10 text-xs text-primary font-medium gap-1.5">
+                        <Calendar className="h-3.5 w-3.5" />
                         On calendar
                       </span>
                     )}
@@ -454,27 +454,27 @@ export default function MeetingsPage() {
                 )}
 
                 {(meeting as any).private_notes && (
-                  <div className="mt-4 ml-[52px]">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Private reminders</h4>
-                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{(meeting as any).private_notes}</p>
+                  <div className="mt-4 ml-[60px]">
+                    <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2">Private reminders</h4>
+                    <p className="text-base text-foreground leading-relaxed whitespace-pre-wrap">{(meeting as any).private_notes}</p>
                   </div>
                 )}
 
                 {meeting.notes && (
-                  <div className="mt-4 ml-[52px]">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Notes</h4>
-                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{meeting.notes}</p>
+                  <div className="mt-4 ml-[60px]">
+                    <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2">Notes</h4>
+                    <p className="text-base text-foreground leading-relaxed whitespace-pre-wrap">{meeting.notes}</p>
                   </div>
                 )}
 
                 {(meeting.transcript || meetingSegments[meeting.id]?.length > 0) && (
-                  <div className="mt-4 ml-[52px]">
+                  <div className="mt-4 ml-[60px]">
                     <div className="flex items-center justify-between mb-1.5">
                       <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Transcript</h4>
                       {meetingSegments[meeting.id]?.length > 0 && (
                         <button
                           type="button"
-                          className="text-xs text-primary hover:underline cursor-pointer"
+                          className="text-sm text-primary hover:underline cursor-pointer"
                           onClick={() => setShowSpeakerResolver(showSpeakerResolver === meeting.id ? null : meeting.id)}
                         >
                           {showSpeakerResolver === meeting.id ? "Hide" : "Match speakers"}
@@ -525,14 +525,14 @@ export default function MeetingsPage() {
                 )}
 
                 {meetingActions[meeting.id] && meetingActions[meeting.id].length > 0 && (
-                  <div className="mt-4 ml-[52px]">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Action items</h4>
-                    <div className="space-y-1.5">
+                  <div className="mt-5 ml-[60px]">
+                    <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2">Action items</h4>
+                    <div className="space-y-2">
                       {meetingActions[meeting.id].map((action) => (
                         cardEditActionId === action.id ? (
-                          <div key={action.id} className="p-3 rounded-[8px] bg-surface-container space-y-2">
-                            <input type="text" value={cardEditTitle} onChange={(e) => setCardEditTitle(e.target.value)} className={`${inputClasses} !h-10 text-sm`} placeholder="Title" />
-                            <textarea value={cardEditDescription} onChange={(e) => setCardEditDescription(e.target.value)} className={`${inputClasses} !h-auto py-2 text-sm`} rows={2} placeholder="Description (optional)" />
+                          <div key={action.id} className="p-4 rounded-[8px] bg-surface-container space-y-2.5">
+                            <input type="text" value={cardEditTitle} onChange={(e) => setCardEditTitle(e.target.value)} className={`${inputClasses} !h-11 text-base`} placeholder="Title" />
+                            <textarea value={cardEditDescription} onChange={(e) => setCardEditDescription(e.target.value)} className={`${inputClasses} !h-auto py-2.5 text-base`} rows={2} placeholder="Description (optional)" />
                             <ContactPicker allContacts={allContacts} selectedIds={cardEditContactIds} onChange={setCardEditContactIds} />
                             <DatePicker value={cardEditDueDate} onChange={setCardEditDueDate} placeholder="No due date" />
                             <div className="flex justify-end gap-2">
@@ -548,30 +548,30 @@ export default function MeetingsPage() {
                             </div>
                           </div>
                         ) : (
-                          <div key={action.id} className="flex items-center gap-2 text-sm group">
-                            <CheckSquare className={`h-3.5 w-3.5 shrink-0 ${action.is_completed ? "text-primary" : "text-muted-foreground"}`} />
+                          <div key={action.id} className="flex items-center gap-2.5 text-base group">
+                            <CheckSquare className={`h-4 w-4 shrink-0 ${action.is_completed ? "text-primary" : "text-muted-foreground"}`} />
                             <span className={`flex-1 min-w-0 truncate ${action.is_completed ? "line-through text-muted-foreground" : "text-foreground"}`}>{action.title}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">{(action.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || action.contacts?.name || ""}</span>
+                            <span className="text-sm text-muted-foreground shrink-0">{(action.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || action.contacts?.name || ""}</span>
                             {action.due_at && (
-                              <span className={`text-xs shrink-0 ${new Date(action.due_at) < new Date() && !action.is_completed ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                              <span className={`text-sm shrink-0 ${new Date(action.due_at) < new Date() && !action.is_completed ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                                 {new Date(action.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                               </span>
                             )}
                             <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button type="button" onClick={() => { setCardEditActionId(action.id); setCardEditTitle(action.title); setCardEditDescription(action.description || ""); setCardEditDueDate(action.due_at ? action.due_at.split("T")[0] : ""); setCardEditContactIds(action.action_item_contacts?.map(ac => ac.contact_id) || (action.contacts ? [action.contacts.id] : [])); }} className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
-                                <Pencil className="h-3 w-3" />
+                              <button type="button" onClick={() => { setCardEditActionId(action.id); setCardEditTitle(action.title); setCardEditDescription(action.description || ""); setCardEditDueDate(action.due_at ? action.due_at.split("T")[0] : ""); setCardEditContactIds(action.action_item_contacts?.map(ac => ac.contact_id) || (action.contacts ? [action.contacts.id] : [])); }} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
+                                <Pencil className="h-3.5 w-3.5" />
                               </button>
                               {action.is_completed ? (
-                                <button type="button" onClick={async () => { try { await updateActionItem(action.id, { is_completed: false, completed_at: null }); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Restore">
-                                  <RotateCcw className="h-3 w-3" />
+                                <button type="button" onClick={async () => { try { await updateActionItem(action.id, { is_completed: false, completed_at: null }); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Restore">
+                                  <RotateCcw className="h-3.5 w-3.5" />
                                 </button>
                               ) : (
-                                <button type="button" onClick={async () => { try { await updateActionItem(action.id, { is_completed: true, completed_at: new Date().toISOString() }); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Mark done">
-                                  <Check className="h-3 w-3" />
+                                <button type="button" onClick={async () => { try { await updateActionItem(action.id, { is_completed: true, completed_at: new Date().toISOString() }); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Mark done">
+                                  <Check className="h-3.5 w-3.5" />
                                 </button>
                               )}
-                              <button type="button" onClick={async () => { if (!confirm("Delete this action item?")) return; try { await deleteActionItem(action.id); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
-                                <Trash2 className="h-3 w-3" />
+                              <button type="button" onClick={async () => { if (!confirm("Delete this action item?")) return; try { await deleteActionItem(action.id); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           </div>
@@ -582,14 +582,14 @@ export default function MeetingsPage() {
                 )}
 
                 {/* Attachments */}
-                <div className="mt-4 ml-[52px]">
+                <div className="mt-5 ml-[60px]">
                   {meetingAttachments[meeting.id] && meetingAttachments[meeting.id].length > 0 && (
-                    <div className="mb-2">
-                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Attachments</h4>
-                      <div className="space-y-1">
+                    <div className="mb-2.5">
+                      <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2">Attachments</h4>
+                      <div className="space-y-1.5">
                         {meetingAttachments[meeting.id].map((att) => (
-                          <div key={att.id} className="flex items-center gap-2 text-sm group">
-                            <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <div key={att.id} className="flex items-center gap-2.5 text-base group">
+                            <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
                             <button
                               type="button"
                               className="text-primary hover:underline truncate max-w-[200px] cursor-pointer text-left"
@@ -598,7 +598,7 @@ export default function MeetingsPage() {
                               {att.file_name}
                             </button>
                             {att.file_size_bytes && (
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-sm text-muted-foreground">
                                 {att.file_size_bytes < 1024 ? `${att.file_size_bytes} B`
                                   : att.file_size_bytes < 1048576 ? `${(att.file_size_bytes / 1024).toFixed(0)} KB`
                                   : `${(att.file_size_bytes / 1048576).toFixed(1)} MB`}
@@ -610,15 +610,15 @@ export default function MeetingsPage() {
                               onClick={() => handleMeetingAttachmentDelete(meeting.id, att.id, att.object_path)}
                               title="Delete attachment"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
-                  <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors">
-                    <Paperclip className="h-3.5 w-3.5" />
+                  <label className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors">
+                    <Paperclip className="h-4 w-4" />
                     {attachmentUploading === meeting.id ? "Uploading…" : "Attach file"}
                     <input
                       type="file"

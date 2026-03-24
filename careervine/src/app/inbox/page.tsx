@@ -506,18 +506,18 @@ export default function InboxPage() {
       <div className="min-h-screen bg-background">
         <Navigation />
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
-          <div className="w-16 h-16 rounded-full bg-primary-container flex items-center justify-center mx-auto mb-4">
-            <Mail className="h-8 w-8 text-on-primary-container" />
+          <div className="w-18 h-18 rounded-full bg-primary-container flex items-center justify-center mx-auto mb-5">
+            <Mail className="h-9 w-9 text-on-primary-container" />
           </div>
-          <h2 className="text-xl font-medium text-foreground mb-2">Connect your Gmail</h2>
-          <p className="text-sm text-muted-foreground mb-5 max-w-md mx-auto">
+          <h2 className="text-2xl font-medium text-foreground mb-2">Connect your Gmail</h2>
+          <p className="text-base text-muted-foreground mb-6 max-w-md mx-auto">
             Connect your Gmail account to see your email conversations with contacts, send emails, and track follow-ups.
           </p>
-          <div className="max-w-md mx-auto mb-5 text-left">
+          <div className="max-w-md mx-auto mb-6 text-left">
             <OAuthWarning />
           </div>
           <Button href="/api/gmail/auth">
-            <Mail className="h-4 w-4 mr-2" />
+            <Mail className="h-5 w-5 mr-2" />
             Connect Gmail
           </Button>
         </div>
@@ -548,15 +548,15 @@ export default function InboxPage() {
   // ── Inline action icons for collapsed message rows ──
 
   const renderMsgRowActions = (msg: EmailMessage, tabCtx: TabContext) => (
-    <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/msg:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/msg:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
       {tabCtx === "trash" && (
-        <button type="button" onClick={(e) => handleRestoreEmail(msg.gmail_message_id, e)} className="p-1 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer" title="Restore">
-          <RotateCcw className="h-3.5 w-3.5" />
+        <button type="button" onClick={(e) => handleRestoreEmail(msg.gmail_message_id, e)} className="p-1.5 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer" title="Restore">
+          <RotateCcw className="h-4 w-4" />
         </button>
       )}
       {tabCtx === "hidden" && (
-        <button type="button" onClick={(e) => handleUnhideEmail(msg.gmail_message_id, e)} className="p-1 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer" title="Unhide">
-          <Eye className="h-3.5 w-3.5" />
+        <button type="button" onClick={(e) => handleUnhideEmail(msg.gmail_message_id, e)} className="p-1.5 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer" title="Unhide">
+          <Eye className="h-4 w-4" />
         </button>
       )}
       {(tabCtx === "inbox" || tabCtx === "sent") && (
@@ -565,16 +565,16 @@ export default function InboxPage() {
             <div className="relative" ref={moveDropdownMsgId === msg.gmail_message_id ? moveDropdownRef : undefined}>
               <button
                 type="button"
-                className="p-1 rounded-full text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                className="p-1.5 rounded-full text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 title="Move to folder"
                 onClick={(e) => { e.stopPropagation(); setMoveDropdownMsgId(moveDropdownMsgId === msg.gmail_message_id ? null : msg.gmail_message_id); }}
               >
-                <FolderInput className="h-3.5 w-3.5" />
+                <FolderInput className="h-4 w-4" />
               </button>
               {moveDropdownMsgId === msg.gmail_message_id && (
-                <div className="absolute right-0 top-7 z-50 w-48 max-h-56 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
+                <div className="absolute right-0 top-8 z-50 w-52 max-h-60 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
                   {gmailLabels.map((label) => (
-                    <button key={label.id} type="button" className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); handleMoveEmail(msg.gmail_message_id, label.id); }}>
+                    <button key={label.id} type="button" className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); handleMoveEmail(msg.gmail_message_id, label.id); }}>
                       {label.name}
                     </button>
                   ))}
@@ -582,11 +582,11 @@ export default function InboxPage() {
               )}
             </div>
           )}
-          <button type="button" onClick={(e) => handleHideEmail(msg.gmail_message_id, e)} className="p-1 rounded-full text-muted-foreground hover:text-foreground transition-colors cursor-pointer" title="Hide from app">
-            <EyeOff className="h-3.5 w-3.5" />
+          <button type="button" onClick={(e) => handleHideEmail(msg.gmail_message_id, e)} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground transition-colors cursor-pointer" title="Hide from app">
+            <EyeOff className="h-4 w-4" />
           </button>
-          <button type="button" onClick={(e) => handleTrashEmail(msg.gmail_message_id, e)} className="p-1 rounded-full text-muted-foreground hover:text-destructive transition-colors cursor-pointer" title="Trash">
-            <Trash2 className="h-3.5 w-3.5" />
+          <button type="button" onClick={(e) => handleTrashEmail(msg.gmail_message_id, e)} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive transition-colors cursor-pointer" title="Trash">
+            <Trash2 className="h-4 w-4" />
           </button>
         </>
       )}
@@ -596,11 +596,11 @@ export default function InboxPage() {
   // ── Full action bar for expanded email content ──
 
   const renderEmailActions = (msg: EmailMessage, thread: EmailThread, contactName: string | null, tabCtx: TabContext) => (
-    <div className="mt-3 pt-3 border-t border-outline-variant/50 flex items-center gap-3 flex-wrap">
+    <div className="mt-4 pt-4 border-t border-outline-variant/50 flex items-center gap-4 flex-wrap">
       {tabCtx !== "trash" && tabCtx !== "hidden" && (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
+          className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
           onClick={() => {
             if (!expandedEmailContent) return;
             const replyTo = msg.direction === "outbound" ? (msg.to_addresses?.[0] || "") : (msg.from_address || "");
@@ -617,14 +617,14 @@ export default function InboxPage() {
             });
           }}
         >
-          <Reply className="h-3.5 w-3.5" />
+          <Reply className="h-4 w-4" />
           Reply
         </button>
       )}
       {tabCtx !== "trash" && tabCtx !== "hidden" && msg.direction === "outbound" && msg.date && (Date.now() - new Date(msg.date).getTime()) < 14 * 86400_000 && (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
+          className="inline-flex items-center gap-2 text-sm font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
           onClick={() => {
             setFollowUpModal({
               recipientEmail: msg.to_addresses?.[0] || "",
@@ -636,14 +636,14 @@ export default function InboxPage() {
             });
           }}
         >
-          <Clock className="h-3.5 w-3.5" />
+          <Clock className="h-4 w-4" />
           Follow-up
         </button>
       )}
       {contactName && thread.contactId && (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
           onClick={() => router.push(`/contacts/${thread.contactId}`)}
         >
           View contact
@@ -657,17 +657,17 @@ export default function InboxPage() {
         <div className="relative" ref={moveDropdownMsgId === msg.gmail_message_id ? moveDropdownRef : undefined}>
           <button
             type="button"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
             onClick={(e) => { e.stopPropagation(); setMoveDropdownMsgId(moveDropdownMsgId === msg.gmail_message_id ? null : msg.gmail_message_id); }}
           >
-            <FolderInput className="h-3.5 w-3.5" />
+            <FolderInput className="h-4 w-4" />
             Move to
-            <ChevronDown className="h-3 w-3" />
+            <ChevronDown className="h-3.5 w-3.5" />
           </button>
           {moveDropdownMsgId === msg.gmail_message_id && (
-            <div className="absolute right-0 bottom-6 z-50 w-48 max-h-56 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
+            <div className="absolute right-0 bottom-7 z-50 w-52 max-h-60 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
               {gmailLabels.map((label) => (
-                <button key={label.id} type="button" className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); handleMoveEmail(msg.gmail_message_id, label.id); }}>
+                <button key={label.id} type="button" className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); handleMoveEmail(msg.gmail_message_id, label.id); }}>
                   {label.name}
                 </button>
               ))}
@@ -678,26 +678,26 @@ export default function InboxPage() {
 
       {/* Hide / Unhide */}
       {tabCtx === "hidden" ? (
-        <button type="button" className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 cursor-pointer transition-colors" onClick={() => handleUnhideEmail(msg.gmail_message_id)}>
-          <Eye className="h-3.5 w-3.5" />
+        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 cursor-pointer transition-colors" onClick={() => handleUnhideEmail(msg.gmail_message_id)}>
+          <Eye className="h-4 w-4" />
           Unhide
         </button>
       ) : tabCtx !== "trash" ? (
-        <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors" onClick={() => handleHideEmail(msg.gmail_message_id)} title="Hide from webapp (keeps in Gmail)">
-          <EyeOff className="h-3.5 w-3.5" />
+        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground cursor-pointer transition-colors" onClick={() => handleHideEmail(msg.gmail_message_id)} title="Hide from webapp (keeps in Gmail)">
+          <EyeOff className="h-4 w-4" />
           Hide
         </button>
       ) : null}
 
       {/* Trash / Restore */}
       {tabCtx === "trash" ? (
-        <button type="button" className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 cursor-pointer transition-colors" onClick={() => handleRestoreEmail(msg.gmail_message_id)}>
-          <RotateCcw className="h-3.5 w-3.5" />
+        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 cursor-pointer transition-colors" onClick={() => handleRestoreEmail(msg.gmail_message_id)}>
+          <RotateCcw className="h-4 w-4" />
           Restore
         </button>
       ) : tabCtx !== "hidden" ? (
-        <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive cursor-pointer transition-colors" onClick={() => handleTrashEmail(msg.gmail_message_id)} title="Move to trash (Gmail + webapp)">
-          <Trash2 className="h-3.5 w-3.5" />
+        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive cursor-pointer transition-colors" onClick={() => handleTrashEmail(msg.gmail_message_id)} title="Move to trash (Gmail + webapp)">
+          <Trash2 className="h-4 w-4" />
           Trash
         </button>
       ) : null}
@@ -707,28 +707,28 @@ export default function InboxPage() {
   // ── Render expanded email body ──
 
   const renderExpandedContent = (msg: EmailMessage, thread: EmailThread, contactName: string | null, tabCtx: TabContext) => (
-    <div className="p-4 rounded-lg bg-surface-container-low border border-outline-variant/50">
+    <div className="p-5 rounded-lg bg-surface-container-low border border-outline-variant/50">
       {loadingEmailContent ? (
-        <div className="flex items-center gap-2 text-muted-foreground text-xs py-4">
-          <div className="animate-spin rounded-full h-3 w-3 border border-primary border-t-transparent" />
+        <div className="flex items-center gap-2.5 text-muted-foreground text-sm py-5">
+          <div className="animate-spin rounded-full h-4 w-4 border border-primary border-t-transparent" />
           Loading email…
         </div>
       ) : expandedEmailContent ? (
         <div>
-          <div className="text-xs text-muted-foreground space-y-0.5 mb-3">
+          <div className="text-sm text-muted-foreground space-y-1 mb-4">
             <p><span className="font-medium">From:</span> {expandedEmailContent.from}</p>
             <p><span className="font-medium">To:</span> {expandedEmailContent.to}</p>
             <p><span className="font-medium">Date:</span> {expandedEmailContent.date ? new Date(expandedEmailContent.date).toLocaleString() : ""}</p>
           </div>
           {expandedEmailContent.bodyHtml ? (
-            <div className="text-sm prose prose-sm max-w-none [&_*]:!text-foreground [&_a]:!text-primary overflow-auto" style={{ maxHeight: "calc(100vh - 380px)", minHeight: "200px" }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(expandedEmailContent.bodyHtml) }} />
+            <div className="text-base prose prose-base max-w-none [&_*]:!text-foreground [&_a]:!text-primary overflow-auto" style={{ maxHeight: "calc(100vh - 380px)", minHeight: "200px" }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(expandedEmailContent.bodyHtml) }} />
           ) : (
-            <pre className="text-sm text-foreground whitespace-pre-wrap overflow-auto" style={{ maxHeight: "calc(100vh - 380px)", minHeight: "200px" }}>{expandedEmailContent.bodyText || "No content available"}</pre>
+            <pre className="text-base text-foreground whitespace-pre-wrap overflow-auto" style={{ maxHeight: "calc(100vh - 380px)", minHeight: "200px" }}>{expandedEmailContent.bodyText || "No content available"}</pre>
           )}
           {renderEmailActions(msg, thread, contactName, tabCtx)}
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">Failed to load email content.</p>
+        <p className="text-sm text-muted-foreground">Failed to load email content.</p>
       )}
     </div>
   );
@@ -747,8 +747,8 @@ export default function InboxPage() {
       };
       return (
         <div className="text-center py-16">
-          <EmptyIcon className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">{msgMap[tabCtx]}</p>
+          <EmptyIcon className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
+          <p className="text-base text-muted-foreground">{msgMap[tabCtx]}</p>
         </div>
       );
     }
@@ -770,27 +770,27 @@ export default function InboxPage() {
               {/* Thread row */}
               <button
                 type="button"
-                className={`group/thread w-full text-left px-4 py-3 hover:bg-surface-container-low transition-colors cursor-pointer ${isUnread ? "bg-primary/[0.04]" : ""}`}
+                className={`group/thread w-full text-left px-5 py-3.5 hover:bg-surface-container-low transition-colors cursor-pointer ${isUnread ? "bg-primary/[0.04]" : ""}`}
                 onClick={() => handleThreadClick(thread)}
               >
-                <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                <div className="flex items-center gap-3.5">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
                     tabCtx === "trash" ? "bg-surface-container-low" :
                     tabCtx === "hidden" ? "bg-surface-container-low" :
                     latest.direction === "outbound" ? "bg-primary-container" : "bg-tertiary-container"
                   }`}>
-                    {tabCtx === "trash" ? <Trash2 className="h-3.5 w-3.5 text-muted-foreground" /> :
-                     tabCtx === "hidden" ? <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> :
-                     latest.direction === "outbound" ? <ArrowUpRight className="h-3.5 w-3.5 text-on-primary-container" /> :
-                     <ArrowDownLeft className="h-3.5 w-3.5 text-on-tertiary-container" />}
+                    {tabCtx === "trash" ? <Trash2 className="h-4 w-4 text-muted-foreground" /> :
+                     tabCtx === "hidden" ? <EyeOff className="h-4 w-4 text-muted-foreground" /> :
+                     latest.direction === "outbound" ? <ArrowUpRight className="h-4 w-4 text-on-primary-container" /> :
+                     <ArrowDownLeft className="h-4 w-4 text-on-tertiary-container" />}
                   </div>
-                  <div className="w-36 shrink-0 truncate">
-                    <span className={`text-sm ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>
+                  <div className="w-40 shrink-0 truncate">
+                    <span className={`text-base ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>
                       {contactName || (latest.direction === "outbound" ? `To: ${latest.to_addresses?.[0] || "Unknown"}` : latest.from_address || "Unknown")}
                     </span>
                   </div>
-                  <div className="flex-1 min-w-0 flex items-center gap-2">
-                    <span className={`text-sm truncate ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>{thread.subject}</span>
+                  <div className="flex-1 min-w-0 flex items-center gap-2.5">
+                    <span className={`text-base truncate ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>{thread.subject}</span>
                     {thread.messages.length > 1 && (
                       <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-secondary-container text-[10px] font-medium text-on-secondary-container shrink-0">{thread.messages.length}</span>
                     )}
@@ -807,9 +807,9 @@ export default function InboxPage() {
                         <CalendarIcon className="h-2.5 w-2.5" />
                       </span>
                     )}
-                    <span className="text-xs text-muted-foreground truncate hidden sm:inline">— {latest.snippet || ""}</span>
+                    <span className="text-sm text-muted-foreground truncate hidden sm:inline">— {latest.snippet || ""}</span>
                   </div>
-                  <span className={`text-xs shrink-0 ${isUnread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                  <span className={`text-sm shrink-0 ${isUnread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
                     {thread.latestDate ? formatDate(thread.latestDate) : ""}
                   </span>
                   {/* 3-dot action menu */}
@@ -822,15 +822,15 @@ export default function InboxPage() {
                       onClick={(e) => { e.stopPropagation(); setThreadActionMenuId(threadActionMenuId === thread.threadId ? null : thread.threadId); setThreadActionMoveOpen(false); }}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setThreadActionMenuId(thread.threadId); } }}
                     >
-                      <MoreVertical className="h-4 w-4" />
+                      <MoreVertical className="h-5 w-5" />
                     </div>
                     {threadActionMenuId === thread.threadId && (
-                      <div className="absolute right-0 top-8 z-50 w-44 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1" onClick={(e) => e.stopPropagation()}>
+                      <div className="absolute right-0 top-9 z-50 w-48 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1" onClick={(e) => e.stopPropagation()}>
                         {/* Reply */}
                         {tabCtx !== "trash" && tabCtx !== "hidden" && (
                           <button
                             type="button"
-                            className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-2.5"
+                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
                             onClick={() => {
                               const lastMsg = thread.messages[thread.messages.length - 1];
                               const replyTo = lastMsg.direction === "outbound" ? (lastMsg.to_addresses?.[0] || "") : (lastMsg.from_address || "");
@@ -839,7 +839,7 @@ export default function InboxPage() {
                               setThreadActionMenuId(null);
                             }}
                           >
-                            <Reply className="h-3.5 w-3.5 text-muted-foreground" /> Reply
+                            <Reply className="h-4 w-4 text-muted-foreground" /> Reply
                           </button>
                         )}
                         {/* Move to */}
@@ -847,19 +847,19 @@ export default function InboxPage() {
                           <div className="relative">
                             <button
                               type="button"
-                              className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-2.5"
+                              className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
                               onClick={() => setThreadActionMoveOpen(!threadActionMoveOpen)}
                             >
-                              <FolderInput className="h-3.5 w-3.5 text-muted-foreground" /> Move to
-                              <ChevronDown className={`h-3 w-3 ml-auto text-muted-foreground transition-transform ${threadActionMoveOpen ? "rotate-180" : ""}`} />
+                              <FolderInput className="h-4 w-4 text-muted-foreground" /> Move to
+                              <ChevronDown className={`h-3.5 w-3.5 ml-auto text-muted-foreground transition-transform ${threadActionMoveOpen ? "rotate-180" : ""}`} />
                             </button>
                             {threadActionMoveOpen && (
-                              <div className="border-t border-outline-variant/50 max-h-40 overflow-y-auto">
+                              <div className="border-t border-outline-variant/50 max-h-44 overflow-y-auto">
                                 {gmailLabels.map((label) => (
                                   <button
                                     key={label.id}
                                     type="button"
-                                    className="w-full text-left px-3 pl-9 py-1.5 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors"
+                                    className="w-full text-left px-4 pl-11 py-2 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors"
                                     onClick={() => { handleMoveEmail(latest.gmail_message_id, label.id); setThreadActionMenuId(null); setThreadActionMoveOpen(false); }}
                                   >
                                     {label.name}
@@ -873,36 +873,36 @@ export default function InboxPage() {
                         {tabCtx === "hidden" ? (
                           <button
                             type="button"
-                            className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-2.5"
+                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
                             onClick={() => { handleUnhideEmail(latest.gmail_message_id); setThreadActionMenuId(null); }}
                           >
-                            <Eye className="h-3.5 w-3.5 text-muted-foreground" /> Unhide
+                            <Eye className="h-4 w-4 text-muted-foreground" /> Unhide
                           </button>
                         ) : tabCtx !== "trash" ? (
                           <button
                             type="button"
-                            className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-2.5"
+                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
                             onClick={() => { handleHideEmail(latest.gmail_message_id); setThreadActionMenuId(null); }}
                           >
-                            <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> Hide
+                            <EyeOff className="h-4 w-4 text-muted-foreground" /> Hide
                           </button>
                         ) : null}
                         {/* Trash / Restore */}
                         {tabCtx === "trash" ? (
                           <button
                             type="button"
-                            className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-2.5"
+                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
                             onClick={() => { handleRestoreEmail(latest.gmail_message_id); setThreadActionMenuId(null); }}
                           >
-                            <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" /> Restore
+                            <RotateCcw className="h-4 w-4 text-muted-foreground" /> Restore
                           </button>
                         ) : (
                           <button
                             type="button"
-                            className="w-full text-left px-3 py-2 text-xs text-destructive hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-2.5"
+                            className="w-full text-left px-4 py-2.5 text-sm text-destructive hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
                             onClick={() => { handleTrashEmail(latest.gmail_message_id); setThreadActionMenuId(null); }}
                           >
-                            <Trash2 className="h-3.5 w-3.5" /> Trash
+                            <Trash2 className="h-4 w-4" /> Trash
                           </button>
                         )}
                       </div>
@@ -913,41 +913,41 @@ export default function InboxPage() {
 
               {/* Expanded view */}
               {isExpanded && (
-                <div className="px-4 pb-3">
+                <div className="px-5 pb-4">
                   {isSingle ? (
                     /* Single message: content shown directly */
-                    <div className="ml-4 pl-4 pt-1">
+                    <div className="ml-5 pl-5 pt-1">
                       {renderExpandedContent(thread.messages[0], thread, contactName, tabCtx)}
                     </div>
                   ) : (
                     /* Multi-message thread */
-                    <div className="ml-4 border-l-2 border-outline-variant/50 pl-4 space-y-1.5 pt-1">
+                    <div className="ml-5 border-l-2 border-outline-variant/50 pl-5 space-y-2 pt-1">
                       {thread.messages.map((msg) => {
                         const isMsgExpanded = expandedEmailId === msg.gmail_message_id;
                         return (
                           <div key={msg.gmail_message_id} className="rounded-lg border border-outline-variant/40 overflow-hidden">
                             {/* Message header row */}
-                            <div className="group/msg flex items-center gap-2 p-2.5 hover:bg-surface-container-low/80 transition-colors cursor-pointer" onClick={() => handleExpandEmail(msg.gmail_message_id)}>
+                            <div className="group/msg flex items-center gap-2.5 p-3 hover:bg-surface-container-low/80 transition-colors cursor-pointer" onClick={() => handleExpandEmail(msg.gmail_message_id)}>
                               {msg.direction === "outbound" ? (
-                                <ArrowUpRight className="h-3 w-3 shrink-0 text-primary" />
+                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-primary" />
                               ) : (
-                                <ArrowDownLeft className="h-3 w-3 shrink-0 text-tertiary" />
+                                <ArrowDownLeft className="h-3.5 w-3.5 shrink-0 text-tertiary" />
                               )}
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-xs font-medium truncate ${!msg.is_read && msg.direction === "inbound" ? "text-foreground font-semibold" : "text-foreground"}`}>
+                                <div className="flex items-center gap-2.5">
+                                  <span className={`text-sm font-medium truncate ${!msg.is_read && msg.direction === "inbound" ? "text-foreground font-semibold" : "text-foreground"}`}>
                                     {msg.direction === "outbound" ? "You" : (contactName || msg.from_address || "Unknown")}
                                   </span>
-                                  <span className="text-[11px] text-muted-foreground shrink-0">{msg.date ? formatDateFull(msg.date) : ""}</span>
+                                  <span className="text-xs text-muted-foreground shrink-0">{msg.date ? formatDateFull(msg.date) : ""}</span>
                                 </div>
-                                {!isMsgExpanded && <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.snippet || ""}</p>}
+                                {!isMsgExpanded && <p className="text-sm text-muted-foreground truncate mt-0.5">{msg.snippet || ""}</p>}
                               </div>
                               {!isMsgExpanded && renderMsgRowActions(msg, tabCtx)}
                             </div>
 
                             {/* Expanded message content */}
                             {isMsgExpanded && (
-                              <div className="px-2.5 pb-2.5">
+                              <div className="px-3 pb-3">
                                 {renderExpandedContent(msg, thread, contactName, tabCtx)}
                               </div>
                             )}
@@ -957,10 +957,10 @@ export default function InboxPage() {
 
                       {/* Quick reply at thread bottom */}
                       {tabCtx !== "trash" && tabCtx !== "hidden" && (
-                        <div className="pl-2 pt-1 pb-1 flex items-center gap-4">
+                        <div className="pl-2.5 pt-1.5 pb-1.5 flex items-center gap-5">
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
+                            className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
                             onClick={() => {
                               const lastMsg = thread.messages[thread.messages.length - 1];
                               const replyTo = lastMsg.direction === "outbound" ? (lastMsg.to_addresses?.[0] || "") : (lastMsg.from_address || "");
@@ -968,11 +968,11 @@ export default function InboxPage() {
                               openCompose({ to: replyTo, name: contactName || undefined, subject: `Re: ${subj}`, threadId: thread.threadId, inReplyTo: lastMsg.gmail_message_id, references: lastMsg.gmail_message_id });
                             }}
                           >
-                            <Reply className="h-3.5 w-3.5" />
+                            <Reply className="h-4 w-4" />
                             Reply
                           </button>
                           {thread.contactId && (
-                            <button type="button" className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors" onClick={() => router.push(`/contacts/${thread.contactId}`)}>
+                            <button type="button" className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors" onClick={() => router.push(`/contacts/${thread.contactId}`)}>
                               View contact
                             </button>
                           )}
@@ -1013,27 +1013,27 @@ export default function InboxPage() {
     <div className="min-h-screen bg-background">
       <Navigation />
 
-      <div className="px-4 sm:px-6 lg:px-8 py-4">
+      <div className="px-4 sm:px-6 lg:px-8 py-5">
         {/* Top bar */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3.5 mb-5">
           {/* Sidebar toggle */}
           <button
             type="button"
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="hidden md:flex h-10 w-10 rounded-full items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-container-low transition-colors cursor-pointer"
+            className="hidden md:flex h-11 w-11 rounded-full items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-container-low transition-colors cursor-pointer"
             title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
-            {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+            {sidebarOpen ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
           </button>
 
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search emails..."
-              className="w-full h-10 pl-10 pr-4 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm"
+              className="w-full h-11 pl-11 pr-5 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-base"
             />
           </div>
 
@@ -1041,16 +1041,16 @@ export default function InboxPage() {
           <button
             type="button"
             onClick={() => setShowFilters(!showFilters)}
-            className={`h-10 px-3 rounded-full flex items-center gap-1.5 text-sm font-medium transition-colors cursor-pointer border ${
+            className={`h-11 px-4 rounded-full flex items-center gap-2 text-base font-medium transition-colors cursor-pointer border ${
               activeFilterCount > 0
                 ? "bg-primary-container text-on-primary-container border-primary/30"
                 : "bg-surface-container-low text-muted-foreground border-outline-variant hover:text-foreground"
             }`}
           >
-            <Filter className="h-3.5 w-3.5" />
+            <Filter className="h-4 w-4" />
             <span className="hidden sm:inline">Filters</span>
             {activeFilterCount > 0 && (
-              <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
+              <span className="min-w-[20px] h-[20px] px-1 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[11px] font-bold">
                 {activeFilterCount}
               </span>
             )}
@@ -1060,31 +1060,31 @@ export default function InboxPage() {
             type="button"
             onClick={handleSync}
             disabled={syncing}
-            className="h-10 w-10 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-container-low transition-colors cursor-pointer disabled:opacity-50"
+            className="h-11 w-11 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-container-low transition-colors cursor-pointer disabled:opacity-50"
             title="Sync emails"
           >
-            <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-5 w-5 ${syncing ? "animate-spin" : ""}`} />
           </button>
           <Button onClick={() => openCompose()} size="sm">
-            <PenSquare className="h-4 w-4 mr-1.5" />
+            <PenSquare className="h-5 w-5 mr-2" />
             Compose
           </Button>
         </div>
 
         {/* ── Advanced filter bar ── */}
         {showFilters && (
-          <div className="mb-4 p-3 bg-surface-container-low rounded-xl border border-outline-variant/50">
-            <div className="flex flex-wrap items-center gap-3">
+          <div className="mb-5 p-4 bg-surface-container-low rounded-xl border border-outline-variant/50">
+            <div className="flex flex-wrap items-center gap-4">
               {/* Direction */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Direction:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground">Direction:</span>
                 <div className="flex rounded-lg border border-outline-variant overflow-hidden">
                   {(["all", "inbound", "outbound"] as const).map((dir) => (
                     <button
                       key={dir}
                       type="button"
                       onClick={() => setFilterDirection(dir)}
-                      className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
                         filterDirection === dir ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
                       }`}
                     >
@@ -1095,15 +1095,15 @@ export default function InboxPage() {
               </div>
 
               {/* Days */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Activity:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground">Activity:</span>
                 <div className="flex rounded-lg border border-outline-variant overflow-hidden">
                   {([null, 7, 14, 30, 90] as const).map((d) => (
                     <button
                       key={d ?? "all"}
                       type="button"
                       onClick={() => setFilterDays(d)}
-                      className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
                         filterDays === d ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
                       }`}
                     >
@@ -1114,15 +1114,15 @@ export default function InboxPage() {
               </div>
 
               {/* Thread type */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Type:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground">Type:</span>
                 <div className="flex rounded-lg border border-outline-variant overflow-hidden">
                   {(["all", "threads", "single"] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
                       onClick={() => setFilterThreadType(t)}
-                      className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
                         filterThreadType === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
                       }`}
                     >
@@ -1133,15 +1133,15 @@ export default function InboxPage() {
               </div>
 
               {/* Follow-ups */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Follow-ups:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground">Follow-ups:</span>
                 <div className="flex rounded-lg border border-outline-variant overflow-hidden">
                   {(["all", "with", "without"] as const).map((f) => (
                     <button
                       key={f}
                       type="button"
                       onClick={() => setFilterFollowUp(f)}
-                      className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
                         filterFollowUp === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
                       }`}
                     >
@@ -1152,17 +1152,17 @@ export default function InboxPage() {
               </div>
 
               {/* Contact search */}
-              <div className="flex items-center gap-1.5 relative">
-                <span className="text-xs font-medium text-muted-foreground">Contact:</span>
+              <div className="flex items-center gap-2 relative">
+                <span className="text-sm font-medium text-muted-foreground">Contact:</span>
                 {selectedContactId !== null ? (
-                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-container text-on-primary-container text-xs font-medium">
-                    <span className="max-w-32 truncate">{contactMap[selectedContactId]}</span>
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-container text-on-primary-container text-sm font-medium">
+                    <span className="max-w-36 truncate">{contactMap[selectedContactId]}</span>
                     <button
                       type="button"
                       className="p-0.5 rounded-full hover:bg-primary/20 cursor-pointer"
                       onClick={() => { setSelectedContactId(null); setContactSearchQuery(""); }}
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ) : (
@@ -1172,15 +1172,15 @@ export default function InboxPage() {
                       value={contactSearchQuery}
                       onChange={(e) => setContactSearchQuery(e.target.value)}
                       placeholder="Search by name..."
-                      className="w-40 h-7 px-2.5 text-xs bg-transparent border border-outline-variant rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                      className="w-44 h-8 px-3 text-sm bg-transparent border border-outline-variant rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                     />
                     {contactSearchQuery.trim() && filteredContactOptions.length > 0 && (
-                      <div className="absolute left-0 top-8 z-50 w-56 max-h-48 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
+                      <div className="absolute left-0 top-9 z-50 w-60 max-h-52 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
                         {filteredContactOptions.map((c) => (
                           <button
                             key={c.id}
                             type="button"
-                            className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-surface-container-low cursor-pointer transition-colors"
+                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors"
                             onClick={() => { setSelectedContactId(c.id); setContactSearchQuery(""); }}
                           >
                             {c.name}
@@ -1197,7 +1197,7 @@ export default function InboxPage() {
                 <button
                   type="button"
                   onClick={clearAllFilters}
-                  className="ml-auto text-xs font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
+                  className="ml-auto text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
                 >
                   Clear all
                 </button>
@@ -1206,10 +1206,10 @@ export default function InboxPage() {
           </div>
         )}
 
-        <div className="flex gap-4">
+        <div className="flex gap-5">
           {/* ── Sidebar ── */}
-          <div className={`shrink-0 hidden md:block transition-all duration-200 ${sidebarOpen ? "w-48" : "w-12"}`}>
-            <nav className="space-y-0.5 sticky top-20">
+          <div className={`shrink-0 hidden md:block transition-all duration-200 ${sidebarOpen ? "w-52" : "w-14"}`}>
+            <nav className="space-y-1 sticky top-20">
               {sidebarItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.key;
@@ -1220,17 +1220,17 @@ export default function InboxPage() {
                     type="button"
                     onClick={() => switchTab(item.key)}
                     title={!sidebarOpen ? item.label : undefined}
-                    className={`w-full flex items-center gap-3 ${sidebarOpen ? "px-3" : "px-0 justify-center"} py-2.5 rounded-full text-sm font-medium transition-colors cursor-pointer ${
+                    className={`w-full flex items-center gap-3.5 ${sidebarOpen ? "px-4" : "px-0 justify-center"} py-3 rounded-full text-base font-medium transition-colors cursor-pointer ${
                       isActive ? "bg-secondary-container text-on-secondary-container" : "text-muted-foreground hover:text-foreground hover:bg-surface-container-low"
                     }`}
                   >
-                    <Icon className="h-4.5 w-4.5 shrink-0" />
+                    <Icon className="h-5 w-5 shrink-0" />
                     {sidebarOpen && (
                       <>
                         <span className="flex-1 text-left">{item.label}</span>
                         {item.count > 0 && (
-                          <span className={`text-xs font-medium ${
-                            isBadge ? "bg-destructive text-destructive-foreground rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center" : isActive ? "text-on-secondary-container" : "text-muted-foreground"
+                          <span className={`text-sm font-medium ${
+                            isBadge ? "bg-destructive text-destructive-foreground rounded-full min-w-[20px] h-[20px] px-1 flex items-center justify-center text-xs" : isActive ? "text-on-secondary-container" : "text-muted-foreground"
                           }`}>
                             {item.count}
                           </span>
@@ -1246,13 +1246,13 @@ export default function InboxPage() {
           {/* ── Main content ── */}
           <div className="flex-1 min-w-0">
             {/* Mobile tabs */}
-            <div className="flex md:hidden gap-1 border-b border-outline-variant mb-4 overflow-x-auto">
+            <div className="flex md:hidden gap-1.5 border-b border-outline-variant mb-5 overflow-x-auto">
               {sidebarItems.map((item) => (
                 <button
                   key={item.key}
                   type="button"
                   onClick={() => switchTab(item.key)}
-                  className={`px-3 py-2.5 text-sm font-medium transition-colors relative cursor-pointer whitespace-nowrap ${
+                  className={`px-4 py-3 text-base font-medium transition-colors relative cursor-pointer whitespace-nowrap ${
                     activeTab === item.key ? "text-primary" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -1264,9 +1264,9 @@ export default function InboxPage() {
             </div>
 
             {loading ? (
-              <div className="flex items-center justify-center gap-3 text-muted-foreground py-16">
-                <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-                <span className="text-sm">Loading inbox…</span>
+              <div className="flex items-center justify-center gap-3.5 text-muted-foreground py-16">
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+                <span className="text-base">Loading inbox…</span>
               </div>
             ) : (
               <>
@@ -1278,46 +1278,46 @@ export default function InboxPage() {
                 {/* ─── DRAFTS TAB ─── */}
                 {activeTab === "drafts" && (
                   <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-sm font-medium text-foreground">
+                    <div className="flex items-center justify-between mb-5">
+                      <h2 className="text-base font-medium text-foreground">
                         Drafts
-                        {drafts.length > 0 && <span className="ml-1.5 text-muted-foreground font-normal">({drafts.length})</span>}
+                        {drafts.length > 0 && <span className="ml-2 text-muted-foreground font-normal">({drafts.length})</span>}
                       </h2>
                     </div>
                     {drafts.length === 0 ? (
                       <div className="text-center py-16">
-                        <FileText className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-                        <p className="text-sm text-muted-foreground">No drafts.</p>
-                        <p className="text-xs text-muted-foreground mt-1">Emails you start composing but don&apos;t send will be saved here.</p>
+                        <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
+                        <p className="text-base text-muted-foreground">No drafts.</p>
+                        <p className="text-sm text-muted-foreground mt-1.5">Emails you start composing but don&apos;t send will be saved here.</p>
                       </div>
                     ) : (
                       <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
                         {drafts.map((draft) => (
-                          <div key={draft.id} className="px-4 py-3 hover:bg-surface-container-low/50 transition-colors cursor-pointer" onClick={() => openDraft(draft)}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center shrink-0">
-                                <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                          <div key={draft.id} className="px-5 py-3.5 hover:bg-surface-container-low/50 transition-colors cursor-pointer" onClick={() => openDraft(draft)}>
+                            <div className="flex items-center gap-3.5">
+                              <div className="w-9 h-9 rounded-full bg-surface-container flex items-center justify-center shrink-0">
+                                <FileText className="h-4 w-4 text-muted-foreground" />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium text-foreground truncate">{draft.subject || "(no subject)"}</span>
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-container text-muted-foreground shrink-0">Draft</span>
+                                <div className="flex items-center gap-2.5">
+                                  <span className="text-base font-medium text-foreground truncate">{draft.subject || "(no subject)"}</span>
+                                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface-container text-muted-foreground shrink-0">Draft</span>
                                 </div>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span className="text-xs text-muted-foreground truncate">
+                                <div className="flex items-center gap-2.5 mt-1">
+                                  <span className="text-sm text-muted-foreground truncate">
                                     {draft.recipient_email ? `To: ${draft.contact_name || draft.recipient_email}` : "No recipient"}
                                   </span>
-                                  <span className="text-xs text-muted-foreground">·</span>
-                                  <span className="text-xs text-muted-foreground shrink-0">{formatDate(draft.updated_at)}</span>
+                                  <span className="text-sm text-muted-foreground">·</span>
+                                  <span className="text-sm text-muted-foreground shrink-0">{formatDate(draft.updated_at)}</span>
                                 </div>
                               </div>
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); deleteDraft(draft.id); }}
-                                className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+                                className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
                                 title="Delete draft"
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
+                                <Trash2 className="h-4 w-4" />
                               </button>
                             </div>
                           </div>
@@ -1330,17 +1330,17 @@ export default function InboxPage() {
                 {/* ─── SCHEDULED TAB ─── */}
                 {activeTab === "scheduled" && (
                   <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-sm font-medium text-foreground">
+                    <div className="flex items-center justify-between mb-5">
+                      <h2 className="text-base font-medium text-foreground">
                         Scheduled emails
-                        {scheduledEmails.length > 0 && <span className="ml-1.5 text-muted-foreground font-normal">({scheduledEmails.length})</span>}
+                        {scheduledEmails.length > 0 && <span className="ml-2 text-muted-foreground font-normal">({scheduledEmails.length})</span>}
                       </h2>
                     </div>
                     {scheduledEmails.length === 0 ? (
                       <div className="text-center py-16">
-                        <Send className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-                        <p className="text-sm text-muted-foreground">No scheduled emails.</p>
-                        <p className="text-xs text-muted-foreground mt-1">Use the &quot;Schedule&quot; option in Compose to queue emails for later.</p>
+                        <Send className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
+                        <p className="text-base text-muted-foreground">No scheduled emails.</p>
+                        <p className="text-sm text-muted-foreground mt-1.5">Use the &quot;Schedule&quot; option in Compose to queue emails for later.</p>
                       </div>
                     ) : (
                       <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
@@ -1348,33 +1348,33 @@ export default function InboxPage() {
                           const contactName = se.matched_contact_id ? contactMap[se.matched_contact_id] : null;
                           const linkedFU = followUps.find((fu) => fu.scheduled_email_id === se.id);
                           return (
-                            <div key={se.id} className="px-4 py-3 hover:bg-surface-container-low/50 transition-colors">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center shrink-0">
-                                  <Clock className="h-3.5 w-3.5 text-on-tertiary-container" />
+                            <div key={se.id} className="px-5 py-3.5 hover:bg-surface-container-low/50 transition-colors">
+                              <div className="flex items-center gap-3.5">
+                                <div className="w-9 h-9 rounded-full bg-tertiary-container flex items-center justify-center shrink-0">
+                                  <Clock className="h-4 w-4 text-on-tertiary-container" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-foreground truncate">{se.subject}</span>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">Scheduled</span>
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="text-base font-medium text-foreground truncate">{se.subject}</span>
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">Scheduled</span>
                                     {linkedFU && (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-tertiary-container/30 text-on-tertiary-container shrink-0">
+                                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/30 text-on-tertiary-container shrink-0">
                                         + {linkedFU.email_follow_up_messages.filter((m) => m.status === "pending").length} follow-up(s)
                                       </span>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-xs text-muted-foreground truncate">To: {contactName || se.recipient_email}</span>
-                                    <span className="text-xs text-muted-foreground">·</span>
-                                    <span className="text-xs text-muted-foreground shrink-0">Sends {formatDateFull(se.scheduled_send_at)}</span>
+                                  <div className="flex items-center gap-2.5 mt-1">
+                                    <span className="text-sm text-muted-foreground truncate">To: {contactName || se.recipient_email}</span>
+                                    <span className="text-sm text-muted-foreground">·</span>
+                                    <span className="text-sm text-muted-foreground shrink-0">Sends {formatDateFull(se.scheduled_send_at)}</span>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: se.recipient_email, contactName: se.contact_name, originalSubject: se.subject, originalSentAt: se.scheduled_send_at, originalGmailMessageId: `scheduled_${se.id}`, threadId: se.thread_id || `pending_scheduled_${se.id}`, scheduledEmailId: se.id, existingFollowUp: linkedFU || null }); }} className="p-1.5 rounded-full text-muted-foreground hover:text-tertiary cursor-pointer transition-colors" title="Schedule follow-up">
-                                    <Clock className="h-3.5 w-3.5" />
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: se.recipient_email, contactName: se.contact_name, originalSubject: se.subject, originalSentAt: se.scheduled_send_at, originalGmailMessageId: `scheduled_${se.id}`, threadId: se.thread_id || `pending_scheduled_${se.id}`, scheduledEmailId: se.id, existingFollowUp: linkedFU || null }); }} className="p-2 rounded-full text-muted-foreground hover:text-tertiary cursor-pointer transition-colors" title="Schedule follow-up">
+                                    <Clock className="h-4 w-4" />
                                   </button>
-                                  <button type="button" onClick={() => cancelScheduledEmail(se.id)} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Cancel scheduled email">
-                                    <XCircle className="h-3.5 w-3.5" />
+                                  <button type="button" onClick={() => cancelScheduledEmail(se.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Cancel scheduled email">
+                                    <XCircle className="h-4 w-4" />
                                   </button>
                                 </div>
                               </div>
@@ -1389,17 +1389,17 @@ export default function InboxPage() {
                 {/* ─── FOLLOW-UPS TAB ─── */}
                 {activeTab === "followups" && (
                   <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-sm font-medium text-foreground">
+                    <div className="flex items-center justify-between mb-5">
+                      <h2 className="text-base font-medium text-foreground">
                         Active follow-ups
-                        {followUps.length > 0 && <span className="ml-1.5 text-muted-foreground font-normal">({followUps.length} sequence{followUps.length !== 1 ? "s" : ""})</span>}
+                        {followUps.length > 0 && <span className="ml-2 text-muted-foreground font-normal">({followUps.length} sequence{followUps.length !== 1 ? "s" : ""})</span>}
                       </h2>
                     </div>
                     {followUps.length === 0 ? (
                       <div className="text-center py-16">
-                        <Clock className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-                        <p className="text-sm text-muted-foreground">No active follow-ups.</p>
-                        <p className="text-xs text-muted-foreground mt-1">Schedule follow-ups from sent emails to automate reminders.</p>
+                        <Clock className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
+                        <p className="text-base text-muted-foreground">No active follow-ups.</p>
+                        <p className="text-sm text-muted-foreground mt-1.5">Schedule follow-ups from sent emails to automate reminders.</p>
                       </div>
                     ) : (
                       <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
@@ -1407,28 +1407,28 @@ export default function InboxPage() {
                           const pendingMsgs = fu.email_follow_up_messages.filter((m) => m.status === "pending").sort((a, b) => a.sequence_number - b.sequence_number);
                           const nextMsg = pendingMsgs[0];
                           return (
-                            <div key={fu.id} className="px-4 py-3 hover:bg-surface-container-low/50 transition-colors">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-tertiary-container/50 flex items-center justify-center shrink-0">
-                                  <Clock className="h-3.5 w-3.5 text-on-tertiary-container" />
+                            <div key={fu.id} className="px-5 py-3.5 hover:bg-surface-container-low/50 transition-colors">
+                              <div className="flex items-center gap-3.5">
+                                <div className="w-9 h-9 rounded-full bg-tertiary-container/50 flex items-center justify-center shrink-0">
+                                  <Clock className="h-4 w-4 text-on-tertiary-container" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-foreground truncate">{fu.original_subject || "(no subject)"}</span>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">{pendingMsgs.length} pending</span>
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="text-base font-medium text-foreground truncate">{fu.original_subject || "(no subject)"}</span>
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">{pendingMsgs.length} pending</span>
                                   </div>
-                                  <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-xs text-muted-foreground truncate">To: {fu.contact_name || fu.recipient_email}</span>
+                                  <div className="flex items-center gap-2.5 mt-1">
+                                    <span className="text-sm text-muted-foreground truncate">To: {fu.contact_name || fu.recipient_email}</span>
                                     {nextMsg && (
                                       <>
-                                        <span className="text-xs text-muted-foreground">·</span>
-                                        <span className="text-xs text-muted-foreground shrink-0">Next: {formatDateFull(nextMsg.scheduled_send_at)}</span>
+                                        <span className="text-sm text-muted-foreground">·</span>
+                                        <span className="text-sm text-muted-foreground shrink-0">Next: {formatDateFull(nextMsg.scheduled_send_at)}</span>
                                       </>
                                     )}
                                   </div>
-                                  <div className="flex flex-wrap gap-1.5 mt-2">
+                                  <div className="flex flex-wrap gap-2 mt-2.5">
                                     {fu.email_follow_up_messages.sort((a, b) => a.sequence_number - b.sequence_number).map((m) => (
-                                      <span key={m.id} className={`text-[10px] px-1.5 py-0.5 rounded-full ${m.status === "sent" ? "bg-primary/15 text-primary" : m.status === "cancelled" ? "bg-surface-container-low text-muted-foreground line-through" : "bg-tertiary-container/50 text-on-tertiary-container"}`}>
+                                      <span key={m.id} className={`text-[11px] px-2 py-0.5 rounded-full ${m.status === "sent" ? "bg-primary/15 text-primary" : m.status === "cancelled" ? "bg-surface-container-low text-muted-foreground line-through" : "bg-tertiary-container/50 text-on-tertiary-container"}`}>
                                         #{m.sequence_number}: Day {m.send_after_days}
                                         {m.status === "sent" && " (sent)"}
                                         {m.status === "cancelled" && " (cancelled)"}
@@ -1436,14 +1436,14 @@ export default function InboxPage() {
                                       </span>
                                     ))}
                                   </div>
-                                  <p className="text-[10px] text-muted-foreground mt-1">Auto-cancels if they reply</p>
+                                  <p className="text-[11px] text-muted-foreground mt-1.5">Auto-cancels if they reply</p>
                                 </div>
-                                <div className="flex flex-col gap-1 shrink-0">
-                                  <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: fu.recipient_email, contactName: fu.contact_name, originalSubject: fu.original_subject || "", originalSentAt: fu.original_sent_at, originalGmailMessageId: fu.original_gmail_message_id, threadId: fu.thread_id, existingFollowUp: fu }); }} className="p-1.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Edit follow-ups">
-                                    <Pencil className="h-3.5 w-3.5" />
+                                <div className="flex flex-col gap-1.5 shrink-0">
+                                  <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: fu.recipient_email, contactName: fu.contact_name, originalSubject: fu.original_subject || "", originalSentAt: fu.original_sent_at, originalGmailMessageId: fu.original_gmail_message_id, threadId: fu.thread_id, existingFollowUp: fu }); }} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Edit follow-ups">
+                                    <Pencil className="h-4 w-4" />
                                   </button>
-                                  <button type="button" onClick={() => cancelFollowUp(fu.id)} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Cancel all follow-ups">
-                                    <XCircle className="h-3.5 w-3.5" />
+                                  <button type="button" onClick={() => cancelFollowUp(fu.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Cancel all follow-ups">
+                                    <XCircle className="h-4 w-4" />
                                   </button>
                                 </div>
                               </div>
