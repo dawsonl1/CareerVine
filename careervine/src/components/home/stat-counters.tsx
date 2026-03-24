@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 export interface StatCard {
@@ -24,21 +25,29 @@ function TrendArrow({ current, previous }: { current: number; previous: number }
   return <Minus className="h-6 w-6 text-muted-foreground" />;
 }
 
-function StatTooltip({ lines }: { lines: string[] }) {
-  return (
-    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 px-4 py-3 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg min-w-[220px] animate-in fade-in zoom-in-95 duration-150">
+function CursorTooltip({ lines, x, y }: { lines: string[]; x: number; y: number }) {
+  return createPortal(
+    <div
+      className="fixed z-[9999] px-4 py-3 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg min-w-[220px] pointer-events-none"
+      style={{ left: x + 14, top: y + 14 }}
+    >
       {lines.map((line, i) => (
         <p key={i} className="text-sm text-foreground whitespace-nowrap">
           {line}
         </p>
       ))}
-      <div className="absolute top-full left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-surface-container-highest border-r border-b border-outline-variant rotate-45 -mt-[5px]" />
-    </div>
+    </div>,
+    document.body
   );
 }
 
 export function StatCounters({ stats }: StatCountersProps) {
   const [hoveredStat, setHoveredStat] = useState<string | null>(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    setMousePos({ x: e.clientX, y: e.clientY });
+  }, []);
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -51,9 +60,10 @@ export function StatCounters({ stats }: StatCountersProps) {
             className={`rounded-xl bg-surface-container-low px-7 py-6 relative ${hasTooltip ? "cursor-default" : ""}`}
             onMouseEnter={() => hasTooltip && setHoveredStat(stat.label)}
             onMouseLeave={() => setHoveredStat(null)}
+            onMouseMove={hasTooltip ? handleMouseMove : undefined}
           >
             {hoveredStat === stat.label && stat.tooltipLines && (
-              <StatTooltip lines={stat.tooltipLines} />
+              <CursorTooltip lines={stat.tooltipLines} x={mousePos.x} y={mousePos.y} />
             )}
             <div className="flex items-center gap-2.5">
               <span className="text-5xl font-semibold text-foreground tabular-nums">
