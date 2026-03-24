@@ -36,6 +36,38 @@ interface TodayScheduleProps {
   /** Height of the left column (action list) in px — used to expand hour range to fill space */
   availableHeight: number;
   onLogConversation?: (contactId?: number) => void;
+  onEventCreated?: () => void;
+}
+
+// ── Drag-to-create types ──
+
+interface DragState {
+  startY: number;
+  currentY: number;
+  isDragging: boolean;
+}
+
+interface NewEventDraft {
+  startHour: number;
+  endHour: number;
+  top: number;
+  height: number;
+}
+
+const SNAP_MINUTES = 15; // Snap to 15-minute intervals
+
+function snapToInterval(hourFrac: number): number {
+  const totalMinutes = hourFrac * 60;
+  const snapped = Math.round(totalMinutes / SNAP_MINUTES) * SNAP_MINUTES;
+  return snapped / 60;
+}
+
+function formatTime(hourFrac: number): string {
+  const hours = Math.floor(hourFrac);
+  const minutes = Math.round((hourFrac - hours) * 60);
+  const period = hours >= 12 ? "PM" : "AM";
+  const h = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+  return `${h}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
 const HOUR_HEIGHT = 52; // px per hour
@@ -295,11 +327,122 @@ function EventPopover({
   );
 }
 
+// ── Quick-add event card ──
+
+function QuickAddCard({
+  draft,
+  onSave,
+  onCancel,
+}: {
+  draft: NewEventDraft;
+  onSave: (title: string, addMeet: boolean) => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [addMeet, setAddMeet] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
+
+  // Close on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        onCancel();
+      }
+    };
+    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
+    return () => { clearTimeout(timer); document.removeEventListener("mousedown", handler); };
+  }, [onCancel]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave(title || "(No title)", addMeet);
+  };
+
+  return (
+    <div
+      ref={cardRef}
+      className="absolute z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant w-[280px] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+      style={{
+        right: "calc(100% + 8px)",
+        top: Math.max(0, draft.top - 10),
+      }}
+    >
+      <div className="p-4">
+        {/* Title input */}
+        <input
+          ref={inputRef}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+          placeholder="Add title"
+          className="w-full text-lg font-medium text-foreground bg-transparent border-b-2 border-primary pb-2 placeholder:text-muted-foreground/50 focus:outline-none"
+        />
+
+        {/* Time range */}
+        <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
+          <Clock className="h-4 w-4 shrink-0" />
+          <span>{formatTime(draft.startHour)} – {formatTime(draft.endHour)}</span>
+        </div>
+
+        {/* Google Meet toggle */}
+        <label className="flex items-center gap-2 mt-2.5 text-sm text-muted-foreground cursor-pointer">
+          <Video className="h-4 w-4 shrink-0" />
+          <span className="flex-1">Add Google Meet</span>
+          <input
+            type="checkbox"
+            checked={addMeet}
+            onChange={(e) => setAddMeet(e.target.checked)}
+            className="w-4 h-4 accent-primary cursor-pointer"
+          />
+        </label>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-2 px-4 pb-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer rounded-full"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-5 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ──
 
-export function TodaySchedule({ events, loading, calendarConnected, availableHeight, onLogConversation }: TodayScheduleProps) {
+export function TodaySchedule({ events, loading, calendarConnected, availableHeight, onLogConversation, onEventCreated }: TodayScheduleProps) {
   const [now, setNow] = useState(new Date());
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+
+  // Drag-to-create state
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [newEventDraft, setNewEventDraft] = useState<NewEventDraft | null>(null);
 
   // Update "now" every minute for the current-time indicator
   useEffect(() => {
@@ -337,6 +480,93 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
       return { ...event, top, height, timeLabel };
     });
   }, [events, startHour]);
+
+  // ── Drag-to-create handlers ──
+
+  const yToHour = useCallback((y: number): number => {
+    if (!gridRef.current) return startHour;
+    const rect = gridRef.current.getBoundingClientRect();
+    const relativeY = y - rect.top;
+    return snapToInterval(startHour + relativeY / HOUR_HEIGHT);
+  }, [startHour]);
+
+  const handleGridMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only start drag on the grid background, not on events or popovers
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-event-block]") || target.closest("[data-popover]")) return;
+    if (newEventDraft) { setNewEventDraft(null); return; } // Close any open draft
+
+    setSelectedEventId(null);
+    setDragState({ startY: e.clientY, currentY: e.clientY, isDragging: false });
+  }, [newEventDraft]);
+
+  const handleGridMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragState) return;
+    const dy = Math.abs(e.clientY - dragState.startY);
+    if (dy > 4) {
+      setDragState({ ...dragState, currentY: e.clientY, isDragging: true });
+    }
+  }, [dragState]);
+
+  const handleGridMouseUp = useCallback((e: React.MouseEvent) => {
+    if (!dragState) return;
+
+    if (dragState.isDragging) {
+      const h1 = yToHour(dragState.startY);
+      const h2 = yToHour(e.clientY);
+      const draftStart = Math.min(h1, h2);
+      const draftEnd = Math.max(h1, h2);
+      // Minimum 15 minutes
+      const finalEnd = draftEnd - draftStart < 0.25 ? draftStart + 0.25 : draftEnd;
+
+      const top = (draftStart - startHour) * HOUR_HEIGHT;
+      const height = (finalEnd - draftStart) * HOUR_HEIGHT;
+
+      setNewEventDraft({ startHour: draftStart, endHour: finalEnd, top, height });
+    }
+
+    setDragState(null);
+  }, [dragState, yToHour, startHour]);
+
+  // Drag preview dimensions
+  const dragPreview = useMemo(() => {
+    if (!dragState?.isDragging) return null;
+    const h1 = yToHour(dragState.startY);
+    const h2 = yToHour(dragState.currentY);
+    const s = Math.min(h1, h2);
+    const e = Math.max(h1, h2);
+    const finalEnd = e - s < 0.25 ? s + 0.25 : e;
+    return {
+      top: (s - startHour) * HOUR_HEIGHT,
+      height: (finalEnd - s) * HOUR_HEIGHT,
+      label: `${formatTime(s)} – ${formatTime(finalEnd)}`,
+    };
+  }, [dragState, yToHour, startHour]);
+
+  const handleSaveNewEvent = useCallback(async (title: string, addMeet: boolean) => {
+    if (!newEventDraft) return;
+    const today = new Date();
+    const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const startMs = startDate.getTime() + newEventDraft.startHour * 60 * 60 * 1000;
+    const endMs = startDate.getTime() + newEventDraft.endHour * 60 * 60 * 1000;
+
+    try {
+      await fetch("/api/calendar/create-event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          summary: title,
+          startTime: new Date(startMs).toISOString(),
+          endTime: new Date(endMs).toISOString(),
+          conferenceType: addMeet ? "meet" : "none",
+        }),
+      });
+      setNewEventDraft(null);
+      onEventCreated?.();
+    } catch {
+      // silent
+    }
+  }, [newEventDraft, onEventCreated]);
 
   if (loading) {
     return (
@@ -376,7 +606,15 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
       )}
 
       {calendarConnected && events.length > 0 && (
-        <div className="relative" style={{ height: totalHeight }}>
+        <div
+          ref={gridRef}
+          className="relative select-none"
+          style={{ height: totalHeight, cursor: dragState?.isDragging ? "ns-resize" : undefined }}
+          onMouseDown={handleGridMouseDown}
+          onMouseMove={handleGridMouseMove}
+          onMouseUp={handleGridMouseUp}
+          onMouseLeave={() => { if (dragState) setDragState(null); }}
+        >
           {/* Hour grid lines + labels */}
           {Array.from({ length: endHour - startHour + 1 }, (_, i) => {
             const hour = startHour + i;
@@ -409,7 +647,7 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
 
           {/* Event blocks */}
           {positionedEvents.map((event) => (
-            <div key={event.id} className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }}>
+            <div key={event.id} data-event-block className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }}>
               <div
                 onClick={() => setSelectedEventId(selectedEventId === event.id ? null : event.id)}
                 className={`h-full rounded-lg border-l-[3px] border-primary px-3 py-1.5 overflow-hidden transition-colors cursor-pointer ${
@@ -448,6 +686,46 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
               )}
             </div>
           ))}
+
+          {/* Drag preview */}
+          {dragPreview && (
+            <div
+              className="absolute rounded-lg bg-primary/20 border-2 border-dashed border-primary/50 px-3 py-1.5 pointer-events-none"
+              style={{
+                top: dragPreview.top,
+                height: dragPreview.height,
+                left: LABEL_WIDTH + 4,
+                right: 0,
+              }}
+            >
+              <p className="text-xs font-medium text-primary">{dragPreview.label}</p>
+            </div>
+          )}
+
+          {/* New event draft + quick-add card */}
+          {newEventDraft && (
+            <div
+              className="absolute"
+              style={{
+                top: newEventDraft.top,
+                height: newEventDraft.height,
+                left: LABEL_WIDTH + 4,
+                right: 0,
+              }}
+            >
+              <div className="h-full rounded-lg bg-primary/15 border-l-[3px] border-primary px-3 py-1.5">
+                <p className="text-xs font-medium text-primary">(No title)</p>
+                <p className="text-xs text-primary/70">
+                  {formatTime(newEventDraft.startHour)} – {formatTime(newEventDraft.endHour)}
+                </p>
+              </div>
+              <QuickAddCard
+                draft={newEventDraft}
+                onSave={handleSaveNewEvent}
+                onCancel={() => setNewEventDraft(null)}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

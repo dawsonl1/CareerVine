@@ -619,6 +619,7 @@ export default function Home() {
               calendarConnected={calendarConnected}
               availableHeight={calendarAvailableHeight}
               onLogConversation={(contactId) => openQuickCapture(contactId)}
+              onEventCreated={loadSchedule}
             />
           </div>
         </div>
