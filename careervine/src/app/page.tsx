@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAuth } from "@/components/auth-provider";
 import LandingPage from "@/components/landing-page";
 import Navigation from "@/components/navigation";
@@ -77,8 +77,24 @@ export default function Home() {
   const [neglectedContacts, setNeglectedContactsList] = useState<Awaited<ReturnType<typeof getNeglectedContacts>>>([]);
   const [band3Loading, setBand3Loading] = useState(true);
 
-  // Predicted action list height for calendar sizing (from fast count query)
+  // Calendar height prediction from fast count query
+  // >= 3 items: assume 5 visible rows (suggestions will fill gaps). Never resize.
+  // < 3 items: predict small, then measure once after core data loads.
   const [predictedListHeight, setPredictedListHeight] = useState(0);
+  const [predictedCountLow, setPredictedCountLow] = useState(false); // true if count < 3
+  const leftColRef = useRef<HTMLDivElement>(null);
+  const [measuredListHeight, setMeasuredListHeight] = useState(0);
+
+  // Only measure once after core data loads, and only if count was low
+  useEffect(() => {
+    if (!predictedCountLow || !dataLoaded || !leftColRef.current) return;
+    // Measure once, then stop
+    setMeasuredListHeight(leftColRef.current.clientHeight);
+  }, [predictedCountLow, dataLoaded]);
+
+  const calendarAvailableHeight = predictedCountLow && measuredListHeight > 0
+    ? measuredListHeight
+    : predictedListHeight;
 
   // Suggestions
   const {
@@ -175,10 +191,18 @@ export default function Home() {
     try {
       const counts = await getActionListCounts(user.id);
       const totalItems = counts.actionItems + counts.reachOut + counts.recentlyAdded;
-      // Action list layout: title(48) + filterBar(48) + rows(min(items,5) × 104) + pagination(40 if >5)
-      const visibleRows = Math.min(totalItems, 5);
-      const height = 48 + 48 + visibleRows * 104 + (totalItems > 5 ? 40 : 0);
-      setPredictedListHeight(height);
+
+      if (totalItems < 3) {
+        // Few items — predict small, will measure once after core data loads
+        setPredictedCountLow(true);
+        const visibleRows = totalItems;
+        const height = 48 + 48 + visibleRows * 104;
+        setPredictedListHeight(height);
+      } else {
+        // 3+ items: assume 5 visible rows (suggestions fill gaps, or paginated at 5)
+        const height = 48 + 48 + 5 * 104 + (totalItems > 5 ? 40 : 0);
+        setPredictedListHeight(height);
+      }
     } catch {
       // silent — calendar will just use minimum range
     }
@@ -478,21 +502,23 @@ export default function Home() {
         {/* ═══ Band 2: Workspace ═══ */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8 mb-12">
           {/* Left: Unified action list */}
-          <UnifiedActionList
-            items={unifiedItems}
-            loading={!dataLoaded || suggestionsLoading}
-            onComplete={handleComplete}
-            onSnooze={handleSnooze}
-            onDismiss={handleDismiss}
-            onSave={handleSave}
-            onLogInteraction={handleLogInteraction}
-            onDraftEmail={handleDraftEmail}
-            onNote={handleNewContactNote}
-            onIntro={handleNewContactIntro}
-            isEmpty={isEmpty}
-            onLogConversation={() => openQuickCapture()}
-            calendarConnected={calendarConnected}
-          />
+          <div ref={leftColRef}>
+            <UnifiedActionList
+              items={unifiedItems}
+              loading={!dataLoaded || suggestionsLoading}
+              onComplete={handleComplete}
+              onSnooze={handleSnooze}
+              onDismiss={handleDismiss}
+              onSave={handleSave}
+              onLogInteraction={handleLogInteraction}
+              onDraftEmail={handleDraftEmail}
+              onNote={handleNewContactNote}
+              onIntro={handleNewContactIntro}
+              isEmpty={isEmpty}
+              onLogConversation={() => openQuickCapture()}
+              calendarConnected={calendarConnected}
+            />
+          </div>
 
           {/* Right: Schedule */}
           <div>
@@ -500,7 +526,7 @@ export default function Home() {
               events={scheduleEvents}
               loading={scheduleLoading}
               calendarConnected={calendarConnected}
-              availableHeight={predictedListHeight}
+              availableHeight={calendarAvailableHeight}
             />
           </div>
         </div>
