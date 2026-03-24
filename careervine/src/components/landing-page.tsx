@@ -312,7 +312,7 @@ export default function LandingPage() {
 
       {/* ── Bento feature grid ── */}
       <section className="px-6 py-16">
-        <div className="max-w-[1152px] mx-auto">
+        <div className="max-w-6xl mx-auto">
           <h2 className="text-center text-[24px] sm:text-[32px] font-normal text-foreground mb-3">
             Everything you need, nothing you don&apos;t
           </h2>

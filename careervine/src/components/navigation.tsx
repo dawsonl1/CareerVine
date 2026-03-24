@@ -33,7 +33,7 @@ export default function Navigation() {
 
   return (
     <nav className="bg-background sticky top-0 z-50 border-b border-outline-variant">
-      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Top bar */}
         <div className="flex justify-between items-center h-16">
           {/* Brand */}
