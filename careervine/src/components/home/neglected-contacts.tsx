@@ -17,7 +17,7 @@ interface NeglectedContactsProps {
   contacts: NeglectedContact[];
 }
 
-const PAGE_SIZE = 12; // 4x3 grid
+const PAGE_SIZE = 16; // 4x4 grid
 
 function getAttentionReason(c: NeglectedContact): { label: string; borderClass: string } {
   if (c.days_since_touch === null) {
