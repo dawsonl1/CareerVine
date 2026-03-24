@@ -92,11 +92,30 @@ export function NetworkingStats({
       {/* Stat counters */}
       <StatCounters stats={statCards} />
 
-      {/* Heatmap + donut side by side, neglected contacts below */}
+      {/* Heatmap + donut + neglected contacts — all inline */}
       <div className="mt-6 flex flex-col lg:flex-row gap-6 items-start">
         {/* Heatmap */}
-        <div className="min-w-0 overflow-x-auto flex-1">
+        <div className="min-w-0 shrink-0">
           <ActivityHeatmap data={heatmapData} />
+          {/* Trend line — under heatmap */}
+          {(totalThisWeek > 0 || totalLastWeek > 0) && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              {trendPct > 0 ? (
+                <TrendingUp className="h-4 w-4 text-green-600" />
+              ) : trendPct < 0 ? (
+                <TrendingDown className="h-4 w-4 text-red-500" />
+              ) : (
+                <Minus className="h-4 w-4" />
+              )}
+              <span>
+                This week vs last:{" "}
+                <span className={trendPct > 0 ? "text-green-600" : trendPct < 0 ? "text-red-500" : ""}>
+                  {trendPct > 0 ? "+" : ""}
+                  {trendPct}% {trendPct > 0 ? "more" : trendPct < 0 ? "less" : ""} active
+                </span>
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Donut */}
@@ -105,34 +124,14 @@ export function NetworkingStats({
             <NetworkDonut data={healthSummary} />
           </div>
         )}
+
+        {/* Neglected contacts */}
+        {neglectedContacts.length > 0 && (
+          <div className="shrink-0">
+            <NeglectedContacts contacts={neglectedContacts} />
+          </div>
+        )}
       </div>
-
-      {/* Trend line */}
-      {(totalThisWeek > 0 || totalLastWeek > 0) && (
-        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-          {trendPct > 0 ? (
-            <TrendingUp className="h-4 w-4 text-green-600" />
-          ) : trendPct < 0 ? (
-            <TrendingDown className="h-4 w-4 text-red-500" />
-          ) : (
-            <Minus className="h-4 w-4" />
-          )}
-          <span>
-            This week vs last:{" "}
-            <span className={trendPct > 0 ? "text-green-600" : trendPct < 0 ? "text-red-500" : ""}>
-              {trendPct > 0 ? "+" : ""}
-              {trendPct}% {trendPct > 0 ? "more" : trendPct < 0 ? "less" : ""} active
-            </span>
-          </span>
-        </div>
-      )}
-
-      {/* Neglected contacts */}
-      {neglectedContacts.length > 0 && (
-        <div className="mt-6">
-          <NeglectedContacts contacts={neglectedContacts} />
-        </div>
-      )}
     </div>
   );
 }

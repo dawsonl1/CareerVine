@@ -1553,14 +1553,14 @@ export async function getHomeStats(userId: string) {
 }
 
 /**
- * Get daily activity counts for the last year (53 weeks) for the heatmap.
- * Start date is aligned to the nearest Sunday ~1 year ago, end date is today.
+ * Get daily activity counts for the last 4 months for the heatmap.
+ * Start date is aligned to the nearest Sunday ~4 months ago, end date is today.
  */
 export async function getActivityHeatmap(userId: string) {
   const now = new Date();
-  // Go back ~1 year and align to Sunday
+  // Go back ~4 months and align to Sunday
   const start = new Date(now);
-  start.setFullYear(start.getFullYear() - 1);
+  start.setMonth(start.getMonth() - 4);
   start.setDate(start.getDate() - start.getDay()); // Align to Sunday
   start.setHours(0, 0, 0, 0);
   const startStr = start.toISOString().split("T")[0];
