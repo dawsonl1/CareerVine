@@ -20,9 +20,9 @@ export function ContactQuickActions({
     contact.contact_emails[0]?.email;
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2.5">
       <Button variant="tonal" size="sm" onClick={onLogConversation}>
-        <MessageSquare className="h-4 w-4" /> Log conversation
+        <MessageSquare className="h-5 w-5" /> Log conversation
       </Button>
       {gmailConnected && primaryEmail && (
         <Button
@@ -30,7 +30,7 @@ export function ContactQuickActions({
           size="sm"
           onClick={() => openCompose({ to: primaryEmail, name: contact.name })}
         >
-          <Send className="h-4 w-4" /> Compose email
+          <Send className="h-5 w-5" /> Compose email
         </Button>
       )}
     </div>

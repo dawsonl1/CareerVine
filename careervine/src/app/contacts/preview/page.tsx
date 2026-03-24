@@ -184,22 +184,22 @@ export default function ContactPreviewPage() {
         {/* Back button */}
         <button
           onClick={() => router.push("/contacts")}
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
+          className="flex items-center gap-1.5 text-base text-muted-foreground hover:text-foreground mb-6 transition-colors"
         >
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="w-5 h-5" />
           Back to Contacts
         </button>
 
         {/* Header card */}
-        <div className="bg-surface-container-low rounded-2xl p-6 mb-6">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="bg-surface-container-low rounded-2xl p-7 mb-7">
+          <div className="flex items-start justify-between gap-5 flex-wrap">
             {/* Avatar + Identity */}
-            <div className="flex items-center gap-4">
-              <ContactAvatar name={fullName} photoUrl={profileData.photo_url} className="w-14 h-14 text-lg" />
+            <div className="flex items-center gap-5">
+              <ContactAvatar name={fullName} photoUrl={profileData.photo_url} className="w-16 h-16 text-xl" />
               <div>
-                <h1 className="text-2xl font-semibold text-foreground leading-tight">{fullName}</h1>
+                <h1 className="text-[28px] font-semibold text-foreground leading-tight">{fullName}</h1>
                 {current_title && current_company && (
-                  <p className="text-sm text-muted-foreground mt-0.5">
+                  <p className="text-base text-muted-foreground mt-0.5">
                     {current_title} at {current_company}
                   </p>
                 )}
@@ -207,22 +207,22 @@ export default function ContactPreviewPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               {profileData.linkedin_url && (
                 <a
                   href={profileData.linkedin_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1.5 text-sm text-primary hover:underline px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors"
+                  className="flex items-center gap-2 text-base text-primary hover:underline px-4 py-2 rounded-lg hover:bg-primary/5 transition-colors"
                 >
-                  <ExternalLink className="w-4 h-4" />
+                  <ExternalLink className="w-5 h-5" />
                   LinkedIn
                 </a>
               )}
               {saved ? (
-                <div className="flex items-center gap-2 text-green-700 px-4 py-2">
+                <div className="flex items-center gap-2.5 text-green-700 px-5 py-2.5">
                   <Check className="w-5 h-5" />
-                  <span className="font-medium text-sm">Saved! Redirecting...</span>
+                  <span className="font-medium text-base">Saved! Redirecting...</span>
                 </div>
               ) : (
                 <Button onClick={handleSave} disabled={saving} className="min-w-[140px]">
@@ -237,29 +237,29 @@ export default function ContactPreviewPage() {
           </div>
 
           {/* Meta row: industry, location */}
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+          <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2.5 text-base text-muted-foreground">
             {profileData.industry && (
               <span>{profileData.industry}</span>
             )}
             {locationStr && (
-              <span className="flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5" /> {locationStr}
+              <span className="flex items-center gap-1.5">
+                <MapPin className="w-4 h-4" /> {locationStr}
               </span>
             )}
             {profileData.follow_up_frequency && (
-              <span className="flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" /> Follow up {profileData.follow_up_frequency.toLowerCase()}
+              <span className="flex items-center gap-1.5">
+                <Clock className="w-4 h-4" /> Follow up {profileData.follow_up_frequency.toLowerCase()}
               </span>
             )}
           </div>
 
           {/* Tags inline */}
           {profileData.suggested_tags && profileData.suggested_tags.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2.5">
               {profileData.suggested_tags.map((tag, i) => (
                 <span
                   key={i}
-                  className="px-2.5 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded-full"
+                  className="px-3 py-1 text-sm font-medium bg-primary/10 text-primary rounded-full"
                 >
                   {tag}
                 </span>
@@ -268,21 +268,21 @@ export default function ContactPreviewPage() {
           )}
 
           {error && (
-            <p className="text-sm text-red-600 mt-3">{error}</p>
+            <p className="text-base text-red-600 mt-4">{error}</p>
           )}
         </div>
 
         {/* Content: two-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-7">
           {/* Sidebar: Notes */}
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-7">
             {profileData.generated_notes && (
-              <div className="bg-surface-container-low rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <FileText className="w-4 h-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">About</h2>
+              <div className="bg-surface-container-low rounded-2xl p-6">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <FileText className="w-5 h-5 text-muted-foreground" />
+                  <h2 className="text-base font-semibold text-muted-foreground uppercase tracking-wide">About</h2>
                 </div>
-                <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                <p className="text-base text-foreground/80 leading-relaxed whitespace-pre-wrap">
                   {profileData.generated_notes}
                 </p>
               </div>
@@ -290,36 +290,36 @@ export default function ContactPreviewPage() {
           </div>
 
           {/* Main content: Experience + Education */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-7">
             {/* Experience */}
             {profileData.experience && profileData.experience.length > 0 && (
-              <div className="bg-surface-container-low rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <Briefcase className="w-4 h-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Experience</h2>
+              <div className="bg-surface-container-low rounded-2xl p-6">
+                <div className="flex items-center gap-2.5 mb-5">
+                  <Briefcase className="w-5 h-5 text-muted-foreground" />
+                  <h2 className="text-base font-semibold text-muted-foreground uppercase tracking-wide">Experience</h2>
                 </div>
                 <div className="relative">
                   {/* Timeline line */}
                   <div className="absolute left-[5px] top-2 bottom-2 w-px bg-outline/50" />
-                  <div className="space-y-5">
+                  <div className="space-y-6">
                     {profileData.experience.map((exp, i) => (
-                      <div key={i} className="flex gap-4 relative">
+                      <div key={i} className="flex gap-5 relative">
                         {/* Timeline dot */}
                         <div className={`w-[11px] h-[11px] rounded-full mt-1.5 shrink-0 z-10 ${
                           i === 0 ? "bg-primary" : "bg-outline"
                         }`} />
                         <div className="min-w-0">
-                          <p className="font-medium text-foreground leading-snug">{exp.title}</p>
-                          <p className="text-sm text-muted-foreground">{exp.company}</p>
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                          <p className="font-medium text-lg text-foreground leading-snug">{exp.title}</p>
+                          <p className="text-base text-muted-foreground">{exp.company}</p>
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5">
                             {(exp.start_month || exp.end_month) && (
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-sm text-muted-foreground">
                                 {exp.start_month || "?"} — {exp.end_month || "Present"}
                               </p>
                             )}
                             {exp.location && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                <MapPin className="w-3 h-3" /> {exp.location}
+                              <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                                <MapPin className="w-3.5 h-3.5" /> {exp.location}
                               </p>
                             )}
                           </div>
@@ -333,24 +333,24 @@ export default function ContactPreviewPage() {
 
             {/* Education */}
             {profileData.education && profileData.education.length > 0 && (
-              <div className="bg-surface-container-low rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <GraduationCap className="w-4 h-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Education</h2>
+              <div className="bg-surface-container-low rounded-2xl p-6">
+                <div className="flex items-center gap-2.5 mb-5">
+                  <GraduationCap className="w-5 h-5 text-muted-foreground" />
+                  <h2 className="text-base font-semibold text-muted-foreground uppercase tracking-wide">Education</h2>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-5">
                   {profileData.education.map((edu, i) => (
-                    <div key={i} className="flex gap-4">
+                    <div key={i} className="flex gap-5">
                       <div className="w-[11px] h-[11px] rounded-full bg-outline mt-1.5 shrink-0" />
                       <div className="min-w-0">
-                        <p className="font-medium text-foreground leading-snug">{edu.school}</p>
+                        <p className="font-medium text-lg text-foreground leading-snug">{edu.school}</p>
                         {(edu.degree || edu.field_of_study) && (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-base text-muted-foreground">
                             {edu.degree}{edu.degree && edu.field_of_study ? " — " : ""}{edu.field_of_study}
                           </p>
                         )}
                         {(edu.start_year || edu.end_year) && (
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-sm text-muted-foreground mt-1.5">
                             {edu.start_year || "?"} — {edu.end_year || "Present"}
                           </p>
                         )}

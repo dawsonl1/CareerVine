@@ -172,11 +172,11 @@ export function ContactActionsTab({
         </div>
       </div>
     ) : (
-      <div key={action.id} className="flex items-center gap-2 text-sm group">
+      <div key={action.id} className="flex items-center gap-2.5 text-base group">
         {icon}
         {action.priority && (
           <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_COLORS[action.priority as keyof typeof PRIORITY_COLORS]?.dot || ""}`}
+            className={`w-2 h-2 rounded-full shrink-0 ${PRIORITY_COLORS[action.priority as keyof typeof PRIORITY_COLORS]?.dot || ""}`}
             title={`${action.priority} priority`}
           />
         )}
@@ -187,13 +187,13 @@ export function ContactActionsTab({
               ? Math.floor((Date.now() - new Date(action.created_at).getTime()) / 86400000)
               : null;
             return daysWaiting !== null ? (
-              <span className="text-xs shrink-0 text-muted-foreground">{daysWaiting}d waiting</span>
+              <span className="text-sm shrink-0 text-muted-foreground">{daysWaiting}d waiting</span>
             ) : null;
           })()
         ) : (
           action.due_at && (
             <span
-              className={`text-xs shrink-0 ${
+              className={`text-sm shrink-0 ${
                 new Date(action.due_at) < new Date() ? "text-destructive font-medium" : "text-muted-foreground"
               }`}
             >
@@ -214,7 +214,7 @@ export function ContactActionsTab({
             className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
             title="Edit"
           >
-            <Pencil className="h-3 w-3" />
+            <Pencil className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
@@ -228,7 +228,7 @@ export function ContactActionsTab({
             className="p-1 rounded-full text-muted-foreground hover:text-primary cursor-pointer"
             title="Mark done"
           >
-            <Check className="h-3 w-3" />
+            <Check className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
@@ -242,7 +242,7 @@ export function ContactActionsTab({
             className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"
             title="Delete"
           >
-            <Trash2 className="h-3 w-3" />
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -250,40 +250,40 @@ export function ContactActionsTab({
 
   return (
     <div>
-      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-3">
-        <CheckSquare className="h-3.5 w-3.5" /> Pending actions{filtered.length > 0 ? ` (${filtered.length})` : ""}
+      <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-4">
+        <CheckSquare className="h-4 w-4" /> Pending actions{filtered.length > 0 ? ` (${filtered.length})` : ""}
       </h4>
 
       {filtered.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-1">No pending action items.</p>
+        <p className="text-sm text-muted-foreground py-1">No pending action items.</p>
       ) : !hasDirections ? (
-        <div className="space-y-1.5 mb-3">
+        <div className="space-y-2 mb-4">
           {filtered.map((action) =>
-            renderActionRow(action, <CheckSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />)
+            renderActionRow(action, <CheckSquare className="h-4 w-4 shrink-0 text-muted-foreground" />)
           )}
         </div>
       ) : (
-        <div className="space-y-4 mb-3">
+        <div className="space-y-5 mb-4">
           {myTasks.length > 0 && (
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
-                <CheckSquare className="h-3 w-3" /> Your commitments ({completedMy} of {myTasks.length + completedMy} done)
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                <CheckSquare className="h-3.5 w-3.5" /> Your commitments ({completedMy} of {myTasks.length + completedMy} done)
               </p>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {myTasks.map((action) =>
-                  renderActionRow(action, <CheckSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />)
+                  renderActionRow(action, <CheckSquare className="h-4 w-4 shrink-0 text-muted-foreground" />)
                 )}
               </div>
             </div>
           )}
           {waitingTasks.length > 0 && (
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
-                <Hourglass className="h-3 w-3" /> Waiting on {contactName} ({completedWaiting} of {waitingTasks.length + completedWaiting} done)
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                <Hourglass className="h-3.5 w-3.5" /> Waiting on {contactName} ({completedWaiting} of {waitingTasks.length + completedWaiting} done)
               </p>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {waitingTasks.map((action) =>
-                  renderActionRow(action, <Hourglass className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />, true)
+                  renderActionRow(action, <Hourglass className="h-4 w-4 shrink-0 text-muted-foreground" />, true)
                 )}
               </div>
             </div>
@@ -292,27 +292,27 @@ export function ContactActionsTab({
       )}
 
       <Button type="button" variant="tonal" size="sm" onClick={() => setShowModal(true)}>
-        <Plus className="h-4 w-4" /> Add action item
+        <Plus className="h-5 w-5" /> Add action item
       </Button>
 
       {completedActions.length > 0 && (
-        <div className="mt-4">
+        <div className="mt-5">
           <button
             type="button"
             onClick={() => setShowCompleted(!showCompleted)}
-            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+            className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
           >
-            <ChevronDown className={`h-3 w-3 transition-transform ${showCompleted ? "rotate-0" : "-rotate-90"}`} />
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showCompleted ? "rotate-0" : "-rotate-90"}`} />
             Completed ({completedActions.length})
           </button>
           {showCompleted && (() => {
             const hasCompletedDirections = completedActions.some((a) => a.direction);
             const completedRow = (action: CompletedAction) => (
-              <div key={action.id} className="flex items-center gap-2 text-sm">
-                <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <div key={action.id} className="flex items-center gap-2.5 text-base">
+                <Check className="h-4 w-4 shrink-0 text-primary" />
                 <span className="text-muted-foreground line-through">{action.title}</span>
                 {action.completed_at && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-sm text-muted-foreground">
                     · {new Date(action.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </span>
                 )}
@@ -321,7 +321,7 @@ export function ContactActionsTab({
 
             if (!hasCompletedDirections) {
               return (
-                <div className="space-y-1.5 mt-2">
+                <div className="space-y-2 mt-2.5">
                   {completedActions.map(completedRow)}
                 </div>
               );
@@ -331,21 +331,21 @@ export function ContactActionsTab({
             const completedWaitingItems = completedActions.filter((a) => a.direction === ActionDirection.WaitingOn);
 
             return (
-              <div className="space-y-3 mt-2">
+              <div className="space-y-4 mt-2.5">
                 {completedMyItems.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
-                      <CheckSquare className="h-3 w-3" /> Your commitments
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                      <CheckSquare className="h-3.5 w-3.5" /> Your commitments
                     </p>
-                    <div className="space-y-1.5">{completedMyItems.map(completedRow)}</div>
+                    <div className="space-y-2">{completedMyItems.map(completedRow)}</div>
                   </div>
                 )}
                 {completedWaitingItems.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-1.5">
-                      <Hourglass className="h-3 w-3" /> Waiting on {contactName}
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                      <Hourglass className="h-3.5 w-3.5" /> Waiting on {contactName}
                     </p>
-                    <div className="space-y-1.5">{completedWaitingItems.map(completedRow)}</div>
+                    <div className="space-y-2">{completedWaitingItems.map(completedRow)}</div>
                   </div>
                 )}
               </div>

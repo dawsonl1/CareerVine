@@ -219,9 +219,9 @@ export default function ContactDetailPage() {
       <div className="min-h-screen bg-background">
         <Navigation />
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          <div className="flex items-center gap-3 text-muted-foreground">
+          <div className="flex items-center gap-4 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-            <span className="text-sm">Loading contact...</span>
+            <span className="text-base">Loading contact...</span>
           </div>
         </div>
       </div>
@@ -233,7 +233,7 @@ export default function ContactDetailPage() {
       <div className="min-h-screen bg-background">
         <Navigation />
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          <p className="text-sm text-muted-foreground">Contact not found.</p>
+          <p className="text-base text-muted-foreground">Contact not found.</p>
         </div>
       </div>
     );
@@ -247,17 +247,17 @@ export default function ContactDetailPage() {
         <div className="mb-6">
           <button
             onClick={() => router.push("/contacts")}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-base text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-5 w-5" />
             All contacts
           </button>
         </div>
 
         {/* Two-column layout */}
-        <div className="flex flex-col md:flex-row gap-6">
+        <div className="flex flex-col md:flex-row gap-7">
           {/* Left sidebar */}
-          <aside className="w-full md:w-80 md:shrink-0 space-y-4 md:sticky md:top-6 md:self-start">
+          <aside className="w-full md:w-80 md:shrink-0 space-y-5 md:sticky md:top-6 md:self-start">
             <ContactProfileCard
               contact={contact}
               userId={user!.id}
@@ -270,7 +270,7 @@ export default function ContactDetailPage() {
           </aside>
 
           {/* Main content */}
-          <main className="flex-1 min-w-0 space-y-4">
+          <main className="flex-1 min-w-0 space-y-5">
             {/* Quick actions */}
             <ContactQuickActions
               contact={contact}
@@ -285,12 +285,12 @@ export default function ContactDetailPage() {
             />
 
             {/* Tab bar */}
-            <div className="flex gap-1 border-b border-outline-variant overflow-x-auto">
+            <div className="flex gap-1.5 border-b border-outline-variant overflow-x-auto">
               {TABS.map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => changeTab(tab.key)}
-                  className={`px-4 py-2.5 text-sm font-medium transition-colors relative cursor-pointer whitespace-nowrap ${
+                  className={`px-5 py-3 text-base font-medium transition-colors relative cursor-pointer whitespace-nowrap ${
                     activeTab === tab.key
                       ? "text-primary"
                       : "text-muted-foreground hover:text-foreground"
@@ -350,8 +350,8 @@ export default function ContactDetailPage() {
                   </div>
                 ) : (
                   <div className="text-center py-8">
-                    <p className="text-sm text-muted-foreground mb-2">Gmail not connected.</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-base text-muted-foreground mb-2">Gmail not connected.</p>
+                    <p className="text-sm text-muted-foreground">
                       Connect your Gmail account in{" "}
                       <button onClick={() => router.push("/settings")} className="text-primary hover:underline cursor-pointer">Settings</button>
                       {" "}to view email history.

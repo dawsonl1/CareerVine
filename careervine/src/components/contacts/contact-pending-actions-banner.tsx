@@ -41,35 +41,35 @@ export function ContactPendingActionsBanner({
   const remaining = actions.length - shown.length;
 
   return (
-    <div className="mb-4 p-3 rounded-[12px] bg-primary-container/20 border border-primary/10">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
-          <CheckSquare className="h-3.5 w-3.5 text-primary" />
+    <div className="mb-5 p-4 rounded-[12px] bg-primary-container/20 border border-primary/10">
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-sm font-medium text-foreground flex items-center gap-2">
+          <CheckSquare className="h-4 w-4 text-primary" />
           {actions.length} pending action{actions.length !== 1 ? "s" : ""}
         </span>
         <button
           onClick={onViewAll}
-          className="text-xs text-primary font-medium hover:underline cursor-pointer"
+          className="text-sm text-primary font-medium hover:underline cursor-pointer"
         >
           View all
         </button>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {shown.map((item) => {
           const todayStr = new Date().toISOString().split("T")[0];
           const overdue = item.due_at && item.due_at.split("T")[0] < todayStr;
           return (
-            <div key={item.id} className="flex items-center gap-2 group">
+            <div key={item.id} className="flex items-center gap-2.5 group">
               <button
                 onClick={(e) => handleComplete(e, item.id)}
-                className="w-4 h-4 rounded border border-outline-variant hover:border-primary hover:bg-primary-container flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+                className="w-5 h-5 rounded border border-outline-variant hover:border-primary hover:bg-primary-container flex items-center justify-center shrink-0 cursor-pointer transition-colors"
                 title="Mark done"
               >
                 <span className="hidden group-hover:block text-primary text-[10px]">✓</span>
               </button>
-              <span className="text-xs text-foreground truncate flex-1">{item.title}</span>
+              <span className="text-sm text-foreground truncate flex-1">{item.title}</span>
               {item.due_at && (
-                <span className={`text-[10px] shrink-0 ${overdue ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                <span className={`text-xs shrink-0 ${overdue ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                   {overdue ? "Overdue" : `Due ${new Date(item.due_at).toLocaleDateString()}`}
                 </span>
               )}
@@ -77,7 +77,7 @@ export function ContactPendingActionsBanner({
           );
         })}
         {remaining > 0 && (
-          <p className="text-[10px] text-muted-foreground pl-6">+{remaining} more</p>
+          <p className="text-xs text-muted-foreground pl-7">+{remaining} more</p>
         )}
       </div>
     </div>

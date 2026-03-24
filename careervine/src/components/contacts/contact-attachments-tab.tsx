@@ -75,15 +75,15 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
 
   return (
     <div>
-      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-3">
-        <Paperclip className="h-3.5 w-3.5" /> Attachments{attachments.length > 0 ? ` (${attachments.length})` : ""}
+      <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-4">
+        <Paperclip className="h-4 w-4" /> Attachments{attachments.length > 0 ? ` (${attachments.length})` : ""}
       </h4>
 
       {attachments.length > 0 && (
-        <div className="space-y-1.5 mb-3">
+        <div className="space-y-2 mb-4">
           {attachments.map((att) => (
-            <div key={att.id} className="flex items-center gap-2 text-sm group">
-              <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <div key={att.id} className="flex items-center gap-2.5 text-base group">
+              <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
               <button
                 type="button"
                 className="text-primary hover:underline truncate max-w-[200px] cursor-pointer text-left"
@@ -92,7 +92,7 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
                 {att.file_name}
               </button>
               {att.file_size_bytes && (
-                <span className="text-xs text-muted-foreground">{formatSize(att.file_size_bytes)}</span>
+                <span className="text-sm text-muted-foreground">{formatSize(att.file_size_bytes)}</span>
               )}
               <button
                 type="button"
@@ -100,15 +100,15 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
                 onClick={() => handleDelete(att.id, att.object_path)}
                 title="Delete attachment"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-4 w-4" />
               </button>
             </div>
           ))}
         </div>
       )}
 
-      <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors">
-        <Plus className="h-3.5 w-3.5" />
+      <label className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors">
+        <Plus className="h-4 w-4" />
         {uploading ? "Uploading…" : "Add file"}
         <input
           type="file"

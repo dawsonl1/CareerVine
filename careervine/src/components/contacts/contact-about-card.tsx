@@ -15,16 +15,16 @@ export function ContactAboutCard({ contact }: ContactAboutCardProps) {
   if (!hasBio && !hasMetThrough && !hasTags) return null;
 
   return (
-    <div className="rounded-[16px] border border-outline-variant p-5 space-y-3">
-      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+    <div className="rounded-[16px] border border-outline-variant p-6 space-y-4">
+      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
         About
       </h3>
 
       {/* Bio / Notes */}
       {hasBio && (
-        <div className="flex gap-2">
-          <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+        <div className="flex gap-2.5">
+          <StickyNote className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+          <p className="text-base text-foreground whitespace-pre-wrap leading-relaxed">
             {contact.notes}
           </p>
         </div>
@@ -32,8 +32,8 @@ export function ContactAboutCard({ contact }: ContactAboutCardProps) {
 
       {/* Met through */}
       {hasMetThrough && (
-        <div className="flex items-center gap-2 text-sm">
-          <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-2.5 text-base">
+          <Users className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-muted-foreground">Met through</span>
           <span className="text-foreground">{contact.met_through}</span>
         </div>
@@ -41,11 +41,11 @@ export function ContactAboutCard({ contact }: ContactAboutCardProps) {
 
       {/* Tags */}
       {hasTags && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
+        <div className="flex flex-wrap gap-2 pt-1">
           {contact.contact_tags.map((ct) => (
             <span
               key={ct.tag_id}
-              className="inline-flex items-center h-6 px-2.5 rounded-full bg-secondary-container text-[11px] text-on-secondary-container font-medium"
+              className="inline-flex items-center h-7 px-3 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium"
             >
               {ct.tags.name}
             </span>

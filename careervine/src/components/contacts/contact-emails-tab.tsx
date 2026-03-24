@@ -126,24 +126,24 @@ export function ContactEmailsTab({
 
   return (
     <div>
-      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-3">
-        <Inbox className="h-3.5 w-3.5" /> Emails{emailThreads.length > 0 ? ` (${emailThreads.length} thread${emailThreads.length !== 1 ? "s" : ""})` : ""}
+      <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-4">
+        <Inbox className="h-4 w-4" /> Emails{emailThreads.length > 0 ? ` (${emailThreads.length} thread${emailThreads.length !== 1 ? "s" : ""})` : ""}
       </h4>
 
       {/* Scheduled (queued) emails */}
       {scheduledEmails.length > 0 && (
-        <div className="space-y-1 mb-3">
+        <div className="space-y-1.5 mb-4">
           {scheduledEmails.map((se) => (
-            <div key={se.id} className="flex items-start gap-2 p-2 rounded-lg bg-tertiary-container/15 border border-tertiary/15">
-              <Clock className="h-3.5 w-3.5 text-tertiary shrink-0 mt-0.5" />
+            <div key={se.id} className="flex items-start gap-2.5 p-3 rounded-lg bg-tertiary-container/15 border border-tertiary/15">
+              <Clock className="h-4 w-4 text-tertiary shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-foreground truncate">{se.subject}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-sm font-medium text-foreground truncate">{se.subject}</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">
                     Scheduled
                   </span>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   To: {se.recipient_email} · Sends {new Date(se.scheduled_send_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                 </p>
               </div>
@@ -183,12 +183,12 @@ export function ContactEmailsTab({
       )}
 
       {loadingEmails ? (
-        <div className="flex items-center gap-2 text-muted-foreground text-xs py-2">
-          <div className="animate-spin rounded-full h-3 w-3 border border-primary border-t-transparent" />
+        <div className="flex items-center gap-2.5 text-muted-foreground text-sm py-2">
+          <div className="animate-spin rounded-full h-4 w-4 border border-primary border-t-transparent" />
           Loading emails…
         </div>
       ) : emailThreads.length === 0 && scheduledEmails.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {contactEmailAddresses.length === 0
             ? "No email addresses on file for this contact."
             : "No email history found."}
@@ -214,15 +214,15 @@ export function ContactEmailsTab({
                     }
                   }}
                 >
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-start gap-2.5">
                     {latest.direction === "outbound" ? (
-                      <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-primary mt-0.5" />
+                      <ArrowUpRight className="h-4 w-4 shrink-0 text-primary mt-0.5" />
                     ) : (
-                      <ArrowDownLeft className="h-3.5 w-3.5 shrink-0 text-tertiary mt-0.5" />
+                      <ArrowDownLeft className="h-4 w-4 shrink-0 text-tertiary mt-0.5" />
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm truncate text-foreground">{thread.subject}</span>
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-base truncate text-foreground">{thread.subject}</span>
                         {thread.messages.length > 1 && (
                           <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-secondary-container text-[10px] font-medium text-on-secondary-container shrink-0">
                             {thread.messages.length}
@@ -239,11 +239,11 @@ export function ContactEmailsTab({
                             </span>
                           );
                         })()}
-                        <span className="text-[11px] text-muted-foreground shrink-0">
+                        <span className="text-xs text-muted-foreground shrink-0">
                           {thread.latestDate ? new Date(thread.latestDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">{latest.snippet || ""}</p>
+                      <p className="text-sm text-muted-foreground truncate mt-0.5">{latest.snippet || ""}</p>
                     </div>
                   </div>
                 </button>
@@ -260,22 +260,22 @@ export function ContactEmailsTab({
                             className="w-full text-left p-2 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer"
                             onClick={() => handleExpandEmail(msg.gmail_message_id)}
                           >
-                            <div className="flex items-start gap-2">
+                            <div className="flex items-start gap-2.5">
                               {msg.direction === "outbound" ? (
-                                <ArrowUpRight className="h-3 w-3 shrink-0 text-primary mt-0.5" />
+                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-primary mt-0.5" />
                               ) : (
-                                <ArrowDownLeft className="h-3 w-3 shrink-0 text-tertiary mt-0.5" />
+                                <ArrowDownLeft className="h-3.5 w-3.5 shrink-0 text-tertiary mt-0.5" />
                               )}
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs font-medium text-foreground truncate">
+                                <div className="flex items-center gap-2.5">
+                                  <span className="text-sm font-medium text-foreground truncate">
                                     {msg.direction === "outbound" ? "You" : (msg.from_address || "Unknown")}
                                   </span>
-                                  <span className="text-[11px] text-muted-foreground shrink-0">
+                                  <span className="text-xs text-muted-foreground shrink-0">
                                     {msg.date ? new Date(msg.date).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}
                                   </span>
                                 </div>
-                                <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.snippet || ""}</p>
+                                <p className="text-sm text-muted-foreground truncate mt-0.5">{msg.snippet || ""}</p>
                               </div>
                             </div>
                           </button>
@@ -283,13 +283,13 @@ export function ContactEmailsTab({
                           {isMsgExpanded && (
                             <div className="ml-5 mr-1 mb-1 p-3 rounded-lg bg-surface-container-low border border-outline-variant/50">
                               {loadingEmailContent ? (
-                                <div className="flex items-center gap-2 text-muted-foreground text-xs py-4">
-                                  <div className="animate-spin rounded-full h-3 w-3 border border-primary border-t-transparent" />
+                                <div className="flex items-center gap-2.5 text-muted-foreground text-sm py-4">
+                                  <div className="animate-spin rounded-full h-4 w-4 border border-primary border-t-transparent" />
                                   Loading email…
                                 </div>
                               ) : expandedEmailContent ? (
                                 <div>
-                                  <div className="text-xs text-muted-foreground space-y-0.5 mb-3">
+                                  <div className="text-sm text-muted-foreground space-y-0.5 mb-4">
                                     <p><span className="font-medium">From:</span> {expandedEmailContent.from}</p>
                                     <p><span className="font-medium">To:</span> {expandedEmailContent.to}</p>
                                     <p><span className="font-medium">Date:</span> {expandedEmailContent.date ? new Date(expandedEmailContent.date).toLocaleString() : ""}</p>
@@ -305,10 +305,10 @@ export function ContactEmailsTab({
                                     </pre>
                                   )}
                                   {gmailConnected && (
-                                    <div className="mt-3 pt-3 border-t border-outline-variant/50 flex items-center gap-4">
+                                    <div className="mt-4 pt-4 border-t border-outline-variant/50 flex items-center gap-5">
                                       <button
                                         type="button"
-                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
+                                        className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
                                         onClick={() => {
                                           const replyTo = msg.direction === "outbound"
                                             ? (msg.to_addresses?.[0] || "")
@@ -326,13 +326,13 @@ export function ContactEmailsTab({
                                           });
                                         }}
                                       >
-                                        <Reply className="h-3.5 w-3.5" />
+                                        <Reply className="h-4 w-4" />
                                         Reply
                                       </button>
                                       {msg.direction === "outbound" && msg.date && (Date.now() - new Date(msg.date).getTime()) < 14 * 86400_000 && (
                                         <button
                                           type="button"
-                                          className="inline-flex items-center gap-1.5 text-xs font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
+                                          className="inline-flex items-center gap-2 text-sm font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
                                           onClick={() => {
                                             setFollowUpModal({
                                               recipientEmail: msg.to_addresses?.[0] || "",
@@ -344,7 +344,7 @@ export function ContactEmailsTab({
                                             });
                                           }}
                                         >
-                                          <Clock className="h-3.5 w-3.5" />
+                                          <Clock className="h-4 w-4" />
                                           Schedule follow-up
                                         </button>
                                       )}
@@ -352,7 +352,7 @@ export function ContactEmailsTab({
                                   )}
                                 </div>
                               ) : (
-                                <p className="text-xs text-muted-foreground">Failed to load email content.</p>
+                                <p className="text-sm text-muted-foreground">Failed to load email content.</p>
                               )}
                             </div>
                           )}
@@ -363,10 +363,10 @@ export function ContactEmailsTab({
                     {/* Reply + Follow-up at thread bottom */}
                     {gmailConnected && (
                       <div className="pl-2 pt-1 pb-1 space-y-2">
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-5">
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
+                            className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
                             onClick={() => {
                               const lastMsg = thread.messages[thread.messages.length - 1];
                               const replyTo = lastMsg.direction === "outbound"
@@ -381,7 +381,7 @@ export function ContactEmailsTab({
                               });
                             }}
                           >
-                            <Reply className="h-3.5 w-3.5" />
+                            <Reply className="h-4 w-4" />
                             Reply to thread
                           </button>
                           {(() => {
@@ -392,7 +392,7 @@ export function ContactEmailsTab({
                             return (
                               <button
                                 type="button"
-                                className="inline-flex items-center gap-1.5 text-xs font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
+                                className="inline-flex items-center gap-2 text-sm font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
                                 onClick={() => {
                                   setFollowUpModal({
                                     recipientEmail: outbound.to_addresses?.[0] || "",
@@ -404,7 +404,7 @@ export function ContactEmailsTab({
                                   });
                                 }}
                               >
-                                <Clock className="h-3.5 w-3.5" />
+                                <Clock className="h-4 w-4" />
                                 Schedule follow-up
                               </button>
                             );
@@ -415,10 +415,10 @@ export function ContactEmailsTab({
                         {(threadFollowUps[thread.threadId] || [])
                           .filter((fu) => fu.status === "active")
                           .map((fu) => (
-                            <div key={fu.id} className="flex items-start gap-2 p-2 rounded-lg bg-tertiary-container/20 border border-tertiary/15">
-                              <Clock className="h-3.5 w-3.5 text-tertiary shrink-0 mt-0.5" />
+                            <div key={fu.id} className="flex items-start gap-2.5 p-3 rounded-lg bg-tertiary-container/20 border border-tertiary/15">
+                              <Clock className="h-4 w-4 text-tertiary shrink-0 mt-0.5" />
                               <div className="flex-1 min-w-0">
-                                <p className="text-[11px] font-medium text-foreground">
+                                <p className="text-xs font-medium text-foreground">
                                   {fu.email_follow_up_messages.filter((m) => m.status === "pending").length} follow-up
                                   {fu.email_follow_up_messages.filter((m) => m.status === "pending").length !== 1 ? "s" : ""} scheduled
                                 </p>
@@ -499,7 +499,7 @@ export function ContactEmailsTab({
             );
           })}
           {emailThreads.length > 15 && (
-            <p className="text-xs text-muted-foreground pl-6 pt-1">
+            <p className="text-sm text-muted-foreground pl-7 pt-1">
               Showing 15 of {emailThreads.length} threads
             </p>
           )}

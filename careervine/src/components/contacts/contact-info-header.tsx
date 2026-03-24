@@ -255,24 +255,24 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
     return (
       <div className="space-y-3">
         {/* Compact header — always visible */}
-        <div className="flex items-center gap-4">
-          <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-14 h-14 text-xl" />
+        <div className="flex items-center gap-5">
+          <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-16 h-16 text-2xl" />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-medium text-foreground">{contact.name}</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-medium text-foreground">{contact.name}</h1>
               {contact.contact_status && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
+                <span className="text-sm px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
                   {contact.contact_status}
                 </span>
               )}
             </div>
-            <p className="text-sm text-muted-foreground truncate">
+            <p className="text-base text-muted-foreground truncate">
               {currentCompany ? `${currentCompany.title || ""}${currentCompany.title && currentCompany.companies.name ? " at " : ""}${currentCompany.companies.name}` : ""}
               {currentCompany && primaryEmail ? " · " : ""}
               {primaryEmail || (!currentCompany ? (contact.industry || "") : "")}
             </p>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {gmailConnected && primaryEmail && (
               <Button
                 type="button"
@@ -280,7 +280,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
                 size="sm"
                 onClick={() => openCompose({ to: primaryEmail, name: contact.name })}
               >
-                <Send className="h-4 w-4" /> Email
+                <Send className="h-5 w-5" /> Email
               </Button>
             )}
             <button
@@ -301,13 +301,13 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
 
         {/* Expanded details — toggled */}
         {expanded && (
-          <div className="space-y-3 pl-16 border-l-2 border-outline-variant ml-6">
+          <div className="space-y-4 pl-16 border-l-2 border-outline-variant ml-6">
             {/* Chips: emails, phones, tags */}
             {(contact.contact_emails.length > 0 || contact.contact_phones.length > 0 || contact.contact_tags.length > 0) && (
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {contact.contact_emails.map((email) => (
-                  <span key={email.id} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[8px] bg-surface-container-low text-xs text-foreground group/email">
-                    <Mail className="h-3 w-3 text-muted-foreground" />
+                  <span key={email.id} className="inline-flex items-center gap-2 h-8 px-3.5 rounded-[8px] bg-surface-container-low text-sm text-foreground group/email">
+                    <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                     {email.email}{email.is_primary && <span className="text-primary font-medium">·primary</span>}
                     {gmailConnected && email.email && contact.contact_emails.length > 1 && (
                       <button
@@ -322,13 +322,13 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
                   </span>
                 ))}
                 {contact.contact_phones.map((phone) => (
-                  <span key={phone.id} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[8px] bg-surface-container-low text-xs text-foreground">
-                    <Phone className="h-3 w-3 text-muted-foreground" />
+                  <span key={phone.id} className="inline-flex items-center gap-2 h-8 px-3.5 rounded-[8px] bg-surface-container-low text-sm text-foreground">
+                    <Phone className="h-3.5 w-3.5 text-muted-foreground" />
                     {phone.phone}<span className="text-muted-foreground capitalize">·{phone.type}</span>{phone.is_primary && <span className="text-primary font-medium">·primary</span>}
                   </span>
                 ))}
                 {contact.contact_tags.map((ct) => (
-                  <span key={ct.tag_id} className="inline-flex items-center h-7 px-3 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium">
+                  <span key={ct.tag_id} className="inline-flex items-center h-8 px-3.5 rounded-full bg-secondary-container text-sm text-on-secondary-container font-medium">
                     {ct.tags.name}
                   </span>
                 ))}
@@ -339,16 +339,16 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
             {(contact.contact_companies.length > 0 || contact.contact_schools.length > 0) && (
               <div className="space-y-1">
                 {contact.contact_companies.map((cc) => (
-                  <p key={cc.id} className="text-xs text-muted-foreground">
-                    <Briefcase className="h-3 w-3 inline mr-1" />
+                  <p key={cc.id} className="text-sm text-muted-foreground">
+                    <Briefcase className="h-3.5 w-3.5 inline mr-1" />
                     {cc.title} at {cc.companies.name}
                     {(cc as any).location && ` · ${(cc as any).location}`}
                     {(cc as any).start_month && ` · ${(cc as any).start_month} – ${cc.is_current ? "Present" : ((cc as any).end_month || "")}`}
                   </p>
                 ))}
                 {contact.contact_schools.map((cs) => (
-                  <p key={cs.id} className="text-xs text-muted-foreground">
-                    <GraduationCap className="h-3 w-3 inline mr-1" />
+                  <p key={cs.id} className="text-sm text-muted-foreground">
+                    <GraduationCap className="h-3.5 w-3.5 inline mr-1" />
                     {cs.degree}{cs.field_of_study ? ` in ${cs.field_of_study}` : ""} · {cs.schools.name}
                   </p>
                 ))}
@@ -356,20 +356,20 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
             )}
 
             {locationParts.length > 0 && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <MapPin className="h-3 w-3" /> {locationParts.join(", ")}
+              <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5" /> {locationParts.join(", ")}
               </p>
             )}
-            {contact.met_through && <p className="text-xs text-muted-foreground">Met through: {contact.met_through}</p>}
-            {contact.notes && <p className="text-sm text-muted-foreground whitespace-pre-wrap">{contact.notes}</p>}
+            {contact.met_through && <p className="text-sm text-muted-foreground">Met through: {contact.met_through}</p>}
+            {contact.notes && <p className="text-base text-muted-foreground whitespace-pre-wrap">{contact.notes}</p>}
             {contact.follow_up_frequency_days && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Follow-up: every {contact.follow_up_frequency_days} days
               </p>
             )}
             {contact.linkedin_url && (
-              <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
-                <ExternalLink className="h-3 w-3" /> LinkedIn
+              <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline flex items-center gap-1.5">
+                <ExternalLink className="h-3.5 w-3.5" /> LinkedIn
               </a>
             )}
           </div>

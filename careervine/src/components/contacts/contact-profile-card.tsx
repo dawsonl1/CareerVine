@@ -109,45 +109,45 @@ export function ContactProfileCard({
   };
 
   return (
-    <div className="rounded-[16px] border border-outline-variant p-5">
+    <div className="rounded-[16px] border border-outline-variant p-6">
       {/* Profile hero */}
       <div className="flex flex-col items-center text-center">
         <ContactAvatar
           name={contact.name}
           photoUrl={contact.photo_url}
-          className="w-20 h-20 text-2xl mb-3"
+          className="w-[88px] h-[88px] text-[28px] mb-4"
         />
-        <div className="flex items-center gap-2">
-          <h1 className="text-lg font-medium text-foreground">{contact.name}</h1>
+        <div className="flex items-center gap-2.5">
+          <h1 className="text-xl font-medium text-foreground">{contact.name}</h1>
           {contact.contact_status && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
               {contact.contact_status}
             </span>
           )}
         </div>
         {currentCompany && (
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-base text-muted-foreground mt-0.5">
             {currentCompany.title}
             {currentCompany.title && currentCompany.companies.name ? " at " : ""}
             {currentCompany.companies.name}
           </p>
         )}
         {contact.industry && !currentCompany && (
-          <p className="text-sm text-muted-foreground mt-0.5">{contact.industry}</p>
+          <p className="text-base text-muted-foreground mt-0.5">{contact.industry}</p>
         )}
         {locationParts.length > 0 && (
-          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
-            <MapPin className="h-3 w-3" />
+          <p className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1">
+            <MapPin className="h-3.5 w-3.5" />
             {locationParts.join(", ")}
           </p>
         )}
       </div>
 
       {/* Contact info section */}
-      <div className="mt-4 pt-4 border-t border-outline-variant space-y-2.5">
+      <div className="mt-5 pt-5 border-t border-outline-variant space-y-3">
         {/* Email — inline editable */}
-        <div className="flex items-center gap-2.5 text-sm group">
-          <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-3 text-base group">
+          <Mail className="h-5 w-5 text-muted-foreground shrink-0" />
           {editingEmail ? (
             <input
               ref={emailInputRef}
@@ -159,7 +159,7 @@ export function ContactProfileCard({
                 if (e.key === "Enter") saveEmail();
                 if (e.key === "Escape") setEditingEmail(false);
               }}
-              className="flex-1 min-w-0 text-sm bg-white rounded-[4px] px-1.5 py-0.5 -mx-1.5 -my-0.5 focus:outline-none shadow-[0_0_0_1.5px_var(--primary)]"
+              className="flex-1 min-w-0 text-base bg-white rounded-[4px] px-1.5 py-0.5 -mx-1.5 -my-0.5 focus:outline-none shadow-[0_0_0_1.5px_var(--primary)]"
               placeholder="Add email..."
             />
           ) : (
@@ -179,24 +179,24 @@ export function ContactProfileCard({
               className="p-1 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
               title="Send email"
             >
-              <Send className="h-3.5 w-3.5" />
+              <Send className="h-4 w-4" />
             </button>
           )}
         </div>
 
         {/* Phone */}
         {primaryPhone && (
-          <div className="flex items-center gap-2.5 text-sm">
-            <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex items-center gap-3 text-base">
+            <Phone className="h-5 w-5 text-muted-foreground shrink-0" />
             <span className="text-foreground">{primaryPhone.phone}</span>
-            <span className="text-xs text-muted-foreground capitalize">{primaryPhone.type}</span>
+            <span className="text-sm text-muted-foreground capitalize">{primaryPhone.type}</span>
           </div>
         )}
 
         {/* LinkedIn */}
         {contact.linkedin_url && (
-          <div className="flex items-center gap-2.5 text-sm">
-            <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex items-center gap-3 text-base">
+            <ExternalLink className="h-5 w-5 text-muted-foreground shrink-0" />
             <a
               href={contact.linkedin_url}
               target="_blank"
@@ -209,8 +209,8 @@ export function ContactProfileCard({
         )}
 
         {/* Follow-up cadence — inline dropdown */}
-        <div className="flex items-center gap-2.5 text-sm relative" ref={cadenceRef}>
-          <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-3 text-base relative" ref={cadenceRef}>
+          <Clock className="h-5 w-5 text-muted-foreground shrink-0" />
           <button
             onClick={() => setCadenceOpen(!cadenceOpen)}
             className="flex items-center gap-1 text-left rounded-[4px] px-1.5 py-0.5 -mx-1.5 -my-0.5 transition-colors duration-150 hover:bg-black/[0.04] cursor-pointer"
@@ -222,7 +222,7 @@ export function ContactProfileCard({
           </button>
 
           {cadenceOpen && (
-            <div className="absolute left-6 top-full mt-1 z-50 w-44 bg-white rounded-[12px] border border-outline-variant shadow-lg py-1">
+            <div className="absolute left-6 top-full mt-1 z-50 w-48 bg-white rounded-[12px] border border-outline-variant shadow-lg py-1">
               {CADENCE_OPTIONS.map((opt) => {
                 const isSelected = opt.days === contact.follow_up_frequency_days ||
                   (opt.days === null && !contact.follow_up_frequency_days);
@@ -230,7 +230,7 @@ export function ContactProfileCard({
                   <button
                     key={opt.label}
                     onClick={() => saveCadence(opt.days)}
-                    className={`w-full text-left px-4 py-2 text-sm cursor-pointer transition-colors flex items-center justify-between ${
+                    className={`w-full text-left px-5 py-2.5 text-base cursor-pointer transition-colors flex items-center justify-between ${
                       isSelected
                         ? "text-primary bg-primary-container/30 font-medium"
                         : "text-foreground hover:bg-surface-container"
@@ -247,20 +247,20 @@ export function ContactProfileCard({
       </div>
 
       {/* Footer actions */}
-      <div className="flex justify-center gap-1 mt-4 pt-4 border-t border-outline-variant">
+      <div className="flex justify-center gap-1.5 mt-5 pt-5 border-t border-outline-variant">
         <button
           onClick={onEdit}
-          className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+          className="p-2.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors"
           title="Edit contact"
         >
-          <Pencil className="h-4 w-4" />
+          <Pencil className="h-5 w-5" />
         </button>
         <button
           onClick={onDelete}
-          className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+          className="p-2.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
           title="Delete contact"
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-5 w-5" />
         </button>
       </div>
     </div>

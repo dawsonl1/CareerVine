@@ -243,7 +243,7 @@ export default function ContactsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex items-center gap-3 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
-            <span className="text-sm">Loading contacts…</span>
+            <span className="text-base">Loading contacts…</span>
           </div>
         </div>
       </div>
@@ -258,7 +258,7 @@ export default function ContactsPage() {
         <div className="flex justify-between items-center mb-10">
           <div>
             <h1 className="text-[28px] leading-9 font-normal text-foreground">Contacts</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-base text-muted-foreground mt-1">
               {contacts.length} {contacts.length === 1 ? "person" : "people"} in your network
             </p>
           </div>
@@ -269,13 +269,13 @@ export default function ContactsPage() {
 
         {/* Search bar + suggestions */}
         <div className="relative mb-4" ref={searchRef}>
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => { setSearchQuery(e.target.value); setShowSearchSuggestions(true); }}
             onFocus={() => setShowSearchSuggestions(true)}
-            className="w-full h-12 pl-11 pr-4 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm"
+            className="w-full h-12 pl-11 pr-4 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-base"
             placeholder="Search contacts…"
           />
           {showSearchSuggestions && searchQuery.trim() && (nameSuggestions.length > 0 || tagSuggestions.length > 0) && (
@@ -284,31 +284,31 @@ export default function ContactsPage() {
                 const currentCompany = c.contact_companies.find((cc) => cc.is_current);
                 return (
                   <button key={c.id} type="button" onClick={() => { router.push(`/contacts/${c.id}`); setSearchQuery(""); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface-container cursor-pointer transition-colors text-left">
-                    <ContactAvatar name={c.name} photoUrl={c.photo_url} className="w-8 h-8 text-xs" />
+                    className="w-full flex items-center gap-4 px-5 py-3 hover:bg-surface-container cursor-pointer transition-colors text-left">
+                    <ContactAvatar name={c.name} photoUrl={c.photo_url} className="w-10 h-10 text-sm" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-foreground truncate">{c.name}</p>
-                      {currentCompany && <p className="text-xs text-muted-foreground truncate">{currentCompany.title}{currentCompany.title && currentCompany.companies.name ? " at " : ""}{currentCompany.companies.name}</p>}
+                      <p className="text-base text-foreground truncate">{c.name}</p>
+                      {currentCompany && <p className="text-sm text-muted-foreground truncate">{currentCompany.title}{currentCompany.title && currentCompany.companies.name ? " at " : ""}{currentCompany.companies.name}</p>}
                     </div>
                   </button>
                 );
               })}
               {tagSuggestions.length > 0 && (
                 <>
-                  <p className="px-4 pt-2 pb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide border-t border-outline-variant/50">By tag</p>
+                  <p className="px-5 pt-2.5 pb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-t border-outline-variant/50">By tag</p>
                   {tagSuggestions.map((c) => {
                     const matchedTag = c.contact_tags.find(ct => ct.tags.name.toLowerCase().includes(searchQuery.toLowerCase()));
                     const currentCompany = c.contact_companies.find((cc) => cc.is_current);
                     return (
                       <button key={c.id} type="button" onClick={() => { router.push(`/contacts/${c.id}`); setSearchQuery(""); }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface-container cursor-pointer transition-colors text-left">
-                        <ContactAvatar name={c.name} photoUrl={c.photo_url} className="w-8 h-8 text-xs" />
+                        className="w-full flex items-center gap-4 px-5 py-3 hover:bg-surface-container cursor-pointer transition-colors text-left">
+                        <ContactAvatar name={c.name} photoUrl={c.photo_url} className="w-10 h-10 text-sm" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm text-foreground truncate">{c.name}</p>
-                          {currentCompany && <p className="text-xs text-muted-foreground truncate">{currentCompany.title}{currentCompany.title && currentCompany.companies.name ? " at " : ""}{currentCompany.companies.name}</p>}
+                          <p className="text-base text-foreground truncate">{c.name}</p>
+                          {currentCompany && <p className="text-sm text-muted-foreground truncate">{currentCompany.title}{currentCompany.title && currentCompany.companies.name ? " at " : ""}{currentCompany.companies.name}</p>}
                         </div>
                         {matchedTag && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-container text-muted-foreground shrink-0">{matchedTag.tags.name}</span>
+                          <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-surface-container text-muted-foreground shrink-0">{matchedTag.tags.name}</span>
                         )}
                       </button>
                     );
@@ -323,12 +323,12 @@ export default function ContactsPage() {
         {contacts.length === 0 && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
-              <Users className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
-              <p className="text-base text-foreground mb-1">Your network starts here</p>
-              <p className="text-sm text-muted-foreground mb-2">
+              <Users className="mx-auto h-14 w-14 text-muted-foreground/40 mb-5" />
+              <p className="text-lg text-foreground mb-1">Your network starts here</p>
+              <p className="text-base text-muted-foreground mb-2.5">
                 Add people you meet — colleagues, mentors, classmates, or anyone worth staying in touch with.
               </p>
-              <p className="text-xs text-muted-foreground mb-6">
+              <p className="text-sm text-muted-foreground mb-6">
                 You can also import contacts from LinkedIn using the Chrome extension.
               </p>
               <Button onClick={() => setShowForm(true)}>
@@ -340,11 +340,11 @@ export default function ContactsPage() {
 
         {/* No search results */}
         {contacts.length > 0 && filteredContacts.length === 0 && (
-          <p className="text-sm text-muted-foreground py-8 text-center">No contacts match your search.</p>
+          <p className="text-base text-muted-foreground py-8 text-center">No contacts match your search.</p>
         )}
 
         {/* Contact list */}
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {filteredContacts.map((contact) => {
             const isExpanded = expandedId === contact.id;
             const currentCompany = contact.contact_companies.find((cc) => cc.is_current);
@@ -353,7 +353,7 @@ export default function ContactsPage() {
             return (
               <div key={contact.id} className="rounded-[12px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all">
                 <div
-                  className="flex items-center gap-4 p-4 cursor-pointer"
+                  className="flex items-center gap-5 p-5 cursor-pointer"
                   onClick={() => router.push(`/contacts/${contact.id}`)}
                 >
                   {/* Avatar */}
@@ -361,8 +361,8 @@ export default function ContactsPage() {
 
                   {/* Name + subtitle */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-medium text-foreground truncate">{contact.name}</h3>
-                    <p className="text-sm text-muted-foreground truncate">
+                    <h3 className="text-lg font-medium text-foreground truncate">{contact.name}</h3>
+                    <p className="text-base text-muted-foreground truncate">
                       {currentCompany
                         ? `${currentCompany.title || ""}${currentCompany.title && currentCompany.companies.name ? " at " : ""}${currentCompany.companies.name}`
                         : contact.industry || "No details"
@@ -372,15 +372,15 @@ export default function ContactsPage() {
 
                   {/* Email chip */}
                   {primaryEmail && (
-                    <span className="hidden sm:inline-flex items-center gap-1 text-xs text-muted-foreground truncate max-w-[180px]">
-                      <Mail className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline-flex items-center gap-1.5 text-sm text-muted-foreground truncate max-w-[200px]">
+                      <Mail className="h-3.5 w-3.5 shrink-0" />
                       {primaryEmail.email}
                     </span>
                   )}
 
                   {/* Status badge — Student or Professional only */}
                   {contact.contact_status && (
-                    <span className="hidden md:inline-flex text-[10px] px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
+                    <span className="hidden md:inline-flex text-xs px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
                       {contact.contact_status}
                     </span>
                   )}
@@ -392,30 +392,30 @@ export default function ContactsPage() {
                     className="group p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer transition-colors shrink-0"
                     title="Quick preview"
                   >
-                    <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? "rotate-0" : "-rotate-90 group-hover:rotate-0"}`} />
+                    <ChevronDown className={`h-5 w-5 transition-transform duration-200 ${isExpanded ? "rotate-0" : "-rotate-90 group-hover:rotate-0"}`} />
                   </button>
                 </div>
 
                 {/* Expanded preview */}
                 {isExpanded && (
-                  <div className="px-4 pb-4 pt-0 border-t border-outline-variant/30">
-                    <div className="pt-2.5 space-y-2">
+                  <div className="px-5 pb-5 pt-0 border-t border-outline-variant/30">
+                    <div className="pt-3 space-y-2.5">
                       {/* Contact info chips */}
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-2">
                         {contact.contact_emails.map((email) => (
-                          <span key={email.id} className="inline-flex items-center gap-1 text-xs text-foreground bg-surface-container-low px-2 py-1 rounded-md">
-                            <Mail className="h-3 w-3 text-muted-foreground" /> {email.email}
-                            {email.is_primary && <span className="text-primary font-medium text-[10px]">·primary</span>}
+                          <span key={email.id} className="inline-flex items-center gap-1.5 text-sm text-foreground bg-surface-container-low px-2.5 py-1 rounded-md">
+                            <Mail className="h-3.5 w-3.5 text-muted-foreground" /> {email.email}
+                            {email.is_primary && <span className="text-primary font-medium text-[11px]">·primary</span>}
                           </span>
                         ))}
                         {contact.contact_phones.map((phone) => (
-                          <span key={phone.id} className="inline-flex items-center gap-1 text-xs text-foreground bg-surface-container-low px-2 py-1 rounded-md">
-                            <Phone className="h-3 w-3 text-muted-foreground" /> {phone.phone}
+                          <span key={phone.id} className="inline-flex items-center gap-1.5 text-sm text-foreground bg-surface-container-low px-2.5 py-1 rounded-md">
+                            <Phone className="h-3.5 w-3.5 text-muted-foreground" /> {phone.phone}
                           </span>
                         ))}
                         {contact.linkedin_url && (
-                          <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary bg-surface-container-low px-2 py-1 rounded-md hover:underline">
-                            <ExternalLink className="h-3 w-3" /> LinkedIn
+                          <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary bg-surface-container-low px-2.5 py-1 rounded-md hover:underline">
+                            <ExternalLink className="h-3.5 w-3.5" /> LinkedIn
                           </a>
                         )}
                       </div>
@@ -424,8 +424,8 @@ export default function ContactsPage() {
                       {contact.contact_companies.length > 0 && (
                         <div className="space-y-0.5">
                           {contact.contact_companies.map((cc) => (
-                            <p key={cc.id} className="text-xs text-muted-foreground">
-                              <Briefcase className="h-3 w-3 inline mr-1" />
+                            <p key={cc.id} className="text-sm text-muted-foreground">
+                              <Briefcase className="h-3.5 w-3.5 inline mr-1" />
                               {cc.title}{cc.title && cc.companies.name ? " at " : ""}{cc.companies.name}
                               {cc.is_current && <span className="text-primary font-medium ml-1">· Current</span>}
                             </p>
@@ -435,14 +435,14 @@ export default function ContactsPage() {
 
                       {/* School */}
                       {contact.contact_schools.length > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          <GraduationCap className="h-3 w-3 inline mr-1" />
+                        <p className="text-sm text-muted-foreground">
+                          <GraduationCap className="h-3.5 w-3.5 inline mr-1" />
                           {contact.contact_schools[0].degree}{contact.contact_schools[0].field_of_study ? ` in ${contact.contact_schools[0].field_of_study}` : ""} · {contact.contact_schools[0].schools.name}
                         </p>
                       )}
 
                       {contact.notes && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">{contact.notes}</p>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{contact.notes}</p>
                       )}
 
                       <Button
