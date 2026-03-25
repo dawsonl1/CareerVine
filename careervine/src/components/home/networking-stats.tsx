@@ -91,11 +91,22 @@ export function NetworkingStats({
   const rot = relationshipsOnTrack;
   const rotTooltip = rot ? [
     `${rot.onTrack} of ${rot.total} relationships on track`,
-    `${rot.breakdown.withCadenceOnTrack} within cadence`,
-    `${rot.breakdown.withCadenceOverdue} overdue`,
-    ...(rot.breakdown.noCadence > 0 ? [`${rot.breakdown.noCadence} no cadence set`] : []),
+    `${rot.breakdown.withCadenceOnTrack} contacted on schedule`,
+    `${rot.breakdown.withCadenceOverdue} past their check-in date`,
+    ...(rot.breakdown.noCadence > 0 ? [`${rot.breakdown.noCadence} have no check-in schedule`] : []),
     ...(rot.breakdown.neverContactedPast7d > 0 ? [`${rot.breakdown.neverContactedPast7d} never contacted`] : []),
   ] : [];
+
+  const p = (n: number, singular: string, plural?: string) =>
+    `${n} ${n === 1 ? singular : (plural ?? singular + "s")}`;
+
+  const trendLine = (current: number, previous: number, noun: string): string[] => {
+    if (current === 0 && previous === 0) return [];
+    const diff = current - previous;
+    if (diff > 0) return [`↑ ${diff} more ${noun} than prior 7 days`];
+    if (diff < 0) return [`↓ ${Math.abs(diff)} fewer ${noun} than prior 7 days`];
+    return ["Same as prior 7 days"];
+  };
 
   const statCards: StatCard[] = [
     {
@@ -103,10 +114,10 @@ export function NetworkingStats({
       value: stats.meetings.current,
       previousValue: stats.meetings.previous,
       tooltipLines: [
-        `${stats.meetings.current} meetings logged`,
-        ...(stats.emailsSent.current > 0 ? [`${stats.emailsSent.current} emails sent`] : []),
-        ...(stats.completedItems.current > 0 ? [`${stats.completedItems.current} action items completed`] : []),
-        `${stats.meetings.previous} meetings prior 7 days`,
+        `${p(stats.meetings.current, "meeting")} logged`,
+        ...(stats.emailsSent.current > 0 ? [`${p(stats.emailsSent.current, "email")} sent`] : []),
+        ...(stats.completedItems.current > 0 ? [`${p(stats.completedItems.current, "action item")} completed`] : []),
+        ...trendLine(stats.meetings.current, stats.meetings.previous, "meetings"),
       ],
     },
     {
@@ -121,13 +132,11 @@ export function NetworkingStats({
       value: stats.contactsAdded.current,
       previousValue: stats.contactsAdded.previous,
       tooltipLines: [
-        `${stats.contactsAdded.current} new contacts (7 days)`,
-        `${stats.contactsAdded.previous} prior 7 days`,
+        `${p(stats.contactsAdded.current, "new contact")} in the last 7 days`,
+        ...trendLine(stats.contactsAdded.current, stats.contactsAdded.previous, "contacts"),
       ],
     },
   ];
-
-  // Compute trend
   const totalCurrent = stats.meetings.current + stats.completedItems.current + stats.touchpoints.current;
   const totalPrevious = stats.meetings.previous + stats.completedItems.previous + stats.touchpoints.previous;
   const trendPct = totalPrevious > 0

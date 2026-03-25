@@ -340,8 +340,12 @@ export function UnifiedActionList({
 
   // Clamp page when items are removed (e.g., snooze/complete on last page)
   const clampedPage = totalPages > 0 ? Math.min(page, totalPages - 1) : 0;
-  if (clampedPage !== page) setPage(clampedPage);
   const paginatedItems = filteredItems.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
+
+  // Sync page state down after clamping
+  useEffect(() => {
+    if (clampedPage !== page) setPage(clampedPage);
+  }, [clampedPage, page]);
 
   const handleFilterChange = useCallback((key: FilterType) => {
     setActiveFilter(key);
@@ -432,13 +436,13 @@ export function UnifiedActionList({
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-3 px-1">
               <span className="text-sm text-muted-foreground">
-                {`${page * PAGE_SIZE + 1} - ${Math.min((page + 1) * PAGE_SIZE, filteredItems.length)} of ${filteredItems.length}`}
+                {`${clampedPage * PAGE_SIZE + 1} - ${Math.min((clampedPage + 1) * PAGE_SIZE, filteredItems.length)} of ${filteredItems.length}`}
               </span>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={page === 0}
+                  disabled={clampedPage === 0}
                   className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
                 >
                   <ChevronLeft className="h-5 w-5" />
@@ -446,7 +450,7 @@ export function UnifiedActionList({
                 <button
                   type="button"
                   onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
+                  disabled={clampedPage >= totalPages - 1}
                   className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
                 >
                   <ChevronRight className="h-5 w-5" />

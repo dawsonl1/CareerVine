@@ -1938,7 +1938,8 @@ export async function getNetworkingStreak(userId: string) {
       .gte("completed_at", lookback.toISOString()),
     supabase
       .from("interactions")
-      .select("interaction_date")
+      .select("interaction_date, contacts!inner()")
+      .eq("contacts.user_id", userId)
       .gte("interaction_date", lookbackStr),
   ]);
 
@@ -2017,8 +2018,8 @@ export async function getHomeStats(userId: string) {
     supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", previousStr).lt("completed_at", currentStr),
     supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", currentStr),
     supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", previousStr).lt("created_at", currentStr),
-    supabase.from("interactions").select("*", { count: "exact", head: true }).gte("interaction_date", currentStr.split("T")[0]),
-    supabase.from("interactions").select("*", { count: "exact", head: true }).gte("interaction_date", previousStr.split("T")[0]).lt("interaction_date", currentStr.split("T")[0]),
+    supabase.from("interactions").select("*, contacts!inner()", { count: "exact", head: true }).eq("contacts.user_id", userId).gte("interaction_date", currentStr.split("T")[0]),
+    supabase.from("interactions").select("*, contacts!inner()", { count: "exact", head: true }).eq("contacts.user_id", userId).gte("interaction_date", previousStr.split("T")[0]).lt("interaction_date", currentStr.split("T")[0]),
     supabase.from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").gte("date", currentStr.split("T")[0]),
     supabase.from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").gte("date", previousStr.split("T")[0]).lt("date", currentStr.split("T")[0]),
   ]);
@@ -2049,7 +2050,7 @@ export async function getActivityHeatmap(userId: string) {
   const [{ data: meetings }, { data: completedItems }, { data: interactions }, { data: sentEmails }] = await Promise.all([
     supabase.from("meetings").select("meeting_date").eq("user_id", userId).gte("meeting_date", startStr),
     supabase.from("follow_up_action_items").select("completed_at").eq("user_id", userId).eq("is_completed", true).gte("completed_at", start.toISOString()),
-    supabase.from("interactions").select("interaction_date").gte("interaction_date", startStr),
+    supabase.from("interactions").select("interaction_date, contacts!inner()").eq("contacts.user_id", userId).gte("interaction_date", startStr),
     supabase.from("email_messages").select("date").eq("user_id", userId).eq("direction", "outbound").gte("date", startStr),
   ]);
 

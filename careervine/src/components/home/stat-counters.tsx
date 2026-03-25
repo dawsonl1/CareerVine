@@ -67,7 +67,7 @@ export function StatCounters({ stats }: StatCountersProps) {
             {diff !== 0 && (
               <p className={`text-base mt-0.5 ${diff > 0 ? "text-green-600" : "text-red-500"}`}>
                 {diff > 0 ? "+" : ""}
-                {diff}{stat.isPercentage ? "%" : ""} vs last week
+                {diff}{stat.isPercentage ? "%" : ""} vs prior 7 days
               </p>
             )}
           </div>

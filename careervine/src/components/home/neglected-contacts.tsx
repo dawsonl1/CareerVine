@@ -20,11 +20,12 @@ interface NeglectedContactsProps {
 const PAGE_SIZE = 20; // 5x4 grid
 
 function getAttentionReason(c: NeglectedContact): { label: string; borderClass: string } {
+  const cadence = c.follow_up_frequency_days ? ` · every ${c.follow_up_frequency_days}d` : "";
   if (c.days_since_touch === null) {
-    return { label: "Never contacted", borderClass: "ring-[#9e9e9e]" };
+    return { label: `Never contacted${cadence}`, borderClass: "ring-[#9e9e9e]" };
   }
   return {
-    label: `${c.days_since_touch}d since contact`,
+    label: `${c.days_since_touch}d since contact${cadence}`,
     borderClass: "ring-[#e05555]",
   };
 }

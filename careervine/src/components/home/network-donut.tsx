@@ -18,11 +18,11 @@ interface NetworkDonutProps {
 }
 
 const SEGMENTS = [
-  { key: "healthy" as const, color: "#4caf50", label: "Healthy" },
-  { key: "dueSoon" as const, color: "#ff9800", label: "Due soon" },
-  { key: "overdue" as const, color: "#e05555", label: "Overdue" },
-  { key: "neverContacted" as const, color: "#9e9e9e", label: "Never contacted" },
-  { key: "noCadence" as const, color: "#e0e0e0", label: "No cadence" },
+  { key: "healthy" as const, color: "#4caf50", label: "Healthy", description: "Contacted on schedule" },
+  { key: "dueSoon" as const, color: "#ff9800", label: "Due soon", description: "Check-in coming up" },
+  { key: "overdue" as const, color: "#e05555", label: "Overdue", description: "Past their check-in date" },
+  { key: "neverContacted" as const, color: "#9e9e9e", label: "Never contacted", description: "Added but never reached out to" },
+  { key: "noCadence" as const, color: "#e0e0e0", label: "No cadence", description: "No check-in schedule set" },
 ];
 
 export function NetworkDonut({ data }: NetworkDonutProps) {
@@ -86,6 +86,9 @@ export function NetworkDonut({ data }: NetworkDonutProps) {
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               {hoveredArc.value} contact{hoveredArc.value !== 1 ? "s" : ""} · {Math.round(hoveredArc.pct * 100)}%
+            </p>
+            <p className="text-xs text-muted-foreground/70 mt-0.5">
+              {hoveredArc.description}
             </p>
           </div>,
           document.body
