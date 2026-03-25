@@ -273,14 +273,14 @@ export const transcriptExtractActionsSchema = z.object({
 // ── AI (intro email flow) ──────────────────────────────────────────────
 
 export const aiDraftIntroSchema = z.object({
-  contactId: z.number(),
+  contactId: z.number().int().positive(),
   howMet: z.string().optional(),
   goal: z.string().optional(),
   notes: z.string().optional(),
 });
 
 export const aiDraftFollowUpsSchema = z.object({
-  contactId: z.number(),
+  contactId: z.number().int().positive(),
   introSubject: z.string().min(1),
   introBodyHtml: z.string().min(1),
   goal: z.string().optional(),

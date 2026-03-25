@@ -29,6 +29,7 @@ interface IntroContextFormProps {
   onGenerate: (context: { howMet: string; goal: string; notes: string }) => void;
   onSkip: () => void;
   generating: boolean;
+  error?: string | null;
 }
 
 export function IntroContextForm({
@@ -38,6 +39,7 @@ export function IntroContextForm({
   onGenerate,
   onSkip,
   generating,
+  error,
 }: IntroContextFormProps) {
   const [howMet, setHowMet] = useState(initialMetThrough || "");
   const [selectedHowMetChip, setSelectedHowMetChip] = useState<string | null>(
@@ -200,6 +202,13 @@ export function IntroContextForm({
             className="w-full h-9 px-3 rounded-lg border border-outline-variant/50 bg-white text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary"
           />
         </div>
+
+        {/* Error message */}
+        {error && (
+          <div className="mb-4 p-3 rounded-xl bg-destructive/5 border border-destructive/10 text-xs text-destructive">
+            {error}
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex items-center justify-between">

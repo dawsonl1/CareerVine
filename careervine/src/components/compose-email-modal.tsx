@@ -39,6 +39,7 @@ export function ComposeEmailModal() {
   const [followUps, setFollowUps] = useState<FollowUpDraft[]>([]);
   const [followUpsEnabled, setFollowUpsEnabled] = useState(true);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [introError, setIntroError] = useState<string | null>(null);
   const introContextRef = useRef<{ howMet: string; goal: string }>({ howMet: "", goal: "" });
 
   const isReply = !!replyThreadId;
@@ -135,6 +136,7 @@ export function ComposeEmailModal() {
       setFollowUps([]);
       setFollowUpsEnabled(true);
       setFollowUpError(null);
+      setIntroError(null);
       introContextRef.current = { howMet: "", goal: "" };
       draftIdRef.current = null;
       sentOrScheduledRef.current = false;
@@ -246,6 +248,7 @@ export function ComposeEmailModal() {
           contactName: prefillName || null,
           originalSubject: subject.trim(),
           originalSentAt: opts.sendTime.toISOString(),
+          timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           followUps: followUps.map((fu) => ({
             subject: fu.subject,
             bodyHtml: fu.bodyHtml,
@@ -661,16 +664,20 @@ export function ComposeEmailModal() {
                       if (res.ok) {
                         setBodyHtml(data.bodyHtml || "");
                         if (data.subject) setSubject(data.subject);
+                        setIntroError(null);
                         setIntroPhase("editing");
                       } else {
+                        setIntroError(data.error || "Failed to generate email. Please try again.");
                         setIntroPhase("context");
                       }
                     } catch {
+                      setIntroError("Failed to generate email. Please try again.");
                       setIntroPhase("context");
                     }
                   }}
                   onSkip={async () => {
                     setIntroPhase("generating");
+                    setIntroError(null);
                     try {
                       const res = await fetch("/api/ai/draft-intro", {
                         method: "POST",
@@ -681,15 +688,19 @@ export function ComposeEmailModal() {
                       if (res.ok) {
                         setBodyHtml(data.bodyHtml || "");
                         if (data.subject) setSubject(data.subject);
+                        setIntroError(null);
                         setIntroPhase("editing");
                       } else {
+                        setIntroError(data.error || "Failed to generate email. Please try again.");
                         setIntroPhase("context");
                       }
                     } catch {
+                      setIntroError("Failed to generate email. Please try again.");
                       setIntroPhase("context");
                     }
                   }}
                   generating={introPhase === "generating"}
+                  error={introError}
                 />
               )}
 
@@ -798,7 +809,19 @@ export function ComposeEmailModal() {
                   onToggle={setFollowUpsEnabled}
                   onEdit={(id, updates) => {
                     setFollowUps((prev) =>
-                      prev.map((fu) => (fu.id === id ? { ...fu, ...updates } : fu))
+                      prev.map((fu) => {
+                        if (fu.id !== id) return fu;
+                        const updated = { ...fu, ...updates };
+                        // Recalculate projected date when delay changes
+                        if (updates.delayDays && updates.delayDays !== fu.delayDays) {
+                          const sendDate = new Date(Date.now() + updates.delayDays * 24 * 60 * 60 * 1000);
+                          sendDate.setHours(9, 5, 0, 0);
+                          updated.projectedDate = sendDate.toLocaleDateString("en-US", {
+                            weekday: "short", month: "short", day: "numeric",
+                          }) + " · 9:05 AM";
+                        }
+                        return updated;
+                      })
                     );
                   }}
                   onRemove={(id) => {
@@ -941,6 +964,9 @@ export function ComposeEmailModal() {
                                 bodyHtml,
                                 scheduledSendAt: tomorrow.toISOString(),
                                 contactName: prefillName || undefined,
+                                ...(replyThreadId ? { threadId: replyThreadId } : {}),
+                                ...(replyInReplyTo ? { inReplyTo: replyInReplyTo } : {}),
+                                ...(replyReferences ? { references: replyReferences } : {}),
                               }),
                             });
                             const data = await res.json();

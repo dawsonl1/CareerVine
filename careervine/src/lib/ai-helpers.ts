@@ -56,6 +56,7 @@ export async function getContactContext(
       )
     `)
     .eq("id", contactId)
+    .eq("user_id", userId)
     .single();
 
   if (contact) {

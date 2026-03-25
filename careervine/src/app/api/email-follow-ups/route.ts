@@ -41,7 +41,7 @@ export const GET = withApiHandler({
 });
 
 const createFollowUpsSchema = z.object({
-  contactId: z.number(),
+  contactId: z.number().int().positive(),
   threadId: z.string().nullable(),
   messageId: z.string().nullable(),
   scheduledEmailId: z.number().nullable().optional(),
@@ -49,10 +49,11 @@ const createFollowUpsSchema = z.object({
   contactName: z.string().nullable(),
   originalSubject: z.string(),
   originalSentAt: z.string(),
+  timezoneOffsetMinutes: z.number(), // client's new Date().getTimezoneOffset()
   followUps: z.array(z.object({
     subject: z.string(),
     bodyHtml: z.string(),
-    delayDays: z.number(),
+    delayDays: z.number().int().positive(),
   })),
 });
 
@@ -66,7 +67,7 @@ export const POST = withApiHandler({
     const {
       contactId, threadId, messageId, scheduledEmailId,
       recipientEmail, contactName, originalSubject, originalSentAt,
-      followUps,
+      timezoneOffsetMinutes, followUps,
     } = body;
 
     const service = createSupabaseServiceClient();
@@ -95,11 +96,14 @@ export const POST = withApiHandler({
     }
 
     // Create individual message records
+    // Compute 9:05 AM in user's local timezone as UTC:
+    // 9:05 AM local = 9:05 UTC + offsetMinutes (getTimezoneOffset returns minutes BEHIND UTC)
     const sendBase = new Date(originalSentAt);
     const messages = followUps.map((fu, i) => {
       const sendAt = new Date(sendBase.getTime() + fu.delayDays * 24 * 60 * 60 * 1000);
-      // Set to 9:05 AM in the same timezone offset as the base send time
-      sendAt.setHours(9, 5, 0, 0);
+      // Set to 9:05 AM UTC, then adjust for user's timezone offset
+      sendAt.setUTCHours(9, 5, 0, 0);
+      sendAt.setUTCMinutes(sendAt.getUTCMinutes() + timezoneOffsetMinutes);
 
       return {
         follow_up_id: sequence.id,
@@ -118,6 +122,9 @@ export const POST = withApiHandler({
 
     if (msgErr) {
       console.error("[follow-ups] Failed to create messages:", msgErr);
+      // Clean up orphaned sequence
+      await service.from("email_follow_ups").delete().eq("id", sequence.id);
+      throw msgErr;
     }
 
     return { sequenceId: sequence.id, messagesCreated: messages.length };

@@ -1,4 +1,4 @@
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 /**
@@ -10,7 +10,19 @@ export const DELETE = withApiHandler({
     const id = Number(params.id);
     const service = createSupabaseServiceClient();
 
-    // Cancel all pending messages
+    // Verify ownership first
+    const { data: sequence } = await service
+      .from("email_follow_ups")
+      .select("id")
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!sequence) {
+      throw new ApiError("Follow-up sequence not found", 404);
+    }
+
+    // Cancel all pending messages (safe — ownership verified above)
     await service
       .from("email_follow_up_messages")
       .update({ status: "cancelled" })

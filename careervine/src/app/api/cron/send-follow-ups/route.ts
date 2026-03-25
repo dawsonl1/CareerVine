@@ -169,20 +169,28 @@ export async function POST(req: NextRequest) {
         sent++;
       } catch (err) {
         console.error(`[cron] Failed to send follow-up ${msg.id}:`, err);
-        // Revert to pending so it's retried next cycle
-        await service
-          .from("email_follow_up_messages")
-          .update({ status: "pending" })
-          .eq("id", msg.id);
+        // If message is 3+ days past due, give up (permanent failure)
+        if (msg.scheduled_send_at < threeDaysAgo) {
+          await service
+            .from("email_follow_up_messages")
+            .update({ status: "cancelled" })
+            .eq("id", msg.id);
+        } else {
+          // Revert to pending so it's retried next cycle
+          await service
+            .from("email_follow_up_messages")
+            .update({ status: "pending" })
+            .eq("id", msg.id);
+        }
       }
     }
 
-    // Check if all messages in the sequence are now sent
+    // Check if all messages in the sequence are done (no pending or in-flight)
     const { count } = await service
       .from("email_follow_up_messages")
       .select("id", { count: "exact", head: true })
       .eq("follow_up_id", seqId)
-      .eq("status", "pending");
+      .in("status", ["pending", "sending"]);
 
     if (count === 0) {
       await service
