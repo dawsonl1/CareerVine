@@ -9,6 +9,9 @@ import { Button } from "@/components/ui/button";
 import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock, Sparkles } from "lucide-react";
 import { AiWriteDropdown } from "@/components/ai-write-dropdown";
 import { AvailabilityPicker } from "@/components/availability-picker";
+import { IntroContextForm } from "@/components/intro-context-form";
+
+type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
 
 const inputClasses =
   "w-full h-11 px-4 bg-transparent text-foreground text-base placeholder:text-muted-foreground focus:outline-none";
@@ -25,12 +28,11 @@ export function ComposeEmailModal() {
   const {
     isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml,
     replyThreadId, replyInReplyTo, replyReferences, replyQuotedHtml,
-    aiDraftContext, isIntro, gmailAddress, closeCompose,
+    aiDraftContext, isIntro, contactId, gmailAddress, closeCompose,
   } = useCompose();
 
   const [showAiContext, setShowAiContext] = useState(false);
-  const [introPromptVisible, setIntroPromptVisible] = useState(false);
-  const [introGenerating, setIntroGenerating] = useState(false);
+  const [introPhase, setIntroPhase] = useState<IntroPhase>("context");
 
   const isReply = !!replyThreadId;
 
@@ -122,8 +124,7 @@ export function ComposeEmailModal() {
       setShowSchedule(false);
       setScheduleDatetime("");
       setShowAiContext(false);
-      setIntroPromptVisible(isIntro && !prefillBodyHtml);
-      setIntroGenerating(false);
+      setIntroPhase(isIntro && !prefillBodyHtml ? "context" : "editing");
       draftIdRef.current = null;
       sentOrScheduledRef.current = false;
       setContactSuggestions([]);
@@ -556,73 +557,85 @@ export function ComposeEmailModal() {
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-2.5">
-              {/* Intro AI draft prompt — shown when compose opened for intro and body is empty */}
-              {introPromptVisible && !introGenerating && (
-                <div className="flex flex-col items-center justify-center py-12 animate-in fade-in duration-300">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setIntroGenerating(true);
-                      setIntroPromptVisible(false);
-                      try {
-                        const res = await fetch("/api/gmail/ai-write", {
-                          method: "POST",
+              {/* Intro context form — shown when compose opened for intro */}
+              {isIntro && (introPhase === "context" || introPhase === "generating") && (
+                <IntroContextForm
+                  contactName={prefillName || "this contact"}
+                  onGenerate={async (ctx) => {
+                    setIntroPhase("generating");
+                    try {
+                      // Save context to contact
+                      if (contactId && (ctx.howMet || ctx.goal)) {
+                        fetch(`/api/contacts/${contactId}`, {
+                          method: "PATCH",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
-                            prompt: "Write a warm, professional introduction email. This is the first time I'm reaching out to this person.",
-                            recipientEmail: to,
+                            met_through: ctx.howMet || undefined,
+                            intro_goal: ctx.goal || undefined,
                           }),
-                        });
-                        const data = await res.json();
-                        if (res.ok) {
-                          setBodyHtml(data.bodyHtml);
-                          if (data.subject && !subject.trim()) {
-                            setSubject(data.subject);
-                          }
-                        }
-                      } catch {
-                        // silent — user can still type manually
-                      } finally {
-                        setIntroGenerating(false);
+                        }).catch(() => {}); // best-effort save
                       }
-                    }}
-                    className="flex items-center gap-3 px-6 py-4 rounded-2xl border-2 border-dashed border-primary/30 text-primary hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group"
-                  >
-                    <Sparkles className="h-5 w-5 group-hover:scale-110 transition-transform" />
-                    <span className="text-base font-medium">Draft an introduction email</span>
-                  </button>
-                  <p className="text-sm text-muted-foreground mt-3">or start typing below</p>
-                </div>
-              )}
+                      if (contactId && ctx.notes) {
+                        fetch(`/api/contacts/${contactId}/note`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ note: ctx.notes }),
+                        }).catch(() => {});
+                      }
 
-              {/* Loading state for intro generation */}
-              {introGenerating && (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <div className="w-48 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
-                    <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: "60%", animation: "introProgress 3s ease-in-out infinite" }} />
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-4 animate-pulse">Crafting your introduction...</p>
-                  <style>{`
-                    @keyframes introProgress {
-                      0% { width: 10%; }
-                      50% { width: 75%; }
-                      100% { width: 95%; }
+                      const res = await fetch("/api/ai/draft-intro", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          contactId,
+                          howMet: ctx.howMet || undefined,
+                          goal: ctx.goal || undefined,
+                          notes: ctx.notes || undefined,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (res.ok) {
+                        setBodyHtml(data.bodyHtml || "");
+                        if (data.subject) setSubject(data.subject);
+                        setIntroPhase("editing");
+                      } else {
+                        setIntroPhase("context");
+                      }
+                    } catch {
+                      setIntroPhase("context");
                     }
-                  `}</style>
-                </div>
+                  }}
+                  onSkip={async () => {
+                    setIntroPhase("generating");
+                    try {
+                      const res = await fetch("/api/ai/draft-intro", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ contactId }),
+                      });
+                      const data = await res.json();
+                      if (res.ok) {
+                        setBodyHtml(data.bodyHtml || "");
+                        if (data.subject) setSubject(data.subject);
+                        setIntroPhase("editing");
+                      } else {
+                        setIntroPhase("context");
+                      }
+                    } catch {
+                      setIntroPhase("context");
+                    }
+                  }}
+                  generating={introPhase === "generating"}
+                />
               )}
 
               <div
-                className={`transition-opacity duration-300 ${introPromptVisible ? "opacity-0 h-0 overflow-hidden" : "opacity-100"}`}
-                onClick={() => { if (introPromptVisible) setIntroPromptVisible(false); }}
+                className={`transition-opacity duration-300 ${isIntro && introPhase === "context" ? "opacity-0 h-0 overflow-hidden" : "opacity-100"}`}
               >
                 <RichTextEditor
                   content={bodyHtml}
                   onChange={(html) => {
                     setBodyHtml(html);
-                    if (introPromptVisible && html.replace(/<[^>]*>/g, "").trim()) {
-                      setIntroPromptVisible(false);
-                    }
                   }}
                   placeholder={isReply ? "Write your reply…" : "Write your message…"}
                 />

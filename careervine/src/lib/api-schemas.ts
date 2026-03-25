@@ -270,6 +270,23 @@ export const transcriptExtractActionsSchema = z.object({
   userName: z.string().max(100).optional(),
 });
 
+// ── AI (intro email flow) ──────────────────────────────────────────────
+
+export const aiDraftIntroSchema = z.object({
+  contactId: z.number(),
+  howMet: z.string().optional(),
+  goal: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const aiDraftFollowUpsSchema = z.object({
+  contactId: z.number(),
+  introSubject: z.string().min(1),
+  introBodyHtml: z.string().min(1),
+  goal: z.string().optional(),
+  howMet: z.string().optional(),
+});
+
 // ── Extension ──────────────────────────────────────────────────────────
 
 export const extensionParseProfileSchema = z.object({
