@@ -595,8 +595,8 @@ export default function Home() {
   );
 
   const handleDraftEmail = useCallback(
-    (contactId: number) => {
-      const contact = followUps.find((f) => f.id === contactId);
+    (cId: number) => {
+      const contact = followUps.find((f) => f.id === cId);
       if (contact) {
         const email = contact.emails[0] || "";
         openCompose({
@@ -605,6 +605,7 @@ export default function Home() {
           subject: "",
           bodyHtml: "",
           isIntro: contact.never_contacted,
+          contactId: cId,
         });
       }
     },
@@ -626,8 +627,8 @@ export default function Home() {
   );
 
   const handleNewContactIntro = useCallback(
-    (contactId: number) => {
-      const contact = newContacts.find((c) => c.id === contactId);
+    (cId: number) => {
+      const contact = newContacts.find((c) => c.id === cId);
       if (!contact) return;
       const email = contact.emails[0] || "";
       openCompose({
@@ -636,6 +637,7 @@ export default function Home() {
         subject: "",
         bodyHtml: "",
         isIntro: true,
+        contactId: cId,
       });
     },
     [newContacts, openCompose]

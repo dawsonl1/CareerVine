@@ -26,6 +26,7 @@ type ComposeOptions = {
   quotedHtml?: string;
   aiDraftContext?: AiDraftContext;
   isIntro?: boolean;
+  contactId?: number;
 };
 
 type ComposeContextValue = {
@@ -40,6 +41,7 @@ type ComposeContextValue = {
   replyQuotedHtml: string;
   aiDraftContext: AiDraftContext | null;
   isIntro: boolean;
+  contactId: number;
   gmailConnected: boolean;
   gmailLoading: boolean;
   gmailAddress: string;
@@ -60,6 +62,7 @@ const ComposeContext = createContext<ComposeContextValue>({
   replyQuotedHtml: "",
   aiDraftContext: null,
   isIntro: false,
+  contactId: 0,
   gmailConnected: false,
   gmailLoading: true,
   gmailAddress: "",
@@ -87,6 +90,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   const [replyQuotedHtml, setReplyQuotedHtml] = useState("");
   const [aiDraftCtx, setAiDraftCtx] = useState<AiDraftContext | null>(null);
   const [isIntro, setIsIntro] = useState(false);
+  const [contactId, setContactId] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -145,6 +149,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setReplyQuotedHtml(opts?.quotedHtml || "");
     setAiDraftCtx(opts?.aiDraftContext || null);
     setIsIntro(opts?.isIntro || false);
+    setContactId(opts?.contactId || 0);
     setIsOpen(true);
   }, []);
 
@@ -160,6 +165,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setReplyQuotedHtml("");
     setAiDraftCtx(null);
     setIsIntro(false);
+    setContactId(0);
   }, []);
 
   return (
@@ -176,6 +182,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         replyQuotedHtml,
         aiDraftContext: aiDraftCtx,
         isIntro,
+        contactId,
         gmailConnected: !!gmailConn,
         gmailLoading,
         gmailAddress: gmailConn?.gmail_address || "",
