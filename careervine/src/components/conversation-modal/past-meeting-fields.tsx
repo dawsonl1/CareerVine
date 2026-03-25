@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { ChevronDown, ChevronUp, Sparkles } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import TranscriptUploader from "@/components/transcript-uploader";
 import { TranscriptActionSuggestions } from "@/components/meetings/transcript-action-suggestions";
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
@@ -34,6 +35,7 @@ export function PastMeetingFields({
   onAiActionAccepted,
   onActionCreated,
 }: PastMeetingFieldsProps) {
+  const { advanceIfStep } = useOnboarding();
   const [showTranscript, setShowTranscript] = useState(!!form.transcript);
 
   const hasNotesOrTranscript = form.notes.trim().length > 0 || form.transcript.trim().length > 0;
@@ -126,7 +128,12 @@ export function PastMeetingFields({
           <div className="mt-2.5">
             <TranscriptUploader
               value={form.transcript}
-              onChange={(val) => setForm((prev) => ({ ...prev, transcript: val }))}
+              onChange={(val) => {
+                setForm((prev) => ({ ...prev, transcript: val }));
+                if (val.length > 100) {
+                  advanceIfStep("paste_transcript");
+                }
+              }}
               onSegmentsParsed={handleSegmentsParsed}
               onAudioFile={handleAudioFile}
               isTranscribing={transcriptState.isTranscribing}

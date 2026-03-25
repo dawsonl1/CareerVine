@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Button } from "@/components/ui/button";
 import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock, Sparkles } from "lucide-react";
@@ -49,6 +50,8 @@ export function ComposeEmailModal() {
   const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [introError, setIntroError] = useState<string | null>(null);
   const introContextRef = useRef<{ howMet: string; goal: string }>({ howMet: "", goal: "" });
+
+  const { advanceIfStep } = useOnboarding();
 
   const isReply = !!replyThreadId;
 
@@ -153,6 +156,11 @@ export function ComposeEmailModal() {
       setSelectedContactName(prefillName || "");
       setContactQuery("");
       setContactEmailOptions([]);
+      // Advance onboarding when intro modal opens for Dawson
+      if (isIntro && prefillTo?.includes("dawson@careervine.app")) {
+        advanceIfStep("click_intro_button");
+      }
+
       setTimeout(() => {
         if (prefillTo) {
           // Focus subject if To is pre-filled
@@ -333,6 +341,11 @@ export function ComposeEmailModal() {
       setSent(true);
       sentOrScheduledRef.current = true;
       deleteDraft();
+
+      // Advance onboarding when email sent to Dawson
+      if (to.trim().toLowerCase().includes("dawson@careervine.app")) {
+        advanceIfStep("compose_send_email");
+      }
 
       // Create follow-up records for intro emails
       if (data.messageId && data.threadId) {

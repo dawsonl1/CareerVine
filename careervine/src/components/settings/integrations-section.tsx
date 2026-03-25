@@ -10,11 +10,13 @@ import type { GmailConnection } from "@/lib/types";
 import { Mail, Check, RefreshCw, Unplug, MailCheck, Calendar } from "lucide-react";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { useGmailConnection, invalidateGmailConnectionCache } from "@/hooks/use-gmail-connection";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 export default function IntegrationsSection() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const { calendarConnected, calendarLastSynced, loading: calendarLoading, refresh: refreshConnection } = useGmailConnection();
+  const { advanceIfStep } = useOnboarding();
 
   // Gmail — still uses direct Supabase query for address/sync info
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
@@ -33,6 +35,8 @@ export default function IntegrationsSection() {
     const gmailParam = searchParams.get("gmail");
     if (gmailParam === "connected") {
       setGmailMessage({ type: "success", text: "Gmail connected successfully!" });
+      advanceIfStep("connect_gmail");
+      advanceIfStep("connect_calendar");
     } else if (gmailParam === "error") {
       const reason = searchParams.get("reason");
       setGmailMessage({ type: "error", text: reason === "access_denied" ? "Gmail access was denied. Please try again and grant the required permissions." : `Failed to connect Gmail${reason ? `: ${reason}` : ""}. Please try again.` });

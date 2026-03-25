@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Calendar, MapPin, Video, Clock, Users, X } from "lucide-react";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 export interface ScheduleEventAttendee {
   email: string;
@@ -443,6 +444,7 @@ function QuickAddCard({
 // ── Main component ──
 
 export function TodaySchedule({ events, loading, calendarConnected, availableHeight, onLogConversation, onEventCreated }: TodayScheduleProps) {
+  const { advanceIfStep } = useOnboarding();
   const [now, setNow] = useState(new Date());
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
 
@@ -603,15 +605,7 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
         </Link>
       )}
 
-      {calendarConnected && events.length === 0 && (
-        <div className="pt-1">
-          <Calendar className="h-6 w-6 text-muted-foreground/30 mb-2.5" />
-          <p className="text-base text-muted-foreground">Nothing scheduled today</p>
-          <p className="text-sm text-muted-foreground/50 mt-1">Enjoy the open time</p>
-        </div>
-      )}
-
-      {calendarConnected && events.length > 0 && (
+      {calendarConnected && (
         <div
           ref={gridRef}
           className="relative select-none"
@@ -655,7 +649,12 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
           {positionedEvents.map((event) => (
             <div key={event.id} data-event-block className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }} {...(event.title?.includes("Dawson Pitcher") ? { "data-onboarding-target": "onboarding-meeting" } : {})}>
               <div
-                onClick={() => setSelectedEventId(selectedEventId === event.id ? null : event.id)}
+                onClick={() => {
+                  setSelectedEventId(selectedEventId === event.id ? null : event.id);
+                  if (event.title?.includes("Dawson Pitcher")) {
+                    advanceIfStep("click_meeting");
+                  }
+                }}
                 className={`h-full rounded-lg border-l-[3px] border-primary px-3 py-1.5 overflow-hidden transition-colors cursor-pointer ${
                   selectedEventId === event.id ? "bg-primary/20" : "bg-primary/10 hover:bg-primary/15"
                 }`}

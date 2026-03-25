@@ -45,6 +45,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 // ── Types ──
 
@@ -58,6 +59,7 @@ export default function InboxPage() {
   const { user } = useAuth();
   const router = useRouter();
   const { gmailConnected, gmailLoading, openCompose } = useCompose();
+  const { advanceIfStep } = useOnboarding();
 
   const [activeTab, setActiveTab] = useState<SidebarTab>("inbox");
   const [loading, setLoading] = useState(true);
@@ -171,6 +173,16 @@ export default function InboxPage() {
     window.addEventListener("careervine:drafts-changed", handler);
     return () => window.removeEventListener("careervine:drafts-changed", handler);
   }, [loadDrafts]);
+
+  // Detect Dawson reply for onboarding auto-advance
+  useEffect(() => {
+    const hasDawsonReply = emails.some(
+      (e) => e.from_address === "dawson@careervine.app" && e.direction === "inbound"
+    );
+    if (hasDawsonReply) {
+      advanceIfStep("read_reply");
+    }
+  }, [emails, advanceIfStep]);
 
   // Close dropdowns on outside click
   useClickOutside(moveDropdownRef, useCallback(() => setMoveDropdownMsgId(null), []), !!moveDropdownMsgId);

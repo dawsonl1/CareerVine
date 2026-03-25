@@ -36,6 +36,7 @@ import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
 import { useSuggestions } from "@/hooks/use-suggestions";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 import { LogConversationFab } from "@/components/home/log-conversation-fab";
 import { UnifiedActionList, type UnifiedActionItem, type SnoozeAction } from "@/components/home/unified-action-list";
@@ -73,6 +74,7 @@ export default function Home() {
   const { openCompose } = useCompose();
   const { toast } = useToast();
   const { calendarConnected, loading: gmailLoading } = useGmailConnection();
+  const { advanceIfStep } = useOnboarding();
 
   // ── SWR cache: hydrate from localStorage on mount for instant revisit ──
   const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
@@ -340,6 +342,23 @@ export default function Home() {
   useEffect(() => {
     if (dataLoaded) triggerSuggestions();
   }, [dataLoaded, triggerSuggestions]);
+
+  // Onboarding: detect Dawson meeting on schedule
+  useEffect(() => {
+    const hasDawsonMeeting = scheduleEvents.some((e) =>
+      e.title?.includes("Dawson Pitcher")
+    );
+    if (hasDawsonMeeting) {
+      advanceIfStep("view_meeting");
+    }
+  }, [scheduleEvents, advanceIfStep]);
+
+  // Onboarding: detect action items appearing (after extraction)
+  useEffect(() => {
+    if (actionItems.length > 0) {
+      advanceIfStep("view_dashboard_actions");
+    }
+  }, [actionItems, advanceIfStep]);
 
   // ── Action handlers ──
 
