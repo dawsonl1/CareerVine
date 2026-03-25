@@ -68,9 +68,6 @@ export function OnboardingHighlight() {
     };
   }, [isActive, highlightTarget, pathname]);
 
-  if (!isActive || !highlightTarget || !hasTargets) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/30 z-[998] pointer-events-none" />
-  );
+  // No backdrop overlay — just the CSS highlight class on the target elements
+  return null;
 }

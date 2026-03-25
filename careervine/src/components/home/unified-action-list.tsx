@@ -27,15 +27,17 @@ function ActionButton({
   label,
   color,
   onClick,
+  ...rest
 }: {
   icon: ReactNode;
   label: string;
   color: string;
   onClick: () => void;
+  "data-onboarding-target"?: string;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
-    <div className="relative flex flex-col items-center">
+    <div className="relative flex flex-col items-center" {...rest}>
       <button
         type="button"
         onClick={onClick}
@@ -678,14 +680,13 @@ function ActionListItem({
               )}
             </div>
             {item.hasEmail && (
-              <span {...(item.contactName.includes("Dawson") ? { "data-onboarding-target": "intro-button-dawson" } : {})}>
-                <ActionButton
-                  icon={<Mail className="h-6 w-6" />}
-                  label="Intro"
-                  color="#0d9488"
-                  onClick={() => onIntro(item.contactId)}
-                />
-              </span>
+              <ActionButton
+                icon={<Mail className="h-6 w-6" />}
+                label="Intro"
+                color="#0d9488"
+                onClick={() => onIntro(item.contactId)}
+                data-onboarding-target={item.contactName.includes("Dawson") ? "intro-button-dawson" : undefined}
+              />
             )}
           </>
         )}
