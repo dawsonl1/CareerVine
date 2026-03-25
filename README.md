@@ -14,6 +14,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 
 ### Key workflows
 
+- **Guided onboarding tour** — New users get a hands-on walkthrough, not a passive tutorial. A floating guide card walks you through connecting Gmail and Google Calendar, importing your first contact from LinkedIn, drafting and sending an AI-powered email, then logging a real conversation with an AI transcript to see action items auto-extracted. By the end, your dashboard is populated with actual data and you've experienced the full CareerVine loop. Skip it anytime you're ready to explore on your own.
 - **Log a conversation, capture what matters** — One unified modal, accessible from anywhere in the app. Log a past meeting with notes, transcripts, and AI-generated action items — or schedule a future meeting with Google Calendar invites, Meet links, and private reminder notes. The same clean interface whether you're on the dashboard, a contact's profile, or the activity page.
 - **Never drop a follow-up** — Set a cadence per contact (weekly, monthly, quarterly). The two-column dashboard shows your action items, overdue contacts, and AI suggestions on the left with network health on the right. Mark tasks done, log interactions, and save suggestions without ever leaving the page.
 - **One-click LinkedIn import** — A Chrome extension scrapes a LinkedIn profile and saves the contact with work history, education, and photo. No manual data entry.
