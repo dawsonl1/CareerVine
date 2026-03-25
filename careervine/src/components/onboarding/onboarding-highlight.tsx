@@ -18,14 +18,19 @@ export function OnboardingHighlight() {
   useEffect(() => {
     if (!isActive || !highlightTarget) return;
 
-    const elements = document.querySelectorAll<HTMLElement>(
-      `[data-onboarding-target="${highlightTarget}"]`
-    );
-
-    elements.forEach((el) => el.classList.add("onboarding-highlight"));
+    // Defer one frame so the target page's React tree commits before we query
+    const raf = requestAnimationFrame(() => {
+      const elements = document.querySelectorAll<HTMLElement>(
+        `[data-onboarding-target="${highlightTarget}"]`
+      );
+      elements.forEach((el) => el.classList.add("onboarding-highlight"));
+    });
 
     return () => {
-      elements.forEach((el) => el.classList.remove("onboarding-highlight"));
+      cancelAnimationFrame(raf);
+      document
+        .querySelectorAll<HTMLElement>(".onboarding-highlight")
+        .forEach((el) => el.classList.remove("onboarding-highlight"));
     };
   }, [isActive, highlightTarget]);
 

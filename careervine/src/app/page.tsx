@@ -74,7 +74,7 @@ export default function Home() {
   const { openCompose } = useCompose();
   const { toast } = useToast();
   const { calendarConnected, loading: gmailLoading } = useGmailConnection();
-  const { advanceIfStep } = useOnboarding();
+  const { advanceIfStep, currentStepId } = useOnboarding();
 
   // ── SWR cache: hydrate from localStorage on mount for instant revisit ──
   const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
@@ -345,20 +345,21 @@ export default function Home() {
 
   // Onboarding: detect Dawson meeting on schedule
   useEffect(() => {
+    if (currentStepId !== "view_meeting") return;
     const hasDawsonMeeting = scheduleEvents.some((e) =>
       e.title?.includes("Dawson Pitcher")
     );
     if (hasDawsonMeeting) {
       advanceIfStep("view_meeting");
     }
-  }, [scheduleEvents, advanceIfStep]);
+  }, [scheduleEvents, advanceIfStep, currentStepId]);
 
-  // Onboarding: detect action items appearing (after extraction)
   useEffect(() => {
+    if (currentStepId !== "view_dashboard_actions") return;
     if (actionItems.length > 0) {
       advanceIfStep("view_dashboard_actions");
     }
-  }, [actionItems, advanceIfStep]);
+  }, [actionItems, advanceIfStep, currentStepId]);
 
   // ── Action handlers ──
 

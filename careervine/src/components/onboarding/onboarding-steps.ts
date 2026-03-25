@@ -1,3 +1,6 @@
+/** Shared constant for the onboarding demo contact email */
+export const ONBOARDING_CONTACT_EMAIL = "dawson@careervine.app";
+
 export interface OnboardingStep {
   id: string;
   title: string;

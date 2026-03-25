@@ -6,6 +6,7 @@ import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import {
   getStepById,
   getProgress,
+  getNextStep,
   type OnboardingStep,
 } from "@/components/onboarding/onboarding-steps";
 
@@ -53,7 +54,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [version, setVersion] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch the user's current onboarding status from the API
+  // Fetch the user's current onboarding status from the API.
+  // Also handles first-login setup: if no onboarding row exists, seeds one.
   const refreshStatus = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -62,8 +64,21 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       if (!res.ok) return;
       const data = await res.json();
       const onboarding = data?.onboarding ?? null;
-      setCurrentStepId(onboarding?.current_step_id ?? null);
-      setVersion(onboarding?.version ?? null);
+
+      if (!onboarding) {
+        // First login — seed onboarding data, then re-fetch
+        await fetch("/api/onboarding/setup", { method: "POST" });
+        const res2 = await fetch("/api/onboarding/status");
+        if (!res2.ok) return;
+        const data2 = await res2.json();
+        const ob2 = data2?.onboarding ?? null;
+        setCurrentStepId(ob2?.current_step ?? null);
+        setVersion(ob2?.version ?? null);
+        return;
+      }
+
+      setCurrentStepId(onboarding.current_step ?? null);
+      setVersion(onboarding.version ?? null);
     } catch {
       // Network errors are silently ignored — onboarding is non-critical
     } finally {
@@ -82,35 +97,34 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
   }, [user, refreshStatus]);
 
-  // Advance to the next step, optionally recording that Apollo was skipped
+  // Advance to the next step, optionally recording that Apollo was skipped.
+  // Computes the next step client-side to update state immediately.
   const advance = useCallback(async (skippedApollo?: boolean) => {
+    if (!currentStepId) return;
     try {
-      const body: Record<string, unknown> = {};
-      if (skippedApollo !== undefined) body.skipped_apollo = skippedApollo;
       const res = await fetch("/api/onboarding/advance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          currentStep: currentStepId,
+          skippedApollo,
+        }),
       });
       if (!res.ok) return;
-      const data = await res.json();
-      const onboarding = data?.onboarding ?? null;
-      setCurrentStepId(onboarding?.current_step_id ?? null);
-      setVersion(onboarding?.version ?? null);
+      // Derive next step client-side for immediate UI update
+      const next = getNextStep(currentStepId);
+      setCurrentStepId(next ? next.id : "complete");
     } catch {
       // Silently ignore — onboarding advancement is best-effort
     }
-  }, []);
+  }, [currentStepId]);
 
   // Skip the entire onboarding flow
   const skip = useCallback(async () => {
     try {
       const res = await fetch("/api/onboarding/skip", { method: "POST" });
       if (!res.ok) return;
-      const data = await res.json();
-      const onboarding = data?.onboarding ?? null;
-      setCurrentStepId(onboarding?.current_step_id ?? null);
-      setVersion(onboarding?.version ?? null);
+      setCurrentStepId("complete");
     } catch {
       // Silently ignore
     }

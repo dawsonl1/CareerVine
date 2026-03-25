@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { getNextStep } from "@/components/onboarding/onboarding-steps";
+import { getNextStep, ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
 import { createCalendarEvent, deleteCalendarEvent } from "@/lib/calendar";
 
 const advanceSchema = z.object({
@@ -43,7 +43,7 @@ export const POST = withApiHandler({
         const { data: emailRow } = await service
           .from("contact_emails")
           .select("contact_id, contacts!inner(user_id)")
-          .eq("email", "dawson@careervine.app")
+          .eq("email", ONBOARDING_CONTACT_EMAIL)
           .eq("contacts.user_id", user.id)
           .single();
 

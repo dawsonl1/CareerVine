@@ -8,9 +8,7 @@ import {
 } from "@/components/onboarding/onboarding-provider";
 
 // Mock useAuth so the provider believes a user is logged in.
-// The user object must be stable across renders — a new object literal on every
-// call would change the `user` reference, causing the useCallback/useEffect in
-// the provider to fire multiple times and consume extra mockResolvedValueOnce entries.
+// The user object must be stable across renders.
 vi.mock("@/components/auth-provider", () => {
   const stableUser = { id: "user-123", email: "test@example.com" };
   return {
@@ -19,7 +17,6 @@ vi.mock("@/components/auth-provider", () => {
 });
 
 // Mock useGmailConnection so the auto-advance effect never fires in unit tests.
-// Integration state (connected/not connected) is tested at the integration level.
 vi.mock("@/hooks/use-gmail-connection", () => ({
   useGmailConnection: vi.fn(() => ({
     data: null,
@@ -30,7 +27,6 @@ vi.mock("@/hooks/use-gmail-connection", () => ({
   })),
 }));
 
-// Replace global fetch with a vi.fn() at module level so it is always a mock
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
@@ -38,12 +34,8 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <OnboardingProvider>{children}</OnboardingProvider>;
 }
 
-// Helper: make a resolved fetch response
 function makeResponse(data: unknown) {
-  return {
-    ok: true,
-    json: async () => data,
-  };
+  return { ok: true, json: async () => data };
 }
 
 describe("useOnboarding", () => {
@@ -51,24 +43,27 @@ describe("useOnboarding", () => {
     mockFetch.mockReset();
   });
 
-  it("provides default state when no onboarding data", async () => {
-    mockFetch.mockResolvedValue(makeResponse({ onboarding: null }));
+  it("seeds onboarding and populates state when no record exists", async () => {
+    // First: status returns null (no record)
+    mockFetch.mockResolvedValueOnce(makeResponse({ onboarding: null }));
+    // Second: setup POST
+    mockFetch.mockResolvedValueOnce(makeResponse({ status: "setup_complete" }));
+    // Third: re-fetch status after setup
+    mockFetch.mockResolvedValueOnce(
+      makeResponse({ onboarding: { current_step: "connect_gmail", version: 1 } })
+    );
 
     const { result } = renderHook(() => useOnboarding(), { wrapper });
 
-    // Wait for the initial status fetch to resolve
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.isActive).toBe(false);
-    expect(result.current.currentStep).toBeNull();
-    expect(result.current.currentStepId).toBeNull();
-    expect(result.current.progress).toBe(0);
-    expect(result.current.version).toBeNull();
+    expect(result.current.isActive).toBe(true);
+    expect(result.current.currentStepId).toBe("connect_gmail");
   });
 
   it("populates state when onboarding data is returned", async () => {
     mockFetch.mockResolvedValue(
-      makeResponse({ onboarding: { current_step_id: "connect_gmail", version: 1 } })
+      makeResponse({ onboarding: { current_step: "connect_gmail", version: 1 } })
     );
 
     const { result } = renderHook(() => useOnboarding(), { wrapper });
@@ -84,7 +79,7 @@ describe("useOnboarding", () => {
 
   it("isActive is false when step is 'complete'", async () => {
     mockFetch.mockResolvedValue(
-      makeResponse({ onboarding: { current_step_id: "complete", version: 2 } })
+      makeResponse({ onboarding: { current_step: "complete", version: 2 } })
     );
 
     const { result } = renderHook(() => useOnboarding(), { wrapper });
@@ -95,14 +90,14 @@ describe("useOnboarding", () => {
     expect(result.current.currentStepId).toBe("complete");
   });
 
-  it("advance POSTs to /api/onboarding/advance and updates state", async () => {
-    // First call: initial status fetch
+  it("advance POSTs and computes next step client-side", async () => {
+    // Status fetch
     mockFetch.mockResolvedValueOnce(
-      makeResponse({ onboarding: { current_step_id: "connect_gmail", version: 1 } })
+      makeResponse({ onboarding: { current_step: "connect_gmail", version: 1 } })
     );
-    // Second call: advance POST
+    // Advance POST
     mockFetch.mockResolvedValueOnce(
-      makeResponse({ onboarding: { current_step_id: "connect_calendar", version: 1 } })
+      makeResponse({ nextStep: { id: "connect_calendar" }, completed: false })
     );
 
     const { result } = renderHook(() => useOnboarding(), { wrapper });
@@ -111,6 +106,7 @@ describe("useOnboarding", () => {
 
     await result.current.advance();
 
+    // Next step is computed client-side from getNextStep("connect_gmail")
     await waitFor(() =>
       expect(result.current.currentStepId).toBe("connect_calendar")
     );
@@ -120,11 +116,13 @@ describe("useOnboarding", () => {
     );
     expect(advanceCall).toBeDefined();
     expect(advanceCall![1].method).toBe("POST");
+    const body = JSON.parse(advanceCall![1].body);
+    expect(body.currentStep).toBe("connect_gmail");
   });
 
   it("advanceIfStep does nothing when stepId does not match", async () => {
     mockFetch.mockResolvedValue(
-      makeResponse({ onboarding: { current_step_id: "connect_gmail", version: 1 } })
+      makeResponse({ onboarding: { current_step: "connect_gmail", version: 1 } })
     );
 
     const { result } = renderHook(() => useOnboarding(), { wrapper });
@@ -133,20 +131,19 @@ describe("useOnboarding", () => {
 
     const callsBefore = mockFetch.mock.calls.length;
 
-    // Different step ID — should be a no-op
     await result.current.advanceIfStep("connect_calendar");
 
     expect(mockFetch.mock.calls.length).toBe(callsBefore);
   });
 
   it("advanceIfStep advances when stepId matches", async () => {
-    // First call: initial status fetch
+    // Status fetch
     mockFetch.mockResolvedValueOnce(
-      makeResponse({ onboarding: { current_step_id: "connect_gmail", version: 1 } })
+      makeResponse({ onboarding: { current_step: "connect_gmail", version: 1 } })
     );
-    // Second call: advance POST
+    // Advance POST
     mockFetch.mockResolvedValueOnce(
-      makeResponse({ onboarding: { current_step_id: "connect_calendar", version: 1 } })
+      makeResponse({ nextStep: { id: "connect_calendar" }, completed: false })
     );
 
     const { result } = renderHook(() => useOnboarding(), { wrapper });
@@ -160,14 +157,14 @@ describe("useOnboarding", () => {
     );
   });
 
-  it("skip POSTs to /api/onboarding/skip and updates state", async () => {
-    // First call: initial status fetch
+  it("skip POSTs and sets state to complete", async () => {
+    // Status fetch
     mockFetch.mockResolvedValueOnce(
-      makeResponse({ onboarding: { current_step_id: "connect_gmail", version: 1 } })
+      makeResponse({ onboarding: { current_step: "connect_gmail", version: 1 } })
     );
-    // Second call: skip POST
+    // Skip POST
     mockFetch.mockResolvedValueOnce(
-      makeResponse({ onboarding: { current_step_id: "complete", version: 1 } })
+      makeResponse({ status: "skipped" })
     );
 
     const { result } = renderHook(() => useOnboarding(), { wrapper });

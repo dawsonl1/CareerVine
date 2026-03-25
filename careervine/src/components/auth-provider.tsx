@@ -75,25 +75,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [supabase]); // Dependency array ensures this runs once when supabase client is created
 
-  // When a user logs in, check if their onboarding record exists and seed it if not
-  useEffect(() => {
-    if (!user) return;
-
-    const setupOnboarding = async () => {
-      try {
-        const res = await fetch("/api/onboarding/status");
-        const { onboarding } = await res.json();
-        if (!onboarding) {
-          await fetch("/api/onboarding/setup", { method: "POST" });
-        }
-      } catch (err) {
-        console.error("Failed to check/setup onboarding:", err);
-      }
-    };
-
-    setupOnboarding();
-  }, [user]);
-
   /**
    * Sign up a new user with email/password
    * Creates user in Supabase auth and stores first/last name in user_metadata

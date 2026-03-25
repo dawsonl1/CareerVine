@@ -1,5 +1,6 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
 
 /**
  * POST /api/onboarding/setup
@@ -41,7 +42,7 @@ export const POST = withApiHandler({
     // Add primary email for the contact
     const { error: emailError } = await service.from("contact_emails").insert({
       contact_id: contact.id,
-      email: "dawson@careervine.app",
+      email: ONBOARDING_CONTACT_EMAIL,
       is_primary: true,
     });
 

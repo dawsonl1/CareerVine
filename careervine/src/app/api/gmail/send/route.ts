@@ -3,6 +3,7 @@ import { gmailSendSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendEmail, getConnection } from "@/lib/gmail";
 import { EmailDirection, GmailLabel } from "@/lib/constants";
+import { ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
 
 /**
  * POST /api/gmail/send
@@ -56,8 +57,7 @@ export const POST = withApiHandler({
       { onConflict: "user_id,gmail_message_id", ignoreDuplicates: false }
     );
 
-    // Check if this is a send to dawson@careervine.app for onboarding
-    if (toAddr === "dawson@careervine.app") {
+    if (toAddr === ONBOARDING_CONTACT_EMAIL) {
       // Check if this is the first email to Dawson from this user
       const { data: onboarding } = await service
         .from("user_onboarding")
@@ -75,7 +75,7 @@ export const POST = withApiHandler({
           subject: `Re: ${subject}`,
           snippet:
             "Hey! Thanks for reaching out — welcome to CareerVine. I built this to help people like you stay on top of their network.",
-          from_address: "dawson@careervine.app",
+          from_address: ONBOARDING_CONTACT_EMAIL,
           to_addresses: [conn?.gmail_address?.toLowerCase() || ""],
           date: replyDate.toISOString(),
           label_ids: ["INBOX"],

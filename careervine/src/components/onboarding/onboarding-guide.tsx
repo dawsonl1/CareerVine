@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { GripHorizontal, Copy, Check, ExternalLink } from "lucide-react";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import { useAuth } from "@/components/auth-provider";
-import { ONBOARDING_STEPS, getStepIndex } from "@/components/onboarding/onboarding-steps";
+import { ONBOARDING_STEPS } from "@/components/onboarding/onboarding-steps";
 import { getOnboardingTranscript } from "@/components/onboarding/transcript-content";
 
 const TOTAL_STEPS = ONBOARDING_STEPS.length;
@@ -17,7 +17,7 @@ const TOTAL_STEPS = ONBOARDING_STEPS.length;
  * need to interact with.
  */
 export function OnboardingGuide() {
-  const { isActive, currentStep, advance, skip } = useOnboarding();
+  const { isActive, currentStep, currentStepId, progress, advance, skip } = useOnboarding();
   const { user } = useAuth();
 
   const firstName = (user?.user_metadata?.first_name as string | undefined) ?? "You";
@@ -29,7 +29,6 @@ export function OnboardingGuide() {
   // Refs to avoid stale closures in event handlers
   const isDraggingRef = useRef(false);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
-  const posRef = useRef(pos);
 
   // Expandable transcript area state
   const [copied, setCopied] = useState(false);
@@ -60,7 +59,6 @@ export function OnboardingGuide() {
       if (!isDraggingRef.current) return;
       const newX = e.clientX - dragOffsetRef.current.x;
       const newY = e.clientY - dragOffsetRef.current.y;
-      posRef.current = { x: newX, y: newY };
       setPos({ x: newX, y: newY });
     };
 
@@ -101,14 +99,6 @@ export function OnboardingGuide() {
       }
       return;
     }
-    if (action === "oauth_gmail") {
-      window.location.assign("/api/gmail/auth");
-      return;
-    }
-    if (action === "oauth_calendar") {
-      window.location.assign("/api/gmail/auth?scopes=calendar");
-      return;
-    }
     if (action === "connect_gmail") {
       window.location.assign("/api/gmail/auth");
       return;
@@ -138,9 +128,7 @@ export function OnboardingGuide() {
 
   if (!isActive || !currentStep) return null;
 
-  const stepIndex = getStepIndex(currentStep.id);
-  const stepNumber = stepIndex + 1;
-  const progressPercent = Math.round((stepNumber / TOTAL_STEPS) * 100);
+  const stepNumber = ONBOARDING_STEPS.findIndex((s) => s.id === currentStepId) + 1;
 
   // Build card position styles
   const isPositioned = pos.x !== -1 && pos.y !== -1;
@@ -255,7 +243,7 @@ export function OnboardingGuide() {
         <div className="h-1 w-full rounded-full bg-gray-100 overflow-hidden">
           <div
             className="h-full rounded-full bg-primary transition-all duration-500"
-            style={{ width: `${progressPercent}%` }}
+            style={{ width: `${progress}%` }}
           />
         </div>
         <button
