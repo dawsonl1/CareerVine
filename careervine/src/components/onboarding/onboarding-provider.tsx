@@ -144,12 +144,16 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   // Skip the entire onboarding flow
   const skip = useCallback(async () => {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
     try {
       const res = await fetch("/api/onboarding/skip", { method: "POST" });
       if (!res.ok) return;
       setCurrentStepId("complete");
     } catch {
       // Silently ignore
+    } finally {
+      advancingRef.current = false;
     }
   }, []);
 

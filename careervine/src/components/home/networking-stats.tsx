@@ -139,8 +139,9 @@ export function NetworkingStats({
       ],
     },
   ];
-  const totalCurrent = stats.meetings.current + stats.completedItems.current + stats.touchpoints.current;
-  const totalPrevious = stats.meetings.previous + stats.completedItems.previous + stats.touchpoints.previous;
+  // touchpoints already includes meetings, so don't add meetings again
+  const totalCurrent = stats.completedItems.current + stats.touchpoints.current;
+  const totalPrevious = stats.completedItems.previous + stats.touchpoints.previous;
   const trendPct = totalPrevious > 0
     ? Math.round(((totalCurrent - totalPrevious) / totalPrevious) * 100)
     : totalCurrent > 0 ? 100 : 0;

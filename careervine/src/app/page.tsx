@@ -356,9 +356,10 @@ export default function Home() {
 
   useEffect(() => {
     if (currentStepId !== "view_dashboard_actions") return;
-    if (actionItems.length > 0) {
-      advanceIfStep("view_dashboard_actions");
-    }
+    if (actionItems.length === 0) return;
+    // Brief delay so user can see the dashboard action items before advancing
+    const timer = setTimeout(() => advanceIfStep("view_dashboard_actions"), 3000);
+    return () => clearTimeout(timer);
   }, [actionItems, advanceIfStep, currentStepId]);
 
   // ── Action handlers ──

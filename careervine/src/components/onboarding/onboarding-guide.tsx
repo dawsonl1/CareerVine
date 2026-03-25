@@ -116,8 +116,12 @@ export function OnboardingGuide() {
       advance();
       return;
     }
-    if (action === "skip" || action === "skip_wispr") {
+    if (action === "skip") {
       advance(true);
+      return;
+    }
+    if (action === "skip_wispr") {
+      advance();
       return;
     }
     if (action === "complete") {

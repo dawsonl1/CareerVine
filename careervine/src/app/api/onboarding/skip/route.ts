@@ -17,22 +17,28 @@ export const POST = withApiHandler({
       .eq("user_id", user.id)
       .single();
 
-    // Delete the simulated calendar event if one was created
+    // Clean up simulated calendar event and associated meeting row
     if (onboarding?.onboarding_calendar_event_id) {
       try {
         await deleteCalendarEvent(user.id, onboarding.onboarding_calendar_event_id);
       } catch (err) {
-        // Don't block skipping if calendar deletion fails
         console.error("[onboarding/skip] Failed to delete calendar event:", err);
       }
+      // Delete the onboarding meeting row (cascades to meeting_contacts)
+      await service
+        .from("meetings")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("calendar_event_id", onboarding.onboarding_calendar_event_id);
     }
 
-    // Mark onboarding complete
+    // Mark onboarding complete and clear stale calendar event reference
     await service
       .from("user_onboarding")
       .update({
         current_step: "complete",
         completed_at: new Date().toISOString(),
+        onboarding_calendar_event_id: null,
       })
       .eq("user_id", user.id);
 

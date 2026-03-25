@@ -95,8 +95,12 @@ function getMinHourRange(events: ScheduleEvent[]): [number, number] {
   for (const e of events) {
     const start = new Date(e.start_at);
     const end = new Date(e.end_at);
-    earliest = Math.min(earliest, start.getHours());
-    latest = Math.max(latest, end.getHours() + (end.getMinutes() > 0 ? 1 : 0));
+    const startHr = start.getHours();
+    let endHr = end.getHours() + (end.getMinutes() > 0 ? 1 : 0);
+    // If event ends past midnight, clamp to 24 so the grid extends to cover it
+    if (endHr <= startHr) endHr = 24;
+    earliest = Math.min(earliest, startHr);
+    latest = Math.max(latest, endHr);
   }
 
   return [Math.max(0, earliest - 1), Math.min(24, latest + 1)];
@@ -482,7 +486,9 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
       const start = new Date(event.start_at);
       const end = new Date(event.end_at);
       const startFrac = start.getHours() + start.getMinutes() / 60;
-      const endFrac = end.getHours() + end.getMinutes() / 60;
+      let endFrac = end.getHours() + end.getMinutes() / 60;
+      // Clamp midnight-spanning events to end of grid
+      if (endFrac <= startFrac) endFrac = 24;
       const top = (startFrac - startHour) * HOUR_HEIGHT;
       const height = Math.max((endFrac - startFrac) * HOUR_HEIGHT, MIN_EVENT_HEIGHT);
       const timeLabel = start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });

@@ -66,8 +66,8 @@ export const POST = withApiHandler({
         .single();
 
       if (onboarding && onboarding.current_step === "compose_send_email") {
-        // Insert simulated reply after a short delay
-        const replyDate = new Date(Date.now() + 5000); // 5 seconds from now
+        // Insert simulated reply with a future timestamp so it sorts to top of inbox
+        const replyDate = new Date(Date.now() + 5000);
         await service.from("email_messages").insert({
           user_id: user.id,
           gmail_message_id: `simulated-reply-${Date.now()}`,
@@ -78,30 +78,15 @@ export const POST = withApiHandler({
           from_address: ONBOARDING_CONTACT_EMAIL,
           to_addresses: [conn?.gmail_address?.toLowerCase() || ""],
           date: replyDate.toISOString(),
-          label_ids: ["INBOX"],
+          label_ids: [GmailLabel.Inbox],
           is_read: false,
           direction: EmailDirection.Inbound,
           matched_contact_id: matchedContactId,
           is_simulated: true,
         });
 
-        // Cancel any follow-up sequences for this thread
-        if (result.threadId) {
-          const { data: followUps } = await service
-            .from("email_follow_ups")
-            .select("id")
-            .eq("user_id", user.id)
-            .eq("thread_id", result.threadId);
-
-          const followUpIds = (followUps ?? []).map((f) => f.id);
-          if (followUpIds.length > 0) {
-            await service
-              .from("email_follow_up_messages")
-              .update({ status: "cancelled" })
-              .eq("status", "pending")
-              .in("follow_up_id", followUpIds);
-          }
-        }
+        // Note: follow-up cancellation for onboarding emails is handled by the
+        // cron processor which detects the simulated inbound reply in the thread.
       }
     }
 

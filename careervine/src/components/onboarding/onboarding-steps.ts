@@ -58,6 +58,10 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
       label: "Install Extension",
       href: "https://chromewebstore.google.com/detail/careervine-linkedin-integ/kckdmkjjfcnjlhilgdgfggpgodlmbacd",
     },
+    secondaryAction: {
+      label: "I've done this",
+      action: "confirm",
+    },
     skippable: true,
     advanceOn: "manual",
   },
@@ -70,6 +74,10 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     primaryAction: {
       label: "Install Apollo",
       href: "https://chromewebstore.google.com/detail/apolloio-free-b2b-phone-n/alhgpfoeiimagjlkiomcapa",
+    },
+    secondaryAction: {
+      label: "I've done this",
+      action: "confirm",
     },
     skippable: true,
     advanceOn: "manual",
@@ -84,8 +92,12 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
       label: "Open LinkedIn",
       href: "https://www.linkedin.com",
     },
+    secondaryAction: {
+      label: "I've done this",
+      action: "confirm",
+    },
     skippable: true,
-    advanceOn: "automatic",
+    advanceOn: "manual",
   },
   {
     id: "click_intro_button",
@@ -114,12 +126,12 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     id: "read_reply",
     title: "Read Their Reply",
     description:
-      "When your contact replies, CareerVine automatically logs it. Open the conversation to see their response.",
-    page: "/contacts",
+      "When your contact replies, CareerVine automatically logs it. Check your inbox to see their response.",
+    page: "/inbox",
     highlightTarget: "nav-inbox",
     primaryAction: {
-      label: "View Conversations",
-      href: "/contacts",
+      label: "Check Your Inbox",
+      href: "/inbox",
     },
     skippable: true,
     advanceOn: "automatic",
@@ -128,15 +140,15 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     id: "view_meeting",
     title: "View Your Scheduled Meeting",
     description:
-      "CareerVine detected a meeting in your conversation. See it on your calendar.",
-    page: "/calendar",
+      "CareerVine detected a meeting in your conversation. See it on your dashboard schedule.",
+    page: "/",
     highlightTarget: "nav-home",
     primaryAction: {
-      label: "Open Calendar",
-      href: "/calendar",
+      label: "Go to Dashboard",
+      href: "/",
     },
     skippable: true,
-    advanceOn: "manual",
+    advanceOn: "automatic",
   },
   {
     id: "click_meeting",

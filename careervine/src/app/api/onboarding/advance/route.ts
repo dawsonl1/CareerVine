@@ -31,6 +31,10 @@ export const POST = withApiHandler({
       throw new ApiError("Step mismatch", 400);
     }
 
+    if (currentStep === "complete") {
+      throw new ApiError("Onboarding already complete", 400);
+    }
+
     const nextStep = getNextStep(currentStep);
 
     // Special side effect: read_reply -> view_meeting
@@ -102,7 +106,7 @@ export const POST = withApiHandler({
     }
 
     if (!nextStep) {
-      // Clean up calendar event on normal completion too
+      // Clean up calendar event and associated meeting on completion
       const { data: onboarding } = await service
         .from("user_onboarding")
         .select("onboarding_calendar_event_id")
@@ -115,9 +119,16 @@ export const POST = withApiHandler({
         } catch (err) {
           console.error("Failed to delete onboarding calendar event:", err);
         }
+        // Delete the onboarding meeting row (cascades to meeting_contacts)
+        await service
+          .from("meetings")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("calendar_event_id", onboarding.onboarding_calendar_event_id);
       }
 
       updatePayload.completed_at = new Date().toISOString();
+      updatePayload.onboarding_calendar_event_id = null;
     }
 
     await service

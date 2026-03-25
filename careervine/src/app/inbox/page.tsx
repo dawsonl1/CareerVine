@@ -338,18 +338,40 @@ export default function InboxPage() {
 
     const allMsgs = [...emails, ...trashedEmails, ...hiddenEmails];
     const msg = allMsgs.find((e) => e.gmail_message_id === gmailMessageId);
+
+    // For simulated emails (onboarding), skip Gmail API calls — use DB data directly
+    const isSimulated = !!(msg as Record<string, unknown>)?.is_simulated;
+
     if (msg && !msg.is_read) {
       setEmails((prev) => prev.map((e) => (e.gmail_message_id === gmailMessageId ? { ...e, is_read: true } : e)));
       if (msg.direction === "inbound") {
         window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta: -1 } }));
       }
-      try {
-        await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
-      } catch (err) {
-        console.error("Failed to mark as read:", err);
+      if (!isSimulated) {
+        try {
+          await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
+        } catch (err) {
+          console.error("Failed to mark as read:", err);
+        }
       }
       // Confirm badge count from server now that DB is updated
       window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
+    }
+
+    if (isSimulated) {
+      // Render simulated email content directly from the DB snippet
+      setExpandedEmailContent({
+        subject: msg?.subject ?? "",
+        from: msg?.from_address ?? "",
+        to: msg?.to_addresses?.[0] ?? "",
+        date: msg?.date ?? "",
+        bodyHtml: `<p>${msg?.snippet ?? ""}</p>`,
+        bodyText: msg?.snippet ?? "",
+        messageId: gmailMessageId,
+        threadId: msg?.thread_id ?? "",
+      });
+      setLoadingEmailContent(false);
+      return;
     }
 
     try {
