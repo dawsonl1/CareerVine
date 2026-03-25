@@ -209,7 +209,7 @@ export default function Home() {
         const data = await eventsRes.json();
         setScheduleEvents(
           (data.events || []).map((e: any) => {
-            // Match first attendee email to a known contact
+            // Match contact: try attendee emails first, then fall back to contact_id
             const attendees = e.attendees || [];
             let contact: ScheduleEvent["contact"] | undefined;
             for (const a of attendees) {
@@ -224,6 +224,22 @@ export default function Home() {
                   lastTouchLabel: formatLastContacted(daysSince ?? null),
                 };
                 break;
+              }
+            }
+            // Fall back to contact_id stored on the calendar event
+            if (!contact && e.contact_id) {
+              // Build a by-ID lookup from the email lookup values
+              for (const entry of emailLookup.values()) {
+                if (entry.id === e.contact_id) {
+                  const daysSince = lastTouchLookup.get(entry.id);
+                  contact = {
+                    id: entry.id,
+                    name: entry.name,
+                    photo_url: entry.photo_url,
+                    lastTouchLabel: formatLastContacted(daysSince ?? null),
+                  };
+                  break;
+                }
               }
             }
             return {
