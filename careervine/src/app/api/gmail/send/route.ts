@@ -56,6 +56,53 @@ export const POST = withApiHandler({
       { onConflict: "user_id,gmail_message_id", ignoreDuplicates: false }
     );
 
+    // Check if this is a send to dawson@careervine.app for onboarding
+    if (toAddr === "dawson@careervine.app") {
+      // Check if this is the first email to Dawson from this user
+      const { data: onboarding } = await service
+        .from("user_onboarding")
+        .select("current_step")
+        .eq("user_id", user.id)
+        .single();
+
+      if (onboarding && onboarding.current_step === "compose_send_email") {
+        // Insert simulated reply after a short delay
+        const replyDate = new Date(Date.now() + 5000); // 5 seconds from now
+        await service.from("email_messages").insert({
+          user_id: user.id,
+          gmail_message_id: `simulated-reply-${Date.now()}`,
+          thread_id: result.threadId || null,
+          subject: `Re: ${subject}`,
+          snippet:
+            "Hey! Thanks for reaching out — welcome to CareerVine. I built this to help people like you stay on top of their network.",
+          from_address: "dawson@careervine.app",
+          to_addresses: [conn?.gmail_address?.toLowerCase() || ""],
+          date: replyDate.toISOString(),
+          label_ids: ["INBOX"],
+          is_read: false,
+          direction: "inbound",
+          matched_contact_id: matchedContactId,
+          is_simulated: true,
+        });
+
+        // Cancel any follow-up sequences for this thread
+        if (result.threadId) {
+          await service
+            .from("email_follow_up_messages")
+            .update({ status: "cancelled" })
+            .eq("status", "pending")
+            .in(
+              "follow_up_id",
+              service
+                .from("email_follow_ups")
+                .select("id")
+                .eq("user_id", user.id)
+                .eq("thread_id", result.threadId)
+            );
+        }
+      }
+    }
+
     return { success: true, messageId: result.messageId, threadId: result.threadId };
   },
 });
