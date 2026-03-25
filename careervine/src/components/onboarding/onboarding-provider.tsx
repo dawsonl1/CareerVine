@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import {
   getStepById,
   getProgress,
@@ -46,6 +47,7 @@ export function useOnboarding(): OnboardingState {
  */
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { data: gmailData, calendarConnected } = useGmailConnection();
 
   const [currentStepId, setCurrentStepId] = useState<string | null>(null);
   const [version, setVersion] = useState<number | null>(null);
@@ -113,6 +115,39 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       // Silently ignore
     }
   }, []);
+
+  // Auto-advance when the provider loads on an integration step that is already completed.
+  // This prevents users from getting stuck on "Connect Gmail" or "Connect Calendar"
+  // if they have already connected those integrations.
+  useEffect(() => {
+    if (!currentStepId || !user) return;
+    if (
+      currentStepId !== "connect_gmail" &&
+      currentStepId !== "connect_calendar"
+    )
+      return;
+
+    let cancelled = false;
+
+    const checkIntegrations = async () => {
+      // gmailData being non-null means Gmail OAuth is connected
+      const gmailConnected = gmailData !== null;
+
+      if (cancelled) return;
+
+      if (currentStepId === "connect_gmail" && gmailConnected) {
+        await advance();
+      } else if (currentStepId === "connect_calendar" && calendarConnected) {
+        await advance();
+      }
+    };
+
+    checkIntegrations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStepId, user, gmailData, calendarConnected, advance]);
 
   // Advance only when the current step matches the given stepId.
   // This is used by other components to auto-advance after completing an action

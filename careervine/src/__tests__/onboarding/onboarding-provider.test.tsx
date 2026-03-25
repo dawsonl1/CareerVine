@@ -18,6 +18,18 @@ vi.mock("@/components/auth-provider", () => {
   };
 });
 
+// Mock useGmailConnection so the auto-advance effect never fires in unit tests.
+// Integration state (connected/not connected) is tested at the integration level.
+vi.mock("@/hooks/use-gmail-connection", () => ({
+  useGmailConnection: vi.fn(() => ({
+    data: null,
+    loading: false,
+    refresh: vi.fn(),
+    calendarConnected: false,
+    calendarLastSynced: null,
+  })),
+}));
+
 // Replace global fetch with a vi.fn() at module level so it is always a mock
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
