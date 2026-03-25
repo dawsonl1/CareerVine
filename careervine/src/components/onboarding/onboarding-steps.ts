@@ -73,7 +73,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     page: "/settings",
     primaryAction: {
       label: "Install Apollo",
-      href: "https://chromewebstore.google.com/detail/apolloio-free-b2b-phone-n/alhgpfoeiimagjlkiomcapa",
+      href: "https://chromewebstore.google.com/detail/alhgpfoeiimagjlnfekdhkjlkiomcapa?utm_source=item-share-cb",
     },
     secondaryAction: {
       label: "I've done this",
