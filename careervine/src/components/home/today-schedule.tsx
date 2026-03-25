@@ -177,6 +177,7 @@ function EventPopover({
   onClose: () => void;
   onLogConversation?: (event: LogConversationEvent) => void;
 }) {
+  const { advanceIfStep } = useOnboarding();
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Close on click outside
@@ -219,7 +220,12 @@ function EventPopover({
         {onLogConversation && (
           <button
             type="button"
-            onClick={() => { onLogConversation({ contactId: event.contact?.id ?? event.contact_id ?? undefined, title: event.title ?? undefined, startAt: event.start_at, endAt: event.end_at, meetLink: event.meet_link }); onClose(); }}
+            data-onboarding-target="onboarding-log-conversation"
+            onClick={() => {
+              advanceIfStep("open_log_conversation");
+              onLogConversation({ contactId: event.contact?.id ?? event.contact_id ?? undefined, title: event.title ?? undefined, startAt: event.start_at, endAt: event.end_at, meetLink: event.meet_link });
+              onClose();
+            }}
             className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
             title="Log conversation"
           >

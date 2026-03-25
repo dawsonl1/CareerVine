@@ -11,7 +11,7 @@ const advanceSchema = z.object({
 
 /**
  * POST /api/onboarding/advance
- * Advances the onboarding step. Handles the read_reply -> view_meeting
+ * Advances the onboarding step. Handles the read_reply -> click_meeting
  * transition by creating a Google Calendar event and meetings row.
  */
 export const POST = withApiHandler({
@@ -37,10 +37,10 @@ export const POST = withApiHandler({
 
     const nextStep = getNextStep(currentStep);
 
-    // Special side effect: read_reply -> view_meeting
+    // Special side effect: read_reply -> click_meeting
     // Create a simulated past meeting so the calendar/transcript step has something to show.
     // Must be in the past so the edit form shows Notes + Transcript fields (not future-meeting layout).
-    if (currentStep === "read_reply" && nextStep?.id === "view_meeting") {
+    if (currentStep === "read_reply" && nextStep?.id === "click_meeting") {
       try {
         const now = Date.now();
         // Place the meeting 1 hour ago — still shows on today's dashboard schedule

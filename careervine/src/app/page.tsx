@@ -364,17 +364,6 @@ export default function Home() {
     if (dataLoaded) triggerSuggestions();
   }, [dataLoaded, triggerSuggestions]);
 
-  // Onboarding: detect Dawson meeting on schedule
-  useEffect(() => {
-    if (currentStepId !== "view_meeting") return;
-    const hasDawsonMeeting = scheduleEvents.some((e) =>
-      e.title?.includes("Dawson Pitcher")
-    );
-    if (hasDawsonMeeting) {
-      advanceIfStep("view_meeting");
-    }
-  }, [scheduleEvents, advanceIfStep, currentStepId]);
-
   useEffect(() => {
     if (currentStepId !== "view_dashboard_actions") return;
     if (actionItems.length === 0) return;
