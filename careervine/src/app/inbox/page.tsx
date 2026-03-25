@@ -347,12 +347,10 @@ export default function InboxPage() {
       if (msg.direction === "inbound") {
         window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta: -1 } }));
       }
-      if (!isSimulated) {
-        try {
-          await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
-        } catch (err) {
-          console.error("Failed to mark as read:", err);
-        }
+      try {
+        await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
+      } catch (err) {
+        console.error("Failed to mark as read:", err);
       }
       // Confirm badge count from server now that DB is updated
       window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));

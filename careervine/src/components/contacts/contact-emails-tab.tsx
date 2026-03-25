@@ -84,9 +84,14 @@ export function ContactEmailsTab({
 
     const msg = emails.find((e) => e.gmail_message_id === gmailMessageId);
     if (msg && !msg.is_read) {
-      fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" }).catch(() => {});
       const delta = msg.direction === "inbound" ? -1 : 0;
       window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta } }));
+      try {
+        await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
+      } catch { /* best-effort */ }
+      // Confirm badge count and reload parent email list so read state is reflected
+      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
+      onReloadEmails();
     }
 
     try {
