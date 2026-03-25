@@ -242,6 +242,7 @@ export default function CalendarPage() {
         meeting_date: dateToStr(start),
         meeting_time: `${String(start.getHours()).padStart(2,"0")}:${String(start.getMinutes()).padStart(2,"0")}`,
       });
+      setSelectedContactIds(event.contact_id ? [event.contact_id] : []);
       setMeetingDuration(Math.round((end.getTime() - start.getTime()) / 60000));
     }
     setContactSearch(""); setInviteEmailMap({});

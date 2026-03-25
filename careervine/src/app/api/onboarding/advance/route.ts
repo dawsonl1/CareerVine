@@ -38,13 +38,14 @@ export const POST = withApiHandler({
     const nextStep = getNextStep(currentStep);
 
     // Special side effect: read_reply -> view_meeting
-    // Create a simulated upcoming meeting so the calendar/dashboard has something to show.
+    // Create a simulated past meeting so the calendar/transcript step has something to show.
+    // Must be in the past so the edit form shows Notes + Transcript fields (not future-meeting layout).
     if (currentStep === "read_reply" && nextStep?.id === "view_meeting") {
       try {
         const now = Date.now();
-        // Schedule the meeting 2 hours from now so it appears on today's schedule
-        const startTime = new Date(now + 2 * 60 * 60 * 1000).toISOString();
-        const endTime = new Date(now + 2.75 * 60 * 60 * 1000).toISOString(); // 45 min meeting
+        // Place the meeting 1 hour ago — still shows on today's dashboard schedule
+        const startTime = new Date(now - 60 * 60 * 1000).toISOString();
+        const endTime = new Date(now - 15 * 60 * 1000).toISOString(); // 45 min meeting
 
         // Create Google Calendar event
         const { googleEventId } = await createCalendarEvent(user.id, {
