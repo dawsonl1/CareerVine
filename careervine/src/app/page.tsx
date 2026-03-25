@@ -717,7 +717,16 @@ export default function Home() {
               loading={scheduleLoading}
               calendarConnected={calendarConnected}
               availableHeight={calendarAvailableHeight}
-              onLogConversation={(contactId) => openQuickCapture(contactId)}
+              onLogConversation={(ev) => {
+                const start = ev.startAt ? new Date(ev.startAt) : null;
+                openQuickCapture({
+                  contactId: ev.contactId,
+                  title: ev.title,
+                  date: start ? `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}` : undefined,
+                  time: start ? `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}` : undefined,
+                  meetingType: ev.meetLink ? "video" : undefined,
+                });
+              }}
               onEventCreated={loadSchedule}
             />
           </div>

@@ -74,7 +74,7 @@ const emptyTranscriptState: TranscriptState = {
 
 export function ConversationModal() {
   const { user } = useAuth();
-  const { isOpen, prefillContactId, editMeeting, close } = useQuickCapture();
+  const { isOpen, prefillContactId, prefillData, editMeeting, close } = useQuickCapture();
   const { success: toastSuccess, error: toastError } = useToast();
   const { calendarConnected } = useGmailConnection();
 
@@ -182,10 +182,14 @@ export function ConversationModal() {
       };
       setInitialFormSnapshot(JSON.stringify({ ...editForm, pendingActions: 0 }));
     } else {
-      // New mode
+      // New mode — optionally pre-fill from calendar event data
       const newForm = {
         ...emptyForm,
         selectedContactIds: prefillContactId ? [prefillContactId] : [],
+        ...(prefillData?.title && { title: prefillData.title }),
+        ...(prefillData?.date && { date: prefillData.date }),
+        ...(prefillData?.time && { time: prefillData.time }),
+        ...(prefillData?.meetingType && { meetingType: prefillData.meetingType }),
       };
       setForm(newForm);
       setPendingActions([]);
@@ -197,7 +201,7 @@ export function ConversationModal() {
       setMeetingDuration(60);
       setInitialFormSnapshot(JSON.stringify({ ...newForm, pendingActions: 0 }));
     }
-  }, [isOpen, editMeeting, prefillContactId, calendarConnected]);
+  }, [isOpen, editMeeting, prefillContactId, prefillData, calendarConnected]);
 
   const handleSave = async () => {
     if (savingRef.current || !user || form.selectedContactIds.length === 0) return;

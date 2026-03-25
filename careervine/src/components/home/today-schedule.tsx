@@ -29,13 +29,21 @@ export interface ScheduleEvent {
   };
 }
 
+export interface LogConversationEvent {
+  contactId?: number;
+  title?: string;
+  startAt?: string;
+  endAt?: string;
+  meetLink?: string | null;
+}
+
 interface TodayScheduleProps {
   events: ScheduleEvent[];
   loading: boolean;
   calendarConnected: boolean;
   /** Height of the left column (action list) in px — used to expand hour range to fill space */
   availableHeight: number;
-  onLogConversation?: (contactId?: number) => void;
+  onLogConversation?: (event: LogConversationEvent) => void;
   onEventCreated?: () => void;
 }
 
@@ -164,7 +172,7 @@ function EventPopover({
 }: {
   event: ScheduleEvent & { top: number; height: number; timeLabel: string };
   onClose: () => void;
-  onLogConversation?: (contactId?: number) => void;
+  onLogConversation?: (event: LogConversationEvent) => void;
 }) {
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -208,7 +216,7 @@ function EventPopover({
         {onLogConversation && (
           <button
             type="button"
-            onClick={() => { onLogConversation(event.contact?.id); onClose(); }}
+            onClick={() => { onLogConversation({ contactId: event.contact?.id, title: event.title ?? undefined, startAt: event.start_at, endAt: event.end_at, meetLink: event.meet_link }); onClose(); }}
             className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
             title="Log conversation"
           >
