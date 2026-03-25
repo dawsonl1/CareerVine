@@ -103,13 +103,9 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     id: "click_intro_button",
     title: "Start a New Intro Email",
     description:
-      "Click the \"Intro\" button on a contact to begin crafting a personalized introduction email.",
-    page: "/contacts",
+      "Click the highlighted \"Intro\" button on Dawson's card in your action list below.",
+    page: "/",
     highlightTarget: "intro-button-dawson",
-    primaryAction: {
-      label: "Go to Contacts",
-      href: "/contacts",
-    },
     skippable: false,
     advanceOn: "automatic",
   },
