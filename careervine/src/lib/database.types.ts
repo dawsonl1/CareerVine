@@ -328,11 +328,14 @@ export type Database = {
           is_read: boolean;
           is_trashed: boolean;
           is_hidden: boolean;
+          is_simulated: boolean;
           direction: string | null;
           matched_contact_id: number | null;
           created_at: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["email_messages"]["Row"], "id" | "created_at">;
+        Insert: Omit<Database["public"]["Tables"]["email_messages"]["Row"], "id" | "created_at" | "is_simulated"> & {
+          is_simulated?: boolean;
+        };
         Update: Partial<Database["public"]["Tables"]["email_messages"]["Insert"]>;
       };
 
@@ -515,6 +518,29 @@ export type Database = {
           snoozed_until?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["follow_up_action_items"]["Insert"]>;
+      };
+
+      // User onboarding — tracks onboarding progress per user
+      user_onboarding: {
+        Row: {
+          user_id: string;
+          version: number;
+          current_step: string;
+          started_at: string;
+          completed_at: string | null;
+          skipped_apollo: boolean;
+          onboarding_calendar_event_id: string | null;
+        };
+        Insert: {
+          user_id: string;
+          version?: number;
+          current_step?: string;
+          started_at?: string;
+          completed_at?: string | null;
+          skipped_apollo?: boolean;
+          onboarding_calendar_event_id?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_onboarding"]["Insert"]>;
       };
     };
   };
