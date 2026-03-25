@@ -5,6 +5,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import {
   getStepById,
+  getStepIndex,
   getProgress,
   getNextStep,
   type OnboardingStep,
@@ -48,7 +49,7 @@ export function useOnboarding(): OnboardingState {
  */
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { data: gmailData, calendarConnected } = useGmailConnection();
+  const { data: gmailData, calendarConnected, loading: connectionLoading } = useGmailConnection();
 
   const [currentStepId, setCurrentStepId] = useState<string | null>(null);
   const [version, setVersion] = useState<number | null>(null);
@@ -175,6 +176,27 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       cancelled = true;
     };
   }, [currentStepId, user, gmailData, calendarConnected, advance]);
+
+  // Safety check: on initial load, if the current step has somehow jumped past
+  // an integration step that hasn't actually been completed, reset back.
+  // Only runs once after both onboarding status and connection status have loaded.
+  const consistencyCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!currentStepId || connectionLoading || loading || !user) return;
+    if (consistencyCheckedRef.current) return;
+    consistencyCheckedRef.current = true;
+
+    const stepIdx = getStepIndex(currentStepId);
+    const gmailIdx = getStepIndex("connect_gmail");      // 0
+    const calendarIdx = getStepIndex("connect_calendar"); // 1
+    const gmailConnected = gmailData !== null;
+
+    if (stepIdx > gmailIdx && !gmailConnected) {
+      setCurrentStepId("connect_gmail");
+    } else if (stepIdx > calendarIdx && !calendarConnected && gmailConnected) {
+      setCurrentStepId("connect_calendar");
+    }
+  }, [currentStepId, gmailData, calendarConnected, connectionLoading, loading, user]);
 
   // Advance only when the current step matches the given stepId.
   // This is used by other components to auto-advance after completing an action
