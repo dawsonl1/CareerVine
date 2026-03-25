@@ -10,6 +10,7 @@ import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock, Sparkles } from "
 import { AiWriteDropdown } from "@/components/ai-write-dropdown";
 import { AvailabilityPicker } from "@/components/availability-picker";
 import { IntroContextForm } from "@/components/intro-context-form";
+import { FollowUpPlanSection, type FollowUpDraft } from "@/components/follow-up-plan-section";
 
 type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
 
@@ -33,6 +34,12 @@ export function ComposeEmailModal() {
 
   const [showAiContext, setShowAiContext] = useState(false);
   const [introPhase, setIntroPhase] = useState<IntroPhase>("context");
+
+  // Follow-up plan state (intro flow only)
+  const [followUps, setFollowUps] = useState<FollowUpDraft[]>([]);
+  const [followUpsEnabled, setFollowUpsEnabled] = useState(true);
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const introContextRef = useRef<{ howMet: string; goal: string }>({ howMet: "", goal: "" });
 
   const isReply = !!replyThreadId;
 
@@ -125,6 +132,10 @@ export function ComposeEmailModal() {
       setScheduleDatetime("");
       setShowAiContext(false);
       setIntroPhase(isIntro && !prefillBodyHtml ? "context" : "editing");
+      setFollowUps([]);
+      setFollowUpsEnabled(true);
+      setFollowUpError(null);
+      introContextRef.current = { howMet: "", goal: "" };
       draftIdRef.current = null;
       sentOrScheduledRef.current = false;
       setContactSuggestions([]);
@@ -563,6 +574,7 @@ export function ComposeEmailModal() {
                   contactName={prefillName || "this contact"}
                   onGenerate={async (ctx) => {
                     setIntroPhase("generating");
+                    introContextRef.current = { howMet: ctx.howMet, goal: ctx.goal };
                     try {
                       // Save context to contact
                       if (contactId && (ctx.howMet || ctx.goal)) {
@@ -663,6 +675,131 @@ export function ComposeEmailModal() {
                 </div>
               )}
             </div>
+
+            {/* Follow-up plan (intro flow) */}
+            {isIntro && introPhase !== "context" && introPhase !== "generating" && (
+              <div className="px-5">
+                {/* Approve & generate follow-ups button */}
+                {introPhase === "editing" && (
+                  <div className="flex justify-center py-3">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIntroPhase("generating-followups");
+                        setFollowUpError(null);
+                        try {
+                          const res = await fetch("/api/ai/draft-follow-ups", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              contactId,
+                              introSubject: subject,
+                              introBodyHtml: bodyHtml,
+                              goal: introContextRef.current.goal || undefined,
+                              howMet: introContextRef.current.howMet || undefined,
+                            }),
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.followUps) {
+                            const now = new Date();
+                            setFollowUps(
+                              data.followUps.map((fu: any, i: number) => {
+                                const sendDate = new Date(now.getTime() + fu.delayDays * 24 * 60 * 60 * 1000);
+                                sendDate.setHours(9, 5, 0, 0);
+                                return {
+                                  id: `fu-${i}`,
+                                  subject: fu.subject,
+                                  bodyHtml: fu.bodyHtml,
+                                  delayDays: fu.delayDays,
+                                  projectedDate: sendDate.toLocaleDateString("en-US", {
+                                    weekday: "short",
+                                    month: "short",
+                                    day: "numeric",
+                                  }) + " · 9:05 AM",
+                                };
+                              })
+                            );
+                            setIntroPhase("ready");
+                          } else {
+                            setFollowUpError(data.error || "Failed to generate follow-ups");
+                            setIntroPhase("editing");
+                          }
+                        } catch {
+                          setFollowUpError("Failed to generate follow-ups. Try again.");
+                          setIntroPhase("editing");
+                        }
+                      }}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Approve intro & generate follow-ups
+                    </button>
+                  </div>
+                )}
+
+                <FollowUpPlanSection
+                  followUps={followUps}
+                  enabled={followUpsEnabled}
+                  loading={introPhase === "generating-followups"}
+                  error={followUpError}
+                  placeholder={introPhase === "editing" && followUps.length === 0}
+                  onToggle={setFollowUpsEnabled}
+                  onEdit={(id, updates) => {
+                    setFollowUps((prev) =>
+                      prev.map((fu) => (fu.id === id ? { ...fu, ...updates } : fu))
+                    );
+                  }}
+                  onRemove={(id) => {
+                    setFollowUps((prev) => prev.filter((fu) => fu.id !== id));
+                  }}
+                  onRetry={async () => {
+                    setIntroPhase("generating-followups");
+                    setFollowUpError(null);
+                    try {
+                      const res = await fetch("/api/ai/draft-follow-ups", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          contactId,
+                          introSubject: subject,
+                          introBodyHtml: bodyHtml,
+                          goal: introContextRef.current.goal || undefined,
+                          howMet: introContextRef.current.howMet || undefined,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (res.ok && data.followUps) {
+                        const now = new Date();
+                        setFollowUps(
+                          data.followUps.map((fu: any, i: number) => {
+                            const sendDate = new Date(now.getTime() + fu.delayDays * 24 * 60 * 60 * 1000);
+                            sendDate.setHours(9, 5, 0, 0);
+                            return {
+                              id: `fu-${i}`,
+                              subject: fu.subject,
+                              bodyHtml: fu.bodyHtml,
+                              delayDays: fu.delayDays,
+                              projectedDate: sendDate.toLocaleDateString("en-US", {
+                                weekday: "short",
+                                month: "short",
+                                day: "numeric",
+                              }) + " · 9:05 AM",
+                            };
+                          })
+                        );
+                        setIntroPhase("ready");
+                      } else {
+                        setFollowUpError(data.error || "Failed to generate follow-ups");
+                        setIntroPhase("editing");
+                      }
+                    } catch {
+                      setFollowUpError("Failed to generate follow-ups. Try again.");
+                      setIntroPhase("editing");
+                    }
+                  }}
+                />
+              </div>
+            )}
 
             {/* Schedule send row */}
             {showSchedule && (
