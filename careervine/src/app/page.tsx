@@ -318,14 +318,18 @@ export default function Home() {
     if (dataLoaded) loadSchedule();
   }, [dataLoaded, loadSchedule]);
 
-  // Refresh when a conversation is logged
+  // Refresh when a conversation is logged or an email is sent
   useEffect(() => {
     const handler = () => {
       loadCoreData();
       loadBand3();
     };
     window.addEventListener("careervine:conversation-logged", handler);
-    return () => window.removeEventListener("careervine:conversation-logged", handler);
+    window.addEventListener("careervine:email-sent", handler);
+    return () => {
+      window.removeEventListener("careervine:conversation-logged", handler);
+      window.removeEventListener("careervine:email-sent", handler);
+    };
   }, [loadCoreData, loadBand3]);
 
   // Background refresh every 5 minutes (runs even when tab is hidden)

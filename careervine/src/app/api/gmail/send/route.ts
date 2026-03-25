@@ -39,6 +39,8 @@ export const POST = withApiHandler({
     ]);
     const matchedContactId = matchedRows?.[0]?.contact_id || null;
 
+    const sentAt = new Date().toISOString();
+
     await service.from("email_messages").upsert(
       {
         user_id: user.id,
@@ -48,7 +50,7 @@ export const POST = withApiHandler({
         snippet: bodyHtml ? bodyHtml.replace(/<[^>]*>/g, "").slice(0, 200) : null,
         from_address: conn?.gmail_address?.toLowerCase() || "",
         to_addresses: [toAddr],
-        date: new Date().toISOString(),
+        date: sentAt,
         label_ids: [GmailLabel.Sent],
         is_read: true,
         direction: EmailDirection.Outbound,
@@ -56,6 +58,17 @@ export const POST = withApiHandler({
       },
       { onConflict: "user_id,gmail_message_id", ignoreDuplicates: false }
     );
+
+    // Record an interaction so the contact's last_touch is updated and they
+    // don't immediately reappear as a "Reach Out" suggestion.
+    if (matchedContactId) {
+      await service.from("interactions").insert({
+        contact_id: matchedContactId,
+        interaction_date: sentAt,
+        interaction_type: "email",
+        summary: `Sent: ${subject}`,
+      }).then(null, (err: unknown) => console.error("Failed to create email interaction:", err));
+    }
 
     if (toAddr === ONBOARDING_CONTACT_EMAIL) {
       // Check if this is the first email to Dawson from this user
