@@ -252,6 +252,7 @@ export default function Home() {
               meet_link: e.meet_link || null,
               attendees,
               contact,
+              contact_id: e.contact_id ?? null,
             };
           })
         );

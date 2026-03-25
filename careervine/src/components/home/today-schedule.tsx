@@ -21,12 +21,15 @@ export interface ScheduleEvent {
   location: string | null;
   meet_link: string | null;
   attendees: ScheduleEventAttendee[];
+  /** Resolved contact (from attendee matching or contact_id lookup) */
   contact?: {
     id: number;
     name: string;
     photo_url: string | null;
     lastTouchLabel: string;
   };
+  /** Raw contact_id from the calendar event — fallback when contact object isn't resolved */
+  contact_id?: number | null;
 }
 
 export interface LogConversationEvent {
@@ -216,7 +219,7 @@ function EventPopover({
         {onLogConversation && (
           <button
             type="button"
-            onClick={() => { onLogConversation({ contactId: event.contact?.id, title: event.title ?? undefined, startAt: event.start_at, endAt: event.end_at, meetLink: event.meet_link }); onClose(); }}
+            onClick={() => { onLogConversation({ contactId: event.contact?.id ?? event.contact_id ?? undefined, title: event.title ?? undefined, startAt: event.start_at, endAt: event.end_at, meetLink: event.meet_link }); onClose(); }}
             className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-highest transition-colors cursor-pointer"
             title="Log conversation"
           >
