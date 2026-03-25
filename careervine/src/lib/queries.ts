@@ -1987,48 +1987,49 @@ export async function getNetworkingStreak(userId: string) {
 }
 
 /**
- * Get aggregated home page stats: this week + last week for trend comparison.
+ * Get aggregated home page stats: rolling 7-day window + previous 7 days for trend comparison.
  */
 export async function getHomeStats(userId: string) {
   const now = new Date();
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - now.getDay()); // Sunday
-  startOfWeek.setHours(0, 0, 0, 0);
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-  const startOfLastWeek = new Date(startOfWeek);
-  startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
-
-  const thisWeekStr = startOfWeek.toISOString();
-  const lastWeekStr = startOfLastWeek.toISOString();
+  const currentStr = sevenDaysAgo.toISOString();
+  const previousStr = fourteenDaysAgo.toISOString();
 
   const [
-    { count: convThisWeek },
-    { count: convLastWeek },
+    { count: meetingsCurrent },
+    { count: meetingsPrevious },
     { count: pendingItems },
-    { count: completedThisWeek },
-    { count: completedLastWeek },
-    { count: contactsThisWeek },
-    { count: contactsLastWeek },
-    { count: interactionsThisWeek },
-    { count: interactionsLastWeek },
+    { count: completedCurrent },
+    { count: completedPrevious },
+    { count: contactsCurrent },
+    { count: contactsPrevious },
+    { count: interactionsCurrent },
+    { count: interactionsPrevious },
+    { count: emailsSentCurrent },
+    { count: emailsSentPrevious },
   ] = await Promise.all([
-    supabase.from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", thisWeekStr.split("T")[0]),
-    supabase.from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", lastWeekStr.split("T")[0]).lt("meeting_date", thisWeekStr.split("T")[0]),
+    supabase.from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", currentStr.split("T")[0]),
+    supabase.from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", previousStr.split("T")[0]).lt("meeting_date", currentStr.split("T")[0]),
     supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", false),
-    supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", thisWeekStr),
-    supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", lastWeekStr).lt("completed_at", thisWeekStr),
-    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", thisWeekStr),
-    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", lastWeekStr).lt("created_at", thisWeekStr),
-    supabase.from("interactions").select("*", { count: "exact", head: true }).gte("interaction_date", thisWeekStr.split("T")[0]),
-    supabase.from("interactions").select("*", { count: "exact", head: true }).gte("interaction_date", lastWeekStr.split("T")[0]).lt("interaction_date", thisWeekStr.split("T")[0]),
+    supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", currentStr),
+    supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", previousStr).lt("completed_at", currentStr),
+    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", currentStr),
+    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", previousStr).lt("created_at", currentStr),
+    supabase.from("interactions").select("*", { count: "exact", head: true }).gte("interaction_date", currentStr.split("T")[0]),
+    supabase.from("interactions").select("*", { count: "exact", head: true }).gte("interaction_date", previousStr.split("T")[0]).lt("interaction_date", currentStr.split("T")[0]),
+    supabase.from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").gte("date", currentStr.split("T")[0]),
+    supabase.from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").gte("date", previousStr.split("T")[0]).lt("date", currentStr.split("T")[0]),
   ]);
 
   return {
-    conversations: { thisWeek: convThisWeek || 0, lastWeek: convLastWeek || 0 },
+    meetings: { current: meetingsCurrent || 0, previous: meetingsPrevious || 0 },
     pendingItems: pendingItems || 0,
-    completedItems: { thisWeek: completedThisWeek || 0, lastWeek: completedLastWeek || 0 },
-    contactsAdded: { thisWeek: contactsThisWeek || 0, lastWeek: contactsLastWeek || 0 },
-    touchpoints: { thisWeek: (interactionsThisWeek || 0) + (convThisWeek || 0), lastWeek: (interactionsLastWeek || 0) + (convLastWeek || 0) },
+    completedItems: { current: completedCurrent || 0, previous: completedPrevious || 0 },
+    contactsAdded: { current: contactsCurrent || 0, previous: contactsPrevious || 0 },
+    emailsSent: { current: emailsSentCurrent || 0, previous: emailsSentPrevious || 0 },
+    touchpoints: { current: (interactionsCurrent || 0) + (meetingsCurrent || 0), previous: (interactionsPrevious || 0) + (meetingsPrevious || 0) },
   };
 }
 

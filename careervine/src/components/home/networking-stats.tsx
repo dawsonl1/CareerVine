@@ -33,11 +33,12 @@ interface NeglectedContact {
 }
 
 interface HomeStatsData {
-  conversations: { thisWeek: number; lastWeek: number };
+  meetings: { current: number; previous: number };
   pendingItems: number;
-  completedItems: { thisWeek: number; lastWeek: number };
-  contactsAdded: { thisWeek: number; lastWeek: number };
-  touchpoints: { thisWeek: number; lastWeek: number };
+  completedItems: { current: number; previous: number };
+  contactsAdded: { current: number; previous: number };
+  emailsSent: { current: number; previous: number };
+  touchpoints: { current: number; previous: number };
 }
 
 export interface RelationshipsOnTrackData {
@@ -98,13 +99,14 @@ export function NetworkingStats({
 
   const statCards: StatCard[] = [
     {
-      label: "Conversations this week",
-      value: stats.conversations.thisWeek,
-      previousValue: stats.conversations.lastWeek,
+      label: "Meetings (7 days)",
+      value: stats.meetings.current,
+      previousValue: stats.meetings.previous,
       tooltipLines: [
-        `${stats.conversations.thisWeek} meetings logged this week`,
-        `${stats.conversations.lastWeek} last week`,
-        ...(stats.completedItems.thisWeek > 0 ? [`${stats.completedItems.thisWeek} action items completed`] : []),
+        `${stats.meetings.current} meetings logged`,
+        ...(stats.emailsSent.current > 0 ? [`${stats.emailsSent.current} emails sent`] : []),
+        ...(stats.completedItems.current > 0 ? [`${stats.completedItems.current} action items completed`] : []),
+        `${stats.meetings.previous} meetings prior 7 days`,
       ],
     },
     {
@@ -116,21 +118,21 @@ export function NetworkingStats({
     },
     {
       label: "Contacts added",
-      value: stats.contactsAdded.thisWeek,
-      previousValue: stats.contactsAdded.lastWeek,
+      value: stats.contactsAdded.current,
+      previousValue: stats.contactsAdded.previous,
       tooltipLines: [
-        `${stats.contactsAdded.thisWeek} new contacts this week`,
-        `${stats.contactsAdded.lastWeek} last week`,
+        `${stats.contactsAdded.current} new contacts (7 days)`,
+        `${stats.contactsAdded.previous} prior 7 days`,
       ],
     },
   ];
 
   // Compute trend
-  const totalThisWeek = stats.conversations.thisWeek + stats.completedItems.thisWeek + stats.touchpoints.thisWeek;
-  const totalLastWeek = stats.conversations.lastWeek + stats.completedItems.lastWeek + stats.touchpoints.lastWeek;
-  const trendPct = totalLastWeek > 0
-    ? Math.round(((totalThisWeek - totalLastWeek) / totalLastWeek) * 100)
-    : totalThisWeek > 0 ? 100 : 0;
+  const totalCurrent = stats.meetings.current + stats.completedItems.current + stats.touchpoints.current;
+  const totalPrevious = stats.meetings.previous + stats.completedItems.previous + stats.touchpoints.previous;
+  const trendPct = totalPrevious > 0
+    ? Math.round(((totalCurrent - totalPrevious) / totalPrevious) * 100)
+    : totalCurrent > 0 ? 100 : 0;
 
   return (
     <div>
@@ -150,7 +152,7 @@ export function NetworkingStats({
               <ActivityHeatmap data={heatmapData} />
               {/* Trend line + streak — under heatmap */}
               <div className="mt-3 flex items-center justify-between">
-              {(totalThisWeek > 0 || totalLastWeek > 0) && (
+              {(totalCurrent > 0 || totalPrevious > 0) && (
                 <div className="flex items-center gap-2.5 text-lg text-muted-foreground">
                   {trendPct > 0 ? (
                     <TrendingUp className="h-4 w-4 text-green-600" />
@@ -160,7 +162,7 @@ export function NetworkingStats({
                     <Minus className="h-4 w-4" />
                   )}
                   <span>
-                    This week vs last:{" "}
+                    vs prior 7 days:{" "}
                     <span className={trendPct > 0 ? "text-green-600" : trendPct < 0 ? "text-red-500" : ""}>
                       {trendPct > 0 ? "+" : ""}
                       {trendPct}% {trendPct > 0 ? "more" : trendPct < 0 ? "less" : ""} active
