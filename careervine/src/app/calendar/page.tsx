@@ -547,7 +547,7 @@ export default function CalendarPage() {
                 {selectedEvent.attendees.length > 0 && (
                   <div className="mt-2.5 pt-2.5 border-t border-outline-variant/50 space-y-1">
                     {selectedEvent.attendees.slice(0, 5).map((a, i) => {
-                      const sc = { accepted: "text-primary", declined: "text-destructive", tentative: "text-yellow-600", needsAction: "text-muted-foreground" }[a.responseStatus] || "text-muted-foreground";
+                      const sc = { accepted: "text-primary", declined: "text-destructive", tentative: "text-tertiary", needsAction: "text-muted-foreground" }[a.responseStatus] || "text-muted-foreground";
                       const sl = { accepted: "✓", declined: "✗", tentative: "?", needsAction: "–" }[a.responseStatus] || "–";
                       const displayName = contactEmailToName[a.email?.toLowerCase()] || a.name || a.email;
                       return <div key={i} className="flex items-center gap-2 text-sm"><span className={`font-semibold ${sc}`}>{sl}</span><span className="text-foreground truncate">{displayName}</span></div>;
@@ -621,7 +621,7 @@ export default function CalendarPage() {
                         {!event.is_private && event.attendees.length > 0 && (
                           <div className="mt-2.5 pt-2.5 border-t border-outline-variant/40 flex flex-wrap gap-x-4 gap-y-1">
                             {event.attendees.map((a, i) => {
-                              const sc = { accepted: "text-primary", declined: "text-destructive", tentative: "text-yellow-600", needsAction: "text-muted-foreground" }[a.responseStatus] || "text-muted-foreground";
+                              const sc = { accepted: "text-primary", declined: "text-destructive", tentative: "text-tertiary", needsAction: "text-muted-foreground" }[a.responseStatus] || "text-muted-foreground";
                               const sl = { accepted: "✓", declined: "✗", tentative: "?", needsAction: "–" }[a.responseStatus] || "–";
                               const displayName = contactEmailToName[a.email?.toLowerCase()] || a.name || a.email;
                               return <span key={i} className="text-sm text-foreground"><span className={`font-semibold ${sc}`}>{sl}</span> {displayName}</span>;

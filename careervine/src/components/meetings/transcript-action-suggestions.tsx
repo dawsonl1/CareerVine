@@ -52,7 +52,7 @@ const DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
 
 const DIRECTION_CONFIG: Record<Direction, { icon: typeof CheckSquare; label: string; color: string }> = {
   my_task: { icon: CheckSquare, label: "Your commitments", color: "text-primary" },
-  waiting_on: { icon: Hourglass, label: "Waiting on", color: "text-amber-600 dark:text-amber-400" },
+  waiting_on: { icon: Hourglass, label: "Waiting on", color: "text-tertiary" },
 };
 
 interface TranscriptActionSuggestionsProps {

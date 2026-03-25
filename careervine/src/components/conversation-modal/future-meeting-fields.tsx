@@ -113,7 +113,7 @@ export function FutureMeetingFields({
                       </span>
                     </label>
                     {!hasEmail && addToCalendar && (
-                      <span className="text-xs text-amber-600 dark:text-amber-400 shrink-0">No email</span>
+                      <span className="text-xs text-tertiary shrink-0">No email</span>
                     )}
                     {!addToCalendar && (
                       <span className="text-xs text-muted-foreground shrink-0">Enable calendar first</span>

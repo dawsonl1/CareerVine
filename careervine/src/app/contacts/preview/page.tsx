@@ -220,7 +220,7 @@ export default function ContactPreviewPage() {
                 </a>
               )}
               {saved ? (
-                <div className="flex items-center gap-2.5 text-green-700 px-5 py-2.5">
+                <div className="flex items-center gap-2.5 text-primary px-5 py-2.5">
                   <Check className="w-5 h-5" />
                   <span className="font-medium text-base">Saved! Redirecting...</span>
                 </div>
@@ -268,7 +268,7 @@ export default function ContactPreviewPage() {
           )}
 
           {error && (
-            <p className="text-base text-red-600 mt-4">{error}</p>
+            <p className="text-base text-destructive mt-4">{error}</p>
           )}
         </div>
 

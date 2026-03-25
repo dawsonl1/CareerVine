@@ -258,13 +258,13 @@ export default function MeetingsPage() {
 
         {/* Calendar not connected banner */}
         {!calendarConnected && !loading && !connectionLoading && (
-          <div className="flex gap-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 mb-6">
-            <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex gap-4 p-4 rounded-xl bg-tertiary-container border border-outline-variant mb-6">
+            <AlertCircle className="h-6 w-6 text-on-tertiary-container shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-base font-medium text-amber-800 dark:text-amber-300">
+              <p className="text-base font-medium text-on-tertiary-container">
                 Google Calendar not connected
               </p>
-              <p className="text-sm text-amber-700 dark:text-amber-400 mt-0.5">
+              <p className="text-sm text-on-tertiary-container/80 mt-0.5">
                 Connect your Google Calendar to add meetings to your calendar and generate Google Meet links.{" "}
                 <Link href="/settings?tab=integrations" className="underline font-medium">
                   Go to Integrations
@@ -435,7 +435,7 @@ export default function MeetingsPage() {
                       const rsvp = calEvent && contactEmail
                         ? calEvent.attendees.find((a) => a.email === contactEmail)?.responseStatus
                         : undefined;
-                      const rsvpStyle = rsvp === "accepted" ? " text-primary" : rsvp === "declined" ? " text-destructive" : rsvp === "tentative" ? " text-yellow-600" : "";
+                      const rsvpStyle = rsvp === "accepted" ? " text-primary" : rsvp === "declined" ? " text-destructive" : rsvp === "tentative" ? " text-tertiary" : "";
                       const rsvpLabel = rsvp === "accepted" ? " ✓" : rsvp === "declined" ? " ✗" : rsvp === "tentative" ? " ?" : "";
                       return (
                         <span key={mc.contact_id} className="inline-flex items-center h-8 px-4 rounded-full bg-secondary-container text-sm text-on-secondary-container font-medium">
@@ -606,7 +606,7 @@ export default function MeetingsPage() {
                             )}
                             <button
                               type="button"
-                              className="ml-auto opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-600 transition-all cursor-pointer"
+                              className="ml-auto opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all cursor-pointer"
                               onClick={() => handleMeetingAttachmentDelete(meeting.id, att.id, att.object_path)}
                               title="Delete attachment"
                             >

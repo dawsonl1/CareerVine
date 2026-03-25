@@ -53,6 +53,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [currentStepId, setCurrentStepId] = useState<string | null>(null);
   const [version, setVersion] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const setupCalledRef = useRef(false);
 
   // Fetch the user's current onboarding status from the API.
   // Also handles first-login setup: if no onboarding row exists, seeds one.
@@ -71,7 +72,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         // should not be dropped into the onboarding flow.
         const createdAt = new Date(user.created_at || 0);
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-        if (createdAt > oneHourAgo) {
+        if (createdAt > oneHourAgo && !setupCalledRef.current) {
+          setupCalledRef.current = true;
           await fetch("/api/onboarding/setup", { method: "POST" });
           const res2 = await fetch("/api/onboarding/status");
           if (!res2.ok) return;

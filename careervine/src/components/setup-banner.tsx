@@ -38,15 +38,15 @@ export default function SetupBanner() {
   const needsCalendar = !calendarConnected;
 
   return (
-    <div className="bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800">
+    <div className="bg-tertiary-container border-b border-outline-variant">
       <div className="max-w-7xl mx-auto px-5 sm:px-7 lg:px-9 py-4">
         <div className="flex items-start gap-4">
-          <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <AlertCircle className="h-6 w-6 text-on-tertiary-container shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <p className="text-base font-medium text-amber-800 dark:text-amber-300">
+            <p className="text-base font-medium text-on-tertiary-container">
               Complete your setup
             </p>
-            <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+            <p className="text-sm text-on-tertiary-container/80 mt-1">
               {needsGmail && needsCalendar
                 ? "Connect Gmail and Google Calendar to unlock email tracking, inbox, and meeting scheduling."
                 : needsGmail
@@ -69,21 +69,21 @@ export default function SetupBanner() {
               <button
                 type="button"
                 onClick={() => setShowOAuthInfo(!showOAuthInfo)}
-                className="text-sm text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200 cursor-pointer"
+                className="text-sm text-on-tertiary-container/70 underline underline-offset-2 hover:text-on-tertiary-container cursor-pointer"
               >
                 {showOAuthInfo ? "Hide details" : "Why will Google show a warning?"}
               </button>
             </div>
             {showOAuthInfo && (
               <div className="mt-4">
-                <OAuthWarning variant="amber" />
+                <OAuthWarning />
               </div>
             )}
           </div>
           <button
             type="button"
             onClick={handleDismiss}
-            className="p-1.5 rounded-full text-amber-500 hover:text-amber-700 dark:hover:text-amber-300 cursor-pointer shrink-0"
+            className="p-1.5 rounded-full text-on-tertiary-container/60 hover:text-on-tertiary-container cursor-pointer shrink-0"
             title="Dismiss"
           >
             <X className="h-5 w-5" />

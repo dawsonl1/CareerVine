@@ -166,15 +166,15 @@ export function NetworkingStats({
               {(totalCurrent > 0 || totalPrevious > 0) && (
                 <div className="flex items-center gap-2.5 text-lg text-muted-foreground">
                   {trendPct > 0 ? (
-                    <TrendingUp className="h-4 w-4 text-green-600" />
+                    <TrendingUp className="h-4 w-4 text-primary" />
                   ) : trendPct < 0 ? (
-                    <TrendingDown className="h-4 w-4 text-red-500" />
+                    <TrendingDown className="h-4 w-4 text-destructive" />
                   ) : (
                     <Minus className="h-4 w-4" />
                   )}
                   <span>
                     vs prior 7 days:{" "}
-                    <span className={trendPct > 0 ? "text-green-600" : trendPct < 0 ? "text-red-500" : ""}>
+                    <span className={trendPct > 0 ? "text-primary" : trendPct < 0 ? "text-destructive" : ""}>
                       {trendPct > 0 ? "+" : ""}
                       {trendPct}% {trendPct > 0 ? "more" : trendPct < 0 ? "less" : ""} active
                     </span>
@@ -185,7 +185,7 @@ export function NetworkingStats({
               {/* Streak */}
               {streak > 0 && (
                 <div className="flex items-center gap-1.5 text-base text-muted-foreground">
-                  <Flame className="h-4 w-4 text-orange-500" />
+                  <Flame className="h-4 w-4 text-tertiary" />
                   <span className="font-medium tabular-nums">{streak}</span>
                   <span>day{streak !== 1 ? "s" : ""}</span>
                 </div>

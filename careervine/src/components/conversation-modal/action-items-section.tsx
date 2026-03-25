@@ -46,7 +46,7 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
             <div key={i} className="flex items-center gap-2.5 p-3 rounded-[10px] bg-surface-container-low">
               <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
                 action.direction === ActionDirection.WaitingOn
-                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                  ? "bg-tertiary-container text-on-tertiary-container"
                   : "bg-primary/10 text-primary"
               }`}>
                 {action.direction === ActionDirection.WaitingOn ? "Waiting" : "My task"}
@@ -87,7 +87,7 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
           onClick={() => setDirection(ActionDirection.WaitingOn)}
           className={`text-sm font-medium px-4 py-1.5 rounded-full cursor-pointer transition-colors ${
             direction === ActionDirection.WaitingOn
-              ? "bg-amber-600 text-white dark:bg-amber-500"
+              ? "bg-tertiary text-white"
               : "bg-surface-container text-foreground hover:bg-surface-container-high"
           }`}
         >

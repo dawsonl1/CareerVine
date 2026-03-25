@@ -36,7 +36,7 @@ export function NeglectedContacts({ contacts }: NeglectedContactsProps) {
   if (contacts.length === 0) {
     return (
       <div className="rounded-xl bg-surface-container-low p-4 text-center">
-        <p className="text-lg text-green-600 font-medium">All caught up</p>
+        <p className="text-lg text-primary font-medium">All caught up</p>
         <p className="text-base text-muted-foreground mt-0.5">
           No relationships need urgent attention
         </p>

@@ -11,15 +11,20 @@ export const POST = withApiHandler({
   handler: async ({ user }) => {
     const service = createSupabaseServiceClient();
 
-    // Idempotency check — if onboarding row already exists, return early
-    const { data: existing } = await service
-      .from("user_onboarding")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .single();
+    // Create onboarding row FIRST — the primary key on user_id prevents
+    // duplicate inserts if two requests race past the status check.
+    const { error: onboardingError } = await service.from("user_onboarding").insert({
+      user_id: user.id,
+      version: 1,
+      current_step: "connect_gmail",
+    });
 
-    if (existing) {
-      return { status: "already_setup" };
+    if (onboardingError) {
+      // 23505 = unique_violation — another request already created the row
+      if (onboardingError.code === "23505") {
+        return { status: "already_setup" };
+      }
+      throw new Error(`Failed to create onboarding row: ${onboardingError.message}`);
     }
 
     // Create the Dawson contact
@@ -45,17 +50,6 @@ export const POST = withApiHandler({
 
     if (emailError) {
       throw new Error(`Failed to create contact email: ${emailError.message}`);
-    }
-
-    // Create the onboarding row
-    const { error: onboardingError } = await service.from("user_onboarding").insert({
-      user_id: user.id,
-      version: 1,
-      current_step: "connect_gmail",
-    });
-
-    if (onboardingError) {
-      throw new Error(`Failed to create onboarding row: ${onboardingError.message}`);
     }
 
     return { status: "setup_complete", dawsonContactId: contact.id };

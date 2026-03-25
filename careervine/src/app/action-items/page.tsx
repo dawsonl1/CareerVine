@@ -410,8 +410,8 @@ export default function ActionItemsPage() {
       >
         <CardContent className="p-6">
           <div className="flex items-start gap-5">
-            <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-amber-100 dark:bg-amber-900/30">
-              <Hourglass className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+            <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-tertiary-container">
+              <Hourglass className="h-6 w-6 text-on-tertiary-container" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
@@ -426,7 +426,7 @@ export default function ActionItemsPage() {
                 {item.meetings && <span> · <Calendar className="inline h-4 w-4 mb-0.5" /> {item.meetings.meeting_type}</span>}
                 {isAiGenerated(item) && <span> · {item.source === ActionItemSource.AiSuggestion ? "AI suggestion" : "From transcript"}</span>}
               </p>
-              <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+              <p className="mt-2 text-sm text-tertiary">
                 {daysWaiting !== null ? `${daysWaiting} day${daysWaiting !== 1 ? "s" : ""} waiting` : "Waiting"}
               </p>
             </div>
@@ -520,7 +520,7 @@ export default function ActionItemsPage() {
                           <button
                             type="button"
                             onClick={() => completeSuggestion(s)}
-                            className="p-2.5 rounded-full text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
+                            className="p-2.5 rounded-full text-primary hover:bg-primary-container transition-colors cursor-pointer"
                             title="I already did this"
                           >
                             <Check className="h-5 w-5" />
@@ -600,8 +600,8 @@ export default function ActionItemsPage() {
         {waitingOnItems.length > 0 && (
           <div className="mb-10">
             <div className="flex items-center gap-3 mb-5">
-              <Hourglass className="h-6 w-6 text-amber-600 dark:text-amber-400" />
-              <h2 className="text-lg font-medium text-amber-600 dark:text-amber-400">
+              <Hourglass className="h-6 w-6 text-tertiary" />
+              <h2 className="text-lg font-medium text-tertiary">
                 Waiting on others ({waitingOnItems.length})
               </h2>
             </div>

@@ -124,11 +124,11 @@ export default function AvailabilitySection() {
             <Calendar className="h-6 w-6 text-muted-foreground" />
             <h2 className="text-lg font-medium text-foreground">Availability</h2>
           </div>
-          <div className="flex gap-4 p-5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-            <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex gap-4 p-5 rounded-xl bg-tertiary-container border border-outline-variant">
+            <AlertCircle className="h-6 w-6 text-on-tertiary-container shrink-0 mt-0.5" />
             <div>
-              <p className="text-base font-medium text-amber-800 dark:text-amber-300">Google Calendar required</p>
-              <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+              <p className="text-base font-medium text-on-tertiary-container">Google Calendar required</p>
+              <p className="text-sm text-on-tertiary-container/80 mt-1">
                 Connect your Google Calendar in the{" "}
                 <Link href="/settings?tab=integrations" className="underline font-medium">Integrations</Link>{" "}
                 section to configure your availability and schedule meetings.

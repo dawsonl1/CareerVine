@@ -96,7 +96,7 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
               )}
               <button
                 type="button"
-                className="ml-auto opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-600 transition-all cursor-pointer"
+                className="ml-auto opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all cursor-pointer"
                 onClick={() => handleDelete(att.id, att.object_path)}
                 title="Delete attachment"
               >

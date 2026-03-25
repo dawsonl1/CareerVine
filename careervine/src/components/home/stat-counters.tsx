@@ -19,8 +19,8 @@ interface StatCountersProps {
 
 function TrendArrow({ current, previous }: { current: number; previous: number }) {
   const diff = current - previous;
-  if (diff > 0) return <TrendingUp className="h-6 w-6 text-green-600" />;
-  if (diff < 0) return <TrendingDown className="h-6 w-6 text-red-500" />;
+  if (diff > 0) return <TrendingUp className="h-6 w-6 text-primary" />;
+  if (diff < 0) return <TrendingDown className="h-6 w-6 text-destructive" />;
   return <Minus className="h-6 w-6 text-muted-foreground" />;
 }
 
@@ -65,7 +65,7 @@ export function StatCounters({ stats }: StatCountersProps) {
             </div>
             <p className="text-lg text-muted-foreground mt-1.5">{stat.label}</p>
             {diff !== 0 && (
-              <p className={`text-base mt-0.5 ${diff > 0 ? "text-green-600" : "text-red-500"}`}>
+              <p className={`text-base mt-0.5 ${diff > 0 ? "text-primary" : "text-destructive"}`}>
                 {diff > 0 ? "+" : ""}
                 {diff}{stat.isPercentage ? "%" : ""} vs prior 7 days
               </p>

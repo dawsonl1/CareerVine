@@ -229,7 +229,7 @@ export function OnboardingGuide() {
               title="Copy transcript"
             >
               {copied ? (
-                <Check className="w-3.5 h-3.5 text-green-600" />
+                <Check className="w-3.5 h-3.5 text-primary" />
               ) : (
                 <Copy className="w-3.5 h-3.5 text-gray-500" />
               )}

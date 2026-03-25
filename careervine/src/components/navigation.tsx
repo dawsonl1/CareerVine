@@ -87,7 +87,7 @@ export default function Navigation() {
                 </span>
               )}
               {!gmailConnected && (
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-amber-500 border-2 border-background" />
+                <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-tertiary border-2 border-background" />
               )}
             </Link>
             {/* Calendar icon */}

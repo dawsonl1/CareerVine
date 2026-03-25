@@ -279,10 +279,10 @@ function EventPopover({
                 <p key={i} className="text-sm text-muted-foreground truncate">
                   {a.name || a.email}
                   {a.responseStatus === "declined" && (
-                    <span className="text-xs text-red-500 ml-1.5">declined</span>
+                    <span className="text-xs text-destructive ml-1.5">declined</span>
                   )}
                   {a.responseStatus === "tentative" && (
-                    <span className="text-xs text-amber-500 ml-1.5">maybe</span>
+                    <span className="text-xs text-muted-foreground ml-1.5">maybe</span>
                   )}
                 </p>
               ))}
@@ -419,7 +419,7 @@ function QuickAddCard({
         </label>
       </div>
 
-      {error && <p className="text-xs text-red-500 px-4 pb-1">{error}</p>}
+      {error && <p className="text-xs text-destructive px-4 pb-1">{error}</p>}
       <div className="flex items-center justify-end gap-2 px-4 pb-3">
         <button
           type="button"
@@ -640,8 +640,8 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
               className="absolute right-0 z-20 flex items-center"
               style={{ top: nowTop, left: LABEL_WIDTH - 4 }}
             >
-              <div className="w-2 h-2 rounded-full bg-red-500" />
-              <div className="flex-1 border-t-2 border-red-500" />
+              <div className="w-2 h-2 rounded-full bg-destructive" />
+              <div className="flex-1 border-t-2 border-destructive" />
             </div>
           )}
 

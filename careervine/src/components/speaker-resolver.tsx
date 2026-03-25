@@ -120,16 +120,16 @@ function ConfidenceBadge({ confidence, reason }: { confidence: number | null; re
   let label: string;
 
   if (confidence > 0.8) {
-    bgColor = "bg-green-100 dark:bg-green-900/30";
-    textColor = "text-green-700 dark:text-green-400";
+    bgColor = "bg-primary-container";
+    textColor = "text-on-primary-container";
     label = "High";
   } else if (confidence >= 0.5) {
-    bgColor = "bg-yellow-100 dark:bg-yellow-900/30";
-    textColor = "text-yellow-700 dark:text-yellow-400";
+    bgColor = "bg-tertiary-container";
+    textColor = "text-on-tertiary-container";
     label = "Medium";
   } else {
-    bgColor = "bg-gray-100 dark:bg-gray-800/30";
-    textColor = "text-gray-600 dark:text-gray-400";
+    bgColor = "bg-surface-container";
+    textColor = "text-muted-foreground";
     label = "Low";
   }
 
