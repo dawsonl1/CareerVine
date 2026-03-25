@@ -30,6 +30,13 @@ export const POST = withApiHandler({
         .delete()
         .eq("user_id", user.id)
         .eq("calendar_event_id", onboarding.onboarding_calendar_event_id);
+
+      // Delete the local calendar_events cache entry
+      await service
+        .from("calendar_events")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("google_event_id", onboarding.onboarding_calendar_event_id);
     }
 
     // Mark onboarding complete and clear stale calendar event reference

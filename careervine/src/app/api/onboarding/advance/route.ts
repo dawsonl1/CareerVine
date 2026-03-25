@@ -38,12 +38,13 @@ export const POST = withApiHandler({
     const nextStep = getNextStep(currentStep);
 
     // Special side effect: read_reply -> view_meeting
-    // Create a simulated past meeting so the calendar step has something to show.
+    // Create a simulated upcoming meeting so the calendar/dashboard has something to show.
     if (currentStep === "read_reply" && nextStep?.id === "view_meeting") {
       try {
         const now = Date.now();
-        const startTime = new Date(now - 75 * 60 * 1000).toISOString(); // 75 minutes ago
-        const endTime = new Date(now - 30 * 60 * 1000).toISOString();   // 30 minutes ago
+        // Schedule the meeting 2 hours from now so it appears on today's schedule
+        const startTime = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+        const endTime = new Date(now + 2.75 * 60 * 60 * 1000).toISOString(); // 45 min meeting
 
         // Create Google Calendar event
         const { googleEventId } = await createCalendarEvent(user.id, {
@@ -54,7 +55,8 @@ export const POST = withApiHandler({
           conferenceType: "none",
         });
 
-        // Find the Dawson contact via contact_emails
+        // Also write directly to calendar_events cache so the dashboard shows it
+        // immediately (the sync has a 5-min cooldown and only fetches future events).
         const { data: emailRow } = await service
           .from("contact_emails")
           .select("contact_id, contacts!inner(user_id)")
@@ -62,7 +64,28 @@ export const POST = withApiHandler({
           .eq("contacts.user_id", user.id)
           .single();
 
-        if (emailRow?.contact_id) {
+        const contactId = emailRow?.contact_id ?? null;
+
+        await service.from("calendar_events").upsert({
+          user_id: user.id,
+          google_event_id: googleEventId,
+          calendar_id: "primary",
+          title: "Networking Chat with Dawson Pitcher",
+          description: "Informational interview — CareerVine onboarding",
+          start_at: startTime,
+          end_at: endTime,
+          all_day: false,
+          location: null,
+          meet_link: null,
+          status: "confirmed",
+          attendees: [],
+          is_private: false,
+          recurring_event_id: null,
+          contact_id: contactId,
+          synced_at: new Date().toISOString(),
+        });
+
+        if (contactId) {
           // Create the meeting row
           const { data: meeting } = await service
             .from("meetings")
@@ -80,7 +103,7 @@ export const POST = withApiHandler({
             // Link meeting to Dawson contact
             await service.from("meeting_contacts").insert({
               meeting_id: meeting.id,
-              contact_id: emailRow.contact_id,
+              contact_id: contactId,
             });
           }
         }
@@ -125,6 +148,13 @@ export const POST = withApiHandler({
           .delete()
           .eq("user_id", user.id)
           .eq("calendar_event_id", onboarding.onboarding_calendar_event_id);
+
+        // Delete the local calendar_events cache entry
+        await service
+          .from("calendar_events")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("google_event_id", onboarding.onboarding_calendar_event_id);
       }
 
       updatePayload.completed_at = new Date().toISOString();
