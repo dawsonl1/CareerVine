@@ -161,7 +161,7 @@ export default function ContactDetailPage() {
           setGmailConn(conn as GmailConnection | null);
           if (conn) {
             fetch("/api/gmail/schedule/process", { method: "POST" }).catch(() => {});
-            fetch("/api/gmail/follow-ups/process", { method: "POST" }).catch(() => {});
+            // Follow-up processing is now handled by QStash cron (/api/cron/send-follow-ups)
           }
         })
         .catch(() => {});

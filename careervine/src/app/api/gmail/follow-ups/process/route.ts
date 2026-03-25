@@ -1,14 +1,13 @@
 import { withApiHandler } from "@/lib/api-handler";
-import { processFollowUps } from "@/lib/gmail";
 
 /**
  * POST /api/gmail/follow-ups/process
- * Processes all due follow-up messages for the authenticated user.
- * Checks for replies before sending each follow-up.
+ * DEPRECATED: Follow-up processing is now handled by the QStash cron
+ * at /api/cron/send-follow-ups (runs every 15 minutes for all users).
+ * This endpoint is kept for backwards compatibility but is a no-op.
  */
 export const POST = withApiHandler({
-  handler: async ({ user }) => {
-    const result = await processFollowUps(user.id);
-    return { success: true, ...result };
+  handler: async () => {
+    return { success: true, sent: 0, cancelled: 0, errors: 0, message: "Processing handled by QStash cron" };
   },
 });
