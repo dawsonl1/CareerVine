@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import {
@@ -66,14 +66,20 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       const onboarding = data?.onboarding ?? null;
 
       if (!onboarding) {
-        // First login — seed onboarding data, then re-fetch
-        await fetch("/api/onboarding/setup", { method: "POST" });
-        const res2 = await fetch("/api/onboarding/status");
-        if (!res2.ok) return;
-        const data2 = await res2.json();
-        const ob2 = data2?.onboarding ?? null;
-        setCurrentStepId(ob2?.current_step ?? null);
-        setVersion(ob2?.version ?? null);
+        // Only seed onboarding for new users (created within the last hour).
+        // Existing users who pre-date this feature won't have a row and
+        // should not be dropped into the onboarding flow.
+        const createdAt = new Date(user.created_at || 0);
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        if (createdAt > oneHourAgo) {
+          await fetch("/api/onboarding/setup", { method: "POST" });
+          const res2 = await fetch("/api/onboarding/status");
+          if (!res2.ok) return;
+          const data2 = await res2.json();
+          const ob2 = data2?.onboarding ?? null;
+          setCurrentStepId(ob2?.current_step ?? null);
+          setVersion(ob2?.version ?? null);
+        }
         return;
       }
 

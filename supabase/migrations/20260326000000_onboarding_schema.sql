@@ -19,9 +19,5 @@ CREATE POLICY "Users can view own onboarding" ON user_onboarding
 CREATE POLICY "Users can update own onboarding" ON user_onboarding
   FOR UPDATE USING (auth.uid() = user_id);
 
--- Service role can insert (used during signup seed)
-CREATE POLICY "Service can insert onboarding" ON user_onboarding
-  FOR INSERT WITH CHECK (true);
-
 -- Add is_simulated flag to email_messages for fake replies
 ALTER TABLE email_messages ADD COLUMN is_simulated BOOLEAN DEFAULT false;

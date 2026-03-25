@@ -14,7 +14,7 @@ export const POST = withApiHandler({
     // Idempotency check — if onboarding row already exists, return early
     const { data: existing } = await service
       .from("user_onboarding")
-      .select("id")
+      .select("user_id")
       .eq("user_id", user.id)
       .single();
 
@@ -27,10 +27,7 @@ export const POST = withApiHandler({
       .from("contacts")
       .insert({
         user_id: user.id,
-        first_name: "Dawson",
-        last_name: "Pitcher",
-        company: "Deloitte",
-        title: "Senior Business Analyst",
+        name: "Dawson Pitcher",
       })
       .select("id")
       .single();

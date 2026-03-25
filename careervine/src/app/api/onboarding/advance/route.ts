@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getNextStep, ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
 import { createCalendarEvent, deleteCalendarEvent } from "@/lib/calendar";
@@ -19,6 +19,17 @@ export const POST = withApiHandler({
   handler: async ({ user, body }) => {
     const { currentStep, skippedApollo } = body;
     const service = createSupabaseServiceClient();
+
+    // Validate that the client's step matches the DB
+    const { data: onboardingRow } = await service
+      .from("user_onboarding")
+      .select("current_step")
+      .eq("user_id", user.id)
+      .single();
+
+    if (!onboardingRow || onboardingRow.current_step !== currentStep) {
+      throw new ApiError("Step mismatch", 400);
+    }
 
     const nextStep = getNextStep(currentStep);
 
