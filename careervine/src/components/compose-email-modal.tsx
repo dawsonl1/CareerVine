@@ -170,7 +170,7 @@ export function ComposeEmailModal() {
         }
       }, 100);
     }
-  }, [isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml]);
+  }, [isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml, isIntro, advanceIfStep]);
 
   // Contact autocomplete: debounced search
   const searchContacts = useCallback(async (query: string) => {

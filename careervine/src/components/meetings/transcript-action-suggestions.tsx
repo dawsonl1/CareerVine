@@ -131,7 +131,7 @@ export function TranscriptActionSuggestions({
     } finally {
       setLoading(false);
     }
-  }, [meetingId, transcript, attendees, meetingDate]);
+  }, [meetingId, transcript, attendees, meetingDate, userName, advanceIfStep]);
 
   const updateSuggestion = useCallback((key: string, updates: Partial<TranscriptSuggestion>) => {
     setSuggestions((prev) => prev.map((s) => s._key === key ? { ...s, ...updates } : s));

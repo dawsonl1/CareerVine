@@ -41,7 +41,7 @@ export default function IntegrationsSection() {
       const reason = searchParams.get("reason");
       setGmailMessage({ type: "error", text: reason === "access_denied" ? "Gmail access was denied. Please try again and grant the required permissions." : `Failed to connect Gmail${reason ? `: ${reason}` : ""}. Please try again.` });
     }
-  }, [searchParams]);
+  }, [searchParams, advanceIfStep]);
 
   const loadGmailStatus = useCallback(async () => {
     if (!user) return;

@@ -10,7 +10,8 @@ import {
 // Mock useAuth so the provider believes a user is logged in.
 // The user object must be stable across renders.
 vi.mock("@/components/auth-provider", () => {
-  const stableUser = { id: "user-123", email: "test@example.com" };
+  // created_at must be within the last hour for the seeding branch to run
+  const stableUser = { id: "user-123", email: "test@example.com", created_at: new Date().toISOString() };
   return {
     useAuth: vi.fn(() => ({ user: stableUser })),
   };

@@ -80,7 +80,7 @@ export const POST = withApiHandler({
           date: replyDate.toISOString(),
           label_ids: ["INBOX"],
           is_read: false,
-          direction: "inbound",
+          direction: EmailDirection.Inbound,
           matched_contact_id: matchedContactId,
           is_simulated: true,
         });

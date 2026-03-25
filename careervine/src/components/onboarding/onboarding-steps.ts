@@ -216,6 +216,7 @@ export function getNextStep(currentStepId: string): OnboardingStep | undefined {
 }
 
 export function getProgress(currentStepId: string): number {
+  if (currentStepId === "complete") return 100;
   const index = getStepIndex(currentStepId);
   if (index === -1) return 0;
   return Math.round(((index + 1) / ONBOARDING_STEPS.length) * 100);

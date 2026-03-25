@@ -103,10 +103,13 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
   }, [user, refreshStatus]);
 
+  const advancingRef = useRef(false);
+
   // Advance to the next step, optionally recording that Apollo was skipped.
   // Computes the next step client-side to update state immediately.
   const advance = useCallback(async (skippedApollo?: boolean) => {
-    if (!currentStepId) return;
+    if (!currentStepId || advancingRef.current) return;
+    advancingRef.current = true;
     try {
       const res = await fetch("/api/onboarding/advance", {
         method: "POST",
@@ -122,6 +125,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       setCurrentStepId(next ? next.id : "complete");
     } catch {
       // Silently ignore — onboarding advancement is best-effort
+    } finally {
+      advancingRef.current = false;
     }
   }, [currentStepId]);
 
