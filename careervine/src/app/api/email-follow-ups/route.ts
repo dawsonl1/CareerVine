@@ -2,6 +2,44 @@ import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { z } from "zod";
 
+const getFollowUpsQuerySchema = z.object({
+  contactId: z.coerce.number(),
+});
+
+/**
+ * GET /api/email-follow-ups?contactId=123
+ * Returns follow-up sequences for a contact.
+ */
+export const GET = withApiHandler({
+  querySchema: getFollowUpsQuerySchema,
+  handler: async ({ user, query }) => {
+    const service = createSupabaseServiceClient();
+
+    const { data: sequences } = await service
+      .from("email_follow_ups")
+      .select(`
+        id, status, original_subject, original_sent_at,
+        email_follow_up_messages(id, sequence_number, status, scheduled_send_at, sent_at)
+      `)
+      .eq("user_id", user.id)
+      .eq("contact_id", query.contactId)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    return {
+      sequences: (sequences || []).map((s: any) => ({
+        id: s.id,
+        status: s.status,
+        original_subject: s.original_subject,
+        original_sent_at: s.original_sent_at,
+        messages: (s.email_follow_up_messages || []).sort(
+          (a: any, b: any) => a.sequence_number - b.sequence_number
+        ),
+      })),
+    };
+  },
+});
+
 const createFollowUpsSchema = z.object({
   contactId: z.number(),
   threadId: z.string().nullable(),

@@ -10,6 +10,7 @@ import type { Contact, ContactMeeting, InteractionRow, GmailConnection, EmailMes
 import { ContactProfileCard } from "@/components/contacts/contact-profile-card";
 import { ContactAboutCard } from "@/components/contacts/contact-about-card";
 import { ContactExperienceCard } from "@/components/contacts/contact-experience-card";
+import { ContactFollowUpStatus } from "@/components/contacts/contact-follow-up-status";
 import { ContactQuickActions } from "@/components/contacts/contact-quick-actions";
 import { ContactEditModal } from "@/components/contacts/contact-edit-modal";
 import { ContactActionsTab } from "@/components/contacts/contact-actions-tab";
@@ -276,6 +277,7 @@ export default function ContactDetailPage() {
             />
             <ContactAboutCard contact={contact} />
             <ContactExperienceCard contact={contact} />
+            <ContactFollowUpStatus contactId={contactId} />
           </aside>
 
           {/* Main content */}
