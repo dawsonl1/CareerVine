@@ -879,9 +879,9 @@ export function ComposeEmailModal() {
             )}
 
             {/* Footer */}
-            <div className="flex items-center justify-between px-7 py-5">
-              <div className="flex items-center gap-2.5">
-                <Button type="button" variant="text" onClick={() => { deleteDraft(); closeCompose(); }}>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-7 py-5">
+              <div className="flex items-center gap-1">
+                <Button type="button" variant="text" size="sm" onClick={() => { deleteDraft(); closeCompose(); }}>
                   Discard
                 </Button>
                 <Button
@@ -902,7 +902,7 @@ export function ComposeEmailModal() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 {!showSchedule ? (
                   <>
                     {isIntro && (
@@ -918,7 +918,7 @@ export function ComposeEmailModal() {
                         }}
                         loading={sending}
                       >
-                        <Clock className="h-5 w-5 mr-2" />
+                        <Clock className="h-4 w-4 mr-1.5" />
                         Tomorrow 9:05 AM
                       </Button>
                     )}
@@ -928,22 +928,23 @@ export function ComposeEmailModal() {
                       size="sm"
                       onClick={() => setShowSchedule(true)}
                     >
-                      <Clock className="h-5 w-5 mr-2" />
+                      <Clock className="h-4 w-4 mr-1.5" />
                       Schedule
                     </Button>
-                    <Button type="button" onClick={handleSendNow} loading={sending}>
-                      <Send className="h-5 w-5 mr-2" />
+                    <Button type="button" size="sm" onClick={handleSendNow} loading={sending}>
+                      <Send className="h-4 w-4 mr-1.5" />
                       Send
                     </Button>
                   </>
                 ) : (
                   <Button
                     type="button"
+                    size="sm"
                     onClick={() => handleScheduleSend()}
                     loading={sending}
                     disabled={!scheduleDatetime}
                   >
-                    <Clock className="h-5 w-5 mr-2" />
+                    <Clock className="h-4 w-4 mr-1.5" />
                     Schedule send
                   </Button>
                 )}
