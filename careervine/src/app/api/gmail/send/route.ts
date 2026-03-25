@@ -87,18 +87,20 @@ export const POST = withApiHandler({
 
         // Cancel any follow-up sequences for this thread
         if (result.threadId) {
-          await service
-            .from("email_follow_up_messages")
-            .update({ status: "cancelled" })
-            .eq("status", "pending")
-            .in(
-              "follow_up_id",
-              service
-                .from("email_follow_ups")
-                .select("id")
-                .eq("user_id", user.id)
-                .eq("thread_id", result.threadId)
-            );
+          const { data: followUps } = await service
+            .from("email_follow_ups")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("thread_id", result.threadId);
+
+          const followUpIds = (followUps ?? []).map((f) => f.id);
+          if (followUpIds.length > 0) {
+            await service
+              .from("email_follow_up_messages")
+              .update({ status: "cancelled" })
+              .eq("status", "pending")
+              .in("follow_up_id", followUpIds);
+          }
         }
       }
     }
