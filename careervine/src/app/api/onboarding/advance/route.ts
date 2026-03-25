@@ -2,7 +2,7 @@ import { z } from "zod";
 import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getNextStep } from "@/components/onboarding/onboarding-steps";
-import { createCalendarEvent } from "@/lib/calendar";
+import { createCalendarEvent, deleteCalendarEvent } from "@/lib/calendar";
 
 const advanceSchema = z.object({
   currentStep: z.string(),
@@ -91,6 +91,21 @@ export const POST = withApiHandler({
     }
 
     if (!nextStep) {
+      // Clean up calendar event on normal completion too
+      const { data: onboarding } = await service
+        .from("user_onboarding")
+        .select("onboarding_calendar_event_id")
+        .eq("user_id", user.id)
+        .single();
+
+      if (onboarding?.onboarding_calendar_event_id) {
+        try {
+          await deleteCalendarEvent(user.id, onboarding.onboarding_calendar_event_id);
+        } catch (err) {
+          console.error("Failed to delete onboarding calendar event:", err);
+        }
+      }
+
       updatePayload.completed_at = new Date().toISOString();
     }
 
