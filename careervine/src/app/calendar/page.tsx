@@ -14,7 +14,7 @@ import { RefreshCw, Lock, RotateCcw, Video, MapPin, List, LayoutGrid, ChevronLef
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
-import { CONVERSATION_TYPE_OPTIONS } from "@/lib/constants";
+import { CONVERSATION_TYPE_OPTIONS, getRsvpDisplay } from "@/lib/constants";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -547,8 +547,7 @@ export default function CalendarPage() {
                 {selectedEvent.attendees.length > 0 && (
                   <div className="mt-2.5 pt-2.5 border-t border-outline-variant/50 space-y-1">
                     {selectedEvent.attendees.slice(0, 5).map((a, i) => {
-                      const sc = { accepted: "text-primary", declined: "text-destructive", tentative: "text-tertiary", needsAction: "text-muted-foreground" }[a.responseStatus] || "text-muted-foreground";
-                      const sl = { accepted: "✓", declined: "✗", tentative: "?", needsAction: "–" }[a.responseStatus] || "–";
+                      const { className: sc, label: sl } = getRsvpDisplay(a.responseStatus);
                       const displayName = contactEmailToName[a.email?.toLowerCase()] || a.name || a.email;
                       return <div key={i} className="flex items-center gap-2 text-sm"><span className={`font-semibold ${sc}`}>{sl}</span><span className="text-foreground truncate">{displayName}</span></div>;
                     })}

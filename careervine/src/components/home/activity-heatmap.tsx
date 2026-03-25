@@ -23,13 +23,12 @@ const COLORS = [
   "#2d6a30", // heavy
 ];
 
+// Floor for color scaling so low-activity periods look light, not saturated.
+const MIN_EFFECTIVE_MAX = 8;
+
 function getColor(count: number, max: number): string {
   if (count === 0) return COLORS[0];
-  // Use a hybrid approach: scale relative to max, but enforce a minimum
-  // max so that low-activity periods don't immediately show as darkest.
-  // A single day with 1-2 items should look light, not saturated.
-  const effectiveMax = Math.max(max, 8);
-  const ratio = count / effectiveMax;
+  const ratio = count / Math.max(max, MIN_EFFECTIVE_MAX);
   if (ratio <= 0.25) return COLORS[1];
   if (ratio <= 0.5) return COLORS[2];
   if (ratio <= 0.75) return COLORS[3];

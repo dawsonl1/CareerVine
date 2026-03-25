@@ -39,6 +39,7 @@ import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { useQuickCapture } from "@/components/quick-capture-context";
 
 import { inputClasses } from "@/lib/form-styles";
+import { getRsvpDisplay } from "@/lib/constants";
 
 export default function MeetingsPage() {
   const { user } = useAuth();
@@ -435,12 +436,11 @@ export default function MeetingsPage() {
                       const rsvp = calEvent && contactEmail
                         ? calEvent.attendees.find((a) => a.email === contactEmail)?.responseStatus
                         : undefined;
-                      const rsvpStyle = rsvp === "accepted" ? " text-primary" : rsvp === "declined" ? " text-destructive" : rsvp === "tentative" ? " text-tertiary" : "";
-                      const rsvpLabel = rsvp === "accepted" ? " ✓" : rsvp === "declined" ? " ✗" : rsvp === "tentative" ? " ?" : "";
+                      const rsvpInfo = rsvp ? getRsvpDisplay(rsvp) : null;
                       return (
                         <span key={mc.contact_id} className="inline-flex items-center h-8 px-4 rounded-full bg-secondary-container text-sm text-on-secondary-container font-medium">
                           {mc.contacts.name}
-                          {rsvpLabel && <span className={`ml-1 font-bold${rsvpStyle}`}>{rsvpLabel}</span>}
+                          {rsvpInfo && rsvp !== "needsAction" && <span className={`ml-1 font-bold ${rsvpInfo.className}`}>{rsvpInfo.label}</span>}
                         </span>
                       );
                     })}

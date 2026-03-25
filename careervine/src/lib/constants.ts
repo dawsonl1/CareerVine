@@ -95,6 +95,21 @@ export const MEETING_TYPE_OPTIONS = CONVERSATION_TYPE_OPTIONS;
 
 // ── Home page constants ──────────────────────────────────────────────
 
+// ── Calendar RSVP display ────────────────────────────────────────────
+
+const RSVP_DISPLAY: Record<string, { className: string; label: string }> = {
+  accepted: { className: "text-primary", label: "✓" },
+  declined: { className: "text-destructive", label: "✗" },
+  tentative: { className: "text-tertiary", label: "?" },
+  needsAction: { className: "text-muted-foreground", label: "–" },
+};
+
+const RSVP_DEFAULT = { className: "text-muted-foreground", label: "–" };
+
+export function getRsvpDisplay(status: string): { className: string; label: string } {
+  return RSVP_DISPLAY[status] ?? RSVP_DEFAULT;
+}
+
 /** Contacts added within this many days appear in "Recently Added" */
 export const RECENTLY_ADDED_DAYS = 7;
 

@@ -20,14 +20,35 @@ export const POST = withApiHandler({
     });
 
     if (onboardingError) {
-      // 23505 = unique_violation — another request already created the row
+      // 23505 = unique_violation — another request already created the row.
+      // Still check if the Dawson contact exists (partial failure recovery).
       if (onboardingError.code === "23505") {
-        return { status: "already_setup" };
+        const { data: existingContact } = await service
+          .from("contact_emails")
+          .select("contact_id")
+          .eq("email", ONBOARDING_CONTACT_EMAIL)
+          .eq("contacts.user_id", user.id)
+          .single();
+
+        if (existingContact) return { status: "already_setup" };
+        // Fall through to create the missing contact
+      } else {
+        throw new Error(`Failed to create onboarding row: ${onboardingError.message}`);
       }
-      throw new Error(`Failed to create onboarding row: ${onboardingError.message}`);
     }
 
-    // Create the Dawson contact
+    // Create the Dawson contact (idempotent — skipped if already exists)
+    const { data: existingEmail } = await service
+      .from("contact_emails")
+      .select("contact_id")
+      .eq("email", ONBOARDING_CONTACT_EMAIL)
+      .eq("contacts.user_id", user.id)
+      .single();
+
+    if (existingEmail) {
+      return { status: "setup_complete", dawsonContactId: existingEmail.contact_id };
+    }
+
     const { data: contact, error: contactError } = await service
       .from("contacts")
       .insert({
@@ -41,7 +62,6 @@ export const POST = withApiHandler({
       throw new Error(`Failed to create Dawson contact: ${contactError?.message}`);
     }
 
-    // Add primary email for the contact
     const { error: emailError } = await service.from("contact_emails").insert({
       contact_id: contact.id,
       email: ONBOARDING_CONTACT_EMAIL,

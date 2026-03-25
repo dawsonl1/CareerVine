@@ -136,7 +136,7 @@ export function IntroContextForm({
               onClick={() => handleHowMetChip(COLD_CHIP.value)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
                 selectedHowMetChip === COLD_CHIP.value
-                  ? "bg-tertiary text-white"
+                  ? "bg-tertiary text-on-tertiary"
                   : "bg-tertiary-container text-on-tertiary-container border border-outline-variant hover:border-outline"
               }`}
             >

@@ -55,9 +55,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [version, setVersion] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const setupCalledRef = useRef(false);
-
-  // Fetch the user's current onboarding status from the API.
-  // Also handles first-login setup: if no onboarding row exists, seeds one.
+  const consistencyCheckedRef = useRef(false);
   const refreshStatus = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -95,23 +93,23 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
   }, [user]);
 
-  // Load status whenever the logged-in user changes
   useEffect(() => {
     if (user) {
       refreshStatus();
     } else {
-      // Clear state on sign-out
       setCurrentStepId(null);
       setVersion(null);
+      setupCalledRef.current = false;
+      consistencyCheckedRef.current = false;
     }
   }, [user, refreshStatus]);
 
   const advancingRef = useRef(false);
 
   // Advance to the next step, optionally recording that Apollo was skipped.
-  // Computes the next step client-side to update state immediately.
+  // Uses the server response to determine the next step to avoid client/server desync.
   const advance = useCallback(async (skippedApollo?: boolean) => {
-    if (!currentStepId || advancingRef.current) return;
+    if (!currentStepId || currentStepId === "complete" || advancingRef.current) return;
     advancingRef.current = true;
     try {
       const res = await fetch("/api/onboarding/advance", {
@@ -122,16 +120,27 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
           skippedApollo,
         }),
       });
-      if (!res.ok) return;
-      // Derive next step client-side for immediate UI update
-      const next = getNextStep(currentStepId);
-      setCurrentStepId(next ? next.id : "complete");
+      if (!res.ok) {
+        // Re-sync from server on mismatch or other errors
+        await refreshStatus();
+        return;
+      }
+      const data = await res.json();
+      // Use server response to set next step (avoids stale closure issues)
+      if (data.completed) {
+        setCurrentStepId("complete");
+      } else if (data.nextStep?.id) {
+        setCurrentStepId(data.nextStep.id);
+      } else {
+        // Fallback: re-sync from server
+        await refreshStatus();
+      }
     } catch {
       // Silently ignore — onboarding advancement is best-effort
     } finally {
       advancingRef.current = false;
     }
-  }, [currentStepId]);
+  }, [currentStepId, refreshStatus]);
 
   // Skip the entire onboarding flow
   const skip = useCallback(async () => {
@@ -177,10 +186,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     };
   }, [currentStepId, user, gmailData, calendarConnected, advance]);
 
-  // Safety check: on initial load, if the current step has somehow jumped past
-  // an integration step that hasn't actually been completed, reset back.
-  // Only runs once after both onboarding status and connection status have loaded.
-  const consistencyCheckedRef = useRef(false);
+  // On initial load, if the step has jumped past an integration step that
+  // hasn't been completed, reset back. Runs once per mount.
   useEffect(() => {
     if (!currentStepId || connectionLoading || loading || !user) return;
     if (consistencyCheckedRef.current) return;

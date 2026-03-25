@@ -87,7 +87,7 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
           onClick={() => setDirection(ActionDirection.WaitingOn)}
           className={`text-sm font-medium px-4 py-1.5 rounded-full cursor-pointer transition-colors ${
             direction === ActionDirection.WaitingOn
-              ? "bg-tertiary text-white"
+              ? "bg-tertiary text-on-tertiary"
               : "bg-surface-container text-foreground hover:bg-surface-container-high"
           }`}
         >
