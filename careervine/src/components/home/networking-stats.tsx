@@ -100,11 +100,13 @@ export function NetworkingStats({
   const p = (n: number, singular: string, plural?: string) =>
     `${n} ${n === 1 ? singular : (plural ?? singular + "s")}`;
 
-  const trendLine = (current: number, previous: number, noun: string): string[] => {
+  const trendLine = (current: number, previous: number, singular: string, plural: string): string[] => {
     if (current === 0 && previous === 0) return [];
     const diff = current - previous;
-    if (diff > 0) return [`↑ ${diff} more ${noun} than prior 7 days`];
-    if (diff < 0) return [`↓ ${Math.abs(diff)} fewer ${noun} than prior 7 days`];
+    const absDiff = Math.abs(diff);
+    const noun = absDiff === 1 ? singular : plural;
+    if (diff > 0) return [`↑ ${absDiff} more ${noun} than prior 7 days`];
+    if (diff < 0) return [`↓ ${absDiff} fewer ${noun} than prior 7 days`];
     return ["Same as prior 7 days"];
   };
 
@@ -117,7 +119,7 @@ export function NetworkingStats({
         `${p(stats.meetings.current, "meeting")} logged`,
         ...(stats.emailsSent.current > 0 ? [`${p(stats.emailsSent.current, "email")} sent`] : []),
         ...(stats.completedItems.current > 0 ? [`${p(stats.completedItems.current, "action item")} completed`] : []),
-        ...trendLine(stats.meetings.current, stats.meetings.previous, "meetings"),
+        ...trendLine(stats.meetings.current, stats.meetings.previous, "meeting", "meetings"),
       ],
     },
     {
@@ -133,7 +135,7 @@ export function NetworkingStats({
       previousValue: stats.contactsAdded.previous,
       tooltipLines: [
         `${p(stats.contactsAdded.current, "new contact")} in the last 7 days`,
-        ...trendLine(stats.contactsAdded.current, stats.contactsAdded.previous, "contacts"),
+        ...trendLine(stats.contactsAdded.current, stats.contactsAdded.previous, "contact", "contacts"),
       ],
     },
   ];
