@@ -674,12 +674,14 @@ function ActionListItem({
               )}
             </div>
             {item.hasEmail && (
-              <ActionButton
-                icon={<Mail className="h-6 w-6" />}
-                label="Intro"
-                color="#0d9488"
-                onClick={() => onIntro(item.contactId)}
-              />
+              <span {...(item.contactName.includes("Dawson") ? { "data-onboarding-target": "intro-button-dawson" } : {})}>
+                <ActionButton
+                  icon={<Mail className="h-6 w-6" />}
+                  label="Intro"
+                  color="#0d9488"
+                  onClick={() => onIntro(item.contactId)}
+                />
+              </span>
             )}
           </>
         )}

@@ -653,7 +653,7 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
 
           {/* Event blocks */}
           {positionedEvents.map((event) => (
-            <div key={event.id} data-event-block className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }}>
+            <div key={event.id} data-event-block className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }} {...(event.title?.includes("Dawson Pitcher") ? { "data-onboarding-target": "onboarding-meeting" } : {})}>
               <div
                 onClick={() => setSelectedEventId(selectedEventId === event.id ? null : event.id)}
                 className={`h-full rounded-lg border-l-[3px] border-primary px-3 py-1.5 overflow-hidden transition-colors cursor-pointer ${

@@ -178,6 +178,7 @@ export function TranscriptActionSuggestions({
       <button
         type="button"
         onClick={extractActions}
+        data-onboarding-target="extract-actions-button"
         className="flex items-center gap-2.5 text-sm text-primary hover:underline cursor-pointer mt-2.5"
       >
         <Sparkles className="h-4 w-4" />
