@@ -1,0 +1,87 @@
+import { withApiHandler } from "@/lib/api-handler";
+import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { z } from "zod";
+
+const createFollowUpsSchema = z.object({
+  contactId: z.number(),
+  threadId: z.string().nullable(),
+  messageId: z.string().nullable(),
+  scheduledEmailId: z.number().nullable().optional(),
+  recipientEmail: z.string(),
+  contactName: z.string().nullable(),
+  originalSubject: z.string(),
+  originalSentAt: z.string(),
+  followUps: z.array(z.object({
+    subject: z.string(),
+    bodyHtml: z.string(),
+    delayDays: z.number(),
+  })),
+});
+
+/**
+ * POST /api/email-follow-ups
+ * Creates a follow-up sequence with individual message records.
+ */
+export const POST = withApiHandler({
+  schema: createFollowUpsSchema,
+  handler: async ({ user, body }) => {
+    const {
+      contactId, threadId, messageId, scheduledEmailId,
+      recipientEmail, contactName, originalSubject, originalSentAt,
+      followUps,
+    } = body;
+
+    const service = createSupabaseServiceClient();
+
+    // Create the parent sequence record
+    const { data: sequence, error: seqErr } = await service
+      .from("email_follow_ups")
+      .insert({
+        user_id: user.id,
+        original_gmail_message_id: messageId || null,
+        thread_id: threadId || null,
+        recipient_email: recipientEmail,
+        contact_name: contactName,
+        original_subject: originalSubject,
+        original_sent_at: originalSentAt,
+        contact_id: contactId,
+        scheduled_email_id: scheduledEmailId || null,
+        status: "active",
+      })
+      .select("id")
+      .single();
+
+    if (seqErr || !sequence) {
+      console.error("[follow-ups] Failed to create sequence:", seqErr);
+      throw seqErr || new Error("Failed to create follow-up sequence");
+    }
+
+    // Create individual message records
+    const sendBase = new Date(originalSentAt);
+    const messages = followUps.map((fu, i) => {
+      const sendAt = new Date(sendBase.getTime() + fu.delayDays * 24 * 60 * 60 * 1000);
+      // Set to 9:05 AM in the same timezone offset as the base send time
+      sendAt.setHours(9, 5, 0, 0);
+
+      return {
+        follow_up_id: sequence.id,
+        sequence_number: i + 1,
+        send_after_days: fu.delayDays,
+        subject: fu.subject,
+        body_html: fu.bodyHtml,
+        status: "pending" as const,
+        scheduled_send_at: sendAt.toISOString(),
+      };
+    });
+
+    const { error: msgErr } = await service
+      .from("email_follow_up_messages")
+      .insert(messages);
+
+    if (msgErr) {
+      console.error("[follow-ups] Failed to create messages:", msgErr);
+    }
+
+    return { sequenceId: sequence.id, messagesCreated: messages.length };
+  },
+});

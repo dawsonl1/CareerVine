@@ -225,6 +225,39 @@ export function ComposeEmailModal() {
     return true;
   };
 
+  // Create follow-up sequence records after sending the intro
+  const createFollowUpRecords = useCallback(async (opts: {
+    threadId: string;
+    messageId: string;
+    scheduledEmailId?: number;
+    sendTime: Date;
+  }) => {
+    if (!isIntro || !followUpsEnabled || followUps.length === 0 || !contactId) return;
+    try {
+      await fetch("/api/email-follow-ups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId,
+          threadId: opts.threadId || null,
+          messageId: opts.messageId || null,
+          scheduledEmailId: opts.scheduledEmailId || null,
+          recipientEmail: to.trim(),
+          contactName: prefillName || null,
+          originalSubject: subject.trim(),
+          originalSentAt: opts.sendTime.toISOString(),
+          followUps: followUps.map((fu) => ({
+            subject: fu.subject,
+            bodyHtml: fu.bodyHtml,
+            delayDays: fu.delayDays,
+          })),
+        }),
+      });
+    } catch (err) {
+      console.warn("[follow-ups] Failed to create follow-up records:", err);
+    }
+  }, [isIntro, followUpsEnabled, followUps, contactId, to, prefillName, subject]);
+
   const handleSendNow = async () => {
     if (!validate()) return;
 
@@ -251,6 +284,15 @@ export function ComposeEmailModal() {
       setSent(true);
       sentOrScheduledRef.current = true;
       deleteDraft();
+
+      // Create follow-up records for intro emails
+      if (data.messageId && data.threadId) {
+        createFollowUpRecords({
+          threadId: data.threadId,
+          messageId: data.messageId,
+          sendTime: new Date(),
+        });
+      }
 
       // Mark AI draft as sent/edited_and_sent if this came from one
       if (aiDraftContext?.draftId) {
@@ -309,6 +351,16 @@ export function ComposeEmailModal() {
       setScheduled(true);
       sentOrScheduledRef.current = true;
       deleteDraft();
+
+      // Create follow-up records for scheduled intro emails
+      if (data.scheduledEmail?.id) {
+        createFollowUpRecords({
+          threadId: "",
+          messageId: "",
+          scheduledEmailId: data.scheduledEmail.id,
+          sendTime: sendAt,
+        });
+      }
 
       // Mark AI draft as sent/edited_and_sent if this came from one
       if (aiDraftContext?.draftId) {
@@ -863,6 +915,61 @@ export function ComposeEmailModal() {
               <div className="flex items-center gap-2.5">
                 {!showSchedule ? (
                   <>
+                    {isIntro && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          if (!validate()) return;
+                          const tomorrow = new Date();
+                          tomorrow.setDate(tomorrow.getDate() + 1);
+                          tomorrow.setHours(9, 5, 0, 0);
+                          setScheduleDatetime(toLocalDatetimeString(tomorrow));
+                          // Schedule directly since setState is async
+                          setError("");
+                          setSending(true);
+                          try {
+                            const res = await fetch("/api/gmail/schedule", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                to: to.trim(),
+                                cc: cc.trim() || undefined,
+                                bcc: bcc.trim() || undefined,
+                                subject: subject.trim(),
+                                bodyHtml,
+                                scheduledSendAt: tomorrow.toISOString(),
+                                contactName: prefillName || undefined,
+                              }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error);
+                            setScheduled(true);
+                            sentOrScheduledRef.current = true;
+                            deleteDraft();
+                            if (data.scheduledEmail?.id) {
+                              createFollowUpRecords({
+                                threadId: "",
+                                messageId: "",
+                                scheduledEmailId: data.scheduledEmail.id,
+                                sendTime: tomorrow,
+                              });
+                            }
+                            window.dispatchEvent(new CustomEvent("careervine:email-sent"));
+                            setTimeout(() => closeCompose(), 1500);
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : "Failed to schedule");
+                          } finally {
+                            setSending(false);
+                          }
+                        }}
+                        loading={sending}
+                      >
+                        <Clock className="h-5 w-5 mr-2" />
+                        Tomorrow 9:05 AM
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
