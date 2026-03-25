@@ -14,6 +14,14 @@ import { FollowUpPlanSection, type FollowUpDraft } from "@/components/follow-up-
 
 type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
 
+function formatProjectedDate(delayDays: number, fromDate = new Date()): string {
+  const sendDate = new Date(fromDate.getTime() + delayDays * 24 * 60 * 60 * 1000);
+  sendDate.setHours(9, 5, 0, 0);
+  return sendDate.toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric",
+  }) + " \u00b7 9:05 AM";
+}
+
 const inputClasses =
   "w-full h-11 px-4 bg-transparent text-foreground text-base placeholder:text-muted-foreground focus:outline-none";
 
@@ -261,6 +269,44 @@ export function ComposeEmailModal() {
     }
   }, [isIntro, followUpsEnabled, followUps, contactId, to, prefillName, subject]);
 
+  // Shared follow-up generation logic (used by approve button + retry)
+  const generateFollowUps = useCallback(async () => {
+    setIntroPhase("generating-followups");
+    setFollowUpError(null);
+    try {
+      const res = await fetch("/api/ai/draft-follow-ups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId,
+          introSubject: subject,
+          introBodyHtml: bodyHtml,
+          goal: introContextRef.current.goal || undefined,
+          howMet: introContextRef.current.howMet || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.followUps) {
+        setFollowUps(
+          data.followUps.map((fu: any, i: number) => ({
+            id: `fu-${i}`,
+            subject: fu.subject,
+            bodyHtml: fu.bodyHtml,
+            delayDays: fu.delayDays,
+            projectedDate: formatProjectedDate(fu.delayDays),
+          }))
+        );
+        setIntroPhase("ready");
+      } else {
+        setFollowUpError(data.error || "Failed to generate follow-ups");
+        setIntroPhase("editing");
+      }
+    } catch {
+      setFollowUpError("Failed to generate follow-ups. Try again.");
+      setIntroPhase("editing");
+    }
+  }, [contactId, subject, bodyHtml]);
+
   const handleSendNow = async () => {
     if (!validate()) return;
 
@@ -316,14 +362,13 @@ export function ComposeEmailModal() {
     }
   };
 
-  const handleScheduleSend = async () => {
+  const handleScheduleSend = async (sendAtOverride?: Date) => {
     if (!validate()) return;
-    if (!scheduleDatetime) {
+    const sendAt = sendAtOverride || (scheduleDatetime ? new Date(scheduleDatetime) : null);
+    if (!sendAt) {
       setError("Please select a date and time to send");
       return;
     }
-
-    const sendAt = new Date(scheduleDatetime);
     if (sendAt.getTime() <= Date.now()) {
       setError("Scheduled time must be in the future");
       return;
@@ -747,51 +792,7 @@ export function ComposeEmailModal() {
                   <div className="flex justify-center py-3">
                     <button
                       type="button"
-                      onClick={async () => {
-                        setIntroPhase("generating-followups");
-                        setFollowUpError(null);
-                        try {
-                          const res = await fetch("/api/ai/draft-follow-ups", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              contactId,
-                              introSubject: subject,
-                              introBodyHtml: bodyHtml,
-                              goal: introContextRef.current.goal || undefined,
-                              howMet: introContextRef.current.howMet || undefined,
-                            }),
-                          });
-                          const data = await res.json();
-                          if (res.ok && data.followUps) {
-                            const now = new Date();
-                            setFollowUps(
-                              data.followUps.map((fu: any, i: number) => {
-                                const sendDate = new Date(now.getTime() + fu.delayDays * 24 * 60 * 60 * 1000);
-                                sendDate.setHours(9, 5, 0, 0);
-                                return {
-                                  id: `fu-${i}`,
-                                  subject: fu.subject,
-                                  bodyHtml: fu.bodyHtml,
-                                  delayDays: fu.delayDays,
-                                  projectedDate: sendDate.toLocaleDateString("en-US", {
-                                    weekday: "short",
-                                    month: "short",
-                                    day: "numeric",
-                                  }) + " · 9:05 AM",
-                                };
-                              })
-                            );
-                            setIntroPhase("ready");
-                          } else {
-                            setFollowUpError(data.error || "Failed to generate follow-ups");
-                            setIntroPhase("editing");
-                          }
-                        } catch {
-                          setFollowUpError("Failed to generate follow-ups. Try again.");
-                          setIntroPhase("editing");
-                        }
-                      }}
+                      onClick={generateFollowUps}
                       className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
                     >
                       <Sparkles className="h-4 w-4" />
@@ -814,11 +815,7 @@ export function ComposeEmailModal() {
                         const updated = { ...fu, ...updates };
                         // Recalculate projected date when delay changes
                         if (updates.delayDays && updates.delayDays !== fu.delayDays) {
-                          const sendDate = new Date(Date.now() + updates.delayDays * 24 * 60 * 60 * 1000);
-                          sendDate.setHours(9, 5, 0, 0);
-                          updated.projectedDate = sendDate.toLocaleDateString("en-US", {
-                            weekday: "short", month: "short", day: "numeric",
-                          }) + " · 9:05 AM";
+                          updated.projectedDate = formatProjectedDate(updates.delayDays);
                         }
                         return updated;
                       })
@@ -827,51 +824,7 @@ export function ComposeEmailModal() {
                   onRemove={(id) => {
                     setFollowUps((prev) => prev.filter((fu) => fu.id !== id));
                   }}
-                  onRetry={async () => {
-                    setIntroPhase("generating-followups");
-                    setFollowUpError(null);
-                    try {
-                      const res = await fetch("/api/ai/draft-follow-ups", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          contactId,
-                          introSubject: subject,
-                          introBodyHtml: bodyHtml,
-                          goal: introContextRef.current.goal || undefined,
-                          howMet: introContextRef.current.howMet || undefined,
-                        }),
-                      });
-                      const data = await res.json();
-                      if (res.ok && data.followUps) {
-                        const now = new Date();
-                        setFollowUps(
-                          data.followUps.map((fu: any, i: number) => {
-                            const sendDate = new Date(now.getTime() + fu.delayDays * 24 * 60 * 60 * 1000);
-                            sendDate.setHours(9, 5, 0, 0);
-                            return {
-                              id: `fu-${i}`,
-                              subject: fu.subject,
-                              bodyHtml: fu.bodyHtml,
-                              delayDays: fu.delayDays,
-                              projectedDate: sendDate.toLocaleDateString("en-US", {
-                                weekday: "short",
-                                month: "short",
-                                day: "numeric",
-                              }) + " · 9:05 AM",
-                            };
-                          })
-                        );
-                        setIntroPhase("ready");
-                      } else {
-                        setFollowUpError(data.error || "Failed to generate follow-ups");
-                        setIntroPhase("editing");
-                      }
-                    } catch {
-                      setFollowUpError("Failed to generate follow-ups. Try again.");
-                      setIntroPhase("editing");
-                    }
-                  }}
+                  onRetry={generateFollowUps}
                 />
               </div>
             )}
@@ -943,52 +896,11 @@ export function ComposeEmailModal() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={async () => {
-                          if (!validate()) return;
+                        onClick={() => {
                           const tomorrow = new Date();
                           tomorrow.setDate(tomorrow.getDate() + 1);
                           tomorrow.setHours(9, 5, 0, 0);
-                          setScheduleDatetime(toLocalDatetimeString(tomorrow));
-                          // Schedule directly since setState is async
-                          setError("");
-                          setSending(true);
-                          try {
-                            const res = await fetch("/api/gmail/schedule", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                to: to.trim(),
-                                cc: cc.trim() || undefined,
-                                bcc: bcc.trim() || undefined,
-                                subject: subject.trim(),
-                                bodyHtml,
-                                scheduledSendAt: tomorrow.toISOString(),
-                                contactName: prefillName || undefined,
-                                ...(replyThreadId ? { threadId: replyThreadId } : {}),
-                                ...(replyInReplyTo ? { inReplyTo: replyInReplyTo } : {}),
-                                ...(replyReferences ? { references: replyReferences } : {}),
-                              }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok) throw new Error(data.error);
-                            setScheduled(true);
-                            sentOrScheduledRef.current = true;
-                            deleteDraft();
-                            if (data.scheduledEmail?.id) {
-                              createFollowUpRecords({
-                                threadId: "",
-                                messageId: "",
-                                scheduledEmailId: data.scheduledEmail.id,
-                                sendTime: tomorrow,
-                              });
-                            }
-                            window.dispatchEvent(new CustomEvent("careervine:email-sent"));
-                            setTimeout(() => closeCompose(), 1500);
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : "Failed to schedule");
-                          } finally {
-                            setSending(false);
-                          }
+                          handleScheduleSend(tomorrow);
                         }}
                         loading={sending}
                       >
@@ -1013,7 +925,7 @@ export function ComposeEmailModal() {
                 ) : (
                   <Button
                     type="button"
-                    onClick={handleScheduleSend}
+                    onClick={() => handleScheduleSend()}
                     loading={sending}
                     disabled={!scheduleDatetime}
                   >

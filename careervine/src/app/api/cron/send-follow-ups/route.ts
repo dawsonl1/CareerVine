@@ -61,33 +61,45 @@ export async function POST(req: NextRequest) {
     bySequence.get(seqId)!.push(msg);
   }
 
+  // Pre-fetch gmail_connections for all users to avoid N+1
+  const userIds = [...new Set([...bySequence.values()].map((msgs) => (msgs[0] as any).email_follow_ups.user_id))];
+  const { data: connections } = await service
+    .from("gmail_connections")
+    .select("user_id, gmail_address")
+    .in("user_id", userIds);
+  const emailByUser = new Map((connections || []).map((c: any) => [c.user_id, c.gmail_address?.toLowerCase() || ""]));
+
+  // Cache Gmail clients per user to avoid redundant auth
+  const gmailClients = new Map<string, any>();
+
   for (const [seqId, messages] of bySequence) {
     const parent = (messages[0] as any).email_follow_ups;
     const userId = parent.user_id;
     const threadId = parent.thread_id;
 
-    // Check if Gmail is accessible for this user
-    let gmail;
-    try {
-      gmail = await getGmailClient(userId);
-    } catch {
-      // Gmail disconnected — check if messages are stale (3+ days past due)
-      const oldestMsg = messages[0];
-      if (oldestMsg.scheduled_send_at < threeDaysAgo) {
-        // Cancel the entire sequence
-        await service
-          .from("email_follow_ups")
-          .update({ status: "cancelled_user", updated_at: now })
-          .eq("id", seqId);
-        await service
-          .from("email_follow_up_messages")
-          .update({ status: "cancelled" })
-          .eq("follow_up_id", seqId)
-          .eq("status", "pending");
-        cancelled += messages.length;
+    // Check if Gmail is accessible for this user (cached)
+    let gmail = gmailClients.get(userId);
+    if (!gmail) {
+      try {
+        gmail = await getGmailClient(userId);
+        gmailClients.set(userId, gmail);
+      } catch {
+        // Gmail disconnected — check if messages are stale (3+ days past due)
+        const oldestMsg = messages[0];
+        if (oldestMsg.scheduled_send_at < threeDaysAgo) {
+          await service
+            .from("email_follow_ups")
+            .update({ status: "cancelled_user", updated_at: now })
+            .eq("id", seqId);
+          await service
+            .from("email_follow_up_messages")
+            .update({ status: "cancelled" })
+            .eq("follow_up_id", seqId)
+            .eq("status", "pending");
+          cancelled += messages.length;
+        }
+        continue;
       }
-      // Otherwise skip — will retry next cycle
-      continue;
     }
 
     // Check for replies in the thread (one API call per thread)
@@ -103,16 +115,11 @@ export async function POST(req: NextRequest) {
       const threadMessages = thread.data.messages || [];
       // If there are more messages than just the original, check if any are from someone else
       if (threadMessages.length > 1) {
-        const { data: conn } = await service
-          .from("gmail_connections")
-          .select("gmail_address")
-          .eq("user_id", userId)
-          .single();
-        const userEmail = conn?.gmail_address?.toLowerCase() || "";
+        const userEmail = emailByUser.get(userId) || "";
 
-        hasReply = threadMessages.some((m) => {
+        hasReply = threadMessages.some((m: any) => {
           const fromHeader = m.payload?.headers?.find(
-            (h) => h.name?.toLowerCase() === "from"
+            (h: any) => h.name?.toLowerCase() === "from"
           );
           const from = fromHeader?.value?.toLowerCase() || "";
           return !from.includes(userEmail);

@@ -24,40 +24,33 @@ export async function getContactContext(
 ): Promise<ContactContext> {
   const service = createSupabaseServiceClient();
 
-  // User profile
-  const { data: userProfile } = await service
-    .from("users")
-    .select("first_name, last_name, email")
-    .eq("id", userId)
-    .single();
+  // Run user profile + contact queries in parallel
+  const [{ data: userProfile }, { data: contact }] = await Promise.all([
+    service.from("users").select("first_name, last_name, email").eq("id", userId).single(),
+    contactId > 0
+      ? service.from("contacts").select(`
+          name, industry, notes, met_through, intro_goal, contact_status, expected_graduation,
+          locations(city, state, country),
+          contact_emails(email),
+          contact_companies(
+            title, is_current,
+            companies(name)
+          ),
+          contact_schools(
+            degree, field_of_study, start_year, end_year,
+            schools(name)
+          )
+        `).eq("id", contactId).eq("user_id", userId).single()
+      : Promise.resolve({ data: null }),
+  ]);
 
   const senderName = userProfile
     ? `${userProfile.first_name || ""} ${userProfile.last_name || ""}`.trim()
     : "";
   const senderEmail = userProfile?.email || "";
 
-  // Contact info
   let contactInfo = "";
   let contactName = "";
-
-  const { data: contact } = await service
-    .from("contacts")
-    .select(`
-      name, industry, notes, met_through, intro_goal, contact_status, expected_graduation,
-      locations(city, state, country),
-      contact_emails(email),
-      contact_companies(
-        title, is_current,
-        companies(name)
-      ),
-      contact_schools(
-        degree, field_of_study, start_year, end_year,
-        schools(name)
-      )
-    `)
-    .eq("id", contactId)
-    .eq("user_id", userId)
-    .single();
 
   if (contact) {
     contactName = contact.name;
