@@ -206,6 +206,45 @@ export const contactsImportSchema = z.object({
   photoUrl: z.string().url().optional(),
 });
 
+// Pipeline bulk import (plan 24). Chunked ≤50 people per request to stay
+// inside Vercel wall-clock limits — the load script chunks and loops.
+export const contactsBulkImportSchema = z.object({
+  batch: z.string().max(200).optional(),
+  people: z
+    .array(
+      z.object({
+        record: z.record(z.string(), z.unknown()),
+        tracker: z
+          .object({
+            stage: z.string().max(100).nullish(),
+            last_touch: z.string().max(100).nullish(),
+            next_action: z.string().max(500).nullish(),
+            next_action_date: z.string().max(100).nullish(),
+            notes: z.string().max(10000).nullish(),
+          })
+          .nullish(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export const targetCompaniesBulkImportSchema = z.object({
+  companies: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(300),
+        linkedin_url: z.string().max(500).nullish(),
+        priority_score: z.number().nullish(),
+        tier: z.string().max(200).nullish(),
+        program_name: z.string().max(300).nullish(),
+        app_window_text: z.string().max(2000).nullish(),
+      }),
+    )
+    .min(1)
+    .max(400),
+});
+
 // ── Transcripts ────────────────────────────────────────────────────────
 
 export const transcriptTranscribeSchema = z.object({

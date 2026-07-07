@@ -1,0 +1,85 @@
+/**
+ * POST /api/target-companies/bulk-import — target-company list import
+ * (plan 24 §2g). Loads the ~337-company APM sheet before people arrive.
+ *
+ * Re-runnable: research fields (priority_score, tier, program_name,
+ * app_window_text) refresh from the sheet; hand-set fields
+ * (next_app_date, status) are never touched on re-import.
+ */
+
+import { withApiHandler } from "@/lib/api-handler";
+import { targetCompaniesBulkImportSchema } from "@/lib/api-schemas";
+import { handleOptions } from "@/lib/extension-auth";
+import { findOrCreateCompany } from "@/lib/company-helpers";
+
+export const maxDuration = 60;
+
+interface TargetCompanyInput {
+  name: string;
+  linkedin_url?: string | null;
+  priority_score?: number | null;
+  tier?: string | null;
+  program_name?: string | null;
+  app_window_text?: string | null;
+}
+
+export async function OPTIONS() {
+  return handleOptions();
+}
+
+export const POST = withApiHandler({
+  schema: targetCompaniesBulkImportSchema,
+  extensionAuth: true,
+  cors: true,
+  handler: async ({ supabase, user, body }) => {
+    const { companies } = body as { companies: TargetCompanyInput[] };
+
+    let created = 0;
+    let updated = 0;
+    const errors: Array<{ name: string; error: string }> = [];
+
+    for (const input of companies) {
+      try {
+        const company = await findOrCreateCompany(supabase, {
+          name: input.name,
+          linkedin_url: input.linkedin_url,
+        });
+
+        const researchFields = {
+          priority_score: input.priority_score ?? null,
+          tier: input.tier?.trim() || null,
+          program_name: input.program_name?.trim() || null,
+          app_window_text: input.app_window_text?.trim() || null,
+        };
+
+        const { data: existing } = await supabase
+          .from("target_companies")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("company_id", company.id)
+          .maybeSingle();
+
+        if (existing) {
+          const { error } = await supabase
+            .from("target_companies")
+            .update({ ...researchFields, updated_at: new Date().toISOString() })
+            .eq("id", (existing as { id: number }).id);
+          if (error) throw new Error(error.message);
+          updated++;
+        } else {
+          const { error } = await supabase.from("target_companies").insert({
+            user_id: user.id,
+            company_id: company.id,
+            ...researchFields,
+          });
+          if (error) throw new Error(error.message);
+          created++;
+        }
+      } catch (err) {
+        errors.push({ name: input.name, error: err instanceof Error ? err.message : "Import failed" });
+      }
+    }
+
+    return { created, updated, errors };
+  },
+});

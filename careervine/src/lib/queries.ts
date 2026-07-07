@@ -14,6 +14,7 @@
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import type { Database } from "@/lib/database.types";
 import { RECENTLY_ADDED_DAYS, SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
+import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
 
 // Create a single Supabase client instance for browser-side operations
 const supabase = createSupabaseBrowserClient();
@@ -531,28 +532,17 @@ export async function createTag(
 }
 
 /**
- * Find or create a company by name (upsert pattern)
- * Checks for existing company first to avoid duplicate key errors.
+ * Find or create a company by name (upsert pattern).
+ * Delegates to the consolidated helper (case-insensitive escaped-ilike
+ * match, race-safe insert) so the browser and server paths behave
+ * identically.
  *
  * @param name - Company name to find or create
  * @returns Promise<Company> - The existing or newly created company
  * @throws Error if creation fails
  */
 export async function findOrCreateCompany(name: string) {
-  const { data: existing } = await supabase
-    .from("companies")
-    .select("*")
-    .eq("name", name)
-    .maybeSingle();
-  if (existing) return existing;
-
-  const { data, error } = await supabase
-    .from("companies")
-    .insert({ name })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  return await findOrCreateCompanyShared(supabase, { name });
 }
 
 /**

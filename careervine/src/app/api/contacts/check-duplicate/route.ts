@@ -4,6 +4,7 @@ import { calculateNameMatchConfidence } from '@/lib/duplicate-helpers';
 import { sanitizeForPostgrest } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { shouldRederiveStatus, deriveContactStatusFromDB } from '@/lib/profile-helpers';
+import { canonicalizeLinkedinUrl } from '@/lib/linkedin-url';
 
 export async function OPTIONS() {
   return handleOptions();
@@ -20,7 +21,9 @@ export const POST = withApiHandler({
   handler: async ({ supabase, user, body }) => {
     const { linkedinUrl, name, email } = body;
 
-    const duplicates = await findPotentialDuplicates(supabase, user.id, { linkedinUrl, name, email });
+    // Canonicalize so slash/www/case variants match stored canonical URLs
+    const canonicalUrl = canonicalizeLinkedinUrl(linkedinUrl) ?? linkedinUrl;
+    const duplicates = await findPotentialDuplicates(supabase, user.id, { linkedinUrl: canonicalUrl, name, email });
 
     // Lazy re-derivation: batch-check stale matches and update in bulk
     const staleIds = duplicates.matches

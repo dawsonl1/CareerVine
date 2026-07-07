@@ -3,6 +3,9 @@ import { contactsImportSchema } from "@/lib/api-schemas";
 import { sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
+import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
+import { findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
+import { addTagsToContact, downloadAndStorePhoto } from "@/lib/import-db-helpers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ── Types for the Chrome extension's profile payload ───────────────────
@@ -72,6 +75,14 @@ export const POST = withApiHandler({
   cors: true,
   handler: async ({ supabase, user, body }) => {
     const { profileData, photoUrl } = body as { profileData: ProfileData; photoUrl?: string };
+
+    // Canonicalize before any dedupe — trailing slash / www / case
+    // variants must land on the same contact row.
+    const canonical = canonicalizeLinkedinUrl(profileData.linkedin_url ?? (profileData.profileUrl as string | undefined));
+    if (canonical) {
+      profileData.linkedin_url = canonical;
+      profileData.profileUrl = canonical;
+    }
 
     const duplicates = await findDuplicateContacts(supabase, user.id, profileData);
 
@@ -285,35 +296,16 @@ async function addExperienceToContact(supabase: SupabaseClient, contactId: numbe
   const validExps = experience.filter(exp => exp.company);
   if (validExps.length === 0) return;
 
+  // Consolidated find-or-create (escaped ilike — company names containing
+  // % or _ no longer act as wildcards)
   const companyNames = [...new Set(validExps.map(exp => exp.company))];
-  const companyResults = await Promise.all(
-    companyNames.map(name =>
-      supabase.from('companies').select('id, name').ilike('name', name).maybeSingle()
-    )
-  );
-
   const companyMap = new Map<string, { id: number; name: string }>();
-  for (const { data } of companyResults) {
-    if (data) companyMap.set((data as { id: number; name: string }).name.toLowerCase(), data as { id: number; name: string });
-  }
-
   for (const name of companyNames) {
-    if (!companyMap.has(name.toLowerCase())) {
-      const { data: newCompany, error: insertErr } = await supabase
-        .from('companies')
-        .insert({ name })
-        .select('id, name')
-        .single();
-      if (insertErr) {
-        const { data: retry } = await supabase
-          .from('companies')
-          .select('id, name')
-          .ilike('name', name)
-          .maybeSingle();
-        if (retry) companyMap.set((retry as { id: number; name: string }).name.toLowerCase(), retry as { id: number; name: string });
-      } else if (newCompany) {
-        companyMap.set((newCompany as { id: number; name: string }).name.toLowerCase(), newCompany as { id: number; name: string });
-      }
+    try {
+      const company = await findOrCreateCompany(supabase, { name });
+      companyMap.set(name.toLowerCase(), company);
+    } catch (err) {
+      console.warn(`[import] Failed to find/create company "${name}":`, err);
     }
   }
 
@@ -412,129 +404,6 @@ async function addEducationToContact(supabase: SupabaseClient, contactId: number
   }
 }
 
-async function findOrCreateLocation(supabase: SupabaseClient, location: { city: string | null; state: string | null; country: string }) {
-  function buildLookup() {
-    let q = supabase.from('locations').select('id, city, state, country');
-    q = location.city ? q.eq('city', location.city) : q.is('city', null);
-    q = location.state ? q.eq('state', location.state) : q.is('state', null);
-    return q.eq('country', location.country);
-  }
-
-  const { data: existing } = await buildLookup().maybeSingle();
-  if (existing) return existing as { id: number };
-
-  const { data, error } = await supabase
-    .from('locations')
-    .insert({
-      city: location.city,
-      state: location.state,
-      country: location.country,
-    })
-    .select('id')
-    .single();
-  if (error) {
-    const { data: retry } = await buildLookup().maybeSingle();
-    if (retry) return retry as { id: number };
-    throw error;
-  }
-  return data as { id: number };
-}
-
-async function downloadAndStorePhoto(supabase: SupabaseClient, userId: string, contactId: number, photoUrl: string) {
-  // SSRF protection: only allow LinkedIn CDN URLs
-  const parsedUrl = new URL(photoUrl);
-  if (parsedUrl.hostname !== 'media.licdn.com') {
-    console.warn(`[import] Rejected non-LinkedIn photo URL hostname: ${parsedUrl.hostname}`);
-    return;
-  }
-
-  // Fetch the image with a 5-second timeout covering headers + body
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-  let response: Response;
-  let imageBuffer: ArrayBuffer;
-  try {
-    response = await fetch(photoUrl, { signal: controller.signal, redirect: 'error' });
-    if (!response.ok) {
-      throw new Error(`Photo fetch failed with status ${response.status}`);
-    }
-    imageBuffer = await response.arrayBuffer();
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  // Validate actual payload size (Content-Length can be absent or spoofed)
-  if (imageBuffer.byteLength > 5 * 1024 * 1024) {
-    console.warn(`[import] Photo too large: ${imageBuffer.byteLength} bytes`);
-    return;
-  }
-
-  // Validate content-type is an image format
-  const contentType = response.headers.get('content-type') || '';
-  const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  const resolvedContentType = ALLOWED_IMAGE_TYPES.find(t => contentType.startsWith(t)) || 'image/jpeg';
-
-  const storagePath = `${userId}/${contactId}.jpg`;
-
-  // Upload photo (upsert handles re-imports atomically)
-  const { error: uploadError } = await supabase.storage
-    .from('contact-photos')
-    .upload(storagePath, imageBuffer, {
-      contentType: resolvedContentType,
-      upsert: true,
-    });
-  if (uploadError) throw uploadError;
-
-  // Get the public URL with cache-busting timestamp and update the contact record
-  const { data: publicUrlData } = supabase.storage
-    .from('contact-photos')
-    .getPublicUrl(storagePath);
-  const photoUrlWithCacheBust = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-
-  const { error: updateError } = await supabase
-    .from('contacts')
-    .update({ photo_url: photoUrlWithCacheBust })
-    .eq('id', contactId)
-    .eq('user_id', userId);
-  if (updateError) throw updateError;
-}
-
-async function addTagsToContact(supabase: SupabaseClient, contactId: number, tags: string[], userId: string) {
-  const normalizedTags = [...new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))];
-  if (normalizedTags.length === 0) return;
-
-  const { data: existingTags } = await supabase
-    .from('tags')
-    .select('id, name')
-    .eq('user_id', userId);
-  const tagMap = new Map<string, { id: number; name: string }>();
-  for (const t of (existingTags as { id: number; name: string }[] | null) || []) {
-    tagMap.set(t.name.toLowerCase(), t);
-  }
-
-  for (const name of normalizedTags) {
-    if (!tagMap.has(name)) {
-      const { data: newTag } = await supabase
-        .from('tags')
-        .insert({ name, user_id: userId })
-        .select('id, name')
-        .single();
-      if (newTag) tagMap.set((newTag as { id: number; name: string }).name.toLowerCase(), newTag as { id: number; name: string });
-    }
-  }
-
-  const tagIds = normalizedTags.map(n => tagMap.get(n)?.id).filter(Boolean) as number[];
-  const { data: existingLinks } = await supabase
-    .from('contact_tags')
-    .select('tag_id')
-    .eq('contact_id', contactId)
-    .in('tag_id', tagIds);
-  const linkedSet = new Set(((existingLinks as TagLinkRow[] | null) || []).map(r => r.tag_id));
-
-  const toInsert = tagIds
-    .filter(id => !linkedSet.has(id))
-    .map(tag_id => ({ contact_id: contactId, tag_id }));
-  if (toInsert.length > 0) {
-    await supabase.from('contact_tags').insert(toInsert);
-  }
-}
+// findOrCreateLocation, downloadAndStorePhoto and addTagsToContact moved to
+// shared modules (company-helpers.ts / import-db-helpers.ts) so the bulk
+// pipeline import uses the same implementations.
