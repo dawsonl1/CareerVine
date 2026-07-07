@@ -56,7 +56,10 @@ Both actors share one output schema. Per profile:
 CareerVine does NOT ingest bare actor JSON. The pipeline validates and
 selects profiles through agent gates, then writes one
 `people/<company-slug>/<name-slug>.json` per kept person (SELECTED **and**
-BENCH), `schema_version: 1`:
+BENCH), `schema_version: 1`. **CareerVine imports SELECTED records only**
+— the people the selection gate chose as worth contacting (Dawson's
+decision). BENCH records stay pipeline-side as backups; a future loader
+flag could import them if fuller company rosters are ever wanted.
 
 - `identity`: name, `linkedin_url` (**the join key across every layer**),
   company (pipeline-canonical display name), title, location,
@@ -189,17 +192,14 @@ Per repo rules: migration file only; Dawson applies with `supabase db push`.
 - `last_scraped_at` timestamptz NULL — powers "data as of" display and
   staleness auditing. Impossible to backfill later; nearly free now.
 - **`network_status` text NOT NULL DEFAULT `'active'` CHECK
-  (`'active' | 'prospect' | 'bench'`)** — SELECTED imports land as
-  `prospect` (the active outreach list), BENCH imports as `bench`
-  (validated backups, per pipeline §7). Both are **excluded from
-  first-touch/LLM suggestion generation, network-health coloring, and the
-  default contacts view** (toggle to include); `bench` is additionally
-  excluded from outreach queues but fully visible on company pages
-  (a validated employee is company intel regardless of outreach status).
+  (`'active' | 'prospect'`)** — imports land as `prospect`:
+  **excluded from first-touch/LLM suggestion generation, network-health
+  coloring, and the default contacts view** (toggle to include).
   Auto-promoted to `active` on first outbound email, logged interaction,
-  or meeting; `bench` → `prospect` by a one-click "move to outreach list"
-  action. This is the guard that keeps 400–1000 imported strangers from
-  degrading the hand-curated-network UX.
+  or meeting. This is the guard that keeps tranche-scale imports from
+  degrading the hand-curated-network UX. (Only SELECTED pipeline records
+  import at all — see context — so `prospect` volume is the selection
+  gate's output, ~8 people per company, not the full scrape.)
 - `stage_override` text NULL — manual escape hatch for the derived stage
   (e.g. outreach happened via LinkedIn DM; see Phase 3).
 
@@ -262,10 +262,11 @@ Dedicated, tested mapper module:
 - **Person core** from `identity` + `crm` + `pipeline`: name, canonical
   `linkedin_url` + `public_identifier`, headline (from raw profile),
   persona ← `pipeline.persona`, review_note ← `pipeline.review_reason`,
-  verified_school ← `identity.school`, network_status ←
-  `selected_contact` (`SELECTED`→`prospect`, `BENCH`→`bench`),
-  import_source ← `found_by_searches` + batch, import_meta ← the rest of
-  the `pipeline` block + `history[]`.
+  verified_school ← `identity.school`, network_status = `prospect`
+  (only `selected_contact === "SELECTED"` records are accepted — the
+  endpoint skips-and-reports BENCH defensively even though the loader
+  filters them first), import_source ← `found_by_searches` + batch,
+  import_meta ← the rest of the `pipeline` block + `history[]`.
 - **Employment/education** from `raw_profiles[].data` (the full actor
   item), NOT from identity/tracker fields: `experience[].position` →
   title, `companyId`/`companyLinkedinUrl`/`companyUniversalName` → company
@@ -511,9 +512,10 @@ Company-level `applied`/`interviewing` stay manual on
 1. Supabase token acquisition (env creds → auth API).
 2. Target-company list import (2g) from APM_Company_List.xlsx, once per
    tranche.
-3. Walk `people/*/*.json` (the primary source per pipeline README §7),
-   left-join `Outreach_Tracker.xlsx` rows by linkedin_url for live
-   outreach state, POST in chunks of 25–50.
+3. Walk `people/*/*.json`, **filter `pipeline.selected_contact ===
+   "SELECTED"`** (only people the selection gate chose for outreach enter
+   the CRM; BENCH stays pipeline-side), left-join `Outreach_Tracker.xlsx`
+   rows by linkedin_url for live outreach state, POST in chunks of 25–50.
 4. One rule-2 backfill call at the end.
 5. Log per-record results; feed skipped/suppressed and `non_vanity_url`
    flags back into pipeline hygiene.
@@ -556,7 +558,7 @@ Each phase: tests written/updated and passing (`npm run test` in
   empty-company record → person-only; employment company from raw
   companyId even when identity.company is CANON-mapped (DeepMind case);
   tracker-state mapping (stage_override + interaction + follow-up item);
-  SELECTED/BENCH → prospect/bench.
+  BENCH records skipped-and-reported, SELECTED → prospect.
 - Canonicalizer: slash/www/case/query variants → one form; dedupe by
   public_identifier fallback.
 - Normalizer: alias hits, metro collapsing, granularity classification
@@ -581,10 +583,10 @@ Each phase: tests written/updated and passing (`npm run test` in
 
 ## Verification (end-to-end)
 
-- Import the real shakedown output (80 `people/` records + the 40-row
-  tracker already exist on Drive) through bulk-import; spot-check 10
-  people against LinkedIn; re-import the same batch → zero changes
-  reported; SELECTED vs BENCH land as prospect vs bench.
+- Import the real shakedown output through bulk-import (80 `people/`
+  records exist on Drive; the 40 SELECTED import, 40 BENCH are
+  filtered/skip-reported); spot-check 10 people against LinkedIn;
+  re-import the same batch → zero changes reported.
 - Manually set an employment location, re-import that contact → manual
   location survives.
 - Company page: current vs former correct; SD facet scopes everything;
