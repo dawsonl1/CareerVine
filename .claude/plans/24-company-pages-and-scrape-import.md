@@ -148,9 +148,20 @@ Per repo rules: migration file only; Dawson applies with `supabase db push`.
 ### `target_companies` — the recruiting layer (user-scoped)
 
 - `id`, `user_id` FK, `company_id` FK, UNIQUE (`user_id`, `company_id`).
-- `priority_score` numeric NULL, `tier` text NULL, `tranche` text NULL,
-  `app_window_opens` date NULL, `app_window_closes` date NULL,
-  `status` text NOT NULL DEFAULT `'researching'` CHECK (`'researching' |
+- `priority_score` numeric NULL, `tier` text NULL (segment/geo label from
+  the sheet, e.g. "Utah/Silicon Slopes", "Big Tech"), `program_name` text
+  NULL (the APM/rotational program's actual name).
+- **Application window, two honest fields** (the sheet's "Historical
+  Application Window" is 196 distinct free-text values across 337 rows —
+  "Historically opens October (US)", "Timing varies by region", "reported
+  paused" — NOT parseable into dates):
+  `app_window_text` text NULL — imported as-is, display-only research hint;
+  `next_app_date` date NULL — a real date Dawson sets when he learns one
+  (call, recruiter, posting). Sorting/alerts use `next_app_date` only.
+- **No `tranche` column** — tranche is Apify-pipeline batch logistics, not
+  recruiting data; it stays in the spreadsheet/pipeline configs (people
+  keep scrape provenance via `contacts.import_source`).
+- `status` text NOT NULL DEFAULT `'researching'` CHECK (`'researching' |
   'outreach_active' | 'applied' | 'interviewing' | 'closed'`),
   `created_at`, `updated_at`. RLS: owner-only (standard pattern).
 
@@ -300,10 +311,15 @@ notes. The bulk importer merges instead:
 
 Goal (c) needs the 337-company list in the DB **before** people arrive:
 accepts `[{name, linkedin_url?, linkedin_company_id?, priority_score, tier,
-tranche, app_window_opens?, app_window_closes?}]`, find-or-creates
-`companies` rows (2b helper), upserts `target_companies` per user. Fed from
-APM_Company_List.xlsx by a small pipeline-repo script. Hand-entering 337
-rows through a UI was never going to happen.
+program_name?, app_window_text?}]`, find-or-creates `companies` rows (2b
+helper), upserts `target_companies` per user. Fed from
+APM_Company_List.xlsx by a small pipeline-repo script (column mapping:
+Company→name, LinkedIn URL→linkedin_url, Priority Score→priority_score,
+Tier→tier, Program Name→program_name, Historical Application
+Window→app_window_text; Tranche and the evidence/confidence columns are
+research/pipeline-side and don't import). `next_app_date` is never
+imported — it's set by hand in the app as real dates are learned.
+Hand-entering 337 rows through a UI was never going to happen.
 
 ### 2h. Rule-2 backfill + re-normalization (re-runnable, admin endpoint or script)
 
@@ -363,7 +379,9 @@ Company-level `applied`/`interviewing` stay manual on
 ### Routes
 
 - `/companies` — target-company dashboard by default: sortable by priority,
-  tranche, app-window proximity, traction; toggle to all companies.
+  traction, and `next_app_date` (companies with a known real date surface
+  first as it approaches; `app_window_text` shows as a hint, never sorts);
+  toggle to all companies.
 - `/companies/[id]` (numeric id; slug URLs can come later) — header (name,
   LinkedIn link, domain, target status/priority/window), recruiting-notes
   log (add note, optional location tag), **location facet chips with
@@ -377,6 +395,9 @@ Company-level `applied`/`interviewing` stay manual on
   `location_source='profile_match'` rows → location NULL;
   `'experience'` rows keep their location (first-person evidence) but no
   longer imply an office.
+- Company header includes an inline `next_app_date` editor — the natural
+  moment to record a real date is right after a call, on that company's
+  page.
 - Person rows link to contact pages; compose opens the existing modal.
   "Data as of" staleness shown from `last_scraped_at`. Nav entry.
 - UX bar (global rule 5): clean, facets over heavy filter UI.
