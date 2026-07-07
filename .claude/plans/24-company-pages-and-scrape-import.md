@@ -1,5 +1,13 @@
 # 24 — Company Pages, Office Locations & LinkedIn-Scrape Import
 
+> **Rev 2.** Audited by two fresh-context review agents (code-level audit
+> against actual migrations/routes + conceptual-gap review). This revision
+> incorporates all confirmed findings. Key corrections vs Rev 1: merge (not
+> delete-and-reinsert) import semantics, prospect/active contact segregation,
+> companies UPDATE RLS policy, company_locations RLS, target-company list
+> import, staleness timestamps, bounce handling, stage overrides, and a
+> harvestapi→CareerVine field mapper (the schemas do NOT map 1:1).
+
 ## Context
 
 Dawson is running a PM-recruiting scraping pipeline in a separate repo (Apify
@@ -20,271 +28,447 @@ Both actors share one output schema. Per profile:
 - `experience[]` — every job ever held: `position` (title), `companyName`,
   **`companyLinkedinUrl`**, **`companyId`** (stable LinkedIn numeric id),
   `companyUniversalName` (slug), `employmentType`, `workplaceType`
-  (On-site/Hybrid/Remote), **per-role `location`** (free text, e.g.
-  "Greater San Diego Area"), `startDate`/`endDate` (`{month, year, text}`,
-  `endDate.text === "Present"` for current), `description`, `skills`.
+  (On-site/Hybrid/Remote — often absent on older entries), **per-role
+  `location`** (free text, e.g. "Greater San Diego Area"),
+  `startDate`/`endDate` (`{month, year, text}`, `endDate.text === "Present"`
+  for current), `description`, `skills`.
 - `education[]` — `schoolName`, `schoolLinkedinUrl`, `degree`,
   `fieldOfStudy`, `startDate`/`endDate`.
 - Email (Full+email mode): **exact output field name not yet verified** —
-  confirm during pipeline shakedown (likely `emails` or `email`; check the
-  first shakedown dataset). Reviewed profiles arriving at CareerVine will
-  also carry pipeline-added fields: persona, review verdict/note, source
-  search, email_source.
+  confirm during pipeline shakedown. Reviewed profiles arriving at
+  CareerVine also carry pipeline-added fields: persona, review note,
+  source search, email_source.
 
-### What CareerVine already has (no work needed)
+### What CareerVine already has (audit-verified, no work needed)
 
-- Normalized model: `companies`, `contact_companies` (title, `is_current`,
-  `start_month`/`end_month`), `schools` + `contact_schools`, `contact_emails`,
-  `contact_phones`, tags, `locations` (city/state/country, UNIQUE).
+- Normalized model: `companies` (global, UNIQUE(name)), `contact_companies`
+  (title, `is_current`, `start_month`/`end_month` text; legacy
+  `start_date`/`end_date` are unused), `schools` + `contact_schools`,
+  `contact_emails`, `contact_phones`, tags, `locations` (city/state/country
+  UNIQUE, shared-read/authenticated-insert RLS).
 - Single-profile import: `api/contacts/import` + `src/lib/import-helpers.ts`
-  (dedupe by `linkedin_url`, upserts companies/schools/emails/tags/photo).
-- **Email is fully built**: Gmail OAuth send, compose modal, inbox sync with
-  contact matching, drafts, templates, scheduled send (QStash), multi-step
-  follow-up sequences with auto-cancel-on-reply, AI drafting. Outreach
-  happens in-app; no new email infrastructure.
-- Follow-up engine: `follow_up_action_items` (due dates, priority, snooze)
-  covers next_action/next_action_date.
-- `referrals` table exists (used for the referral stage signal).
+  (extension-auth, licdn-only photo download).
+- **Email fully built**: Gmail OAuth send, compose modal, inbox sync with
+  `email_messages.matched_contact_id` + `direction`, drafts, templates,
+  scheduled send (QStash), follow-up sequences with auto-cancel-on-reply,
+  AI drafting.
+- Stage-signal tables all exist as needed: `calendar_events` +
+  `calendar_event_contacts`, `meetings` + `meeting_contacts`, `referrals`,
+  `interactions`, `follow_up_action_items` (due/priority/snooze).
 
-### Gaps this plan closes
+### Known code realities the implementation MUST respect (from audit)
 
-1. No company-centric view (no `/companies` route, no reverse query).
-2. No per-employment location (only person-level `contacts.location_id`).
-3. No target-company layer (priority, tranche, recruiting intel).
-4. No bulk import path (extension endpoint is one-profile-per-POST).
-5. No provenance fields (persona, email source, review note, source search).
-6. No outreach stage visibility (mostly derivable from existing data).
+- The import path runs on a **user-token anon client** (never service-role):
+  RLS-blocked UPDATEs affect 0 rows **silently**. `companies` currently has
+  SELECT + INSERT policies only — no UPDATE.
+- Existing import idempotency = **delete-all-and-reinsert** of
+  `contact_companies`/`contact_schools` per contact; the unique index on
+  `(contact_id, company_id, start_date)` is dead (start_date always NULL,
+  NULLs distinct) — there is **no usable upsert conflict key**.
+- `linkedin_url` dedupe is exact string equality; **no normalization exists
+  anywhere** (trailing slash / www / case → duplicate contacts).
+- Two divergent find-or-create-company implementations exist:
+  `queries.ts findOrCreateCompany` (case-sensitive eq) and the import route
+  (unescaped `ilike` — `%`/`_` act as wildcards). Must consolidate.
+- `database.types.ts` is **hand-maintained** and already drifted: phantom
+  `contact_companies.location` column; `referrals`, `calendar_events`,
+  `calendar_event_contacts`, `user_companies`, `user_schools` types missing.
+- `getContacts(userId, limit = 500)` silently truncates; contacts page,
+  calendar, meetings, action-items all call it.
+- First-touch suggestions fire for every never-contacted contact created in
+  the last 30 days; import default-notes make contacts eligible for LLM
+  suggestion slots too.
+- `email_messages.is_simulated` marks fake onboarding replies; `direction`
+  is nullable.
+- Repo deploys on Vercel hobby plan — long request wall-clock is a hard
+  constraint; bulk work must be chunked.
 
 ---
 
 ## Phase 1 — Migration (one file, `supabase/migrations/`)
 
-Per repo rules: migration files only, committed + pushed; Dawson applies
-locally with `supabase db push`. Never run SQL against prod directly.
+Per repo rules: migration file only; Dawson applies with `supabase db push`.
 
-### `companies` — metadata columns
+### `companies` — metadata + missing UPDATE policy
 
-- `linkedin_company_id` text NULL — the stable numeric id from scrape data
-  (`experience[].companyId`). **Primary join key for scraped data**; name
-  matching is the fallback only. Unique partial index where not null.
-- `linkedin_url` text NULL (canonical `linkedin.com/company/<slug>` form),
-  `universal_name` text NULL (slug), `domain` text NULL (for email
-  pattern-guessing sanity checks), `logo_url` text NULL.
+- Add `linkedin_company_id` text NULL (stable numeric id from
+  `experience[].companyId`; **primary join key**; unique partial index
+  WHERE NOT NULL), `linkedin_url` text NULL, `universal_name` text NULL,
+  `domain` text NULL, `logo_url` text NULL.
+- **Add `companies_update_authenticated` RLS policy** (FOR UPDATE,
+  `auth.uid() IS NOT NULL`) — without it, claiming existing name-only rows
+  by backfilling `linkedin_company_id` silently no-ops. Companies are
+  global shared facts; authenticated update matches the existing
+  insert-authenticated stance.
 
-Note: `companies` is a global shared table (no `user_id`). Fine for the
-current single-user reality; company existence/offices are public facts.
-Revisit RLS if the app ever goes multi-tenant.
+### `company_locations` — auto-managed office registry (WITH RLS)
 
-### `company_locations` — auto-managed office registry
+- `id`, `company_id` FK (cascade), `location_id` FK → locations, `source`
+  text CHECK (`'scraped' | 'manual'`), `created_at`;
+  UNIQUE (`company_id`, `location_id`).
+- **RLS: ENABLE + select-all + insert-authenticated + delete-authenticated**
+  (mirrors `locations` pattern; delete needed for office correction).
+  Importer inserts with ON CONFLICT DO NOTHING (no UPDATE policy needed).
+- Rows created automatically by import rule 1; manually seedable; anchor for
+  location-scoped intel. Office deletion cascade: dependent
+  `contact_companies.location_source='profile_match'` rows are nulled (see
+  Phase 3 office management).
 
-- `id`, `company_id` FK → companies (cascade), `location_id` FK → locations,
-  `source` text CHECK (`'scraped' | 'manual'`), `created_at`.
-- UNIQUE (`company_id`, `location_id`).
-- Rows are **created automatically** by import rule 1 (below) and may be
-  seeded manually ("I know Google has a San Diego office") so future imports
-  match against them. This table is what rule 2 matches against, and the
-  anchor for location-scoped recruiting notes.
+### `contact_companies` — per-employment location, provenance, staleness
 
-### `contact_companies` — per-employment location + detail
+- `location_id` int NULL FK, `location_source` text NULL CHECK
+  (`'experience' | 'profile_match' | 'manual'`), `location_raw` text NULL,
+  `workplace_type` text NULL CHECK (`'on_site' | 'hybrid' | 'remote'`),
+  `employment_type` text NULL.
+- `source` text NOT NULL DEFAULT `'manual'` CHECK (`'scraped' | 'manual'`)
+  — row-level provenance; **required by the merge engine** (only
+  scraped-sourced rows may be auto-removed/updated by re-imports).
+- `scraped_at` timestamptz NULL — when this employment fact was last
+  confirmed by a scrape.
 
-- `location_id` int NULL FK → locations.
-- `location_source` text NULL CHECK (`'experience' | 'profile_match' | 'manual'`).
-- `location_raw` text NULL — the untouched LinkedIn string, for audit and
-  re-derivation.
-- `workplace_type` text NULL CHECK (`'on_site' | 'hybrid' | 'remote'`).
-- `employment_type` text NULL (Full-time/Internship/etc. — free from scrape).
+### `contacts` — provenance, staleness, network segregation
+
+- `headline` text NULL, `persona` text NULL CHECK (`'alum_product' |
+  'alum_other' | 'product_peer' | 'product_leader' | 'recruiter'`),
+  `review_note` text NULL, `import_source` text NULL
+  (e.g. `apify:search_a:2026-07_tranche1`).
+- `public_identifier` text NULL (LinkedIn slug — secondary dedupe key).
+- `last_scraped_at` timestamptz NULL — powers "data as of" display and
+  staleness auditing. Impossible to backfill later; nearly free now.
+- **`network_status` text NOT NULL DEFAULT `'active'` CHECK
+  (`'active' | 'prospect'`)** — bulk imports land as `prospect`:
+  **excluded from first-touch/LLM suggestion generation, network-health
+  coloring, and the default contacts view** (toggle to include).
+  Auto-promoted to `active` on first outbound email, logged interaction, or
+  meeting. This is the guard that keeps 400–1000 imported strangers from
+  degrading the hand-curated-network UX.
+- `stage_override` text NULL — manual escape hatch for the derived stage
+  (e.g. outreach happened via LinkedIn DM; see Phase 3).
 
 ### `target_companies` — the recruiting layer (user-scoped)
 
-- `id`, `user_id` FK → users, `company_id` FK → companies,
-  UNIQUE (`user_id`, `company_id`).
-- `priority_score` numeric NULL, `tier` text NULL, `tranche` text NULL.
-- `app_window_opens` date NULL, `app_window_closes` date NULL.
-- `status` text NOT NULL DEFAULT `'researching'`
-  CHECK (`'researching' | 'outreach_active' | 'applied' | 'interviewing' | 'closed'`)
-  — company-level pipeline state (applied/interviewing live here, not on
-  contacts).
-- `created_at`, `updated_at`. RLS: owner-only, matching existing patterns.
+- `id`, `user_id` FK, `company_id` FK, UNIQUE (`user_id`, `company_id`).
+- `priority_score` numeric NULL, `tier` text NULL, `tranche` text NULL,
+  `app_window_opens` date NULL, `app_window_closes` date NULL,
+  `status` text NOT NULL DEFAULT `'researching'` CHECK (`'researching' |
+  'outreach_active' | 'applied' | 'interviewing' | 'closed'`),
+  `created_at`, `updated_at`. RLS: owner-only (standard pattern).
 
 ### `target_company_notes` — timestamped recruiting-intel log
 
 - `id`, `target_company_id` FK (cascade), `note` text NOT NULL,
-  `location_id` int NULL FK → locations (for location-specific intel like
-  "SD office owns the APM program"), `created_at`.
-- A dated log, not one overwritten blob — intel accumulates across calls.
-- RLS via parent row's `user_id`.
+  `location_id` int NULL FK, `created_at`. RLS via parent `user_id`
+  (matches the contact_emails-via-contacts pattern).
 
 ### `contact_emails` — provenance
 
-- `source` text NOT NULL DEFAULT `'manual'`
-  CHECK (`'manual' | 'scraped' | 'pattern_guessed' | 'verified'`).
-- Compose flow later warns before sending to a `pattern_guessed` address.
+- `source` text NOT NULL DEFAULT `'manual'` CHECK (`'manual' | 'scraped' |
+  'pattern_guessed' | 'verified'`).
+- `bounced_at` timestamptz NULL (set by Phase 4 bounce detection).
+- Source lifecycle is **monotonic**: verified > scraped > pattern_guessed;
+  re-imports may upgrade, never downgrade.
 
-### `contacts` — scrape/review provenance
+### `suppressed_imports` — deletion tombstones
 
-- `headline` text NULL (LinkedIn headline — high-value display field).
-- `persona` text NULL CHECK
-  (`'alum_product' | 'alum_other' | 'product_peer' | 'product_leader' | 'recruiter'`).
-- `review_note` text NULL (the agent-review one-liner: "why this person is
-  in my CRM").
-- `import_source` text NULL (e.g. `apify:search_a:2026-07_tranche1`) —
-  answers "which search found them"; on re-import, append/replace with
-  newest, full history stays in the pipeline repo's raw archive.
+- `id`, `user_id` FK, `linkedin_url` text (canonical form), `created_at`;
+  UNIQUE(`user_id`, `linkedin_url`). Row written when Dawson deletes an
+  imported contact; bulk import checks it and skips + reports, so deleted
+  junk doesn't resurrect on the next tranche/refresh. Owner RLS.
 
-Also regenerate `careervine/src/lib/database.types.ts` and extend the
-`Contact` type in `src/lib/types.ts`.
+### Types file
+
+`database.types.ts` is hand-maintained — **hand-extend** it: add all new
+columns/tables, add the missing `referrals`/`calendar_events`/
+`calendar_event_contacts` types (needed by Phase 3), and delete the phantom
+`contact_companies.location` entry. (A true `supabase gen types` run can
+happen on Dawson's machine later.) Extend `Contact` in `src/lib/types.ts`.
 
 ## Phase 2 — Import path
 
-### Location normalizer (shared module, `src/lib/location-normalizer.ts`)
+### 2a. harvestapi → CareerVine mapper (`src/lib/scrape-mapper.ts`)
 
-- Deterministic string → canonical metro mapping. **Metro grain** is
-  canonical: "Greater San Diego Area", "San Diego", "La Jolla, CA" → the
-  same `locations` row (city = metro core city). Alias map lives in code
-  (seeded with major US metros + LinkedIn "Greater X Area"/"X Bay Area"/
-  "X Metropolitan Area" patterns); unrecognized strings parse as plain
-  city/state, and truly unparseable ones → location NULL + raw text kept.
-- Used by BOTH the bulk importer and the existing extension import route so
-  rule-2 matching behaves identically everywhere. Mechanical only — no
-  judgment calls, per the pipeline's code-vs-agent split.
+The schemas do NOT map 1:1 — dedicated, tested mapper module:
+`firstName + lastName` → `name`; `linkedinUrl` → canonical `linkedin_url` +
+`public_identifier`; `location.parsed` → city/state/country;
+`experience[].position` → title, `companyName` → company (+
+`companyId`/`companyLinkedinUrl`/`companyUniversalName` carried through);
+`startDate {month, year}` → `"Mon YYYY"` `start_month`;
+`endDate.text === "Present"` → `is_current` + `end_month = "Present"`;
+`workplaceType` "On-site/Hybrid/Remote" → `on_site/hybrid/remote`;
+`education[].schoolName/fieldOfStudy/startDate.year` →
+school/field_of_study/start_year; email field per shakedown finding.
 
-### Employment-location inference rule (the agreed spec)
+### 2b. Canonicalization + shared helpers (consolidation)
+
+- **linkedin_url canonicalizer**: lowercase host+slug, strip trailing slash
+  and query, force `https://www.linkedin.com/in/<slug>`. Used by bulk
+  import AND retrofit into the extension route + check-duplicate. One-time
+  normalization pass over existing `contacts.linkedin_url` rows (script or
+  migration DO block). Dedupe order: canonical linkedin_url →
+  public_identifier.
+- **One find-or-create-company helper** replacing the two divergent
+  implementations: match by `linkedin_company_id` first; else
+  normalized-name match (trimmed, escaped ilike — the current route's
+  unescaped ilike treats `%`/`_` as wildcards); on name-match with a
+  scraped companyId in hand, **claim the row** by writing
+  `linkedin_company_id` (requires the Phase 1 UPDATE policy); else insert.
+- **One location lookup helper** wrapping the NULL-aware locations lookup
+  currently duplicated in queries.ts and the import route.
+
+### 2c. Location normalizer (`src/lib/location-normalizer.ts`)
+
+- Deterministic string → canonical **metro-grain** `locations` row, via
+  alias map in code ("Greater San Diego Area", "La Jolla, CA" → San Diego).
+- **Classifies granularity**: only city/metro-grain results may establish
+  offices. Country/state/region-grain strings ("United States",
+  "California", "EMEA") normalize for display but return
+  `can_establish_office: false`. Strips "(Remote)" markers; remote signal
+  from `workplaceType` OR a "remote" token in the location string.
+- Unparseable → NULL + raw kept. Shared by bulk import and extension route.
+
+### 2d. Employment-location inference rule (the agreed spec)
 
 Per employment record at import time:
 
-1. **Experience entry has its own location** → normalize, store on the
-   `contact_companies` row (`location_source='experience'`), and upsert
-   `company_locations` (this is what establishes an office).
-2. **No experience location, but profile has a location** → normalize the
-   profile location; if it matches an office **already in
-   `company_locations`** for that company → store it
-   (`location_source='profile_match'`). Applies to the current role.
-3. **No experience location, profile location matches no known office** →
-   employment location stays NULL. Person keeps their profile location on
-   `contacts.location_id`; no office is invented.
+1. **Experience entry has its own city/metro-grain location** → normalize,
+   store (`location_source='experience'`), upsert `company_locations`
+   (establishes the office).
+2. **No experience location, profile has one** → normalize profile
+   location; if it matches an office **already in `company_locations`** for
+   that company → store (`location_source='profile_match'`).
+   **Current roles only** — a profile location is evidence only for where
+   someone works now.
+3. **Otherwise** → employment location NULL; person keeps profile location
+   on `contacts.location_id`; no office invented.
 
-Asymmetry is intentional: experience locations are evidence an office
-exists; profile locations only assign people to offices we already know.
-`workplaceType: Remote` → `workplace_type='remote'`, no office assignment.
+Rule-2 matching **re-normalizes location strings at match time** (existing
+`contacts.location_id` rows predate the normalizer — e.g. a "La Jolla" row
+vs a metro-grain "San Diego" office; raw ID equality would silently miss).
+Remote roles: `workplace_type='remote'`, no office assignment.
 
-### Bulk import endpoint — `POST /api/contacts/bulk-import`
+### 2e. Merge engine (replaces delete-and-reinsert — audit blocker)
 
-- Accepts an array of reviewed profiles: harvestapi profile JSON + pipeline
-  fields (`persona`, `review_note`, `import_source`, `email`,
-  `email_source`). Session-auth (and/or the existing `extensionAuth`
-  pattern for the pipeline script).
-- **Two-pass, order-independent**: pass 1 applies rule 1 across the whole
-  batch (establishing all offices), pass 2 runs rule-2 matching. Same input
-  set → same output, regardless of array order.
-- Idempotent: dedupe/merge by `linkedin_url` (reuse existing helpers);
-  companies joined by `linkedin_company_id` first, name second. Re-import
-  updates newest data, never duplicates.
-- Batched Supabase ops (the single-profile route's N-sequential-calls
-  pattern won't survive 400+ profiles).
-- Imports the **full** `experience[]` and `education[]` arrays — past
-  employers auto-create company rows, which is what powers "previously
-  worked at X" for every company, targets or not.
-- Response: per-profile results + counts (created/updated/skipped, offices
-  established) so the pipeline script can log honestly.
+The existing route's replace pattern would wipe manual employment
+locations, manual title/date fixes, and (via `buildUpdateData`) overwrite
+notes. The bulk importer merges instead:
 
-### Rule-2 backfill (small, ships with the importer)
+- **Employment natural key**: (contact, company identity, title,
+  start_month). Match incoming experience entries to existing rows on it.
+- Matched row → field-level update; **scraped never overwrites manual**:
+  `location_source='manual'` locations win; scraped fields refresh
+  `scraped_at`. Unmatched incoming → insert (`source='scraped'`).
+  Existing rows absent from the new payload → delete **only if
+  `source='scraped'`** (manual rows always survive).
+- Multiple stints (two Google rows, different start_month) and concurrent
+  roles (FT + advisor; multiple `is_current=true`) are **legal** — the
+  natural key keeps them distinct; company pages render all current titles,
+  most recent start first.
+- Notes: append-only (reuse `append_contact_note` RPC semantics), never
+  wholesale overwrite. Persona: **never overwrite a non-null persona with a
+  different value on re-import** — keep existing, report the conflict in
+  the import response (alum_* set by Search A should not be clobbered by a
+  Search C `product_peer`).
+- Emails: monotonic source upgrade only. `contacts.last_scraped_at`
+  refreshed on every merge.
 
-A re-runnable pass (script or admin endpoint): for `contact_companies` rows
-with NULL location and a contact profile location, re-attempt rule-2
-matching against the *current* `company_locations`. Run after new tranches
-land — new offices established later can claim earlier unmatched people.
-Deterministic because `location_source` + `location_raw` are stored.
+### 2f. Bulk people import — `POST /api/contacts/bulk-import`
 
-### Pipeline-repo integration (documented here, built there)
+- Accepts an array of reviewed profiles (harvestapi JSON + pipeline fields:
+  persona, review_note, import_source, email, email_source).
+- **Chunked**: pipeline sends ~25–50 profiles/POST (Vercel hobby wall-clock
+  limit; photo downloads alone are up to 5s each). Photos: best-effort with
+  a tight per-request photo budget — skip and report, importable later.
+- **Two-pass within a chunk + office preload**: rule 1 across the chunk
+  first (establish offices), then rule-2 matching against DB + chunk
+  offices. Cross-chunk order effects are mopped up by the rule-2 backfill
+  (2h) which the pipeline script calls once after all chunks.
+- Checks `suppressed_imports` (skip + report). Idempotent via canonical
+  linkedin_url / public_identifier + merge engine.
+- Imports full `experience[]`/`education[]` — past employers create company
+  rows (powers "previously worked at X" everywhere).
+- Response: per-profile results (created/updated/skipped-suppressed/
+  persona-conflict/photo-skipped, offices established) — honest logging,
+  and the skip list feeds the pipeline's kept-list hygiene.
+- **Auth**: user-token client (RLS intact). The pipeline script obtains a
+  Supabase access token via the auth API (password grant with Dawson's
+  creds from env, or stored refresh token) — document exactly this in the
+  pipeline repo's `load_to_careervine.py`; "session cookie" is not a thing
+  scripts have. Validate emails on the create path with the same
+  regex/length rules the update path uses.
 
-The other repo's Phase 3 gains a `load_to_careervine.py` step that POSTs
-reviewed-and-kept profiles to `/api/contacts/bulk-import`. Its `people/`
-JSON layer becomes optional (raw archive + CareerVine DB cover it).
+### 2g. Target-company list import — `POST /api/target-companies/bulk-import`
 
-## Phase 3 — Company pages
+Goal (c) needs the 337-company list in the DB **before** people arrive:
+accepts `[{name, linkedin_url?, linkedin_company_id?, priority_score, tier,
+tranche, app_window_opens?, app_window_closes?}]`, find-or-creates
+`companies` rows (2b helper), upserts `target_companies` per user. Fed from
+APM_Company_List.xlsx by a small pipeline-repo script. Hand-entering 337
+rows through a UI was never going to happen.
+
+### 2h. Rule-2 backfill + re-normalization (re-runnable, admin endpoint or script)
+
+- Backfill: for **`is_current`** `contact_companies` rows with NULL
+  location and a contact profile location, re-attempt rule 2 against
+  current `company_locations` (new offices claim earlier unmatched people).
+- Re-derive: when the alias map improves, re-normalize from `location_raw`
+  for `location_source='experience'` rows (never `manual`), updating
+  offices accordingly.
+
+## Phase 3 — Company pages + derived stage
+
+Stage derivation lives HERE (not Phase 4) — the pages consume it.
+
+### Derived outreach stage (query-layer function; if a SQL view, it must be
+`WITH (security_invoker = true)`)
+
+Per contact, later signals win:
+
+- `not_contacted` → nothing below.
+- `contacted` → outbound `email_messages` (matched, `is_simulated = false`,
+  direction handled defensively) **or a logged interaction** (the
+  `interactions` table exists precisely for LinkedIn DMs/calls — email is
+  not the only channel).
+- `replied` → inbound matched email after an outbound (`is_simulated =
+  false`).
+- `call_scheduled` → upcoming calendar event / meeting linked to contact.
+- `call_done` → past linked meeting.
+- `referral` → `referrals` row (existence check, not row count — dup rows
+  with NULL meeting are possible).
+- `contacts.stage_override` (when set) **wins over everything** — plus a
+  lightweight "mark as contacted" action in the UI. Purely-derived with no
+  escape hatch is elegant and wrong.
+- `bounced` (Phase 4 signal) → surfaced distinctly, never as "no reply".
+
+Company-level `applied`/`interviewing` stay manual on
+`target_companies.status`.
 
 ### Queries (`src/lib/queries.ts`)
 
-- `getCompanies(userId, {targetsOnly, sort})` — companies with contact
-  counts (current/former/alumni), target metadata, derived traction.
+- `getCompanies(userId, {targetsOnly, sort, search})` — companies with
+  current/former/alumni contact counts, target metadata, traction (max
+  derived stage across contacts + company status). **All-companies view
+  requires search + a minimum-contacts filter** — full-history import
+  creates thousands of past-employer rows; an unfiltered list is a
+  landfill. (Accepted risk, documented: global name-unique table can merge
+  two genuinely different "Apex"s.)
 - `getCompanyDetail(userId, companyId, {locationId?})` — company + target
-  info + notes + location facets (distinct `contact_companies.location_id`
-  with counts, plus remote/unknown buckets) + people, split
-  current (`is_current`) vs former, each with title, persona, alum badge
-  (derived from `contact_schools` ∩ BYU school names), email presence +
-  source, derived stage. `locationId` filters people and counts.
+  info + notes + location facets (distinct employment locations with
+  counts, plus Remote and Unknown buckets) + people split current/former
+  (title, persona, alum badge from `contact_schools` ∩ BYU school names,
+  email presence + source, derived stage, `last_scraped_at`).
+- Fix the `getContacts` 500-row truncation risk for this feature's scale:
+  paginate or raise with explicit count surfacing; default contacts view
+  filters `network_status='active'` with a "show prospects" toggle.
 
 ### Routes
 
-- `/companies` — list page. Default view = target companies dashboard:
-  sortable by priority, tranche, app-window proximity, and traction
-  (stage-progress of its contacts); shows contact/alumni counts; toggle to
-  all companies (every employer in the CRM, incl. past-employer-only).
-- `/companies/[id]` — detail: header (name, LinkedIn link, domain, target
-  status/priority/window), recruiting-notes log (add note, optionally
-  location-tagged), **location facet chips** (San Diego (4) · SF (7) ·
-  Remote (2) · Unknown (3)), current-employees and former-employees
-  sections. Location filter via `?location=<id>` — same page, scoped;
-  facets are honest about unknowns, never pretend full coverage.
-- Person rows link to existing contact pages; compose-email opens the
-  existing modal. Nav entry for Companies.
-- UX bar (global rule 5): clean, no clutter; facets/chips over heavy
-  filters UI.
+- `/companies` — target-company dashboard by default: sortable by priority,
+  tranche, app-window proximity, traction; toggle to all companies.
+- `/companies/[id]` (numeric id; slug URLs can come later) — header (name,
+  LinkedIn link, domain, target status/priority/window), recruiting-notes
+  log (add note, optional location tag), **location facet chips with
+  overflow** (top N + "more" — Google-scale companies produce dozens),
+  honest buckets: `San Diego (4) · SF (7) · Remote (2) · Unknown (3)`,
+  current-employees and former-employees sections. `?location=<id>` scopes
+  people, counts, and notes.
+- **Office management**: delete a `company_locations` row from the company
+  page (phantom-office correction — one bad experience location otherwise
+  attracts profile-matches forever). Cascade: dependent
+  `location_source='profile_match'` rows → location NULL;
+  `'experience'` rows keep their location (first-person evidence) but no
+  longer imply an office.
+- Person rows link to contact pages; compose opens the existing modal.
+  "Data as of" staleness shown from `last_scraped_at`. Nav entry.
+- UX bar (global rule 5): clean, facets over heavy filter UI.
 
-## Phase 4 — Derived outreach stage
+## Phase 4 — Outreach hardening
 
-Per contact, computed (no manual column):
+- **Bounce detection in inbox sync**: NDRs arrive from mailer-daemon and
+  will never match the contact by address — detect via NDR sender +
+  `In-Reply-To`/original message id → set `contact_emails.bounced_at`,
+  **cancel pending follow-up sequence steps** (sequences currently
+  auto-cancel only on reply — they'd fire steps 2–3 into the void and burn
+  sender reputation), surface `bounced` stage. At pattern-guess hit rates
+  this is a third of outreach, not an edge case.
+- Compose warning on `pattern_guessed` (+ "mark verified" action flipping
+  source to `verified`).
+- Gmail send-limit guardrail: document/enforce a daily outbound cap
+  (consumer Gmail ~500/day; bursts should stay far below) in the send/
+  schedule path.
+- Traction sort polish on `/companies` once real stage data flows.
 
-- `not_contacted` → no outbound `email_messages` matched to contact.
-- `emailed` → outbound matched email exists.
-- `replied` → inbound matched email after an outbound.
-- `call_scheduled` → upcoming calendar event / meeting linked to contact.
-- `call_done` → past meeting logged.
-- `referral` → row in existing `referrals`.
+## Pipeline-repo integration (documented here, built there)
 
-Company-level `applied` / `interviewing` are manual on
-`target_companies.status`. Traction sort on `/companies` = max derived
-stage across the company's contacts + company status. Implement as a SQL
-view or query-layer function — displayed on company pages and contact rows.
+`load_to_careervine.py`: Supabase token acquisition (env creds → auth API),
+target-company list import (2g) once per tranche, chunked people POSTs
+(25–50), then one rule-2 backfill call; logs per-profile results; feeds
+suppressed/skip list back into the pipeline's kept-list. The `people/` JSON
+layer becomes optional.
 
 ## Build order & sizing
 
-1. Phase 1 migration + types — **small**.
-2. Phase 2 normalizer + bulk import + backfill — **small-medium** (reuses
-   import-helpers; two-pass logic is the new part).
-3. Phase 3 queries + pages — **medium** (the main build).
-4. Phase 4 stage derivation + traction sort — **small-medium**.
+1. Phase 1 migration + hand-extended types — **small-medium** (types
+   drift fix included).
+2. Phase 2 mapper + canonicalization + merge engine + both bulk endpoints +
+   backfill — **medium** (the mapper and merge engine are real modules with
+   real tests; "reuse existing helpers" understated this).
+3. Phase 3 stage derivation + queries + pages + office management —
+   **medium** (the main UI build).
+4. Phase 4 bounce handling + guardrails — **small-medium**.
 
-Each phase: tests written/updated (`npm run test` in `careervine/`, Vitest)
-and passing before commit; pull before push; README updated (product voice)
-after Phase 3 ships user-visible pages.
+Each phase: tests written/updated and passing (`npm run test` in
+`careervine/`, Vitest) before commit; pull before push; README updated
+(product voice) after Phase 3.
 
-## Test coverage (per repo rule 3/4)
+## Test coverage (per repo rules 3/4)
 
-- Normalizer: alias table hits, metro collapsing, parse fallbacks, garbage.
-- Inference rule: all 3 branches; remote; two-pass order-independence
-  (same batch shuffled → identical DB state); rule-2 backfill.
-- Bulk import: idempotency (re-import same batch → no dupes),
-  company join by `linkedin_company_id` vs name, full-history import
-  creates past-employer companies, provenance fields land.
-- Queries: current/former split, location facet counts incl.
-  remote/unknown, alum badge derivation, stage derivation per signal.
+- Mapper: every field conversion; "Present"→is_current; missing
+  workplaceType; date edge cases.
+- Canonicalizer: slash/www/case/query variants → one form; dedupe by
+  public_identifier fallback.
+- Normalizer: alias hits, metro collapsing, granularity classification
+  (country/state strings cannot establish offices), "(Remote)" stripping,
+  garbage.
+- Inference rule: all 3 branches; remote; rule-2 current-roles-only;
+  string-level (not id-level) matching against legacy locations.
+- Merge engine: manual rows survive re-import; scraped-absent rows deleted,
+  manual-absent retained; boomerang stints + concurrent roles distinct;
+  persona conflict preserved + reported; email source monotonicity; notes
+  append-only; order-independence (shuffled batch → identical DB state).
+- Bulk import: idempotent re-import (no dupes); suppression skip;
+  company claim-by-companyId; escaped-ilike name matching (`%`/`_` safe);
+  full-history creates past-employer companies.
+- Backfill: claims earlier unmatched current roles; never touches manual;
+  re-derivation from location_raw.
+- Stage: each signal; interactions count as contacted; is_simulated
+  filtered; override wins; referral existence not count.
+- Queries: current/former split, facet counts incl. remote/unknown
+  buckets, alum badge, prospect exclusion from default views/suggestions.
+- Office delete cascade: profile_match nulled, experience kept.
 
 ## Verification (end-to-end)
 
-- Import a real shakedown dataset (5-company pilot output) through
-  bulk-import; spot-check 10 people against LinkedIn.
-- `/companies/google` shows current vs former correctly; SD facet scopes
-  everything; a manually seeded office gets claimed by a profile-match on
-  the next import.
-- Compose email to an imported contact with `pattern_guessed` source shows
-  the warning; send works through existing Gmail path.
+- Import a real shakedown dataset (5-company pilot) through bulk-import;
+  spot-check 10 people against LinkedIn; re-import the same batch → zero
+  changes reported.
+- Manually set an employment location, re-import that contact → manual
+  location survives.
+- Company page: current vs former correct; SD facet scopes everything;
+  manually seeded office claimed by a profile-match on next import; office
+  delete nulls its profile-matches.
+- Import a tranche of prospects → contacts default view and suggestion
+  feed unchanged; prospect promoted to active after first outreach.
+- Compose to a `pattern_guessed` address shows warning; simulated NDR
+  marks bounce and cancels pending sequence steps.
 
 ## Open items
 
-- **Verify actor email output field name** during pipeline shakedown; adapt
-  the bulk-import schema mapping then.
+- **Verify actor email output field name** during pipeline shakedown.
 - BYU school-name list for alum badge: `Brigham Young University`,
   `Brigham Young University - Idaho`, `BYU Marriott School of Business`
-  (match on `contact_schools` → `schools.name`; extend if review shows gaps).
-- Metro alias seed list: start US-major-metros; expand from real scrape data.
+  (extend if review shows gaps).
+- Metro alias seed list: US-major-metros; expand from real scrape data.
+- Company merge tool for LinkedIn-id changes on M&A/rebrand: out of scope;
+  documented recipe (SQL migration re-pointing FKs) suffices for now.
+- If CareerVine ever goes multi-tenant, revisit global `companies`/
+  `company_locations` visibility.
