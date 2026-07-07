@@ -1,5 +1,14 @@
 # 24 — Company Pages, Office Locations & LinkedIn-Scrape Import
 
+> **Rev 3.** Reconciled against the pipeline's actual implementation
+> (contract: `PM Recruiting/Target Companies/pipeline/README.md`, 2026-07-07).
+> Key corrections vs Rev 2: the import artifact is the pipeline's
+> `people/*.json` record (identity/pipeline/crm/raw_profiles blocks) — NOT
+> bare actor JSON; BENCH contacts import as a third `network_status`;
+> Outreach_Tracker.xlsx is the live-outreach source the loader merges;
+> employment joins use raw `experience[].companyId` (never the pipeline's
+> CANON display names); email field confirmed as `emails[]`.
+>
 > **Rev 2.** Audited by two fresh-context review agents (code-level audit
 > against actual migrations/routes + conceptual-gap review). This revision
 > incorporates all confirmed findings. Key corrections vs Rev 1: merge (not
@@ -34,10 +43,45 @@ Both actors share one output schema. Per profile:
   for current), `description`, `skills`.
 - `education[]` — `schoolName`, `schoolLinkedinUrl`, `degree`,
   `fieldOfStudy`, `startDate`/`endDate`.
-- Email (Full+email mode): **exact output field name not yet verified** —
-  confirm during pipeline shakedown. Reviewed profiles arriving at
-  CareerVine also carry pipeline-added fields: persona, review note,
-  source search, email_source.
+- Email (Full+email mode): **`emails[]`** — a list, possibly of objects
+  (confirmed by the pipeline's shakedown run).
+- Actor shape quirks (per pipeline README §6.5): profile-search actor has
+  `currentPosition[]`, employees actor has **`currentPositions[]`
+  (plural)**; six shakedown-era recruiters carry internal-ID linkedin_urls
+  (`/in/ACwAA…`, not vanity) with no emails — they'll be re-scraped and
+  deduped by name+company.
+
+### The actual import artifact: pipeline `people/*.json` (the contract)
+
+CareerVine does NOT ingest bare actor JSON. The pipeline validates and
+selects profiles through agent gates, then writes one
+`people/<company-slug>/<name-slug>.json` per kept person (SELECTED **and**
+BENCH), `schema_version: 1`:
+
+- `identity`: name, `linkedin_url` (**the join key across every layer**),
+  company (pipeline-canonical display name), title, location,
+  `school` (`BYU|BYU-Idaho|Marriott|none`, agent-verified from education
+  data), tenure.
+- `pipeline`: `found_by_searches` (scrape folder names), `persona` (5-value
+  enum matching ours), `priority_rank`, `adjacency_score`,
+  `review_verdict` (always KEEP here), `review_reason` (AI-written),
+  `selected_contact` (`SELECTED|BENCH`), `selection_reason`, `review_sheet`
+  path.
+- `crm`: `email`, `email_source` (`scraped|pattern-guessed|verified|empty`
+  — **hyphen**, ours is underscored), `stage`, `tags`,
+  `history_highlights`.
+- `raw_profiles[]`: `{source, data}` — the complete untouched actor item(s)
+  (full `experience[]`/`education[]`/`emails[]` live HERE — this is what
+  the employment/education import reads).
+- `history[]`: pipeline touch log.
+
+Separately, **`Outreach_Tracker.xlsx` is the pipeline's live outreach
+state** (hand-edited; wins conflicts on `stage`/`last_touch`/
+`next_action`/`notes`). The loader merges it by linkedin_url. Caveat: the
+tracker/identity `company` field is CANON-mapped for display ("Google
+DeepMind"→"Google") — **employment rows must be built from
+`raw_profiles[].data.experience[]` company IDs, never from the canonical
+name**, or DeepMind-style subsidiaries get glued to the parent company.
 
 ### What CareerVine already has (audit-verified, no work needed)
 
@@ -129,18 +173,32 @@ Per repo rules: migration file only; Dawson applies with `supabase db push`.
 ### `contacts` — provenance, staleness, network segregation
 
 - `headline` text NULL, `persona` text NULL CHECK (`'alum_product' |
-  'alum_other' | 'product_peer' | 'product_leader' | 'recruiter'`),
-  `review_note` text NULL, `import_source` text NULL
-  (e.g. `apify:search_a:2026-07_tranche1`).
+  'alum_other' | 'product_peer' | 'product_leader' | 'recruiter'`)
+  (matches the pipeline's `verified_persona` enum exactly),
+  `review_note` text NULL (from `pipeline.review_reason`),
+  `verified_school` text NULL CHECK (`'BYU' | 'BYU-Idaho' | 'Marriott' |
+  'none'`) (the agent-verified value from `identity.school` — kept
+  alongside the `contact_schools`-derived badge as a cross-check),
+  `import_source` text NULL (from `pipeline.found_by_searches` + batch,
+  e.g. `apify:mini_a,c2:2026-07_tranche1`).
+- `import_meta` jsonb NULL — the rest of the pipeline provenance block
+  (`adjacency_score`, `selection_reason`, `review_sheet`, `priority_rank`,
+  `history[]`) stored whole per the pipeline README's "import `pipeline`
+  as custom/meta properties" guidance; audit-grade, no column sprawl.
 - `public_identifier` text NULL (LinkedIn slug — secondary dedupe key).
 - `last_scraped_at` timestamptz NULL — powers "data as of" display and
   staleness auditing. Impossible to backfill later; nearly free now.
 - **`network_status` text NOT NULL DEFAULT `'active'` CHECK
-  (`'active' | 'prospect'`)** — bulk imports land as `prospect`:
-  **excluded from first-touch/LLM suggestion generation, network-health
-  coloring, and the default contacts view** (toggle to include).
-  Auto-promoted to `active` on first outbound email, logged interaction, or
-  meeting. This is the guard that keeps 400–1000 imported strangers from
+  (`'active' | 'prospect' | 'bench'`)** — SELECTED imports land as
+  `prospect` (the active outreach list), BENCH imports as `bench`
+  (validated backups, per pipeline §7). Both are **excluded from
+  first-touch/LLM suggestion generation, network-health coloring, and the
+  default contacts view** (toggle to include); `bench` is additionally
+  excluded from outreach queues but fully visible on company pages
+  (a validated employee is company intel regardless of outreach status).
+  Auto-promoted to `active` on first outbound email, logged interaction,
+  or meeting; `bench` → `prospect` by a one-click "move to outreach list"
+  action. This is the guard that keeps 400–1000 imported strangers from
   degrading the hand-curated-network UX.
 - `stage_override` text NULL — manual escape hatch for the derived stage
   (e.g. outreach happened via LinkedIn DM; see Phase 3).
@@ -196,18 +254,39 @@ happen on Dawson's machine later.) Extend `Contact` in `src/lib/types.ts`.
 
 ## Phase 2 — Import path
 
-### 2a. harvestapi → CareerVine mapper (`src/lib/scrape-mapper.ts`)
+### 2a. people-record → CareerVine mapper (`src/lib/scrape-mapper.ts`)
 
-The schemas do NOT map 1:1 — dedicated, tested mapper module:
-`firstName + lastName` → `name`; `linkedinUrl` → canonical `linkedin_url` +
-`public_identifier`; `location.parsed` → city/state/country;
-`experience[].position` → title, `companyName` → company (+
-`companyId`/`companyLinkedinUrl`/`companyUniversalName` carried through);
-`startDate {month, year}` → `"Mon YYYY"` `start_month`;
-`endDate.text === "Present"` → `is_current` + `end_month = "Present"`;
-`workplaceType` "On-site/Hybrid/Remote" → `on_site/hybrid/remote`;
-`education[].schoolName/fieldOfStudy/startDate.year` →
-school/field_of_study/start_year; email field per shakedown finding.
+Input: one pipeline `people/*.json` record (`schema_version: 1`).
+Dedicated, tested mapper module:
+
+- **Person core** from `identity` + `crm` + `pipeline`: name, canonical
+  `linkedin_url` + `public_identifier`, headline (from raw profile),
+  persona ← `pipeline.persona`, review_note ← `pipeline.review_reason`,
+  verified_school ← `identity.school`, network_status ←
+  `selected_contact` (`SELECTED`→`prospect`, `BENCH`→`bench`),
+  import_source ← `found_by_searches` + batch, import_meta ← the rest of
+  the `pipeline` block + `history[]`.
+- **Employment/education** from `raw_profiles[].data` (the full actor
+  item), NOT from identity/tracker fields: `experience[].position` →
+  title, `companyId`/`companyLinkedinUrl`/`companyUniversalName` → company
+  join (never `identity.company` — it's CANON-mapped for display);
+  `startDate {month, year}` → `"Mon YYYY"` `start_month`;
+  `endDate.text === "Present"` → `is_current` + `end_month = "Present"`;
+  `workplaceType` → `on_site/hybrid/remote`;
+  `education[].schoolName/fieldOfStudy/startDate.year` →
+  school/field_of_study/start_year. Handles both actor shapes
+  (`currentPosition[]` vs `currentPositions[]`); when multiple
+  `raw_profiles[]` entries exist (person found by several searches), merge
+  on the richest (most experience entries; newest scrape wins ties).
+- **Emails**: `emails[]` items may be strings or objects — normalize;
+  `crm.email_source` values map hyphen→underscore
+  (`pattern-guessed` → `pattern_guessed`; empty → NULL).
+- **Guards**: internal-ID linkedin_urls (`/in/ACwAA…`) are not canonical
+  vanity URLs — import with the internal id as the key but flag in the
+  response (`non_vanity_url`) so the re-scraped vanity version later
+  merges by name+company rather than duplicating; records with empty
+  company (known shakedown case) import as person-only (no employment
+  row).
 
 ### 2b. Canonicalization + shared helpers (consolidation)
 
@@ -284,8 +363,15 @@ notes. The bulk importer merges instead:
 
 ### 2f. Bulk people import — `POST /api/contacts/bulk-import`
 
-- Accepts an array of reviewed profiles (harvestapi JSON + pipeline fields:
-  persona, review_note, import_source, email, email_source).
+- Accepts an array of pipeline people-records (§context), each optionally
+  paired with its tracker outreach state (`stage`, `last_touch`,
+  `next_action`, `next_action_date`, `notes` — joined by linkedin_url from
+  Outreach_Tracker.xlsx by the loader script; tracker wins on those
+  fields per the pipeline contract). Mapping of tracker state:
+  `stage` ≠ `not_contacted` → `contacts.stage_override` + one `interactions`
+  row dated `last_touch` (so derived stages work naturally once in-app
+  activity begins); `next_action`/`next_action_date` → a
+  `follow_up_action_items` row; tracker `notes` → appended contact note.
 - **Chunked**: pipeline sends ~25–50 profiles/POST (Vercel hobby wall-clock
   limit; photo downloads alone are up to 5s each). Photos: best-effort with
   a tight per-request photo budget — skip and report, importable later.
@@ -420,11 +506,31 @@ Company-level `applied`/`interviewing` stay manual on
 
 ## Pipeline-repo integration (documented here, built there)
 
-`load_to_careervine.py`: Supabase token acquisition (env creds → auth API),
-target-company list import (2g) once per tranche, chunked people POSTs
-(25–50), then one rule-2 backfill call; logs per-profile results; feeds
-suppressed/skip list back into the pipeline's kept-list. The `people/` JSON
-layer becomes optional.
+`load_to_careervine.py` (new pipeline script, alongside build_tracker.py):
+
+1. Supabase token acquisition (env creds → auth API).
+2. Target-company list import (2g) from APM_Company_List.xlsx, once per
+   tranche.
+3. Walk `people/*/*.json` (the primary source per pipeline README §7),
+   left-join `Outreach_Tracker.xlsx` rows by linkedin_url for live
+   outreach state, POST in chunks of 25–50.
+4. One rule-2 backfill call at the end.
+5. Log per-record results; feed skipped/suppressed and `non_vanity_url`
+   flags back into pipeline hygiene.
+
+**System-of-record handoff**: until the first successful import,
+Outreach_Tracker.xlsx owns outreach state. After it, **CareerVine owns
+`stage`/`last_touch`/`next_action`/`notes`** — the tracker becomes a
+pipeline build artifact (per-tranche snapshot), and re-imports never push
+tracker outreach state onto contacts that already have in-app activity
+(tracker state only applies on first import of a person). The pipeline's
+raw archive (`scrapes/`) and review sheets remain the scrape/judgment
+audit trail; `people/` remains the import contract.
+
+Future (pipeline pending-work item): the 61 `linkedin_profiles/` page
+dumps hold mutual-connection data the actors can't get — once migrated
+into `people/` records, a `mutual_connections` note/field import can be
+added (not in current scope).
 
 ## Build order & sizing
 
@@ -444,7 +550,13 @@ Each phase: tests written/updated and passing (`npm run test` in
 ## Test coverage (per repo rules 3/4)
 
 - Mapper: every field conversion; "Present"→is_current; missing
-  workplaceType; date edge cases.
+  workplaceType; date edge cases; both actor shapes (`currentPosition` vs
+  `currentPositions`); emails as strings AND objects; email_source
+  hyphen→underscore; multi-`raw_profiles` merge; internal-ID URL flag;
+  empty-company record → person-only; employment company from raw
+  companyId even when identity.company is CANON-mapped (DeepMind case);
+  tracker-state mapping (stage_override + interaction + follow-up item);
+  SELECTED/BENCH → prospect/bench.
 - Canonicalizer: slash/www/case/query variants → one form; dedupe by
   public_identifier fallback.
 - Normalizer: alias hits, metro collapsing, granularity classification
@@ -469,9 +581,10 @@ Each phase: tests written/updated and passing (`npm run test` in
 
 ## Verification (end-to-end)
 
-- Import a real shakedown dataset (5-company pilot) through bulk-import;
-  spot-check 10 people against LinkedIn; re-import the same batch → zero
-  changes reported.
+- Import the real shakedown output (80 `people/` records + the 40-row
+  tracker already exist on Drive) through bulk-import; spot-check 10
+  people against LinkedIn; re-import the same batch → zero changes
+  reported; SELECTED vs BENCH land as prospect vs bench.
 - Manually set an employment location, re-import that contact → manual
   location survives.
 - Company page: current vs former correct; SD facet scopes everything;
@@ -484,10 +597,12 @@ Each phase: tests written/updated and passing (`npm run test` in
 
 ## Open items
 
-- **Verify actor email output field name** during pipeline shakedown.
+- ~~Verify actor email output field name~~ **RESOLVED**: `emails[]`
+  (list, possibly of objects) — confirmed by pipeline shakedown.
 - BYU school-name list for alum badge: `Brigham Young University`,
   `Brigham Young University - Idaho`, `BYU Marriott School of Business`
-  (extend if review shows gaps).
+  (extend if review shows gaps). Note we also import the agent-verified
+  `identity.school` per contact, so the derived badge has a cross-check.
 - Metro alias seed list: US-major-metros; expand from real scrape data.
 - Company merge tool for LinkedIn-id changes on M&A/rebrand: out of scope;
   documented recipe (SQL migration re-pointing FKs) suffices for now.
