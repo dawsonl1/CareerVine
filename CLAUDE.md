@@ -57,3 +57,5 @@ This file contains a growing ruleset that improves over time. **At session start
 10. [DATA] Never run SQL directly against the production Supabase database — because ad-hoc queries bypass migration tracking and can cause schema drift. All schema changes must go through migration files only.
 
 11. [PROCESS] Database migrations are applied to production by the user on their local machine via `git pull`, then `supabase db push` — because the user manages Supabase CLI auth and deployment locally. This machine should only create migration files and commit/push them.
+
+12. [DATA] Never assume a schema/types mismatch means the types file is wrong — check `git log --all -- "*.sql"` for deleted migrations first. Migrations originally lived at `careervine/supabase/migrations/` and moved to root `supabase/migrations/`; `20250217_add_location_to_contact_companies.sql` was deleted in that move (commit `9c718fe`) without being re-created, so `contact_companies.location` existed in production untracked until re-added in `20260707000000_company_pages_and_scrape_import.sql`. Production may contain schema from other lost migrations.

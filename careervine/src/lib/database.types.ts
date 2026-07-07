@@ -58,14 +58,34 @@ export type Database = {
           reach_out_snoozed_until: string | null;  // Hide from reach-out/recently-added until this time
           first_outreach_skipped: boolean;          // Permanently skip first outreach
           suggestion_cooldown_until: string | null; // Suppress from AI suggestions until this time
+          headline: string | null;       // LinkedIn headline
+          persona: string | null;        // Pipeline-verified persona: 'alum_product' | 'alum_other' | 'product_peer' | 'product_leader' | 'recruiter'
+          review_note: string | null;    // AI review reasoning from the scrape pipeline
+          verified_school: string | null; // Agent-verified school: 'BYU' | 'BYU-Idaho' | 'Marriott' | 'none'
+          import_source: string | null;  // Scrape provenance, e.g. "apify:mini_a,c2:2026-07_tranche1"
+          import_meta: Record<string, unknown> | null; // Remaining pipeline provenance (adjacency_score, selection_reason, ...)
+          public_identifier: string | null; // LinkedIn profile slug — secondary dedupe key
+          last_scraped_at: string | null; // When contact data was last refreshed by a scrape
+          network_status: string;        // 'active' | 'prospect' | 'bench' — network tier segregation
+          stage_override: string | null; // Manual override for the derived outreach stage
         };
-        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until"> & {
+        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "stage_override"> & {
           status_derived_at?: string | null;
           photo_url?: string | null;
           created_at?: string;
           reach_out_snoozed_until?: string | null;
           first_outreach_skipped?: boolean;
           suggestion_cooldown_until?: string | null;
+          headline?: string | null;
+          persona?: string | null;
+          review_note?: string | null;
+          verified_school?: string | null;
+          import_source?: string | null;
+          import_meta?: Record<string, unknown> | null;
+          public_identifier?: string | null;
+          last_scraped_at?: string | null;
+          network_status?: string;
+          stage_override?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;
       };
@@ -89,8 +109,13 @@ export type Database = {
           contact_id: number;            // Foreign key to contacts
           email: string | null;          // Email address
           is_primary: boolean;            // Whether this is the primary email
+          source: string;                // 'manual' | 'scraped' | 'pattern_guessed' | 'verified' — monotonic upgrade only
+          bounced_at: string | null;     // Set when an NDR is detected for this address
         };
-        Insert: Omit<Database["public"]["Tables"]["contact_emails"]["Row"], "id">;
+        Insert: Omit<Database["public"]["Tables"]["contact_emails"]["Row"], "id" | "source" | "bounced_at"> & {
+          source?: string;
+          bounced_at?: string | null;
+        };
         Update: Partial<Database["public"]["Tables"]["contact_emails"]["Insert"]>;
       };
       
@@ -112,11 +137,39 @@ export type Database = {
         Row: {
           id: number;                    // Auto-incrementing primary key
           name: string;                  // Company name (unique)
+          linkedin_company_id: string | null; // Stable LinkedIn numeric id — primary join key for scraped data
+          linkedin_url: string | null;   // LinkedIn company page URL
+          universal_name: string | null; // LinkedIn company slug (e.g., "google")
+          domain: string | null;         // Company website domain
+          logo_url: string | null;       // Company logo URL
         };
-        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id"> & { id?: number };
+        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "domain" | "logo_url"> & {
+          id?: number;
+          linkedin_company_id?: string | null;
+          linkedin_url?: string | null;
+          universal_name?: string | null;
+          domain?: string | null;
+          logo_url?: string | null;
+        };
         Update: Partial<Database["public"]["Tables"]["companies"]["Insert"]>;
       };
-      
+
+      // Company locations - known office locations per company (auto-managed office registry)
+      company_locations: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          company_id: number;            // Foreign key to companies
+          location_id: number;           // Foreign key to locations
+          source: string;                // 'scraped' | 'manual' — how the office was established
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["company_locations"]["Row"], "id" | "source" | "created_at"> & {
+          source?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["company_locations"]["Insert"]>;
+      };
+
       // Contact companies - many-to-many relationship with role history
       contact_companies: {
         Row: {
@@ -124,14 +177,29 @@ export type Database = {
           contact_id: number;            // Foreign key to contacts
           company_id: number;            // Foreign key to companies
           title: string | null;          // Job title at this company
-          location: string | null;       // Job location (e.g., "San Francisco, CA")
+          location: string | null;       // Legacy free-text job location from manual entry (e.g., "San Francisco, CA")
           start_date: string | null;     // Employment start date (legacy)
           end_date: string | null;       // Employment end date (legacy)
           start_month: string | null;    // Job start month "Mon YYYY" (e.g., "Jan 2023")
           end_month: string | null;      // Job end month "Mon YYYY" or "Present"
           is_current: boolean;            // Whether this is current employment
+          location_id: number | null;    // Normalized metro-grain employment location (FK to locations)
+          location_source: string | null; // 'experience' | 'profile_match' | 'manual' — how the location was determined
+          location_raw: string | null;   // Original scraped location string, kept for re-normalization
+          workplace_type: string | null; // 'on_site' | 'hybrid' | 'remote'
+          employment_type: string | null; // e.g. "Full-time", "Internship"
+          source: string;                // 'scraped' | 'manual' — row provenance for the merge engine
+          scraped_at: string | null;     // When this employment fact was last confirmed by a scrape
         };
-        Insert: Omit<Database["public"]["Tables"]["contact_companies"]["Row"], "id">;
+        Insert: Omit<Database["public"]["Tables"]["contact_companies"]["Row"], "id" | "location_id" | "location_source" | "location_raw" | "workplace_type" | "employment_type" | "source" | "scraped_at"> & {
+          location_id?: number | null;
+          location_source?: string | null;
+          location_raw?: string | null;
+          workplace_type?: string | null;
+          employment_type?: string | null;
+          source?: string;
+          scraped_at?: string | null;
+        };
         Update: Partial<Database["public"]["Tables"]["contact_companies"]["Insert"]>;
       };
       
@@ -541,6 +609,145 @@ export type Database = {
           onboarding_calendar_event_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["user_onboarding"]["Insert"]>;
+      };
+
+      // Target companies — user-scoped recruiting layer over companies
+      target_companies: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          user_id: string;               // Foreign key to users
+          company_id: number;            // Foreign key to companies
+          priority_score: number | null; // Priority score from the target sheet
+          tier: string | null;           // Segment/geo label (e.g. "Utah/Silicon Slopes", "Big Tech")
+          program_name: string | null;   // The APM/rotational program's actual name
+          app_window_text: string | null; // Free-text application-window hint — display only
+          next_app_date: string | null;  // Real application date set by hand; the only field sorting/alerts use
+          status: string;                // 'researching' | 'outreach_active' | 'applied' | 'interviewing' | 'closed'
+          created_at: string;            // Auto-generated timestamp
+          updated_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["target_companies"]["Row"], "id" | "status" | "created_at" | "updated_at"> & {
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["target_companies"]["Insert"]>;
+      };
+
+      // Target company notes — timestamped recruiting-intel log
+      target_company_notes: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          target_company_id: number;     // Foreign key to target_companies
+          note: string;                  // The recruiting-intel note
+          location_id: number | null;    // Optional office tag (FK to locations)
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["target_company_notes"]["Row"], "id" | "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["target_company_notes"]["Insert"]>;
+      };
+
+      // Suppressed imports — tombstones so deleted imported contacts don't resurrect
+      suppressed_imports: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          user_id: string;               // Foreign key to users
+          linkedin_url: string;          // Canonical linkedin_url of the deleted contact
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["suppressed_imports"]["Row"], "id" | "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["suppressed_imports"]["Insert"]>;
+      };
+
+      // Referrals — contact referred you to another contact
+      referrals: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          user_id: string;               // Foreign key to users
+          referred_by_contact_id: number; // Contact who made the referral
+          referred_contact_id: number;   // Contact who was referred
+          referral_meeting_id: number | null; // Optional meeting where the referral happened
+          notes: string | null;          // Referral notes
+        };
+        Insert: Omit<Database["public"]["Tables"]["referrals"]["Row"], "id">;
+        Update: Partial<Database["public"]["Tables"]["referrals"]["Insert"]>;
+      };
+
+      // Calendar events — Google Calendar sync cache
+      calendar_events: {
+        Row: {
+          id: number;                    // bigserial primary key
+          user_id: string;               // Foreign key to users
+          google_event_id: string;       // Google Calendar event ID
+          calendar_id: string;           // Source calendar (default 'primary')
+          title: string | null;
+          description: string | null;
+          start_at: string;
+          end_at: string;
+          all_day: boolean | null;
+          location: string | null;
+          meet_link: string | null;
+          zoom_link: string | null;
+          status: string | null;         // confirmed | tentative | cancelled
+          attendees: { email?: string; name?: string; responseStatus?: string }[] | null;
+          is_private: boolean | null;
+          recurring_event_id: string | null;
+          contact_id: number | null;     // Optional linked contact
+          meeting_id: number | null;     // Optional linked meeting
+          source_gmail_thread_id: string | null;
+          source_gmail_message_id: string | null;
+          synced_at: string | null;
+          created_at: string | null;
+        };
+        Insert: Omit<Database["public"]["Tables"]["calendar_events"]["Row"], "id" | "synced_at" | "created_at"> & {
+          synced_at?: string | null;
+          created_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["calendar_events"]["Insert"]>;
+      };
+
+      // Calendar event contacts — junction between calendar events and contacts
+      calendar_event_contacts: {
+        Row: {
+          calendar_event_id: number;     // Foreign key to calendar_events
+          contact_id: number;            // Foreign key to contacts
+        };
+        Insert: Database["public"]["Tables"]["calendar_event_contacts"]["Row"];
+        Update: Partial<Database["public"]["Tables"]["calendar_event_contacts"]["Insert"]>;
+      };
+
+      // User companies — the user's own employment history
+      user_companies: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          user_id: string;               // Foreign key to users
+          company_id: number;            // Foreign key to companies
+          title: string | null;          // Job title
+          start_date: string | null;     // Employment start date
+          end_date: string | null;       // Employment end date
+          is_current: boolean;            // Whether this is current employment
+        };
+        Insert: Omit<Database["public"]["Tables"]["user_companies"]["Row"], "id">;
+        Update: Partial<Database["public"]["Tables"]["user_companies"]["Insert"]>;
+      };
+
+      // User schools — the user's own education history
+      user_schools: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          user_id: string;               // Foreign key to users
+          school_id: number;             // Foreign key to schools
+          degree: string | null;         // Degree obtained
+          field_of_study: string | null;  // Field/major
+          start_year: number | null;      // Start year
+          end_year: number | null;        // Graduation year
+        };
+        Insert: Omit<Database["public"]["Tables"]["user_schools"]["Row"], "id">;
+        Update: Partial<Database["public"]["Tables"]["user_schools"]["Insert"]>;
       };
     };
   };

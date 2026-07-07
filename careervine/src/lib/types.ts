@@ -21,6 +21,11 @@ export type MeetingRow = Database["public"]["Tables"]["meetings"]["Row"];
 export type InteractionRow = Database["public"]["Tables"]["interactions"]["Row"];
 export type ActionItemRow = Database["public"]["Tables"]["follow_up_action_items"]["Row"];
 export type TagRow = Database["public"]["Tables"]["tags"]["Row"];
+export type CompanyRow = Database["public"]["Tables"]["companies"]["Row"];
+export type CompanyLocationRow = Database["public"]["Tables"]["company_locations"]["Row"];
+export type TargetCompanyRow = Database["public"]["Tables"]["target_companies"]["Row"];
+export type TargetCompanyNoteRow = Database["public"]["Tables"]["target_company_notes"]["Row"];
+export type LocationRow = Database["public"]["Tables"]["locations"]["Row"];
 
 // ── Enriched types (with joins) ──
 

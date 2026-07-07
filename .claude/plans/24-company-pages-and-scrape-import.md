@@ -120,9 +120,15 @@ name**, or DeepMind-style subsidiaries get glued to the parent company.
 - Two divergent find-or-create-company implementations exist:
   `queries.ts findOrCreateCompany` (case-sensitive eq) and the import route
   (unescaped `ilike` — `%`/`_` act as wildcards). Must consolidate.
-- `database.types.ts` is **hand-maintained** and already drifted: phantom
-  `contact_companies.location` column; `referrals`, `calendar_events`,
-  `calendar_event_contacts`, `user_companies`, `user_schools` types missing.
+- `database.types.ts` is **hand-maintained** and already drifted:
+  `referrals`, `calendar_events`, `calendar_event_contacts`,
+  `user_companies`, `user_schools` types missing. The audit's "phantom
+  `contact_companies.location` column" finding was wrong in direction:
+  the column is REAL in production but its migration
+  (`careervine/supabase/migrations/20250217_add_location_to_contact_companies.sql`)
+  was deleted in commit `9c718fe` when migrations moved to the repo root
+  and never re-created — the drift is in the migration files, not the
+  types. Phase 1 re-tracks it with `ADD COLUMN IF NOT EXISTS`.
 - `getContacts(userId, limit = 500)` silently truncates; contacts page,
   calendar, meetings, action-items all call it.
 - First-touch suggestions fire for every never-contacted contact created in
@@ -256,9 +262,12 @@ Per repo rules: migration file only; Dawson applies with `supabase db push`.
 
 `database.types.ts` is hand-maintained — **hand-extend** it: add all new
 columns/tables, add the missing `referrals`/`calendar_events`/
-`calendar_event_contacts` types (needed by Phase 3), and delete the phantom
-`contact_companies.location` entry. (A true `supabase gen types` run can
-happen on Dawson's machine later.) Extend `Contact` in `src/lib/types.ts`.
+`calendar_event_contacts`/`user_companies`/`user_schools` types (the first
+three needed by Phase 3). Keep the `contact_companies.location` entry — the
+column is real in production (see Known code realities); the migration
+re-tracks it instead. (A true `supabase gen types` run can happen on
+Dawson's machine later.) `Contact` in `src/lib/types.ts` extends
+automatically via `ContactRow`.
 
 ## Phase 2 — Import path
 
