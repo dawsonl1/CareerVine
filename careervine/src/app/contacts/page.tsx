@@ -396,16 +396,24 @@ export default function ContactsPage() {
                 key={v.key}
                 onClick={() => toggleTier(v.key)}
                 aria-pressed={on}
-                className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-medium cursor-pointer border transition-colors ${
+                className={`inline-flex items-center h-9 px-3.5 rounded-full text-sm font-medium cursor-pointer border transition-colors duration-200 ${
                   on
                     ? "bg-secondary-container text-on-secondary-container border-transparent"
                     : "bg-transparent text-foreground border-outline hover:bg-surface-container"
                 }`}
               >
-                {on && <Check className="h-4 w-4" />}
+                {/* Check slides open/closed so the label doesn't jump */}
+                <span
+                  aria-hidden
+                  className={`overflow-hidden transition-all duration-200 ease-out ${
+                    on ? "w-[22px] opacity-100" : "w-0 opacity-0"
+                  }`}
+                >
+                  <Check className="h-4 w-4" />
+                </span>
                 {v.label}
                 {countKnown && (
-                  <span className="text-muted-foreground">{tierCounts[v.key]}</span>
+                  <span className="ml-1.5 text-muted-foreground">{tierCounts[v.key]}</span>
                 )}
               </button>
             );
