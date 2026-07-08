@@ -71,24 +71,38 @@ export default function ContactsPage() {
   // Imported pipeline prospects (and the dormant bench) stay out of the
   // way unless explicitly toggled in (plan 24 containment).
   const [networkView, setNetworkView] = useState<"active" | "prospects" | "everyone">("active");
+  // True once every tier is in memory — tab switches are then instant
+  const [allTiersLoaded, setAllTiersLoaded] = useState(false);
 
   const loadContacts = useCallback(async () => {
     if (!user) return;
     try {
-      const statuses =
-        networkView === "active"
-          ? (["active"] as const)
-          : networkView === "prospects"
-            ? (["active", "prospect"] as const)
-            : (["active", "prospect", "bench"] as const);
-      const data = await getContacts(user.id, { networkStatuses: [...statuses] });
-      setContacts(data as Contact[]);
+      // Fast first paint: the active network only
+      const active = await getContacts(user.id, { networkStatuses: ["active"] });
+      setContacts(active as Contact[]);
+      setLoading(false);
+
+      // Prefetch prospects + bench in the background so switching to
+      // "+ Prospects" / "Everyone" filters in memory instead of refetching
+      const everyone = await getContacts(user.id, { networkStatuses: ["active", "prospect", "bench"] });
+      setContacts(everyone as Contact[]);
+      setAllTiersLoaded(true);
     } catch (error) {
       console.error("Error loading contacts:", error);
     } finally {
       setLoading(false);
     }
-  }, [user, networkView]);
+  }, [user]);
+
+  // The view is a pure client-side filter over the loaded superset
+  const visibleContacts = useMemo(() => {
+    if (networkView === "everyone") return contacts;
+    if (networkView === "prospects") return contacts.filter((c) => c.network_status !== "bench");
+    return contacts.filter((c) => c.network_status === "active");
+  }, [contacts, networkView]);
+
+  // Only possible if the user switches views before the prefetch lands
+  const viewLoading = networkView !== "active" && !allTiersLoaded;
 
   useEffect(() => {
     if (user) {
@@ -119,14 +133,14 @@ export default function ContactsPage() {
       c.contact_schools.some((cs) => cs.schools.name.toLowerCase().includes(q)) ||
       c.industry?.toLowerCase().includes(q);
     const tagHit = (c: Contact) => c.contact_tags.some((ct) => ct.tags.name.toLowerCase().includes(q));
-    const nameSuggestions = contacts.filter(nameHit).slice(0, 5);
+    const nameSuggestions = visibleContacts.filter(nameHit).slice(0, 5);
     const nameIds = new Set(nameSuggestions.map(c => c.id));
-    const tagSuggestions = contacts.filter(c => !nameIds.has(c.id) && tagHit(c)).slice(0, 5);
+    const tagSuggestions = visibleContacts.filter(c => !nameIds.has(c.id) && tagHit(c)).slice(0, 5);
     return { nameSuggestions, tagSuggestions };
-  }, [contacts, searchQuery]);
+  }, [visibleContacts, searchQuery]);
 
   const filteredContacts = useMemo(() => {
-    let result = contacts;
+    let result = visibleContacts;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter((c) =>
@@ -142,7 +156,7 @@ export default function ContactsPage() {
       result = result.filter((c) => c.contact_tags.some((ct) => ct.tag_id === selectedTagFilter));
     }
     return result;
-  }, [contacts, searchQuery, selectedTagFilter]);
+  }, [visibleContacts, searchQuery, selectedTagFilter]);
 
   const handleActivate = async (contact: Contact) => {
     try {
@@ -287,7 +301,7 @@ export default function ContactsPage() {
           <div>
             <h1 className="text-[28px] leading-9 font-normal text-foreground">Contacts</h1>
             <p className="text-base text-muted-foreground mt-1">
-              {contacts.length} {contacts.length === 1 ? "person" : "people"} in your network
+              {visibleContacts.length} {visibleContacts.length === 1 ? "person" : "people"} in your network
             </p>
           </div>
           <Button onClick={() => setShowForm(true)}>
@@ -368,8 +382,16 @@ export default function ContactsPage() {
           ))}
         </div>
 
+        {/* Prefetch still in flight for non-active tiers */}
+        {viewLoading && (
+          <div className="flex items-center gap-3 text-muted-foreground py-8 justify-center">
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
+            <span className="text-base">Loading contacts…</span>
+          </div>
+        )}
+
         {/* Empty state */}
-        {contacts.length === 0 && (
+        {!viewLoading && visibleContacts.length === 0 && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
               <Users className="mx-auto h-14 w-14 text-muted-foreground/40 mb-5" />
@@ -388,7 +410,7 @@ export default function ContactsPage() {
         )}
 
         {/* No search results */}
-        {contacts.length > 0 && filteredContacts.length === 0 && (
+        {!viewLoading && visibleContacts.length > 0 && filteredContacts.length === 0 && (
           <p className="text-base text-muted-foreground py-8 text-center">No contacts match your search.</p>
         )}
 
