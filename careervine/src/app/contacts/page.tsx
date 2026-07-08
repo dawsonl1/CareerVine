@@ -432,10 +432,15 @@ export default function ContactsPage() {
                       </span>
                     )}
                     {currentCompany && (
-                      <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); router.push(`/companies/${currentCompany.companies.id}`); }}
+                        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary hover:underline min-w-0 cursor-pointer text-left"
+                        title={`View ${currentCompany.companies.name}`}
+                      >
                         <Briefcase className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">{currentCompany.companies.name}</span>
-                      </span>
+                      </button>
                     )}
                   </div>
 
