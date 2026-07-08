@@ -411,7 +411,7 @@ export default function ContactsPage() {
                 <span
                   aria-hidden
                   className={`overflow-hidden transition-all duration-200 ease-out ${
-                    on ? "w-[22px] opacity-100" : "w-0 opacity-0"
+                    on ? "w-4 mr-1.5 opacity-100" : "w-0 mr-0 opacity-0"
                   }`}
                 >
                   <Check className="h-4 w-4" />
