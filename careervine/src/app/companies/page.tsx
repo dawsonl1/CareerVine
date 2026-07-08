@@ -4,11 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { getCompanies, type CompanySummary, type CompanySort } from "@/lib/company-queries";
 import { STAGE_LABELS } from "@/lib/stage-derivation";
-import { Building2, Search, ExternalLink, CalendarClock, Users } from "lucide-react";
+import { Building2, Search, ExternalLink, CalendarClock, Users, Send } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   researching: "Researching",
@@ -76,6 +77,11 @@ export default function CompaniesPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <Link href="/outreach">
+              <Button size="sm">
+                <Send className="w-4 h-4 mr-1.5" /> Start outreach flow
+              </Button>
+            </Link>
             {/* Targets / All toggle */}
             <div className="flex rounded-full bg-surface-container-high p-1">
               {(["targets", "all"] as const).map((v) => (

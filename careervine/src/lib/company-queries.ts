@@ -388,6 +388,8 @@ export interface CompanyPerson {
   persona: string | null;
   network_status: string;
   is_alum: boolean;
+  review_note: string | null;
+  selection_reason: string | null;
   last_scraped_at: string | null;
   stage: OutreachStage | null;
   email: { address: string; source: string; bounced: boolean } | null;
@@ -475,7 +477,7 @@ export async function getCompanyDetail(
     .select(
       `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
        locations(city, state, country),
-       contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, last_scraped_at, stage_override, import_meta)`,
+       contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta)`,
     )
     .eq("company_id", companyId)
     .eq("contacts.user_id", userId)
@@ -500,6 +502,7 @@ export async function getCompanyDetail(
       persona: string | null;
       network_status: string;
       verified_school: string | null;
+      review_note: string | null;
       last_scraped_at: string | null;
       stage_override: string | null;
       import_meta: Record<string, unknown> | null;
@@ -564,6 +567,11 @@ export async function getCompanyDetail(
         is_alum:
           alumContacts.has(r.contact_id) ||
           (r.contacts.verified_school != null && r.contacts.verified_school !== "none"),
+        review_note: r.contacts.review_note,
+        selection_reason:
+          meta && typeof meta === "object" && typeof meta.selection_reason === "string"
+            ? meta.selection_reason
+            : null,
         last_scraped_at: r.contacts.last_scraped_at,
         stage: stages.get(r.contact_id)?.stage ?? null,
         email: emailByContact.get(r.contact_id) ?? null,
