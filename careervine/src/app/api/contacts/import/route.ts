@@ -4,8 +4,9 @@ import { sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/i
 import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
-import { findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
+import { findOrCreateCompany, findOrCreateLocation, ensureCompanyLocation } from "@/lib/company-helpers";
 import { addTagsToContact, downloadAndStorePhoto } from "@/lib/import-db-helpers";
+import { normalizeLocation, normalizeParsedLocation, locationMatchKey } from "@/lib/location-normalizer";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ── Types for the Chrome extension's profile payload ───────────────────
@@ -20,6 +21,7 @@ interface ProfileExperience {
   company: string;
   title?: string;
   location?: string | null;
+  workplace_type?: string | null;
   start_month?: string | null;
   end_month?: string | null;
   is_current?: boolean;
@@ -186,7 +188,7 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
     const { data: oldExp } = await supabase.from('contact_companies').select('*').eq('contact_id', contactId);
     await supabase.from('contact_companies').delete().eq('contact_id', contactId);
     try {
-      await addExperienceToContact(supabase, contactId, profileData.experience, true);
+      await addExperienceToContact(supabase, contactId, profileData.experience, profileData.location, true);
     } catch (err) {
       if (oldExp && oldExp.length > 0) {
         await supabase.from('contact_companies').insert(oldExp.map(({ id: _id, ...rest }) => rest));
@@ -277,7 +279,7 @@ async function createNewContact(supabase: SupabaseClient, profileData: ProfileDa
   }
 
   if (profileData.experience && profileData.experience.length > 0) {
-    await addExperienceToContact(supabase, (contact as ContactRow).id, profileData.experience);
+    await addExperienceToContact(supabase, (contact as ContactRow).id, profileData.experience, profileData.location);
   }
 
   if (profileData.education && profileData.education.length > 0) {
@@ -292,7 +294,25 @@ async function createNewContact(supabase: SupabaseClient, profileData: ProfileDa
   return contact as ContactRow;
 }
 
-async function addExperienceToContact(supabase: SupabaseClient, contactId: number, experience: ProfileExperience[], skipDedup = false) {
+function normalizeWorkplaceType(
+  workplaceType: string | null | undefined,
+  locationText: string | null | undefined,
+): "on_site" | "hybrid" | "remote" | null {
+  const normalized = (workplaceType || "").trim().toLowerCase();
+  if (["on-site", "on site", "onsite"].includes(normalized)) return "on_site";
+  if (normalized === "hybrid") return "hybrid";
+  if (normalized === "remote") return "remote";
+  if ((locationText || "").toLowerCase().includes("remote")) return "remote";
+  return null;
+}
+
+async function addExperienceToContact(
+  supabase: SupabaseClient,
+  contactId: number,
+  experience: ProfileExperience[],
+  profileLocation?: ProfileLocation,
+  skipDedup = false,
+) {
   const validExps = experience.filter(exp => exp.company);
   if (validExps.length === 0) return;
 
@@ -308,6 +328,48 @@ async function addExperienceToContact(supabase: SupabaseClient, contactId: numbe
       console.warn(`[import] Failed to find/create company "${name}":`, err);
     }
   }
+
+  const locationIdCache = new Map<string, number>();
+  async function resolveLocationId(locationRaw: string) {
+    const norm = normalizeLocation(locationRaw);
+    const key = locationMatchKey(norm);
+    if (!key || !norm.city) return null;
+    const cached = locationIdCache.get(key);
+    if (cached != null) return cached;
+    const location = await findOrCreateLocation(supabase, {
+      city: norm.city,
+      state: norm.state,
+      country: norm.country || 'United States',
+    });
+    locationIdCache.set(key, location.id);
+    return location.id;
+  }
+
+  // Known company offices (rule-2 anchor)
+  const officeByCompany = new Map<number, Map<string, number>>();
+  const companyIds = Array.from(new Set(Array.from(companyMap.values()).map(c => c.id)));
+  if (companyIds.length > 0) {
+    const { data: officeRows } = await supabase
+      .from('company_locations')
+      .select('company_id, location_id, locations(city, state, country)')
+      .in('company_id', companyIds);
+
+    for (const row of ((officeRows as Array<{
+      company_id: number;
+      location_id: number;
+      locations: { city: string | null; state: string | null; country: string } | null;
+    }> | null) || [])) {
+      if (!row.locations) continue;
+      const key = locationMatchKey(normalizeParsedLocation(row.locations));
+      if (!key) continue;
+      if (!officeByCompany.has(row.company_id)) officeByCompany.set(row.company_id, new Map());
+      officeByCompany.get(row.company_id)!.set(key, row.location_id);
+    }
+  }
+
+  const profileNormKey = profileLocation
+    ? locationMatchKey(normalizeParsedLocation(profileLocation))
+    : null;
 
   let relSet = new Set<string>();
   if (!skipDedup) {
@@ -325,6 +387,40 @@ async function addExperienceToContact(supabase: SupabaseClient, contactId: numbe
     const company = companyMap.get(exp.company.toLowerCase());
     if (!company) continue;
     const key = `${company.id}:${exp.title || ''}`;
+
+    const locationRaw = exp.location || null;
+    const workplaceType = normalizeWorkplaceType(exp.workplace_type, exp.location);
+    const locationNorm = exp.location ? normalizeLocation(exp.location) : null;
+    const isRemote = workplaceType === 'remote' || Boolean(locationNorm?.isRemote);
+    let locationId: number | null = null;
+    let locationSource: 'experience' | 'profile_match' | null = null;
+
+    // Rule 1: explicit experience location can establish office.
+    if (!isRemote && locationNorm?.canEstablishOffice && exp.location) {
+      locationId = await resolveLocationId(exp.location);
+      if (locationId != null) {
+        locationSource = 'experience';
+        await ensureCompanyLocation(supabase, company.id, locationId, 'scraped');
+        const locKey = locationMatchKey(locationNorm);
+        if (locKey) {
+          if (!officeByCompany.has(company.id)) officeByCompany.set(company.id, new Map());
+          officeByCompany.get(company.id)!.set(locKey, locationId);
+        }
+      }
+    }
+
+    // Rule 2: current role with no location, match profile location to known office.
+    if (
+      locationId == null &&
+      exp.is_current &&
+      !isRemote &&
+      profileNormKey &&
+      officeByCompany.get(company.id)?.has(profileNormKey)
+    ) {
+      locationId = officeByCompany.get(company.id)!.get(profileNormKey)!;
+      locationSource = 'profile_match';
+    }
+
     if (!relSet.has(key)) {
       toInsert.push({
         contact_id: contactId,
@@ -333,6 +429,10 @@ async function addExperienceToContact(supabase: SupabaseClient, contactId: numbe
         start_month: exp.start_month || null,
         end_month: exp.is_current ? 'Present' : (exp.end_month || null),
         is_current: exp.is_current || false,
+        location_id: locationId,
+        location_source: locationSource,
+        location_raw: locationRaw,
+        workplace_type: workplaceType,
       });
     }
   }
