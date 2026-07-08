@@ -15,10 +15,12 @@ import {
   getTags, createTag, addTagToContact, findOrCreateLocation,
   activateContact, getNetworkTierCounts,
 } from "@/lib/queries";
+import { promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
 import type { Contact, TagRow } from "@/lib/types";
 import {
   Plus, Users, Search, ChevronDown, Mail, Phone,
   Tag, ExternalLink, Briefcase, GraduationCap, Check, Trash2, X, UserPlus,
+  Archive, ArchiveRestore,
 } from "lucide-react";
 import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
@@ -200,6 +202,19 @@ export default function ContactsPage() {
       toastSuccess(`${contact.name} added to your network`);
     } catch {
       toastError("Failed to add to network");
+    }
+  };
+
+  const handleSetTier = async (contact: Contact, tier: "prospect" | "bench") => {
+    try {
+      if (tier === "prospect") await promoteContactToProspect(contact.id);
+      else await demoteContactToBench(contact.id);
+      setContacts((prev) =>
+        prev.map((c) => (c.id === contact.id ? { ...c, network_status: tier } : c))
+      );
+      toastSuccess(tier === "prospect" ? `${contact.name} moved to prospects` : `${contact.name} archived`);
+    } catch {
+      toastError("Failed to move contact");
     }
   };
 
@@ -532,17 +547,40 @@ export default function ContactsPage() {
                     )}
                   </div>
 
-                  {/* One-click promotion to the active network */}
+                  {/* Tier moves — add to network on top, prospect⇄archive below */}
                   {contact.network_status !== "active" && (
-                    <Tooltip label="Add to network">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
-                        className="p-2 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors shrink-0"
-                      >
-                        <UserPlus className="h-5 w-5" />
-                      </button>
-                    </Tooltip>
+                    <div className="flex flex-col gap-0.5 shrink-0">
+                      <Tooltip label="Add to network">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
+                          className="p-1.5 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors"
+                        >
+                          <UserPlus className="h-5 w-5" />
+                        </button>
+                      </Tooltip>
+                      {contact.network_status === "prospect" ? (
+                        <Tooltip label="Move to archive">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSetTier(contact, "bench"); }}
+                            className="p-1.5 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors"
+                          >
+                            <Archive className="h-5 w-5" />
+                          </button>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip label="Move to prospects">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSetTier(contact, "prospect"); }}
+                            className="p-1.5 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors"
+                          >
+                            <ArchiveRestore className="h-5 w-5" />
+                          </button>
+                        </Tooltip>
+                      )}
+                    </div>
                   )}
 
                   {/* Expand chevron — stops propagation so bar click doesn't navigate */}
