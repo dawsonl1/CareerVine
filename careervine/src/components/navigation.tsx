@@ -45,8 +45,8 @@ export default function Navigation() {
             </span>
           </Link>
 
-          {/* Desktop nav tabs */}
-          <div className="hidden md:flex items-center gap-1.5 shrink-0">
+          {/* Desktop nav tabs — single-row layout only when the full labeled pills fit */}
+          <div className="hidden xl:flex items-center gap-1.5 shrink-0">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -116,8 +116,8 @@ export default function Navigation() {
           </div>
         </div>
 
-        {/* Mobile bottom-style tabs (rendered below top bar on small screens) */}
-        <div className="flex md:hidden -mx-4 border-t border-outline-variant">
+        {/* Second-tier tab row — shown whenever the single-row layout would overflow */}
+        <div className="flex xl:hidden -mx-4 border-t border-outline-variant">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
