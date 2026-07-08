@@ -414,9 +414,11 @@ export default function ContactsPage() {
                     </p>
                   </div>
 
-                  {/* Email + school + current company — fixed-width column so
-                      the info lines up vertically across cards */}
-                  <div className="hidden lg:flex flex-col gap-0.5 w-[240px] shrink-0">
+                  {/* Email + school + current company — appears from md and
+                      grows fluidly with the viewport (truncating with … when
+                      tight) up to 240px. Width is viewport-driven, so the
+                      column stays vertically aligned across cards. */}
+                  <div className="hidden md:flex flex-col gap-0.5 w-[clamp(140px,18vw,240px)] shrink-0">
                     {primaryEmail && (
                       <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
                         <Mail className="h-3.5 w-3.5 shrink-0" />
