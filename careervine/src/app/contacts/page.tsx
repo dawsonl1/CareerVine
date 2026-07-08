@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
@@ -106,10 +106,15 @@ export default function ContactsPage() {
     }
   }, [user]);
 
+  // The chips repaint instantly on click; the expensive list re-render
+  // (hundreds of rows) follows behind via the deferred value so the
+  // toggle animation isn't blocked waiting for it.
+  const deferredTiers = useDeferredValue(enabledTiers);
+
   // The view is a pure client-side filter over the loaded superset
   const visibleContacts = useMemo(
-    () => contacts.filter((c) => enabledTiers.has(c.network_status as "active" | "prospect" | "bench")),
-    [contacts, enabledTiers]
+    () => contacts.filter((c) => deferredTiers.has(c.network_status as "active" | "prospect" | "bench")),
+    [contacts, deferredTiers]
   );
 
   // Per-tier counts for the toggle chips (prospect/bench are accurate
