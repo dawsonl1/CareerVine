@@ -424,9 +424,11 @@ export default function ContactsPage() {
         {tiersExist && (
         <div className="flex items-center gap-2 mb-4">
           {([
-            { key: "active", label: "My network" },
-            { key: "prospect", label: "Prospects" },
-            { key: "bench", label: "Archive" },
+            // onClasses mirror the avatar-halo colors: green = network,
+            // teal = prospects, gray = archive
+            { key: "active", label: "My network", onClasses: "bg-secondary-container text-on-secondary-container" },
+            { key: "prospect", label: "Prospects", onClasses: "bg-tertiary-container text-on-tertiary-container" },
+            { key: "bench", label: "Archive", onClasses: "bg-surface-container-highest text-foreground" },
           ] as const).map((v) => {
             const on = enabledTiers.has(v.key);
             return (
@@ -436,7 +438,7 @@ export default function ContactsPage() {
                 aria-pressed={on}
                 className={`inline-flex items-center h-9 px-3.5 rounded-full text-sm font-medium cursor-pointer border transition-colors duration-200 ${
                   on
-                    ? "bg-secondary-container text-on-secondary-container border-transparent"
+                    ? `${v.onClasses} border-transparent`
                     : "bg-transparent text-foreground border-outline hover:bg-surface-container"
                 }`}
               >
@@ -520,8 +522,19 @@ export default function ContactsPage() {
                   className="flex items-center gap-5 p-5 cursor-pointer"
                   onClick={() => router.push(`/contacts/${contact.id}`)}
                 >
-                  {/* Avatar */}
-                  <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-14 h-14 text-base" />
+                  {/* Avatar — halo color signals the network tier (none = my network) */}
+                  <ContactAvatar
+                    name={contact.name}
+                    photoUrl={contact.photo_url}
+                    className="w-14 h-14 text-base"
+                    ringClassName={
+                      contact.network_status === "prospect"
+                        ? "ring-tertiary ring-offset-2"
+                        : contact.network_status === "bench"
+                          ? "ring-outline ring-offset-2"
+                          : ""
+                    }
+                  />
 
                   {/* Name + job title */}
                   <div className="flex-1 min-w-0">

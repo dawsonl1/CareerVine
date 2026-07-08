@@ -126,6 +126,13 @@ export function ContactProfileCard({
           name={contact.name}
           photoUrl={contact.photo_url}
           className="w-[88px] h-[88px] text-[28px] mb-4"
+          ringClassName={
+            contact.network_status === "prospect"
+              ? "ring-tertiary ring-offset-2"
+              : contact.network_status === "bench"
+                ? "ring-outline ring-offset-2"
+                : ""
+          }
         />
         <div className="flex items-center gap-2.5">
           <h1 className="text-xl font-medium text-foreground">{contact.name}</h1>
