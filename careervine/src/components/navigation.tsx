@@ -34,11 +34,11 @@ export default function Navigation() {
 
   return (
     <nav className="bg-background sticky top-0 z-50 border-b border-outline-variant">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="px-4 sm:px-6 lg:px-8">
         {/* Top bar */}
-        <div className="flex justify-between items-center h-[72px]">
+        <div className="flex items-center h-[72px]">
           {/* Brand */}
-          <Link href="/" className="flex items-center gap-2.5 group">
+          <Link href="/" className="flex flex-1 items-center gap-2.5 group">
             <Sprout className="h-8 w-8 text-primary" />
             <span className="text-[26px] font-medium tracking-tight text-foreground">
               CareerVine
@@ -46,7 +46,7 @@ export default function Navigation() {
           </Link>
 
           {/* Desktop nav tabs */}
-          <div className="hidden md:flex items-center gap-1.5">
+          <div className="hidden md:flex items-center gap-1.5 shrink-0">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -68,7 +68,7 @@ export default function Navigation() {
           </div>
 
           {/* User area */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-1 items-center justify-end gap-2.5">
             {/* Inbox icon — always visible, shows indicator when not connected */}
             <Link
               href={gmailConnected ? "/inbox" : "/settings?tab=integrations"}
@@ -101,7 +101,7 @@ export default function Navigation() {
             >
               <Calendar className="h-5 w-5" />
             </Link>
-            <div className="hidden sm:flex flex-col items-end ml-1">
+            <div className="hidden 2xl:flex flex-col items-end ml-1">
               <span className="text-base font-medium text-foreground leading-tight">
                 {user.user_metadata?.first_name || "User"}
               </span>

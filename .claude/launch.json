@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "careervine-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "careervine", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}

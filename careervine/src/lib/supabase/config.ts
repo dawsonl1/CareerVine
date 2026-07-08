@@ -11,6 +11,10 @@
  *   NEXT_PUBLIC_SUPABASE_URL
  *   NEXT_PUBLIC_SUPABASE_ANON_KEY
  *   SUPABASE_SERVICE_ROLE_KEY
+ *
+ * Override: set NEXT_PUBLIC_SUPABASE_USE_PROD=true in .env.local to make
+ * `next dev` connect to the production Supabase project instead of the
+ * local stack (useful for viewing real data during UI work).
  */
 
 type SupabaseEnv = {
@@ -21,7 +25,8 @@ type SupabaseEnv = {
 };
 
 export const getSupabaseEnv = (options?: { server?: boolean }): SupabaseEnv => {
-  const isLocal = process.env.NODE_ENV === "development";
+  const forceProd = process.env.NEXT_PUBLIC_SUPABASE_USE_PROD === "true";
+  const isLocal = process.env.NODE_ENV === "development" && !forceProd;
 
   const url = isLocal
     ? process.env.NEXT_PUBLIC_SUPABASE_URL_LOCAL
