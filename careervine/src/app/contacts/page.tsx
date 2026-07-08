@@ -414,45 +414,28 @@ export default function ContactsPage() {
                     </p>
                   </div>
 
-                  {/* Email + school + current company stack */}
-                  {(primaryEmail || school || currentCompany) && (
-                    <div className="hidden lg:flex flex-col gap-0.5 min-w-0 max-w-[220px]">
-                      {primaryEmail && (
-                        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
-                          <Mail className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{primaryEmail.email}</span>
-                        </span>
-                      )}
-                      {school && (
-                        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
-                          <GraduationCap className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{school.name}</span>
-                        </span>
-                      )}
-                      {currentCompany && (
-                        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
-                          <Briefcase className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{currentCompany.companies.name}</span>
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Status + network tier badges, stacked */}
-                  {(contact.contact_status || contact.network_status !== "active") && (
-                    <div className="hidden md:flex flex-col items-end gap-1 shrink-0">
-                      {contact.contact_status && (
-                        <span className="inline-flex text-xs px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
-                          {contact.contact_status}
-                        </span>
-                      )}
-                      {contact.network_status !== "active" && (
-                        <span className="inline-flex text-xs px-2.5 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-medium">
-                          {contact.network_status === "prospect" ? "Prospect" : "Imported"}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {/* Email + school + current company — fixed-width column so
+                      the info lines up vertically across cards */}
+                  <div className="hidden lg:flex flex-col gap-0.5 w-[240px] shrink-0">
+                    {primaryEmail && (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
+                        <Mail className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{primaryEmail.email}</span>
+                      </span>
+                    )}
+                    {school && (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
+                        <GraduationCap className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{school.name}</span>
+                      </span>
+                    )}
+                    {currentCompany && (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
+                        <Briefcase className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{currentCompany.companies.name}</span>
+                      </span>
+                    )}
+                  </div>
 
                   {/* One-click promotion to the active network */}
                   {contact.network_status !== "active" && (
