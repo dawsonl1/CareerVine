@@ -57,7 +57,7 @@ export default function Navigation() {
                   className={`state-layer flex items-center gap-2.5 px-4 2xl:px-5 h-11 rounded-full text-base font-medium transition-colors ${
                     active
                       ? "bg-secondary-container text-on-secondary-container"
-                      : "text-muted-foreground hover:text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-surface-container-high"
                   }`}
                 >
                   <Icon className="h-5 w-5" />
@@ -75,7 +75,7 @@ export default function Navigation() {
               className={`state-layer relative w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
                 pathname.startsWith("/inbox")
                   ? "bg-secondary-container text-on-secondary-container"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-surface-container-high"
               }`}
               title={gmailConnected ? "Inbox" : "Connect Gmail to use Inbox"}
             >
@@ -95,7 +95,7 @@ export default function Navigation() {
               className={`state-layer w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
                 pathname.startsWith("/calendar")
                   ? "bg-secondary-container text-on-secondary-container"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-surface-container-high"
               }`}
               title="Calendar"
             >
@@ -125,13 +125,13 @@ export default function Navigation() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex-1 flex flex-col items-center gap-0.5 py-3 text-xs font-medium transition-colors ${
+                className={`group flex-1 flex flex-col items-center gap-0.5 py-3 text-xs font-medium transition-colors ${
                   active
                     ? "text-primary"
-                    : "text-muted-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <div className={`px-5 py-1 rounded-full transition-colors ${active ? "bg-secondary-container" : ""}`}>
+                <div className={`px-5 py-1 rounded-full transition-colors ${active ? "bg-secondary-container" : "group-hover:bg-surface-container-high"}`}>
                   <Icon className="h-5 w-5" />
                 </div>
                 {item.label}
