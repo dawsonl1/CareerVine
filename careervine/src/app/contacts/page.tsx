@@ -427,7 +427,7 @@ export default function ContactsPage() {
             // onClasses mirror the avatar-halo colors: green = network,
             // teal = prospects, gray = archive
             { key: "active", label: "My network", onClasses: "bg-secondary-container text-on-secondary-container" },
-            { key: "prospect", label: "Prospects", onClasses: "bg-tertiary-container text-on-tertiary-container" },
+            { key: "prospect", label: "Prospects", onClasses: "bg-teal-100 text-teal-900" },
             { key: "bench", label: "Archive", onClasses: "bg-surface-container-highest text-foreground" },
           ] as const).map((v) => {
             const on = enabledTiers.has(v.key);
