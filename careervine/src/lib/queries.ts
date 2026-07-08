@@ -116,33 +116,49 @@ export async function getContactEmailLookup(userId: string) {
  * @returns Promise<Contact[]> - Array of contacts with all related data
  * @throws Error if query fails
  */
-export async function getContacts(userId: string, limit = 500) {
-  const { data, error } = await supabase
-    .from("contacts")
-    .select(`
-      *,
-      locations(*),
-      contact_emails(*),
-      contact_phones(*),
-      contact_companies(
-        *,
-        companies(*)
-      ),
-      contact_schools(
-        *,
-        schools(*)
-      ),
-      contact_tags(
-        *,
-        tags(*)
-      )
-    `)
-    .eq("user_id", userId)
-    .order("name")
-    .limit(limit);
+export async function getContacts(
+  userId: string,
+  opts: { networkStatuses?: Array<"active" | "prospect" | "bench"> } = {},
+) {
+  // Default excludes bench: dormant imported data must not appear in
+  // pickers or general lists — only explicit views opt in (plan 24).
+  const statuses = opts.networkStatuses ?? ["active", "prospect"];
 
-  if (error) throw error;
-  return data;
+  // Paginate: bulk imports push contact counts past PostgREST's row cap,
+  // and the old limit(500) silently truncated.
+  const PAGE = 1000;
+  const all: unknown[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .select(`
+        *,
+        locations(*),
+        contact_emails(*),
+        contact_phones(*),
+        contact_companies(
+          *,
+          companies(*)
+        ),
+        contact_schools(
+          *,
+          schools(*)
+        ),
+        contact_tags(
+          *,
+          tags(*)
+        )
+      `)
+      .eq("user_id", userId)
+      .in("network_status", statuses)
+      .order("name")
+      .range(from, from + PAGE - 1);
+
+    if (error) throw error;
+    all.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+  }
+  return all;
 }
 
 /**
@@ -1166,6 +1182,7 @@ export async function getContactsDueForFollowUp(userId: string) {
     .from("contacts")
     .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, contact_emails(email)")
     .eq("user_id", userId)
+    .eq("network_status", "active") // imported prospects/bench never generate follow-up nags
     .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
     .order("name");
   if (cErr) throw cErr;
@@ -1581,6 +1598,7 @@ export async function getRecentUncontactedContacts(userId: string) {
     .from("contacts")
     .select("id, name, photo_url, industry, created_at, contact_emails(email)")
     .eq("user_id", userId)
+    .eq("network_status", "active") // bulk-imported tiers never trigger first-touch prompts
     .eq("first_outreach_skipped", false)
     .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
     .gte("created_at", cutoff)
@@ -1649,6 +1667,7 @@ export async function getHomeCoreData(userId: string) {
       .from("contacts")
       .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, reach_out_snoozed_until, contact_emails(email)")
       .eq("user_id", userId)
+      .eq("network_status", "active") // network health + reach-out prompts cover the real network only
       .order("name"),
   ]);
 

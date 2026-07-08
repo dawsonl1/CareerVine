@@ -65,17 +65,28 @@ export default function ContactsPage() {
   const [tagSearch, setTagSearch] = useState("");
   const [showTagDropdown, setShowTagDropdown] = useState(false);
 
+  // Network tiers: the default view is the hand-curated network only.
+  // Imported pipeline prospects (and the dormant bench) stay out of the
+  // way unless explicitly toggled in (plan 24 containment).
+  const [networkView, setNetworkView] = useState<"active" | "prospects" | "everyone">("active");
+
   const loadContacts = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await getContacts(user.id);
+      const statuses =
+        networkView === "active"
+          ? (["active"] as const)
+          : networkView === "prospects"
+            ? (["active", "prospect"] as const)
+            : (["active", "prospect", "bench"] as const);
+      const data = await getContacts(user.id, { networkStatuses: [...statuses] });
       setContacts(data as Contact[]);
     } catch (error) {
       console.error("Error loading contacts:", error);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, networkView]);
 
   useEffect(() => {
     if (user) {
@@ -317,6 +328,27 @@ export default function ContactsPage() {
               )}
             </div>
           )}
+        </div>
+
+        {/* Network tier toggle */}
+        <div className="flex items-center gap-2 mb-4">
+          {([
+            { key: "active", label: "My network" },
+            { key: "prospects", label: "+ Prospects" },
+            { key: "everyone", label: "Everyone" },
+          ] as const).map((v) => (
+            <button
+              key={v.key}
+              onClick={() => setNetworkView(v.key)}
+              className={`px-3.5 py-1.5 rounded-full text-sm transition-colors ${
+                networkView === v.key
+                  ? "bg-primary text-on-primary"
+                  : "bg-surface-container-high text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
         </div>
 
         {/* Empty state */}

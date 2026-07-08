@@ -14,7 +14,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import SignOutButton from "@/components/sign-out-button";
-import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox, MessageSquare } from "lucide-react";
+import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox, MessageSquare, Building2 } from "lucide-react";
 import SetupBanner from "@/components/setup-banner";
 
 export default function Navigation() {
@@ -28,6 +28,7 @@ export default function Navigation() {
     { href: "/", label: "Home", icon: LayoutDashboard, onboardingTarget: "nav-home" },
     { href: "/meetings", label: "Activity", icon: MessageSquare },
     { href: "/contacts", label: "Contacts", icon: Users },
+    { href: "/companies", label: "Companies", icon: Building2 },
     { href: "/action-items", label: "Actions", icon: CheckSquare },
   ];
 

@@ -37,7 +37,8 @@ export async function fetchSuggestionCandidates(userId: string): Promise<Suggest
     service
       .from("contacts")
       .select("id, name, photo_url, industry, contact_status, expected_graduation, follow_up_frequency_days, notes, met_through")
-      .eq("user_id", userId),
+      .eq("user_id", userId)
+      .eq("network_status", "active"), // AI suggestions never target imported prospects/bench
     service.rpc("get_contacts_with_last_touch", { p_user_id: userId }),
   ]);
 
