@@ -394,7 +394,7 @@ export default function ContactsPage() {
           {filteredContacts.map((contact) => {
             const isExpanded = expandedId === contact.id;
             const currentCompany = contact.contact_companies.find((cc) => cc.is_current);
-            const primaryEmail = contact.contact_emails.find((e) => e.is_primary) || contact.contact_emails[0];
+            const school = contact.contact_schools[0]?.schools;
 
             return (
               <div key={contact.id} className="rounded-[12px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all">
@@ -405,48 +405,59 @@ export default function ContactsPage() {
                   {/* Avatar */}
                   <ContactAvatar name={contact.name} photoUrl={contact.photo_url} className="w-14 h-14 text-base" />
 
-                  {/* Name + subtitle */}
+                  {/* Name + job title */}
                   <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-medium text-foreground truncate">{contact.name}</h3>
                     <p className="text-base text-muted-foreground truncate">
-                      {currentCompany
-                        ? `${currentCompany.title || ""}${currentCompany.title && currentCompany.companies.name ? " at " : ""}${currentCompany.companies.name}`
-                        : contact.industry || "No details"
-                      }
+                      {currentCompany?.title || contact.industry || "No details"}
                     </p>
                   </div>
 
-                  {/* Email chip */}
-                  {primaryEmail && (
-                    <span className="hidden lg:inline-flex items-center gap-1.5 text-sm text-muted-foreground truncate max-w-[200px]">
-                      <Mail className="h-3.5 w-3.5 shrink-0" />
-                      {primaryEmail.email}
-                    </span>
+                  {/* School + current company stack */}
+                  {(school || currentCompany) && (
+                    <div className="hidden lg:flex flex-col gap-0.5 min-w-0 max-w-[220px]">
+                      {school && (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
+                          <GraduationCap className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{school.name}</span>
+                        </span>
+                      )}
+                      {currentCompany && (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
+                          <Briefcase className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{currentCompany.companies.name}</span>
+                        </span>
+                      )}
+                    </div>
                   )}
 
-                  {/* Status badge — Student or Professional only */}
-                  {contact.contact_status && (
-                    <span className="hidden md:inline-flex text-xs px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
-                      {contact.contact_status}
-                    </span>
+                  {/* Status + network tier badges, stacked */}
+                  {(contact.contact_status || contact.network_status !== "active") && (
+                    <div className="hidden md:flex flex-col items-end gap-1 shrink-0">
+                      {contact.contact_status && (
+                        <span className="inline-flex text-xs px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
+                          {contact.contact_status}
+                        </span>
+                      )}
+                      {contact.network_status !== "active" && (
+                        <span className="inline-flex text-xs px-2.5 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-medium">
+                          {contact.network_status === "prospect" ? "Prospect" : "Imported"}
+                        </span>
+                      )}
+                    </div>
                   )}
 
-                  {/* Network tier — badge + one-click promotion to the active network */}
+                  {/* One-click promotion to the active network */}
                   {contact.network_status !== "active" && (
-                    <>
-                      <span className="hidden md:inline-flex text-xs px-2.5 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-medium">
-                        {contact.network_status === "prospect" ? "Prospect" : "Imported"}
-                      </span>
-                      <Tooltip label="Add to network">
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
-                          className="p-2 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors shrink-0"
-                        >
-                          <UserPlus className="h-5 w-5" />
-                        </button>
-                      </Tooltip>
-                    </>
+                    <Tooltip label="Add to network">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
+                        className="p-2 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors shrink-0"
+                      >
+                        <UserPlus className="h-5 w-5" />
+                      </button>
+                    </Tooltip>
                   )}
 
                   {/* Expand chevron — stops propagation so bar click doesn't navigate */}
