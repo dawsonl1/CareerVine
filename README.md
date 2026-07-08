@@ -22,6 +22,10 @@ The core insight is that **conversations are the atomic unit of a relationship**
 - **Calendar that knows your network** — Google Calendar sync with week and list views. Create a meeting in CareerVine and it generates a Calendar event with Meet link and attendee invites.
 - **Transcripts to notes** — Upload audio or paste a transcript. AI-powered speaker matching identifies who said what by analyzing conversation context, roles, and names — with confidence scores and one-click confirmation instead of tedious manual dropdowns.
 - **"Waiting on" tracking** — After a conversation, the AI extracts not just your action items but also what the other person committed to doing for you. These show up in a separate "Waiting on others" section. After 7 days, the app nudges you to send a gentle follow-up — so you never forget to cash in on an offer of help.
+- **Company pages built for recruiting** — Look up any company and see who in your network works there now and who used to, faceted by office location (Google as a whole, or just Google San Diego). Target companies get their own dashboard with priority scores, program names, application dates, and a timestamped recruiting-intel log — so everything you learn on a call lands somewhere you'll find it again.
+- **Bulk import from a scraping pipeline** — An API built to ingest hundreds of reviewed LinkedIn profiles at once, complete with emails, full work history, and education. Imports are merge-safe (re-running never clobbers your manual edits), deduped by canonical LinkedIn URL, and office locations are inferred automatically from where people say they work.
+- **A network that stays curated at scale** — Imported prospects live in their own tier, and lower-priority people sit on a collapsed "bench," so 70 scraped profiles at one company never bury the five you actually plan to contact. Follow-up nags, AI suggestions, and network health only ever look at your real network; one click promotes a bench person into your outreach queue, and the first real touch graduates anyone into it automatically.
+- **Outreach that protects your sender reputation** — Every contact shows a live outreach stage derived from real activity (contacted, replied, call scheduled, referral). Bounced addresses are detected from Gmail delivery failures, flagged distinctly, and their pending follow-up sequences are cancelled automatically. Pattern-guessed addresses get a warning before you hit send, and a daily send cap keeps Gmail deliverability healthy.
 
 ### Design decisions I'm proud of
 
@@ -44,7 +48,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 | Auth | Supabase Auth |
 | APIs | Gmail API, Google Calendar API, OpenAI API, Deepgram API |
 | Rich text | Tiptap editor |
-| Testing | Vitest + React Testing Library (356 tests) |
+| Testing | Vitest + React Testing Library (468 tests) |
 | Deployment | Vercel |
 | Browser extension | Chrome Manifest V3, Shadow DOM isolation |
 
@@ -53,7 +57,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 ```
 careervine/           Next.js app
   src/
-    app/              12 pages + 45 API routes
+    app/              14 pages + 61 API routes
     components/       Custom M3 component library
     lib/              Database queries, types, utilities
     hooks/            Custom React hooks
@@ -63,7 +67,7 @@ chrome-extension/     LinkedIn import extension
   panel-app/          React sidebar panel (injected into LinkedIn)
 
 supabase/
-  migrations/         28 database migrations
+  migrations/         38 database migrations
 ```
 
 ## Local development
