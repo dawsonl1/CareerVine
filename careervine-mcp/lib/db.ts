@@ -15,6 +15,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { setCompanyQueriesClient } from "@/lib/company-queries";
 import { escapeIlike, findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
+import { sanitizeForPostgrest } from "@/lib/import-helpers";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -274,44 +275,53 @@ export async function createContactFull(input: NewContactInput): Promise<number>
   if (error) throw error;
   const contactId = (contact as { id: number }).id;
 
-  for (const [i, email] of (input.emails ?? []).entries()) {
-    const { error: e } = await db()
-      .from("contact_emails")
-      .insert({ contact_id: contactId, email: email.trim().toLowerCase(), is_primary: i === 0 });
-    if (e) throw e;
-  }
-  for (const [i, p] of (input.phones ?? []).entries()) {
-    const { error: e } = await db()
-      .from("contact_phones")
-      .insert({ contact_id: contactId, phone: p.phone, type: p.type ?? "mobile", is_primary: i === 0 });
-    if (e) throw e;
-  }
-  if (input.company?.name) {
-    const company = await findOrCreateCompany(db(), { name: input.company.name });
-    const { error: e } = await db().from("contact_companies").insert({
-      contact_id: contactId,
-      company_id: company.id,
-      title: input.company.title ?? null,
-      is_current: input.company.is_current ?? true,
-      location: null,
-      start_date: null,
-      end_date: null,
-      start_month: null,
-      end_month: null,
-    });
-    if (e) throw e;
-  }
-  if (input.school?.name) {
-    const schoolId = await findOrCreateSchool(input.school.name);
-    const { error: e } = await db().from("contact_schools").insert({
-      contact_id: contactId,
-      school_id: schoolId,
-      degree: input.school.degree ?? null,
-      field_of_study: input.school.field_of_study ?? null,
-      start_year: null,
-      end_year: null,
-    });
-    if (e) throw e;
+  // The contact row is already committed; the child inserts below are not
+  // transactional (Supabase JS has no client-side transaction). If any child
+  // fails, roll back by deleting the contact so a retry doesn't orphan a
+  // partial/duplicate contact. Cascade FKs clean up any children written so far.
+  try {
+    for (const [i, email] of (input.emails ?? []).entries()) {
+      const { error: e } = await db()
+        .from("contact_emails")
+        .insert({ contact_id: contactId, email: email.trim().toLowerCase(), is_primary: i === 0 });
+      if (e) throw e;
+    }
+    for (const [i, p] of (input.phones ?? []).entries()) {
+      const { error: e } = await db()
+        .from("contact_phones")
+        .insert({ contact_id: contactId, phone: p.phone, type: p.type ?? "mobile", is_primary: i === 0 });
+      if (e) throw e;
+    }
+    if (input.company?.name) {
+      const company = await findOrCreateCompany(db(), { name: input.company.name });
+      const { error: e } = await db().from("contact_companies").insert({
+        contact_id: contactId,
+        company_id: company.id,
+        title: input.company.title ?? null,
+        is_current: input.company.is_current ?? true,
+        location: null,
+        start_date: null,
+        end_date: null,
+        start_month: null,
+        end_month: null,
+      });
+      if (e) throw e;
+    }
+    if (input.school?.name) {
+      const schoolId = await findOrCreateSchool(input.school.name);
+      const { error: e } = await db().from("contact_schools").insert({
+        contact_id: contactId,
+        school_id: schoolId,
+        degree: input.school.degree ?? null,
+        field_of_study: input.school.field_of_study ?? null,
+        start_year: null,
+        end_year: null,
+      });
+      if (e) throw e;
+    }
+  } catch (childErr) {
+    await db().from("contacts").delete().eq("id", contactId).eq("user_id", uid());
+    throw childErr;
   }
   return contactId;
 }
@@ -766,7 +776,11 @@ export async function getNetworkHealth() {
 // ── Email cache / scheduling ───────────────────────────────────────────
 
 export async function searchEmailHistory(query: string, contactId?: number, limit = 20) {
-  const pattern = `%${escapeIlike(query.replace(/,/g, " "))}%`;
+  // Strip PostgREST filter-grammar metacharacters (commas, parens, quotes,
+  // LIKE wildcards) before interpolating into .or(). An unescaped ")" in the
+  // query otherwise closes the .or() group early and breaks the request —
+  // sanitizeForPostgrest is the repo's established defense for exactly this.
+  const pattern = `%${sanitizeForPostgrest(query)}%`;
   let q = db()
     .from("email_messages")
     .select("gmail_message_id, thread_id, subject, snippet, from_address, to_addresses, date, direction, matched_contact_id")
@@ -973,6 +987,7 @@ export interface DossierBundle {
   interactions: Array<Record<string, unknown>>;
   interactionsTotal: number;
   meetings: Array<Record<string, unknown>>;
+  meetingsTotal: number;
   emails: Array<Record<string, unknown>>;
   emailsTotal: number;
   openActionItems: Array<Record<string, unknown>>;
@@ -993,6 +1008,7 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
     interactionsRes,
     interactionsCountRes,
     meetingsRes,
+    meetingsCountRes,
     emailsRes,
     emailsCountRes,
     actionItemsRes,
@@ -1010,9 +1026,17 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       .from("interactions")
       .select("id", { count: "exact", head: true })
       .eq("contact_id", contactId),
+    // private_notes and user_id are deliberately NOT selected — this bundle
+    // feeds the email-grounding dossier the model reads before drafting, and
+    // private reminders must not bleed into generated outreach.
     db()
       .from("meeting_contacts")
-      .select("meetings!inner(id, user_id, meeting_date, meeting_type, title, notes, private_notes)")
+      .select("meetings!inner(id, meeting_date, meeting_type, title, notes)")
+      .eq("contact_id", contactId)
+      .eq("meetings.user_id", uid()),
+    db()
+      .from("meeting_contacts")
+      .select("contact_id, meetings!inner(user_id)", { count: "exact", head: true })
       .eq("contact_id", contactId)
       .eq("meetings.user_id", uid()),
     db()
@@ -1073,6 +1097,7 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
     interactions: (interactionsRes.data ?? []) as Array<Record<string, unknown>>,
     interactionsTotal: interactionsCountRes.count ?? 0,
     meetings,
+    meetingsTotal: meetingsCountRes.count ?? 0,
     emails: (emailsRes.data ?? []) as Array<Record<string, unknown>>,
     emailsTotal: emailsCountRes.count ?? 0,
     openActionItems,

@@ -188,6 +188,12 @@ export function registerEmailTools(server: McpServer): void {
       }
 
       const sentAt = original.date ?? new Date().toISOString();
+      // Steps are spaced relative to a base date. If the original went out
+      // days/weeks ago (this tool can attach to any historical thread), basing
+      // off sentAt would past-date every step — the cron then fires the whole
+      // sequence in one tick (an immediate multi-email burst). Clamp the base
+      // to now so send_after_days always schedules into the future.
+      const baseIso = new Date(Math.max(new Date(sentAt).getTime(), Date.now())).toISOString();
       const rows = buildFollowUpMessageRows(
         0,
         messages.map((m) => ({
@@ -195,7 +201,7 @@ export function registerEmailTools(server: McpServer): void {
           subject: m.subject,
           bodyHtml: markdownToHtml(m.body),
         })),
-        new Date(sentAt),
+        new Date(baseIso),
       );
       const followUpId = await insertFollowUpSequence({
         originalGmailMessageId: original.gmail_message_id,

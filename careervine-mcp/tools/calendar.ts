@@ -120,18 +120,29 @@ export function registerCalendarTools(server: McpServer): void {
         conferenceType: include_meet_link === false ? "none" : "meet",
       });
 
-      await cacheCalendarEvent({
-        googleEventId: result.googleEventId,
-        title,
-        description: description ?? null,
-        startAt: startDate.toISOString(),
-        endAt: endDate.toISOString(),
-        meetLink: result.meetLink,
-        attendeeEmails,
-        contactId: contact.id,
-      });
-
-      const activated = await activateContactIfDormant(contact.id);
+      // The Google event now exists and the invite has already been sent — it
+      // is the source of truth. If local caching or graduation fails, report a
+      // SUCCESS with a warning rather than throwing: a thrown error would read
+      // as "meeting not created" and prompt a retry that mints a second Google
+      // event and a duplicate invite to the contact.
+      let activated = false;
+      try {
+        await cacheCalendarEvent({
+          googleEventId: result.googleEventId,
+          title,
+          description: description ?? null,
+          startAt: startDate.toISOString(),
+          endAt: endDate.toISOString(),
+          meetLink: result.meetLink,
+          attendeeEmails,
+          contactId: contact.id,
+        });
+        activated = await activateContactIfDormant(contact.id);
+      } catch (cacheErr) {
+        warnings.push(
+          `Meeting was created on Google Calendar but local sync failed (${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}). Do not recreate it — it will appear after the next calendar sync.`,
+        );
+      }
       return {
         summary: `Meeting "${title}" created with ${contact.name}${attendeeEmails.length ? " (invite sent)" : ""}${activated ? " — graduated into the active network" : ""}`,
         google_event_id: result.googleEventId,

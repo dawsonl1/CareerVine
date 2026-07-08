@@ -27,7 +27,9 @@ function inline(s: string): string {
   return s
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    // Emphasis delimiters must hug non-space (CommonMark rule), so bare
+    // asterisks in prose — "2 * 3", globs — aren't turned into <em>.
+    .replace(/(^|[^*])\*([^\s*][^*\n]*?[^\s*]|[^\s*])\*/g, "$1<em>$2</em>")
     .replace(
       /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
       '<a href="$2">$1</a>',

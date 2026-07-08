@@ -61,7 +61,10 @@ function fixtureBundle(overrides: Partial<DossierBundle> = {}): DossierBundle {
       { id: 1, interaction_date: "2026-07-01T10:00:00Z", interaction_type: "email", summary: "Sent intro" },
     ],
     interactionsTotal: 14,
-    meetings: [],
+    meetings: [
+      { id: 1, meeting_date: "2026-06-20T00:00:00Z", meeting_type: "coffee", title: "Chat", notes: "x" },
+    ],
+    meetingsTotal: 3,
     emails: [
       { gmail_message_id: "m1", thread_id: "t1", subject: "Intro", snippet: "Hi", date: "2026-07-01", direction: "outbound" },
     ],
@@ -110,6 +113,9 @@ describe("buildDossier", () => {
     expect(d.interactions.shown).toHaveLength(1);
     expect(d.email_history.total).toBe(3);
     expect(d.email_history.shown).toHaveLength(1);
+    // Meetings must report a total like interactions/emails (not a bare array).
+    expect(d.meetings.total).toBe(3);
+    expect(d.meetings.shown).toHaveLength(1);
   });
 
   it("summarizes tier, stage, last touch, alum flag, and open items in one line", () => {

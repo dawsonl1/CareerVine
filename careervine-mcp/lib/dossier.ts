@@ -58,7 +58,7 @@ export interface Dossier {
   open_action_items: Array<Record<string, unknown>>;
   recent_completed_action_items: Array<Record<string, unknown>>;
   interactions: { total: number; shown: Array<Record<string, unknown>> };
-  meetings: Array<Record<string, unknown>>;
+  meetings: { total: number; shown: Array<Record<string, unknown>> };
   email_history: { total: number; shown: Array<Record<string, unknown>> };
   pending_sends: Record<string, unknown>;
 }
@@ -168,7 +168,7 @@ export function buildDossier(
     open_action_items: bundle.openActionItems,
     recent_completed_action_items: bundle.completedActionItems,
     interactions: { total: bundle.interactionsTotal, shown: bundle.interactions },
-    meetings: bundle.meetings,
+    meetings: { total: bundle.meetingsTotal, shown: bundle.meetings },
     email_history: { total: bundle.emailsTotal, shown: bundle.emails },
     pending_sends: {
       scheduled_emails: bundle.scheduledEmails,

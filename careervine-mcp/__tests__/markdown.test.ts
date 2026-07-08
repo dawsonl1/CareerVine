@@ -42,9 +42,19 @@ describe("markdownToHtml", () => {
     expect(markdownToHtml("a < b & c > d")).toBe("<p>a &lt; b &amp; c &gt; d</p>");
   });
 
-  it("does not turn 2*3 and 4*5 style asterisks into runaway emphasis across lines", () => {
-    const out = markdownToHtml("**Update**\n\nRevenue grew 2x");
-    expect(out).toContain("<strong>Update</strong>");
-    expect(out).toContain("Revenue grew 2x");
+  it("leaves space-flanked asterisks (arithmetic, globs) as literal text", () => {
+    // Regression: the italic rule must not wrap bare asterisks in <em>.
+    expect(markdownToHtml("The cost is 2 * 3 and 4 * 5")).toBe(
+      "<p>The cost is 2 * 3 and 4 * 5</p>",
+    );
+    expect(markdownToHtml("match *.ts and *.tsx files")).toBe(
+      "<p>match *.ts and *.tsx files</p>",
+    );
+  });
+
+  it("still applies real emphasis and keeps bold separate across blocks", () => {
+    expect(markdownToHtml("**Update**\n\nRevenue *grew* 2x")).toBe(
+      "<p><strong>Update</strong></p>\n<p>Revenue <em>grew</em> 2x</p>",
+    );
   });
 });

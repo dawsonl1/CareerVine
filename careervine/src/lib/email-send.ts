@@ -1,9 +1,12 @@
 /**
  * Shared tracked-send path (plan 26).
  *
- * Every outbound email — the app's /api/gmail/send route and the MCP
- * server's send_email tool — flows through sendTrackedEmail() so send
- * policy can never drift between surfaces:
+ * Interactive sends — the app's /api/gmail/send route and the MCP server's
+ * send_email tool — flow through sendTrackedEmail() so send policy can't
+ * drift between those surfaces. (Cron-driven deliveries — scheduled emails
+ * and follow-up sequences — call sendEmail() directly and are NOT counted
+ * against the daily cap or interaction-logged; recipient bounce is enforced
+ * at schedule/sequence creation time instead.) sendTrackedEmail() applies:
  *   - daily cap (deliverability guardrail)
  *   - bounced-address refusal
  *   - pattern-guessed-address warning
