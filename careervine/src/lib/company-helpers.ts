@@ -42,6 +42,19 @@ export interface CompanyRecord {
 
 const COMPANY_COLS = "id, name, linkedin_company_id, linkedin_url, universal_name, domain, logo_url";
 
+function normalizeCompanyLinkedinUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, "");
+}
+
+function normalizeUniversalName(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed || null;
+}
+
 /** Display name for companies that arrive with an id but no name. */
 export function companyFallbackName(input: CompanyInput): string | null {
   const name = input.name?.trim();
@@ -56,6 +69,8 @@ export async function findOrCreateCompany(
   input: CompanyInput,
 ): Promise<CompanyRecord> {
   const companyId = input.linkedin_company_id?.trim() || null;
+  const linkedinUrl = normalizeCompanyLinkedinUrl(input.linkedin_url);
+  const universalName = normalizeUniversalName(input.universal_name);
   const name = companyFallbackName(input);
   if (!name && !companyId) throw new Error("findOrCreateCompany requires a name or linkedin_company_id");
 
@@ -69,7 +84,39 @@ export async function findOrCreateCompany(
     if (data) return data as CompanyRecord;
   }
 
-  // 2. Name match (escaped ilike). limit(1): case variants could coexist.
+  // 2. LinkedIn URL match
+  if (linkedinUrl) {
+    const { data: byUrl } = await supabase
+      .from("companies")
+      .select(COMPANY_COLS)
+      .ilike("linkedin_url", escapeIlike(linkedinUrl))
+      .limit(1);
+    const existing = (byUrl as CompanyRecord[] | null)?.[0];
+    if (existing) {
+      if (companyId && !existing.linkedin_company_id) {
+        return await claimCompanyRow(supabase, existing, input, companyId);
+      }
+      return existing;
+    }
+  }
+
+  // 3. LinkedIn universal_name match
+  if (universalName) {
+    const { data: byUniversal } = await supabase
+      .from("companies")
+      .select(COMPANY_COLS)
+      .ilike("universal_name", escapeIlike(universalName))
+      .limit(1);
+    const existing = (byUniversal as CompanyRecord[] | null)?.[0];
+    if (existing) {
+      if (companyId && !existing.linkedin_company_id) {
+        return await claimCompanyRow(supabase, existing, input, companyId);
+      }
+      return existing;
+    }
+  }
+
+  // 4. Name match (escaped ilike). limit(1): case variants could coexist.
   if (name) {
     const { data: byName } = await supabase
       .from("companies")
@@ -89,8 +136,8 @@ export async function findOrCreateCompany(
   const insertData = {
     name: name!,
     linkedin_company_id: companyId,
-    linkedin_url: input.linkedin_url?.trim() || null,
-    universal_name: input.universal_name?.trim() || null,
+    linkedin_url: linkedinUrl,
+    universal_name: universalName,
     logo_url: input.logo_url?.trim() || null,
   };
   const { data: created, error } = await supabase
@@ -108,6 +155,24 @@ export async function findOrCreateCompany(
       .eq("linkedin_company_id", companyId)
       .maybeSingle();
     if (retryById) return retryById as CompanyRecord;
+  }
+  if (linkedinUrl) {
+    const { data: retryByUrl } = await supabase
+      .from("companies")
+      .select(COMPANY_COLS)
+      .ilike("linkedin_url", escapeIlike(linkedinUrl))
+      .limit(1);
+    const retriedByUrl = (retryByUrl as CompanyRecord[] | null)?.[0];
+    if (retriedByUrl) return retriedByUrl as CompanyRecord;
+  }
+  if (universalName) {
+    const { data: retryByUniversal } = await supabase
+      .from("companies")
+      .select(COMPANY_COLS)
+      .ilike("universal_name", escapeIlike(universalName))
+      .limit(1);
+    const retriedByUniversal = (retryByUniversal as CompanyRecord[] | null)?.[0];
+    if (retriedByUniversal) return retriedByUniversal as CompanyRecord;
   }
   const { data: retryByName } = await supabase
     .from("companies")
@@ -127,8 +192,10 @@ async function claimCompanyRow(
   companyId: string,
 ): Promise<CompanyRecord> {
   const patch: Record<string, unknown> = { linkedin_company_id: companyId };
-  if (!existing.linkedin_url && input.linkedin_url) patch.linkedin_url = input.linkedin_url.trim();
-  if (!existing.universal_name && input.universal_name) patch.universal_name = input.universal_name.trim();
+  const linkedinUrl = normalizeCompanyLinkedinUrl(input.linkedin_url);
+  const universalName = normalizeUniversalName(input.universal_name);
+  if (!existing.linkedin_url && linkedinUrl) patch.linkedin_url = linkedinUrl;
+  if (!existing.universal_name && universalName) patch.universal_name = universalName;
   if (!existing.logo_url && input.logo_url) patch.logo_url = input.logo_url.trim();
 
   const { data: updated, error } = await supabase
