@@ -45,6 +45,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
+import { runFullGmailSync } from "@/lib/gmail-sync-client";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import { ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
 
@@ -193,10 +194,12 @@ export default function InboxPage() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      await fetch("/api/gmail/sync", { method: "POST" });
-      await loadInbox();
-    } catch {
+      await runFullGmailSync();
+    } catch (err) {
+      console.error("Gmail sync failed:", err);
     } finally {
+      // Show whatever did land, even after a partial or failed sync.
+      await loadInbox().catch(() => {});
       setSyncing(false);
     }
   };

@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getGmailConnection } from "@/lib/queries";
+import { runFullGmailSync } from "@/lib/gmail-sync-client";
 import type { GmailConnection } from "@/lib/types";
 import { Mail, Check, RefreshCw, Unplug, MailCheck, Calendar } from "lucide-react";
 import { OAuthWarning } from "@/components/oauth-warning";
@@ -63,12 +64,14 @@ export default function IntegrationsSection() {
     setSyncing(true);
     setSyncResult("");
     try {
-      const res = await fetch("/api/gmail/sync", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setSyncResult(`Synced ${data.totalSynced} emails`);
+      const result = await runFullGmailSync();
+      setSyncResult(
+        result.failedContacts > 0
+          ? `Synced ${result.totalSynced} emails — ${result.failedContacts} contact${result.failedContacts === 1 ? "" : "s"} failed`
+          : `Synced ${result.totalSynced} emails`
+      );
       loadGmailStatus();
-      setTimeout(() => setSyncResult(""), 4000);
+      setTimeout(() => setSyncResult(""), 6000);
     } catch (err) {
       setSyncResult(err instanceof Error ? err.message : "Sync failed");
     } finally {

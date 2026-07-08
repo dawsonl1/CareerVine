@@ -291,52 +291,106 @@ export async function syncEmailsForContact(
   return totalSynced;
 }
 
+export interface SyncAllResult {
+  /** Messages written to the cache this pass. */
+  totalSynced: number;
+  /** Contacts with emails that were attempted this pass. */
+  processedContacts: number;
+  /** Contacts whose sync threw (bad token, rate limit, etc.). */
+  failedContacts: number;
+  /** Non-null when the time budget ran out — pass back to resume. */
+  nextCursor: number | null;
+}
+
+// One serial Gmail query per contact means a full pass can outlast a single
+// serverless invocation. The loop stops before the route's maxDuration and
+// hands back a cursor so the client can immediately continue where it left off.
+const SYNC_TIME_BUDGET_MS = 45_000;
+const SYNC_CONTACT_PAGE = 1000;
+
 /**
  * Full sync: iterate through all contacts with email addresses
- * and sync Gmail messages for each.
+ * and sync Gmail messages for each, in contact-id order.
+ *
+ * Contacts are fetched in pages (a single query is capped at 1000 rows)
+ * and processed until the time budget runs out; `nextCursor` resumes the
+ * pass. `last_gmail_sync_at` is only stamped when a pass reaches the end,
+ * so a partial or all-failed pass never masquerades as a completed sync.
  */
-export async function syncAllContactEmails(userId: string, sinceDays = 90) {
+export async function syncAllContactEmails(
+  userId: string,
+  sinceDays = 90,
+  opts: { cursor?: number; budgetMs?: number } = {}
+): Promise<SyncAllResult> {
   const supabase = createSupabaseServiceClient();
 
   const conn = await getConnection(userId);
   if (!conn) throw new Error("Gmail not connected");
 
-  const { data: contacts } = await supabase
-    .from("contacts")
-    .select("id, contact_emails(email)")
-    .eq("user_id", userId);
+  const budgetMs = opts.budgetMs ?? SYNC_TIME_BUDGET_MS;
+  const startedAt = Date.now();
 
-  if (!contacts) return 0;
-
+  let lastDoneId = opts.cursor ?? 0;
   let totalSynced = 0;
-  for (const contact of contacts) {
-    const emails = (contact.contact_emails || [])
-      .map((e: { email: string | null }) => e.email)
-      .filter(Boolean) as string[];
+  let processedContacts = 0;
+  let failedContacts = 0;
+  let nextCursor: number | null = null;
 
-    if (emails.length === 0) continue;
+  paging: while (true) {
+    const { data: contacts, error } = await supabase
+      .from("contacts")
+      .select("id, contact_emails(email)")
+      .eq("user_id", userId)
+      .gt("id", lastDoneId)
+      .order("id", { ascending: true })
+      .range(0, SYNC_CONTACT_PAGE - 1);
 
-    try {
-      const count = await syncEmailsForContact(
-        userId,
-        contact.id,
-        emails,
-        conn.gmail_address,
-        sinceDays
-      );
-      totalSynced += count;
-    } catch (err) {
-      console.error(`Sync failed for contact ${contact.id}:`, err);
+    if (error) throw error;
+    if (!contacts || contacts.length === 0) break;
+
+    for (const contact of contacts) {
+      const emails = (contact.contact_emails || [])
+        .map((e: { email: string | null }) => e.email)
+        .filter(Boolean) as string[];
+
+      if (emails.length === 0) {
+        lastDoneId = contact.id;
+        continue;
+      }
+
+      // Always make progress: only yield after at least one contact synced.
+      if (processedContacts > 0 && Date.now() - startedAt >= budgetMs) {
+        nextCursor = lastDoneId;
+        break paging;
+      }
+
+      try {
+        totalSynced += await syncEmailsForContact(
+          userId,
+          contact.id,
+          emails,
+          conn.gmail_address,
+          sinceDays
+        );
+      } catch (err) {
+        failedContacts++;
+        console.error(`Sync failed for contact ${contact.id}:`, err);
+      }
+      processedContacts++;
+      lastDoneId = contact.id;
     }
+
+    if (contacts.length < SYNC_CONTACT_PAGE) break;
   }
 
-  // Update last sync timestamp
-  await supabase
-    .from("gmail_connections")
-    .update({ last_gmail_sync_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("user_id", userId);
+  if (nextCursor === null) {
+    await supabase
+      .from("gmail_connections")
+      .update({ last_gmail_sync_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("user_id", userId);
+  }
 
-  return totalSynced;
+  return { totalSynced, processedContacts, failedContacts, nextCursor };
 }
 
 /**
