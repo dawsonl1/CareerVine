@@ -22,7 +22,7 @@ export default function SignOutButton() {
   return (
     <button
       onClick={signOut}
-      className="state-layer h-10 px-3 rounded-full text-sm font-medium whitespace-nowrap text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+      className="state-layer h-10 px-3 rounded-[10px] text-sm font-medium whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-container-high cursor-pointer transition-colors"
     >
       Sign out
     </button>

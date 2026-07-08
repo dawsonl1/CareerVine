@@ -16,6 +16,7 @@ import { useCompose } from "@/components/compose-email-context";
 import SignOutButton from "@/components/sign-out-button";
 import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox, MessageSquare, Building2 } from "lucide-react";
 import SetupBanner from "@/components/setup-banner";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export default function Navigation() {
   const { user } = useAuth();
@@ -70,37 +71,39 @@ export default function Navigation() {
           {/* User area */}
           <div className="flex flex-1 items-center justify-end gap-2.5">
             {/* Inbox icon — always visible, shows indicator when not connected */}
-            <Link
-              href={gmailConnected ? "/inbox" : "/settings?tab=integrations"}
-              className={`state-layer relative w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
-                pathname.startsWith("/inbox")
-                  ? "bg-secondary-container text-on-secondary-container"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-container-high"
-              }`}
-              title={gmailConnected ? "Inbox" : "Connect Gmail to use Inbox"}
-            >
-              <Inbox className="h-5 w-5" />
-              {gmailConnected && unreadCount > 0 && (
-                <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </span>
-              )}
-              {!gmailConnected && (
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-tertiary border-2 border-background" />
-              )}
-            </Link>
+            <Tooltip label={gmailConnected ? "Inbox" : "Connect Gmail to use Inbox"}>
+              <Link
+                href={gmailConnected ? "/inbox" : "/settings?tab=integrations"}
+                className={`state-layer relative w-11 h-11 rounded-[10px] flex items-center justify-center transition-colors ${
+                  pathname.startsWith("/inbox")
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface-container-high"
+                }`}
+              >
+                <Inbox className="h-5 w-5" />
+                {gmailConnected && unreadCount > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+                {!gmailConnected && (
+                  <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-tertiary border-2 border-background" />
+                )}
+              </Link>
+            </Tooltip>
             {/* Calendar icon */}
-            <Link
-              href="/calendar"
-              className={`state-layer w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
-                pathname.startsWith("/calendar")
-                  ? "bg-secondary-container text-on-secondary-container"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-container-high"
-              }`}
-              title="Calendar"
-            >
-              <Calendar className="h-5 w-5" />
-            </Link>
+            <Tooltip label="Calendar">
+              <Link
+                href="/calendar"
+                className={`state-layer w-11 h-11 rounded-[10px] flex items-center justify-center transition-colors ${
+                  pathname.startsWith("/calendar")
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface-container-high"
+                }`}
+              >
+                <Calendar className="h-5 w-5" />
+              </Link>
+            </Tooltip>
             <div className="hidden 2xl:flex flex-col items-end ml-1">
               <span className="text-base font-medium text-foreground leading-tight">
                 {user.user_metadata?.first_name || "User"}
