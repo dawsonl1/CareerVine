@@ -41,6 +41,10 @@
   --md-on-tertiary: #ffffff;
   --md-on-tertiary-container: #001f23;
 
+  /* M3 Inverse surface — dark chips/tooltips on light surfaces */
+  --md-inverse-surface: #2f312e;
+  --md-inverse-on-surface: #f0f1ec;
+
   /* M3 Error */
   --md-error: #ba1a1a;
   --md-error-container: #ffdad6;
@@ -112,6 +116,8 @@
   --color-on-error-container: var(--md-on-error-container);
   --color-outline: var(--md-outline);
   --color-outline-variant: var(--md-outline-variant);
+  --color-inverse-surface: var(--md-inverse-surface);
+  --color-inverse-on-surface: var(--md-inverse-on-surface);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

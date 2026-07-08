@@ -27,6 +27,7 @@ import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 
@@ -436,14 +437,15 @@ export default function ContactsPage() {
                       <span className="hidden md:inline-flex text-xs px-2.5 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-medium">
                         {contact.network_status === "prospect" ? "Prospect" : "Imported"}
                       </span>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
-                        className="p-2 rounded-full text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors shrink-0"
-                        title="Add to network"
-                      >
-                        <UserPlus className="h-5 w-5" />
-                      </button>
+                      <Tooltip label="Add to network">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
+                          className="p-2 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors shrink-0"
+                        >
+                          <UserPlus className="h-5 w-5" />
+                        </button>
+                      </Tooltip>
                     </>
                   )}
 
