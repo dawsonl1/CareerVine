@@ -6,10 +6,10 @@ import { useToast } from "@/components/ui/toast";
 import { useCompose } from "@/components/compose-email-context";
 import {
   Mail, Phone, ExternalLink, MapPin, Clock, Send,
-  Pencil, Trash2, ChevronDown, Check,
+  Pencil, Trash2, ChevronDown, Check, UserPlus,
 } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
-import { updateContact, addEmailToContact, removeEmailsFromContact } from "@/lib/queries";
+import { updateContact, addEmailToContact, removeEmailsFromContact, activateContact } from "@/lib/queries";
 import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import type { Contact } from "@/lib/types";
 
@@ -93,6 +93,16 @@ export function ContactProfileCard({
     }
   };
 
+  const handleActivate = async () => {
+    try {
+      await activateContact(contact.id);
+      onContactUpdate();
+      toastSuccess(`${contact.name} added to your network`);
+    } catch {
+      toastError("Failed to add to network");
+    }
+  };
+
   const saveCadence = async (days: number | null) => {
     setCadenceOpen(false);
     if (days === contact.follow_up_frequency_days) return;
@@ -124,6 +134,11 @@ export function ContactProfileCard({
               {contact.contact_status}
             </span>
           )}
+          {contact.network_status !== "active" && (
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-medium">
+              {contact.network_status === "prospect" ? "Prospect" : "Imported"}
+            </span>
+          )}
         </div>
         {currentCompany && (
           <p className="text-base text-muted-foreground mt-0.5">
@@ -140,6 +155,16 @@ export function ContactProfileCard({
             <MapPin className="h-3.5 w-3.5" />
             {locationParts.join(", ")}
           </p>
+        )}
+
+        {/* Prospect/bench → one click into the active network */}
+        {contact.network_status !== "active" && (
+          <button
+            onClick={handleActivate}
+            className="state-layer mt-4 w-full h-10 rounded-full bg-primary text-primary-foreground text-sm font-medium cursor-pointer inline-flex items-center justify-center gap-2 shadow-sm hover:shadow-md transition-all"
+          >
+            <UserPlus className="h-4 w-4" /> Add to my network
+          </button>
         )}
       </div>
 

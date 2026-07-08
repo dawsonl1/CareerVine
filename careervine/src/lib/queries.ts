@@ -552,6 +552,19 @@ export async function activateContacts(contactIds: number[]) {
 }
 
 /**
+ * Manually promote a single prospect/bench contact into the active
+ * network (the "Add to network" button). Unlike the fire-and-forget
+ * bulk activateContacts(), this throws so the UI can surface failures.
+ */
+export async function activateContact(contactId: number) {
+  const { error } = await supabase
+    .from("contacts")
+    .update({ network_status: "active" })
+    .eq("id", contactId);
+  if (error) throw error;
+}
+
+/**
  * Fetch all tags for a user
  * 
  * @param userId - The user's ID

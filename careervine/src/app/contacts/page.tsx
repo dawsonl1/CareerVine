@@ -13,11 +13,12 @@ import {
   findOrCreateCompany, addCompanyToContact,
   addEmailToContact, addPhoneToContact,
   getTags, createTag, addTagToContact, findOrCreateLocation,
+  activateContact,
 } from "@/lib/queries";
 import type { Contact, TagRow } from "@/lib/types";
 import {
   Plus, Users, Search, ChevronDown, Mail, Phone,
-  Tag, ExternalLink, Briefcase, GraduationCap, Check, Trash2, X,
+  Tag, ExternalLink, Briefcase, GraduationCap, Check, Trash2, X, UserPlus,
 } from "lucide-react";
 import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
@@ -138,6 +139,18 @@ export default function ContactsPage() {
     }
     return result;
   }, [contacts, searchQuery, selectedTagFilter]);
+
+  const handleActivate = async (contact: Contact) => {
+    try {
+      await activateContact(contact.id);
+      setContacts((prev) =>
+        prev.map((c) => (c.id === contact.id ? { ...c, network_status: "active" } : c))
+      );
+      toastSuccess(`${contact.name} added to your network`);
+    } catch {
+      toastError("Failed to add to network");
+    }
+  };
 
   const closeForm = () => {
     setShowForm(false);
@@ -404,7 +417,7 @@ export default function ContactsPage() {
 
                   {/* Email chip */}
                   {primaryEmail && (
-                    <span className="hidden sm:inline-flex items-center gap-1.5 text-sm text-muted-foreground truncate max-w-[200px]">
+                    <span className="hidden lg:inline-flex items-center gap-1.5 text-sm text-muted-foreground truncate max-w-[200px]">
                       <Mail className="h-3.5 w-3.5 shrink-0" />
                       {primaryEmail.email}
                     </span>
@@ -415,6 +428,24 @@ export default function ContactsPage() {
                     <span className="hidden md:inline-flex text-xs px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium capitalize">
                       {contact.contact_status}
                     </span>
+                  )}
+
+                  {/* Network tier — badge + one-click promotion to the active network */}
+                  {contact.network_status !== "active" && (
+                    <>
+                      <span className="hidden md:inline-flex text-xs px-2.5 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-medium">
+                        {contact.network_status === "prospect" ? "Prospect" : "Imported"}
+                      </span>
+                      <Button
+                        variant="tonal"
+                        size="sm"
+                        className="hidden sm:inline-flex shrink-0"
+                        onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
+                        title="Move into your active network"
+                      >
+                        <UserPlus className="h-4 w-4" /> Add to network
+                      </Button>
+                    </>
                   )}
 
                   {/* Expand chevron — stops propagation so bar click doesn't navigate */}
@@ -477,13 +508,24 @@ export default function ContactsPage() {
                         <p className="text-sm text-muted-foreground line-clamp-2">{contact.notes}</p>
                       )}
 
-                      <Button
-                        variant="tonal"
-                        size="sm"
-                        onClick={() => router.push(`/contacts/${contact.id}`)}
-                      >
-                        View full profile
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="tonal"
+                          size="sm"
+                          onClick={() => router.push(`/contacts/${contact.id}`)}
+                        >
+                          View full profile
+                        </Button>
+                        {contact.network_status !== "active" && (
+                          <Button
+                            variant="tonal"
+                            size="sm"
+                            onClick={() => handleActivate(contact)}
+                          >
+                            <UserPlus className="h-4 w-4" /> Add to network
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
