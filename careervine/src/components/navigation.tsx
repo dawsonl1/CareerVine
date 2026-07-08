@@ -46,7 +46,7 @@ export default function Navigation() {
           </Link>
 
           {/* Desktop nav tabs — single-row layout only when the full labeled pills fit */}
-          <div className="hidden xl:flex items-center gap-1.5 shrink-0">
+          <div className="hidden min-[1200px]:flex items-center gap-1 2xl:gap-1.5 shrink-0">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -54,7 +54,7 @@ export default function Navigation() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`state-layer flex items-center gap-2.5 px-5 h-11 rounded-full text-base font-medium transition-colors ${
+                  className={`state-layer flex items-center gap-2.5 px-4 2xl:px-5 h-11 rounded-full text-base font-medium transition-colors ${
                     active
                       ? "bg-secondary-container text-on-secondary-container"
                       : "text-muted-foreground hover:text-foreground"
@@ -117,7 +117,7 @@ export default function Navigation() {
         </div>
 
         {/* Second-tier tab row — shown whenever the single-row layout would overflow */}
-        <div className="flex xl:hidden -mx-4 border-t border-outline-variant">
+        <div className="flex min-[1200px]:hidden -mx-4 border-t border-outline-variant">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
