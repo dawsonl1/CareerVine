@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { sendEmail, getGmailClient, activateContactByEmail } from "@/lib/gmail";
+import { getGmailClient, activateContactByEmail } from "@/lib/gmail";
+import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 
 const receiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
@@ -147,7 +148,10 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Send each due message in this sequence
+    // Send at most one message per sequence per tick, oldest first. Steps in
+    // a sequence are meant to be spaced days apart; sending every due step in
+    // one run would burst multiple cold emails seconds apart (deliverability
+    // risk) if several fell due together (e.g. after cron downtime).
     for (const msg of messages) {
       // Atomic status check: set to 'sending' to prevent duplicates
       const { data: updated } = await service
@@ -161,7 +165,9 @@ export async function POST(req: NextRequest) {
       if (!updated) continue; // Already being processed
 
       try {
-        await sendEmail(userId, {
+        // Tracked path: counts against the daily cap, refuses bounced
+        // addresses, caches the sent message, and logs an interaction.
+        await sendTrackedEmail(userId, {
           to: parent.recipient_email,
           subject: msg.subject,
           bodyHtml: msg.body_html,
@@ -176,10 +182,13 @@ export async function POST(req: NextRequest) {
           .eq("id", msg.id);
 
         sent++;
+        break; // one send per sequence per tick
       } catch (err) {
+        // Cap reached (429): revert to pending, retry next run — never cancel.
+        // Bounce (422) / other errors past the 3-day window: give up.
+        const capped = err instanceof SendPolicyError && err.status === 429;
         console.error(`[cron] Failed to send follow-up ${msg.id}:`, err);
-        // If message is 3+ days past due, give up (permanent failure)
-        if (msg.scheduled_send_at < threeDaysAgo) {
+        if (!capped && msg.scheduled_send_at < threeDaysAgo) {
           await service
             .from("email_follow_up_messages")
             .update({ status: "cancelled" })
@@ -191,6 +200,7 @@ export async function POST(req: NextRequest) {
             .update({ status: "pending" })
             .eq("id", msg.id);
         }
+        if (capped) break; // cap is global — stop this run
       }
     }
 

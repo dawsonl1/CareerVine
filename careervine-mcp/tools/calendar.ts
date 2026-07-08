@@ -17,10 +17,28 @@ import {
 import { resolveRecipient, type EmailRowLike } from "../lib/email-policy.ts";
 import { handler, contactRefShape } from "../lib/tool-utils.ts";
 
+/** Parse an ISO timestamp, requiring an explicit timezone offset so a naive
+ *  time isn't silently interpreted in the MCP host's local zone. */
+function parseInstant(label: string, iso: string): Date {
+  if (!/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(iso.trim())) {
+    throw new Error(
+      `${label} must include a timezone offset (e.g. "2026-07-10T15:00:00-06:00" or "...Z") so the time is unambiguous.`,
+    );
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) throw new Error(`${label} is not a valid ISO timestamp: ${iso}`);
+  return d;
+}
+
 function rangeToWindow(range: "today" | "week" | "month" | undefined, start?: string, end?: string) {
   if (start || end) {
     if (!start || !end) throw new Error("Provide both start and end for a custom range");
-    return { timeMin: new Date(start).toISOString(), timeMax: new Date(end).toISOString() };
+    const min = new Date(start);
+    const max = new Date(end);
+    if (Number.isNaN(min.getTime()) || Number.isNaN(max.getTime())) {
+      throw new Error("Custom range start/end must be valid ISO timestamps");
+    }
+    return { timeMin: min.toISOString(), timeMax: max.toISOString() };
   }
   const from = new Date();
   from.setHours(0, 0, 0, 0);
@@ -82,8 +100,8 @@ export function registerCalendarTools(server: McpServer): void {
       inputSchema: {
         ...contactRefShape,
         title: z.string().min(1),
-        start: z.string().describe("Start time (ISO)"),
-        end: z.string().describe("End time (ISO)"),
+        start: z.string().describe("Start time as ISO 8601 WITH a timezone offset, e.g. 2026-07-10T15:00:00-06:00 or ...Z"),
+        end: z.string().describe("End time as ISO 8601 WITH a timezone offset (same format as start)"),
         description: z.string().optional().describe("Calendar invite description"),
         include_meet_link: z.boolean().optional().describe("Attach a Google Meet link (default true)"),
         send_invite: z
@@ -94,11 +112,8 @@ export function registerCalendarTools(server: McpServer): void {
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, title, start, end, description, include_meet_link, send_invite }) => {
-      const startDate = new Date(start);
-      const endDate = new Date(end);
-      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-        throw new Error("Invalid start/end timestamp");
-      }
+      const startDate = parseInstant("start", start);
+      const endDate = parseInstant("end", end);
       if (endDate <= startDate) throw new Error("end must be after start");
 
       const contact = await resolveContact({ contact_id, name });

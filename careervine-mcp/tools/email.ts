@@ -47,6 +47,29 @@ async function resolveComposeTarget(ref: { contact_id?: number; name?: string },
   return { contact, recipient };
 }
 
+/**
+ * Resolve RFC threading headers for a reply. Gmail groups a sent message into
+ * the thread server-side via threadId, but recipients' mail clients thread on
+ * In-Reply-To / References — so set them from the newest message's RFC
+ * Message-ID. Best-effort: returns {} when the thread isn't cached or the
+ * live fetch fails (the message still threads in the sender's Gmail).
+ */
+async function resolveReplyHeaders(
+  threadId: string | undefined,
+): Promise<{ inReplyTo?: string; references?: string }> {
+  if (!threadId) return {};
+  try {
+    const cached = await getCachedThreadMessages(threadId);
+    const last = cached.at(-1) as { gmail_message_id?: string } | undefined;
+    if (!last?.gmail_message_id) return {};
+    const full = await getFullMessage(uid(), last.gmail_message_id);
+    if (!full.messageId) return {};
+    return { inReplyTo: full.messageId, references: full.messageId };
+  } catch {
+    return {};
+  }
+}
+
 export const sendEmailSchema = {
   ...composeShape,
   confirm: z
@@ -87,11 +110,14 @@ export function registerEmailTools(server: McpServer): void {
     },
     handler(async ({ contact_id, name, subject, body, thread_id, to_email }) => {
       const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
+      const reply = await resolveReplyHeaders(thread_id);
       const draft = await createDraft(uid(), {
         to: recipient.email,
         subject,
         bodyHtml: markdownToHtml(body),
         threadId: thread_id,
+        inReplyTo: reply.inReplyTo,
+        references: reply.references,
       });
       return {
         summary: `Draft created for ${contact.name} <${recipient.email}> — review it in Gmail before sending`,
@@ -113,11 +139,14 @@ export function registerEmailTools(server: McpServer): void {
     },
     handler(async ({ contact_id, name, subject, body, thread_id, to_email }) => {
       const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
+      const reply = await resolveReplyHeaders(thread_id);
       const result = await sendTrackedEmail(uid(), {
         to: recipient.email,
         subject,
         bodyHtml: markdownToHtml(body),
         threadId: thread_id,
+        inReplyTo: reply.inReplyTo,
+        references: reply.references,
       });
       return {
         summary: `Sent to ${contact.name} <${recipient.email}>`,
@@ -143,12 +172,15 @@ export function registerEmailTools(server: McpServer): void {
       if (Number.isNaN(when.getTime())) throw new Error(`Invalid send_at timestamp: ${send_at}`);
       if (when.getTime() <= Date.now()) throw new Error("send_at must be in the future — use send_email to send now");
       const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
+      const reply = await resolveReplyHeaders(thread_id);
       const id = await createScheduledEmail({
         to: recipient.email,
         subject,
         bodyHtml: markdownToHtml(body),
         scheduledSendAt: when.toISOString(),
         threadId: thread_id,
+        inReplyTo: reply.inReplyTo,
+        references: reply.references,
         contactName: contact.name,
         matchedContactId: contact.id,
       });

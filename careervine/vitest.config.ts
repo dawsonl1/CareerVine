@@ -9,7 +9,8 @@ export default defineConfig({
       'src/**/*.test.ts',
       'src/**/*.test.tsx',
       // MCP server tests (plan 26) — one `npm run test` covers the repo.
-      // Requires `npm install` in careervine-mcp/ (see its README).
+      // careervine-mcp/ deps are installed automatically by the `pretest`
+      // script, so a fresh clone / CI works without a manual extra install.
       '../careervine-mcp/__tests__/**/*.test.ts',
     ],
     setupFiles: ['src/__tests__/setup.ts'],

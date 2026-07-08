@@ -30,8 +30,10 @@ function inline(s: string): string {
     // Emphasis delimiters must hug non-space (CommonMark rule), so bare
     // asterisks in prose — "2 * 3", globs — aren't turned into <em>.
     .replace(/(^|[^*])\*([^\s*][^*\n]*?[^\s*]|[^\s*])\*/g, "$1<em>$2</em>")
+    // Allow one level of balanced parens in the URL so links like
+    // …/Foo_(bar)?q=1 aren't truncated at the first ")".
     .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      /\[([^\]]+)\]\((https?:\/\/(?:[^\s()]+|\([^\s()]*\))*)\)/g,
       '<a href="$2">$1</a>',
     );
 }

@@ -711,7 +711,21 @@ export async function getNetworkHealth() {
 
     const baseDate = lastTouch ? new Date(lastTouch) : new Date(c.created_at);
     const daysSince = Math.floor((today.getTime() - baseDate.getTime()) / 86400_000);
-    if (c.follow_up_frequency_days && daysSince <= c.follow_up_frequency_days) onTrack++;
+    if (c.follow_up_frequency_days) {
+      // Match the app's getRelationshipsOnTrack: contacted contacts compare
+      // whole-day elapsed vs cadence; never-contacted-with-cadence compare
+      // today against created_at + cadence (keeps the created time-of-day, so
+      // the two surfaces don't disagree by a day at sub-day boundaries).
+      let onTrackHere: boolean;
+      if (lastTouch) {
+        onTrackHere = daysSince <= c.follow_up_frequency_days;
+      } else {
+        const dueDate = new Date(c.created_at);
+        dueDate.setDate(dueDate.getDate() + c.follow_up_frequency_days);
+        onTrackHere = today <= dueDate;
+      }
+      if (onTrackHere) onTrack++;
+    }
     if (c.follow_up_frequency_days && daysSince >= c.follow_up_frequency_days * 2) {
       neglected.push({
         id: c.id,
@@ -827,6 +841,8 @@ export async function createScheduledEmail(input: {
   bodyHtml: string;
   scheduledSendAt: string;
   threadId?: string;
+  inReplyTo?: string;
+  references?: string;
   contactName?: string;
   matchedContactId?: number | null;
 }): Promise<number> {
@@ -840,8 +856,8 @@ export async function createScheduledEmail(input: {
       subject: input.subject,
       body_html: input.bodyHtml,
       thread_id: input.threadId ?? null,
-      in_reply_to: null,
-      references_header: null,
+      in_reply_to: input.inReplyTo ?? null,
+      references_header: input.references ?? null,
       scheduled_send_at: input.scheduledSendAt,
       status: "pending",
       sent_at: null,

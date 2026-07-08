@@ -13,8 +13,8 @@ That's it. The server is registered in the repo-root `.mcp.json`, so any Claude 
 
 ### Credentials & configuration
 
-- **Secrets** come from `careervine/.env.local` (Supabase URL/keys, Google OAuth client). Nothing secret lives in `.mcp.json`.
-- **Operating user**: `.mcp.json` sets `CAREERVINE_USER_ID` (Dawson's auth id). `CAREERVINE_USER_EMAIL` works as an alternative — it's resolved against `auth.users` at startup.
+- **Secrets & config** come from `careervine/.env.local` (Supabase URL/keys, Google OAuth client). Nothing personal lives in the committed `.mcp.json` (its `env` is empty).
+- **Operating user**: set `CAREERVINE_USER_ID` (your `auth.users` id) in `careervine/.env.local`. `CAREERVINE_USER_EMAIL` works as an alternative — it's resolved against `auth.users` at startup. The server refuses to start if neither is set.
 - **Database target**: production by default. Set `NODE_ENV=development` in the server env to use the local Supabase stack instead (follows the app's `getSupabaseEnv()` logic, including `NEXT_PUBLIC_SUPABASE_USE_PROD`).
 - **Gmail/Calendar**: reuses the app's stored OAuth tokens (`gmail_connections`). The already-granted `gmail.modify` scope covers draft creation — no re-consent needed.
 

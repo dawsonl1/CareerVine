@@ -132,13 +132,21 @@ export function registerOutreachTools(server: McpServer): void {
         })),
       });
 
+      const CURRENT_CAP = 50, FORMER_CAP = 50, BENCH_CAP = 25;
+      const truncated: string[] = [];
+      if (detail.current.length > CURRENT_CAP) truncated.push(`current (showing ${CURRENT_CAP} of ${detail.current.length})`);
+      if (detail.former.length > FORMER_CAP) truncated.push(`former (showing ${FORMER_CAP} of ${detail.former.length})`);
+      if (detail.bench.length > BENCH_CAP) truncated.push(`archived (showing ${BENCH_CAP} of ${detail.bench.length})`);
       return {
+        summary:
+          `${detail.company.name}: ${detail.current.length} current, ${detail.former.length} former, ${detail.bench.length} archived` +
+          (truncated.length ? ` — lists truncated: ${truncated.join(", ")}` : ""),
         company: detail.company,
         target: detail.target,
         offices: detail.offices.map((o) => o.label),
-        current: detail.current.slice(0, 50).map(person),
-        former: detail.former.slice(0, 50).map(person),
-        archived_imports: detail.bench.slice(0, 25).map(person),
+        current: detail.current.slice(0, CURRENT_CAP).map(person),
+        former: detail.former.slice(0, FORMER_CAP).map(person),
+        archived_imports: detail.bench.slice(0, BENCH_CAP).map(person),
         counts: {
           current: detail.current.length,
           former: detail.former.length,
@@ -165,8 +173,9 @@ export function registerOutreachTools(server: McpServer): void {
       const id = await resolveCompanyId({ company_id, name });
       const targetId = await getOrCreateTargetCompany(id);
       await addTargetCompanyNote(targetId, note, location_id ?? null);
-      const { data } = await db().from("companies").select("name").eq("id", id).single();
-      return { summary: `Intel logged for ${(data as { name: string }).name}` };
+      const { data } = await db().from("companies").select("name").eq("id", id).maybeSingle();
+      const companyName = (data as { name: string } | null)?.name ?? `company ${id}`;
+      return { summary: `Intel logged for ${companyName}` };
     }),
   );
 

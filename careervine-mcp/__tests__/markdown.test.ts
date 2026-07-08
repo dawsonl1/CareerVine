@@ -33,6 +33,12 @@ describe("markdownToHtml", () => {
     );
   });
 
+  it("keeps balanced parens inside a link URL", () => {
+    expect(markdownToHtml("[docs](https://x.com/Foo_(bar)?q=1)")).toBe(
+      '<p><a href="https://x.com/Foo_(bar)?q=1">docs</a></p>',
+    );
+  });
+
   it("converts bullet and numbered lists", () => {
     expect(markdownToHtml("- one\n- two")).toBe("<ul><li>one</li><li>two</li></ul>");
     expect(markdownToHtml("1. one\n2. two")).toBe("<ol><li>one</li><li>two</li></ol>");

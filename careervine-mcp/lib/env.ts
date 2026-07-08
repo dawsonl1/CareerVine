@@ -38,11 +38,15 @@ function loadDotEnvFile(filePath: string): void {
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
     let value = trimmed.slice(eq + 1).trim();
-    if (
+    const quoted =
       (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
+      (value.startsWith("'") && value.endsWith("'"));
+    if (quoted) {
       value = value.slice(1, -1);
+    } else {
+      // Strip a trailing inline comment on unquoted values ("abc # note" → "abc").
+      const commentAt = value.search(/\s#/);
+      if (commentAt !== -1) value = value.slice(0, commentAt).trimEnd();
     }
     if (!(key in process.env)) process.env[key] = value;
   }

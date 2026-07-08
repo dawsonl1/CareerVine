@@ -145,6 +145,9 @@ export async function revokeAccess(userId: string) {
 import { getHeader, parseEmailAddress } from '@/lib/gmail-helpers';
 import type { ParsedHeader } from '@/lib/gmail-helpers';
 import { getOAuth2Client, refreshTokenIfNeeded } from '@/lib/oauth-helpers';
+// Circular with email-send.ts (which imports sendEmail/getConnection from here);
+// safe because both sides use the imports only inside function bodies.
+import { sendTrackedEmail, SendPolicyError } from '@/lib/email-send';
 
 /**
  * Sync emails for a specific contact by querying Gmail for messages
@@ -911,16 +914,31 @@ export async function processScheduledEmails(userId: string): Promise<{
 
   for (const email of pending) {
     try {
-      const result = await sendEmail(userId, {
-        to: email.recipient_email,
-        cc: email.cc || undefined,
-        bcc: email.bcc || undefined,
-        subject: email.subject,
-        bodyHtml: email.body_html,
-        threadId: email.thread_id || undefined,
-        inReplyTo: email.in_reply_to || undefined,
-        references: email.references_header || undefined,
-      });
+      // Route through the shared tracked path so scheduled sends count against
+      // the daily cap, are refused if the address has since bounced, and get
+      // cached + interaction-logged like interactive sends.
+      let result: { messageId: string; threadId: string };
+      try {
+        result = await sendTrackedEmail(userId, {
+          to: email.recipient_email,
+          cc: email.cc || undefined,
+          bcc: email.bcc || undefined,
+          subject: email.subject,
+          bodyHtml: email.body_html,
+          threadId: email.thread_id || undefined,
+          inReplyTo: email.in_reply_to || undefined,
+          references: email.references_header || undefined,
+        });
+      } catch (policyErr) {
+        if (policyErr instanceof SendPolicyError) {
+          // Cap reached (429) → stop the batch, retry next run. Bounce (422) →
+          // leave pending; detectBounces cancels the row once the NDR lands.
+          console.warn(`[scheduled] ${email.id} deferred: ${policyErr.message}`);
+          if (policyErr.status === 429) break;
+          continue;
+        }
+        throw policyErr;
+      }
 
       // Mark as sent
       await supabase
