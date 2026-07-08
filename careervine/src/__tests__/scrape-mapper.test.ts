@@ -120,6 +120,19 @@ describe('mapPeopleRecord — person core', () => {
     expect(mapPeopleRecord(makeRecord({ pipeline: { selected_contact: 'BENCH' } })).network_status).toBe('bench');
   });
 
+  it('maps crm.network_scope; missing defaults to target_company (B/C are company-scoped)', () => {
+    expect(mapPeopleRecord(makeRecord({ crm: { network_scope: 'broad_network' } })).network_scope).toBe('broad_network');
+    expect(mapPeopleRecord(makeRecord({ crm: { network_scope: 'target_company' } })).network_scope).toBe('target_company');
+    // pre-column records have no network_scope at all
+    expect(mapPeopleRecord(makeRecord()).network_scope).toBe('target_company');
+  });
+
+  it('unknown network_scope values default to target_company with a warning', () => {
+    const p = mapPeopleRecord(makeRecord({ crm: { network_scope: 'galaxy_wide' } }));
+    expect(p.network_scope).toBe('target_company');
+    expect(p.warnings.some((w) => w.startsWith('unknown_network_scope:'))).toBe(true);
+  });
+
   it('rejects wrong schema_version', () => {
     expect(() => mapPeopleRecord({ ...makeRecord(), schema_version: '2' })).toThrow(ScrapeMappingError);
   });

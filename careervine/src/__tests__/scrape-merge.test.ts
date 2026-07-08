@@ -248,4 +248,9 @@ describe('computeContactPatch', () => {
     expect(patch.import_source).toBe('apify:mini_a');
     expect(patch.import_meta).toEqual({ adjacency_score: 71 });
   });
+
+  it('refreshes the pipeline-owned network_scope on every import', () => {
+    const scoped = { ...mapped, network_scope: 'broad_network' } as MappedPerson;
+    expect(computeContactPatch(existing, scoped, NOW, null).patch.network_scope).toBe('broad_network');
+  });
 });

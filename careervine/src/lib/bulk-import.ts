@@ -403,6 +403,7 @@ async function createNewPerson(
       review_note: mapped.review_note,
       verified_school: mapped.verified_school,
       network_status: mapped.network_status,
+      network_scope: mapped.network_scope,
       import_source: mapped.import_source,
       import_meta: mapped.import_meta,
       last_scraped_at: now,

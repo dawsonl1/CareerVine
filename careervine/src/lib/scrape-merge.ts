@@ -208,6 +208,9 @@ export function computeContactPatch(
     review_note: mapped.review_note,
     import_source: mapped.import_source,
     import_meta: mapped.import_meta,
+    // Pipeline-owned segment label — refreshed every import (a person can
+    // move onto a target company between tranches)
+    network_scope: mapped.network_scope,
     last_scraped_at: nowIso,
   };
 

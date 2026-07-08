@@ -92,6 +92,7 @@ export interface PeopleRecord {
     email?: string | null;
     email_source?: string | null;
     stage?: string | null;
+    network_scope?: string | null;
     tags?: string[] | null;
     history_highlights?: string | null;
   };
@@ -133,6 +134,7 @@ export interface MappedPerson {
   review_note: string | null;
   verified_school: string | null;
   network_status: "prospect" | "bench";
+  network_scope: "target_company" | "broad_network";
   import_source: string;
   import_meta: Record<string, unknown>;
   tags: string[];
@@ -284,6 +286,16 @@ export function mapPeopleRecord(record: PeopleRecord, opts: MapOptions = {}): Ma
     warnings.push(`unknown_selected_contact:${record.pipeline?.selected_contact ?? ""}`);
   }
 
+  // Network scope (Search-A gate): only its nationwide hits are ever
+  // broad_network; B/C are company-scoped by construction, and records
+  // written before the column existed default to target_company.
+  const rawScope = (record.crm?.network_scope ?? "").trim().toLowerCase();
+  const networkScope: "target_company" | "broad_network" =
+    rawScope === "broad_network" ? "broad_network" : "target_company";
+  if (rawScope && rawScope !== "target_company" && rawScope !== "broad_network") {
+    warnings.push(`unknown_network_scope:${record.crm?.network_scope ?? ""}`);
+  }
+
   // Email: crm.email is the pipeline's pick; source hyphen → underscore
   let email: MappedPerson["email"] = null;
   const emailAddress = record.crm?.email?.trim().toLowerCase() || null;
@@ -372,6 +384,7 @@ export function mapPeopleRecord(record: PeopleRecord, opts: MapOptions = {}): Ma
     review_note: record.pipeline?.review_reason?.trim() || null,
     verified_school: verifiedSchool,
     network_status: networkStatus,
+    network_scope: networkScope,
     import_source: importSource,
     import_meta: importMeta,
     tags: (record.crm?.tags ?? []).map((t) => t.trim()).filter(Boolean),

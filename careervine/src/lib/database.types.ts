@@ -67,9 +67,10 @@ export type Database = {
           public_identifier: string | null; // LinkedIn profile slug — secondary dedupe key
           last_scraped_at: string | null; // When contact data was last refreshed by a scrape
           network_status: string;        // 'active' | 'prospect' | 'bench' — network tier segregation
+          network_scope: string | null;  // 'target_company' | 'broad_network' — pipeline segment; NULL = not a pipeline import
           stage_override: string | null; // Manual override for the derived outreach stage
         };
-        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "stage_override"> & {
+        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "network_scope" | "stage_override"> & {
           status_derived_at?: string | null;
           photo_url?: string | null;
           created_at?: string;
@@ -85,6 +86,7 @@ export type Database = {
           public_identifier?: string | null;
           last_scraped_at?: string | null;
           network_status?: string;
+          network_scope?: string | null;
           stage_override?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;

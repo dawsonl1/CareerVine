@@ -216,6 +216,15 @@ Per repo rules: migration file only; Dawson applies with `supabase db push`.
   dozens benched per company) from degrading the hand-curated-network UX.
 - `stage_override` text NULL — manual escape hatch for the derived stage
   (e.g. outreach happened via LinkedIn DM; see Phase 3).
+- **`network_scope` text NULL CHECK (`'target_company' | 'broad_network'`)**
+  (added post-Rev 3 when the pipeline grew its Search-A gate, README
+  §6.2/6.3/7): `broad_network` = a real BYU-family product alum at a
+  company OUTSIDE the target list, kept as a general networking/referral
+  contact. Mapped from `crm.network_scope`; missing (pre-column records)
+  defaults to `target_company` — B/C searches are company-scoped by
+  construction. NULL = not a pipeline import. Pipeline-owned: refreshed
+  on every re-import. Future UI: a "Broader Network" view alongside the
+  per-target-company lists (README §7 suggestion; not yet built).
 
 ### `target_companies` — the recruiting layer (user-scoped)
 
