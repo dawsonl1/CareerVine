@@ -74,3 +74,10 @@ docs/_build/
 
 # ---- Markdown ----
 planning.md
+
+# ---- Supabase (local CLI state) ----
+supabase/.temp/
+supabase/.branches/
+
+# ---- Office lock files ----
+~$*
