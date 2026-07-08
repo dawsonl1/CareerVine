@@ -552,6 +552,29 @@ export async function activateContacts(contactIds: number[]) {
 }
 
 /**
+ * Fast per-tier contact counts for the network tier toggle chips —
+ * head-only count queries so the numbers arrive long before the full
+ * contact payload finishes loading.
+ */
+export async function getNetworkTierCounts(userId: string) {
+  const tiers = ["active", "prospect", "bench"] as const;
+  const results = await Promise.all(
+    tiers.map((tier) =>
+      supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("network_status", tier)
+    )
+  );
+  return {
+    active: results[0].count ?? 0,
+    prospect: results[1].count ?? 0,
+    bench: results[2].count ?? 0,
+  };
+}
+
+/**
  * Manually promote a single prospect/bench contact into the active
  * network (the "Add to network" button). Unlike the fire-and-forget
  * bulk activateContacts(), this throws so the UI can surface failures.

@@ -13,7 +13,7 @@ import {
   findOrCreateCompany, addCompanyToContact,
   addEmailToContact, addPhoneToContact,
   getTags, createTag, addTagToContact, findOrCreateLocation,
-  activateContact,
+  activateContact, getNetworkTierCounts,
 } from "@/lib/queries";
 import type { Contact, TagRow } from "@/lib/types";
 import {
@@ -76,6 +76,9 @@ export default function ContactsPage() {
   );
   // True once every tier is in memory — toggle flips are then instant
   const [allTiersLoaded, setAllTiersLoaded] = useState(false);
+  // Lightweight head-count results shown on the chips until the full
+  // contact payload lands
+  const [serverTierCounts, setServerTierCounts] = useState<{ active: number; prospect: number; bench: number } | null>(null);
 
   const toggleTier = (tier: "active" | "prospect" | "bench") => {
     setEnabledTiers((prev) => {
@@ -117,15 +120,17 @@ export default function ContactsPage() {
     [contacts, deferredTiers]
   );
 
-  // Per-tier counts for the toggle chips (prospect/bench are accurate
-  // only once the background prefetch has landed)
+  // Per-tier counts for the toggle chips: derived from the loaded
+  // superset once it's in memory (stays live as contacts are promoted),
+  // otherwise the fast head-count results; null until either arrives
   const tierCounts = useMemo(() => {
+    if (!allTiersLoaded) return serverTierCounts;
     const counts = { active: 0, prospect: 0, bench: 0 };
     for (const c of contacts) {
       if (c.network_status in counts) counts[c.network_status as keyof typeof counts]++;
     }
     return counts;
-  }, [contacts]);
+  }, [contacts, allTiersLoaded, serverTierCounts]);
 
   // Only possible if the user toggles a tier before the prefetch lands
   const viewLoading = !allTiersLoaded && (enabledTiers.has("prospect") || enabledTiers.has("bench"));
@@ -133,6 +138,8 @@ export default function ContactsPage() {
   useEffect(() => {
     if (user) {
       loadContacts();
+      // Chip counts arrive in milliseconds, well before the full payload
+      getNetworkTierCounts(user.id).then(setServerTierCounts).catch(() => {});
       getTags(user.id).then(setAllTags).catch(() => {});
     }
   }, [user, loadContacts]);
@@ -395,7 +402,6 @@ export default function ContactsPage() {
             { key: "bench", label: "Archive" },
           ] as const).map((v) => {
             const on = enabledTiers.has(v.key);
-            const countKnown = v.key === "active" || allTiersLoaded;
             return (
               <button
                 key={v.key}
@@ -417,7 +423,7 @@ export default function ContactsPage() {
                   <Check className="h-4 w-4" />
                 </span>
                 {v.label}
-                {countKnown && (
+                {tierCounts && (
                   <span className="ml-1.5 text-muted-foreground">{tierCounts[v.key]}</span>
                 )}
               </button>
