@@ -107,10 +107,10 @@ export default function ContactsPage() {
     return Array.from(tagMap, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [contacts]);
 
-  // Search suggestions: name-matches first, then tag-only matches, plus
-  // matching companies (→ company page) and schools (→ filter by school)
-  const { nameSuggestions, tagSuggestions, companySuggestions, schoolSuggestions } = useMemo(() => {
-    if (!searchQuery.trim()) return { nameSuggestions: [], tagSuggestions: [], companySuggestions: [], schoolSuggestions: [] };
+  // Search suggestions: people matching by name, email, company, job
+  // title, school, or industry — then tag-only matches
+  const { nameSuggestions, tagSuggestions } = useMemo(() => {
+    if (!searchQuery.trim()) return { nameSuggestions: [], tagSuggestions: [] };
     const q = searchQuery.toLowerCase();
     const nameHit = (c: Contact) =>
       c.name.toLowerCase().includes(q) ||
@@ -122,35 +122,7 @@ export default function ContactsPage() {
     const nameSuggestions = contacts.filter(nameHit).slice(0, 5);
     const nameIds = new Set(nameSuggestions.map(c => c.id));
     const tagSuggestions = contacts.filter(c => !nameIds.has(c.id) && tagHit(c)).slice(0, 5);
-
-    // Aggregate matching companies/schools across contacts, counting each
-    // contact once, so suggestions rank by how much of the network they touch
-    const companyMap = new Map<number, { id: number; name: string; count: number }>();
-    const schoolMap = new Map<number, { id: number; name: string; count: number }>();
-    for (const c of contacts) {
-      const companyIds = new Set<number>();
-      for (const cc of c.contact_companies) {
-        if (cc.companies.name.toLowerCase().includes(q) && !companyIds.has(cc.company_id)) {
-          companyIds.add(cc.company_id);
-          const entry = companyMap.get(cc.company_id) || { id: cc.company_id, name: cc.companies.name, count: 0 };
-          entry.count++;
-          companyMap.set(cc.company_id, entry);
-        }
-      }
-      const schoolIds = new Set<number>();
-      for (const cs of c.contact_schools) {
-        if (cs.schools.name.toLowerCase().includes(q) && !schoolIds.has(cs.school_id)) {
-          schoolIds.add(cs.school_id);
-          const entry = schoolMap.get(cs.school_id) || { id: cs.school_id, name: cs.schools.name, count: 0 };
-          entry.count++;
-          schoolMap.set(cs.school_id, entry);
-        }
-      }
-    }
-    const companySuggestions = [...companyMap.values()].sort((a, b) => b.count - a.count).slice(0, 4);
-    const schoolSuggestions = [...schoolMap.values()].sort((a, b) => b.count - a.count).slice(0, 4);
-
-    return { nameSuggestions, tagSuggestions, companySuggestions, schoolSuggestions };
+    return { nameSuggestions, tagSuggestions };
   }, [contacts, searchQuery]);
 
   const filteredContacts = useMemo(() => {
@@ -334,7 +306,7 @@ export default function ContactsPage() {
             className="w-full h-12 pl-11 pr-4 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-base"
             placeholder="Search contacts…"
           />
-          {showSearchSuggestions && searchQuery.trim() && (nameSuggestions.length > 0 || tagSuggestions.length > 0 || companySuggestions.length > 0 || schoolSuggestions.length > 0) && (
+          {showSearchSuggestions && searchQuery.trim() && (nameSuggestions.length > 0 || tagSuggestions.length > 0) && (
             <div className="absolute left-0 top-full mt-1.5 w-full z-50 bg-surface-container-high rounded-2xl shadow-lg border border-outline-variant overflow-hidden">
               {nameSuggestions.map((c) => {
                 const currentCompany = c.contact_companies.find((cc) => cc.is_current);
@@ -349,40 +321,6 @@ export default function ContactsPage() {
                   </button>
                 );
               })}
-              {companySuggestions.length > 0 && (
-                <>
-                  <p className="px-5 pt-2.5 pb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-t border-outline-variant/50">Companies</p>
-                  {companySuggestions.map((co) => (
-                    <button key={`co-${co.id}`} type="button" onClick={() => { router.push(`/companies/${co.id}`); setSearchQuery(""); }}
-                      className="w-full flex items-center gap-4 px-5 py-3 hover:bg-surface-container cursor-pointer transition-colors text-left">
-                      <span className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
-                        <Briefcase className="h-4 w-4 text-muted-foreground" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-base text-foreground truncate">{co.name}</p>
-                        <p className="text-sm text-muted-foreground">{co.count} {co.count === 1 ? "person" : "people"}</p>
-                      </div>
-                    </button>
-                  ))}
-                </>
-              )}
-              {schoolSuggestions.length > 0 && (
-                <>
-                  <p className="px-5 pt-2.5 pb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-t border-outline-variant/50">Schools</p>
-                  {schoolSuggestions.map((sc) => (
-                    <button key={`sc-${sc.id}`} type="button" onClick={() => { setSearchQuery(sc.name); setShowSearchSuggestions(false); }}
-                      className="w-full flex items-center gap-4 px-5 py-3 hover:bg-surface-container cursor-pointer transition-colors text-left">
-                      <span className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
-                        <GraduationCap className="h-4 w-4 text-muted-foreground" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-base text-foreground truncate">{sc.name}</p>
-                        <p className="text-sm text-muted-foreground">{sc.count} {sc.count === 1 ? "person" : "people"}</p>
-                      </div>
-                    </button>
-                  ))}
-                </>
-              )}
               {tagSuggestions.length > 0 && (
                 <>
                   <p className="px-5 pt-2.5 pb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-t border-outline-variant/50">By tag</p>
