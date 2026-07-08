@@ -16,7 +16,24 @@ import {
   type StageSignals,
 } from "./stage-derivation";
 
-const supabase = createSupabaseBrowserClient();
+type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
+
+// Client is resolved lazily so this module can run outside the browser:
+// the MCP server injects a service-role client (all queries here are
+// explicitly user_id-scoped, so bypassing RLS is safe); the app falls
+// back to the usual browser singleton on first use.
+let injectedClient: QueryClient | null = null;
+let browserClient: QueryClient | null = null;
+
+export function setCompanyQueriesClient(client: QueryClient) {
+  injectedClient = client;
+}
+
+function db(): QueryClient {
+  if (injectedClient) return injectedClient;
+  if (!browserClient) browserClient = createSupabaseBrowserClient();
+  return browserClient;
+}
 
 // ── Shared helpers ─────────────────────────────────────────────────────
 
@@ -57,7 +74,7 @@ export async function getContactStages(
 
   const [emails, interactions, referrals, bounces, calEvents, calLinks, meetingLinks] = await Promise.all([
     chunked(ids, async (chunk) => {
-      const { data } = await supabase
+      const { data } = await db()
         .from("email_messages")
         .select("matched_contact_id, direction, date")
         .eq("user_id", userId)
@@ -66,11 +83,11 @@ export async function getContactStages(
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await supabase.from("interactions").select("contact_id").in("contact_id", chunk);
+      const { data } = await db().from("interactions").select("contact_id").in("contact_id", chunk);
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await supabase
+      const { data } = await db()
         .from("referrals")
         .select("referred_by_contact_id")
         .eq("user_id", userId)
@@ -78,7 +95,7 @@ export async function getContactStages(
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await supabase
+      const { data } = await db()
         .from("contact_emails")
         .select("contact_id")
         .not("bounced_at", "is", null)
@@ -86,7 +103,7 @@ export async function getContactStages(
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await supabase
+      const { data } = await db()
         .from("calendar_events")
         .select("contact_id, start_at, status")
         .eq("user_id", userId)
@@ -94,7 +111,7 @@ export async function getContactStages(
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await supabase
+      const { data } = await db()
         .from("calendar_event_contacts")
         .select("contact_id, calendar_events!inner(user_id, start_at, status)")
         .eq("calendar_events.user_id", userId)
@@ -102,7 +119,7 @@ export async function getContactStages(
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await supabase
+      const { data } = await db()
         .from("meeting_contacts")
         .select("contact_id, meetings!inner(user_id, meeting_date)")
         .eq("meetings.user_id", userId)
@@ -208,7 +225,7 @@ async function fetchUserEmploymentRows(userId: string): Promise<EmploymentAggRow
   const PAGE = 1000;
   const all: EmploymentAggRow[] = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+    const { data, error } = await db()
       .from("contact_companies")
       .select("company_id, contact_id, is_current, contacts!inner(user_id, network_status, stage_override)")
       .eq("contacts.user_id", userId)
@@ -230,7 +247,7 @@ export async function getCompanies(
 
   const [employment, targetsRes] = await Promise.all([
     fetchUserEmploymentRows(userId),
-    supabase
+    db()
       .from("target_companies")
       .select("id, company_id, priority_score, tier, program_name, app_window_text, next_app_date, status")
       .eq("user_id", userId),
@@ -280,7 +297,7 @@ export async function getCompanies(
 
   // Company rows (chunked)
   const companyRows = await chunked(companyIds, async (chunk) => {
-    let q = supabase
+    let q = db()
       .from("companies")
       .select("id, name, logo_url, linkedin_url, domain")
       .in("id", chunk);
@@ -452,16 +469,16 @@ export async function getCompanyDetail(
   opts: { locationKey?: string } = {},
 ): Promise<CompanyDetail | null> {
   const [companyRes, officesRes, targetRes] = await Promise.all([
-    supabase
+    db()
       .from("companies")
       .select("id, name, logo_url, linkedin_url, domain, universal_name")
       .eq("id", companyId)
       .maybeSingle(),
-    supabase
+    db()
       .from("company_locations")
       .select("id, location_id, source, locations(city, state, country)")
       .eq("company_id", companyId),
-    supabase
+    db()
       .from("target_companies")
       .select("id, priority_score, tier, program_name, app_window_text, next_app_date, status")
       .eq("user_id", userId)
@@ -472,7 +489,7 @@ export async function getCompanyDetail(
   if (!companyRes.data) return null;
 
   // Employment rows for this company across the user's contacts
-  const { data: empRows, error: empError } = await supabase
+  const { data: empRows, error: empError } = await db()
     .from("contact_companies")
     .select(
       `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
@@ -514,14 +531,14 @@ export async function getCompanyDetail(
   // Emails, alum badge, stages
   const [emailRows, schoolRows] = await Promise.all([
     chunked(contactIds, async (chunk) => {
-      const { data } = await supabase
+      const { data } = await db()
         .from("contact_emails")
         .select("contact_id, email, source, is_primary, bounced_at")
         .in("contact_id", chunk);
       return data ?? [];
     }),
     chunked(contactIds, async (chunk) => {
-      const { data } = await supabase
+      const { data } = await db()
         .from("contact_schools")
         .select("contact_id, schools(name)")
         .in("contact_id", chunk);
@@ -675,7 +692,7 @@ export async function getCompanyDetail(
   let target: CompanyDetail["target"] = null;
   if (targetRes.data) {
     const t = targetRes.data as TargetInfo;
-    const { data: noteRows } = await supabase
+    const { data: noteRows } = await db()
       .from("target_company_notes")
       .select("id, note, created_at, location_id, locations(city, state, country)")
       .eq("target_company_id", t.id)
@@ -725,13 +742,13 @@ export async function getCompanyDetail(
 
 /** Bench → prospect ("Add to outreach"). */
 export async function promoteContactToProspect(contactId: number) {
-  const { error } = await supabase.from("contacts").update({ network_status: "prospect" }).eq("id", contactId);
+  const { error } = await db().from("contacts").update({ network_status: "prospect" }).eq("id", contactId);
   if (error) throw error;
 }
 
 /** Prospect → bench (demote). */
 export async function demoteContactToBench(contactId: number) {
-  const { error } = await supabase.from("contacts").update({ network_status: "bench" }).eq("id", contactId);
+  const { error } = await db().from("contacts").update({ network_status: "bench" }).eq("id", contactId);
   if (error) throw error;
 }
 
@@ -742,26 +759,26 @@ export async function demoteContactToBench(contactId: number) {
  * but no longer imply an office.
  */
 export async function deleteCompanyOffice(office: { id: number; location_id: number }, companyId: number) {
-  const { error: clearError } = await supabase
+  const { error: clearError } = await db()
     .from("contact_companies")
     .update({ location_id: null, location_source: null })
     .eq("company_id", companyId)
     .eq("location_id", office.location_id)
     .eq("location_source", "profile_match");
   if (clearError) throw clearError;
-  const { error } = await supabase.from("company_locations").delete().eq("id", office.id);
+  const { error } = await db().from("company_locations").delete().eq("id", office.id);
   if (error) throw error;
 }
 
 export async function addCompanyOffice(companyId: number, locationId: number) {
-  const { error } = await supabase
+  const { error } = await db()
     .from("company_locations")
     .upsert({ company_id: companyId, location_id: locationId, source: "manual" }, { onConflict: "company_id,location_id", ignoreDuplicates: true });
   if (error) throw error;
 }
 
 export async function addTargetCompany(userId: string, companyId: number) {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("target_companies")
     .insert({ user_id: userId, company_id: companyId })
     .select("id")
@@ -774,7 +791,7 @@ export async function updateTargetCompany(
   targetId: number,
   patch: Partial<Pick<TargetInfo, "priority_score" | "tier" | "program_name" | "app_window_text" | "next_app_date" | "status">>,
 ) {
-  const { error } = await supabase
+  const { error } = await db()
     .from("target_companies")
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq("id", targetId);
@@ -782,19 +799,19 @@ export async function updateTargetCompany(
 }
 
 export async function addTargetCompanyNote(targetCompanyId: number, note: string, locationId?: number | null) {
-  const { error } = await supabase
+  const { error } = await db()
     .from("target_company_notes")
     .insert({ target_company_id: targetCompanyId, note, location_id: locationId ?? null });
   if (error) throw error;
 }
 
 export async function deleteTargetCompanyNote(noteId: number) {
-  const { error } = await supabase.from("target_company_notes").delete().eq("id", noteId);
+  const { error } = await db().from("target_company_notes").delete().eq("id", noteId);
   if (error) throw error;
 }
 
 /** Manual stage override ("mark as contacted" etc.); null clears it. */
 export async function setStageOverride(contactId: number, stage: string | null) {
-  const { error } = await supabase.from("contacts").update({ stage_override: stage }).eq("id", contactId);
+  const { error } = await db().from("contacts").update({ stage_override: stage }).eq("id", contactId);
   if (error) throw error;
 }

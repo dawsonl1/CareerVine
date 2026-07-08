@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "careervine": {
+      "command": "careervine-mcp/node_modules/.bin/tsx",
+      "args": [
+        "--tsconfig",
+        "careervine-mcp/tsconfig.json",
+        "careervine-mcp/server.ts"
+      ],
+      "env": {
+        "CAREERVINE_USER_ID": "63198da1-446a-43e0-b845-7ce708819cbe"
+      }
+    }
+  }
+}

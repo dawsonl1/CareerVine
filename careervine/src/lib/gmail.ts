@@ -797,26 +797,21 @@ export async function processFollowUps(userId: string): Promise<{
   return { sent, cancelled, errors };
 }
 
-/** Compose a raw MIME message and send it via Gmail API. */
-export async function sendEmail(
-  userId: string,
-  opts: {
-    to: string;
-    cc?: string;
-    bcc?: string;
-    subject: string;
-    bodyHtml: string;
-    threadId?: string;
-    inReplyTo?: string;
-    references?: string;
-  }
-): Promise<{ messageId: string; threadId: string }> {
-  const gmail = await getGmailClient(userId);
-  const conn = await getConnection(userId);
-  if (!conn) throw new Error("Gmail not connected");
+export interface ComposeEmailOptions {
+  to: string;
+  cc?: string;
+  bcc?: string;
+  subject: string;
+  bodyHtml: string;
+  threadId?: string;
+  inReplyTo?: string;
+  references?: string;
+}
 
+/** Build a base64url-encoded RFC 2822 message (shared by send and draft paths). */
+export function buildMimeMessage(fromAddress: string, opts: ComposeEmailOptions): string {
   const mimeLines = [
-    `From: ${conn.gmail_address}`,
+    `From: ${fromAddress}`,
     `To: ${opts.to}`,
     ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
     ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
@@ -828,8 +823,19 @@ export async function sendEmail(
     "",
     opts.bodyHtml,
   ];
+  return Buffer.from(mimeLines.join("\r\n")).toString("base64url");
+}
 
-  const raw = Buffer.from(mimeLines.join("\r\n")).toString("base64url");
+/** Compose a raw MIME message and send it via Gmail API. */
+export async function sendEmail(
+  userId: string,
+  opts: ComposeEmailOptions
+): Promise<{ messageId: string; threadId: string }> {
+  const gmail = await getGmailClient(userId);
+  const conn = await getConnection(userId);
+  if (!conn) throw new Error("Gmail not connected");
+
+  const raw = buildMimeMessage(conn.gmail_address, opts);
 
   const res = await gmail.users.messages.send({
     userId: "me",
@@ -842,6 +848,40 @@ export async function sendEmail(
   return {
     messageId: res.data.id || "",
     threadId: res.data.threadId || "",
+  };
+}
+
+/**
+ * Create a real Gmail draft (users.drafts.create). The granted
+ * gmail.modify scope covers drafts — no extra consent needed.
+ * Returns ids plus a deep link to the drafts folder.
+ */
+export async function createDraft(
+  userId: string,
+  opts: ComposeEmailOptions
+): Promise<{ draftId: string; messageId: string; threadId: string; webUrl: string }> {
+  const gmail = await getGmailClient(userId);
+  const conn = await getConnection(userId);
+  if (!conn) throw new Error("Gmail not connected");
+
+  const raw = buildMimeMessage(conn.gmail_address, opts);
+
+  const res = await gmail.users.drafts.create({
+    userId: "me",
+    requestBody: {
+      message: {
+        raw,
+        ...(opts.threadId ? { threadId: opts.threadId } : {}),
+      },
+    },
+  });
+
+  const messageId = res.data.message?.id || "";
+  return {
+    draftId: res.data.id || "",
+    messageId,
+    threadId: res.data.message?.threadId || "",
+    webUrl: "https://mail.google.com/mail/u/0/#drafts",
   };
 }
 
