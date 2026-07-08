@@ -395,6 +395,7 @@ export default function ContactsPage() {
             const isExpanded = expandedId === contact.id;
             const currentCompany = contact.contact_companies.find((cc) => cc.is_current);
             const school = contact.contact_schools[0]?.schools;
+            const primaryEmail = contact.contact_emails.find((e) => e.is_primary) || contact.contact_emails[0];
 
             return (
               <div key={contact.id} className="rounded-[12px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all">
@@ -413,9 +414,15 @@ export default function ContactsPage() {
                     </p>
                   </div>
 
-                  {/* School + current company stack */}
-                  {(school || currentCompany) && (
+                  {/* Email + school + current company stack */}
+                  {(primaryEmail || school || currentCompany) && (
                     <div className="hidden lg:flex flex-col gap-0.5 min-w-0 max-w-[220px]">
+                      {primaryEmail && (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
+                          <Mail className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{primaryEmail.email}</span>
+                        </span>
+                      )}
                       {school && (
                         <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground min-w-0">
                           <GraduationCap className="h-3.5 w-3.5 shrink-0" />
