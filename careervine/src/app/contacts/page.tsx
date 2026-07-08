@@ -67,12 +67,24 @@ export default function ContactsPage() {
   const [tagSearch, setTagSearch] = useState("");
   const [showTagDropdown, setShowTagDropdown] = useState(false);
 
-  // Network tiers: the default view is the hand-curated network only.
-  // Imported pipeline prospects (and the dormant bench) stay out of the
-  // way unless explicitly toggled in (plan 24 containment).
-  const [networkView, setNetworkView] = useState<"active" | "prospects" | "everyone">("active");
-  // True once every tier is in memory — tab switches are then instant
+  // Network tiers as independent toggles — the list shows the union of
+  // whichever tiers are switched on. Default is the hand-curated network
+  // only; imported prospects and the archive stay out of the way until
+  // toggled in (plan 24 containment).
+  const [enabledTiers, setEnabledTiers] = useState<Set<"active" | "prospect" | "bench">>(
+    () => new Set(["active"])
+  );
+  // True once every tier is in memory — toggle flips are then instant
   const [allTiersLoaded, setAllTiersLoaded] = useState(false);
+
+  const toggleTier = (tier: "active" | "prospect" | "bench") => {
+    setEnabledTiers((prev) => {
+      const next = new Set(prev);
+      if (next.has(tier)) next.delete(tier);
+      else next.add(tier);
+      return next;
+    });
+  };
 
   const loadContacts = useCallback(async () => {
     if (!user) return;
@@ -95,14 +107,23 @@ export default function ContactsPage() {
   }, [user]);
 
   // The view is a pure client-side filter over the loaded superset
-  const visibleContacts = useMemo(() => {
-    if (networkView === "everyone") return contacts;
-    if (networkView === "prospects") return contacts.filter((c) => c.network_status !== "bench");
-    return contacts.filter((c) => c.network_status === "active");
-  }, [contacts, networkView]);
+  const visibleContacts = useMemo(
+    () => contacts.filter((c) => enabledTiers.has(c.network_status as "active" | "prospect" | "bench")),
+    [contacts, enabledTiers]
+  );
 
-  // Only possible if the user switches views before the prefetch lands
-  const viewLoading = networkView !== "active" && !allTiersLoaded;
+  // Per-tier counts for the toggle chips (prospect/bench are accurate
+  // only once the background prefetch has landed)
+  const tierCounts = useMemo(() => {
+    const counts = { active: 0, prospect: 0, bench: 0 };
+    for (const c of contacts) {
+      if (c.network_status in counts) counts[c.network_status as keyof typeof counts]++;
+    }
+    return counts;
+  }, [contacts]);
+
+  // Only possible if the user toggles a tier before the prefetch lands
+  const viewLoading = !allTiersLoaded && (enabledTiers.has("prospect") || enabledTiers.has("bench"));
 
   useEffect(() => {
     if (user) {
@@ -361,25 +382,34 @@ export default function ContactsPage() {
           )}
         </div>
 
-        {/* Network tier toggle */}
+        {/* Network tier toggles — each chip flips a tier in or out of view */}
         <div className="flex items-center gap-2 mb-4">
           {([
             { key: "active", label: "My network" },
-            { key: "prospects", label: "+ Prospects" },
-            { key: "everyone", label: "Everyone" },
-          ] as const).map((v) => (
-            <button
-              key={v.key}
-              onClick={() => setNetworkView(v.key)}
-              className={`px-3.5 py-1.5 rounded-full text-sm transition-colors ${
-                networkView === v.key
-                  ? "bg-primary text-on-primary"
-                  : "bg-surface-container-high text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {v.label}
-            </button>
-          ))}
+            { key: "prospect", label: "Prospects" },
+            { key: "bench", label: "Archive" },
+          ] as const).map((v) => {
+            const on = enabledTiers.has(v.key);
+            const countKnown = v.key === "active" || allTiersLoaded;
+            return (
+              <button
+                key={v.key}
+                onClick={() => toggleTier(v.key)}
+                aria-pressed={on}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm cursor-pointer transition-colors ${
+                  on
+                    ? "bg-primary text-on-primary"
+                    : "bg-surface-container-high text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {on && <Check className="h-3.5 w-3.5" />}
+                {v.label}
+                {countKnown && (
+                  <span className={on ? "opacity-80" : "opacity-70"}>{tierCounts[v.key]}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Prefetch still in flight for non-active tiers */}
@@ -390,8 +420,15 @@ export default function ContactsPage() {
           </div>
         )}
 
-        {/* Empty state */}
-        {!viewLoading && visibleContacts.length === 0 && (
+        {/* Nothing toggled on */}
+        {!viewLoading && enabledTiers.size === 0 && (
+          <p className="text-base text-muted-foreground py-8 text-center">
+            No groups selected — toggle a group above to see people.
+          </p>
+        )}
+
+        {/* Empty state — brand new account with no contacts anywhere */}
+        {!viewLoading && enabledTiers.size > 0 && visibleContacts.length === 0 && contacts.length === 0 && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
               <Users className="mx-auto h-14 w-14 text-muted-foreground/40 mb-5" />
@@ -407,6 +444,13 @@ export default function ContactsPage() {
               </Button>
             </CardContent>
           </Card>
+        )}
+
+        {/* Selected groups are empty (but contacts exist elsewhere) */}
+        {!viewLoading && enabledTiers.size > 0 && visibleContacts.length === 0 && contacts.length > 0 && (
+          <p className="text-base text-muted-foreground py-8 text-center">
+            No contacts in the selected groups.
+          </p>
         )}
 
         {/* No search results */}
