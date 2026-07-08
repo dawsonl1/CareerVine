@@ -105,7 +105,12 @@ export default function ContactsPage() {
       setContacts(everyone as Contact[]);
       setAllTiersLoaded(true);
     } catch (error) {
-      console.error("Error loading contacts:", error);
+      // Postgrest errors are plain objects that log as "{}" — pull the fields out
+      const e = error as { message?: string; code?: string; details?: string; hint?: string };
+      console.error(
+        `Error loading contacts: ${e?.message || String(error)}`,
+        JSON.stringify({ code: e?.code, details: e?.details, hint: e?.hint })
+      );
     } finally {
       setLoading(false);
     }
@@ -469,8 +474,9 @@ export default function ContactsPage() {
           </p>
         )}
 
-        {/* Empty state — brand new account with no contacts anywhere */}
-        {!viewLoading && enabledTiers.size > 0 && visibleContacts.length === 0 && contacts.length === 0 && (
+        {/* Empty state — the network itself is empty and only it is selected.
+            Stays up even when prospects/archive exist in other tiers. */}
+        {!viewLoading && visibleContacts.length === 0 && enabledTiers.size === 1 && enabledTiers.has("active") && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
               <Users className="mx-auto h-14 w-14 text-muted-foreground/40 mb-5" />
@@ -488,8 +494,8 @@ export default function ContactsPage() {
           </Card>
         )}
 
-        {/* Selected groups are empty (but contacts exist elsewhere) */}
-        {!viewLoading && enabledTiers.size > 0 && visibleContacts.length === 0 && contacts.length > 0 && (
+        {/* Selected groups are empty — only when a non-default selection is active */}
+        {!viewLoading && visibleContacts.length === 0 && enabledTiers.size > 0 && !(enabledTiers.size === 1 && enabledTiers.has("active")) && (
           <p className="text-base text-muted-foreground py-8 text-center">
             No contacts in the selected groups.
           </p>
