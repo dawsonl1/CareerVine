@@ -46,8 +46,6 @@ import { Button } from "@/components/ui/button";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 import { runFullGmailSync } from "@/lib/gmail-sync-client";
-import { useOnboarding } from "@/components/onboarding/onboarding-provider";
-import { ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
 
 // ── Types ──
 
@@ -61,7 +59,6 @@ export default function InboxPage() {
   const { user } = useAuth();
   const router = useRouter();
   const { gmailConnected, gmailLoading, openCompose } = useCompose();
-  const { advanceIfStep, currentStepId } = useOnboarding();
 
   const [activeTab, setActiveTab] = useState<SidebarTab>("inbox");
   const [loading, setLoading] = useState(true);
@@ -175,17 +172,6 @@ export default function InboxPage() {
     window.addEventListener("careervine:drafts-changed", handler);
     return () => window.removeEventListener("careervine:drafts-changed", handler);
   }, [loadDrafts]);
-
-  // Detect Dawson reply for onboarding auto-advance
-  useEffect(() => {
-    if (currentStepId !== "read_reply") return;
-    const hasDawsonReply = emails.some(
-      (e) => e.from_address === ONBOARDING_CONTACT_EMAIL && e.direction === "inbound"
-    );
-    if (hasDawsonReply) {
-      advanceIfStep("read_reply");
-    }
-  }, [emails, advanceIfStep, currentStepId]);
 
   // Close dropdowns on outside click
   useClickOutside(moveDropdownRef, useCallback(() => setMoveDropdownMsgId(null), []), !!moveDropdownMsgId);
@@ -342,7 +328,7 @@ export default function InboxPage() {
     const allMsgs = [...emails, ...trashedEmails, ...hiddenEmails];
     const msg = allMsgs.find((e) => e.gmail_message_id === gmailMessageId);
 
-    // For simulated emails (onboarding), skip Gmail API calls — use DB data directly
+    // Simulated emails have no Gmail counterpart — use DB data directly
     const isSimulated = !!(msg as Record<string, unknown>)?.is_simulated;
 
     if (msg && !msg.is_read) {

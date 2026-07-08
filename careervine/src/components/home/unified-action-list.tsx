@@ -33,7 +33,6 @@ function ActionButton({
   label: string;
   color: string;
   onClick: () => void;
-  "data-onboarding-target"?: string;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
@@ -220,9 +219,9 @@ const typeLabels: Record<ActionItemType, { badgeBg: string; badgeText: string; l
   recently_added: { badgeBg: "bg-[#e8e0ff]", badgeText: "text-[#3b1f7a]", label: "RECENTLY ADDED" },
 };
 
-// ── Onboarding items for new users ──
+// ── Getting-started checklist shown while the action list is empty ──
 
-function OnboardingList({
+function GettingStartedList({
   onLogConversation,
   calendarConnected,
 }: {
@@ -231,21 +230,21 @@ function OnboardingList({
 }) {
   const items = [
     {
-      id: "onboard-extension",
+      id: "getting-started-extension",
       icon: <Chrome className="h-6 w-6 text-[#39656b]" />,
       title: "Install the Chrome extension",
       subtitle: "Add contacts from LinkedIn in one click",
     },
     ...(!calendarConnected
       ? [{
-          id: "onboard-calendar",
+          id: "getting-started-calendar",
           icon: <Calendar className="h-6 w-6 text-[#e8a838]" />,
           title: "Connect Google Calendar",
           subtitle: "See today's meetings with contact context",
         }]
       : []),
     {
-      id: "onboard-log",
+      id: "getting-started-log",
       icon: <Plus className="h-6 w-6 text-primary" />,
       title: "Log your first conversation",
       subtitle: "Capture a recent interaction before details fade",
@@ -258,7 +257,7 @@ function OnboardingList({
         <div
           key={item.id}
           className="flex items-center gap-4 py-5 px-5 cursor-pointer hover:bg-surface-container-low transition-colors"
-          onClick={item.id === "onboard-log" ? onLogConversation : item.id === "onboard-calendar" ? () => window.location.assign("/settings?tab=integrations") : undefined}
+          onClick={item.id === "getting-started-log" ? onLogConversation : item.id === "getting-started-calendar" ? () => window.location.assign("/settings?tab=integrations") : undefined}
         >
           <div className="w-14 h-14 rounded-full bg-surface-container-high flex items-center justify-center shrink-0">
             {item.icon}
@@ -397,10 +396,10 @@ export function UnifiedActionList({
         </div>
       )}
 
-      {/* Empty state / onboarding */}
+      {/* Empty state */}
       {!loading && isEmpty && (
         <div className="rounded-xl border border-outline-variant overflow-hidden">
-          <OnboardingList onLogConversation={onLogConversation} calendarConnected={calendarConnected} />
+          <GettingStartedList onLogConversation={onLogConversation} calendarConnected={calendarConnected} />
         </div>
       )}
 
@@ -685,7 +684,6 @@ function ActionListItem({
                 label="Intro"
                 color="#0d9488"
                 onClick={() => onIntro(item.contactId)}
-                data-onboarding-target={item.contactName.includes("Dawson") ? "intro-button-dawson" : undefined}
               />
             )}
           </>

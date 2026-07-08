@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { createActionItem } from "@/lib/queries";
 import { ActionItemSource, SuggestionReasonType } from "@/lib/constants";
 import { Sparkles, Check, X, Calendar, User, AlertTriangle, CheckSquare, Hourglass, Pencil } from "lucide-react";
-import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 /** Compact inline date picker — renders as a small "Add date" button that opens a native date input */
 function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
@@ -75,7 +74,6 @@ export function TranscriptActionSuggestions({
   onActionCreated,
 }: TranscriptActionSuggestionsProps) {
   const { success: toastSuccess, error: toastError } = useToast();
-  const { advanceIfStep } = useOnboarding();
   const [suggestions, setSuggestions] = useState<TranscriptSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasRun, setHasRun] = useState(false);
@@ -123,15 +121,12 @@ export function TranscriptActionSuggestions({
       setSuggestions(keyed);
       setTruncated(data.truncated || false);
       setHasRun(true);
-      if (keyed.length > 0) {
-        advanceIfStep("extract_actions");
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
-  }, [meetingId, transcript, attendees, meetingDate, userName, advanceIfStep]);
+  }, [meetingId, transcript, attendees, meetingDate, userName]);
 
   const updateSuggestion = useCallback((key: string, updates: Partial<TranscriptSuggestion>) => {
     setSuggestions((prev) => prev.map((s) => s._key === key ? { ...s, ...updates } : s));
@@ -183,7 +178,6 @@ export function TranscriptActionSuggestions({
       <button
         type="button"
         onClick={extractActions}
-        data-onboarding-target="extract-actions-button"
         className="flex items-center gap-2.5 text-sm text-primary hover:underline cursor-pointer mt-2.5"
       >
         <Sparkles className="h-4 w-4" />

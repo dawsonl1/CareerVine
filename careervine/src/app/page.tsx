@@ -36,7 +36,6 @@ import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
 import { useSuggestions } from "@/hooks/use-suggestions";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
-import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 import { LogConversationFab } from "@/components/home/log-conversation-fab";
 import { UnifiedActionList, type UnifiedActionItem, type SnoozeAction } from "@/components/home/unified-action-list";
@@ -74,7 +73,6 @@ export default function Home() {
   const { openCompose } = useCompose();
   const { toast } = useToast();
   const { calendarConnected, loading: gmailLoading } = useGmailConnection();
-  const { advanceIfStep, currentStepId } = useOnboarding();
 
   // ── SWR cache: hydrate from localStorage on mount for instant revisit ──
   const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
@@ -363,14 +361,6 @@ export default function Home() {
   useEffect(() => {
     if (dataLoaded) triggerSuggestions();
   }, [dataLoaded, triggerSuggestions]);
-
-  useEffect(() => {
-    if (currentStepId !== "view_dashboard_actions") return;
-    if (actionItems.length === 0) return;
-    // Brief delay so user can see the dashboard action items before advancing
-    const timer = setTimeout(() => advanceIfStep("view_dashboard_actions"), 3000);
-    return () => clearTimeout(timer);
-  }, [actionItems, advanceIfStep, currentStepId]);
 
   // ── Action handlers ──
 

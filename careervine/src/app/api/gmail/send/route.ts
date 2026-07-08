@@ -3,7 +3,6 @@ import { gmailSendSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendEmail, getConnection } from "@/lib/gmail";
 import { EmailDirection, GmailLabel } from "@/lib/constants";
-import { ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
 
 /**
  * Daily outbound cap (plan 24 Phase 4). Consumer Gmail allows ~500/day,
@@ -102,39 +101,6 @@ export const POST = withApiHandler({
         .eq("id", matchedContactId)
         .in("network_status", ["prospect", "bench"])
         .then(null, (err: unknown) => console.error("Failed to activate contact:", err));
-    }
-
-    if (toAddr === ONBOARDING_CONTACT_EMAIL) {
-      // Check if this is the first email to Dawson from this user
-      const { data: onboarding } = await service
-        .from("user_onboarding")
-        .select("current_step")
-        .eq("user_id", user.id)
-        .single();
-
-      if (onboarding && onboarding.current_step === "compose_send_email") {
-        // Insert simulated reply with a future timestamp so it sorts to top of inbox
-        const replyDate = new Date(Date.now() + 5000);
-        await service.from("email_messages").insert({
-          user_id: user.id,
-          gmail_message_id: `simulated-reply-${Date.now()}`,
-          thread_id: result.threadId || null,
-          subject: `Re: ${subject}`,
-          snippet:
-            "Hey! Thanks for reaching out — welcome to CareerVine. I built this to help people like you stay on top of their network.",
-          from_address: ONBOARDING_CONTACT_EMAIL,
-          to_addresses: [conn?.gmail_address?.toLowerCase() || ""],
-          date: replyDate.toISOString(),
-          label_ids: [GmailLabel.Inbox],
-          is_read: false,
-          direction: EmailDirection.Inbound,
-          matched_contact_id: matchedContactId,
-          is_simulated: true,
-        });
-
-        // Note: follow-up cancellation for onboarding emails is handled by the
-        // cron processor which detects the simulated inbound reply in the thread.
-      }
     }
 
     return { success: true, messageId: result.messageId, threadId: result.threadId };

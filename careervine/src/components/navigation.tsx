@@ -25,7 +25,7 @@ export default function Navigation() {
   if (!user) return null;
 
   const navItems = [
-    { href: "/", label: "Home", icon: LayoutDashboard, onboardingTarget: "nav-home" },
+    { href: "/", label: "Home", icon: LayoutDashboard },
     { href: "/meetings", label: "Activity", icon: MessageSquare },
     { href: "/contacts", label: "Contacts", icon: Users },
     { href: "/companies", label: "Companies", icon: Building2 },
@@ -54,7 +54,6 @@ export default function Navigation() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  {...(item.onboardingTarget ? { "data-onboarding-target": item.onboardingTarget } : {})}
                   className={`state-layer flex items-center gap-2.5 px-5 h-11 rounded-full text-base font-medium transition-colors ${
                     active
                       ? "bg-secondary-container text-on-secondary-container"
@@ -73,7 +72,6 @@ export default function Navigation() {
             {/* Inbox icon — always visible, shows indicator when not connected */}
             <Link
               href={gmailConnected ? "/inbox" : "/settings?tab=integrations"}
-              data-onboarding-target="nav-inbox"
               className={`state-layer relative w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
                 pathname.startsWith("/inbox")
                   ? "bg-secondary-container text-on-secondary-container"
@@ -127,7 +125,6 @@ export default function Navigation() {
               <Link
                 key={item.href}
                 href={item.href}
-                {...(item.onboardingTarget ? { "data-onboarding-target": item.onboardingTarget } : {})}
                 className={`flex-1 flex flex-col items-center gap-0.5 py-3 text-xs font-medium transition-colors ${
                   active
                     ? "text-primary"

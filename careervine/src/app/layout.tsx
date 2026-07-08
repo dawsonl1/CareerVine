@@ -24,9 +24,6 @@ import { ComposeEmailModal } from "@/components/compose-email-modal";
 import { QuickCaptureProvider } from "@/components/quick-capture-context";
 import { QuickCaptureModal } from "@/components/quick-capture-modal";
 import { ToastProvider } from "@/components/ui/toast";
-import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
-import { OnboardingGuide } from "@/components/onboarding/onboarding-guide";
-import { OnboardingHighlight } from "@/components/onboarding/onboarding-highlight";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
@@ -97,13 +94,9 @@ export default function RootLayout({
           <ToastProvider>
             <ComposeEmailProvider>
               <QuickCaptureProvider>
-                <OnboardingProvider>
-                  {children}
-                  <ComposeEmailModal />
-                  <QuickCaptureModal />
-                  <OnboardingGuide />
-                  <OnboardingHighlight />
-                </OnboardingProvider>
+                {children}
+                <ComposeEmailModal />
+                <QuickCaptureModal />
               </QuickCaptureProvider>
             </ComposeEmailProvider>
           </ToastProvider>

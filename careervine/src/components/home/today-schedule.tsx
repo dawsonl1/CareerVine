@@ -4,7 +4,6 @@ import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Calendar, MapPin, Video, Clock, Users, X } from "lucide-react";
-import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 export interface ScheduleEventAttendee {
   email: string;
@@ -177,7 +176,6 @@ function EventPopover({
   onClose: () => void;
   onLogConversation?: (event: LogConversationEvent) => void;
 }) {
-  const { advanceIfStep } = useOnboarding();
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Close on click outside
@@ -220,9 +218,7 @@ function EventPopover({
         {onLogConversation && (
           <button
             type="button"
-            data-onboarding-target="onboarding-log-conversation"
             onClick={() => {
-              advanceIfStep("open_log_conversation");
               onLogConversation({ contactId: event.contact?.id ?? event.contact_id ?? undefined, title: event.title ?? undefined, startAt: event.start_at, endAt: event.end_at, meetLink: event.meet_link });
               onClose();
             }}
@@ -465,7 +461,6 @@ function QuickAddCard({
 // ── Main component ──
 
 export function TodaySchedule({ events, loading, calendarConnected, availableHeight, onLogConversation, onEventCreated }: TodayScheduleProps) {
-  const { advanceIfStep } = useOnboarding();
   const [now, setNow] = useState(new Date());
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
 
@@ -670,12 +665,11 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
 
           {/* Event blocks */}
           {positionedEvents.map((event) => (
-            <div key={event.id} data-event-block className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }} {...(event.title?.includes("Dawson Pitcher") ? { "data-onboarding-target": "onboarding-meeting" } : {})}>
+            <div key={event.id} data-event-block className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }}>
               <div
                 onClick={() => {
                   setSelectedEventId(selectedEventId === event.id ? null : event.id);
                   if (event.title?.includes("Dawson Pitcher")) {
-                    advanceIfStep("click_meeting");
                   }
                 }}
                 className={`h-full rounded-lg border-l-[3px] border-primary px-3 py-1.5 overflow-hidden transition-colors cursor-pointer ${

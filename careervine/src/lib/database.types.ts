@@ -590,29 +590,6 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["follow_up_action_items"]["Insert"]>;
       };
 
-      // User onboarding — tracks onboarding progress per user
-      user_onboarding: {
-        Row: {
-          user_id: string;
-          version: number;
-          current_step: string;
-          started_at: string;
-          completed_at: string | null;
-          skipped_apollo: boolean;
-          onboarding_calendar_event_id: string | null;
-        };
-        Insert: {
-          user_id: string;
-          version?: number;
-          current_step?: string;
-          started_at?: string;
-          completed_at?: string | null;
-          skipped_apollo?: boolean;
-          onboarding_calendar_event_id?: string | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["user_onboarding"]["Insert"]>;
-      };
-
       // Target companies — user-scoped recruiting layer over companies
       target_companies: {
         Row: {
