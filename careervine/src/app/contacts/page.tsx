@@ -522,14 +522,15 @@ export default function ContactsPage() {
                   className="flex items-center gap-5 p-5 cursor-pointer"
                   onClick={() => router.push(`/contacts/${contact.id}`)}
                 >
-                  {/* Avatar — halo color signals the network tier (none = my network) */}
+                  {/* Avatar — tier signal: vivid teal halo = prospect,
+                      grayscale photo + gray halo = archived, clean = network */}
                   <ContactAvatar
                     name={contact.name}
                     photoUrl={contact.photo_url}
-                    className="w-14 h-14 text-base"
+                    className={`w-14 h-14 text-base ${contact.network_status === "bench" ? "grayscale opacity-75" : ""}`}
                     ringClassName={
                       contact.network_status === "prospect"
-                        ? "ring-tertiary ring-offset-2"
+                        ? "ring-teal-500 ring-offset-2"
                         : contact.network_status === "bench"
                           ? "ring-outline ring-offset-2"
                           : ""
