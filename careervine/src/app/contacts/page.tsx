@@ -116,12 +116,6 @@ export default function ContactsPage() {
   // toggle animation isn't blocked waiting for it.
   const deferredTiers = useDeferredValue(enabledTiers);
 
-  // The view is a pure client-side filter over the loaded superset
-  const visibleContacts = useMemo(
-    () => contacts.filter((c) => deferredTiers.has(c.network_status as "active" | "prospect" | "bench")),
-    [contacts, deferredTiers]
-  );
-
   // Per-tier counts for the toggle chips: derived from the loaded
   // superset once it's in memory (stays live as contacts are promoted),
   // otherwise the fast head-count results; null until either arrives
@@ -134,8 +128,19 @@ export default function ContactsPage() {
     return counts;
   }, [contacts, allTiersLoaded, serverTierCounts]);
 
+  // Hide the tier toggles entirely for accounts with no prospects or
+  // archived contacts — new users just see their network, no set math
+  const tiersExist = ((tierCounts?.prospect ?? 0) + (tierCounts?.bench ?? 0)) > 0;
+
+  // The view is a pure client-side filter over the loaded superset.
+  // With no toggles on screen, the view is always the active network.
+  const visibleContacts = useMemo(() => {
+    if (!tiersExist) return contacts.filter((c) => c.network_status === "active");
+    return contacts.filter((c) => deferredTiers.has(c.network_status as "active" | "prospect" | "bench"));
+  }, [contacts, deferredTiers, tiersExist]);
+
   // Only possible if the user toggles a tier before the prefetch lands
-  const viewLoading = !allTiersLoaded && (enabledTiers.has("prospect") || enabledTiers.has("bench"));
+  const viewLoading = tiersExist && !allTiersLoaded && (enabledTiers.has("prospect") || enabledTiers.has("bench"));
 
   useEffect(() => {
     if (user) {
@@ -409,7 +414,9 @@ export default function ContactsPage() {
           )}
         </div>
 
-        {/* Network tier toggles — each chip flips a tier in or out of view */}
+        {/* Network tier toggles — each chip flips a tier in or out of view.
+            Hidden entirely when there's nothing beyond the active network. */}
+        {tiersExist && (
         <div className="flex items-center gap-2 mb-4">
           {([
             { key: "active", label: "My network" },
@@ -445,6 +452,7 @@ export default function ContactsPage() {
             );
           })}
         </div>
+        )}
 
         {/* Prefetch still in flight for non-active tiers */}
         {viewLoading && (
@@ -455,7 +463,7 @@ export default function ContactsPage() {
         )}
 
         {/* Nothing toggled on */}
-        {!viewLoading && enabledTiers.size === 0 && (
+        {!viewLoading && tiersExist && enabledTiers.size === 0 && (
           <p className="text-base text-muted-foreground py-8 text-center">
             No groups selected — toggle a group above to see people.
           </p>
