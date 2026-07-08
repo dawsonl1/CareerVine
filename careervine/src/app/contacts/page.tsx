@@ -436,15 +436,14 @@ export default function ContactsPage() {
                       <span className="hidden md:inline-flex text-xs px-2.5 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-medium">
                         {contact.network_status === "prospect" ? "Prospect" : "Imported"}
                       </span>
-                      <Button
-                        variant="tonal"
-                        size="sm"
-                        className="hidden sm:inline-flex shrink-0"
+                      <button
+                        type="button"
                         onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
-                        title="Move into your active network"
+                        className="p-2 rounded-full text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors shrink-0"
+                        title="Add to network"
                       >
-                        <UserPlus className="h-4 w-4" /> Add to network
-                      </Button>
+                        <UserPlus className="h-5 w-5" />
+                      </button>
                     </>
                   )}
 
