@@ -93,14 +93,10 @@ export const POST = withApiHandler({
         summary: `Sent: ${subject}`,
       }).then(null, (err: unknown) => console.error("Failed to create email interaction:", err));
 
-      // First real outreach graduates imported prospects/bench into the
-      // active network (plan 24 tier transition).
-      await service
-        .from("contacts")
-        .update({ network_status: "active" })
-        .eq("id", matchedContactId)
-        .in("network_status", ["prospect", "bench"])
-        .then(null, (err: unknown) => console.error("Failed to activate contact:", err));
+      // Note: outbound email does NOT graduate prospects into the active
+      // network — a one-way cold email isn't a relationship yet. Tier
+      // graduation happens on their reply (gmail sync / follow-up reply
+      // detection), a manually logged interaction, or a meeting link.
     }
 
     return { success: true, messageId: result.messageId, threadId: result.threadId };

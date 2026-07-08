@@ -264,6 +264,18 @@ export async function syncEmailsForContact(
           ignoreDuplicates: false,
         });
         if (error) console.error("Insert error:", error);
+
+        // An inbound message means the contact wrote back — that reply is
+        // what graduates imported prospects/bench into the active network
+        // (plan 24 tier transition). Outbound-only threads never graduate.
+        if (newRows.some((r) => r.direction === "inbound")) {
+          const { error: actError } = await supabase
+            .from("contacts")
+            .update({ network_status: "active" })
+            .eq("id", contactId)
+            .in("network_status", ["prospect", "bench"]);
+          if (actError) console.error("Failed to activate contact on reply:", actError);
+        }
       }
 
       // Update existing messages: only safe fields (subject, snippet, label_ids)
@@ -664,6 +676,31 @@ export async function checkForReplyInThread(
  *   2. If no reply, send the follow-up email
  *   3. Update statuses accordingly
  */
+/**
+ * Graduate a prospect/bench contact into the active network after they
+ * reply, when the caller only knows the recipient email address (the
+ * follow-up sequence tables don't store contact_id). No-op if the email
+ * doesn't match one of the user's contacts or they're already active.
+ */
+export async function activateContactByEmail(userId: string, email: string) {
+  const supabase = createSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("contact_emails")
+    .select("contact_id, contacts!inner(user_id)")
+    .ilike("email", email)
+    .eq("contacts.user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (error || !data?.contact_id) return;
+
+  const { error: actError } = await supabase
+    .from("contacts")
+    .update({ network_status: "active" })
+    .eq("id", data.contact_id)
+    .in("network_status", ["prospect", "bench"]);
+  if (actError) console.error("Failed to activate contact on reply:", actError);
+}
+
 export async function processFollowUps(userId: string): Promise<{
   sent: number;
   cancelled: number;
@@ -713,6 +750,9 @@ export async function processFollowUps(userId: string): Promise<{
         .update({ status: "cancelled" })
         .eq("follow_up_id", followUp.id)
         .eq("status", "pending");
+
+      // Their reply graduates prospects/bench into the active network
+      await activateContactByEmail(userId, followUp.recipient_email);
 
       cancelled++;
       continue;

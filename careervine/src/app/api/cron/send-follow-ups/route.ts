@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { sendEmail, getGmailClient } from "@/lib/gmail";
+import { sendEmail, getGmailClient, activateContactByEmail } from "@/lib/gmail";
 
 const receiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
@@ -141,6 +141,8 @@ export async function POST(req: NextRequest) {
         .update({ status: "cancelled" })
         .eq("follow_up_id", seqId)
         .eq("status", "pending");
+      // Their reply graduates prospects/bench into the active network
+      await activateContactByEmail(userId, parent.recipient_email);
       cancelled += messages.length;
       continue;
     }
