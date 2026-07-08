@@ -81,18 +81,38 @@ INSERT INTO target_companies (
   updated_at
 )
 SELECT
-  tc.user_id,
-  tr.desired_company_id,
-  tc.priority_score,
-  tc.tier,
-  tc.program_name,
-  tc.app_window_text,
-  tc.next_app_date,
-  tc.status,
-  tc.created_at,
-  tc.updated_at
-FROM target_companies tc
-JOIN target_company_repoint tr ON tr.old_target_company_id = tc.id
+  grouped.user_id,
+  grouped.desired_company_id,
+  grouped.priority_score,
+  grouped.tier,
+  grouped.program_name,
+  grouped.app_window_text,
+  grouped.next_app_date,
+  grouped.status,
+  grouped.created_at,
+  grouped.updated_at
+FROM (
+  SELECT
+    tc.user_id,
+    tr.desired_company_id,
+    MAX(tc.priority_score) AS priority_score,
+    MAX(tc.tier) AS tier,
+    MAX(tc.program_name) AS program_name,
+    MAX(tc.app_window_text) AS app_window_text,
+    MAX(tc.next_app_date) AS next_app_date,
+    CASE
+      WHEN BOOL_OR(tc.status = 'closed') THEN 'closed'
+      WHEN BOOL_OR(tc.status = 'interviewing') THEN 'interviewing'
+      WHEN BOOL_OR(tc.status = 'applied') THEN 'applied'
+      WHEN BOOL_OR(tc.status = 'outreach_active') THEN 'outreach_active'
+      ELSE 'researching'
+    END AS status,
+    MIN(tc.created_at) AS created_at,
+    MAX(tc.updated_at) AS updated_at
+  FROM target_companies tc
+  JOIN target_company_repoint tr ON tr.old_target_company_id = tc.id
+  GROUP BY tc.user_id, tr.desired_company_id
+) grouped
 ON CONFLICT (user_id, company_id) DO UPDATE
 SET
   priority_score = COALESCE(target_companies.priority_score, EXCLUDED.priority_score),
