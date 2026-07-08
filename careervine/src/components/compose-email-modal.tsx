@@ -8,7 +8,8 @@ import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import { ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Button } from "@/components/ui/button";
-import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock, Sparkles } from "lucide-react";
+import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock, Sparkles, AlertTriangle } from "lucide-react";
+import { getEmailProvenance, markEmailVerified } from "@/lib/queries";
 import { AiWriteDropdown } from "@/components/ai-write-dropdown";
 import { AvailabilityPicker } from "@/components/availability-picker";
 import { IntroContextForm } from "@/components/intro-context-form";
@@ -67,6 +68,19 @@ export function ComposeEmailModal() {
   const [sent, setSent] = useState(false);
   const [scheduled, setScheduled] = useState(false);
   const [error, setError] = useState("");
+  // Provenance warning for scraped/pattern-guessed/bounced addresses (plan 24)
+  const [emailMeta, setEmailMeta] = useState<{ id: number; source: string; bounced_at: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!to.trim() || !to.includes("@")) {
+      setEmailMeta(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      getEmailProvenance(to).then(setEmailMeta).catch(() => setEmailMeta(null));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [to]);
 
   // Schedule send state
   const [showSchedule, setShowSchedule] = useState(false);
@@ -612,6 +626,37 @@ export function ComposeEmailModal() {
                     {email}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Address provenance warnings (plan 24 Phase 4) */}
+            {emailMeta?.bounced_at && (
+              <div className="flex items-center gap-2 px-5 py-2 bg-error-container/60 text-on-error-container text-xs border-b border-outline-variant/50">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  This address bounced on {new Date(emailMeta.bounced_at).toLocaleDateString()} — messages likely won&apos;t be delivered.
+                </span>
+              </div>
+            )}
+            {emailMeta && !emailMeta.bounced_at && emailMeta.source === "pattern_guessed" && (
+              <div className="flex items-center gap-2 px-5 py-2 bg-yellow-500/10 text-yellow-800 dark:text-yellow-300 text-xs border-b border-outline-variant/50">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span className="flex-1">This address was pattern-guessed by the scraper and may not exist.</span>
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:opacity-80 shrink-0"
+                  onClick={async () => {
+                    try {
+                      await markEmailVerified(emailMeta.id);
+                      setEmailMeta({ ...emailMeta, source: "verified" });
+                    } catch {
+                      /* non-blocking */
+                    }
+                  }}
+                  title="Mark this address verified (e.g. you've confirmed it or gotten a reply)"
+                >
+                  Mark verified
+                </button>
               </div>
             )}
 

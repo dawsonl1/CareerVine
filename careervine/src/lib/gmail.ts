@@ -820,3 +820,110 @@ export async function processScheduledEmails(userId: string): Promise<{
 
   return { sent, errors };
 }
+
+/**
+ * Bounce detection (plan 24 Phase 4).
+ *
+ * NDRs arrive from mailer-daemon/postmaster and never match a contact by
+ * address, so the per-contact sync can't see them. This pass queries Gmail
+ * for recent NDRs, reads the X-Failed-Recipients header (present on
+ * Gmail-relayed bounces), then:
+ *   1. sets contact_emails.bounced_at for the failed address,
+ *   2. cancels pending follow-up sequence steps to that address —
+ *      sequences otherwise auto-cancel only on reply and would fire
+ *      steps 2–3 into the void and burn sender reputation.
+ * Idempotent: bounced_at is only set once; re-running is safe.
+ */
+export async function detectBounces(
+  userId: string,
+  sinceDays = 14
+): Promise<{ bounced: string[]; cancelledSequences: number }> {
+  const gmail = await getGmailClient(userId);
+  const supabase = createSupabaseServiceClient();
+  const afterEpoch = Math.floor((Date.now() - sinceDays * 86400_000) / 1000);
+
+  const listRes = await withRetry(() =>
+    gmail.users.messages.list({
+      userId: "me",
+      q: `from:(mailer-daemon OR postmaster OR "Mail Delivery Subsystem") after:${afterEpoch}`,
+      maxResults: 50,
+    })
+  );
+
+  const messageIds = (listRes.data.messages || []).map((m) => m.id!);
+  if (messageIds.length === 0) return { bounced: [], cancelledSequences: 0 };
+
+  const failedAddresses = new Set<string>();
+  for (let i = 0; i < messageIds.length; i += 10) {
+    const batch = messageIds.slice(i, i + 10);
+    const details = await Promise.all(
+      batch.map((id) =>
+        withRetry(() =>
+          gmail.users.messages.get({
+            userId: "me",
+            id,
+            format: "metadata",
+            metadataHeaders: ["X-Failed-Recipients", "Subject"],
+          })
+        )
+      )
+    );
+    for (const res of details) {
+      const headers = (res.data.payload?.headers || []) as ParsedHeader[];
+      const failed = getHeader(headers, "X-Failed-Recipients");
+      if (failed) {
+        for (const addr of failed.split(",")) {
+          const clean = addr.trim().toLowerCase();
+          if (clean) failedAddresses.add(clean);
+        }
+      }
+    }
+  }
+
+  if (failedAddresses.size === 0) return { bounced: [], cancelledSequences: 0 };
+
+  const now = new Date().toISOString();
+  const bounced: string[] = [];
+  let cancelledSequences = 0;
+
+  for (const address of failedAddresses) {
+    // Only touch addresses that belong to this user's contacts
+    const { data: emailRows } = await supabase
+      .from("contact_emails")
+      .select("id, bounced_at, contacts!inner(user_id)")
+      .eq("email", address)
+      .eq("contacts.user_id", userId);
+    if (!emailRows || emailRows.length === 0) continue;
+
+    bounced.push(address);
+    const toMark = emailRows.filter((r) => !r.bounced_at).map((r) => r.id);
+    if (toMark.length > 0) {
+      await supabase
+        .from("contact_emails")
+        .update({ bounced_at: now })
+        .in("id", toMark);
+    }
+
+    // Cancel active follow-up sequences aimed at the dead address
+    const { data: sequences } = await supabase
+      .from("email_follow_ups")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .eq("recipient_email", address);
+    for (const seq of sequences || []) {
+      await supabase
+        .from("email_follow_ups")
+        .update({ status: "cancelled_bounce", updated_at: now })
+        .eq("id", seq.id);
+      await supabase
+        .from("email_follow_up_messages")
+        .update({ status: "cancelled" })
+        .eq("follow_up_id", seq.id)
+        .eq("status", "pending");
+      cancelledSequences++;
+    }
+  }
+
+  return { bounced, cancelledSequences };
+}

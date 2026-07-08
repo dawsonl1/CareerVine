@@ -1,9 +1,16 @@
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailSendSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendEmail, getConnection } from "@/lib/gmail";
 import { EmailDirection, GmailLabel } from "@/lib/constants";
 import { ONBOARDING_CONTACT_EMAIL } from "@/components/onboarding/onboarding-steps";
+
+/**
+ * Daily outbound cap (plan 24 Phase 4). Consumer Gmail allows ~500/day,
+ * but bursts anywhere near that torch sender reputation for cold
+ * outreach — stay far below it.
+ */
+const DAILY_SEND_CAP = 100;
 
 /**
  * POST /api/gmail/send
@@ -15,6 +22,24 @@ export const POST = withApiHandler({
   schema: gmailSendSchema,
   handler: async ({ user, body }) => {
     const { to, cc, bcc, subject, bodyHtml, threadId, inReplyTo, references } = body;
+
+    // Send-limit guardrail
+    const guard = createSupabaseServiceClient();
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const { count: sentToday } = await guard
+      .from("email_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("direction", EmailDirection.Outbound)
+      .eq("is_simulated", false)
+      .gte("date", midnight.toISOString());
+    if ((sentToday ?? 0) >= DAILY_SEND_CAP) {
+      throw new ApiError(
+        `Daily send limit reached (${DAILY_SEND_CAP}). Sending more today risks Gmail deliverability — try again tomorrow.`,
+        429,
+      );
+    }
 
     const result = await sendEmail(user.id, {
       to, cc, bcc, subject,
@@ -68,6 +93,15 @@ export const POST = withApiHandler({
         interaction_type: "email",
         summary: `Sent: ${subject}`,
       }).then(null, (err: unknown) => console.error("Failed to create email interaction:", err));
+
+      // First real outreach graduates imported prospects/bench into the
+      // active network (plan 24 tier transition).
+      await service
+        .from("contacts")
+        .update({ network_status: "active" })
+        .eq("id", matchedContactId)
+        .in("network_status", ["prospect", "bench"])
+        .then(null, (err: unknown) => console.error("Failed to activate contact:", err));
     }
 
     if (toAddr === ONBOARDING_CONTACT_EMAIL) {

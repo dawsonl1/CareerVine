@@ -432,6 +432,7 @@ export async function replaceContactsForMeeting(meetingId: number, contactIds: n
     const rows = contactIds.map((contact_id) => ({ meeting_id: meetingId, contact_id }));
     const { error: insError } = await supabase.from("meeting_contacts").insert(rows);
     if (insError) throw insError;
+    await activateContacts(contactIds);
   }
 }
 
@@ -447,6 +448,7 @@ export async function addContactsToMeeting(meetingId: number, contactIds: number
   const rows = contactIds.map((contact_id) => ({ meeting_id: meetingId, contact_id }));
   const { error } = await supabase.from("meeting_contacts").insert(rows);
   if (error) throw error;
+  await activateContacts(contactIds);
 }
 
 /**
@@ -506,7 +508,47 @@ export async function createInteraction(
     .single();
 
   if (error) throw error;
+  await activateContacts([interaction.contact_id]);
   return data;
+}
+
+/**
+ * Provenance for an email address the user is about to send to —
+ * powers the compose modal's pattern-guessed / bounced warnings.
+ */
+export async function getEmailProvenance(address: string) {
+  const clean = address.trim().toLowerCase();
+  if (!clean) return null;
+  const { data } = await supabase
+    .from("contact_emails")
+    .select("id, source, bounced_at")
+    .eq("email", clean)
+    .limit(1);
+  return (data?.[0] as { id: number; source: string; bounced_at: string | null } | undefined) ?? null;
+}
+
+/** Flip a pattern-guessed address to verified (e.g. after a reply). */
+export async function markEmailVerified(emailId: number) {
+  const { error } = await supabase
+    .from("contact_emails")
+    .update({ source: "verified" })
+    .eq("id", emailId);
+  if (error) throw error;
+}
+
+/**
+ * First real touch (interaction, meeting, outbound email) graduates
+ * imported prospects/bench contacts into the active network (plan 24
+ * tier transition). No-op for contacts already active.
+ */
+export async function activateContacts(contactIds: number[]) {
+  if (contactIds.length === 0) return;
+  const { error } = await supabase
+    .from("contacts")
+    .update({ network_status: "active" })
+    .in("id", contactIds)
+    .in("network_status", ["prospect", "bench"]);
+  if (error) console.error("Failed to activate contacts:", error);
 }
 
 /**
