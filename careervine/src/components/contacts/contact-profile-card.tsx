@@ -7,8 +7,11 @@ import { useCompose } from "@/components/compose-email-context";
 import {
   Mail, Phone, ExternalLink, MapPin, Clock, Send,
   Pencil, Trash2, ChevronDown, Check, UserPlus, RefreshCw, MailSearch,
+  Link2, AlertTriangle,
 } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { ResolveLinkedinModal } from "@/components/contacts/resolve-linkedin-modal";
+import { SCRAPE_FAILURES_BEFORE_RELINK } from "@/lib/constants";
 import { updateContact, addEmailToContact, removeEmailsFromContact, activateContact } from "@/lib/queries";
 import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import type { Contact } from "@/lib/types";
@@ -141,6 +144,12 @@ export function ContactProfileCard({
     ? `Data as of ${new Date(contact.last_scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
     : null;
 
+  // LinkedIn resolve/re-link modal (plan 29 §6.3)
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const linkLooksBroken =
+    Boolean(contact.linkedin_url) &&
+    (contact.scrape_failure_count ?? 0) >= SCRAPE_FAILURES_BEFORE_RELINK;
+
   const saveCadence = async (days: number | null) => {
     setCadenceOpen(false);
     if (days === contact.follow_up_frequency_days) return;
@@ -264,7 +273,7 @@ export function ContactProfileCard({
         )}
 
         {/* LinkedIn */}
-        {contact.linkedin_url && (
+        {contact.linkedin_url ? (
           <div className="flex items-center gap-3 text-base">
             <ExternalLink className="h-5 w-5 text-muted-foreground shrink-0" />
             <a
@@ -275,6 +284,26 @@ export function ContactProfileCard({
             >
               LinkedIn
             </a>
+            {linkLooksBroken && (
+              <button
+                onClick={() => setResolveOpen(true)}
+                className="flex items-center gap-1 text-xs text-amber-600 hover:underline cursor-pointer"
+                title="Recent refreshes failed — the profile may have moved"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Re-link
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 text-base">
+            <Link2 className="h-5 w-5 text-muted-foreground shrink-0" />
+            <button
+              onClick={() => setResolveOpen(true)}
+              className="text-primary hover:underline cursor-pointer text-left"
+            >
+              Link LinkedIn profile
+            </button>
           </div>
         )}
 
@@ -361,6 +390,15 @@ export function ContactProfileCard({
           <Trash2 className="h-5 w-5" />
         </button>
       </div>
+
+      {resolveOpen && (
+        <ResolveLinkedinModal
+          contactId={contact.id}
+          contactName={contact.name}
+          onClose={() => setResolveOpen(false)}
+          onLinked={onContactUpdate}
+        />
+      )}
     </div>
   );
 }

@@ -12,7 +12,7 @@
  *                          (falls back to https://$VERCEL_URL)
  */
 
-import { PROFILE_SCRAPER_ACTOR } from "@/lib/constants";
+import { PROFILE_SCRAPER_ACTOR, PROFILE_SEARCH_BY_NAME_ACTOR } from "@/lib/constants";
 import { ApiError } from "@/lib/api-handler";
 
 const APIFY_BASE = "https://api.apify.com/v2";
@@ -131,4 +131,53 @@ export async function getDatasetItems(datasetId: string): Promise<ApifyProfileIt
   const res = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?token=${token}&clean=true&format=json`);
   if (!res.ok) throw new ApiError(`Apify dataset fetch failed (${res.status})`, 502);
   return (await res.json()) as ApifyProfileItem[];
+}
+
+/** One short profile from the search-by-name actor. */
+export interface ApifySearchProfileItem {
+  linkedinUrl?: string | null;
+  publicIdentifier?: string | null;
+  name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  headline?: string | null;
+  photo?: string | null;
+  location?: { linkedinText?: string | null } | string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * Actor B (plan 29 §2): resolve a person by name, synchronously. Short mode,
+ * one search page (≤10 short profiles, $0.004) — fast enough for an
+ * interactive picker via Apify's run-sync endpoint. `currentCompanies`
+ * (company LinkedIn URLs) and `locations` narrow ambiguous names.
+ */
+export async function searchProfilesByName(opts: {
+  firstName: string;
+  lastName?: string;
+  currentCompanies?: string[];
+  locations?: string[];
+}): Promise<ApifySearchProfileItem[]> {
+  const token = getApifyToken();
+  const actor = PROFILE_SEARCH_BY_NAME_ACTOR.replace("/", "~");
+  // Server-side wait, bounded under our route's maxDuration.
+  const res = await fetch(`${APIFY_BASE}/acts/${actor}/run-sync-get-dataset-items?token=${token}&timeout=45`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      profileScraperMode: "Short",
+      firstName: opts.firstName,
+      ...(opts.lastName ? { lastName: opts.lastName } : {}),
+      strictSearch: true,
+      maxPages: 1,
+      maxItems: 10,
+      ...(opts.currentCompanies?.length ? { currentCompanies: opts.currentCompanies } : {}),
+      ...(opts.locations?.length ? { locations: opts.locations } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(`LinkedIn search failed (${res.status}): ${text.slice(0, 200)}`, 502);
+  }
+  return (await res.json()) as ApifySearchProfileItem[];
 }

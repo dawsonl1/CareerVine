@@ -119,6 +119,15 @@ export const ScrapeTrigger = {
 /** The Apify actor used for all in-app scrapes (plan 29 §2). */
 export const PROFILE_SCRAPER_ACTOR = "harvestapi/linkedin-profile-scraper";
 
+/** Actor B — the name→profile fallback resolver (plan 29 §2). */
+export const PROFILE_SEARCH_BY_NAME_ACTOR = "harvestapi/linkedin-profile-search-by-name";
+
+/** One short-mode search page ($4/1k pages, ≤10 short profiles). */
+export const RESOLVE_COST_USD = 0.004;
+
+/** Consecutive scrape failures before the UI suggests re-linking the profile. */
+export const SCRAPE_FAILURES_BEFORE_RELINK = 3;
+
 /** Per-profile Apify cost at BRONZE tier, used for pre-run budget checks. */
 export const SCRAPE_UNIT_COST_USD = { profile: 0.004, email: 0.01 } as const;
 

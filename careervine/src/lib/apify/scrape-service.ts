@@ -17,6 +17,7 @@ import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { importPeopleChunk, type PersonImportInput, type RescrapeDiffCapture } from "@/lib/bulk-import";
 import { buildSnapshot, computeDiff, type ScrapeSnapshot } from "@/lib/change-events/diff-engine";
 import {
+  ChangeEventType,
   MONTHLY_SCRAPE_CAP_USD,
   PROFILE_SCRAPER_ACTOR,
   SCRAPE_DEBOUNCE_DAYS,
@@ -335,8 +336,9 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
 
     // Scrape-diff: emit change events + snapshots. Isolated — a diff failure
     // must never fail an already-merged run.
+    let companyChangeContacts: number[] = [];
     try {
-      await processDiffs(service, runRow.user_id, runRow.id, items, captures, now);
+      companyChangeContacts = await processDiffs(service, runRow.user_id, runRow.id, items, captures, now);
     } catch (err) {
       console.error(`[scrape] diff processing failed for run ${runRow.id}:`, err);
     }
@@ -345,6 +347,14 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
     await markRunTerminal(service, runRow.id, ScrapeRunStatus.Succeeded, cost, now, null);
     if (succeeded.length) await resetFailures(service, succeeded);
     if (failed.length) await bumpFailures(service, failed, now);
+
+    // Event-driven email search (plan 29 §4): a company change means a new
+    // domain — the one moment a previously-failed email search has fresh odds.
+    // Runs AFTER the run is terminal so the new trigger isn't blocked as
+    // in-flight. Profile-mode runs only (an email run already searched).
+    if (runRow.mode !== ScrapeMode.Email && companyChangeContacts.length > 0) {
+      await triggerEmailFollowups(service, runRow.user_id, companyChangeContacts);
+    }
   } catch (err) {
     // Never leave the row pending — that would block the contact forever.
     await markRunTerminal(service, runRow.id, ScrapeRunStatus.Failed, 0, now, err instanceof Error ? err.message : "ingest failed");
@@ -396,8 +406,8 @@ async function processDiffs(
   items: ApifyProfileItem[],
   captures: RescrapeDiffCapture[],
   now: string,
-): Promise<void> {
-  if (captures.length === 0) return;
+): Promise<number[]> {
+  if (captures.length === 0) return [];
 
   // Correlate raw items back to captures by canonical URL.
   const itemByUrl = new Map<string, ApifyProfileItem>();
@@ -490,6 +500,33 @@ async function processDiffs(
   if (snapshotRows.length > 0) {
     const { error } = await service.from("contact_scrape_snapshots").insert(snapshotRows);
     if (error) console.error("[scrape] snapshot insert failed:", error);
+  }
+
+  return [...new Set(eventRows.filter((r) => r.type === ChangeEventType.CompanyChange).map((r) => r.contact_id as number))];
+}
+
+/**
+ * For contacts who just changed companies and have no usable (non-bounced)
+ * email, start an email-mode re-scrape. Best-effort per contact — a failure
+ * here never affects the completed run.
+ */
+async function triggerEmailFollowups(service: ServiceClient, userId: string, contactIds: number[]): Promise<void> {
+  for (const contactId of contactIds) {
+    try {
+      const { count } = await service
+        .from("contact_emails")
+        .select("id", { count: "exact", head: true })
+        .eq("contact_id", contactId)
+        .is("bounced_at", null);
+      if ((count ?? 0) > 0) continue;
+
+      const result = await triggerContactScrape({ userId, contactId, mode: ScrapeMode.Email, trigger: "cadence" });
+      if (result.status !== "started" && result.status !== "pending") {
+        console.warn(`[scrape] email follow-up for contact ${contactId} not started: ${result.status}`);
+      }
+    } catch (err) {
+      console.error(`[scrape] email follow-up failed for contact ${contactId}:`, err);
+    }
   }
 }
 

@@ -23,6 +23,7 @@ import {
   type CompanyPerson,
 } from "@/lib/company-queries";
 import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
+import { getFreshJobChangeContactIds } from "@/lib/queries";
 import {
   ArrowLeft, ExternalLink, Globe, Target, ChevronDown, ChevronRight,
   MapPin, X, Plus, AlertTriangle, Mail, GraduationCap, Trash2, StickyNote,
@@ -73,6 +74,8 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
   const [detail, setDetail] = useState<CompanyDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [benchOpen, setBenchOpen] = useState(false);
+  // Bench contacts with an unactioned job-change event (plan 29 Q5 hint)
+  const [jobChangeIds, setJobChangeIds] = useState<Set<number>>(new Set());
   const [showAllFacets, setShowAllFacets] = useState(false);
   const [manageOffices, setManageOffices] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -86,6 +89,12 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
     try {
       const data = await getCompanyDetail(user.id, companyId, { locationKey });
       setDetail(data);
+      if (data) {
+        // Best-effort hint data — never blocks the page
+        getFreshJobChangeContactIds(data.bench.map((p) => p.contact_id))
+          .then(setJobChangeIds)
+          .catch(() => {});
+      }
     } catch {
       toastError("Failed to load company");
     } finally {
@@ -346,6 +355,12 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                 >
                   {benchOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   {bench.length} more on the bench
+                  {(() => {
+                    const n = bench.filter((p) => jobChangeIds.has(p.contact_id)).length;
+                    return n > 0 ? (
+                      <span className="text-amber-600 font-medium">· {n} just changed jobs</span>
+                    ) : null;
+                  })()}
                 </button>
                 {benchOpen && (
                   <div className="grid gap-1.5 mt-1">
@@ -358,6 +373,14 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                           </Link>
                           <p className="text-xs text-on-surface-variant truncate">{p.roles[0]?.title ?? p.headline ?? ""}</p>
                         </div>
+                        {jobChangeIds.has(p.contact_id) && (
+                          <span
+                            className="text-[10px] font-medium text-amber-700 bg-amber-100 rounded-full px-2 py-0.5 shrink-0"
+                            title="A recent scrape detected a job change — consider promoting to outreach"
+                          >
+                            Just changed jobs
+                          </span>
+                        )}
                         {p.adjacency_score != null && (
                           <span className="text-[10px] text-on-surface-variant shrink-0" title="Pipeline adjacency score">
                             adj {p.adjacency_score}

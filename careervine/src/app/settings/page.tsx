@@ -17,13 +17,15 @@ import AccountSection from "@/components/settings/account-section";
 import IntegrationsSection from "@/components/settings/integrations-section";
 import AvailabilitySection from "@/components/settings/availability-section";
 import TemplatesSection from "@/components/settings/templates-section";
-import { User, Plug, Calendar, Sparkles } from "lucide-react";
+import DataScrapingSection from "@/components/settings/data-scraping-section";
+import { User, Plug, Calendar, Sparkles, RefreshCw } from "lucide-react";
 
 const tabs = [
   { id: "account", label: "Account", icon: User },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "availability", label: "Availability", icon: Calendar },
   { id: "templates", label: "AI Templates", icon: Sparkles },
+  { id: "scraping", label: "Data & Scraping", icon: RefreshCw },
 ] as const;
 
 type TabId = (typeof tabs)[number]["id"];
@@ -112,6 +114,7 @@ function SettingsPage() {
             {activeTab === "integrations" && <IntegrationsSection />}
             {activeTab === "availability" && <AvailabilitySection />}
             {activeTab === "templates" && <TemplatesSection />}
+            {activeTab === "scraping" && <DataScrapingSection />}
           </div>
         </div>
       </main>

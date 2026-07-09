@@ -249,8 +249,25 @@ export async function appendContactNote(contactId: number, note: string) {
 }
 
 /**
+ * Contact ids (from the given set) with an unactioned company-change event —
+ * the plan-29 Q5 bench promote-hint: a bench contact who just moved into a
+ * target company is worth a look. RLS scopes to the current user's rows.
+ */
+export async function getFreshJobChangeContactIds(contactIds: number[]): Promise<Set<number>> {
+  if (contactIds.length === 0) return new Set();
+  const { data, error } = await supabase
+    .from("contact_change_events")
+    .select("contact_id")
+    .eq("type", "company_change")
+    .eq("status", "new")
+    .in("contact_id", contactIds);
+  if (error) throw error;
+  return new Set(((data as { contact_id: number }[] | null) ?? []).map((r) => r.contact_id));
+}
+
+/**
  * Delete a contact and all related data
- * 
+ *
  * Note: Due to foreign key constraints with ON DELETE CASCADE,
  * this will automatically delete:
  * - Contact emails

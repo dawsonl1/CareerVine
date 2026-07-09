@@ -335,8 +335,22 @@ QStash-retry-no-double-run. Suite must pass before every push (rules 3/4).
    events surface through the existing Up Next reader automatically. NOTE: hot-tier *biweekly*
    boost (next_app_date proximity) deferred to phase 3 polish — the drip covers the fleet
    monthly with active/prospect prioritized daily.
-3. **Surfacing + resolvers** — email-on-company-change, actor-B no-URL picker + URL-rot repair,
-   company-page bench promote-hint (Q5), Settings "Data & Scraping" tab.
+3. **✅ DONE.** Surfacing + resolvers —
+   - Email-on-company-change (§4): after a profile-mode run detects a company change for a
+     contact with no usable (non-bounced) email, an email-mode follow-up scrape fires once the
+     run is terminal.
+   - Actor-B resolver: `searchProfilesByName` (short mode, run-sync, $0.004, ledgered under
+     mode `'resolve'`, migration `20260709050000`); `/api/contacts/[id]/resolve-linkedin` +
+     `/link-linkedin`; picker modal on the contact card for URL-less contacts and a "Re-link"
+     warning after `SCRAPE_FAILURES_BEFORE_RELINK` consecutive failures. Linking kicks
+     auto-enrich. NOTE (deviation from §7.5): URL-rot repair is manual-first (one click via the
+     modal) rather than cron-automatic — a sync actor-B search inside the 60s cron budget was
+     the wrong trade; revisit if broken links become frequent.
+   - Bench promote-hint (Q5): company-page bench rows with an unactioned `company_change`
+     event get a "Just changed jobs" badge + collapsed-section count, next to the existing
+     Add-to-outreach button.
+   - Settings → "Data & Scraping" tab: MTD spend vs the $10 cap, run health, cadence
+     heartbeat, kill-switch/config state (read-only; per-account auto-enrich is CAR-25).
 
 ## 9. Decisions (resolved by Dawson, 2026-07-09)
 

@@ -295,6 +295,10 @@ export const scrapeContactSchema = z.object({
   mode: z.enum(["profile", "email"]).optional(),
 });
 
+export const linkLinkedinSchema = z.object({
+  linkedinUrl: z.string().min(1).max(500),
+});
+
 // ── Transcript Action Extraction ──────────────────────────────────────
 
 export const transcriptMatchSpeakersSchema = z.object({
