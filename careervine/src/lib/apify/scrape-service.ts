@@ -174,6 +174,29 @@ export async function triggerContactScrape(opts: {
   }
 }
 
+/**
+ * Auto-enrich after an extension save (plan 29 §6.5, Dawson's decision §9.1).
+ * Picks the mode by value: email search ($0.01) when the contact has no email
+ * — one run fills photo + real employment + verified email — else a plain
+ * profile refresh ($0.004). Never throws: an enrich failure must not fail the
+ * save it rides on.
+ */
+export async function triggerEnrichOnSave(userId: string, contactId: number): Promise<TriggerResult> {
+  try {
+    const service = createSupabaseServiceClient();
+    const hasEmail = await contactHasEmail(service, contactId);
+    return await triggerContactScrape({
+      userId,
+      contactId,
+      mode: hasEmail ? ScrapeMode.Profile : ScrapeMode.Email,
+      trigger: "enrich_on_save",
+    });
+  } catch (err) {
+    console.error(`[scrape] enrich-on-save failed for contact ${contactId}:`, err);
+    return { status: "disabled" };
+  }
+}
+
 async function contactHasEmail(service: ServiceClient, contactId: number): Promise<boolean> {
   const { count } = await service
     .from("contact_emails")

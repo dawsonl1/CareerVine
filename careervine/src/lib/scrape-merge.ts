@@ -71,16 +71,19 @@ export function employmentKey(e: {
  * has an unmatched CURRENT existing role (plan 29 M2):
  *  - "insert" (default, pipeline bulk-import): keep strict natural-key matching;
  *    the incoming row becomes a new sibling row.
- *  - "skip" (rescrape/enrich, interim): leave the existing current role in place
- *    (just confirm scraped_at) and drop the incoming duplicate. Never clobbers a
- *    user-typed role and never creates a confusing duplicate; worst case a title
- *    is briefly stale. Safe while extension AI-parsed rows are indistinguishable
- *    from hand-typed ones (both source='manual').
- *  - "supersede": overwrite the existing current role in place with the scrape's
- *    values. Only safe once AI-parsed rows carry a distinct provenance, or the
- *    data loss the deep review flagged is reintroduced — NOT used yet.
+ *  - "skip": leave the existing current role in place (just confirm scraped_at)
+ *    and drop the incoming duplicate. Never clobbers, never duplicates; worst
+ *    case a title is briefly stale.
+ *  - "supersede": overwrite the existing current role in place with the
+ *    scrape's values, regardless of provenance. Unsafe for 'manual' rows —
+ *    kept for tests/explicit callers only.
+ *  - "reconcile" (rescrape/enrich): per-row by provenance — 'manual' rows get
+ *    the "skip" treatment (a user's hand-typed role is never overwritten);
+ *    'extension' (AI-parsed) and 'scraped' rows are superseded in place, since
+ *    a fresh scrape is strictly higher-fidelity than either. Requires the
+ *    'extension' source value from migration 20260709030000.
  */
-export type CurrentCollisionStrategy = "insert" | "skip" | "supersede";
+export type CurrentCollisionStrategy = "insert" | "skip" | "supersede" | "reconcile";
 
 export interface EmploymentMergeOptions {
   currentCollisionStrategy?: CurrentCollisionStrategy;
@@ -156,14 +159,17 @@ export function computeEmploymentMerge(
       matchedKeys.add(matchKey);
       consumedExistingIds.add(row.id);
 
-      if (strategy === "skip") {
+      // "reconcile" resolves per row: manual → skip, extension/scraped → supersede.
+      const action = strategy === "reconcile" ? (row.source === "manual" ? "skip" : "supersede") : strategy;
+
+      if (action === "skip") {
         // Leave the existing role untouched; just confirm we saw it. No clobber,
         // no duplicate.
         plan.updates.push({ id: row.id, fields: { scraped_at: scrapedAt } });
         continue;
       }
 
-      // strategy === "supersede": overwrite in place with the scrape's values.
+      // "supersede": overwrite in place with the scrape's values.
       const fields: Record<string, unknown> = {
         title: inc.title,
         start_month: inc.start_month,

@@ -109,6 +109,53 @@ describe("computeEmploymentMerge — currentCollisionStrategy 'skip' (M2 interim
   });
 });
 
+describe("computeEmploymentMerge — currentCollisionStrategy 'reconcile' (rescrape default)", () => {
+  it("supersedes an AI-parsed 'extension' current role in place", () => {
+    const existing = [existingRow({ id: 5, source: "extension", title: "Product Manager", start_month: "2022" })];
+    const incoming = [incomingRow({ title: "Senior Product Manager", start_month: "Mar 2022" })];
+
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "reconcile" });
+    expect(plan.inserts).toHaveLength(0);
+    expect(plan.deleteIds).toHaveLength(0);
+    expect(plan.updates).toHaveLength(1);
+    expect(plan.updates[0].fields).toMatchObject({
+      title: "Senior Product Manager",
+      start_month: "Mar 2022",
+      source: "scraped",
+      scraped_at: NOW,
+    });
+  });
+
+  it("supersedes a stale 'scraped' current role in place (preserves row identity)", () => {
+    const existing = [existingRow({ id: 5, source: "scraped", title: "PM", start_month: "2022" })];
+    const incoming = [incomingRow({ title: "Group PM", start_month: "Mar 2022" })];
+
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "reconcile" });
+    expect(plan.updates).toHaveLength(1);
+    expect(plan.updates[0].id).toBe(5);
+    expect(plan.updates[0].fields.title).toBe("Group PM");
+    expect(plan.deleteIds).toHaveLength(0); // superseded, not delete+reinsert
+  });
+
+  it("never touches a user-typed 'manual' current role (skip semantics)", () => {
+    const existing = [existingRow({ id: 5, source: "manual", title: "Product Manager", start_month: "2022" })];
+    const incoming = [incomingRow({ title: "Senior Product Manager", start_month: "Mar 2022" })];
+
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "reconcile" });
+    expect(plan.inserts).toHaveLength(0);
+    expect(plan.deleteIds).toHaveLength(0);
+    expect(plan.updates).toEqual([{ id: 5, fields: { scraped_at: NOW } }]);
+  });
+
+  it("still inserts a genuine job change at a different company", () => {
+    const existing = [existingRow({ id: 5, source: "extension", company_id: 10, title: "PM", start_month: "2022" })];
+    const incoming = [incomingRow({ company_id: 99, title: "PM", start_month: "Mar 2022" })];
+
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "reconcile" });
+    expect(plan.inserts).toHaveLength(1);
+  });
+});
+
 describe("computeEmploymentMerge — currentCollisionStrategy 'supersede' (future, with source model)", () => {
   it("supersedes an AI-parsed current role instead of duplicating it", () => {
     // Extension saved a rough current role; the scrape brings the real one.
