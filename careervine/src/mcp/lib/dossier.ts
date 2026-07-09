@@ -6,7 +6,7 @@
  * over brevity. Pure formatting: no I/O.
  */
 
-import type { DossierBundle } from "./db.ts";
+import type { DossierBundle } from "./db";
 
 interface ContactEmbed {
   id: number;

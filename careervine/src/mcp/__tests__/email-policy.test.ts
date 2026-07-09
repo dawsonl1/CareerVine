@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveRecipient, type EmailRowLike } from "../lib/email-policy.ts";
+import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
 
 const row = (email: string, over: Partial<EmailRowLike> = {}): EmailRowLike => ({
   email,

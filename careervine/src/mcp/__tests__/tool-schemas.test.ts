@@ -4,8 +4,8 @@ import {
   searchContactsSchema,
   addContactSchema,
   setNetworkStatusSchema,
-} from "../tools/contacts.ts";
-import { sendEmailSchema, scheduleEmailSchema, followUpSequenceSchema } from "../tools/email.ts";
+} from "../tools/contacts";
+import { sendEmailSchema, scheduleEmailSchema, followUpSequenceSchema } from "../tools/email";
 
 describe("tool input schemas", () => {
   it("search_contacts accepts a plain query and rejects bogus tiers", () => {

@@ -8,10 +8,6 @@
     "start": "tsx --tsconfig tsconfig.json server.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.0",
-    "zod": "^3.25.76"
-  },
   "devDependencies": {
     "@types/node": "^20",
     "tsx": "^4.20.0",

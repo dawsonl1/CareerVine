@@ -49,6 +49,8 @@ Deliberately excluded: AI generation tools — Claude is the generator; the serv
 
 ## Development
 
+Tool implementations live in `careervine/src/mcp/` (shared with the remote HTTP server, CAR-13). This package is the stdio entrypoint only.
+
 ```sh
 npm run typecheck --prefix careervine-mcp     # type-check the server
 npm run test --prefix careervine              # runs app + MCP test suites

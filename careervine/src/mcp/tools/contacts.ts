@@ -16,9 +16,9 @@ import {
   tagContact,
   setNetworkStatus,
   type SearchRow,
-} from "../lib/db.ts";
-import { buildDossier } from "../lib/dossier.ts";
-import { handler, contactRefShape } from "../lib/tool-utils.ts";
+} from "../lib/db";
+import { buildDossier } from "../lib/dossier";
+import { handler, contactRefShape } from "../lib/tool-utils";
 
 export const searchContactsSchema = {
   query: z.string().min(1).describe("Matches name, email, company, job title, school, industry, or tag"),

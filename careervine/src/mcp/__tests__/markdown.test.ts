@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { markdownToHtml, looksLikeHtml } from "../lib/markdown.ts";
+import { markdownToHtml, looksLikeHtml } from "../lib/markdown";
 
 describe("looksLikeHtml", () => {
   it("detects HTML input", () => {

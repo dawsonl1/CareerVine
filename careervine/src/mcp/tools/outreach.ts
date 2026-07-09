@@ -17,8 +17,8 @@ import {
   getOrCreateTargetCompany,
   addTargetCompanyNote,
   setStageOverride,
-} from "../lib/db.ts";
-import { handler, contactRefShape, companyRefShape } from "../lib/tool-utils.ts";
+} from "../lib/db";
+import { handler, contactRefShape, companyRefShape } from "../lib/tool-utils";
 
 function compactCompany(c: CompanySummary) {
   return {

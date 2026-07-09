@@ -40,7 +40,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
 }));
 vi.mock("@/lib/company-queries", () => ({ setCompanyQueriesClient: () => {} }));
 
-import { initDb, resolveContact, assertContactOwned, setNetworkStatus } from "../lib/db.ts";
+import { initDb, resolveContact, assertContactOwned, setNetworkStatus } from "../lib/db";
 
 const USER = "user-1";
 const CONTACT = { id: 5, name: "Jane", network_status: "prospect", stage_override: null };
