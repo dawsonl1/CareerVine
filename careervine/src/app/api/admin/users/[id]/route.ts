@@ -1,5 +1,7 @@
+import { z } from "zod";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { writeAudit } from "@/lib/admin";
 import {
   shapeAdminUser,
   keyStatusFor,
@@ -39,5 +41,79 @@ export const GET = withApiHandler({
     );
 
     return { user };
+  },
+});
+
+const patchSchema = z.object({
+  first_name: z.string().trim().max(100).optional(),
+  last_name: z.string().trim().max(100).optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  email: z.string().trim().email().optional(),
+});
+
+/**
+ * PATCH /api/admin/users/[id] — edit another account's profile. Admin only.
+ *
+ * Email is dual-source (auth.users is canonical; public.users.email mirrors it
+ * with a UNIQUE constraint), so email changes update auth first and roll back
+ * if the profile mirror fails — the two must never disagree silently.
+ */
+export const PATCH = withApiHandler<z.infer<typeof patchSchema>>({
+  requireAdmin: true,
+  schema: patchSchema,
+  handler: async ({ user: admin, body, params }) => {
+    const id = params.id;
+    const service = createSupabaseServiceClient();
+
+    const { data: existing, error: readError } = await service
+      .from("users")
+      .select("id, email")
+      .eq("id", id)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!existing) throw new ApiError("User not found", 404);
+
+    const emailChanging =
+      body.email !== undefined && body.email !== (existing as { email: string | null }).email;
+
+    // 1. Auth first (canonical). email_confirm skips the confirmation dance —
+    //    this is an explicit admin action.
+    if (emailChanging) {
+      const { error } = await service.auth.admin.updateUserById(id, {
+        email: body.email,
+        email_confirm: true,
+      });
+      if (error) throw new ApiError(`Email update failed: ${error.message}`, 400);
+    }
+
+    // 2. Profile mirror.
+    const profileUpdate: Record<string, unknown> = {};
+    if (body.first_name !== undefined) profileUpdate.first_name = body.first_name;
+    if (body.last_name !== undefined) profileUpdate.last_name = body.last_name;
+    if (body.phone !== undefined) profileUpdate.phone = body.phone;
+    if (emailChanging) profileUpdate.email = body.email;
+
+    if (Object.keys(profileUpdate).length > 0) {
+      const { error } = await service.from("users").update(profileUpdate).eq("id", id);
+      if (error) {
+        // Compensate: put the auth email back so the two sources agree.
+        if (emailChanging) {
+          await service.auth.admin.updateUserById(id, {
+            email: (existing as { email: string | null }).email ?? undefined,
+            email_confirm: true,
+          });
+        }
+        throw new ApiError(`Profile update failed: ${error.message}`, 400);
+      }
+    }
+
+    await writeAudit(service, {
+      adminId: admin.id,
+      targetUserId: id,
+      action: "edit_profile",
+      detail: { fields: Object.keys(profileUpdate) },
+    });
+
+    return { ok: true };
   },
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
@@ -11,6 +11,8 @@ import {
   KeyBadge,
   PolicyBadge,
 } from "@/components/admin/user-badges";
+import ProfileSection from "@/components/admin/profile-section";
+import SecuritySection from "@/components/admin/security-section";
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "never";
@@ -31,26 +33,6 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function SectionCard({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-2xl border border-outline-variant bg-surface p-5">
-      <h2 className="text-lg font-medium text-on-surface">{title}</h2>
-      {description && (
-        <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
-      )}
-      <div className="mt-4">{children}</div>
-    </section>
-  );
-}
-
 export default function AdminUserDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -58,29 +40,27 @@ export default function AdminUserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/admin/users/${id}`);
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `Request failed (${res.status})`);
-        }
-        const body = (await res.json()) as { user: AdminUserDetail };
-        if (active) setUser(body.user);
-      } catch (e) {
-        if (active) setError((e as Error).message);
-      } finally {
-        if (active) setLoading(false);
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/users/${id}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Request failed (${res.status})`);
       }
-    })();
-    return () => {
-      active = false;
-    };
+      const body = (await res.json()) as { user: AdminUserDetail };
+      setUser(body.user);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
+
+  useEffect(() => {
+    setLoading(true);
+    void load();
+  }, [load]);
 
   return (
     <div>
@@ -124,17 +104,12 @@ export default function AdminUserDetailPage() {
             </div>
           </div>
 
-          <SectionCard title="Profile">
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="First name" value={user.firstName} />
-              <Field label="Last name" value={user.lastName} />
-              <Field label="Email" value={user.email} />
-              <Field label="Phone" value={user.phone} />
-            </dl>
-          </SectionCard>
+          <ProfileSection user={user} onChanged={load} />
+          <SecuritySection user={user} onChanged={load} />
 
-          <SectionCard title="Account">
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <section className="rounded-2xl border border-outline-variant bg-surface p-5">
+            <h2 className="text-lg font-medium text-on-surface">Account</h2>
+            <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field
                 label="Status"
                 value={user.status === "suspended" ? "Suspended" : "Active"}
@@ -143,23 +118,21 @@ export default function AdminUserDetailPage() {
               <Field label="Created" value={formatDateTime(user.createdAt)} />
               <Field label="Last sign-in" value={formatDateTime(user.lastSignInAt)} />
             </dl>
-          </SectionCard>
+          </section>
 
-          <SectionCard
-            title="AI"
-            description="How this account's OpenAI usage is handled."
-          >
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field
-                label="Key status"
-                value={<KeyBadge status={user.keyStatus} />}
-              />
+          <section className="rounded-2xl border border-outline-variant bg-surface p-5">
+            <h2 className="text-lg font-medium text-on-surface">AI</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              How this account&apos;s OpenAI usage is handled.
+            </p>
+            <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Key status" value={<KeyBadge status={user.keyStatus} />} />
               <Field
                 label="Fallback policy"
                 value={<PolicyBadge policy={user.aiFallbackPolicy} />}
               />
             </dl>
-          </SectionCard>
+          </section>
         </div>
       )}
     </div>
