@@ -57,7 +57,7 @@ export default function McpConnectCard() {
               <Button
                 key={option.id}
                 type="button"
-                variant={selectedClient === option.id ? "default" : "outline"}
+                variant={selectedClient === option.id ? "primary" : "outline"}
                 size="sm"
                 onClick={() => setSelectedClient(option.id)}
               >
