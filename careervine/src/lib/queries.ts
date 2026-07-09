@@ -16,6 +16,7 @@ import type { Database } from "@/lib/database.types";
 import { RECENTLY_ADDED_DAYS, SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
+import { validateContactPhotoFile } from "@/lib/contact-photo";
 
 // Create a single Supabase client instance for browser-side operations
 const supabase = createSupabaseBrowserClient();
@@ -303,6 +304,53 @@ export async function deleteContact(id: number) {
       console.warn(`[deleteContact] Photo cleanup failed for contact ${id}:`, err);
     }
   }
+}
+
+/**
+ * Upload and persist a contact photo in Supabase storage, then update the
+ * contact's photo_url with a cache-busted public URL.
+ */
+export async function uploadContactPhoto(userId: string, contactId: number, file: File) {
+  const validationError = validateContactPhotoFile(file);
+  if (validationError) throw new Error(validationError);
+
+  const storagePath = `${userId}/${contactId}.jpg`;
+  const { error: uploadError } = await supabase.storage
+    .from("contact-photos")
+    .upload(storagePath, file, {
+      contentType: file.type,
+      upsert: true,
+    });
+  if (uploadError) throw uploadError;
+
+  const { data: publicUrlData } = supabase.storage
+    .from("contact-photos")
+    .getPublicUrl(storagePath);
+  const photoUrlWithCacheBust = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+
+  const { error: updateError } = await supabase
+    .from("contacts")
+    .update({ photo_url: photoUrlWithCacheBust })
+    .eq("id", contactId)
+    .eq("user_id", userId);
+  if (updateError) throw updateError;
+
+  return photoUrlWithCacheBust;
+}
+
+/**
+ * Remove a contact photo from storage and clear the contact's photo_url.
+ */
+export async function removeContactPhoto(userId: string, contactId: number) {
+  const storagePath = `${userId}/${contactId}.jpg`;
+  await supabase.storage.from("contact-photos").remove([storagePath]);
+
+  const { error: updateError } = await supabase
+    .from("contacts")
+    .update({ photo_url: null })
+    .eq("id", contactId)
+    .eq("user_id", userId);
+  if (updateError) throw updateError;
 }
 
 /**
