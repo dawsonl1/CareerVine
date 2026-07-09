@@ -5,27 +5,12 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import type { AdminUserDetail } from "@/lib/admin-users";
-import {
-  AdminBadge,
-  StatusBadge,
-  KeyBadge,
-  PolicyBadge,
-} from "@/components/admin/user-badges";
+import { AdminBadge, StatusBadge } from "@/components/admin/user-badges";
 import ProfileSection from "@/components/admin/profile-section";
 import SecuritySection from "@/components/admin/security-section";
 import AccountSection from "@/components/admin/account-section";
 import BundlesSection from "@/components/admin/bundles-section";
-
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </dt>
-      <dd className="mt-0.5 text-sm text-on-surface">{value || "—"}</dd>
-    </div>
-  );
-}
+import AiSection from "@/components/admin/ai-section";
 
 export default function AdminUserDetailPage() {
   const params = useParams<{ id: string }>();
@@ -106,21 +91,8 @@ export default function AdminUserDetailPage() {
             onChanged={load}
             onDeleted={() => router.push("/admin/users")}
           />
+          <AiSection user={user} onChanged={load} />
           <BundlesSection userId={user.id} />
-
-          <section className="rounded-2xl border border-outline-variant bg-surface p-5">
-            <h2 className="text-lg font-medium text-on-surface">AI</h2>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              How this account&apos;s OpenAI usage is handled.
-            </p>
-            <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Key status" value={<KeyBadge status={user.keyStatus} />} />
-              <Field
-                label="Fallback policy"
-                value={<PolicyBadge policy={user.aiFallbackPolicy} />}
-              />
-            </dl>
-          </section>
         </div>
       )}
     </div>
