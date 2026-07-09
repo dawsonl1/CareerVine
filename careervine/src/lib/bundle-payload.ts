@@ -80,6 +80,12 @@ export const bundleProspectPayloadV1Schema = z.object({
     }),
   public_identifier: z.string().trim().min(1).nullable().optional(),
   headline: z.string().trim().min(1).nullable().optional(),
+  /** Which network tier the prospect lands in for the subscriber. 'prospect'
+   * = actionable outreach target; 'bench' = contained data-only tier
+   * (collapsed on company pages, excluded from outreach/suggestions/health).
+   * Mirrors the pipeline's SELECTED→prospect / BENCH→bench split so a bundle
+   * can carry a curated core plus a searchable long tail. */
+  network_status: z.enum(["prospect", "bench"]).default("prospect"),
   /** Stable field: CAR-24 photo mirroring swaps the value, not the contract. */
   photo_url: z.string().trim().url().nullable().optional(),
   location: z
@@ -184,6 +190,7 @@ export function mappedPersonToBundlePayload(mapped: MappedPerson): BundleProspec
     linkedin_url: mapped.linkedin_url,
     public_identifier: mapped.public_identifier,
     headline: mapped.headline,
+    network_status: mapped.network_status,
     photo_url: mapped.photo_url,
     location: mapped.profile_location,
     location_raw: mapped.profile_location_raw,
@@ -258,7 +265,7 @@ export function payloadToMappedPerson(
     persona: null,
     review_note: null,
     verified_school: null,
-    network_status: "prospect",
+    network_status: payload.network_status,
     network_scope: "target_company",
     import_source: `bundle:${ctx.bundleSlug}`,
     import_meta: {

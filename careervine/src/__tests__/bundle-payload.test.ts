@@ -76,7 +76,7 @@ describe('bundleProspectPayloadV1Schema', () => {
     expect(parsed.emails[0].email).toBe('jane@gs.com');
   });
 
-  it('defaults optional arrays to empty', () => {
+  it('defaults optional arrays to empty and network_status to prospect', () => {
     const parsed = bundleProspectPayloadV1Schema.parse({
       name: 'Minimal Person',
       linkedin_url: 'https://www.linkedin.com/in/minimal',
@@ -85,6 +85,12 @@ describe('bundleProspectPayloadV1Schema', () => {
     expect(parsed.experiences).toEqual([]);
     expect(parsed.education).toEqual([]);
     expect(parsed.tags).toEqual([]);
+    expect(parsed.network_status).toBe('prospect');
+  });
+
+  it('accepts an explicit bench tier and rejects unknown tiers', () => {
+    expect(bundleProspectPayloadV1Schema.parse(validPayload({ network_status: 'bench' } as never)).network_status).toBe('bench');
+    expect(bundleProspectPayloadV1Schema.safeParse(validPayload({ network_status: 'active' } as never)).success).toBe(false);
   });
 });
 
@@ -123,6 +129,11 @@ describe('payloadToMappedPerson', () => {
     const mapped = payloadToMappedPerson(payload, CTX);
     expect(mapped.public_identifier).toBe('jane-analyst');
     expect(mapped.non_vanity_url).toBe(false);
+  });
+
+  it('carries the bench network tier through to the mapped person', () => {
+    const bench = bundleProspectPayloadV1Schema.parse(validPayload({ network_status: 'bench' } as never));
+    expect(payloadToMappedPerson(bench, CTX).network_status).toBe('bench');
   });
 
   it('maps experiences to MappedEmployment with Present for current roles', () => {
