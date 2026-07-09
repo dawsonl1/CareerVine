@@ -69,6 +69,31 @@ export const SuggestionReasonType = {
   TranscriptExtracted: "transcript_extracted",
 } as const;
 
+// ── Contact change events (plan 29) ───────────────────────────────────
+
+export const ChangeEventType = {
+  Anniversary: "anniversary",
+  CompanyChange: "company_change",
+  Promotion: "promotion",
+  Hiring: "hiring",
+  OpenToWork: "open_to_work",
+  Certification: "certification",
+  LocationChange: "location_change",
+} as const;
+
+export const ChangeEventStatus = {
+  New: "new",
+  Actioned: "actioned",
+  Dismissed: "dismissed",
+  Snoozed: "snoozed",
+} as const;
+
+export const ChangeEventTier = {
+  ActNow: 1,
+  Touchpoint: 2,
+  Silent: 3,
+} as const;
+
 // ── Action item direction ─────────────────────────────────────────────
 
 export const ActionDirection = {

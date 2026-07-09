@@ -282,6 +282,12 @@ export const suggestionsSaveSchema = z.object({
   evidence: z.string().min(1),
   /** When true, creates the action item as already completed (user already did it) */
   completed: z.boolean().optional(),
+  /** When set, the suggestion is backed by a contact_change_events row to mark actioned (plan 29) */
+  changeEventId: z.number().int().optional(),
+});
+
+export const changeEventDismissSchema = z.object({
+  changeEventId: z.number().int(),
 });
 
 // ── Transcript Action Extraction ──────────────────────────────────────

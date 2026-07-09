@@ -642,6 +642,44 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["suppressed_imports"]["Insert"]>;
       };
 
+      // Contact change events — detected changes worth an outreach touch (plan 29)
+      contact_change_events: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          contact_id: number;                  // Foreign key to contacts
+          type: string;                        // 'anniversary' | 'company_change' | 'promotion' | 'hiring' | 'open_to_work' | 'certification' | 'location_change'
+          tier: number;                        // 1 act-now, 2 touchpoint, 3 silent
+          dedupe_key: string;                  // Stable idempotency key
+          headline: string;                    // Display "why"
+          evidence: string | null;             // Backing detail
+          suggested_title: string | null;      // Prefilled action item title
+          suggested_description: string | null;
+          old_value: Record<string, unknown> | null; // For scrape diffs
+          new_value: Record<string, unknown> | null;
+          status: string;                      // 'new' | 'actioned' | 'dismissed' | 'snoozed'
+          snoozed_until: string | null;
+          detected_at: string;
+          actioned_at: string | null;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["contact_change_events"]["Row"],
+          "id" | "tier" | "status" | "detected_at" | "snoozed_until" | "actioned_at" | "evidence" | "suggested_title" | "suggested_description" | "old_value" | "new_value"
+        > & {
+          tier?: number;
+          status?: string;
+          snoozed_until?: string | null;
+          detected_at?: string;
+          actioned_at?: string | null;
+          evidence?: string | null;
+          suggested_title?: string | null;
+          suggested_description?: string | null;
+          old_value?: Record<string, unknown> | null;
+          new_value?: Record<string, unknown> | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["contact_change_events"]["Insert"]>;
+      };
+
       // Referrals — contact referred you to another contact
       referrals: {
         Row: {
