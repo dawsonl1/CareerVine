@@ -16,7 +16,7 @@ function getLimiter(): Ratelimit | null {
   }
   limiter = new Ratelimit({
     redis: Redis.fromEnv(),
-    limiter: Ratelimit.slidingWindow(60, "1 m"),
+    limiter: Ratelimit.slidingWindow(100, "1 h"),
     prefix: "careervine-mcp",
   });
   return limiter;

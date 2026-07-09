@@ -20,6 +20,16 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Background Automations
+
+CareerVine runs background automations through QStash so important outreach tasks keep moving even when the app is not open:
+
+- Scheduled emails are sent on a recurring cron tick.
+- Follow-up sequence steps are processed every 15 minutes.
+- Bundle sync jobs fan out on publish with a daily safety-net sweep.
+
+This keeps delivery and data freshness reliable without requiring users to keep a tab open.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
