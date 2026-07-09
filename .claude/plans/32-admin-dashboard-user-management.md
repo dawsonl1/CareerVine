@@ -20,7 +20,9 @@ Admin claim lives in Supabase **`auth.users.app_metadata.role`** — writable on
 
 **Enforcement:** a `requireAdmin: true` option on `withApiHandler`; admin routes under `api/admin/**`; past the gate, use the **service-role client** for cross-account work; every mutation writes an `admin_audit_log` row. This differs from the existing `BUNDLE_ADMIN_TOKEN` machine route (authenticates a *script* by shared secret, not a *human* by session).
 
-**Operational note:** `app_metadata.role` only enters the JWT on the next token refresh. After `grant-admin.mjs` runs, Dawson must sign out/in once before `/admin` is reachable. The layout gate and API gate read the same claim, so they stay consistent.
+**Bootstrapping the first admin:** `grant-admin.mjs` stamps `app_metadata.role = 'admin'` on Dawson's auth user. **Claude runs this against production** during Slice 0 (the local env has the service-role key; per rule 15). It only ever bootstraps the *first* admin — all subsequent grants/revokes go through the in-app Make-admin control (§7).
+
+**Operational note:** `app_metadata.role` only enters the JWT on the next token refresh. After the grant, Dawson must sign out/in once before `/admin` is reachable. The layout gate and API gate read the same claim, so they stay consistent.
 
 ## 3. Integration points (verified)
 
@@ -191,6 +193,7 @@ Admin API, all `withApiHandler({ requireAdmin: true })`, service client, audited
   - `mode: 'link'` → `auth.admin.generateLink({ type:'recovery' })` **returns a URL; it does not email anyone.** Return it to the admin UI, shown once in a modal with copy-to-clipboard + "single-use / expires" note (audit C4). (No confirmed user-facing SendGrid path exists to auto-send it.)
   - `mode: 'set'` → `auth.admin.updateUserById(id, { password })`, then `auth.admin.signOut(id)` so a compromised session can't persist.
 - `POST /api/admin/users/[id]/status` — suspend / reactivate.
+- `POST /api/admin/users/[id]/role` — **make / revoke admin** `{ role: 'admin' | null }`: sets `app_metadata.role` via `auth.admin.updateUserById`, audited, behind a confirm modal. This is the in-app equivalent of `grant-admin.mjs` — the script only ever bootstraps the *first* admin; every subsequent grant/revoke happens here. Guards: **cannot revoke your own admin** (prevents self-lockout) and **cannot revoke the last remaining admin** (count check before the write). The promoted/demoted user's change takes effect on their next token refresh (same JWT caveat as §2) — surface that in the success toast ("They'll have admin access after their next sign-in").
 - `DELETE /api/admin/users/[id]` — **account deletion** (audit N1): `auth.admin.deleteUser(id)` (cascades via FK), audited, behind a typed-confirmation modal. Include it; offboarding/erasure needs it.
 
 ### 7a. Suspend = freeze the account, not just block login (audit C3)
@@ -228,13 +231,14 @@ The admin surface reuses the app's existing idioms; it must not invent foreign U
 Honor plan 08's deliberate confirm/undo split. Never optimistic for irreversible cross-account writes:
 | Action | Pattern |
 |---|---|
-| Suspend / set-password / delete account | Explicit confirm **Modal** echoing the target's email (delete = type-to-confirm). Undo-by-timer is wrong for credential/session changes. |
+| Suspend / set-password / delete account / make-or-revoke admin | Explicit confirm **Modal** echoing the target's email (delete = type-to-confirm). Undo-by-timer is wrong for credential/session/privilege changes. Granting admin especially warrants a deliberate confirm — it hands over full cross-account control. |
 | Remove a contact | Plan-08 **undo toast** (deferred delete + countdown). |
 | Inject a bundle (N contacts) | Confirm **Modal** stating the count, mirroring the unsubscribe modal's "X added" clarity. |
 | Reversible toggles (bundle grant) | Optimistic + `useToast` confirm is fine. |
 All mutations show a **success toast** via `useToast` ("Suspended jane@x.com — sessions revoked"); confirmed (not optimistic) writes for the irreversible ones.
 
 ### 10d. Panel specifics
+- **Security tab:** reset/set-password, suspend/reactivate, delete — plus a **Make admin / Revoke admin** control. Render the current role clearly (an "Admin" badge on the user in the list and at the top of the detail view). The make-admin control is disabled with a tooltip when it would be a self-revoke or last-admin-revoke (§7 guards), so the block is explained rather than a silent failure.
 - **AI tab:** a labeled **segmented control / radio pair** — "Fall back to shared key" vs "Cut AI off" — **not** a bare toggle (`cutoff`/`shared` has no natural on/off). One line of copy per option (cutoff = the user gets a hard AI error). Show the **exact `ai-key-section` status pill** so the admin sees what the user sees; label it "last observed" and compute `isUserKeyEligible` for display since `quota_exceeded` auto-recovers (audit N2). Note the ≤60s policy lag inline.
 - **Bundles tab:** per-bundle allow/deny, but show **current state next to each** (not granted / granted / granted + subscribed) and one line distinguishing "**Grant access** (they can then subscribe)" from the Contacts tab's "**Inject now** (you add the contacts for them)" — two bundle-shaped actions with opposite effects (audit S7). Add search/filter + a "granted only" view if the catalog exceeds ~10.
 - **Activity tab:** surface `admin_audit_log` for this `target_user_id` as a readable timeline (action + friendly detail + timestamp), not raw JSON (audit S5). The audit trail is otherwise write-only and invisible.
@@ -261,9 +265,9 @@ The two changes that can break prod for *every* user (the AI-policy resolver fli
 
 | Slice | Content | Issue |
 |---|---|---|
-| **0 — Foundation (behavior-neutral)** | Migration §4a (with `shared` default, `bigint` FK, published backfill, column-priv guard, visibility RLS + function) applied & verified; `grant-admin.mjs`; `requireAdmin` gate; `lib/admin.ts` (`isAdmin`, transactional `writeAudit`); `/admin` shell behind settings/avatar; RLS test harness. | CAR-25 |
+| **0 — Foundation (behavior-neutral)** | Migration §4a (with `shared` default, `bigint` FK, published backfill, column-priv guard, visibility RLS + function) applied & verified; `grant-admin.mjs` (**Claude runs it once against prod to bootstrap Dawson as the first admin**); `requireAdmin` gate; `lib/admin.ts` (`isAdmin`, transactional `writeAudit`); `/admin` shell behind settings/avatar; RLS test harness. | CAR-25 |
 | **1 — CAR-23 read-only** | Users list + detail (fills the shell); search/empty/loading/error states. | CAR-23 |
-| **2 — CAR-23 edit** | Profile edit (dual-source email), password link/set modals. | CAR-23 |
+| **2 — CAR-23 edit** | Profile edit (dual-source email), password link/set modals, **make/revoke admin** control (with self- and last-admin-lockout guards). | CAR-23 |
 | **3 — CAR-23 suspend + enforcement** | status writes, session revoke, sign-in gate, cron guards, JWT-mirrored backstop — isolated (shared auth path). | CAR-23 |
 | **4 — Bundle visibility** | `bundles/list` route + UI reroute + admin grant controls (RLS already enforces). Additive. | CAR-25 |
 | **5 — AI-policy flip** | Policy-aware resolver §5 — landed **last**, gated by the matrix test, since it touches every AI feature. | CAR-25 |
@@ -277,7 +281,7 @@ The two changes that can break prod for *every* user (the AI-policy resolver fli
 |---|---|---|
 | 1 | New bundle visibility | **Hidden until granted** (`default_visible = false` for new; existing published backfilled to `true` so no regression). |
 | 2 | Shared-key spend cap | **Deferred** (needs CAR-20 metering). v1 is on/off. |
-| 3 | Multi-admin | **Single admin** via `app_metadata` + `grant-admin.mjs`. |
+| 3 | Multi-admin | **In scope.** `grant-admin.mjs` bootstraps the first admin (run by Claude); a **Make admin / Revoke admin** control in the Security tab (§7, §10d) handles every grant/revoke after that, with self- and last-admin-lockout guards. |
 | 4 | Suspend semantics | **Freeze the account** — block login *and* stop server-side automation, not just login. |
 | 5 | AI-policy default | **`shared`** globally (preserves current behavior); `cutoff` is opt-in per account. *(New from audit.)* |
 | 6 | Account deletion | **In scope** for CAR-23 (audit N1). |
