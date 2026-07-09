@@ -11,6 +11,7 @@ import type { GmailConnection } from "@/lib/types";
 import { Mail, Check, RefreshCw, Unplug, MailCheck, Calendar } from "lucide-react";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { useGmailConnection, invalidateGmailConnectionCache } from "@/hooks/use-gmail-connection";
+import McpConnectCard from "@/components/settings/mcp-connect-card";
 
 export default function IntegrationsSection() {
   const { user } = useAuth();
@@ -117,6 +118,8 @@ export default function IntegrationsSection() {
           {gmailMessage.text}
         </div>
       )}
+
+      <McpConnectCard />
 
       {/* Gmail */}
       <Card variant="outlined">
