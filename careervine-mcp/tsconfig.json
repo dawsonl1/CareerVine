@@ -13,8 +13,10 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../careervine/src/*"]
+      "@/*": ["../careervine/src/*"],
+      "@modelcontextprotocol/sdk": ["../careervine/node_modules/@modelcontextprotocol/sdk/dist/esm/index.js"],
+      "@modelcontextprotocol/sdk/*": ["../careervine/node_modules/@modelcontextprotocol/sdk/dist/esm/*"]
     }
   },
-  "include": ["server.ts", "lib/**/*.ts", "tools/**/*.ts", "scripts/**/*.ts"]
+  "include": ["server.ts", "lib/env.ts", "scripts/**/*.ts"]
 }

@@ -17,6 +17,7 @@ import { gatherContactContext } from "@/lib/ai-followup/gather-context";
 import { extractInterests } from "@/lib/ai-followup/extract-interests";
 import { findArticle } from "@/lib/ai-followup/find-article";
 import { generateDraft } from "@/lib/ai-followup/generate-draft";
+import { createOpenAIRunner } from "@/lib/openai";
 
 interface GeneratedResult {
   contactId: number;
@@ -43,6 +44,7 @@ export const POST = withApiHandler({
     }
 
     const senderFirstName = userProfile.first_name || "there";
+    const runAI = createOpenAIRunner(user.id);
 
     // Batch-check which contacts already have pending drafts (single query)
     const { data: existingDrafts } = await service
@@ -68,7 +70,7 @@ export const POST = withApiHandler({
         const context = await gatherContactContext(user.id, contactId);
 
         // Step 2: Extract interests
-        const interests = await extractInterests(context);
+        const interests = await extractInterests(context, runAI);
 
         const bestInterest =
           interests.interests[0] || interests.profileFallbacks[0];
@@ -79,7 +81,7 @@ export const POST = withApiHandler({
         }
 
         // Step 3: Search & evaluate loop
-        const articleResult = await findArticle(interests);
+        const articleResult = await findArticle(interests, runAI);
 
         // Step 4: Generate email draft
         const draftResult = await generateDraft({
@@ -88,6 +90,7 @@ export const POST = withApiHandler({
           contact: context,
           interest: articleResult?.interest || bestInterest,
           article: articleResult?.article,
+          runAI,
         });
 
         // Get contact's primary email + check for recent thread in parallel

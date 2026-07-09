@@ -17,9 +17,21 @@
  *    pattern_guessed. Re-imports may upgrade, never downgrade.
  *  - Persona is never overwritten with a different non-null value —
  *    conflicts are reported, not applied.
+ *
+ * Merge policies (plan 29): 'pipeline' is the original behavior for
+ * Dawson's scrape-pipeline re-imports, where the pipeline owns scraped
+ * data wholesale (refreshes headline/provenance, deletes scraped rows
+ * absent from the payload). 'bundle' is for shared data-bundle syncs into
+ * OTHER users' accounts: strict fill-empty on contact fields, provenance
+ * stamped on create only, and never deletes employment rows it didn't
+ * supply — two overlapping bundles (or a bundle plus the pipeline) must
+ * not thrash each other's data, and a silent background sync must never
+ * overwrite anything a user typed.
  */
 
 import type { MappedPerson } from "./scrape-mapper";
+
+export type MergePolicy = "pipeline" | "bundle";
 
 // ── Employment ─────────────────────────────────────────────────────────
 
@@ -70,6 +82,7 @@ export function computeEmploymentMerge(
   existing: ExistingEmploymentRow[],
   incoming: IncomingEmploymentRow[],
   scrapedAt: string,
+  policy: MergePolicy = "pipeline",
 ): EmploymentMergePlan {
   // Dedupe incoming on the natural key (defensive against actor glitches)
   const incomingByKey = new Map<string, IncomingEmploymentRow>();
@@ -85,8 +98,9 @@ export function computeEmploymentMerge(
     const key = employmentKey(row);
     const match = incomingByKey.get(key);
     if (!match || matchedKeys.has(key)) {
-      // Absent from the new payload: delete only scraped rows
-      if (!match && row.source === "scraped") plan.deleteIds.push(row.id);
+      // Absent from the new payload: delete only scraped rows, and only
+      // under the pipeline policy — a bundle owns just the rows it sends
+      if (!match && row.source === "scraped" && policy === "pipeline") plan.deleteIds.push(row.id);
       continue;
     }
     matchedKeys.add(key);
@@ -177,6 +191,7 @@ export interface ExistingContactCore {
   network_status: string;
   location_id: number | null;
   headline: string | null;
+  public_identifier?: string | null;
 }
 
 export interface ContactPatchResult {
@@ -203,20 +218,30 @@ export function computeContactPatch(
   mapped: MappedPerson,
   nowIso: string,
   profileLocationId: number | null,
+  policy: MergePolicy = "pipeline",
 ): ContactPatchResult {
-  const patch: Record<string, unknown> = {
-    review_note: mapped.review_note,
-    import_source: mapped.import_source,
-    import_meta: mapped.import_meta,
+  const patch: Record<string, unknown> = { last_scraped_at: nowIso };
+
+  if (policy === "pipeline") {
+    // The pipeline owns scraped fields + provenance wholesale
+    patch.review_note = mapped.review_note;
+    patch.import_source = mapped.import_source;
+    patch.import_meta = mapped.import_meta;
     // Pipeline-owned segment label — refreshed every import (a person can
     // move onto a target company between tranches)
-    network_scope: mapped.network_scope,
-    last_scraped_at: nowIso,
-  };
+    patch.network_scope = mapped.network_scope;
+    if (mapped.headline) patch.headline = mapped.headline;
+    if (mapped.public_identifier) patch.public_identifier = mapped.public_identifier;
+  } else {
+    // Bundle policy: strict fill-empty — a background sync must never
+    // overwrite a user edit or another source's provenance
+    if (mapped.headline && !existing.headline) patch.headline = mapped.headline;
+    if (mapped.public_identifier && !existing.public_identifier) {
+      patch.public_identifier = mapped.public_identifier;
+    }
+  }
 
-  if (mapped.headline) patch.headline = mapped.headline;
   if (mapped.verified_school) patch.verified_school = mapped.verified_school;
-  if (mapped.public_identifier) patch.public_identifier = mapped.public_identifier;
 
   // Names: manual edits win. Refresh only placeholder names.
   if ((!existing.name || existing.name === "Unknown") && mapped.name) {

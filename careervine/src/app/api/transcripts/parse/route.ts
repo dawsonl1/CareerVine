@@ -1,5 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
 import { transcriptParseSchema } from "@/lib/api-schemas";
 
 /**
@@ -13,9 +13,8 @@ import { transcriptParseSchema } from "@/lib/api-schemas";
  */
 export const POST = withApiHandler({
   schema: transcriptParseSchema,
-  handler: async ({ body }) => {
+  handler: async ({ user, body }) => {
     const { rawText } = body;
-    const openai = getOpenAIClient();
     const model = DEFAULT_MODEL;
 
     const segmentSchema = {
@@ -58,18 +57,20 @@ export const POST = withApiHandler({
 
     let response;
     try {
-      response = await openai.responses.create({
-        model,
-        instructions,
-        input: truncated,
-        max_output_tokens: 16000,
-        text: {
-          format: {
-            type: "json_schema",
-            ...segmentSchema,
+      response = await runWithOpenAIFallback(user.id, (openai) =>
+        openai.responses.create({
+          model,
+          instructions,
+          input: truncated,
+          max_output_tokens: 16000,
+          text: {
+            format: {
+              type: "json_schema",
+              ...segmentSchema,
+            },
           },
-        },
-      });
+        }),
+      );
     } catch (err) {
       console.error("[transcripts/parse] OpenAI API error:", err);
       throw new ApiError("Failed to parse transcript. Please try again.", 500);

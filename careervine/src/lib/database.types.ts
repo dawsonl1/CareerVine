@@ -35,7 +35,27 @@ export type Database = {
         Insert: Omit<Database["public"]["Tables"]["users"]["Row"], "id" | "created_at" | "updated_at">;
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
-      
+
+      // User-provided API keys (BYO OpenAI) — service-role access only
+      user_api_keys: {
+        Row: {
+          user_id: string;
+          provider: string;
+          encrypted_key: string;
+          key_last4: string;
+          status: "active" | "invalid" | "quota_exceeded";
+          last_validated_at: string | null;
+          last_used_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["user_api_keys"]["Row"], "created_at" | "updated_at"> & {
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_api_keys"]["Insert"]>;
+      };
+
       // Contacts table - core entity for professional network
       contacts: {
         Row: {
@@ -640,6 +660,140 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["suppressed_imports"]["Insert"]>;
+      };
+
+      // Data bundles — admin-curated prospect/company bundle catalog
+      data_bundles: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          slug: string;                  // Unique bundle identifier (e.g. "ib-banks-nyc")
+          name: string;                  // Display name
+          description: string | null;    // Display description
+          version: number;               // Last COMMITTED publish version (0 = never published)
+          staging_version: number | null; // Publish lock: version+1 while a publish is in flight
+          staging_claimed_at: string | null; // When the publish lock was claimed
+          status: string;                // 'draft' | 'published' | 'archived'
+          prospect_count: number;        // Denormalized live-prospect count (recomputed at finalize)
+          company_count: number;         // Denormalized company count (recomputed at finalize)
+          published_at: string | null;   // First/last publish timestamp
+          created_at: string;            // Auto-generated timestamp
+          updated_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["data_bundles"]["Row"], "id" | "version" | "staging_version" | "staging_claimed_at" | "status" | "prospect_count" | "company_count" | "published_at" | "created_at" | "updated_at"> & {
+          version?: number;
+          staging_version?: number | null;
+          staging_claimed_at?: string | null;
+          status?: string;
+          prospect_count?: number;
+          company_count?: number;
+          published_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["data_bundles"]["Insert"]>;
+      };
+
+      // Bundle prospects — versioned bundle content (CareerVine-owned payload contract)
+      bundle_prospects: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          bundle_id: number;             // Foreign key to data_bundles
+          linkedin_url: string;          // Canonical LinkedIn profile URL
+          payload: unknown;              // BundleProspectPayloadV1 (validated at publish)
+          payload_schema_version: number; // Payload contract version (sync skips unknown versions)
+          payload_hash: string;          // sha256 of canonical payload JSON — change detection
+          version_added: number;         // Publish version that introduced the prospect
+          version_updated: number;       // Bumped when payload_hash changes (drives deltas)
+          version_last_seen: number;     // Bumped every publish the prospect appears in
+          removed_in_version: number | null; // Soft delete (NULL = live)
+          created_at: string;            // Auto-generated timestamp
+          updated_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["bundle_prospects"]["Row"], "id" | "payload_schema_version" | "removed_in_version" | "created_at" | "updated_at"> & {
+          payload_schema_version?: number;
+          removed_in_version?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["bundle_prospects"]["Insert"]>;
+      };
+
+      // Bundle companies — membership links (company data lives in shared tables)
+      bundle_companies: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          bundle_id: number;             // Foreign key to data_bundles
+          company_id: number;            // Foreign key to companies (shared/global)
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["bundle_companies"]["Row"], "id" | "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["bundle_companies"]["Insert"]>;
+      };
+
+      // Bundle subscriptions — user ↔ bundle, sync progress + serialization claim
+      bundle_subscriptions: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          user_id: string;               // Foreign key to users
+          bundle_id: number;             // Foreign key to data_bundles
+          status: string;                // 'active' | 'unsubscribed' (row kept on unsubscribe)
+          synced_version: number;        // Last FULLY applied bundle version (advances to pinned version only)
+          last_synced_at: string | null; // When the last full sync completed
+          sync_claimed_until: string | null; // Serialization claim so concurrent sync drivers can't race
+          created_at: string;            // Auto-generated timestamp
+          updated_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["bundle_subscriptions"]["Row"], "id" | "status" | "synced_version" | "last_synced_at" | "sync_claimed_until" | "created_at" | "updated_at"> & {
+          status?: string;
+          synced_version?: number;
+          last_synced_at?: string | null;
+          sync_claimed_until?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["bundle_subscriptions"]["Insert"]>;
+      };
+
+      // Bundle subscription contacts — which contacts a subscription supplied
+      bundle_subscription_contacts: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          subscription_id: number;       // Foreign key to bundle_subscriptions
+          contact_id: number;            // Foreign key to contacts
+          bundle_prospect_id: number | null; // Durable removal-correlation key (FK to bundle_prospects)
+          linkedin_url: string;          // Canonical URL at apply time (debugging/secondary key)
+          created_by_bundle: boolean;    // true = bundle created the contact; false = merged into existing
+          first_applied_version: number; // Bundle version at first apply
+          last_applied_version: number;  // Bundle version at most recent apply
+          last_applied_at: string;       // When this contact was last touched by a sync
+        };
+        Insert: Omit<Database["public"]["Tables"]["bundle_subscription_contacts"]["Row"], "id" | "bundle_prospect_id" | "last_applied_at"> & {
+          bundle_prospect_id?: number | null;
+          last_applied_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["bundle_subscription_contacts"]["Insert"]>;
+      };
+
+      // Bundle contact state — per-(user, contact) fingerprint baseline + sticky touched flag
+      bundle_contact_state: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          user_id: string;               // Foreign key to users
+          contact_id: number;            // Foreign key to contacts
+          applied_fingerprint: string | null; // Hash of user-editable surface after last bundle apply
+          user_touched: boolean;         // Sticky: once true, bundle machinery never deletes this contact
+          apply_started_at: string | null; // In-flight marker for crash-safe fingerprint recovery
+          updated_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["bundle_contact_state"]["Row"], "id" | "applied_fingerprint" | "user_touched" | "apply_started_at" | "updated_at"> & {
+          applied_fingerprint?: string | null;
+          user_touched?: boolean;
+          apply_started_at?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["bundle_contact_state"]["Insert"]>;
       };
 
       // Referrals — contact referred you to another contact
