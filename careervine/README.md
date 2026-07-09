@@ -30,6 +30,14 @@ CareerVine runs background automations through QStash so important outreach task
 
 This keeps delivery and data freshness reliable without requiring users to keep a tab open.
 
+## Company Intelligence Workflow
+
+CareerVine company pages now let you maintain office locations directly, even when you do not yet have a contact tied to that office.
+
+- Add new offices from `Companies -> Company -> Manage offices` using city/state/country.
+- Keep recruiting notes and location facets accurate before you build out the full contact map.
+- Remove stale inferred offices without losing first-person location data captured on contact profiles.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

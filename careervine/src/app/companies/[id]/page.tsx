@@ -15,6 +15,7 @@ import {
   getCompanyDetail,
   promoteContactToProspect,
   deleteCompanyOffice,
+  addCompanyOfficeLocation,
   addTargetCompany,
   updateTargetCompany,
   addTargetCompanyNote,
@@ -75,6 +76,10 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
   const [benchOpen, setBenchOpen] = useState(false);
   const [showAllFacets, setShowAllFacets] = useState(false);
   const [manageOffices, setManageOffices] = useState(false);
+  const [officeCity, setOfficeCity] = useState("");
+  const [officeState, setOfficeState] = useState("");
+  const [officeCountry, setOfficeCountry] = useState("United States");
+  const [addingOffice, setAddingOffice] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteLocationId, setNoteLocationId] = useState<string>("");
   const [editingAppDate, setEditingAppDate] = useState(false);
@@ -165,6 +170,30 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
       load();
     } catch {
       toastError("Failed to add note");
+    }
+  };
+
+  const addOffice = async () => {
+    const city = officeCity.trim();
+    const state = officeState.trim();
+    const country = officeCountry.trim() || "United States";
+    if (!city && !state && !country) {
+      toastError("Add at least a country for the office");
+      return;
+    }
+
+    setAddingOffice(true);
+    try {
+      const result = await addCompanyOfficeLocation(companyId, { city, state, country });
+      toastSuccess(result.added ? `Added ${result.label} office` : `${result.label} office already exists`);
+      setOfficeCity("");
+      setOfficeState("");
+      setOfficeCountry("United States");
+      await load();
+    } catch {
+      toastError("Failed to add office");
+    } finally {
+      setAddingOffice(false);
     }
   };
 
@@ -303,6 +332,32 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
               <p className="text-xs text-on-surface-variant mb-3">
                 Deleting an office clears locations that were inferred from it (profile matches). Locations stated on someone&apos;s own experience are kept.
               </p>
+              <div className="grid gap-2 sm:grid-cols-4 mb-4">
+                <input
+                  type="text"
+                  value={officeCity}
+                  onChange={(e) => setOfficeCity(e.target.value)}
+                  placeholder="City (optional)"
+                  className="h-10 px-3 rounded-lg bg-surface-container-high text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/40"
+                />
+                <input
+                  type="text"
+                  value={officeState}
+                  onChange={(e) => setOfficeState(e.target.value)}
+                  placeholder="State/Region (optional)"
+                  className="h-10 px-3 rounded-lg bg-surface-container-high text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/40"
+                />
+                <input
+                  type="text"
+                  value={officeCountry}
+                  onChange={(e) => setOfficeCountry(e.target.value)}
+                  placeholder="Country"
+                  className="h-10 px-3 rounded-lg bg-surface-container-high text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/40"
+                />
+                <Button onClick={addOffice} disabled={addingOffice || !officeCountry.trim()}>
+                  <Plus className="w-4 h-4 mr-1.5" /> {addingOffice ? "Adding…" : "Add office"}
+                </Button>
+              </div>
               <div className="flex gap-2 flex-wrap">
                 {offices.length === 0 && <span className="text-sm text-on-surface-variant">No offices recorded yet.</span>}
                 {offices.map((o) => (
