@@ -63,7 +63,9 @@ ALTER TABLE users ADD COLUMN ai_fallback_policy text NOT NULL DEFAULT 'cutoff'
   CHECK (ai_fallback_policy IN ('cutoff','shared'));
 
 -- Per-bundle default visibility + per-(user,bundle) override (CAR-25).
-ALTER TABLE data_bundles ADD COLUMN default_visible boolean NOT NULL DEFAULT true;
+-- Decision: bundles are HIDDEN until granted, so default_visible defaults to false.
+-- (Set a bundle's default_visible=true to make it broadly public.)
+ALTER TABLE data_bundles ADD COLUMN default_visible boolean NOT NULL DEFAULT false;
 
 CREATE TABLE bundle_access_overrides (
   user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -140,7 +142,7 @@ Make the resolver policy-aware — one chokepoint, no call-site changes.
 - Cache: the resolver caches per user (60s TTL) — include policy in the cache value, or invalidate on admin change (accept ≤60s lag; note it).
 
 ### 7b. Bundle visibility
-- New route `careervine/src/app/api/bundles/list/route.ts` (`withApiHandler`) returning bundles the caller may see: `data_bundles` where `default_visible = true` **minus** rows with an override `allowed = false`, **plus** rows with an override `allowed = true`. Compute with the service client (overrides are service-role-only) but scope output to `ctx.user.id`.
+- New route `careervine/src/app/api/bundles/list/route.ts` (`withApiHandler`) returning bundles the caller may see. Effective-visibility rule (bundles hidden until granted): a bundle is visible iff there is an override `allowed = true` for this user, **or** `default_visible = true` and no override `allowed = false`. With the chosen default (`default_visible = false`), that reduces to "visible only where the admin has granted an `allowed = true` override." Compute with the service client (overrides are service-role-only) but scope output to `ctx.user.id`.
 - Refactor `data-subscriptions-section.tsx` `load()` to call this route instead of querying `data_bundles` directly, so hidden bundles never reach the browser.
 - **Defense in depth:** `bundles/subscribe/route.ts` must re-check visibility server-side and 403 if the user isn't allowed (don't trust the list).
 
@@ -187,16 +189,16 @@ Make the resolver policy-aware — one chokepoint, no call-site changes.
 
 **Tests:** admin add/remove reflects in the target account; bulk bundle inject creates the expected contacts; audited; non-admin 403.
 
-## 11. Decisions needed before build (defaults applied in this plan)
+## 11. Decisions (resolved)
 
-| # | Decision | Plan default |
+| # | Decision | Resolution |
 |---|---|---|
-| 1 | New bundle visibility | **Visible by default** (`default_visible = true`); admin hides per account. *(Alt: hidden-by-default for a gated feel.)* |
+| 1 | New bundle visibility | ✅ **Hidden until granted** (`default_visible = false`); admin grants per account via an `allowed = true` override. |
 | 2 | Shared-key spend cap | **Deferred** — needs usage metering (CAR-20, out of scope). v1 is on/off `shared` vs `cutoff`. |
 | 3 | Multi-admin | **Single admin** via `app_metadata` + `grant-admin.mjs` script. A "make admin" button is a trivial add later (one `app_metadata` write). |
-| 4 | Suspend semantics | **Block login** (revoke sessions + sign-in gate + API backstop). *(Alt: logged-in read-only — larger surface.)* |
+| 4 | Suspend semantics | ✅ **Block login** (revoke sessions + sign-in gate + API backstop). |
 
-Only #1 changes Phase 1 behavior; the rest are confirm-and-go.
+All four settled — plan is ready to build.
 
 ## 12. Build order & Linear
 
