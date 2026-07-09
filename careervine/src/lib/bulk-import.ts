@@ -81,6 +81,32 @@ export interface ChunkImportSummary {
   offices_established: number;
 }
 
+/**
+ * Pre-merge capture for the scrape-diff engine (plan 29 §5): the contact's
+ * employment rows as they existed BEFORE this import, plus the incoming rows
+ * with their resolved companies. The ingest layer feeds this to computeDiff —
+ * the diff must see the pre-merge state, and company resolution only happens
+ * inside this module.
+ */
+export interface RescrapeDiffCapture {
+  contactId: number;
+  contactName: string;
+  linkedinUrl: string; // canonical — correlates back to the raw actor item
+  existingEmployment: Array<{ company_id: number; title: string | null; start_month: string | null; is_current: boolean }>;
+  incomingEmployment: Array<{
+    company_id: number;
+    linkedin_company_id: string | null;
+    company_name: string | null;
+    title: string | null;
+    start_month: string | null;
+    is_current: boolean;
+  }>;
+}
+
+export interface ImportHooks {
+  onDiffCapture?: (capture: RescrapeDiffCapture) => void;
+}
+
 /** Wall-clock budget for best-effort photo downloads per request. */
 const PHOTO_BUDGET_MS = 12_000;
 
@@ -111,6 +137,7 @@ export async function importPeopleChunk(
   people: PersonImportInput[],
   batch?: string,
   mode: "import" | "rescrape" = "import",
+  hooks: ImportHooks = {},
 ): Promise<ChunkImportSummary> {
   const now = new Date().toISOString();
   const results: PersonImportResult[] = [];
@@ -346,7 +373,7 @@ export async function importPeopleChunk(
       }
 
       if (existing) {
-        await updateExistingPerson(supabase, w, existing, profileLocationId, now, mode);
+        await updateExistingPerson(supabase, w, existing, profileLocationId, now, mode, hooks);
       } else if (mode === "rescrape") {
         // A rescrape targets an existing contact; if it vanished (deleted
         // mid-run), record it rather than resurrecting it from thin data.
@@ -483,6 +510,7 @@ async function updateExistingPerson(
   profileLocationId: number | null,
   now: string,
   mode: "import" | "rescrape" = "import",
+  hooks: ImportHooks = {},
 ) {
   const { mapped } = w;
   const contactId = existing.id;
@@ -517,6 +545,30 @@ async function updateExistingPerson(
     .from("contact_companies")
     .select("id, company_id, title, start_month, end_month, is_current, location_id, location_source, location_raw, workplace_type, employment_type, source")
     .eq("contact_id", contactId);
+
+  // Capture the PRE-merge state for the scrape-diff engine (plan 29 §5).
+  if (hooks.onDiffCapture) {
+    hooks.onDiffCapture({
+      contactId,
+      contactName: existing.name,
+      linkedinUrl: mapped.linkedin_url,
+      existingEmployment: ((existingEmpRows as ExistingEmploymentRow[] | null) ?? []).map((r) => ({
+        company_id: r.company_id,
+        title: r.title,
+        start_month: r.start_month,
+        is_current: r.is_current,
+      })),
+      incomingEmployment: w.employment.map((e) => ({
+        company_id: e.company.id,
+        linkedin_company_id: e.company.linkedin_company_id,
+        company_name: e.company.name,
+        title: e.incoming.title,
+        start_month: e.incoming.start_month,
+        is_current: e.incoming.is_current,
+      })),
+    });
+  }
+
   const plan = computeEmploymentMerge(
     (existingEmpRows as ExistingEmploymentRow[] | null) ?? [],
     w.employment.map((e) => e.incoming),

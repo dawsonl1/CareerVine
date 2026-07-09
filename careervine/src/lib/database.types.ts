@@ -717,6 +717,26 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["scrape_runs"]["Insert"]>;
       };
 
+      // Scrape snapshots — normalized per-scrape profile subset (plan 29)
+      contact_scrape_snapshots: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          contact_id: number;                  // Foreign key to contacts
+          scrape_run_id: number | null;        // Producing scrape_runs row (null if run deleted)
+          scraped_at: string;
+          snapshot: Record<string, unknown>;   // Normalized subset — see ScrapeSnapshot in diff-engine.ts
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["contact_scrape_snapshots"]["Row"],
+          "id" | "scraped_at" | "scrape_run_id"
+        > & {
+          scraped_at?: string;
+          scrape_run_id?: number | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["contact_scrape_snapshots"]["Insert"]>;
+      };
+
       // Referrals — contact referred you to another contact
       referrals: {
         Row: {

@@ -14,7 +14,8 @@
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
-import { importPeopleChunk, type PersonImportInput } from "@/lib/bulk-import";
+import { importPeopleChunk, type PersonImportInput, type RescrapeDiffCapture } from "@/lib/bulk-import";
+import { buildSnapshot, computeDiff, type ScrapeSnapshot } from "@/lib/change-events/diff-engine";
 import {
   MONTHLY_SCRAPE_CAP_USD,
   PROFILE_SCRAPER_ACTOR,
@@ -29,6 +30,7 @@ import {
   getDatasetItems,
   getAppBaseUrl,
   isApifyConfigured,
+  type ApifyProfileItem,
 } from "./client";
 import { actorItemToPeopleRecord } from "./rescrape-wrapper";
 
@@ -175,6 +177,83 @@ export async function triggerContactScrape(opts: {
 }
 
 /**
+ * Start one batched cadence run for a user (plan 29 §7.3). The caller has
+ * already selected eligible contacts; this enforces the spend cap (trimming
+ * the batch to the remaining budget), records the ledger row, and starts the
+ * run with a per-batch charge cap. Returns the number of contacts actually
+ * covered (0 = nothing started).
+ */
+export async function triggerBatchScrape(
+  userId: string,
+  contacts: Array<{ contactId: number; url: string }>,
+  mode: Mode = ScrapeMode.Profile,
+): Promise<number> {
+  if (contacts.length === 0 || killSwitchOn() || !isApifyConfigured()) return 0;
+  const service = createSupabaseServiceClient();
+
+  // Trim the batch to the remaining monthly budget (fail-closed on error).
+  const spend = await getMonthlySpendUsd(userId);
+  const unit = SCRAPE_UNIT_COST_USD[mode];
+  const affordable = Math.floor((MONTHLY_SCRAPE_CAP_USD - spend) / unit);
+  if (affordable <= 0) return 0;
+  const batch = contacts.slice(0, affordable);
+
+  const { data: runRow, error: insertErr } = await service
+    .from("scrape_runs")
+    .insert({
+      user_id: userId,
+      actor: PROFILE_SCRAPER_ACTOR,
+      mode,
+      trigger: "cadence",
+      contact_ids: batch.map((c) => c.contactId),
+      single_contact_id: null, // batch runs aren't covered by the per-contact guard
+    })
+    .select("id")
+    .single();
+  if (insertErr || !runRow) throw new Error(`Failed to record cadence run: ${insertErr?.message}`);
+  const scrapeRunId = (runRow as { id: number }).id;
+
+  try {
+    const secret = process.env.APIFY_WEBHOOK_SECRET ?? "";
+    const callbackUrl = `${getAppBaseUrl()}/api/apify/run-callback?secret=${encodeURIComponent(secret)}&run=${scrapeRunId}`;
+    const run = await startProfileScrapeRun({
+      urls: batch.map((c) => c.url),
+      mode,
+      // Sized to the batch (deep-review F7): a fixed cap would abort a
+      // legitimate multi-item run mid-way.
+      maxTotalChargeUsd: Math.max(0.05, batch.length * unit * 2),
+      callbackUrl,
+    });
+    const { error: updateErr } = await service.from("scrape_runs").update({ apify_run_id: run.id }).eq("id", scrapeRunId);
+    if (updateErr) console.error(`[scrape] apify_run_id write failed for cadence run ${scrapeRunId}:`, updateErr);
+    return batch.length;
+  } catch (err) {
+    await service
+      .from("scrape_runs")
+      .update({ status: ScrapeRunStatus.Failed, error: err instanceof Error ? err.message : "start failed", finished_at: new Date().toISOString() })
+      .eq("id", scrapeRunId);
+    throw err;
+  }
+}
+
+/**
+ * Sweep runs stuck 'pending' longer than 24h (missed/lost webhooks) to
+ * 'timed_out' so they stop blocking contacts and reserving budget. Their
+ * contacts simply become eligible for the next cadence pass.
+ */
+export async function sweepStuckRuns(): Promise<number> {
+  const service = createSupabaseServiceClient();
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data } = await service
+    .from("scrape_runs")
+    .update({ status: ScrapeRunStatus.TimedOut, error: "No webhook within 24h", finished_at: new Date().toISOString() })
+    .eq("status", ScrapeRunStatus.Pending)
+    .lt("created_at", cutoff)
+    .select("id");
+  return ((data as { id: number }[] | null) ?? []).length;
+}
+
+/**
  * Auto-enrich after an extension save (plan 29 §6.5, Dawson's decision §9.1).
  * Picks the mode by value: email search ($0.01) when the contact has no email
  * — one run fills photo + real employment + verified email — else a plain
@@ -249,7 +328,18 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
     const inputs: PersonImportInput[] = items.map((item) => ({
       record: actorItemToPeopleRecord(item, { emailSearched: runRow.mode === ScrapeMode.Email }),
     }));
-    const summary = await importPeopleChunk(service, runRow.user_id, inputs, undefined, "rescrape");
+    const captures: RescrapeDiffCapture[] = [];
+    const summary = await importPeopleChunk(service, runRow.user_id, inputs, undefined, "rescrape", {
+      onDiffCapture: (c) => captures.push(c),
+    });
+
+    // Scrape-diff: emit change events + snapshots. Isolated — a diff failure
+    // must never fail an already-merged run.
+    try {
+      await processDiffs(service, runRow.user_id, runRow.id, items, captures, now);
+    } catch (err) {
+      console.error(`[scrape] diff processing failed for run ${runRow.id}:`, err);
+    }
 
     const { succeeded, failed } = await reconcileContacts(service, contactIds, summary.results);
     await markRunTerminal(service, runRow.id, ScrapeRunStatus.Succeeded, cost, now, null);
@@ -291,6 +381,116 @@ async function reconcileContacts(
     else failed.push(c.id);
   }
   return { succeeded, failed };
+}
+
+/**
+ * Scrape-diff step (plan 29 §5): for every rescraped contact, diff the fresh
+ * scrape against the pre-merge state + latest snapshot, upsert the resulting
+ * change events (deduped on (user_id, dedupe_key) so re-detection never
+ * duplicates and a dismissal is permanent), and record the new snapshot.
+ */
+async function processDiffs(
+  service: ServiceClient,
+  userId: string,
+  scrapeRunId: number,
+  items: ApifyProfileItem[],
+  captures: RescrapeDiffCapture[],
+  now: string,
+): Promise<void> {
+  if (captures.length === 0) return;
+
+  // Correlate raw items back to captures by canonical URL.
+  const itemByUrl = new Map<string, ApifyProfileItem>();
+  for (const item of items) {
+    const url = canonicalizeLinkedinUrl(
+      item.linkedinUrl ?? (item.publicIdentifier ? `https://www.linkedin.com/in/${item.publicIdentifier}` : null),
+    );
+    if (url && !itemByUrl.has(url)) itemByUrl.set(url, item);
+  }
+
+  // Latest prior snapshot per contact (one batched query, first-wins per contact).
+  const contactIds = captures.map((c) => c.contactId);
+  const { data: snapRows } = await service
+    .from("contact_scrape_snapshots")
+    .select("contact_id, snapshot")
+    .in("contact_id", contactIds)
+    .order("scraped_at", { ascending: false });
+  const prevByContact = new Map<number, ScrapeSnapshot>();
+  for (const row of (snapRows as { contact_id: number; snapshot: ScrapeSnapshot }[] | null) ?? []) {
+    if (!prevByContact.has(row.contact_id)) prevByContact.set(row.contact_id, row.snapshot);
+  }
+
+  // linkedin_company_id lookup: incoming side rides on the captures; fetch the
+  // existing side's companies in one query.
+  const existingCompanyIds = new Set<number>();
+  const companyLinkedinIds = new Map<number, string | null>();
+  for (const c of captures) {
+    for (const e of c.incomingEmployment) companyLinkedinIds.set(e.company_id, e.linkedin_company_id);
+    for (const e of c.existingEmployment) existingCompanyIds.add(e.company_id);
+  }
+  const missing = [...existingCompanyIds].filter((id) => !companyLinkedinIds.has(id));
+  if (missing.length > 0) {
+    const { data: companyRows } = await service
+      .from("companies")
+      .select("id, linkedin_company_id")
+      .in("id", missing);
+    for (const row of (companyRows as { id: number; linkedin_company_id: string | null }[] | null) ?? []) {
+      companyLinkedinIds.set(row.id, row.linkedin_company_id);
+    }
+  }
+
+  const eventRows: Array<Record<string, unknown>> = [];
+  const snapshotRows: Array<Record<string, unknown>> = [];
+
+  for (const capture of captures) {
+    const item = itemByUrl.get(capture.linkedinUrl);
+    if (!item) continue;
+
+    const nextSnapshot = buildSnapshot(item, capture.incomingEmployment);
+    const events = computeDiff({
+      contactId: capture.contactId,
+      contactName: capture.contactName,
+      scrapedAt: now,
+      existingEmployment: capture.existingEmployment,
+      companyLinkedinIds,
+      prevSnapshot: prevByContact.get(capture.contactId) ?? null,
+      nextSnapshot,
+    });
+
+    for (const e of events) {
+      eventRows.push({
+        user_id: userId,
+        contact_id: e.contactId,
+        type: e.type,
+        tier: e.tier,
+        dedupe_key: e.dedupeKey,
+        headline: e.headline,
+        evidence: e.evidence,
+        suggested_title: e.suggestedTitle,
+        suggested_description: e.suggestedDescription,
+        old_value: e.oldValue,
+        new_value: e.newValue,
+      });
+    }
+    snapshotRows.push({
+      user_id: userId,
+      contact_id: capture.contactId,
+      scrape_run_id: scrapeRunId,
+      scraped_at: now,
+      snapshot: nextSnapshot as unknown as Record<string, unknown>,
+    });
+  }
+
+  if (eventRows.length > 0) {
+    const { error } = await service
+      .from("contact_change_events")
+      .upsert(eventRows, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
+    if (error) console.error("[scrape] change-event upsert failed:", error);
+  }
+  if (snapshotRows.length > 0) {
+    const { error } = await service.from("contact_scrape_snapshots").insert(snapshotRows);
+    if (error) console.error("[scrape] snapshot insert failed:", error);
+  }
 }
 
 async function markRunTerminal(service: ServiceClient, id: number, status: string, cost: number, now: string, error: string | null) {

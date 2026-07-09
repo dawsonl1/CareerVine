@@ -322,9 +322,21 @@ QStash-retry-no-double-run. Suite must pass before every push (rules 3/4).
      + its employment-source model + the m6 extension-resave fix; find-email in the outreach
      PersonModal (contact-page find-email already covers the capability). These build atop the merge
      path the review will vet first.
-2. **Cadence engine** — snapshots, daily drip cron (§7.3), diff engine (§5), change events at scale.
-3. **Surfacing + resolvers** — Up Next change suggestions, email-on-company-change, actor-B no-URL
-   picker + URL-rot repair, Settings "Data & Scraping" tab.
+1b. **✅ DONE.** Employment source model (`contact_companies.source` gains `'extension'`,
+   migration `20260709030000`) → true M2 via the `'reconcile'` collision strategy (supersedes
+   extension/scraped rows, never manual); extension re-save m6 fix (only deletes rows it owns);
+   auto-enrich-on-save wired into the extension import route.
+2. **✅ DONE.** Cadence engine — `contact_scrape_snapshots` (migration `20260709040000`), pure
+   `computeDiff` (19 Vitest cases: company-level pairing, LinkedIn-id false-positive guard,
+   boolean baseline rule, title-rewording noise, dedupe keys), diff wired into webhook ingest via
+   an `importPeopleChunk` capture hook, daily `/api/cron/scrape-refresh` (QStash, ~80/day,
+   NULLs-first, active/prospect before bench, suppression + backoff + in-flight exclusions,
+   batch-sized charge caps), and a 24h stuck-pending sweep (`timed_out`). Diff-produced Tier-1/2
+   events surface through the existing Up Next reader automatically. NOTE: hot-tier *biweekly*
+   boost (next_app_date proximity) deferred to phase 3 polish — the drip covers the fleet
+   monthly with active/prospect prioritized daily.
+3. **Surfacing + resolvers** — email-on-company-change, actor-B no-URL picker + URL-rot repair,
+   company-page bench promote-hint (Q5), Settings "Data & Scraping" tab.
 
 ## 9. Decisions (resolved by Dawson, 2026-07-09)
 

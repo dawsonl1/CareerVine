@@ -128,6 +128,15 @@ export const MONTHLY_SCRAPE_CAP_USD = 10;
 /** Debounce: skip a manual re-scrape if the contact was scraped this recently. */
 export const SCRAPE_DEBOUNCE_DAYS = 7;
 
+/**
+ * Daily cadence drip size (plan 29 §7.3): ~80/day covers a ~2,000-contact
+ * fleet monthly plus headroom (the deep review corrected the original 25).
+ */
+export const DAILY_CADENCE_TARGET = 80;
+
+/** Contacts per cadence Apify run — sized so webhook ingest fits maxDuration. */
+export const CADENCE_BATCH_SIZE = 25;
+
 // ── Action item direction ─────────────────────────────────────────────
 
 export const ActionDirection = {
