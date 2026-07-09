@@ -1,0 +1,62 @@
+/**
+ * POST /api/queue/bundle-sync — QStash-signed bundle sync worker (plan 29).
+ *
+ * Receives { subscriptionIds } batches from the publish fan-out or the
+ * daily cron, processes them under a wall-clock budget on the service
+ * client, and re-enqueues whatever it couldn't finish. Serialization
+ * claims make it safe alongside the user-driven apply loop.
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { Receiver } from "@upstash/qstash";
+import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { enqueueBundleSyncJobs, processSubscriptionsUnderBudget } from "@/lib/bundle-queue";
+
+export const maxDuration = 60;
+
+const receiver = new Receiver({
+  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
+  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY || "",
+});
+
+export async function POST(req: NextRequest) {
+  let bodyText: string;
+  try {
+    bodyText = await req.text();
+    const signature = req.headers.get("upstash-signature") || "";
+    await receiver.verify({ body: bodyText, signature, url: req.url });
+  } catch {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  let subscriptionIds: number[];
+  try {
+    const parsed = JSON.parse(bodyText) as { subscriptionIds?: unknown };
+    subscriptionIds = Array.isArray(parsed.subscriptionIds)
+      ? parsed.subscriptionIds.filter((id): id is number => Number.isInteger(id))
+      : [];
+  } catch {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+  if (subscriptionIds.length === 0) return NextResponse.json({ processed: 0 });
+
+  const service = createSupabaseServiceClient();
+  const result = await processSubscriptionsUnderBudget(service, subscriptionIds);
+
+  let requeued = 0;
+  if (result.remaining.length > 0) {
+    requeued = await enqueueBundleSyncJobs(result.remaining, req.url);
+    if (requeued === 0) {
+      // Queue unavailable — the daily cron will pick these up.
+      console.warn(`[bundle-sync] Could not re-enqueue ${result.remaining.length} subscriptions`);
+    }
+  }
+
+  return NextResponse.json({
+    completed: result.completed.length,
+    skipped: result.skipped.length,
+    remaining: result.remaining.length,
+    requeued,
+    applied: result.applied,
+  });
+}

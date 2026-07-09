@@ -343,3 +343,67 @@ export const openaiKeySaveSchema = z.object({
     .max(200, "API key is too long")
     .regex(/^sk-/, "API key must start with sk-"),
 });
+
+// ── Data bundles (plan 29) ─────────────────────────────────────────────
+
+/** Admin publish flow — secret-token route, staged under a publish lock. */
+export const bundlePublishSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("begin"),
+    slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "slug must be kebab-case"),
+    name: z.string().min(1).optional(),
+    description: z.string().nullable().optional(),
+  }),
+  z.object({
+    mode: z.literal("prospects"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+    /** BundleProspectPayloadV1[] — or raw pipeline PeopleRecords when
+     * peopleFormat is 'people_record' (converted server-side). */
+    people: z.array(z.unknown()).min(1).max(50),
+    peopleFormat: z.enum(["payload", "people_record"]).default("payload"),
+  }),
+  z.object({
+    mode: z.literal("companies"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+    companies: z.array(z.unknown()).min(1).max(50),
+  }),
+  z.object({
+    mode: z.literal("finalize"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+  }),
+  z.object({
+    mode: z.literal("abort"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+  }),
+]);
+
+/** User-facing bundle subscription endpoints. */
+export const bundleSubscribeSchema = z.object({
+  bundleId: z.number().int().positive(),
+});
+
+export const bundleApplySchema = z.object({
+  bundleId: z.number().int().positive(),
+  cursor: z
+    .object({
+      phase: z.enum(["apply", "remove"]),
+      afterId: z.number().int().nonnegative(),
+    })
+    .nullable()
+    .optional(),
+  /** Committed bundle version pinned on the loop's first call — later
+   * calls must pass it back so a concurrent publish can't skew the delta. */
+  pinnedVersion: z.number().int().positive().optional(),
+  /** Sync-claim token from the previous call (CAS renewal). */
+  claimToken: z.string().optional(),
+});
+
+export const bundleUnsubscribeSchema = z.object({
+  bundleId: z.number().int().positive(),
+  keepAll: z.boolean(),
+  cursor: z.number().int().nonnegative().nullable().optional(),
+});
