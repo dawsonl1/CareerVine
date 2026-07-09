@@ -1,9 +1,9 @@
 # 29 — Scrape-Diff & Find-Email (CAR-15)
 
-**Status:** Rev 3, 2026-07-09 — audited. Rev 2 was audited by two agents: a UI-grounding pass
-(mapping every proposed feature onto real components) and an adversarial technical audit
-(verifying every claim against the code). Rev 3 folds in all findings. Implementation still
-blocked on §9.
+**Status:** Rev 3.1, 2026-07-09 — audited and **unblocked**. Rev 2 was audited by two agents: a
+UI-grounding pass (mapping every proposed feature onto real components) and an adversarial
+technical audit (verifying every claim against the code). Rev 3 folded in all findings; Rev 3.1
+records Dawson's answers to the open questions (§9). Ready to implement per §8.
 **Linear:** [CAR-15](https://linear.app/career-vine/issue/CAR-15/explore-benefits-of-a-weekly-or-bi-weekly-or-monthly-appify-contact) (In Progress).
 Spun out: [CAR-29](https://linear.app/career-vine/issue/CAR-29/discovery-feed-surface-new-pm-hires-at-target-companies) — out of scope.
 Pricing verified live at BRONZE tier 2026-07-08.
@@ -305,12 +305,20 @@ QStash-retry-no-double-run. Suite must pass before every push (rules 3/4).
 3. **Surfacing + resolvers** — Up Next change suggestions, email-on-company-change, actor-B no-URL
    picker + URL-rot repair, Settings "Data & Scraping" tab.
 
-## 9. Open questions for Dawson (blocking implementation)
+## 9. Decisions (resolved by Dawson, 2026-07-09)
 
-1. Auto-enrich on extension save (recommended) vs explicit button only?
-2. Change suggestions on the home Up Next feed even for `prospect` contacts (feed has been
-   active-only so far), or company-page-only for prospects?
-3. Comfortable with ~$10/mo steady-state Apify spend (hard monthly cap enforced in `scrape_runs`)?
-4. Snapshot table (recommended — required for `hiring`/`openToWork` signals) vs diff-against-live-rows only?
-5. Bench carve-out: may a bench contact moving *into* a target company surface a company-page
-   "promote to prospect?" hint (the existing bench "Add to outreach" button pattern), or stay fully silent?
+1. **Auto-enrich on extension save: YES** — auto-on for now, with the Settings/extension toggles.
+   Future requirement recorded on [CAR-25 (Admin Dashboard)](https://linear.app/career-vine/issue/CAR-25/admin-dashboard):
+   when the admin dashboard is built it must offer a **per-account toggle** for whether that
+   account's extension saves trigger auto-enrich. Not built in this increment.
+2. **Change-suggestion placement: home Up Next feed + company page**, including for `prospect`
+   contacts (Tier-1/2 changes land in Up Next; company pages badge affected people).
+3. **Budget: $10/mo hard cap** enforced via `scrape_runs`. Since this is tight to the ~$9–11
+   estimate, spend degrades gracefully near the cap in this order: cadence drip pauses first,
+   then event-driven email re-search; per-contact manual actions (button clicks, enrich-on-save)
+   keep working until the hard cap itself. Cap adjustable in the Settings "Data & Scraping" tab.
+4. **Snapshot table: YES** — `contact_scrape_snapshots` ships in phase 2 (§7.4); required for
+   `hiring`/`openToWork` signals and diff auditability.
+5. **Bench carve-out: YES, company-page hint** — a bench contact who moves into a target company
+   gets badged in the collapsed bench section with the existing "Add to outreach" promote button.
+   No outreach/suggestion surfaces touched; strict plan-24 containment otherwise preserved.
