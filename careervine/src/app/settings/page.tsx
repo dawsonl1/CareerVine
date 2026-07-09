@@ -7,6 +7,7 @@
  *   3. Availability: working hours + busy calendars
  *   4. AI: BYO OpenAI API key
  *   5. AI Templates: custom email generation prompts
+ *   6. Data subscriptions: curated prospect/company bundles
  */
 
 "use client";
@@ -19,7 +20,8 @@ import IntegrationsSection from "@/components/settings/integrations-section";
 import AvailabilitySection from "@/components/settings/availability-section";
 import AiKeySection from "@/components/settings/ai-key-section";
 import TemplatesSection from "@/components/settings/templates-section";
-import { User, Plug, Calendar, Bot, Sparkles } from "lucide-react";
+import DataSubscriptionsSection from "@/components/settings/data-subscriptions-section";
+import { User, Plug, Calendar, Bot, Sparkles, Database } from "lucide-react";
 
 const tabs = [
   { id: "account", label: "Account", icon: User },
@@ -27,6 +29,7 @@ const tabs = [
   { id: "availability", label: "Availability", icon: Calendar },
   { id: "ai", label: "AI", icon: Bot },
   { id: "templates", label: "AI Templates", icon: Sparkles },
+  { id: "data", label: "Data subscriptions", icon: Database },
 ] as const;
 
 type TabId = (typeof tabs)[number]["id"];
@@ -116,6 +119,7 @@ function SettingsPage() {
             {activeTab === "availability" && <AvailabilitySection />}
             {activeTab === "ai" && <AiKeySection />}
             {activeTab === "templates" && <TemplatesSection />}
+            {activeTab === "data" && <DataSubscriptionsSection />}
           </div>
         </div>
       </main>
