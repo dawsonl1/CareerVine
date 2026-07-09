@@ -100,7 +100,7 @@ describe('beginPublish', () => {
       if (state.table === 'data_bundles' && state.op === 'select') return { data: null };
       if (state.table === 'data_bundles' && state.op === 'insert')
         return { data: { id: 9, version: 0, staging_version: null, staging_claimed_at: null } };
-      if (state.table === 'data_bundles' && state.op === 'update') return { data: { id: 9 } };
+      if (state.table === 'data_bundles' && state.op === 'update') return { count: 1 };
       return {};
     });
     const result = await beginPublish(client, { slug: 'ib-banks', name: 'IB Banks' });
@@ -114,7 +114,7 @@ describe('beginPublish', () => {
     const { client } = createMockService((state) => {
       if (state.op === 'select')
         return { data: { id: 9, version: 3, staging_version: 4, staging_claimed_at: new Date().toISOString() } };
-      if (state.op === 'update') return { data: null }; // conditional claim matched 0 rows
+      if (state.op === 'update') return { count: 0 }; // conditional claim matched 0 rows
       return {};
     });
     await expect(beginPublish(client, { slug: 'ib-banks' })).rejects.toThrowError(/publish in progress/);
@@ -203,7 +203,9 @@ function finalizeResponder(opts: { removedIds: number[]; changedCount: number; l
     if (state.table === 'data_bundles' && state.op === 'select')
       return { data: { id: 9, version: 3, staging_version: 4 } };
     if (state.table === 'bundle_prospects' && state.op === 'update')
-      return { data: opts.removedIds.map((id) => ({ id })) };
+      // Count-based: the soft-remove sets the column its filter tests, so the
+      // representation is always empty — only the count is trustworthy.
+      return { count: opts.removedIds.length };
     if (state.table === 'bundle_prospects' && state.count) {
       const isChangedQuery = state.filters.some((f) => f.method === 'eq' && f.args[0] === 'version_updated');
       return { count: isChangedQuery ? opts.changedCount : opts.liveCount };

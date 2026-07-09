@@ -84,16 +84,20 @@ export async function claimSubscriptionSync(
   const nowIso = new Date().toISOString();
   const token = new Date(Date.now() + SYNC_CLAIM_MS).toISOString();
 
+  // Success is detected via the updated-row COUNT, never .select():
+  // PostgREST re-applies the request filters to the RETURNING rows, and this
+  // update changes the very column the filters test (sync_claimed_until), so
+  // a successful claim/renewal would always return an empty representation.
   let query = client
     .from("bundle_subscriptions")
-    .update({ sync_claimed_until: token, updated_at: nowIso })
+    .update({ sync_claimed_until: token, updated_at: nowIso }, { count: "exact" })
     .eq("id", subscriptionId);
   query = priorToken
     ? query.eq("sync_claimed_until", priorToken)
     : query.or(`sync_claimed_until.is.null,sync_claimed_until.lt.${nowIso}`);
 
-  const { data } = await query.select("id").maybeSingle();
-  return data ? token : null;
+  const { count } = await query;
+  return (count ?? 0) === 1 ? token : null;
 }
 
 export async function releaseSubscriptionSync(
