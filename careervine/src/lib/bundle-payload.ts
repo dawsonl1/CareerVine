@@ -172,6 +172,49 @@ export function pickBestBundleEmail(
 }
 
 /**
+ * Convert a MappedPerson (e.g. from mapPeopleRecord over a pipeline
+ * record) to the bundle payload contract. Used by the publish route so the
+ * offline driver script can send raw pipeline records and stay dumb —
+ * scraper-format knowledge lives only in scrape-mapper, contract knowledge
+ * only here.
+ */
+export function mappedPersonToBundlePayload(mapped: MappedPerson): BundleProspectPayloadV1 {
+  return bundleProspectPayloadV1Schema.parse({
+    name: mapped.name,
+    linkedin_url: mapped.linkedin_url,
+    public_identifier: mapped.public_identifier,
+    headline: mapped.headline,
+    photo_url: mapped.photo_url,
+    location: mapped.profile_location,
+    location_raw: mapped.profile_location_raw,
+    emails: mapped.email ? [{ email: mapped.email.address, source: mapped.email.source }] : [],
+    experiences: mapped.employment.map((emp) => ({
+      title: emp.title,
+      company: {
+        name: emp.company_name,
+        linkedin_company_id: emp.linkedin_company_id,
+        linkedin_url: emp.company_linkedin_url,
+        universal_name: emp.company_universal_name,
+      },
+      start_month: emp.start_month,
+      end_month: emp.is_current ? null : emp.end_month,
+      is_current: emp.is_current,
+      workplace_type: emp.workplace_type,
+      employment_type: emp.employment_type,
+      location_raw: emp.location_raw,
+    })),
+    education: mapped.education.map((edu) => ({
+      school_name: edu.school_name,
+      degree: edu.degree,
+      field_of_study: edu.field_of_study,
+      start_year: edu.start_year,
+      end_year: edu.end_year,
+    })),
+    tags: mapped.tags,
+  });
+}
+
+/**
  * Convert a validated payload to the import engine's MappedPerson with
  * bundle provenance. The result feeds importPeopleChunk's pre-mapped input
  * path with mergePolicy 'bundle'.

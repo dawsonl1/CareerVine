@@ -1,0 +1,122 @@
+/**
+ * POST /api/admin/bundles/publish — admin-only bundle publish flow (plan 29).
+ *
+ * Machine route in the cron-route style (no user session): authenticated by
+ * the BUNDLE_ADMIN_TOKEN bearer secret and run on the service-role client —
+ * bundle content tables deliberately have no user write policies.
+ *
+ * Modes: begin (claim publish lock) → prospects/companies chunks (≤50) →
+ * finalize (commit version, or skip the bump on a zero-change run) | abort.
+ * Driven by careervine/scripts/publish-bundle.mjs.
+ */
+
+import { createHash, timingSafeEqual } from "crypto";
+import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { bundlePublishSchema } from "@/lib/api-schemas";
+import { bundleCompanyEntrySchema, mappedPersonToBundlePayload } from "@/lib/bundle-payload";
+import { mapPeopleRecord, ScrapeMappingError, type PeopleRecord } from "@/lib/scrape-mapper";
+import {
+  beginPublish,
+  publishProspectsChunk,
+  publishCompaniesChunk,
+  finalizePublish,
+  abortPublish,
+  BundlePublishError,
+} from "@/lib/bundle-publish";
+
+export const maxDuration = 60;
+
+/** Constant-time bearer check; digests equalize length so timingSafeEqual
+ * never throws on mismatched input sizes. */
+export function isAuthorizedAdminToken(header: string | null, secret: string | undefined): boolean {
+  if (!secret) return false;
+  const presented = header?.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!presented) return false;
+  const a = createHash("sha256").update(presented).digest();
+  const b = createHash("sha256").update(secret).digest();
+  return timingSafeEqual(a, b);
+}
+
+export async function POST(req: NextRequest) {
+  if (!isAuthorizedAdminToken(req.headers.get("authorization"), process.env.BUNDLE_ADMIN_TOKEN)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const parsed = bundlePublishSchema.safeParse(body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return NextResponse.json(
+      { error: `${issue?.path?.join(".") ?? ""} ${issue?.message ?? "invalid body"}`.trim() },
+      { status: 400 },
+    );
+  }
+
+  const service = createSupabaseServiceClient();
+  const input = parsed.data;
+
+  try {
+    switch (input.mode) {
+      case "begin": {
+        const result = await beginPublish(service, {
+          slug: input.slug,
+          name: input.name,
+          description: input.description,
+        });
+        return NextResponse.json(result);
+      }
+      case "prospects": {
+        let payloads = input.people;
+        if (input.peopleFormat === "people_record") {
+          // Convert raw pipeline records server-side so the driver script
+          // stays dumb; scraper-format knowledge lives in scrape-mapper only.
+          payloads = input.people.map((record, i) => {
+            try {
+              return mappedPersonToBundlePayload(mapPeopleRecord(record as PeopleRecord));
+            } catch (err) {
+              throw new BundlePublishError(
+                `Record ${i} failed conversion: ${err instanceof ScrapeMappingError || err instanceof Error ? err.message : "unknown"}`,
+              );
+            }
+          });
+        }
+        const result = await publishProspectsChunk(service, input.slug, input.stagingVersion, payloads);
+        return NextResponse.json(result);
+      }
+      case "companies": {
+        const companies = input.companies.map((c, i) => {
+          const parsedCompany = bundleCompanyEntrySchema.safeParse(c);
+          if (!parsedCompany.success) {
+            throw new BundlePublishError(
+              `Company ${i} invalid: ${parsedCompany.error.issues[0]?.message ?? "unknown"}`,
+            );
+          }
+          return parsedCompany.data;
+        });
+        const result = await publishCompaniesChunk(service, input.slug, input.stagingVersion, companies);
+        return NextResponse.json(result);
+      }
+      case "finalize": {
+        const result = await finalizePublish(service, input.slug, input.stagingVersion);
+        return NextResponse.json(result);
+      }
+      case "abort": {
+        await abortPublish(service, input.slug, input.stagingVersion);
+        return NextResponse.json({ aborted: true });
+      }
+    }
+  } catch (err) {
+    if (err instanceof BundlePublishError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    console.error("[bundles/publish] Unexpected failure:", err);
+    return NextResponse.json({ error: "Publish failed" }, { status: 500 });
+  }
+}

@@ -343,3 +343,40 @@ export const openaiKeySaveSchema = z.object({
     .max(200, "API key is too long")
     .regex(/^sk-/, "API key must start with sk-"),
 });
+
+// ── Data bundles (plan 29) ─────────────────────────────────────────────
+
+/** Admin publish flow — secret-token route, staged under a publish lock. */
+export const bundlePublishSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("begin"),
+    slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "slug must be kebab-case"),
+    name: z.string().min(1).optional(),
+    description: z.string().nullable().optional(),
+  }),
+  z.object({
+    mode: z.literal("prospects"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+    /** BundleProspectPayloadV1[] — or raw pipeline PeopleRecords when
+     * peopleFormat is 'people_record' (converted server-side). */
+    people: z.array(z.unknown()).min(1).max(50),
+    peopleFormat: z.enum(["payload", "people_record"]).default("payload"),
+  }),
+  z.object({
+    mode: z.literal("companies"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+    companies: z.array(z.unknown()).min(1).max(50),
+  }),
+  z.object({
+    mode: z.literal("finalize"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+  }),
+  z.object({
+    mode: z.literal("abort"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+  }),
+]);
