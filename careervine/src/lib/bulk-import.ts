@@ -110,6 +110,7 @@ export async function importPeopleChunk(
   userId: string,
   people: PersonImportInput[],
   batch?: string,
+  mode: "import" | "rescrape" = "import",
 ): Promise<ChunkImportSummary> {
   const now = new Date().toISOString();
   const results: PersonImportResult[] = [];
@@ -144,13 +145,21 @@ export async function importPeopleChunk(
   if (working.length === 0) return { results, offices_established: 0 };
 
   // ── Suppression tombstones ──
+  // Tombstones stop NEW imports of deleted contacts. A rescrape only refreshes
+  // contacts that already exist, so suppression does not apply (and would
+  // wrongly skip a contact whose URL was previously tombstoned).
   const urls = working.map((w) => w.mapped.linkedin_url);
-  const { data: suppressedRows } = await supabase
-    .from("suppressed_imports")
-    .select("linkedin_url")
-    .eq("user_id", userId)
-    .in("linkedin_url", urls);
-  const suppressed = new Set(((suppressedRows as { linkedin_url: string }[] | null) ?? []).map((r) => r.linkedin_url));
+  const suppressed = new Set<string>();
+  if (mode !== "rescrape") {
+    const { data: suppressedRows } = await supabase
+      .from("suppressed_imports")
+      .select("linkedin_url")
+      .eq("user_id", userId)
+      .in("linkedin_url", urls);
+    for (const r of (suppressedRows as { linkedin_url: string }[] | null) ?? []) {
+      suppressed.add(r.linkedin_url);
+    }
+  }
 
   // ── Resolve companies once per chunk ──
   const companyCache = new Map<string, CompanyRecord>();
@@ -337,7 +346,12 @@ export async function importPeopleChunk(
       }
 
       if (existing) {
-        await updateExistingPerson(supabase, w, existing, profileLocationId, now);
+        await updateExistingPerson(supabase, w, existing, profileLocationId, now, mode);
+      } else if (mode === "rescrape") {
+        // A rescrape targets an existing contact; if it vanished (deleted
+        // mid-run), record it rather than resurrecting it from thin data.
+        w.result.status = "error";
+        w.result.error = "Contact not found for rescrape";
       } else {
         await createNewPerson(supabase, userId, w, profileLocationId, now, batch);
       }
@@ -468,13 +482,14 @@ async function updateExistingPerson(
   },
   profileLocationId: number | null,
   now: string,
+  mode: "import" | "rescrape" = "import",
 ) {
   const { mapped } = w;
   const contactId = existing.id;
   w.contactId = contactId;
   w.result.status = "updated";
 
-  const { patch, personaConflict } = computeContactPatch(existing, mapped, now, profileLocationId);
+  const { patch, personaConflict } = computeContactPatch(existing, mapped, now, profileLocationId, mode);
   if (personaConflict) w.result.persona_conflict = personaConflict;
   // Keep the canonical URL current (fixes pre-normalizer variants and
   // internal-id → vanity upgrades matched via public_identifier)
@@ -506,6 +521,9 @@ async function updateExistingPerson(
     (existingEmpRows as ExistingEmploymentRow[] | null) ?? [],
     w.employment.map((e) => e.incoming),
     now,
+    // Enrich/rescrape supersedes an AI-parsed current role instead of
+    // inserting a duplicate (plan 29 M2).
+    { supersedeManualCurrent: mode === "rescrape" },
   );
   if (plan.inserts.length > 0) {
     const { error: insError } = await supabase

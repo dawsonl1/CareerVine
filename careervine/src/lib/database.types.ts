@@ -69,8 +69,10 @@ export type Database = {
           network_status: string;        // 'active' | 'prospect' | 'bench' — network tier segregation
           network_scope: string | null;  // 'target_company' | 'broad_network' — pipeline segment; NULL = not a pipeline import
           stage_override: string | null; // Manual override for the derived outreach stage
+          scrape_failed_at: string | null; // Last failed scrape attempt (plan 29)
+          scrape_failure_count: number;   // Consecutive failed scrapes; 0 on success
         };
-        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "network_scope" | "stage_override"> & {
+        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "network_scope" | "stage_override" | "scrape_failed_at" | "scrape_failure_count"> & {
           status_derived_at?: string | null;
           photo_url?: string | null;
           created_at?: string;
@@ -88,6 +90,8 @@ export type Database = {
           network_status?: string;
           network_scope?: string | null;
           stage_override?: string | null;
+          scrape_failed_at?: string | null;
+          scrape_failure_count?: number;
         };
         Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;
       };
@@ -678,6 +682,37 @@ export type Database = {
           new_value?: Record<string, unknown> | null;
         };
         Update: Partial<Database["public"]["Tables"]["contact_change_events"]["Insert"]>;
+      };
+
+      // Scrape runs — Apify run ledger (plan 29)
+      scrape_runs: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          apify_run_id: string | null;         // Apify run id (null until the run is started)
+          actor: string;                       // Apify actor full name
+          mode: string;                        // 'profile' | 'email'
+          trigger: string;                     // 'manual' | 'enrich_on_save' | 'cadence'
+          contact_ids: number[];               // Contacts covered by this run
+          status: string;                      // 'pending' | 'succeeded' | 'failed' | 'timed_out'
+          cost_usd: number;                    // Actual run cost (0 until succeeded)
+          error: string | null;
+          created_at: string;
+          finished_at: string | null;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["scrape_runs"]["Row"],
+          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids"
+        > & {
+          apify_run_id?: string | null;
+          status?: string;
+          cost_usd?: number;
+          error?: string | null;
+          created_at?: string;
+          finished_at?: string | null;
+          contact_ids?: number[];
+        };
+        Update: Partial<Database["public"]["Tables"]["scrape_runs"]["Insert"]>;
       };
 
       // Referrals — contact referred you to another contact

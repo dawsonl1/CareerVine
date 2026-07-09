@@ -301,9 +301,27 @@ QStash-retry-no-double-run. Suite must pass before every push (rules 3/4).
    idempotent producer + Up Next integration via the existing suggestion UI (save/complete/snooze
    mark actioned, dismiss marks dismissed). Migration `20260709000000_contact_change_events.sql`
    awaits `supabase db push`. Proves the suggestion rails end-to-end, no Apify.
-1. **Per-contact path** — Apify client, `scrape_runs` + webhook callback, rescrape-mode merge
-   (§7.1), `/api/contacts/[id]/scrape`, ContactProfileCard Refresh + staleness label, extension
-   enrich-on-save **including the M2/m6 employment fixes**, find-email in outreach/PersonModal.
+1. **Per-contact path.** ✅ **Core DONE** (branch dawson/scrape-diff-cost-modeling-46fd91):
+   - `scrape_runs` ledger + `contacts.scrape_failed_at/scrape_failure_count` migration
+     (`20260709010000_scrape_runs.sql`, awaits `supabase db push`).
+   - Apify REST client (`lib/apify/client.ts`) — starts `harvestapi/linkedin-profile-scraper`
+     with a completion webhook + `maxTotalChargeUsd`; fetches run + dataset + cost.
+   - Rescrape wrapper (`lib/apify/rescrape-wrapper.ts`) — raw item → schema-v1 record, verified
+     email (M5), private-profile → mapper failure (6 Vitest cases).
+   - **B1 rescrape-mode merge** — `computeContactPatch(mode)` skips all pipeline/user-owned fields;
+     `mode` threaded through `importPeopleChunk` (suppression skipped, create-path guarded).
+     **M2** — `computeEmploymentMerge({ supersedeManualCurrent })` supersedes an AI-parsed current
+     role instead of duplicating (12 Vitest cases; existing 23 intact).
+   - Scrape service (`lib/apify/scrape-service.ts`) — trigger (kill-switch, config, 7-day debounce,
+     $10 monthly cap, in-flight idempotency, ledger) + ingest (map → rescrape-merge → per-contact
+     failure reconcile → run cost). Routes `/api/contacts/[id]/scrape` + `/api/apify/run-callback`.
+   - Contact page: `ContactProfileCard` Refresh + Find-email buttons + "Data as of…" staleness.
+   - **Requires env** (not in repo): `APIFY_API_TOKEN`, `APIFY_WEBHOOK_SECRET`, `APP_BASE_URL`.
+     Absent → trigger returns `{status:"disabled"}`, UI shows "not configured".
+   - **Deferred to the continuation (after the first deep-review):** extension auto-enrich-on-save
+     + its employment-source model + the m6 extension-resave fix; find-email in the outreach
+     PersonModal (contact-page find-email already covers the capability). These build atop the merge
+     path the review will vet first.
 2. **Cadence engine** — snapshots, daily drip cron (§7.3), diff engine (§5), change events at scale.
 3. **Surfacing + resolvers** — Up Next change suggestions, email-on-company-change, actor-B no-URL
    picker + URL-rot repair, Settings "Data & Scraping" tab.

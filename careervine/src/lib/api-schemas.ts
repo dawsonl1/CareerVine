@@ -290,6 +290,11 @@ export const changeEventDismissSchema = z.object({
   changeEventId: z.number().int(),
 });
 
+export const scrapeContactSchema = z.object({
+  /** 'profile' = refresh only; 'email' = also run SMTP-verified email search */
+  mode: z.enum(["profile", "email"]).optional(),
+});
+
 // ── Transcript Action Extraction ──────────────────────────────────────
 
 export const transcriptMatchSpeakersSchema = z.object({

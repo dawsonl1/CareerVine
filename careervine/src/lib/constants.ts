@@ -94,6 +94,40 @@ export const ChangeEventTier = {
   Silent: 3,
 } as const;
 
+// ── Apify scrape runs (plan 29) ───────────────────────────────────────
+
+export const ScrapeRunStatus = {
+  Pending: "pending",
+  Succeeded: "succeeded",
+  Failed: "failed",
+  TimedOut: "timed_out",
+} as const;
+
+export const ScrapeMode = {
+  /** Profile details only — $0.004/profile */
+  Profile: "profile",
+  /** Profile details + SMTP-verified email search — $0.01/profile */
+  Email: "email",
+} as const;
+
+export const ScrapeTrigger = {
+  Manual: "manual",
+  EnrichOnSave: "enrich_on_save",
+  Cadence: "cadence",
+} as const;
+
+/** The Apify actor used for all in-app scrapes (plan 29 §2). */
+export const PROFILE_SCRAPER_ACTOR = "harvestapi/linkedin-profile-scraper";
+
+/** Per-profile Apify cost at BRONZE tier, used for pre-run budget checks. */
+export const SCRAPE_UNIT_COST_USD = { profile: 0.004, email: 0.01 } as const;
+
+/** Hard monthly Apify spend cap (Dawson's decision, plan 29 §9). */
+export const MONTHLY_SCRAPE_CAP_USD = 10;
+
+/** Debounce: skip a manual re-scrape if the contact was scraped this recently. */
+export const SCRAPE_DEBOUNCE_DAYS = 7;
+
 // ── Action item direction ─────────────────────────────────────────────
 
 export const ActionDirection = {

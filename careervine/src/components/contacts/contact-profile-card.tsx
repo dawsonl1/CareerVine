@@ -6,7 +6,7 @@ import { useToast } from "@/components/ui/toast";
 import { useCompose } from "@/components/compose-email-context";
 import {
   Mail, Phone, ExternalLink, MapPin, Clock, Send,
-  Pencil, Trash2, ChevronDown, Check, UserPlus,
+  Pencil, Trash2, ChevronDown, Check, UserPlus, RefreshCw, MailSearch,
 } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { updateContact, addEmailToContact, removeEmailsFromContact, activateContact } from "@/lib/queries";
@@ -102,6 +102,44 @@ export function ContactProfileCard({
       toastError("Failed to add to network");
     }
   };
+
+  // ── LinkedIn re-scrape / find-email (plan 29) ──
+  const [scraping, setScraping] = useState(false);
+  const handleScrape = async (mode: "profile" | "email") => {
+    if (scraping) return;
+    setScraping(true);
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}/scrape`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toastError("Couldn't start the refresh");
+      } else if (data.status === "started") {
+        toastSuccess(mode === "email" ? "Searching LinkedIn for an email…" : "Refreshing from LinkedIn…");
+      } else if (data.status === "pending") {
+        toastSuccess("A refresh is already in progress");
+      } else if (data.status === "debounced") {
+        toastSuccess("Already refreshed in the last few days");
+      } else if (data.status === "cap_reached") {
+        toastError("Monthly scrape budget reached");
+      } else if (data.status === "no_url") {
+        toastError("This contact has no LinkedIn URL to scrape");
+      } else if (data.status === "disabled") {
+        toastError("Scraping isn't configured yet");
+      }
+    } catch {
+      toastError("Couldn't start the refresh");
+    } finally {
+      setScraping(false);
+    }
+  };
+
+  const dataAsOf = contact.last_scraped_at
+    ? `Data as of ${new Date(contact.last_scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+    : null;
 
   const saveCadence = async (days: number | null) => {
     setCadenceOpen(false);
@@ -240,6 +278,14 @@ export function ContactProfileCard({
           </div>
         )}
 
+        {/* Scrape freshness (plan 29) */}
+        {dataAsOf && (
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4 shrink-0" />
+            <span>{dataAsOf}</span>
+          </div>
+        )}
+
         {/* Follow-up cadence — inline dropdown */}
         <div className="flex items-center gap-3 text-base relative" ref={cadenceRef}>
           <Clock className="h-5 w-5 text-muted-foreground shrink-0" />
@@ -280,6 +326,26 @@ export function ContactProfileCard({
 
       {/* Footer actions */}
       <div className="flex justify-center gap-1.5 mt-5 pt-5 border-t border-outline-variant">
+        {contact.linkedin_url && (
+          <button
+            onClick={() => handleScrape("profile")}
+            disabled={scraping}
+            className="p-2.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-default"
+            title="Refresh from LinkedIn"
+          >
+            <RefreshCw className={`h-5 w-5 ${scraping ? "animate-spin" : ""}`} />
+          </button>
+        )}
+        {contact.linkedin_url && !primaryEmail && (
+          <button
+            onClick={() => handleScrape("email")}
+            disabled={scraping}
+            className="p-2.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-default"
+            title="Find email on LinkedIn"
+          >
+            <MailSearch className="h-5 w-5" />
+          </button>
+        )}
         <button
           onClick={onEdit}
           className="p-2.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors"
