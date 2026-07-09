@@ -4,7 +4,12 @@ Read this entire file before starting any task.
 
 ## Self-Correcting Rules Engine
 
-This file contains a growing ruleset that improves over time. **At session start, read the entire "Learned Rules" section before doing anything.**
+This file has two parts, both authoritative:
+
+- **`## Workflows`** — the stable, canonical description of how we work on this project (Linear, branching/PRs, merge conflicts, plan files). Read this first; it's the readable summary of process.
+- **`## Learned Rules`** — an append-only log of corrections and preferences. Never rewritten, only added to.
+
+**At session start, read the `## Workflows` section AND the entire `## Learned Rules` section before doing anything.** Where a Workflow and a Learned Rule overlap, they're kept consistent; if they ever conflict, the newer statement wins (per rule 6 of "How it works").
 
 ### How it works
 
@@ -32,6 +37,66 @@ This file contains a growing ruleset that improves over time. **At session start
 
 ---
 
+## Workflows
+
+Canonical, stable process for this project. Unlike Learned Rules (an append-only correction log), this section is edited in place to stay accurate. Rules in the log that codify or supersede a workflow are cross-referenced by number.
+
+### Linear tickets
+
+Project is managed through Linear — team **"Career Vine"**, ticket prefix **`CAR-`**. No work happens off-ticket. (Standing order; see rule 18.)
+
+1. **Before starting any task**, search existing issues (`list_issues`, team "Career Vine"). Reuse a relevant ticket if one exists; otherwise create one in the "Career Vine" team.
+2. When work begins, set the ticket to **In Progress** and assign it to Dawson.
+3. **Update at each meaningful step** via a comment or status update: plan written, each implementation slice landed, tests passing, committed/pushed.
+4. Mark it **Done** when complete.
+
+### Branching & PRs (risk-based split)
+
+Choose the integration path by the risk and scope of the change (see rule 19):
+
+- **Direct to `main`** — small, low-risk changes: single-file or tightly scoped, **no** schema/migration, **no** new feature domain. Auto-commit and push per rule 14. `main` auto-deploys to production (rule 16).
+- **Branch + PR** — any **new feature domain**, any **DB migration**, or any **multi-file / cross-cutting** change. Branch name: `dawson/CAR-XX-slug`. Open a PR with `gh`, let review/CI run, then merge to `main`.
+
+**Keeping a feature branch current:** merge `main` **into** the branch (`git merge main`). **Never** rebase or force-push `main` or any shared/already-pushed branch (`cursor/*`, `dawson/*` once pushed) — `main` is a live Vercel deploy target and rewriting its history breaks deployments and collaborators.
+
+**Before opening a PR:** sync from `main` (merge it in) so conflicts surface early — while the merge-conflict tooling can engage — rather than at merge time.
+
+**Branch hygiene:** delete branches (local and remote) once merged. Don't let merged branches accumulate.
+
+### Merge conflicts → `merge-conflict-tool` plugin
+
+On **any** git `CONFLICT` (merge, rebase, or cherry-pick), the **`merge-conflict-tool`** skill is the required resolution process (see rule 20). Do **not** hand-resolve, do **not** `git checkout --ours/--theirs` on a content conflict, and do **not** delete conflict markers manually outside that workflow.
+
+**Setup (one-time, interactive — cannot be done from a non-interactive session):**
+
+```
+/plugin marketplace add dawsonl1/merge-conflict-tool
+/plugin install merge-conflict-tool@dawson-plugins
+```
+
+Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict and the skill isn't installed in the current environment**, load and follow it manually from `~/Projects/claude-plugins/merge-conflict-tool/plugins/merge-conflict-tool/skills/merge-conflict-tool/SKILL.md`.
+
+**CareerVine calibration for the skill:**
+
+- **Verification commands:** `npm run test` and `npm run build`, both run from `careervine/`; plus the Supabase migration consistency check whenever migrations are touched.
+- **Generated files — never hand-merge, regenerate instead:** `careervine/**/database.types.ts` (regenerate via `supabase gen types`) and the lockfile.
+- **Risky surfaces (extra care / halt-and-ask):** Supabase migrations (see rules 10–12), MCP OAuth/bearer auth, bundle billing, `vercel.json` / deploy config, and secrets.
+- Visual verification uses the Playwright MCP (installed) — required for any frontend change in the merge result.
+
+### Plan files
+
+- **Location:** repo-root `.claude/plans/` (this supersedes the stale path in rule 6).
+- **Naming:** `NN-CAR-XX-slug.md` — a two-digit sequential prefix (highest existing number + 1) plus the Linear ticket, e.g. `31-car-18-add-companies-without-contacts.md` (extends rule 9; see rule 21). One plan file per ticket; never reuse a number.
+- Write a plan before starting any non-trivial feature.
+
+### Testing, deploy & QA (pointers)
+
+- Run `npm run test` (Vitest) from `careervine/` and ensure coverage for new/changed code before committing (rules 3, 4).
+- Don't browser-verify every UI change — reserve previews for high-risk work (rule 13).
+- Push to `main` auto-deploys; env-var changes require a redeploy, empty commit being the established pattern (rule 16). Migrations: dry-run then `supabase db push`; never ad-hoc SQL (rules 10, 15).
+
+---
+
 ## Learned Rules
 
 <!-- New rules are appended below this line. Do not edit above this section. -->
@@ -39,6 +104,7 @@ This file contains a growing ruleset that improves over time. **At session start
 1. [PROCESS] Always rephrase user-provided rules into precise, unambiguous language optimized for LLM instruction-following before appending them — because the user's phrasing may be conversational, and rules are most effective when written as clear, direct imperatives with explicit scope and rationale.
 
 2. [PROCESS] Commit and push to remote frequently (after each meaningful change or logical unit of work) — because the user is working via SSH through VS Code and cannot run the dev server on this machine. They pull and test locally on a separate machine, so they need changes pushed promptly to iterate.
+   > ⚠️ SUPERSEDED by rule 15 (the SSH-era premise no longer holds — Claude runs directly on the Mac). The "commit/push frequently" habit still applies; the "can't run the dev server here / separate machine" reasoning does not.
 
 3. [CODE] When adding new functionality or modifying existing code, always ensure adequate test coverage exists for the changes and remove or update any stale tests that no longer reflect current behavior — because outdated tests give false confidence and missing tests let regressions slip through.
 
@@ -47,6 +113,7 @@ This file contains a growing ruleset that improves over time. **At session start
 5. [UX] Prioritize user experience above all else. Every UI decision must favor clean, intuitive design that serves real functionality and utility — never add visual clutter, unnecessary complexity, or decorative elements that don't help the user accomplish their goals. The product exists to meaningfully improve users' lives, so every interaction should feel effortless and purposeful.
 
 6. [PROCESS] Always write implementation plans to `/home/braxtong/Dawson/CareerVine/.claude/plans/` as a markdown file before starting non-trivial features — because the user wants plans persisted and reviewable on disk, not just in conversation context.
+   > ⚠️ CORRECTED by rule 21 / Workflows → Plan files. That absolute path is a stale SSH-era machine location; the real location is **repo-root `.claude/plans/`**. The "write a plan before non-trivial features" intent stands.
 
 7. [PROCESS] After completing a user-facing feature, update the project README to reflect the new capability from a product perspective — describe what the feature does for the user and why it matters, not implementation details. The README should read like a product page that sells the app's value, not a technical changelog.
 
@@ -57,6 +124,7 @@ This file contains a growing ruleset that improves over time. **At session start
 10. [DATA] Never run SQL directly against the production Supabase database — because ad-hoc queries bypass migration tracking and can cause schema drift. All schema changes must go through migration files only.
 
 11. [PROCESS] Database migrations are applied to production by the user on their local machine via `git pull`, then `supabase db push` — because the user manages Supabase CLI auth and deployment locally. This machine should only create migration files and commit/push them.
+    > ⚠️ SUPERSEDED by rule 15 — Claude now runs on the Mac with authenticated `supabase`/`vercel` CLIs and may apply migrations itself (dry-run first) when the user asks it to handle deployment end-to-end.
 
 12. [DATA] Never assume a schema/types mismatch means the types file is wrong — check `git log --all -- "*.sql"` for deleted migrations first. Migrations originally lived at `careervine/supabase/migrations/` and moved to root `supabase/migrations/`; `20250217_add_location_to_contact_companies.sql` was deleted in that move (commit `9c718fe`) without being re-created, so `contact_companies.location` existed in production untracked until re-added in `20260707000000_company_pages_and_scrape_import.sql`. Production may contain schema from other lost migrations.
 
@@ -68,3 +136,11 @@ This file contains a growing ruleset that improves over time. **At session start
 16. [PROCESS] Vercel Git auto-deployments on `main` are re-enabled as of 2026-07-09 (the `vercel.json` that disabled them was deleted): every push to `main` deploys production automatically, and environment-variable changes take effect only on the next deployment — so after changing Vercel env vars, trigger a redeploy (empty commit is the established pattern) before relying on them.
 
 17. [CODE] Never detect the success of a conditional Supabase UPDATE via `.select()` on the same query when the update modifies a column that the query's filters test (CAS/claim patterns like `update({lock: x}).is("lock", null).select()`) — PostgREST re-applies the request filters to the RETURNING representation, so a successful update returns empty rows and reads as a failure. Use `.update(payload, { count: "exact" })` and check the count instead. Found live on the first bundle publish (2026-07-09); the same trap silently zeroed finalizePublish's removal count.
+
+18. [PROCESS] Every task must have a Linear issue (team "Career Vine", prefix `CAR-`): create or reuse one at the start, set it In Progress and assign Dawson, update it at each meaningful step, and mark it Done when complete — because Dawson runs this project through Linear and wants live traceability, not just a final state. Standing order for all work, not a per-request instruction. See Workflows → Linear tickets.
+
+19. [PROCESS] Choose the integration path by risk (see Workflows → Branching & PRs): small, single-file, no-schema, no-new-domain changes commit directly to `main` (rule 14); new feature domains, DB migrations, and multi-file/cross-cutting changes go on a `dawson/CAR-XX-slug` branch and merge via PR. Update a feature branch by merging `main` **into** it — never rebase or force-push `main` or any shared/already-pushed branch, because `main` is a live Vercel deploy target. Sync from `main` before opening a PR so conflicts surface early. Delete branches after they merge.
+
+20. [PROCESS] On any git `CONFLICT` (merge/rebase/cherry-pick), the `merge-conflict-tool` plugin/skill is the required resolution process — never hand-resolve, never `git checkout --ours/--theirs` on a content conflict, never delete markers outside it. Install once via `/plugin marketplace add dawsonl1/merge-conflict-tool` + `/plugin install merge-conflict-tool@dawson-plugins` (interactive only); until then, load its `SKILL.md` from `~/Projects/claude-plugins/merge-conflict-tool` and follow it manually. See Workflows → Merge conflicts for the CareerVine calibration (verification commands, generated files, risky surfaces).
+
+21. [PROCESS] Plan files live in repo-root `.claude/plans/` and are named `NN-CAR-XX-slug.md` — a two-digit sequential prefix (highest existing number + 1) plus the Linear ticket, one file per ticket, never reusing a number. Supersedes rule 6's stale `/home/braxtong/...` path and extends rule 9's numbering to embed the ticket. See Workflows → Plan files.
