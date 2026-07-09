@@ -15,6 +15,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import type { Database } from "@/lib/database.types";
 import { RECENTLY_ADDED_DAYS, SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
+import { suppressionTombstoneUrl } from "@/lib/suppression-helpers";
 
 // Create a single Supabase client instance for browser-side operations
 const supabase = createSupabaseBrowserClient();
@@ -263,15 +264,45 @@ export async function appendContactNote(contactId: number, note: string) {
  * @throws Error if deletion fails
  */
 export async function deleteContact(id: number) {
-  // Delete the contact and return user_id + photo_url for storage cleanup (single round-trip)
+  // Delete the contact and return the fields needed for storage cleanup and
+  // the suppression tombstone (single round-trip)
   const { data: contact, error } = await supabase
     .from("contacts")
     .delete()
     .eq("id", id)
-    .select("user_id, photo_url")
+    .select("user_id, photo_url, linkedin_url, import_source")
     .single();
 
   if (error) throw error;
+
+  // Tombstone scrape-imported contacts so the next bulk import doesn't resurrect them
+  const tombstoneUrl = contact ? suppressionTombstoneUrl(contact) : null;
+  if (tombstoneUrl && contact.user_id) {
+    try {
+      // A surviving duplicate contact with the same URL still wants import
+      // refreshes — suppressing it would silently freeze that contact
+      const { data: survivor } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("user_id", contact.user_id)
+        .eq("linkedin_url", tombstoneUrl)
+        .limit(1)
+        .maybeSingle();
+      if (!survivor) {
+        const { error: suppressError } = await supabase
+          .from("suppressed_imports")
+          .upsert(
+            { user_id: contact.user_id, linkedin_url: tombstoneUrl },
+            { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
+          );
+        if (suppressError) throw suppressError;
+      }
+    } catch (err) {
+      // Tombstone failure should not block — the contact is already deleted;
+      // worst case it resurrects on the next import and can be deleted again
+      console.warn(`[deleteContact] Suppression tombstone failed for contact ${id}:`, err);
+    }
+  }
 
   if (contact?.photo_url && contact.user_id) {
     try {

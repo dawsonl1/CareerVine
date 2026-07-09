@@ -12,6 +12,7 @@ function makeContact(overrides: Partial<SuggestionContact> = {}): SuggestionCont
     name: "Test",
     photo_url: null,
     industry: null,
+    met_through: null,
     contact_status: null,
     expected_graduation: null,
     follow_up_frequency_days: null,
