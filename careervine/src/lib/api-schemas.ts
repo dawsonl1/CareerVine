@@ -381,6 +381,18 @@ export const bundlePublishSchema = z.discriminatedUnion("mode", [
   }),
 ]);
 
+/** Admin grant/revoke of shared-token access (CAR-26) — secret-token route.
+ * Identify the user by uuid or email; at least one is required. */
+export const adminAiAccessSchema = z
+  .object({
+    userId: z.string().uuid().optional(),
+    email: z.string().email().optional(),
+    sharedAccess: z.boolean(),
+  })
+  .refine((d) => Boolean(d.userId || d.email), {
+    message: "userId or email is required",
+  });
+
 /** User-facing bundle subscription endpoints. */
 export const bundleSubscribeSchema = z.object({
   bundleId: z.number().int().positive(),

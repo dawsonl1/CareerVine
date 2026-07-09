@@ -1,6 +1,6 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailAiWriteSchema } from "@/lib/api-schemas";
-import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
 
 /**
@@ -58,6 +58,7 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
         }),
       );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[ai-write] OpenAI API error:", err);
       throw new ApiError("Failed to generate email. Please try again.", 500);
     }
