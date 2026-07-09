@@ -115,6 +115,24 @@ Keep everything else (path ownership check, signed URL, meeting-ownership, `repl
 
 Edge case: if neither a user key nor `DEEPGRAM_API_KEY` is set, keep the existing clear 500 ("Deepgram API key not configured") — the runner should treat an empty app key as "no AI available," consistent with [CAR-26](https://linear.app/career-vine/issue/CAR-26)'s graceful-failure policy.
 
+### 5.1 Graceful failure — what the user actually sees
+
+Most failure modes never surface as an error, because the fallback absorbs them. The guiding rule: **a bad user key degrades silently to the shared key and transcription still succeeds** — the only signal is a status badge in Settings → AI (already in scope, §8). A user-facing *error* appears only when transcription genuinely cannot complete. Concretely:
+
+| Scenario | Backend | What the user sees |
+| --- | --- | --- |
+| User key rejected (401), shared key works | fall back, mark row `invalid` | Transcription **succeeds**. Settings → AI shows an "Invalid — update your key" badge. Optionally a one-time non-blocking toast: *"Your Deepgram key was rejected, so we used CareerVine's for this transcription. Update it in Settings → AI."* |
+| User key out of credit (402/429), shared key works | fall back, mark `quota_exceeded` | Transcription **succeeds**. Settings badge: *"Out of Deepgram credit."* Same optional toast wording, funds-flavored. |
+| No user key at all, shared key works | app key | **Succeeds**, no message (the normal path today). |
+| User key **and** shared key both fail (both out of credit / rate-limited) | runner exhausts fallback, throws a typed error | Clear, honest message — **not** the generic "try again": *"Transcription is temporarily unavailable — the transcription service is over capacity or out of credit. Please try again shortly."* If the user has their own key set, add: *"Your Deepgram key is out of credit; add funds or remove it in Settings → AI to use CareerVine's."* |
+| No key configured anywhere (misconfig) | existing 500 | Admin-facing; a user shouldn't normally hit it. Surface a generic *"Transcription isn't available right now."* rather than the raw config message. |
+| Transient Deepgram/network error | retry once, then throw | Existing *"Transcription failed. Please try again."* is fine here. |
+
+Implementation notes so the UI can render the right copy:
+- The runner's terminal `ApiError` must carry a **machine-readable `code`** (e.g. `deepgram_no_credit`, `deepgram_unavailable`, `deepgram_key_rejected`) — never the raw Deepgram error or the key (invariant #4). The transcription UI (`conversation-modal` / the transcribe trigger) maps `code` → the friendly copy above and, where relevant, a **"Manage keys"** deep-link to Settings → AI.
+- Distinguish *"your key is the problem, and it's fixable in Settings"* from *"our shared service is temporarily down"* — never blame the user for a shared-key outage, and never leave a user whose own key failed without a path to fix it.
+- The per-key status badges + the terminal messages are the two halves of [CAR-26](https://linear.app/career-vine/issue/CAR-26)'s policy applied to transcription; if CAR-26 ships a shared "AI unavailable" UI component, reuse it here instead of bespoke copy.
+
 ---
 
 ## 6. Settings CRUD route — `/api/settings/deepgram-key`
