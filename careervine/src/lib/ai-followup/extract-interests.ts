@@ -4,7 +4,7 @@
  * Uses OpenAI structured outputs to guarantee valid JSON.
  */
 
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
 import { formatContextForLLM, type ContactContext } from "./gather-context";
 
 export interface Interest {
@@ -68,21 +68,23 @@ const RESPONSE_SCHEMA = {
 
 export async function extractInterests(
   context: ContactContext,
+  runAI: OpenAIRunner,
 ): Promise<ExtractedInterests> {
-  const openai = getOpenAIClient();
   const model = DEFAULT_MODEL;
 
   const formattedContext = formatContextForLLM(context);
 
-  const response = await openai.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: formattedContext },
-    ],
-    response_format: RESPONSE_SCHEMA,
-    max_tokens: 2000,
-  });
+  const response = await runAI((openai) =>
+    openai.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: formattedContext },
+      ],
+      response_format: RESPONSE_SCHEMA,
+      max_tokens: 2000,
+    }),
+  );
 
   const content = response.choices[0]?.message?.content;
   if (!content) {

@@ -35,7 +35,27 @@ export type Database = {
         Insert: Omit<Database["public"]["Tables"]["users"]["Row"], "id" | "created_at" | "updated_at">;
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
-      
+
+      // User-provided API keys (BYO OpenAI) — service-role access only
+      user_api_keys: {
+        Row: {
+          user_id: string;
+          provider: string;
+          encrypted_key: string;
+          key_last4: string;
+          status: "active" | "invalid" | "quota_exceeded";
+          last_validated_at: string | null;
+          last_used_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["user_api_keys"]["Row"], "created_at" | "updated_at"> & {
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_api_keys"]["Insert"]>;
+      };
+
       // Contacts table - core entity for professional network
       contacts: {
         Row: {

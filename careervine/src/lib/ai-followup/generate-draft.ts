@@ -5,7 +5,7 @@
  * Produces both the email body (HTML) and subject line.
  */
 
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
 import createDOMPurify from "dompurify";
 // @ts-expect-error -- jsdom has no bundled types; @types/jsdom is a devDep
 import { JSDOM } from "jsdom";
@@ -81,34 +81,36 @@ export async function generateDraft(params: {
   contact: ContactContext;
   interest: Interest;
   article?: ArticleResult["article"];
+  runAI: OpenAIRunner;
 }): Promise<DraftResult> {
-  const { senderFirstName, contact, interest, article } = params;
+  const { senderFirstName, contact, interest, article, runAI } = params;
 
-  const openai = getOpenAIClient();
   const model = DEFAULT_MODEL;
 
   // Generate email body
-  const bodyResponse = await openai.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are an expert email writer helping a professional reconnect with contacts. Write natural, concise emails that feel genuine — not templated.",
-      },
-      {
-        role: "user",
-        content: buildDraftPrompt({
-          senderFirstName,
-          contact,
-          interest,
-          articleTitle: article?.title,
-          articleUrl: article?.url,
-        }),
-      },
-    ],
-    max_tokens: 1000,
-  });
+  const bodyResponse = await runAI((openai) =>
+    openai.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an expert email writer helping a professional reconnect with contacts. Write natural, concise emails that feel genuine — not templated.",
+        },
+        {
+          role: "user",
+          content: buildDraftPrompt({
+            senderFirstName,
+            contact,
+            interest,
+            articleTitle: article?.title,
+            articleUrl: article?.url,
+          }),
+        },
+      ],
+      max_tokens: 1000,
+    }),
+  );
 
   let bodyHtml = bodyResponse.choices[0]?.message?.content || "";
 
@@ -119,18 +121,20 @@ export async function generateDraft(params: {
   });
 
   // Generate subject line
-  const subjectResponse = await openai.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "system",
-        content:
-          "Generate a concise, natural email subject line. Return ONLY the subject line text, nothing else. No quotes. Keep it casual and short (under 50 chars).",
-      },
-      { role: "user", content: bodyHtml },
-    ],
-    max_tokens: 50,
-  });
+  const subjectResponse = await runAI((openai) =>
+    openai.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Generate a concise, natural email subject line. Return ONLY the subject line text, nothing else. No quotes. Keep it casual and short (under 50 chars).",
+        },
+        { role: "user", content: bodyHtml },
+      ],
+      max_tokens: 50,
+    }),
+  );
 
   const subject = subjectResponse.choices[0]?.message?.content?.trim() || "Thinking of you";
 
