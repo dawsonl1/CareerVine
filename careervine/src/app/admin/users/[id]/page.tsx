@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import type { AdminUserDetail } from "@/lib/admin-users";
 import {
@@ -13,14 +13,7 @@ import {
 } from "@/components/admin/user-badges";
 import ProfileSection from "@/components/admin/profile-section";
 import SecuritySection from "@/components/admin/security-section";
-
-function formatDateTime(iso: string | null): string {
-  if (!iso) return "never";
-  return new Date(iso).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
+import AccountSection from "@/components/admin/account-section";
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -35,6 +28,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export default function AdminUserDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params.id;
   const [user, setUser] = useState<AdminUserDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,19 +100,11 @@ export default function AdminUserDetailPage() {
 
           <ProfileSection user={user} onChanged={load} />
           <SecuritySection user={user} onChanged={load} />
-
-          <section className="rounded-2xl border border-outline-variant bg-surface p-5">
-            <h2 className="text-lg font-medium text-on-surface">Account</h2>
-            <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field
-                label="Status"
-                value={user.status === "suspended" ? "Suspended" : "Active"}
-              />
-              <Field label="Role" value={user.isAdmin ? "Admin" : "Member"} />
-              <Field label="Created" value={formatDateTime(user.createdAt)} />
-              <Field label="Last sign-in" value={formatDateTime(user.lastSignInAt)} />
-            </dl>
-          </section>
+          <AccountSection
+            user={user}
+            onChanged={load}
+            onDeleted={() => router.push("/admin/users")}
+          />
 
           <section className="rounded-2xl border border-outline-variant bg-surface p-5">
             <h2 className="text-lg font-medium text-on-surface">AI</h2>

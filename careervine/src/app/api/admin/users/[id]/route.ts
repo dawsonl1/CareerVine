@@ -117,3 +117,44 @@ export const PATCH = withApiHandler<z.infer<typeof patchSchema>>({
     return { ok: true };
   },
 });
+
+/**
+ * DELETE /api/admin/users/[id] — permanently delete an account. Admin only.
+ *
+ * auth.admin.deleteUser cascades through public.users (FK) into all of the
+ * user's data. Guards: no self-delete, and admins must be demoted first so a
+ * privileged account can't vanish in one click. The audit row is written after
+ * deletion (admin_audit_log has no FKs by design) with the email preserved.
+ */
+export const DELETE = withApiHandler({
+  requireAdmin: true,
+  handler: async ({ user: admin, params }) => {
+    const id = params.id;
+    const service = createSupabaseServiceClient();
+
+    if (id === admin.id) {
+      throw new ApiError("You can't delete your own account from here.", 400);
+    }
+
+    const { data: authData, error: lookupError } =
+      await service.auth.admin.getUserById(id);
+    if (lookupError || !authData?.user) throw new ApiError("User not found", 404);
+    if (authData.user.app_metadata?.role === "admin") {
+      throw new ApiError("Revoke this account's admin access before deleting it.", 400);
+    }
+
+    const email = authData.user.email ?? null;
+
+    const { error } = await service.auth.admin.deleteUser(id);
+    if (error) throw new ApiError(`Delete failed: ${error.message}`, 400);
+
+    await writeAudit(service, {
+      adminId: admin.id,
+      targetUserId: id,
+      action: "delete_account",
+      detail: { email },
+    });
+
+    return { ok: true };
+  },
+});
