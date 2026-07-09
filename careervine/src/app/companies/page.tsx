@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { getCompanies, type CompanySummary, type CompanySort } from "@/lib/company-queries";
+import { parseCompanyFilters, serializeCompanyFilters } from "@/lib/company-filters";
 import { STAGE_LABELS } from "@/lib/stage-derivation";
 import { Building2, Search, ExternalLink, CalendarClock, Users, Send } from "lucide-react";
 
@@ -27,17 +29,86 @@ const STATUS_STYLES: Record<string, string> = {
   closed: "bg-surface-container text-on-surface-variant line-through",
 };
 
+const VALID_SORTS: readonly CompanySort[] = ["priority", "next_app_date", "traction", "name"];
+
 function formatDate(d: string): string {
   return new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function CompaniesPage() {
+// useSearchParams requires a Suspense boundary (same pattern as settings/page.tsx)
+export default function CompaniesPageWrapper() {
+  return (
+    <Suspense>
+      <CompaniesPage />
+    </Suspense>
+  );
+}
+
+function CompaniesPage() {
   const { user } = useAuth();
-  const [view, setView] = useState<"targets" | "all">("targets");
-  const [sort, setSort] = useState<CompanySort>("priority");
-  const [search, setSearch] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // URL is the source of truth for view/sort/search so state survives
+  // back-navigation from a company detail page and links are shareable.
+  const view: "targets" | "all" = searchParams.get("view") === "all" ? "all" : "targets";
+  const rawSort = searchParams.get("sort") as CompanySort | null;
+  const sort: CompanySort = rawSort && VALID_SORTS.includes(rawSort) ? rawSort : "priority";
+  const urlFilters = useMemo(() => parseCompanyFilters(searchParams), [searchParams]);
+
+  // Local echo of the search box so typing stays instant; synced to the URL
+  // on a debounce below.
+  const [searchInput, setSearchInput] = useState(urlFilters.q);
+  const lastWrittenQ = useRef(urlFilters.q);
+
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const replaceParams = useCallback(
+    (next: URLSearchParams) => {
+      const qs = next.toString();
+      router.replace(qs ? `/companies?${qs}` : "/companies", { scroll: false });
+    },
+    [router],
+  );
+
+  // External URL changes (back/forward, shared links) → sync the input.
+  // Our own debounced writes update lastWrittenQ first, so they don't
+  // clobber newer keystrokes when the URL catches up.
+  useEffect(() => {
+    if (urlFilters.q !== lastWrittenQ.current) {
+      setSearchInput(urlFilters.q);
+      lastWrittenQ.current = urlFilters.q;
+    }
+  }, [urlFilters.q]);
+
+  // Debounced input → URL (also drives the server-side search in "all" view)
+  useEffect(() => {
+    if (searchInput === urlFilters.q) return;
+    const t = setTimeout(() => {
+      lastWrittenQ.current = searchInput;
+      replaceParams(serializeCompanyFilters({ ...urlFilters, q: searchInput }, searchParams));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchInput, urlFilters, searchParams, replaceParams]);
+
+  const setView = (v: "targets" | "all") => {
+    const p = new URLSearchParams(searchParams.toString());
+    if (v === "all") p.set("view", "all");
+    else p.delete("view");
+    replaceParams(p);
+  };
+
+  const setSort = (s: CompanySort) => {
+    const p = new URLSearchParams(searchParams.toString());
+    if (s === "priority") p.delete("sort");
+    else p.set("sort", s);
+    replaceParams(p);
+  };
+
+  // All-companies view is search-driven: full-history import creates
+  // thousands of past-employer rows — an unfiltered list is a landfill.
+  const serverSearch = view === "all" ? urlFilters.q : undefined;
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -46,21 +117,18 @@ export default function CompaniesPage() {
       const data = await getCompanies(user.id, {
         targetsOnly: view === "targets",
         sort,
-        // All-companies view is search-driven: full-history import creates
-        // thousands of past-employer rows — an unfiltered list is a landfill.
-        search: view === "all" ? search : undefined,
+        search: serverSearch,
         minContacts: 1,
       });
       setCompanies(data);
     } finally {
       setLoading(false);
     }
-  }, [user, view, sort, search]);
+  }, [user, view, sort, serverSearch]);
 
   useEffect(() => {
-    const t = setTimeout(load, view === "all" && search ? 250 : 0);
-    return () => clearTimeout(t);
-  }, [load, view, search]);
+    load();
+  }, [load]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -118,8 +186,8 @@ export default function CompaniesPage() {
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant" />
             <input
               type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search companies…"
               className="w-full h-11 pl-10 pr-4 rounded-full bg-surface-container-high text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/40"
             />
@@ -134,7 +202,7 @@ export default function CompaniesPage() {
             <CardContent className="py-16 text-center text-on-surface-variant text-sm">
               {view === "targets"
                 ? "No target companies yet. They arrive with the pipeline import, or add one from a company page."
-                : search
+                : urlFilters.q
                   ? "No companies match that search."
                   : "Type to search across every company in your network history."}
             </CardContent>

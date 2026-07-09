@@ -12,7 +12,8 @@ import {
 import type { CompanySummary, TargetInfo } from "@/lib/company-queries";
 
 let nextId = 1;
-function company(overrides: Partial<CompanySummary> & { target?: Partial<TargetInfo> | null }): CompanySummary {
+type CompanyOverrides = Omit<Partial<CompanySummary>, "target"> & { target?: Partial<TargetInfo> | null };
+function company(overrides: CompanyOverrides): CompanySummary {
   const { target, ...rest } = overrides;
   return {
     id: nextId++,
@@ -26,8 +27,8 @@ function company(overrides: Partial<CompanySummary> & { target?: Partial<TargetI
     traction: null,
     ...rest,
     target:
-      target === null || target === undefined
-        ? (target ?? null)
+      target == null
+        ? null
         : {
             id: 1,
             priority_score: null,
