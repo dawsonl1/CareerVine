@@ -344,6 +344,18 @@ export const openaiKeySaveSchema = z.object({
     .regex(/^sk-/, "API key must start with sk-"),
 });
 
+// ── Settings / BYO Deepgram key ────────────────────────────────────────
+
+// Deepgram API keys are 40-character lowercase hex strings with no prefix.
+// Validate on shape here; the route additionally makes a live call to Deepgram
+// before storing. Custom message so Zod never echoes the submitted value.
+export const deepgramKeySaveSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .regex(/^[0-9a-f]{40}$/, "That doesn't look like a Deepgram API key."),
+});
+
 // ── Data bundles (plan 29) ─────────────────────────────────────────────
 
 /** Admin publish flow — secret-token route, staged under a publish lock. */
