@@ -14,6 +14,7 @@ import {
 import ProfileSection from "@/components/admin/profile-section";
 import SecuritySection from "@/components/admin/security-section";
 import AccountSection from "@/components/admin/account-section";
+import BundlesSection from "@/components/admin/bundles-section";
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -105,6 +106,7 @@ export default function AdminUserDetailPage() {
             onChanged={load}
             onDeleted={() => router.push("/admin/users")}
           />
+          <BundlesSection userId={user.id} />
 
           <section className="rounded-2xl border border-outline-variant bg-surface p-5">
             <h2 className="text-lg font-medium text-on-surface">AI</h2>
