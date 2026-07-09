@@ -1,139 +1,215 @@
 # 32 — Admin Dashboard & User Management
 
-**Linear:** Project "Admin Dashboard & User Management" · anchor issue [CAR-25](https://linear.app/career-vine/issue/CAR-25)
-**Status:** Scoping
+**Linear:** Project "Admin Dashboard & User Management" · anchor [CAR-25](https://linear.app/career-vine/issue/CAR-25)
+**Status:** Detailed plan — ready to build pending 4 decisions (§10)
 **Scope:** CAR-25 (core + foundation), CAR-23 (manage accounts), CAR-21 (contact injection)
 **Depends on:** CAR-16 (BYO OpenAI keys — Done), CAR-5 (Data bundles — In Progress)
 
-> Explicitly **out of scope** for this project: CAR-20 (usage logging), CAR-22 (analytics dashboards), CAR-26 (graceful AI-failure UX). They're separate concerns and stay standalone.
+> **Out of scope** (separate standalone issues, not this project): CAR-20 usage logging, CAR-22 analytics dashboards, CAR-26 graceful AI-failure UX.
 
 ---
 
-## 1. What this is
+## 1. Goal
 
-A single, admin-only surface (`/admin`) where the operator (Dawson) can see every user account and control what each account can do:
+A single admin-only surface at `/admin` where the operator (Dawson) controls individual user accounts:
 
-- **Data-bundle access** — per account, per bundle, control whether a user can even *see* a bundle as subscribable (CAR-25).
-- **AI entitlements** — per account, decide what happens when a user's own OpenAI key is missing, invalid, or exhausted: fall back to the shared CareerVine key, or cut off AI (CAR-25).
-- **Account lifecycle** — view/edit profile fields, reset passwords, suspend/reactivate accounts (CAR-23).
-- **Direct data control** — inject or remove contacts from any user's account (CAR-21).
+- **Bundle access** — per account, per bundle: whether the user can even see a bundle as subscribable (CAR-25).
+- **AI key policy** — per account: when the user's own OpenAI key is missing/invalid/spent, fall back to the shared CareerVine key or cut AI off (CAR-25).
+- **Account lifecycle** — edit profile, reset/set password, suspend/reactivate (CAR-23).
+- **Contact control** — inject/remove contacts in any account (CAR-21).
 
-Everything the app does today is scoped to `auth.uid()` with per-user RLS. There is **no** notion of an admin, a role, an account status, or an entitlement anywhere in the schema or code today. This initiative introduces that layer from scratch, so the authorization design (Section 3) is the load-bearing decision — everything else hangs off it.
+## 2. The core problem this solves first
 
-## 2. Current state (audit summary)
+The app has **no admin concept**. Every route and row is scoped to the logged-in user via `auth.uid()` RLS. Nothing marks an account as privileged, nothing gates cross-account action, and there is no `/admin` surface. CAR-25 builds that foundation (Phase 0); CAR-23 and CAR-21 are panels on top of it.
 
-- **Stack:** Next.js 16 App Router, React 19, Supabase (Auth + Postgres + RLS), Vercel, Upstash. Client-side session via `AuthProvider`; no `middleware.ts`.
-- **API gate:** `src/lib/api-handler.ts` → `withApiHandler({ handler })` calls `supabase.auth.getUser()`, 401s if absent, hands the handler an RLS-scoped client. This is the only auth gate and it only models "is this a logged-in user," not "is this an admin."
-- **Service-role client:** `src/lib/supabase/service-client.ts` bypasses RLS. Already used by the bundle-publish pipeline. This is the tool admins will use to act across accounts.
-- **`users` table:** `id, first_name, last_name, email, phone, created_at, updated_at`. No role, no status, no plan.
-- **BYO keys:** `user_api_keys(user_id, provider, encrypted_key, key_last4, status ∈ {active,invalid,quota_exceeded})`, service-role-only. AI call sites already route per-user with a fallback to the shared key — but the fallback is **unconditional** today; CAR-25 makes it a per-account policy.
-- **Bundles:** `data_bundles`, `bundle_subscriptions` (user_id-owned), bundle content readable only with an active subscription. No concept of "allowed to see this bundle."
-- **Closest existing "admin":** `/api/admin/bundles/publish` — a machine route gated by a shared `BUNDLE_ADMIN_TOKEN` bearer secret. It authenticates a *script*, not a *human admin*, so it is not reusable as the dashboard's auth model.
+## 3. Authorization design (load-bearing)
 
-## 3. Authorization design (the load-bearing decision)
+**Admin claim lives in Supabase `auth.users.app_metadata.role`.** It is writable only by the service role / Supabase admin API (a user cannot self-promote), and it rides in the JWT so it's checkable in API routes and RLS with no extra query. An `is_admin` boolean on `public.users` would be self-editable through the existing `UPDATE ... USING (id = auth.uid())` policy — a privilege-escalation hole — so we do **not** use that.
 
-**Recommendation: store the admin claim in Supabase `auth.users.app_metadata.role`, not on `public.users`.**
+**Enforcement:** a new `requireAdmin: true` option on `withApiHandler` (`careervine/src/lib/api-handler.ts`). Admin API routes live under `careervine/src/app/api/admin/**` and, once past the gate, use the **service-role client** (`createSupabaseServiceClient`) for cross-account reads/writes. Every admin mutation appends an `admin_audit_log` row via one helper. This is deliberately different from the existing `BUNDLE_ADMIN_TOKEN` machine route (`api/admin/bundles/publish`), which authenticates a *script* by shared secret, not a *human* by session.
 
-Rationale (this is a security boundary, so pick the correct option, not the easy one):
+**UI:** an `/admin` route-group whose layout server-checks the claim and redirects non-admins; the nav entry renders only for admins. The API gate is the real boundary; hiding the UI is defense-in-depth.
 
-- `app_metadata` is writable **only** by the service role / Supabase admin API — a user cannot edit it. If we instead put `is_admin` on `public.users`, the existing `UPDATE ... USING (id = auth.uid())` RLS policy would let a user flip their own row to admin (Postgres RLS can't cheaply restrict *which columns* an update touches). That's a privilege-escalation hole. `app_metadata` closes it by construction.
-- `app_metadata` is embedded in the JWT, so it's checkable both in API routes (`user.app_metadata.role`) and, if we ever want it, in RLS (`auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'`) with zero extra queries.
-- Bootstrapping: a one-off script sets `role: 'admin'` on Dawson's `auth.users` row via the admin API. Documented, reversible.
+---
 
-**Enforcement:** extend `withApiHandler` with a `requireAdmin: true` option that 403s unless `user.app_metadata.role === 'admin'`. Admin routes live under `/api/admin/**` and use the **service-role client** for cross-user reads/writes (rather than sprinkling admin RLS policies across every table — fewer moving parts, one audited choke point). Every admin write goes through a helper that also appends an `admin_audit_log` row.
+## 4. Integration points (verified against current code)
 
-**UI gating:** an `/admin` route segment whose layout server-checks the admin claim and redirects non-admins; the nav entry renders only for admins. Defense-in-depth — the real gate is the API, but we don't render the surface to non-admins.
+| Concern | File / symbol |
+|---|---|
+| API gate | `careervine/src/lib/api-handler.ts` → `withApiHandler(config)`, `RouteConfig` options, `HandlerContext { request, user, supabase, body, query, params }`, `ApiError` |
+| Service client | `careervine/src/lib/supabase/service-client.ts` → `createSupabaseServiceClient()` |
+| Server (cookie) client | `careervine/src/lib/supabase/server-client.ts` → `createSupabaseServerClient()` (already used inside `withApiHandler`) |
+| AI resolver | `careervine/src/lib/openai.ts` → `getOpenAIForUser(userId)`, `runWithOpenAIFallback(userId, fn)`, `createOpenAIRunner(userId)`, `getAppOpenAIClient()`, `ResolvedOpenAI` |
+| Bundle list (to filter) | inline query in `careervine/src/components/settings/data-subscriptions-section.tsx` `load()` (`from("data_bundles").select(...)`) |
+| Bundle routes | `careervine/src/app/api/bundles/{subscribe,unsubscribe,apply}/route.ts` |
+| Nav | `careervine/src/components/navigation.tsx` → `navItems` array, already reads `useAuth()` |
+| Auth/session | `careervine/src/components/auth-provider.tsx` → `signIn` (lines ~110-122), `onAuthStateChange` (~66-71) — sign-in gate insertion point |
+| Profile update | `account-section.tsx` + `queries.ts` → `updateUserProfile(userId, updates)`, `getUserProfile(userId)`; password via `supabase.auth.updateUser({ password })` |
+| Migrations | `supabase/migrations/`, format `YYYYMMDDHHMMSS_snake.sql`; match `20260709120000_create_user_api_keys.sql` style (service-role-only RLS, revoke anon/authenticated) |
 
-## 4. Data model additions
+---
 
-```
--- Account status (suspension). Read-only to the user, writable only via service role.
+## 5. Data model changes
+
+One migration, `supabase/migrations/<ts>_admin_dashboard_foundation.sql`:
+
+```sql
+-- Account status (CAR-23). Read-only to the user; only service role writes it.
 ALTER TABLE users ADD COLUMN status text NOT NULL DEFAULT 'active'
   CHECK (status IN ('active','suspended'));
 
 -- Per-account AI fallback policy (CAR-25).
--- Governs behavior when the user's own key is missing / invalid / quota_exceeded.
 ALTER TABLE users ADD COLUMN ai_fallback_policy text NOT NULL DEFAULT 'cutoff'
   CHECK (ai_fallback_policy IN ('cutoff','shared'));
--- default 'cutoff' protects the shared key's spend; admin opts specific accounts into 'shared'.
 
--- Per-(user,bundle) access override (CAR-25). Absence = bundle's own default visibility.
+-- Per-bundle default visibility + per-(user,bundle) override (CAR-25).
+ALTER TABLE data_bundles ADD COLUMN default_visible boolean NOT NULL DEFAULT true;
+
 CREATE TABLE bundle_access_overrides (
-  user_id   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  bundle_id uuid NOT NULL REFERENCES data_bundles(id) ON DELETE CASCADE,
-  allowed   boolean NOT NULL,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  bundle_id  uuid NOT NULL REFERENCES data_bundles(id) ON DELETE CASCADE,
+  allowed    boolean NOT NULL,
   updated_by uuid REFERENCES users(id),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, bundle_id)
 );
-ALTER TABLE data_bundles ADD COLUMN default_visible boolean NOT NULL DEFAULT true;
--- Effective visibility = override.allowed if a row exists, else data_bundles.default_visible.
+ALTER TABLE bundle_access_overrides ENABLE ROW LEVEL SECURITY;
+CREATE POLICY bundle_access_overrides_service_role_all ON bundle_access_overrides
+  USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
+REVOKE ALL ON bundle_access_overrides FROM anon, authenticated;
 
--- Admin action audit trail (who did what to whom).
+-- Admin action audit trail.
 CREATE TABLE admin_audit_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  admin_id uuid NOT NULL REFERENCES users(id),
+  admin_id       uuid NOT NULL REFERENCES users(id),
   target_user_id uuid REFERENCES users(id),
-  action text NOT NULL,              -- 'suspend','reset_password','grant_bundle','inject_contacts',...
-  detail jsonb NOT NULL DEFAULT '{}',
+  action  text NOT NULL,
+  detail  jsonb NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE admin_audit_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY admin_audit_log_service_role_all ON admin_audit_log
+  USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
+REVOKE ALL ON admin_audit_log FROM anon, authenticated;
 ```
 
-All new tables: RLS on, no authenticated policy (service-role only), consistent with `user_api_keys`.
+**Critical:** the existing `users` UPDATE policy must **not** let a user change `status` or any new privileged column. Add a guard so authenticated self-updates can only touch profile fields:
 
-## 5. AI fallback resolution (CAR-25)
+```sql
+-- Replace the users self-update policy with a column-safe version.
+DROP POLICY IF EXISTS users_update_own ON users;   -- (match the real policy name in 20260214065459_add_rls_policies.sql)
+CREATE POLICY users_update_own ON users FOR UPDATE
+  USING (id = auth.uid())
+  WITH CHECK (
+    id = auth.uid()
+    AND status = (SELECT status FROM users WHERE id = auth.uid())
+    AND ai_fallback_policy = (SELECT ai_fallback_policy FROM users WHERE id = auth.uid())
+  );
+```
 
-Today the ~11 AI call sites fall back to the shared key **unconditionally**. This project makes the fallback a per-account decision via one server-side resolver:
+*(Verify the exact existing policy name before writing; the sub-select pattern pins privileged columns to their current value so a self-update can't change them. Covered by an RLS regression test in §9.)*
 
-| User key state | policy = `shared` | policy = `cutoff` |
+Regenerate types afterward: `npx supabase gen types typescript` → `careervine/src/lib/database.types.ts`.
+
+---
+
+## 6. Phase 0 — Admin foundation (in CAR-25)
+
+**Goal:** an admin identity, a gate, the shell, and the audit helper. Nothing user-visible changes for non-admins.
+
+1. **Migration** (§5) — apply locally, dry-run `supabase db push` first (rule 15).
+2. **Bootstrap admin** — `careervine/scripts/grant-admin.mjs` (mirrors `publish-bundle.mjs` style): takes an email, uses the service client's `auth.admin.updateUserById(id, { app_metadata: { role: 'admin' } })`. Run once for Dawson. Documented in the script header.
+3. **Gate** — extend `RouteConfig` in `api-handler.ts` with `requireAdmin?: boolean`. After the user is resolved (~line 111), if `requireAdmin` and `user?.app_metadata?.role !== 'admin'` → return 403. Keep it composable with `schema`/`querySchema`.
+4. **Admin helpers** — `careervine/src/lib/admin.ts`:
+   - `isAdmin(user): boolean` (reads `app_metadata.role`).
+   - `writeAudit(service, { adminId, targetUserId, action, detail })` — inserts an `admin_audit_log` row; every admin route calls it.
+5. **UI shell** — `careervine/src/app/admin/layout.tsx` (server component): read the session server-side, redirect to `/` if not admin. `careervine/src/app/admin/page.tsx` = users list (Phase 2 fills it). Add a `useIsAdmin()` hook (reads `user.app_metadata.role` off `useAuth()`), and in `navigation.tsx` append `...(isAdmin ? [{ href:'/admin', label:'Admin', icon: ShieldCheck }] : [])`.
+
+**Tests:** `requireAdmin` 403s a normal user and passes an admin (unit over the gate); `writeAudit` inserts a row.
+
+## 7. Phase 1 — CAR-25 (AI policy + bundle access)
+
+### 7a. AI fallback policy
+Make the resolver policy-aware — one chokepoint, no call-site changes.
+
+- In `careervine/src/lib/openai.ts`, `getOpenAIForUser(userId)` currently returns the **app client on every miss** (missing/invalid/expired user key). Change it to also read `users.ai_fallback_policy` (service client) and, when the user key is ineligible:
+  - `policy === 'shared'` → return `{ client: appClient, source: 'app' }` (today's behavior).
+  - `policy === 'cutoff'` → **throw `ApiError`** with a typed code (`AI_NO_KEY` / `AI_KEY_INVALID` / `AI_QUOTA_EXCEEDED`) and status 402/409.
+- `runWithOpenAIFallback` similarly must respect `cutoff` on the mid-call 401/quota downgrade path (don't silently retry on the app client when policy is `cutoff`).
+- Endpoints already throw `ApiError` → JSON; the typed code flows out. Polishing each feature's UI for these codes is **CAR-26 (out of scope)** — here we just guarantee a clean typed error, not a raw 500.
+- Cache: the resolver caches per user (60s TTL) — include policy in the cache value, or invalidate on admin change (accept ≤60s lag; note it).
+
+### 7b. Bundle visibility
+- New route `careervine/src/app/api/bundles/list/route.ts` (`withApiHandler`) returning bundles the caller may see: `data_bundles` where `default_visible = true` **minus** rows with an override `allowed = false`, **plus** rows with an override `allowed = true`. Compute with the service client (overrides are service-role-only) but scope output to `ctx.user.id`.
+- Refactor `data-subscriptions-section.tsx` `load()` to call this route instead of querying `data_bundles` directly, so hidden bundles never reach the browser.
+- **Defense in depth:** `bundles/subscribe/route.ts` must re-check visibility server-side and 403 if the user isn't allowed (don't trust the list).
+
+### 7c. Admin controls (user detail — see §6 shell)
+- `PATCH /api/admin/users/[id]/ai-policy` → `{ ai_fallback_policy }`, service update + audit.
+- `PUT /api/admin/users/[id]/bundle-access` → `{ bundleId, allowed }`, upsert `bundle_access_overrides` + audit.
+- Admin user-detail UI: policy toggle (`cutoff`/`shared`) showing live key state (`user_api_keys.status`); a per-bundle allow/deny toggle list.
+
+**Tests:** resolver matrix (§8) table-driven; user with `allowed=false` override doesn't get the bundle from `/api/bundles/list`; `cutoff` + no key → typed error, not app-client use; subscribe re-check 403s a hidden bundle.
+
+### 8. AI resolver decision matrix (test spec)
+
+| user key state | `shared` | `cutoff` |
 |---|---|---|
-| valid, has quota | use own key | use own key |
-| missing | use shared key | refuse (AI unavailable) |
-| invalid | use shared key | refuse (AI unavailable) |
-| quota_exceeded | use shared key | refuse (AI unavailable) |
+| valid, quota ok | own key | own key |
+| missing | shared key | `AI_NO_KEY` (402) |
+| invalid | shared key | `AI_KEY_INVALID` (402) |
+| quota_exceeded | shared key | `AI_QUOTA_EXCEEDED` (402) |
 
-- The resolver is the single place the fallback decision is made — refactor the call sites to route through it.
-- When it refuses, endpoints return a clear, typed error rather than a raw 500 so the caller can show a sensible message. (Making *every* AI feature's UI render a polished unavailable-state is CAR-26 — tracked separately, not part of this project.)
+## 9. Phase 2 — CAR-23 (manage accounts)
 
-> Note: metering how much of the shared key a given account has spent requires usage logging (CAR-20), which is out of scope here. So the v1 policy is a straight on/off (`shared` vs `cutoff`); a per-account spend **cap** is deferred until that logging exists — see open decision 2.
+**Admin API** (all `withApiHandler({ requireAdmin: true })`, service client, audited):
+- `GET /api/admin/users` — list/search users: join `users` + `auth.users` (last_sign_in) + `user_api_keys.status`; query params for search/sort/pagination.
+- `GET /api/admin/users/[id]` — full detail (profile, status, policy, key state, bundle access).
+- `PATCH /api/admin/users/[id]` — edit `first_name/last_name/phone/email` (email change via `auth.admin.updateUserById`).
+- `POST /api/admin/users/[id]/password` — `{ mode: 'link' | 'set', password? }`: `link` → `auth.admin.generateLink({ type:'recovery' })`; `set` → `auth.admin.updateUserById(id, { password })`.
+- `POST /api/admin/users/[id]/status` — `{ status }`: suspend/reactivate.
 
-## 6. Admin surface (UX)
+**Suspend enforcement (decision §10.4 — default: block login):**
+- On suspend, revoke sessions: `auth.admin.signOut(userId)` (global) so existing tokens die.
+- In `auth-provider.tsx` `signIn`, after a successful `signInWithPassword`, fetch `users.status`; if `suspended`, `signOut()` and return a friendly error. Also short-circuit in `onAuthStateChange` so a lingering session can't rehydrate.
+- Backstop: `withApiHandler` optionally rejects requests from suspended users (cheap `status` check) so API access dies even if the client is bypassed.
 
-`/admin` with two sections in the nav:
+**UI:** `/admin` users table (search, status badge, AI policy, key state) → user-detail page with Profile / Security (reset-link, set-password, suspend) / AI / Bundles / Contacts panels. Reuse M3 primitives in `components/ui/`. Inline toggles with optimistic feedback (rule 5).
 
-1. **Users** — searchable/sortable table (name, email, status, AI policy, key state). Row → **User detail**:
-   - Profile: edit first/last/phone/email (CAR-23).
-   - Security: send reset link or set a password directly via Supabase admin API (CAR-23); suspend / reactivate.
-   - AI: fallback policy toggle (`cutoff`/`shared`) + live key state (CAR-25).
-   - Data bundles: a per-bundle allow/deny toggle list; the user's subscribe UI honors it (CAR-25).
-   - Contacts: inject (from a bundle or manual) / remove contacts on the user's behalf (CAR-21).
-2. **Audit log** — `admin_audit_log`, filterable by admin/target/action.
+**Tests:** admin can edit another user's profile/password/status; suspended user is blocked at sign-in and API; every action writes `admin_audit_log`; non-admin 403 on each route.
 
-UX bar (rule 5): the users table and detail view must feel effortless — fast search, inline toggles with optimistic feedback, no dead-end error states. Internal tool, same clean/intuitive standard.
+## 10. Phase 3 — CAR-21 (contact injection)
 
-## 7. Phasing → Linear mapping
+- `POST /api/admin/users/[id]/contacts` — inject: `{ mode: 'manual', contact }` or `{ mode: 'bundle', bundleId }`. Reuse the existing contact-creation path but with the **target** `user_id` (service client), not `auth.uid()`. Bundle mode reuses the `bundles/apply` merge logic against the target account.
+- `DELETE /api/admin/users/[id]/contacts/[contactId]` — remove.
+- Both audited (`action: 'inject_contacts' | 'remove_contact'`, detail = ids/counts).
+- **UI:** Contacts panel in user detail — add-contact form + "inject bundle" picker + a removable list.
 
-| Phase | Deliverable | Issue |
+**Tests:** admin add/remove reflects in the target account; bulk bundle inject creates the expected contacts; audited; non-admin 403.
+
+## 11. Decisions needed before build (defaults applied in this plan)
+
+| # | Decision | Plan default |
 |---|---|---|
-| 0 | Admin identity (`app_metadata.role`), `requireAdmin` gate, `/admin` shell + nav gating, `admin_audit_log` | (foundation, in **CAR-25**) |
-| 1 | AI fallback policy field + resolver refactor; per-(user,bundle) access overrides + subscribe-UI filtering | **CAR-25** |
-| 2 | Users list + detail; profile edit; password reset/set; suspend/reactivate (`users.status`) | **CAR-23** |
-| 3 | Inject / remove contacts on behalf of a user | **CAR-21** |
+| 1 | New bundle visibility | **Visible by default** (`default_visible = true`); admin hides per account. *(Alt: hidden-by-default for a gated feel.)* |
+| 2 | Shared-key spend cap | **Deferred** — needs usage metering (CAR-20, out of scope). v1 is on/off `shared` vs `cutoff`. |
+| 3 | Multi-admin | **Single admin** via `app_metadata` + `grant-admin.mjs` script. A "make admin" button is a trivial add later (one `app_metadata` write). |
+| 4 | Suspend semantics | **Block login** (revoke sessions + sign-in gate + API backstop). *(Alt: logged-in read-only — larger surface.)* |
 
-CAR-25 carries the shared foundation (Phase 0), which is why it goes first — CAR-23 and CAR-21 are additional panels on the same gated surface and have no admin to authenticate without it. CAR-25 depends on CAR-16 (done) + CAR-5 (in progress).
+Only #1 changes Phase 1 behavior; the rest are confirm-and-go.
 
-## 8. Open decisions (need Dawson's call before build)
+## 12. Build order & Linear
 
-1. **Bundle-access default** — should a newly published bundle be visible to all users by default (admin hides per account), or hidden by default (admin grants per account)? Plan assumes `default_visible = true`. *(Gated/curated products often prefer default-hidden.)*
-2. **Shared-key spend cap** — a per-account monthly $ cap needs shared-key usage metering (CAR-20), which is out of scope here. OK to ship v1 as a simple on/off `shared` policy and defer the cap?
-3. **Multi-admin** — single-admin (just you) indefinitely, or should the dashboard let you promote other users to admin? Affects whether we build a "make admin" control or keep it a manual script.
-4. **Suspend semantics** — does "suspended" mean can't-log-in at all, or logged-in-but-read-only? Plan assumes can't-log-in (session invalidation + login block).
+1. Phase 0 foundation → **CAR-25** (start here)
+2. Phase 1 AI policy + bundle access → **CAR-25**
+3. Phase 2 account management → **CAR-23**
+4. Phase 3 contact injection → **CAR-21**
 
-## 9. Test coverage (rule 3/4)
+Commit per phase; run `npm run test` (Vitest, from `careervine/`) before each commit (rules 3/4). Migrations are created here and applied via `supabase db push` (dry-run first) per rule 15.
 
-- Auth gate: `requireAdmin` 403s non-admins; admin passes. RLS-escalation regression test (a normal user cannot set their own `status`/role).
-- Resolver: table-driven test over the Section 5 matrix.
-- Entitlement filtering: user with a deny override doesn't see the bundle; default path unaffected.
-- Admin actions write `admin_audit_log` rows.
-- Run `npm run test` (Vitest) from `careervine/` before any commit.
+## 13. Risks
+
+- **RLS self-escalation** — the `users` self-update policy rewrite (§5) is the security crux; the regression test is mandatory, not optional.
+- **`cutoff` regressions** — flipping the resolver from always-fallback to policy-gated touches all AI features; the matrix test guards it, but this is where a mistake silently breaks AI for real users.
+- **Bundle visibility bypass** — the browser must never receive hidden bundles *and* subscribe must re-check; both, or neither is safe.
+- **Suspend gaps** — client-side sign-in gate alone is bypassable; the session revoke + API backstop are what actually enforce it.
