@@ -5,7 +5,7 @@
  *   1. Account: profile + password
  *   2. Integrations: Gmail + Google Calendar connections
  *   3. Availability: working hours + busy calendars
- *   4. AI: BYO OpenAI API key
+ *   4. AI: BYO OpenAI (text AI) + Deepgram (transcription) API keys
  *   5. AI Templates: custom email generation prompts
  *   6. Data subscriptions: curated prospect/company bundles
  */
