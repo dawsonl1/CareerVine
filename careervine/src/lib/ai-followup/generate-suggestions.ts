@@ -8,7 +8,7 @@
  * Suggestions are never persisted — saving one creates an action item.
  */
 
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { createOpenAIRunner, DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { gatherContactContext, formatContextForLLM } from "./gather-context";
 import { SuggestionReasonType, ActionItemSource, ActionDirection } from "@/lib/constants";
@@ -343,6 +343,7 @@ export async function generateLlmSuggestions(
   userId: string,
   contacts: SuggestionContact[],
   coveredContactIds: Set<number>,
+  runAI: OpenAIRunner,
 ): Promise<Suggestion[]> {
   // Pick uncovered contacts with rich data potential (have interactions or notes)
   const candidates = contacts
@@ -373,18 +374,19 @@ export async function generateLlmSuggestions(
     .join("\n\n");
 
   try {
-    const openai = getOpenAIClient();
     const model = DEFAULT_MODEL;
 
-    const response = await openai.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: LLM_SYSTEM_PROMPT },
-        { role: "user", content: batchPrompt },
-      ],
-      response_format: LLM_RESPONSE_SCHEMA,
-      max_tokens: 2000,
-    });
+    const response = await runAI((openai) =>
+      openai.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: LLM_SYSTEM_PROMPT },
+          { role: "user", content: batchPrompt },
+        ],
+        response_format: LLM_RESPONSE_SCHEMA,
+        max_tokens: 2000,
+      }),
+    );
 
     const content = response.choices[0]?.message?.content;
     if (!content) return [];
@@ -446,6 +448,7 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
   }
 
   const service = createSupabaseServiceClient();
+  const runAI = createOpenAIRunner(userId);
 
   // Fetch candidates, existing AI action items, and waiting-on items in parallel
   const [contacts, existingAiItems, waitingOnResult] = await Promise.all([
@@ -501,7 +504,7 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
   // LLM pass for remaining slots
   let llmSuggestions: Suggestion[] = [];
   if (dedupedRuleBased.length < MAX_SUGGESTIONS) {
-    llmSuggestions = await generateLlmSuggestions(userId, contacts, coveredContactIds);
+    llmSuggestions = await generateLlmSuggestions(userId, contacts, coveredContactIds, runAI);
     // Deduplicate LLM results too
     llmSuggestions = llmSuggestions.filter((s) => !existingAiItems.has(s.contactId));
   }

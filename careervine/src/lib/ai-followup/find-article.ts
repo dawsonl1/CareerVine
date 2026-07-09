@@ -7,7 +7,7 @@
  */
 
 import OpenAI from "openai";
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
 import { searchNews, searchWeb, type SerperResult } from "@/lib/serper";
 import type { Interest, ExtractedInterests } from "./extract-interests";
 
@@ -133,8 +133,8 @@ async function searchForTopic(query: string): Promise<SerperResult[]> {
  */
 export async function findArticle(
   extracted: ExtractedInterests,
+  runAI: OpenAIRunner,
 ): Promise<ArticleResult | null> {
-  const openai = getOpenAIClient();
   const model = DEFAULT_MODEL;
 
   // Combine interests + profile fallbacks, interests first
@@ -154,7 +154,9 @@ export async function findArticle(
       totalEvals++;
 
       try {
-        const isGood = await evaluateArticle(openai, model, interest, result);
+        const isGood = await runAI((openai) =>
+          evaluateArticle(openai, model, interest, result),
+        );
         if (isGood) {
           return {
             interest,

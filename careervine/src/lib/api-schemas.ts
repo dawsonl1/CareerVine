@@ -332,3 +332,14 @@ export const extensionParseProfileSchema = z.object({
   cleanedText: z.string().min(1, "cleanedText is required"),
   profileUrl: optionalString,
 });
+
+// ── Settings / BYO OpenAI key ──────────────────────────────────────────
+
+export const openaiKeySaveSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .min(20, "API key is too short")
+    .max(200, "API key is too long")
+    .regex(/^sk-/, "API key must start with sk-"),
+});

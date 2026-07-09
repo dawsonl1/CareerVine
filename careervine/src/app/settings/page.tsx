@@ -5,7 +5,8 @@
  *   1. Account: profile + password
  *   2. Integrations: Gmail + Google Calendar connections
  *   3. Availability: working hours + busy calendars
- *   4. AI Templates: custom email generation prompts
+ *   4. AI: BYO OpenAI API key
+ *   5. AI Templates: custom email generation prompts
  */
 
 "use client";
@@ -16,13 +17,15 @@ import Navigation from "@/components/navigation";
 import AccountSection from "@/components/settings/account-section";
 import IntegrationsSection from "@/components/settings/integrations-section";
 import AvailabilitySection from "@/components/settings/availability-section";
+import AiKeySection from "@/components/settings/ai-key-section";
 import TemplatesSection from "@/components/settings/templates-section";
-import { User, Plug, Calendar, Sparkles } from "lucide-react";
+import { User, Plug, Calendar, Bot, Sparkles } from "lucide-react";
 
 const tabs = [
   { id: "account", label: "Account", icon: User },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "availability", label: "Availability", icon: Calendar },
+  { id: "ai", label: "AI", icon: Bot },
   { id: "templates", label: "AI Templates", icon: Sparkles },
 ] as const;
 
@@ -111,6 +114,7 @@ function SettingsPage() {
             {activeTab === "account" && <AccountSection />}
             {activeTab === "integrations" && <IntegrationsSection />}
             {activeTab === "availability" && <AvailabilitySection />}
+            {activeTab === "ai" && <AiKeySection />}
             {activeTab === "templates" && <TemplatesSection />}
           </div>
         </div>

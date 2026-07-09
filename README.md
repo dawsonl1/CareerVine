@@ -26,6 +26,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 - **A network that stays curated at scale** — Imported prospects live in their own tier, and lower-priority people sit on a collapsed "bench," so 70 scraped profiles at one company never bury the five you actually plan to contact. Follow-up nags, AI suggestions, and network health only ever look at your real network; one click promotes a bench person into your outreach queue, and the first real touch graduates anyone into it automatically. When you decide someone belongs in your circle, an "Add to network" button — right on the contact list and the profile page — moves them into your active network instantly, no conversation log required.
 - **Outreach that protects your sender reputation** — Every contact shows a live outreach stage derived from real activity (contacted, replied, call scheduled, referral). Bounced addresses are detected from Gmail delivery failures, flagged distinctly, and their pending follow-up sequences are cancelled automatically. Pattern-guessed addresses get a warning before you hit send, and a daily send cap keeps Gmail deliverability healthy.
 - **An AI operator for your whole network** — A bundled MCP server ([`careervine-mcp/`](careervine-mcp/)) plugs CareerVine into Claude Code, so the entire relationship workflow runs in plain English: "who do I know at Samsara? draft the recruiter an intro" pulls a full dossier — work history, email threads, meeting notes, outreach stage — and writes a real Gmail draft grounded in it. Claude can work the outreach queue company by company, log interactions, manage action items, schedule meetings with Meet links, and report network health, all under the same guardrails as the app: drafts by default, confirm-gated sends, the daily cap, and automatic refusal of bounced addresses.
+- **Bring your own OpenAI key** — Use your own OpenAI account for every AI feature (email drafts, transcript parsing, follow-up suggestions, LinkedIn import parsing). Keys are encrypted at rest, never sent back to your browser, and validated with a live test before saving. If your key stops working, CareerVine falls back to the shared key and tells you in Settings.
 
 ### Design decisions I'm proud of
 
@@ -78,4 +79,4 @@ npm install
 npm run dev
 ```
 
-Requires environment variables for Supabase, Google OAuth, OpenAI, and Deepgram.
+Requires environment variables for Supabase, Google OAuth, OpenAI, Deepgram, and (for BYO OpenAI keys) `BYOK_ENCRYPTION_KEY` — generate with `openssl rand -base64 32` and add to Vercel + `.env.local`.

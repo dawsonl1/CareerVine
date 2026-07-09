@@ -12,6 +12,7 @@ import {
   calendarAvailabilityProfileSchema,
   calendarAvailabilityQuerySchema,
   calendarBusyCalendarsSchema,
+  openaiKeySaveSchema,
 } from '@/lib/api-schemas';
 
 // ── Helper ─────────────────────────────────────────────────────────────
@@ -377,5 +378,30 @@ describe('calendarAvailabilityQuerySchema', () => {
     expectValid(calendarAvailabilityQuerySchema, {
       start: '2026-03-20', end: '2026-03-27',
     });
+  });
+});
+
+// ── openaiKeySaveSchema ────────────────────────────────────────────────
+
+describe('openaiKeySaveSchema', () => {
+  it('accepts a valid sk- key', () => {
+    expectValid(openaiKeySaveSchema, { apiKey: 'sk-proj-abcdefghijklmnopqrst' });
+  });
+
+  it('rejects keys without sk- prefix', () => {
+    expectInvalid(openaiKeySaveSchema, { apiKey: 'not-a-valid-openai-key' });
+  });
+
+  it('rejects keys that are too short', () => {
+    expectInvalid(openaiKeySaveSchema, { apiKey: 'sk-short' });
+  });
+
+  it('does not echo the submitted key in error messages', () => {
+    const result = openaiKeySaveSchema.safeParse({ apiKey: 'bad-key-value-12345' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = result.error.issues.map((i) => i.message).join(' ');
+      expect(message).not.toContain('bad-key-value-12345');
+    }
   });
 });

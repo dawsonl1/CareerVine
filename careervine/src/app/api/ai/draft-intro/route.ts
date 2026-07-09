@@ -1,6 +1,6 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { aiDraftIntroSchema } from "@/lib/api-schemas";
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
 
 /**
@@ -53,16 +53,16 @@ ${toneInstruction}`;
     if (notes) userParts.push(`\nSPECIFIC THINGS TO MENTION: ${notes}`);
     if (ctx.meetingNotes) userParts.push(`\nPAST INTERACTIONS:\n${ctx.meetingNotes}`);
 
-    const openai = getOpenAIClient();
-
     let response;
     try {
-      response = await openai.responses.create({
-        model: DEFAULT_MODEL,
-        instructions: systemPrompt,
-        input: userParts.join("\n"),
-        max_output_tokens: 2000,
-      });
+      response = await runWithOpenAIFallback(user.id, (openai) =>
+        openai.responses.create({
+          model: DEFAULT_MODEL,
+          instructions: systemPrompt,
+          input: userParts.join("\n"),
+          max_output_tokens: 2000,
+        }),
+      );
     } catch (err) {
       console.error("[draft-intro] OpenAI API error:", err);
       throw new ApiError("Failed to generate email. Please try again.", 500);
