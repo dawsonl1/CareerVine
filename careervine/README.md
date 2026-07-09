@@ -30,6 +30,16 @@ CareerVine runs background automations through QStash so important outreach task
 
 This keeps delivery and data freshness reliable without requiring users to keep a tab open.
 
+## Contact Profiles That Feel Personal
+
+Every contact profile now supports a dedicated profile photo upload flow, so users can keep their network visually recognizable at a glance:
+
+- Upload a contact photo directly from the contact profile.
+- Replace an existing photo anytime with a fresh image.
+- Remove photos to fall back to clean initial-based avatars.
+
+Photos are stored per account and instantly reflected across contact views, helping users scan and recognize relationships faster.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
