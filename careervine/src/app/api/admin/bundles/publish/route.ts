@@ -24,6 +24,7 @@ import {
   abortPublish,
   BundlePublishError,
 } from "@/lib/bundle-publish";
+import { enqueueBundleSyncJobs, findStaleSubscriptionIds } from "@/lib/bundle-queue";
 
 export const maxDuration = 60;
 
@@ -105,7 +106,24 @@ export async function POST(req: NextRequest) {
       }
       case "finalize": {
         const result = await finalizePublish(service, input.slug, input.stagingVersion);
-        return NextResponse.json(result);
+        // Fan out to stale subscribers so updates land within minutes; the
+        // daily cron covers the gap when QStash isn't configured.
+        let fanout = 0;
+        if (result.published) {
+          const { data: bundleRow } = await service
+            .from("data_bundles")
+            .select("id")
+            .eq("slug", input.slug)
+            .single();
+          if (bundleRow) {
+            const stale = await findStaleSubscriptionIds(service, {
+              bundleId: (bundleRow as { id: number }).id,
+            });
+            const workerUrl = new URL("/api/queue/bundle-sync", req.url).toString();
+            fanout = await enqueueBundleSyncJobs(stale, workerUrl);
+          }
+        }
+        return NextResponse.json({ ...result, fanout });
       }
       case "abort": {
         await abortPublish(service, input.slug, input.stagingVersion);
