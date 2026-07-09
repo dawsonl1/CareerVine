@@ -27,6 +27,11 @@ describe("processDueScheduledEmails", () => {
       usersFailed: 0,
       sent: 0,
       errors: 0,
+      durationMs: expect.any(Number),
+      oldestDueScheduledAt: null,
+      maxDelayMs: 0,
+      throughputEmailsPerMinute: 0,
+      capacityStatus: "healthy",
     });
   });
 
@@ -37,9 +42,9 @@ describe("processDueScheduledEmails", () => {
       .mockResolvedValueOnce({ sent: 1, errors: 1 });
     const result = await processDueScheduledEmails("2026-01-01T00:00:00.000Z", {
       service: mockService([
-        { user_id: "u1" },
-        { user_id: "u1" },
-        { user_id: "u2" },
+        { user_id: "u1", scheduled_send_at: "2025-12-31T23:30:00.000Z" },
+        { user_id: "u1", scheduled_send_at: "2025-12-31T23:40:00.000Z" },
+        { user_id: "u2", scheduled_send_at: "2025-12-31T23:45:00.000Z" },
       ]),
       processForUser,
     });
@@ -51,6 +56,11 @@ describe("processDueScheduledEmails", () => {
       usersFailed: 0,
       sent: 3,
       errors: 1,
+      durationMs: expect.any(Number),
+      oldestDueScheduledAt: "2025-12-31T23:30:00.000Z",
+      maxDelayMs: 30 * 60 * 1000,
+      throughputEmailsPerMinute: expect.any(Number),
+      capacityStatus: "at_risk",
     });
   });
 
@@ -60,7 +70,10 @@ describe("processDueScheduledEmails", () => {
       .mockRejectedValueOnce(new Error("gmail disconnected"))
       .mockResolvedValueOnce({ sent: 1, errors: 0 });
     const result = await processDueScheduledEmails("2026-01-01T00:00:00.000Z", {
-      service: mockService([{ user_id: "u1" }, { user_id: "u2" }]),
+      service: mockService([
+        { user_id: "u1", scheduled_send_at: "2025-12-31T23:00:00.000Z" },
+        { user_id: "u2", scheduled_send_at: "2025-12-31T23:59:00.000Z" },
+      ]),
       processForUser,
     });
 
@@ -70,6 +83,11 @@ describe("processDueScheduledEmails", () => {
       usersFailed: 1,
       sent: 1,
       errors: 0,
+      durationMs: expect.any(Number),
+      oldestDueScheduledAt: "2025-12-31T23:00:00.000Z",
+      maxDelayMs: 60 * 60 * 1000,
+      throughputEmailsPerMinute: expect.any(Number),
+      capacityStatus: "overloaded",
     });
   });
 });

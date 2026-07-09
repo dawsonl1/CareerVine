@@ -25,6 +25,7 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 CareerVine runs background automations through QStash so important outreach tasks keep moving even when the app is not open:
 
 - Scheduled emails are sent on a recurring cron tick.
+- Each scheduled-email cron run now reports delivery lag and throughput health so capacity risks are visible before sends fall behind.
 - Follow-up sequence steps are processed every 15 minutes.
 - Bundle sync jobs fan out on publish with a daily safety-net sweep.
 
