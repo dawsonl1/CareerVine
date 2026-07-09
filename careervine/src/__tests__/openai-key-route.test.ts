@@ -26,19 +26,22 @@ vi.mock("@/lib/crypto", () => ({
 const mockResponsesCreate = vi.fn();
 
 vi.mock("openai", () => {
+  // Mirrors the real openai APIError closely enough for the route's error
+  // handling: code derives from the error body (the real property is
+  // readonly, so tests must pass it through the constructor, not assign it).
   class APIError extends Error {
     status: number;
     code?: string;
-    constructor(status: number, _error: unknown, message?: string) {
+    constructor(status: number, error: unknown, message?: string) {
       super(message || "API error");
       this.status = status;
+      this.code = (error as { code?: string } | undefined)?.code;
     }
   }
 
   class AuthenticationError extends APIError {
-    constructor() {
-      super(401, { message: "invalid_api_key" }, "invalid");
-      this.code = "invalid_api_key";
+    constructor(status = 401, error: unknown = { code: "invalid_api_key" }, message = "invalid") {
+      super(status, error, message);
     }
   }
 
@@ -123,8 +126,12 @@ describe("settings/openai-key route", () => {
   });
 
   it("PUT rejects OpenAI 401 without echoing key", async () => {
+    // Runtime is the mock above; the type is the real class, whose
+    // constructor takes (status, error, message, headers).
     const { AuthenticationError } = await import("openai");
-    mockResponsesCreate.mockRejectedValueOnce(new AuthenticationError());
+    mockResponsesCreate.mockRejectedValueOnce(
+      new AuthenticationError(401, { code: "invalid_api_key" }, "invalid", new Headers()),
+    );
     const { status, data, text } = await call(
       PUT,
       makeRequest("PUT", { apiKey: "sk-proj-secret-key-1234567890" }),
@@ -136,8 +143,9 @@ describe("settings/openai-key route", () => {
 
   it("PUT rejects insufficient_quota", async () => {
     const { APIError } = await import("openai");
-    const err = new APIError(429, { message: "quota" }, "quota");
-    err.code = "insufficient_quota";
+    // code is readonly on the real type — pass it via the error body, which
+    // both the real class and the mock derive it from.
+    const err = new APIError(429, { message: "quota", code: "insufficient_quota" }, "quota", undefined);
     mockResponsesCreate.mockRejectedValueOnce(err);
     const { status, data } = await call(
       PUT,
