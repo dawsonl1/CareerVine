@@ -46,11 +46,16 @@ ALTER TABLE user_api_keys ENABLE ROW LEVEL SECURITY;
 -- service-role policy, but stricter — not even metadata is client-readable).
 CREATE POLICY "user_api_keys_service_role_all" ON user_api_keys
   FOR ALL USING (auth.role() = 'service_role');
+
+-- Belt and suspenders: even if a permissive policy is ever added by mistake,
+-- client roles have no table grants — access fails loudly, not silently-empty.
+REVOKE ALL ON user_api_keys FROM anon, authenticated;
 ```
 
 Notes:
 - `(user_id, provider)` PK future-proofs for Anthropic/etc. keys without schema change; all code hardcodes `provider = 'openai'` for now.
-- `status` transitions: save → `active`; runtime 401 → `invalid`; runtime `insufficient_quota` → `quota_exceeded`; successful save or successful user-key call → back to `active`.
+- `status` transitions: save → `active`; runtime 401 → `invalid`; runtime `insufficient_quota` → `quota_exceeded` (auto-retried after a 6-hour cooldown, §4.1 — free daily tokens reset daily, so this flag must not be sticky); successful save or successful user-key call → back to `active`.
+- Status flips at runtime are always `UPDATE ... WHERE user_id = ...`, **never upsert** — a status mark racing a DELETE must not resurrect a removed key.
 - Applied by Dawson locally via `supabase db push` per the usual workflow (rule 11).
 
 ---
@@ -99,8 +104,9 @@ getOpenAIForUser(userId: string): Promise<ResolvedOpenAI>
 
 `getOpenAIForUser`:
 1. Look up the user's row in `user_api_keys` via the service client.
-2. No row, or `status != 'active'`, or decryption fails → return app client (`source: "app"`).
-3. Otherwise decrypt and return a client built with the user's key (`source: "user"`), and fire-and-forget update `last_used_at`.
+2. No row, `status = 'invalid'`, decryption failure, **or any resolution failure at all** → return app client (`source: "app"`). "Any failure" includes the service client itself: its constructor **throws when env is missing** (`service-client.ts:24`, with a separate `SUPABASE_SERVICE_ROLE_KEY_LOCAL` for local dev — `config.ts`), and today routes like `transcripts/parse` never touch it. Key resolution is best-effort by definition; it must never become a new way for AI features to go down. Wrap the entire lookup in try/catch → app client.
+3. `status = 'quota_exceeded'`: if `updated_at` is **less than 6 hours old** → app client. Older → treat the key as eligible again and proceed as if active (free daily tokens reset every 24h; a sticky flag would strand the user on the shared key forever after one bad day). If the retried key then succeeds, fire-and-forget `UPDATE status = 'active'`; if it fails again, §4.2 re-marks it, refreshing the cooldown window.
+4. Otherwise decrypt and return a client built with the user's key (`source: "user"`), and fire-and-forget update `last_used_at`.
 
 **Caching:** small module-level `Map<userId, { key, expiresAt }>` with a **60-second TTL**, capped at ~500 entries (evict oldest). On Vercel each lambda instance has its own map — that's fine; the TTL bounds staleness after a key change to a minute, and the save/delete endpoints also clear the local map entry. Do *not* cache OpenAI client objects per user indefinitely (memory) — cache the decrypted key string briefly and construct clients cheaply.
 
@@ -117,11 +123,10 @@ runWithOpenAIFallback<T>(
 
 Behavior:
 1. Resolve via `getOpenAIForUser(userId)`; run `fn(client)`.
-2. If `source === "app"`: no special handling — errors propagate as today.
-3. If `source === "user"` and the call fails with an **auth error (401 / `invalid_api_key`)**: mark the row `status = 'invalid'`, evict cache, **retry once with the app client**, return that result.
-4. If `source === "user"` and the call fails with **`insufficient_quota` (429)**: mark `status = 'quota_exceeded'`, evict cache, retry once with the app client.
-5. Any other error (rate limit without quota code, 5xx, network): propagate unchanged — these aren't key problems, and the app key would likely hit them too.
-6. On a *successful* user-key call where the row was previously non-active (edge: races), leave status alone — status recovery happens through re-validation on save (§5) to keep runtime writes minimal.
+2. If `source === "app"`: no special handling — errors propagate as today (after scrubbing, step 5).
+3. If `source === "user"` and the call fails with an **auth error (401 / `invalid_api_key`)**: `UPDATE status = 'invalid'`, evict cache, **retry once with the app client**, return that result.
+4. If `source === "user"` and the call fails with **`insufficient_quota` (429)**: `UPDATE status = 'quota_exceeded'`, evict cache, retry once with the app client. The §4.1 cooldown un-sticks it automatically once the daily allowance resets.
+5. Any other error (rate limit without quota code, 5xx, network): **scrub, then propagate.** OpenAI's error messages embed a partially redacted key (`sk-proj-…abcd` — prefix and last 4), and both the call sites (`transcripts/parse/route.ts:74`, `ai-write/route.ts:61`, `ai-followups/generate/route.ts:165`, `generate-suggestions.ts:433`) and `withApiHandler`'s catch-all (`api-handler.ts:178`) log errors wholesale to Vercel logs. The wrapper normalizes every OpenAI SDK error into a clean wrapped error (status + code preserved, message replaced with a fixed string, original never attached) before rethrowing, so invariant 4 holds without auditing every logger forever.
 
 Rationale for falling back on `insufficient_quota` (a real decision — it burns app credits): the product priority is that AI features never break mid-flow (UX-first, rule 5). The status flag + settings banner (§6) tells the user their key stopped covering usage; if app-side cost becomes a problem later, flip step 4 to hard-fail — it's one branch.
 
@@ -129,7 +134,9 @@ Error detection: match on `OpenAI.APIError` `status` + `code` fields from the of
 
 ### 4.3 Call sites to update (all 11)
 
-Every site currently does `const openai = getOpenAIClient()` then `openai.responses.create(...)` / `openai.chat.completions.create(...)`. Each becomes `runWithOpenAIFallback(user.id, (openai) => ...)`. All of them already have `user` in scope via `withApiHandler` (including the extension route via `extensionAuth`).
+Every site currently does `const openai = getOpenAIClient()` then `openai.responses.create(...)` / `openai.chat.completions.create(...)`. Each raw SDK call gets wrapped **individually, and the wrapper goes *inside* the existing `try { } catch` blocks** — directly around the SDK call, never outside the try. This placement is load-bearing: every call site already catches OpenAI errors and converts them to `ApiError` (e.g. `transcripts/parse/route.ts:60-76`), and the ai-followup libs swallow errors entirely (`ai-followups/generate/route.ts:164-171` catches per-contact and pushes "Failed to generate draft"; `generate-suggestions.ts:432-435` returns `[]`). A wrapper outside those catches would only ever see `ApiError`/nothing — never `OpenAI.APIError` — and fallback + status-marking would silently never fire. With per-call wrapping, fallback resolves *inside* the wrapper before any existing catch sees an error, so the swallowing catches keep their current meaning ("something failed even on a working key").
+
+All call sites already have `user` in scope via `withApiHandler` (including the extension route via `extensionAuth`, which 401s unless a real user resolves).
 
 | Call site | Notes |
 |---|---|
@@ -139,13 +146,13 @@ Every site currently does `const openai = getOpenAIClient()` then `openai.respon
 | `careervine/src/app/api/extension/parse-profile/route.ts` | extension auth path; `user.id` available |
 | `careervine/src/app/api/ai/draft-intro/route.ts` | |
 | `careervine/src/app/api/ai/draft-follow-ups/route.ts` | |
-| `careervine/src/app/api/gmail/ai-write/route.ts` | two calls (body + subject) — wrap both in **one** `runWithOpenAIFallback` invocation so they use the same client |
-| `careervine/src/lib/ai-followup/extract-interests.ts` | libs take `client: OpenAI` as a param instead of calling the factory; the orchestrating routes (`gmail/ai-followups/generate`, `suggestions/generate`) resolve once and pass it down. One resolution per request, not per helper. |
-| `careervine/src/lib/ai-followup/find-article.ts` | same — thread client through `queryLLM` |
+| `careervine/src/app/api/gmail/ai-write/route.ts` | two calls (body + subject) — wrap **each separately**. The subject call keeps its existing swallow-on-error behavior (`route.ts:73-83`); since fallback runs inside the wrapper first, a dead key still falls back before the swallow, and a subject-only failure never re-generates the body. |
+| `careervine/src/lib/ai-followup/extract-interests.ts` | libs take a per-user runner instead of a client: `runAI: <T>(fn: (client: OpenAI) => Promise<T>) => Promise<T>`, built once by the orchestrating routes (`gmail/ai-followups/generate`, `suggestions/generate`) as `(fn) => runWithOpenAIFallback(user.id, fn)`. Fallback is per OpenAI call. |
+| `careervine/src/lib/ai-followup/find-article.ts` | same — thread the runner through `queryLLM` |
 | `careervine/src/lib/ai-followup/generate-draft.ts` | same |
 | `careervine/src/lib/ai-followup/generate-suggestions.ts` | same |
 
-For the ai-followup orchestration routes, the fallback wrapper goes around the whole generation pipeline (resolve once → run all steps). If a user key dies mid-pipeline, the retry re-runs the pipeline on the app client — acceptable because these are idempotent generation flows.
+**Do not wrap whole pipelines.** `ai-followups/generate` inserts a draft per contact *inside* its loop (`route.ts:126-161`, guarded by the unique pending-draft index from migration `20260321200000`), and `findArticle` bills a Serper search per contact — a pipeline-level retry would re-run completed contacts into 23505 conflicts and duplicate paid searches, and the per-contact catch would hide the auth error from a pipeline-level wrapper anyway. Per-call wrapping sidesteps both problems.
 
 `DEFAULT_MODEL` is unchanged — users bring a key, not a model choice. (Their free daily tokens via data-sharing cover the `gpt-5` family, which includes our `gpt-5-mini` default.)
 
@@ -167,10 +174,14 @@ or `{ "hasKey": false }`. Never the key, never the ciphertext.
 Body: `{ "apiKey": string }`. Zod: trimmed, `min(20).max(200)`, must match `/^sk-/` (covers `sk-proj-...` too), custom error messages that don't echo input.
 
 Server flow:
-1. Validate format.
-2. **Live-test the key**: `client.models.list()` with a 10s timeout — cheapest authenticated endpoint, zero token cost. 401 → respond `400 { error: "That key was rejected by OpenAI. Check that you copied the full key." }`. Network failure → `502` "Couldn't reach OpenAI to verify — try again."
-3. Encrypt, upsert row (`status: 'active'`, `last_validated_at: now()`, `key_last4`: last 4 chars), evict routing cache for this user.
-4. Respond with the same shape as GET.
+1. **Rate limit**: per-user in-memory limiter, 5 save attempts per 10 minutes (429 beyond). Per-lambda-instance so it's approximate under serverless, but that's enough to stop CareerVine's IPs being used as a bulk validation relay for stolen `sk-` keys — the realistic abuse of this endpoint.
+2. Validate format (Zod, step above).
+3. **Live-test with a real, minimal completion** — `responses.create` on `DEFAULT_MODEL`, one-word prompt, minimum `max_output_tokens` — **not** `models.list`. `models.list` is unbilled and succeeds even for keys with zero quota/credit, which would save a green "active" key that then silently falls back on every real call — exactly the invisible degradation invariant 5 forbids, funded by our credits. Cost: ~a few dozen tokens, negligible. Error mapping:
+   - 401 → `400` "That key was rejected by OpenAI. Check that you copied the full key."
+   - `insufficient_quota` → `400` "Your key is valid but has no available quota. Enable data sharing for free daily tokens (see the video above) or add credit to your OpenAI account."
+   - Network failure → `502` "Couldn't reach OpenAI to verify — try again."
+4. Encrypt, upsert row (`status: 'active'`, `last_validated_at: now()`, `key_last4`: last 4 chars), evict routing cache for this user.
+5. Respond with the same shape as GET.
 
 ### `DELETE` — remove key
 Delete row, evict cache, `{ "hasKey": false }`. User falls back to the app key on their next AI action — features keep working.
@@ -205,7 +216,7 @@ const SETUP_VIDEO_URL: string | null = null; // ← Dawson pastes the URL here a
 1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys) and sign in (or create an account — no payment method needed for free-tier usage).
 2. Click **Create new secret key**, name it "CareerVine", leave permissions on **All**, create.
 3. Copy the key immediately — OpenAI only shows it once.
-4. *(For free daily tokens)* Go to **Settings → Data controls → Sharing** and turn on **"Share inputs and outputs with OpenAI"** — this gives your account up to 250k free tokens/day on the models CareerVine uses.
+4. *(For free daily tokens)* Go to **Settings → Data controls → Sharing** and turn on **"Share inputs and outputs with OpenAI"** — this gives your account up to 250k free tokens/day on the models CareerVine uses. *Heads-up: this shares your CareerVine prompts — which can include contact names and conversation content — with OpenAI for model training. If you'd rather not, skip this step and add a few dollars of credit instead.*
 5. Paste the key below and hit Save.
 
 **4. Key form / status card.** Three states:
@@ -238,17 +249,19 @@ After recording: paste the Loom share URL into `SETUP_VIDEO_URL` in `ai-key-vide
 - **`crypto.test.ts`** — round-trip; unique IVs (two encryptions of same plaintext differ); tamper with ciphertext/tag → throws; missing/short env key → clear error; `v1.` format assertion.
 - **`openai-key-route.test.ts`** (pattern: `api-handler.test.ts` mocking) —
   - GET: no row → `hasKey:false`; row → metadata only, assert response JSON **does not contain** the plaintext or ciphertext.
-  - PUT: format rejection (no `sk-` prefix, too short); mocked `models.list` 401 → 400 without echoing the key; success → row upserted with ciphertext ≠ plaintext, `last4` correct.
+  - PUT: format rejection (no `sk-` prefix, too short); mocked validation-call 401 → 400 without echoing the key; mocked `insufficient_quota` → 400 with the quota message; success → row upserted with ciphertext ≠ plaintext, `last4` correct; rate limiter → 6th attempt within window 429s.
   - DELETE: row gone, subsequent GET `hasKey:false`.
 - **`openai-routing.test.ts`** — mock `user_api_keys` lookups + OpenAI client:
   - no row → app client used.
   - active row → user key used, `last_used_at` touched.
-  - user-key 401 → one retry on app client, row marked `invalid`, result returned.
+  - user-key 401 → one retry on app client, row marked `invalid` via UPDATE, result returned.
   - user-key `insufficient_quota` → retry on app client, row marked `quota_exceeded`.
-  - user-key 500 → propagates, no fallback, status untouched.
+  - `quota_exceeded` row with fresh `updated_at` → app client; with `updated_at` > 6h old → user key retried, and success flips status back to `active`.
+  - user-key 500 → propagates, no fallback, status untouched — and the rethrown error message contains **no `sk-` fragment** even when the mocked OpenAI error embeds one (scrubbing test).
+  - service-client construction throws / DB lookup rejects → app client, no crash.
   - cache: second resolve within TTL hits no second DB read; save/delete evicts.
 - **`api-schemas.test.ts`** — add cases for the new key schema.
-- Existing route tests for the 11 call sites: update mocks from `getOpenAIClient` to the new helper (`vi.mock("@/lib/openai")`).
+- Call-site coverage is **new, not updated** — no existing test mocks `@/lib/openai`. Add at least one route-level test (`transcripts/parse`) proving a user-key 401 falls back inside the existing try/catch and the request still succeeds — this pins the wrapper-inside-try placement (§4.3) against regressions.
 
 Run `npm run test` in `careervine/` before every commit (rule 4).
 
@@ -256,12 +269,12 @@ Run `npm run test` in `careervine/` before every commit (rule 4).
 
 ## 9. Implementation order (each step = commit + push)
 
-1. **Migration + crypto lib + tests** — `user_api_keys` migration, `crypto.ts`, `crypto.test.ts`. (Dawson: `supabase db push` after pulling.)
+1. **Migration + crypto lib + tests** — `user_api_keys` migration, regenerate `careervine/src/lib/database.types.ts` to include the new table, `crypto.ts`, `crypto.test.ts`. (Dawson: `supabase db push` after pulling.)
 2. **Routing core** — `openai.ts` refactor (`getAppOpenAIClient`, `getOpenAIForUser`, `runWithOpenAIFallback`, cache) + `openai-routing.test.ts`. Nothing user-visible yet; call sites still on app client.
 3. **API route** — `settings/openai-key/route.ts` + schemas + route tests.
 4. **Call-site migration** — all 11 sites onto `runWithOpenAIFallback`; thread client through `ai-followup/` libs; update affected tests.
 5. **Settings UI** — AI tab, `ai-key-section.tsx`, `ai-key-video.tsx` (URL `null`), states incl. problem-key banner.
-6. **Docs** — README product blurb (rule 7): "Bring your own OpenAI key" under features; deploy note for `BYOK_ENCRYPTION_KEY`.
+6. **Docs + privacy policy** — README product blurb (rule 7): "Bring your own OpenAI key" under features; deploy note for `BYOK_ENCRYPTION_KEY`; **update `careervine/src/app/privacy/page.tsx`** — it currently describes OpenAI processing under the app's key only, and must cover BYO keys plus the optional OpenAI data-sharing (training) trade-off the setup steps encourage. Contact/transcript data is about third parties, so this disclosure matters.
 7. **Post-merge (Dawson):** add `BYOK_ENCRYPTION_KEY` to Vercel + `.env.local`, `supabase db push`, record the video, paste the Loom URL, commit.
 
 ## 10. Out of scope (v1)
