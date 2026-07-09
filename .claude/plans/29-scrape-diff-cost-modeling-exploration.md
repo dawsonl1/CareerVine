@@ -296,8 +296,11 @@ QStash-retry-no-double-run. Suite must pass before every push (rules 3/4).
 
 ## 8. Build order
 
-0. **Anniversaries** — change-events table + generator + Up Next integration. No Apify. Proves the
-   suggestion rails end-to-end.
+0. **✅ DONE (commit 322c911, branch dawson/scrape-diff-cost-modeling-46fd91).** Anniversaries —
+   `contact_change_events` migration + pure `computeAnniversaryEvents` (16 Vitest cases) + lazy
+   idempotent producer + Up Next integration via the existing suggestion UI (save/complete/snooze
+   mark actioned, dismiss marks dismissed). Migration `20260709000000_contact_change_events.sql`
+   awaits `supabase db push`. Proves the suggestion rails end-to-end, no Apify.
 1. **Per-contact path** — Apify client, `scrape_runs` + webhook callback, rescrape-mode merge
    (§7.1), `/api/contacts/[id]/scrape`, ContactProfileCard Refresh + staleness label, extension
    enrich-on-save **including the M2/m6 employment fixes**, find-email in outreach/PersonModal.
