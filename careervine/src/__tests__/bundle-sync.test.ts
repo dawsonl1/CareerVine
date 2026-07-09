@@ -23,7 +23,7 @@ interface QueryState {
   filters: Array<{ method: string; args: unknown[] }>;
 }
 
-type Responder = (state: QueryState) => { data?: unknown; error?: { message: string } | null } | undefined;
+type Responder = (state: QueryState) => { data?: unknown; error?: { message: string } | null; count?: number | null } | undefined;
 
 function createMockClient(respond: Responder) {
   const calls: QueryState[] = [];
@@ -32,7 +32,7 @@ function createMockClient(respond: Responder) {
     calls.push(state);
     const resolve = () => {
       const r = respond(state) ?? {};
-      return { data: r.data ?? null, error: r.error ?? null };
+      return { data: r.data ?? null, error: r.error ?? null, count: r.count ?? null };
     };
     const builder: Record<string, unknown> = {};
     const chain = (method: string) => (...args: unknown[]) => {
@@ -304,7 +304,7 @@ describe('applyBundleDelta — removal phase', () => {
 describe('claimSubscriptionSync', () => {
   it('takes a fresh claim only when free or expired', async () => {
     const { client, calls } = createMockClient((state) =>
-      state.op === 'update' ? { data: { id: 77 } } : {},
+      state.op === 'update' ? { count: 1 } : {},
     );
     const token = await claimSubscriptionSync(client, 77);
     expect(token).toBeTruthy();
@@ -314,16 +314,20 @@ describe('claimSubscriptionSync', () => {
 
   it('renews via CAS on the prior token', async () => {
     const { client, calls } = createMockClient((state) =>
-      state.op === 'update' ? { data: { id: 77 } } : {},
+      state.op === 'update' ? { count: 1 } : {},
     );
-    await claimSubscriptionSync(client, 77, 'prior-token');
+    const token = await claimSubscriptionSync(client, 77, 'prior-token');
+    expect(token).toBeTruthy();
     const claim = calls.find((c) => c.op === 'update');
     expect(hasFilter(claim!, 'eq', ['sync_claimed_until', 'prior-token'])).toBe(true);
     expect(filterArgs(claim!, 'or')).toHaveLength(0);
   });
 
-  it('returns null when another driver holds the claim', async () => {
-    const { client } = createMockClient(() => ({ data: null }));
+  it('returns null when the conditional update matches no rows (claim held or token lost)', async () => {
+    // Count-based on purpose: PostgREST re-applies filters to RETURNING rows,
+    // so a successful claim returns an empty representation — .select() would
+    // report every successful claim as a failure.
+    const { client } = createMockClient((state) => (state.op === 'update' ? { count: 0 } : {}));
     expect(await claimSubscriptionSync(client, 77)).toBeNull();
   });
 });

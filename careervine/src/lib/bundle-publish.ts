@@ -107,15 +107,18 @@ export async function beginPublish(
   if (input.name) claim.name = input.name;
   if (input.description !== undefined) claim.description = input.description;
 
-  const { data: claimed } = await service
+  // CAS success is detected via the updated-row COUNT, never the returned
+  // representation: PostgREST re-applies the request filters to the RETURNING
+  // rows, and this update changes the very column the filter tests
+  // (staging_version is no longer null after claiming), so a successful claim
+  // returns an empty representation. Found live on first prod publish.
+  const { count } = await service
     .from("data_bundles")
-    .update(claim)
+    .update(claim, { count: "exact" })
     .eq("id", row.id)
-    .or(`staging_version.is.null,staging_claimed_at.lt.${staleCutoff}`)
-    .select("id")
-    .maybeSingle();
+    .or(`staging_version.is.null,staging_claimed_at.lt.${staleCutoff}`);
 
-  if (!claimed) {
+  if ((count ?? 0) !== 1) {
     throw new BundlePublishError(
       `Bundle "${input.slug}" already has a publish in progress (staging v${row.staging_version}). Finish, abort, or wait for the lock to expire.`,
       409,
@@ -329,14 +332,17 @@ export async function finalizePublish(
   const nowIso = new Date().toISOString();
 
   // Rows never seen this run get soft-removed at the staging version.
-  const { data: removedRows } = await service
+  // Count-based (not .select()): the update sets removed_in_version while the
+  // filter requires it to be null, and PostgREST re-applies filters to the
+  // RETURNING rows — a representation would always come back empty, reporting
+  // removed=0 and skipping the version bump on removals-only publishes.
+  const { count: removedCount } = await service
     .from("bundle_prospects")
-    .update({ removed_in_version: stagingVersion, updated_at: nowIso })
+    .update({ removed_in_version: stagingVersion, updated_at: nowIso }, { count: "exact" })
     .eq("bundle_id", bundle.id)
     .lt("version_last_seen", stagingVersion)
-    .is("removed_in_version", null)
-    .select("id");
-  const removed = ((removedRows as { id: number }[] | null) ?? []).length;
+    .is("removed_in_version", null);
+  const removed = removedCount ?? 0;
 
   // Anything to commit? Changed/added payloads or removals this run.
   const { count: changedCount } = await service
