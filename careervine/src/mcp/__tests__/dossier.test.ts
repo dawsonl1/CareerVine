@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildDossier, daysSince, isByuLikeSchool } from "../lib/dossier.ts";
-import type { DossierBundle } from "../lib/db.ts";
+import { buildDossier, daysSince, isByuLikeSchool } from "../lib/dossier";
+import type { DossierBundle } from "../lib/db";
 
 const NOW = new Date("2026-07-08T12:00:00Z");
 

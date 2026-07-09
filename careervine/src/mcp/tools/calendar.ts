@@ -13,9 +13,9 @@ import {
   listCalendarEvents,
   cacheCalendarEvent,
   activateContactIfDormant,
-} from "../lib/db.ts";
-import { resolveRecipient, type EmailRowLike } from "../lib/email-policy.ts";
-import { handler, contactRefShape } from "../lib/tool-utils.ts";
+} from "../lib/db";
+import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
+import { handler, contactRefShape } from "../lib/tool-utils";
 
 /** Parse an ISO timestamp, requiring an explicit timezone offset so a naive
  *  time isn't silently interpreted in the MCP host's local zone. */

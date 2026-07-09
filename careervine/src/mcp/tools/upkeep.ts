@@ -12,8 +12,8 @@ import {
   updateActionItem,
   listDueFollowUps,
   getNetworkHealth,
-} from "../lib/db.ts";
-import { handler, contactRefShape } from "../lib/tool-utils.ts";
+} from "../lib/db";
+import { handler, contactRefShape } from "../lib/tool-utils";
 
 /** UI wording ("todo" / "waiting_on") ↔ DB values ("my_task" / "waiting_on"). */
 const directionToDb = { todo: "my_task", waiting_on: "waiting_on" } as const;

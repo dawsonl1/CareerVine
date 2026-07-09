@@ -16,28 +16,40 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { setCompanyQueriesClient } from "@/lib/company-queries";
 import { escapeIlike, findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
+import { currentUserIdOrNull } from "@/mcp/user-context";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
 let client: ServiceClient | null = null;
-let userId = "";
+/** Stdio-only fallback when no per-request ALS context is set. */
+let stdioUserId = "";
 
-export function initDb(uid: string): void {
-  userId = uid;
-  client = createSupabaseServiceClient();
-  // company-queries runs on the same service client (all its queries are
-  // explicitly user_id-scoped, so bypassing RLS is safe).
-  setCompanyQueriesClient(client as Parameters<typeof setCompanyQueriesClient>[0]);
-}
-
-export function db(): ServiceClient {
-  if (!client) throw new Error("db not initialized — call initDb() first");
+function ensureClient(): ServiceClient {
+  if (!client) {
+    client = createSupabaseServiceClient();
+    setCompanyQueriesClient(client as Parameters<typeof setCompanyQueriesClient>[0]);
+  }
   return client;
 }
 
+/**
+ * Initialize the service client and optionally pin the stdio operating user.
+ * HTTP callers invoke initDb() once (client only) and scope each request via ALS.
+ */
+export function initDb(uid?: string): void {
+  if (uid) stdioUserId = uid;
+  ensureClient();
+}
+
+export function db(): ServiceClient {
+  return ensureClient();
+}
+
 export function uid(): string {
-  if (!userId) throw new Error("db not initialized — call initDb() first");
-  return userId;
+  const requestUser = currentUserIdOrNull();
+  if (requestUser) return requestUser;
+  if (stdioUserId) return stdioUserId;
+  throw new Error("db not initialized — call initDb() or run inside runWithUser()");
 }
 
 /** Chunk .in() filters — PostgREST URLs blow up past a few hundred ids. */

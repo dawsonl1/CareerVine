@@ -24,10 +24,10 @@ import {
   getCachedThreadMessages,
   findOriginalOutbound,
   insertFollowUpSequence,
-} from "../lib/db.ts";
-import { resolveRecipient, type EmailRowLike } from "../lib/email-policy.ts";
-import { markdownToHtml } from "../lib/markdown.ts";
-import { handler, contactRefShape } from "../lib/tool-utils.ts";
+} from "../lib/db";
+import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
+import { markdownToHtml } from "../lib/markdown";
+import { handler, contactRefShape } from "../lib/tool-utils";
 
 const composeShape = {
   ...contactRefShape,
