@@ -22,6 +22,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number = 400,
+    /** Optional machine-readable code echoed to the client (e.g. AI failure codes). */
+    public code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -171,7 +173,11 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
     } catch (error) {
       // Known API errors thrown intentionally
       if (error instanceof ApiError) {
-        return jsonResponse({ error: error.message }, error.status, headers);
+        return jsonResponse(
+          error.code ? { error: error.message, code: error.code } : { error: error.message },
+          error.status,
+          headers,
+        );
       }
 
       // Unexpected errors
