@@ -15,6 +15,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import type { Database } from "@/lib/database.types";
 import { RECENTLY_ADDED_DAYS, SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
+import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 
 // Create a single Supabase client instance for browser-side operations
 const supabase = createSupabaseBrowserClient();
@@ -263,15 +264,34 @@ export async function appendContactNote(contactId: number, note: string) {
  * @throws Error if deletion fails
  */
 export async function deleteContact(id: number) {
-  // Delete the contact and return user_id + photo_url for storage cleanup (single round-trip)
+  // Delete the contact and return cleanup/tombstone fields (single round-trip)
   const { data: contact, error } = await supabase
     .from("contacts")
     .delete()
     .eq("id", id)
-    .select("user_id, photo_url")
+    .select("user_id, photo_url, linkedin_url, import_source")
     .single();
 
   if (error) throw error;
+
+  // Imported contacts get a suppression tombstone so background re-imports
+  // (pipeline tranches, bundle syncs) can't silently resurrect a contact
+  // the user deleted. Manual contacts skip this — nothing re-imports them,
+  // and a tombstone would block a future intentional import of the person.
+  if (contact?.import_source && contact.linkedin_url && contact.user_id) {
+    const canonical = canonicalizeLinkedinUrl(contact.linkedin_url);
+    if (canonical) {
+      const { error: tombstoneError } = await supabase
+        .from("suppressed_imports")
+        .upsert(
+          { user_id: contact.user_id, linkedin_url: canonical },
+          { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
+        );
+      if (tombstoneError) {
+        console.warn(`[deleteContact] Tombstone write failed for contact ${id}:`, tombstoneError);
+      }
+    }
+  }
 
   if (contact?.photo_url && contact.user_id) {
     try {

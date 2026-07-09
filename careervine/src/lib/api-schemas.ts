@@ -380,3 +380,24 @@ export const bundlePublishSchema = z.discriminatedUnion("mode", [
     stagingVersion: z.number().int().positive(),
   }),
 ]);
+
+/** User-facing bundle subscription endpoints. */
+export const bundleSubscribeSchema = z.object({
+  bundleId: z.number().int().positive(),
+});
+
+export const bundleApplySchema = z.object({
+  bundleId: z.number().int().positive(),
+  cursor: z
+    .object({
+      phase: z.enum(["apply", "remove"]),
+      afterId: z.number().int().nonnegative(),
+    })
+    .nullable()
+    .optional(),
+  /** Committed bundle version pinned on the loop's first call — later
+   * calls must pass it back so a concurrent publish can't skew the delta. */
+  pinnedVersion: z.number().int().positive().optional(),
+  /** Sync-claim token from the previous call (CAS renewal). */
+  claimToken: z.string().optional(),
+});
