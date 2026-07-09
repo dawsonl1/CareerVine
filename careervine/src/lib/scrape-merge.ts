@@ -66,16 +66,24 @@ export function employmentKey(e: {
   return `${e.company_id}|${(e.title ?? "").trim().toLowerCase()}|${(e.start_month ?? "").trim().toLowerCase()}`;
 }
 
+/**
+ * How to handle an unmatched CURRENT incoming role at a company that already
+ * has an unmatched CURRENT existing role (plan 29 M2):
+ *  - "insert" (default, pipeline bulk-import): keep strict natural-key matching;
+ *    the incoming row becomes a new sibling row.
+ *  - "skip" (rescrape/enrich, interim): leave the existing current role in place
+ *    (just confirm scraped_at) and drop the incoming duplicate. Never clobbers a
+ *    user-typed role and never creates a confusing duplicate; worst case a title
+ *    is briefly stale. Safe while extension AI-parsed rows are indistinguishable
+ *    from hand-typed ones (both source='manual').
+ *  - "supersede": overwrite the existing current role in place with the scrape's
+ *    values. Only safe once AI-parsed rows carry a distinct provenance, or the
+ *    data loss the deep review flagged is reintroduced — NOT used yet.
+ */
+export type CurrentCollisionStrategy = "insert" | "skip" | "supersede";
+
 export interface EmploymentMergeOptions {
-  /**
-   * When true (rescrape/enrich path, plan 29 M2), an unmatched CURRENT existing
-   * row is superseded in place by an unmatched CURRENT incoming row at the same
-   * company instead of inserting a duplicate sibling. This reconciles the case
-   * where the extension saved an AI-parsed current role whose title/dates don't
-   * exactly match the scrape's authoritative version. Off by default so the
-   * pipeline bulk-import path keeps its strict natural-key matching.
-   */
-  supersedeManualCurrent?: boolean;
+  currentCollisionStrategy?: CurrentCollisionStrategy;
 }
 
 /** Build the field patch for an existing row matched to an incoming row by natural key. */
@@ -129,9 +137,10 @@ export function computeEmploymentMerge(
     plan.updates.push(buildMatchUpdate(row, match, scrapedAt));
   }
 
-  // Pass B (opt-in): supersede an unmatched CURRENT existing row with an
-  // unmatched CURRENT incoming row at the same company — same job, better data.
-  if (opts.supersedeManualCurrent) {
+  // Pass B: reconcile an unmatched CURRENT existing row with an unmatched
+  // CURRENT incoming row at the same company (same job, different natural key).
+  const strategy: CurrentCollisionStrategy = opts.currentCollisionStrategy ?? "insert";
+  if (strategy !== "insert") {
     for (const row of existing) {
       if (consumedExistingIds.has(row.id) || !row.is_current) continue;
       let matchKey: string | undefined;
@@ -146,6 +155,15 @@ export function computeEmploymentMerge(
       const inc = incomingByKey.get(matchKey)!;
       matchedKeys.add(matchKey);
       consumedExistingIds.add(row.id);
+
+      if (strategy === "skip") {
+        // Leave the existing role untouched; just confirm we saw it. No clobber,
+        // no duplicate.
+        plan.updates.push({ id: row.id, fields: { scraped_at: scrapedAt } });
+        continue;
+      }
+
+      // strategy === "supersede": overwrite in place with the scrape's values.
       const fields: Record<string, unknown> = {
         title: inc.title,
         start_month: inc.start_month,

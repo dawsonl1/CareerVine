@@ -89,13 +89,33 @@ describe("computeContactPatch — rescrape mode (B1)", () => {
   });
 });
 
-describe("computeEmploymentMerge — supersedeManualCurrent (M2)", () => {
+describe("computeEmploymentMerge — currentCollisionStrategy 'skip' (M2 interim, rescrape default)", () => {
+  it("leaves a possibly user-typed current role untouched and drops the duplicate", () => {
+    const existing = [existingRow({ id: 5, source: "manual", title: "Product Manager", start_month: "2022" })];
+    const incoming = [incomingRow({ title: "Senior Product Manager", start_month: "Mar 2022" })];
+
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "skip" });
+    // No clobber, no duplicate — just a freshness confirmation on the existing row.
+    expect(plan.inserts).toHaveLength(0);
+    expect(plan.deleteIds).toHaveLength(0);
+    expect(plan.updates).toEqual([{ id: 5, fields: { scraped_at: NOW } }]);
+  });
+
+  it("does not skip at a DIFFERENT company (real job change still inserts)", () => {
+    const existing = [existingRow({ id: 5, source: "manual", company_id: 10, title: "PM", start_month: "2022" })];
+    const incoming = [incomingRow({ company_id: 99, title: "PM", start_month: "Mar 2022" })];
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "skip" });
+    expect(plan.inserts).toHaveLength(1);
+  });
+});
+
+describe("computeEmploymentMerge — currentCollisionStrategy 'supersede' (future, with source model)", () => {
   it("supersedes an AI-parsed current role instead of duplicating it", () => {
     // Extension saved a rough current role; the scrape brings the real one.
     const existing = [existingRow({ id: 5, source: "manual", title: "Product Manager", start_month: "2022" })];
     const incoming = [incomingRow({ title: "Senior Product Manager", start_month: "Mar 2022" })];
 
-    const plan = computeEmploymentMerge(existing, incoming, NOW, { supersedeManualCurrent: true });
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "supersede" });
     expect(plan.inserts).toHaveLength(0);
     expect(plan.deleteIds).toHaveLength(0);
     expect(plan.updates).toHaveLength(1);
@@ -122,7 +142,7 @@ describe("computeEmploymentMerge — supersedeManualCurrent (M2)", () => {
     const existing = [existingRow({ id: 5, source: "manual", company_id: 10, title: "PM", start_month: "2022" })];
     const incoming = [incomingRow({ company_id: 99, title: "PM", start_month: "Mar 2022" })];
 
-    const plan = computeEmploymentMerge(existing, incoming, NOW, { supersedeManualCurrent: true });
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "supersede" });
     expect(plan.inserts).toHaveLength(1); // different company → real job change, insert
     expect(plan.updates).toHaveLength(0);
   });
@@ -131,7 +151,7 @@ describe("computeEmploymentMerge — supersedeManualCurrent (M2)", () => {
     const existing = [existingRow({ id: 5, source: "manual", is_current: false, end_month: "Dec 2023", title: "Old", start_month: "2020" })];
     const incoming = [incomingRow({ title: "New", start_month: "Mar 2024" })];
 
-    const plan = computeEmploymentMerge(existing, incoming, NOW, { supersedeManualCurrent: true });
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "supersede" });
     expect(plan.inserts).toHaveLength(1);
     expect(plan.updates).toHaveLength(0);
   });
@@ -140,7 +160,7 @@ describe("computeEmploymentMerge — supersedeManualCurrent (M2)", () => {
     const existing = [existingRow({ id: 5, source: "manual", location_source: "manual", location_id: 77, title: "PM", start_month: "2022" })];
     const incoming = [incomingRow({ title: "Senior PM", start_month: "Mar 2022", location_id: 88, location_source: "experience" })];
 
-    const plan = computeEmploymentMerge(existing, incoming, NOW, { supersedeManualCurrent: true });
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "supersede" });
     expect(plan.updates[0].fields.location_id).toBeUndefined(); // manual location kept
     expect(plan.updates[0].fields.title).toBe("Senior PM");
   });
@@ -149,7 +169,7 @@ describe("computeEmploymentMerge — supersedeManualCurrent (M2)", () => {
     // Exact key match must win (normal update), not a supersede.
     const existing = [existingRow({ id: 5, source: "scraped" })];
     const incoming = [incomingRow()];
-    const plan = computeEmploymentMerge(existing, incoming, NOW, { supersedeManualCurrent: true });
+    const plan = computeEmploymentMerge(existing, incoming, NOW, { currentCollisionStrategy: "supersede" });
     expect(plan.updates).toHaveLength(1);
     expect(plan.inserts).toHaveLength(0);
     expect(plan.updates[0].fields.source).toBeUndefined(); // plain freshness update, not a supersede

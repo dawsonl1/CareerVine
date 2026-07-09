@@ -694,6 +694,7 @@ export type Database = {
           mode: string;                        // 'profile' | 'email'
           trigger: string;                     // 'manual' | 'enrich_on_save' | 'cadence'
           contact_ids: number[];               // Contacts covered by this run
+          single_contact_id: number | null;    // The one contact a run targets (in-flight guard)
           status: string;                      // 'pending' | 'succeeded' | 'failed' | 'timed_out'
           cost_usd: number;                    // Actual run cost (0 until succeeded)
           error: string | null;
@@ -702,7 +703,7 @@ export type Database = {
         };
         Insert: Omit<
           Database["public"]["Tables"]["scrape_runs"]["Row"],
-          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids"
+          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids" | "single_contact_id"
         > & {
           apify_run_id?: string | null;
           status?: string;
@@ -711,6 +712,7 @@ export type Database = {
           created_at?: string;
           finished_at?: string | null;
           contact_ids?: number[];
+          single_contact_id?: number | null;
         };
         Update: Partial<Database["public"]["Tables"]["scrape_runs"]["Insert"]>;
       };

@@ -15,6 +15,14 @@ import { ChangeEventStatus, ChangeEventTier } from "@/lib/constants";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
 import { computeAnniversaryEvents, type AnniversaryContact } from "./anniversary";
 
+const CONTACT_PAGE = 1000; // PostgREST default select ceiling — page to defeat it
+
+// Per-user throttle so the lazy producer doesn't run a full contact scan on
+// every dashboard load. Anniversaries only change day-to-day; a warm instance
+// syncs at most once per window. (The daily cron in phase 2 is the real home.)
+const SYNC_THROTTLE_MS = 6 * 60 * 60 * 1000;
+const lastSyncByUser = new Map<string, number>();
+
 /**
  * Detect this month's work anniversaries for a user's active/prospect contacts
  * and upsert them as change events. Idempotent: ON CONFLICT (user_id,
@@ -22,19 +30,41 @@ import { computeAnniversaryEvents, type AnniversaryContact } from "./anniversary
  * event nor duplicates a still-new one. Bench contacts are excluded
  * (plan-24 containment). Returns the number of candidate events considered.
  */
-export async function syncAnniversaryEvents(userId: string, today: Date = new Date()): Promise<number> {
+export async function syncAnniversaryEvents(
+  userId: string,
+  today: Date = new Date(),
+  opts: { force?: boolean } = {},
+): Promise<number> {
+  // Throttle repeated syncs for the same user (skip unless forced).
+  const last = lastSyncByUser.get(userId);
+  if (!opts.force && last != null && Date.now() - last < SYNC_THROTTLE_MS) return 0;
+  lastSyncByUser.set(userId, Date.now());
+
   const service = createSupabaseServiceClient();
 
-  const { data: contacts, error } = await service
-    .from("contacts")
-    .select("id, name, photo_url, industry, contact_companies(company_id, start_month, is_current, companies(name))")
-    .eq("user_id", userId)
-    .in("network_status", ["active", "prospect"]);
+  // Page the read — an unbounded select silently caps at 1000 rows, which would
+  // drop anniversaries for contacts beyond the first page.
+  const contacts: Array<Record<string, unknown>> = [];
+  for (let from = 0; ; from += CONTACT_PAGE) {
+    const { data, error } = await service
+      .from("contacts")
+      .select("id, name, photo_url, industry, contact_companies(company_id, start_month, is_current, companies(name))")
+      .eq("user_id", userId)
+      .in("network_status", ["active", "prospect"])
+      .order("id")
+      .range(from, from + CONTACT_PAGE - 1);
+    if (error) {
+      lastSyncByUser.delete(userId); // let the next load retry
+      return 0;
+    }
+    if (!data || data.length === 0) break;
+    contacts.push(...data);
+    if (data.length < CONTACT_PAGE) break;
+  }
 
-  if (error || !contacts) return 0;
-
-  const shaped: AnniversaryContact[] = contacts.map((c) => {
-    const cc = (c as { contact_companies?: unknown[] }).contact_companies ?? [];
+  const shaped: AnniversaryContact[] = contacts.map((raw) => {
+    const c = raw as { id: number; name: string; photo_url: string | null; industry: string | null; contact_companies?: unknown[] };
+    const cc = c.contact_companies ?? [];
     return {
       id: c.id,
       name: c.name,
@@ -88,10 +118,14 @@ export async function fetchChangeEventSuggestions(userId: string): Promise<Sugge
 
   const { data, error } = await service
     .from("contact_change_events")
-    .select("id, contact_id, type, tier, headline, evidence, suggested_title, suggested_description, contacts(name, photo_url, industry)")
+    .select("id, contact_id, type, tier, headline, evidence, suggested_title, suggested_description, contacts!inner(name, photo_url, industry, network_status)")
     .eq("user_id", userId)
     .eq("status", ChangeEventStatus.New)
     .in("tier", [ChangeEventTier.ActNow, ChangeEventTier.Touchpoint])
+    // Never surface a contact who has since moved to bench (plan-24 containment).
+    // The producer only creates events for active/prospect, but a contact can be
+    // benched after an event is created.
+    .in("contacts.network_status", ["active", "prospect"])
     .order("tier", { ascending: true })
     .order("detected_at", { ascending: false });
 

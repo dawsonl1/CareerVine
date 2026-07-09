@@ -521,9 +521,10 @@ async function updateExistingPerson(
     (existingEmpRows as ExistingEmploymentRow[] | null) ?? [],
     w.employment.map((e) => e.incoming),
     now,
-    // Enrich/rescrape supersedes an AI-parsed current role instead of
-    // inserting a duplicate (plan 29 M2).
-    { supersedeManualCurrent: mode === "rescrape" },
+    // Enrich/rescrape: "skip" a same-company current-role collision — never
+    // clobber a possibly user-typed role, never insert a duplicate (plan 29 M2).
+    // True supersede waits on a distinct provenance for AI-parsed extension rows.
+    { currentCollisionStrategy: mode === "rescrape" ? "skip" : "insert" },
   );
   if (plan.inserts.length > 0) {
     const { error: insError } = await supabase
