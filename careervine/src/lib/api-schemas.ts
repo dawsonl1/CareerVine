@@ -401,3 +401,9 @@ export const bundleApplySchema = z.object({
   /** Sync-claim token from the previous call (CAS renewal). */
   claimToken: z.string().optional(),
 });
+
+export const bundleUnsubscribeSchema = z.object({
+  bundleId: z.number().int().positive(),
+  keepAll: z.boolean(),
+  cursor: z.number().int().nonnegative().nullable().optional(),
+});

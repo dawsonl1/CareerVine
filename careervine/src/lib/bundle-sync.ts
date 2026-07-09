@@ -582,3 +582,112 @@ export async function applyBundleDelta(
   result.done = true;
   return result;
 }
+
+// ── Unsubscribe ────────────────────────────────────────────────────────
+
+export interface UnsubscribeStepResult {
+  done: boolean;
+  nextCursor: number | null;
+  removed: number;
+  kept: number;
+}
+
+/**
+ * Unsubscribe from a bundle (plan 29 §7). The subscription row is kept
+ * with status='unsubscribed' (clean resubscribe via the UNIQUE constraint;
+ * sync drivers skip inactive rows, so flipping status first also fences
+ * out concurrent background syncs).
+ *
+ * keepAll=true drops all linkage rows — every imported contact becomes a
+ * plain contact. keepAll=false deletes bundle-created contacts that are
+ * untouched AND not linked by any sibling active subscription; everything
+ * else is orphaned. Cursor-looped like apply so huge subscriptions stay
+ * inside function limits. NEVER writes suppressed_imports: sync only runs
+ * for active subscriptions, and tombstoning here would poison resubscribe.
+ */
+export async function unsubscribeFromBundle(
+  client: SupabaseClient,
+  subscription: SubscriptionCore,
+  opts: { keepAll: boolean; cursor?: number | null; chunkSize?: number },
+): Promise<UnsubscribeStepResult> {
+  const chunkSize = opts.chunkSize ?? SYNC_CHUNK_SIZE;
+  const nowIso = new Date().toISOString();
+  const result: UnsubscribeStepResult = { done: false, nextCursor: null, removed: 0, kept: 0 };
+
+  // First call: fence out background syncs before touching linkage.
+  if (!opts.cursor) {
+    await client
+      .from("bundle_subscriptions")
+      .update({ status: "unsubscribed", sync_claimed_until: null, updated_at: nowIso })
+      .eq("id", subscription.id);
+  }
+
+  if (opts.keepAll) {
+    const { data: dropped } = await client
+      .from("bundle_subscription_contacts")
+      .delete()
+      .eq("subscription_id", subscription.id)
+      .select("id");
+    result.kept = ((dropped as { id: number }[] | null) ?? []).length;
+    result.done = true;
+    return result;
+  }
+
+  const { data: linkRows } = await client
+    .from("bundle_subscription_contacts")
+    .select("id, contact_id, created_by_bundle")
+    .eq("subscription_id", subscription.id)
+    .gt("id", opts.cursor ?? 0)
+    .order("id", { ascending: true })
+    .limit(chunkSize);
+  const links = (linkRows as Array<{ id: number; contact_id: number; created_by_bundle: boolean }> | null) ?? [];
+
+  if (links.length > 0) {
+    const candidateIds = links.filter((l) => l.created_by_bundle).map((l) => l.contact_id);
+    const [signals, siblingLinked] = await Promise.all([
+      fetchTouchSignals(client, subscription.user_id, candidateIds),
+      findSiblingLinkedContacts(client, subscription.user_id, subscription.id, candidateIds),
+    ]);
+
+    const contactIdsToDelete: number[] = [];
+    const linkIdsToDrop: number[] = [];
+    for (const link of links) {
+      if (link.created_by_bundle && !siblingLinked.has(link.contact_id)) {
+        const snapshot = signals.snapshots.get(link.contact_id);
+        const touched =
+          !snapshot ||
+          isContactTouched(
+            signals.states.get(link.contact_id),
+            signals.hardSignals.get(link.contact_id) ?? { interactions: 0, meetings: 0, followUps: 0 },
+            computeContactFingerprint(snapshot),
+          );
+        if (!touched) {
+          contactIdsToDelete.push(link.contact_id);
+          continue; // linkage + state cascade with the contact
+        }
+      }
+      linkIdsToDrop.push(link.id);
+    }
+
+    if (contactIdsToDelete.length > 0) {
+      const { error } = await client
+        .from("contacts")
+        .delete()
+        .eq("user_id", subscription.user_id)
+        .in("id", contactIdsToDelete);
+      if (error) throw new Error(`Unsubscribe delete failed: ${error.message}`);
+      result.removed = contactIdsToDelete.length;
+    }
+    if (linkIdsToDrop.length > 0) {
+      await client.from("bundle_subscription_contacts").delete().in("id", linkIdsToDrop);
+      result.kept = linkIdsToDrop.length;
+    }
+  }
+
+  if (links.length === chunkSize) {
+    result.nextCursor = links[links.length - 1].id;
+    return result;
+  }
+  result.done = true;
+  return result;
+}
