@@ -48,6 +48,8 @@ interface RouteConfig<TBody = unknown, TQuery = unknown> {
   cors?: boolean;
   /** When true, auth is attempted but handler runs even if user is null. Handler receives user as User | null. */
   authOptional?: boolean;
+  /** When true, the authenticated user must carry app_metadata.role === 'admin' or the request is rejected with 403. */
+  requireAdmin?: boolean;
   /** The actual route logic. Return data to send as JSON. */
   handler: (ctx: HandlerContext<TBody, TQuery>) => Promise<unknown>;
 }
@@ -109,6 +111,16 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
           }
         } else {
           user = u;
+        }
+      }
+
+      // ── Admin gate ──────────────────────────────────────────────
+      // The admin claim lives in auth.users.app_metadata.role (service-role
+      // writable only), so it cannot be spoofed by the client.
+      if (config.requireAdmin) {
+        const role = (user as User | null)?.app_metadata?.role;
+        if (role !== "admin") {
+          return jsonResponse({ error: "Forbidden" }, 403, headers);
         }
       }
 
