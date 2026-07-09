@@ -31,16 +31,19 @@ export async function verifyMcpToken(
     if (payload.role !== "authenticated") return undefined;
     if (typeof payload.sub !== "string" || !payload.sub) return undefined;
 
+    // Only OAuth-issued tokens carry a client id; plain app session JWTs
+    // (same signer, same claims otherwise) must not unlock the MCP API.
     const clientId =
-      typeof payload.client_id === "string"
+      typeof payload.client_id === "string" && payload.client_id
         ? payload.client_id
-        : typeof payload.azp === "string"
+        : typeof payload.azp === "string" && payload.azp
           ? payload.azp
           : undefined;
+    if (!clientId) return undefined;
 
     return {
       token: bearerToken,
-      clientId: clientId ?? "unknown",
+      clientId,
       scopes: [],
       extra: { userId: payload.sub },
     };

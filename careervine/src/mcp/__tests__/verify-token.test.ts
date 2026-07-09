@@ -39,6 +39,22 @@ describe("verifyMcpToken", () => {
     expect(info?.clientId).toBe("claude");
   });
 
+  it("accepts azp as the client id fallback", async () => {
+    const token = await sign({ role: "authenticated", azp: "claude-code" });
+    const info = await verifyMcpToken(new Request("http://localhost"), token);
+    expect(info?.clientId).toBe("claude-code");
+  });
+
+  it("rejects an app session token (no client_id) even though it is validly signed", async () => {
+    const token = await sign({ role: "authenticated", aud: "authenticated" });
+    expect(await verifyMcpToken(new Request("http://localhost"), token)).toBeUndefined();
+  });
+
+  it("rejects an empty client_id", async () => {
+    const token = await sign({ role: "authenticated", client_id: "" });
+    expect(await verifyMcpToken(new Request("http://localhost"), token)).toBeUndefined();
+  });
+
   it("rejects anon role", async () => {
     const token = await sign({ role: "anon" });
     expect(await verifyMcpToken(new Request("http://localhost"), token)).toBeUndefined();
