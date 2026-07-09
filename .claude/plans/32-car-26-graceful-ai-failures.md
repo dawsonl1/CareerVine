@@ -41,7 +41,9 @@ One closed set of machine codes, shared by backend and frontend. All four are em
 | `ai_no_key` | No personal key **and** no shared access | "Add your OpenAI key to use AI" · "CareerVine's AI features need an OpenAI key. Add yours in Settings — with OpenAI's free daily tokens, most people pay nothing." · **Add your key** → `/settings?tab=ai` | no |
 | `ai_key_invalid` | Personal key rejected (401), no shared access | "Your OpenAI key was rejected" · "OpenAI didn't accept your key. Update it in Settings to keep using AI features." · **Update key** → `/settings?tab=ai` | no |
 | `ai_quota_exhausted` | Personal key out of quota, no shared access | "Your OpenAI key is out of quota" · "Your key hit its usage limit. Add credit or turn on free daily tokens in your OpenAI account, then try again." · **Manage key** → `/settings?tab=ai` | after fix |
-| `ai_unavailable` | Shared key itself failing / not configured (for a shared-access user), or any AI provider outage (incl. Deepgram) | "AI is temporarily unavailable" · "We couldn't reach AI right now. Try again in a moment — or add your own OpenAI key so this never blocks you." · **Retry** + **Add your key** → `/settings?tab=ai` | yes |
+| `ai_unavailable` | Shared key itself failing / not configured (for a shared-access user), or an unexpected resolution failure | "AI is temporarily unavailable" · "We couldn't reach AI right now. Try again in a moment — or add your own OpenAI key so this never blocks you." · **Retry** + **Add your key** → `/settings?tab=ai` | yes |
+
+> **As-built note — Deepgram is NOT in this taxonomy.** Audio transcription uses Deepgram, which has no BYO/shared-key model, so the `ai_unavailable` copy ("add your own OpenAI key") would mislead. Deepgram's graceful fix (Feature 8) is a plain retryable inline message in `past-meeting-fields.tsx`, not `AiUnavailableNotice`.
 
 Copy lives in one place (`lib/ai-errors.ts`), so wording changes are a one-file edit.
 
@@ -218,7 +220,7 @@ Each feature already has an error branch; thread a structured `aiFailure: AiFail
 | 6 | Speaker matching | `speaker-resolver.tsx` | map thrown error to notice in its error state |
 | 7 | Extract action items | `meetings/transcript-action-suggestions.tsx` | notice in the panel's error slot |
 | 8 | Audio transcription (Deepgram) | `conversation-modal/past-meeting-fields.tsx` | **fix silent `catch {}`** → show `ai_unavailable` notice with Retry |
-| 9 | Smart suggestions | `use-suggestions.ts` + `app/page.tsx`, `app/action-items/page.tsx` | **light touch:** hook reads optional `aiStatus` code; dashboard shows a small, dismissible inline prompt ("Add your OpenAI key to get AI suggestions") — never a blocking error card (background enhancement) |
+| 9 | Smart suggestions | `use-suggestions.ts` + `app/action-items/page.tsx` | **light touch (as-built):** hook exposes `aiStatus` + `dismissAiStatus`; the **action-items page** shows a compact, dismissible prompt. The **dashboard (`app/page.tsx`) intentionally stays quiet** — its suggestions are woven into a unified priority feed with no natural place for an error card (rule 5); rule-based suggestions still populate there. |
 
 ### 5.4 Settings AI section — close the loop
 - Extend `GET /api/settings/openai-key` to also return `sharedAccess: boolean` (from `user_ai_access`).
