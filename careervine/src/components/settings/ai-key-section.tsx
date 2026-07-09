@@ -13,6 +13,8 @@ type KeyStatus = {
   status?: "active" | "invalid" | "quota_exceeded";
   addedAt?: string;
   lastUsedAt?: string | null;
+  /** Whether this account is entitled to CareerVine's shared key (CAR-26). */
+  sharedAccess?: boolean;
 };
 
 function formatDate(iso: string | null | undefined): string {
@@ -115,7 +117,15 @@ export default function AiKeySection() {
         </div>
 
         <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-          CareerVine&apos;s AI features run on our shared key by default. Add your own OpenAI key to use your account instead — with OpenAI&apos;s free daily tokens, most people pay nothing.
+          {status && !status.hasKey && !status.sharedAccess ? (
+            <>
+              CareerVine&apos;s AI features — email drafts, transcript parsing, follow-up suggestions — run on an OpenAI key. Add your own below to turn them on. With OpenAI&apos;s free daily tokens, most people pay nothing.
+            </>
+          ) : (
+            <>
+              Add your own OpenAI key to run CareerVine&apos;s AI features on your account{status?.sharedAccess ? " instead of our shared key" : ""}. With OpenAI&apos;s free daily tokens, most people pay nothing.
+            </>
+          )}
         </p>
 
         <AiKeyVideo />

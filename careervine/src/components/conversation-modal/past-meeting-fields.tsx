@@ -35,6 +35,7 @@ export function PastMeetingFields({
   onActionCreated,
 }: PastMeetingFieldsProps) {
   const [showTranscript, setShowTranscript] = useState(!!form.transcript);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
 
   const hasNotesOrTranscript = form.notes.trim().length > 0 || form.transcript.trim().length > 0;
 
@@ -57,6 +58,7 @@ export function PastMeetingFields({
   const handleAudioFile = useCallback(
     async (file: File) => {
       setTranscriptState((prev) => ({ ...prev, isTranscribing: true }));
+      setTranscribeError(null);
       try {
         // Upload audio file
         const formDataUpload = new FormData();
@@ -91,6 +93,9 @@ export function PastMeetingFields({
         }));
       } catch {
         setTranscriptState((prev) => ({ ...prev, isTranscribing: false }));
+        setTranscribeError(
+          "Couldn't transcribe that audio. It may be too long or in an unsupported format — try again, or paste the transcript text instead.",
+        );
       }
     },
     [setForm, setTranscriptState]
@@ -131,6 +136,9 @@ export function PastMeetingFields({
               onAudioFile={handleAudioFile}
               isTranscribing={transcriptState.isTranscribing}
             />
+            {transcribeError && (
+              <p className="mt-2 text-sm text-destructive">{transcribeError}</p>
+            )}
           </div>
         )}
       </div>

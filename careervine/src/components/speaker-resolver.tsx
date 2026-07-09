@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { Users, Sparkles, Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { SimpleContact } from "@/lib/types";
+import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
+import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
 interface SpeakerMapping {
   speakerLabel: string;
@@ -174,6 +176,7 @@ export default function SpeakerResolver({
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiFailure, setAiFailure] = useState<AiFailureCode | null>(null);
 
   // Re-run auto-match if contacts change
   useEffect(() => {
@@ -219,6 +222,7 @@ export default function SpeakerResolver({
   const handleAiMatch = useCallback(async () => {
     setAiLoading(true);
     setAiError(null);
+    setAiFailure(null);
 
     try {
       const contactContext = buildContactContext();
@@ -248,6 +252,11 @@ export default function SpeakerResolver({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        const code = parseAiFailure(res.status, err);
+        if (code) {
+          setAiFailure(code);
+          return;
+        }
         throw new Error(err.error || "AI matching failed");
       }
 
@@ -321,6 +330,7 @@ export default function SpeakerResolver({
         )}
       </div>
 
+      {aiFailure && <AiUnavailableNotice compact code={aiFailure} onRetry={handleAiMatch} />}
       {aiError && (
         <p className="text-xs text-destructive">{aiError}</p>
       )}
