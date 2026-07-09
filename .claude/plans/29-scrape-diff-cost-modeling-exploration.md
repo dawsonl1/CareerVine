@@ -10,20 +10,39 @@ CAR-15 bundles three ideas:
 2. **Cadence re-scrape + diff** of already-imported contacts to catch profile changes → prompt organic outreach.
 3. **Find-email** — per-contact button and/or bulk for contacts missing an email.
 
-## 1. Unit economics (verified 2026-07-08, BRONZE tier)
+## 1. Unit economics & actor comparison (verified 2026-07-08, BRONZE tier)
 
-The right actor for everything here is **`harvestapi/linkedin-profile-scraper`** — it takes
-profile URLs / public identifiers directly (both stored on `contacts`), has **no
-per-run start fee**, and returns the same payload shape our mapper already consumes
-(`raw_profiles[].data` in people-records is this actor's item verbatim).
+Three HarvestAPI actors are candidates; they differ in **how you address a person**, not in
+payload shape (all three return the same full-profile item our mapper consumes, and all share
+the same $0.004 full / $0.01 full+email per-profile events).
 
-| Event | Price |
-| --- | --- |
-| Profile details | **$0.004** / profile |
-| Profile details + email search | **$0.01** / profile (charged per attempt, found or not; SMTP-verified results → `emails[]`) |
-| Per-run start fee | none |
+### The three candidates
 
-Why not the alternatives:
+| | A. `linkedin-profile-scraper` | B. `linkedin-profile-search-by-name` | C. `linkedin-profile-search` |
+| --- | --- | --- | --- |
+| **Addressing** | Exact: profile URLs / public identifiers / profile IDs | Name (first+last, `strictSearch`) + filters (location, current/past company, school, industry) | Filters/fuzzy query only (company, title, seniority, function, `recentlyChangedJobs`, `recentlyPostedOnLinkedIn`, …) — cannot target a specific person |
+| **Search-page fee** | none | **$0.004** / page (≤10 short profiles) | **$0.10** / page (≤25 short profiles) |
+| **Full profile** | $0.004 | $0.004 (also: "main profile" mode $0.002) | $0.004 |
+| **Full + email** | $0.01 | $0.01 | $0.01 |
+| **Start fee** | none | none | none |
+| **Typical unit** | $0.004/contact | ~$0.008/lookup (1 page + 1 full); $0.014 with email | ≥$0.10/query + $0.004/profile opened |
+
+### Which actor wins which situation
+
+| Situation | Winner | Why |
+| --- | --- | --- |
+| **Cadence re-scrape + diff** (we store `linkedin_url` + `public_identifier`) | **A** | Exact addressing, zero search overhead: $8/mo for the whole fleet monthly. B would add a redundant $0.004 search hop and a mis-match risk per contact; C can't target individuals at all. |
+| **Find-email button / enrich-on-extension-save** | **A** (email mode) | The extension has the profile URL in hand; $0.01 flat. |
+| **Contact with NO `linkedin_url`** (manual adds) | **B** | The only actor that resolves name → profile. `strictSearch: true` + `currentCompanies` (we store company LinkedIn URLs) or `locations` as disambiguators; ~$0.008–0.014 per resolve. Auto-accept only a single-result match; multi-match → user picks. |
+| **URL-rot recovery** (contact renamed their public identifier; A starts 404ing) | **B** | Re-find by name + `pastCompanies`/`currentCompanies` filter, update the stored URL, resume A. This closes the failure-handling loop in §4. |
+| **Discovering NEW people** (pipeline Search A/B; "new PMs at target companies" feed) | **C** | Its whole job; the pipeline already uses it. `recentlyChangedJobs` (job change ≤90 days) + `currentCompanies` is a ready-made "warm new hires at target companies" query; `recentlyPostedOnLinkedIn` finds active posters worth engaging. |
+| **Monitoring known contacts via search** | **nobody — use A** | C charges $0.10/page for firehose results you'd mostly discard, can't be scoped to your 2,000 people, and a `pastCompanies`+`recentlyChangedJobs` "who left?" sweep across ~660 companies returns thousands of strangers. Direct re-scrape of the whole fleet ($8) is cheaper than a search sweep and exact. |
+
+Bottom line: **A is the engine, B is the fallback resolver, C is for discovery — not monitoring.**
+CAR-15's core loop is A-only; B earns a small supporting role (no-URL contacts, URL rot); C stays
+in the pipeline's discovery lane (and powers the adjacent new-hires idea at the end of this doc).
+
+Why not other vendors:
 
 - **`harvestapi/linkedin-company-employees`** ($0.008/full profile + $0.02 start per company): 2× the
   per-profile price, and it enumerates *current* employees of a company — so it structurally
@@ -129,7 +148,8 @@ Nothing here requires new pipelines — it's the first **in-repo** Apify call pl
 - **Extension flow:** on save, auto-trigger a single-profile email-mode scrape (a penny; auto >
   button for UX, with a settings toggle). Also fixes photo + employment quality vs the AI-parse path.
 - **Failure handling:** 404/private/renamed profiles → record `scrape_failed_at`, exponential
-  backoff, surface after N consecutive failures ("profile moved?").
+  backoff; after N consecutive failures attempt a `search-by-name` re-resolve (name +
+  current/past company filter, ~$0.008) to repair the stored URL before surfacing "profile moved?".
 
 ## 5. Recommended cadence
 
