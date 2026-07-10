@@ -43,6 +43,22 @@
 - Duplicate-email detection (`auth-provider.tsx:104-113`, CAR-46) depends on confirmations-ON behavior — keeping verification (v2) means it keeps working as-is.
 - Supabase branded email = dashboard SMTP settings (SendGrid, domain-authenticated) + email template; no config.toml in repo.
 
+## Build inventory (final audit, 2026-07-10 — three read-only agents)
+
+**Confirmed broken today (CAR-52 is a real fix, not just config):** the confirm-link auto-login does NOT work. The browser client is `@supabase/ssr` PKCE-default (`browser-client.ts:14-20`), `signUp` passes no `emailRedirectTo` (`auth-provider.tsx:85-97`), and there is no `/auth/confirm` route calling `verifyOtp` — so a confirm click in a new tab lands **unauthenticated** on the landing page. Fix (canonical @supabase/ssr pattern): new `src/app/auth/confirm/route.ts` route handler doing server-side `verifyOtp({token_hash, type})` → redirect into onboarding; `emailRedirectTo: ${origin}/auth/confirm` on signUp (mirror `resetPassword`'s `redirectTo`, line 163); dashboard email template → `token_hash` link form; `/auth/confirm` added to the redirect-URL allowlist per environment. Works cross-tab/device because it doesn't need the PKCE verifier.
+
+**New build (the one big piece):** static merge-field template system. `email_templates` today stores AI *prompts* only (`{name, prompt}`); zero `{{merge_field}}` capability exists anywhere. Need: template store with subject/body, merge resolver (name/company/alumni), alumni vs non-alumni variant selection.
+
+**New build (small):** `users.onboarding_state` column (migration) — no persistent first-login/onboarding flag exists; `isNewUser` is ephemeral (`contactHealth.length===0`). Needed for show-once + resume-after-interrupt. Bundle apply progress is client-held (cursor + React state), but durable signals (`bundle_subscriptions.synced_version < version`, `sync_claimed_until`, `bundle_contact_state.apply_started_at`) suffice to detect mid-flight and re-show a syncing state.
+
+**Rewire, not build:**
+- Composer prefill is first-class: `openCompose({to, name, subject, bodyHtml, contactId, isIntro…})` (`compose-email-context.tsx:18-30`). Company-page per-contact compose buttons already exist (`pipeline-layout.tsx:574`, `person-modal.tsx:203`) — just pass template-rendered subject/body through.
+- Follow-up sequence engine is **content-agnostic and AI-free at the data layer**: `email_follow_ups` + `email_follow_up_messages` persist caller-supplied subject/body/delays; reply auto-cancel (`checkForReplyInThread`) lives in the sequence cron and applies regardless of content source. The stacked-3-emails editor already exists (`follow-up-plan-section.tsx` — per-step subject/body/delay/toggle) but is gated behind "Approve intro & generate follow-ups" (AI); seed it from templates and ungate instead.
+- Gmail/Calendar connect is triggerable from any component (`GET /api/gmail/auth`, `?scopes=calendar`) — but the OAuth callback **hardcodes redirect to /settings** (`callback/route.ts:89`); thread a `returnTo` through the CSRF `state` so onboarding keeps the user.
+- Alumni data: fully derivable **today, no schema change** — bundle education persists to `contact_schools`/`schools` (`bulk-import.ts:563,708-736`), and the app already ships `isByuSchoolName` (`company-queries.ts:52`) + per-person `is_alum` (`company-queries.ts:672-675`, surfaced in pipeline/person-modal/dossier). Picker counts = contact_companies → contact_schools → schools join with that predicate. Note: bundle imports leave `contacts.verified_school` null — the schools-join is the reliable signal, not that column.
+
+**Minor:** cron cadence discrepancy — ops notes say send-follow-ups */10min, code comments say 15min; verify against QStash when touching. (One audit agent claimed "no migrations directory exists" — false; it searched `careervine/supabase`. Migrations live at repo-root `supabase/migrations/`, per rule 12.)
+
 ## Sequencing
 
 CAR-52 (branded email + confirm auto-login) first — it's the flow's front door and small. CAR-50 is the bulk (modal sequence, picker, templates, finale) and can start in parallel. CAR-51 independent, any time before/after. Template authoring (alumni/non-alumni cold email + 3 follow-ups) is CAR-50 scope and needs Dawson's voice review before launch.
