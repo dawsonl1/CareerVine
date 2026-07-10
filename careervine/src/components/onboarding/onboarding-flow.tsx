@@ -269,7 +269,9 @@ function SyncProgressStep({
         <StatLine icon={GraduationCap} text={`${stats.alumniCount.toLocaleString()} BYU alumni in product roles`} />
         <StatLine icon={Building2} text={`${stats.companyCount.toLocaleString()} companies with a history of hiring new-grad PMs`} />
         {stats.alumniCompanyCount > 0 && (
-          <StatLine icon={Check} text={`${stats.alumniCompanyCount.toLocaleString()} of those companies have BYU alumni there today`} />
+          // Alumni were sourced beyond the target-company list, so this count
+          // (~1,079) exceeds companyCount (99) — never phrase it as a subset.
+          <StatLine icon={Check} text={`${stats.alumniCompanyCount.toLocaleString()} companies where those alumni work today`} />
         )}
       </ul>
 
