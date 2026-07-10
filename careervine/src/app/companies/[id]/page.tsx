@@ -26,7 +26,7 @@ import {
 import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
 import { getFreshJobChangeContactIds } from "@/lib/queries";
 import {
-  ArrowLeft, ExternalLink, Globe, Target, ChevronDown, ChevronRight,
+  ArrowLeft, ExternalLink, Target, ChevronDown, ChevronRight,
   MapPin, X, Plus, AlertTriangle, Mail, GraduationCap, Trash2, StickyNote,
 } from "lucide-react";
 
@@ -235,11 +235,6 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                 {company.linkedin_url && (
                   <a href={company.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary">
                     <ExternalLink className="w-3.5 h-3.5" /> LinkedIn
-                  </a>
-                )}
-                {company.domain && (
-                  <a href={`https://${company.domain}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary">
-                    <Globe className="w-3.5 h-3.5" /> {company.domain}
                   </a>
                 )}
               </div>

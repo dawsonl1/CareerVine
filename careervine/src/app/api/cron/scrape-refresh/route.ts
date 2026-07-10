@@ -40,7 +40,9 @@ export async function POST(req: NextRequest) {
   }
 
   const service = createSupabaseServiceClient();
-  const { data: users } = await service.from("users").select("id");
+  // Suspended = frozen: skipped by server-side automation (admin foundation),
+  // same convention as the other crons — and paid scraping doubly so.
+  const { data: users } = await service.from("users").select("id").eq("status", "active");
 
   let scraped = 0;
   const perUser: Record<string, number> = {};

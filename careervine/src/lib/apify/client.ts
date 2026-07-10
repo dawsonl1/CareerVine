@@ -160,8 +160,11 @@ export async function searchProfilesByName(opts: {
 }): Promise<ApifySearchProfileItem[]> {
   const token = getApifyToken();
   const actor = PROFILE_SEARCH_BY_NAME_ACTOR.replace("/", "~");
-  // Server-side wait, bounded under our route's maxDuration.
-  const res = await fetch(`${APIFY_BASE}/acts/${actor}/run-sync-get-dataset-items?token=${token}&timeout=45`, {
+  // Server-side wait, bounded under our route's maxDuration. maxTotalChargeUsd
+  // keeps the platform-enforced spend invariant: the input's maxPages/maxItems
+  // bound is actor-honored trust, not a guarantee ($0.02 ≈ 5 search pages of
+  // headroom over the expected single $0.004 page).
+  const res = await fetch(`${APIFY_BASE}/acts/${actor}/run-sync-get-dataset-items?token=${token}&timeout=45&maxTotalChargeUsd=0.02`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

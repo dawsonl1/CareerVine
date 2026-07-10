@@ -747,10 +747,11 @@ export type Database = {
           error: string | null;
           created_at: string;
           finished_at: string | null;
+          ingest_claimed_at: string | null;    // Webhook ingest's atomic claim (CAS; stale >10min = re-claimable)
         };
         Insert: Omit<
           Database["public"]["Tables"]["scrape_runs"]["Row"],
-          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids" | "single_contact_id"
+          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids" | "single_contact_id" | "ingest_claimed_at"
         > & {
           apify_run_id?: string | null;
           status?: string;
@@ -760,6 +761,7 @@ export type Database = {
           finished_at?: string | null;
           contact_ids?: number[];
           single_contact_id?: number | null;
+          ingest_claimed_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["scrape_runs"]["Insert"]>;
       };

@@ -154,6 +154,8 @@ interface WorkingPerson {
   result: PersonImportResult;
   contactId?: number;
   created?: boolean;
+  /** The matched contact's photo before this import — rescrapes never replace it. */
+  existingPhotoUrl?: string | null;
 }
 
 // ── Main entry ─────────────────────────────────────────────────────────
@@ -392,6 +394,7 @@ export async function importPeopleChunk(
       const existing =
         urlMap.get(mapped.linkedin_url) ??
         (mapped.public_identifier ? pidMap.get(mapped.public_identifier) : undefined);
+      w.existingPhotoUrl = existing?.photo_url ?? null;
 
       // Profile location row (only created when it will actually be used)
       let profileLocationId: number | null = null;
@@ -431,6 +434,12 @@ export async function importPeopleChunk(
       continue;
     }
     if (opts.skipPhotos) {
+      w.result.photo = "skipped";
+      continue;
+    }
+    // Rescrapes are fill-empty on photos: a contact who already has one (user
+    // upload from the photo feature, or a prior import) keeps it.
+    if (policy === "rescrape" && w.existingPhotoUrl) {
       w.result.photo = "skipped";
       continue;
     }
@@ -571,12 +580,21 @@ async function updateExistingPerson(
   if (mapped.email && isValidImportEmail(mapped.email.address)) {
     const { data: emailRows } = await supabase
       .from("contact_emails")
-      .select("id, email, is_primary, source")
+      .select("id, email, is_primary, source, bounced_at")
       .eq("contact_id", contactId);
     const emailPlan = computeEmailMerge(
-      (emailRows as { id: number; email: string | null; is_primary: boolean; source: string }[] | null) ?? [],
+      (emailRows as { id: number; email: string | null; is_primary: boolean; source: string; bounced_at: string | null }[] | null) ?? [],
       mapped.email,
     );
+    // Demote bounced former primaries BEFORE the new primary lands, so the
+    // contact never has two primary rows mid-apply.
+    if (emailPlan.demotePrimaryIds?.length) {
+      const { error: demoteError } = await supabase
+        .from("contact_emails")
+        .update({ is_primary: false })
+        .in("id", emailPlan.demotePrimaryIds);
+      if (demoteError) throw new Error(`Email primary demotion failed: ${demoteError.message}`);
+    }
     if (emailPlan.insert) await supabase.from("contact_emails").insert({ contact_id: contactId, ...emailPlan.insert });
     if (emailPlan.update) await supabase.from("contact_emails").update(emailPlan.update.fields).eq("id", emailPlan.update.id);
   }
@@ -625,10 +643,14 @@ async function updateExistingPerson(
     if (insError) throw new Error(`Employment insert failed: ${insError.message}`);
   }
   for (const update of plan.updates) {
-    await supabase.from("contact_companies").update(update.fields).eq("id", update.id);
+    const { error: updError } = await supabase.from("contact_companies").update(update.fields).eq("id", update.id);
+    // A silently-failed supersede would make the diff re-detect the same change
+    // (and re-fire its email follow-up) every cycle — fail the merge instead.
+    if (updError) throw new Error(`Employment update failed: ${updError.message}`);
   }
   if (plan.deleteIds.length > 0) {
-    await supabase.from("contact_companies").delete().in("id", plan.deleteIds);
+    const { error: delError } = await supabase.from("contact_companies").delete().in("id", plan.deleteIds);
+    if (delError) throw new Error(`Employment delete failed: ${delError.message}`);
   }
   w.result.employment = {
     inserted: plan.inserts.length,

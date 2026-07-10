@@ -71,15 +71,11 @@ export async function resolveContactLinkedin(userId: string, contactId: number):
   const lastName = nameParts.slice(1).join(" ") || undefined;
   if (!firstName) throw new ApiError("Contact has no usable name to search", 400);
 
-  const items = await searchProfilesByName({
-    firstName,
-    lastName,
-    currentCompanies: companyUrls.slice(0, 3),
-    locations: !companyUrls.length && locationText ? [locationText] : undefined,
-  });
-
-  // Ledger the spend (run-sync gives no usage back; the short-page price is fixed).
-  await service.from("scrape_runs").insert({
+  // Ledger BEFORE the call (run-sync gives no usage back; the short-page price
+  // is fixed): a search that starts charging and then throws — 45s timeout
+  // aborting a charged run, non-2xx after the page — must still land in the
+  // cap accounting. A failed insert blocks the spend (fail closed).
+  const { error: ledgerError } = await service.from("scrape_runs").insert({
     user_id: userId,
     actor: PROFILE_SEARCH_BY_NAME_ACTOR,
     mode: "resolve",
@@ -88,6 +84,14 @@ export async function resolveContactLinkedin(userId: string, contactId: number):
     status: ScrapeRunStatus.Succeeded,
     cost_usd: RESOLVE_COST_USD,
     finished_at: new Date().toISOString(),
+  });
+  if (ledgerError) throw new ApiError(`Could not record the search: ${ledgerError.message}`, 500);
+
+  const items = await searchProfilesByName({
+    firstName,
+    lastName,
+    currentCompanies: companyUrls.slice(0, 3),
+    locations: !companyUrls.length && locationText ? [locationText] : undefined,
   });
 
   return { status: "candidates", candidates: toCandidates(items) };

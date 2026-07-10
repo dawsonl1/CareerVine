@@ -217,7 +217,10 @@ export function computeEmploymentMerge(
   // Pass C: existing scraped rows entirely absent from the payload are deleted —
   // but only when the caller owns scraped rows wholesale (pipeline re-imports
   // and full-profile rescrapes). A bundle owns just the rows it sends.
-  if (policy !== "bundle") {
+  // An EMPTY payload is treated as "experience unobserved" (private profile,
+  // actor glitch, partial payload), never as "this person has no jobs" — so it
+  // must not wipe the contact's scraped history.
+  if (policy !== "bundle" && incomingByKey.size > 0) {
     for (const row of existing) {
       if (consumedExistingIds.has(row.id)) continue;
       const key = employmentKey(row);
@@ -242,11 +245,14 @@ export interface ExistingEmailRow {
   email: string | null;
   is_primary: boolean;
   source: string;
+  bounced_at?: string | null;
 }
 
 export interface EmailMergePlan {
   insert: { email: string; source: string; is_primary: boolean } | null;
   update: { id: number; fields: { source: string } } | null;
+  /** Bounced former primaries to demote when a fresh address takes over (plan 29 §4). */
+  demotePrimaryIds?: number[];
 }
 
 const EMAIL_SOURCE_RANK: Record<string, number> = {
@@ -276,10 +282,17 @@ export function computeEmailMerge(
     return { insert: null, update: null };
   }
 
-  const hasPrimary = existing.some((e) => e.is_primary);
+  // A bounced primary no longer counts as a live primary: a fresh distinct
+  // address takes over as primary and the dead one is demoted (plan 29 §4) —
+  // otherwise outreach surfaces keep presenting an address known to bounce.
+  const hasLivePrimary = existing.some((e) => e.is_primary && !e.bounced_at);
+  const demotePrimaryIds = hasLivePrimary
+    ? []
+    : existing.filter((e) => e.is_primary && e.bounced_at).map((e) => e.id);
   return {
-    insert: { email: address, source: incoming.source, is_primary: !hasPrimary },
+    insert: { email: address, source: incoming.source, is_primary: !hasLivePrimary },
     update: null,
+    demotePrimaryIds,
   };
 }
 

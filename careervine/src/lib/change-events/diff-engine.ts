@@ -136,7 +136,12 @@ export function computeDiff(input: DiffInput): DiffEvent[] {
         // (a fresh stint). Title-only rewording is noise; date-only is a
         // correction.
         const titleChanged = normalize(prevRole.title) !== normalize(emp.title) && emp.title != null && prevRole.title != null;
-        const startChanged = normalize(prevRole.start_month) !== normalize(emp.start_month) && emp.start_month != null;
+        // Null-baseline rule (same as titles/booleans): a start month appearing
+        // where none was known is enrichment, not a new stint.
+        const startChanged =
+          normalize(prevRole.start_month) !== normalize(emp.start_month) &&
+          emp.start_month != null &&
+          prevRole.start_month != null;
         if (titleChanged && startChanged) {
           const companyName = emp.company_name ?? "their company";
           events.push({

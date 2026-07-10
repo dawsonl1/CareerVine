@@ -134,8 +134,23 @@ export const SCRAPE_UNIT_COST_USD = { profile: 0.004, email: 0.01 } as const;
 /** Hard monthly Apify spend cap (Dawson's decision, plan 29 §9). */
 export const MONTHLY_SCRAPE_CAP_USD = 10;
 
+/**
+ * Soft cap for AUTOMATIC spend (plan 29 §9.3 graceful degradation): the
+ * cadence drip stops here so manual refresh / find-email / resolve keep the
+ * remaining headroom up to the hard cap.
+ */
+export const CADENCE_SOFT_CAP_USD = 8;
+
 /** Debounce: skip a manual re-scrape if the contact was scraped this recently. */
 export const SCRAPE_DEBOUNCE_DAYS = 7;
+
+/**
+ * Cadence freshness floor: the daily drip never re-scrapes a contact whose
+ * last successful scrape is younger than this. Keeps a small fleet from
+ * burning the cap on redundant daily re-scrapes (deep-review 3, finding J):
+ * without it, 60 contacts × $0.004 × 30 days ≈ $7.20/mo of pure noise.
+ */
+export const CADENCE_MIN_AGE_DAYS = 14;
 
 /**
  * Daily cadence drip size (plan 29 §7.3): ~80/day covers a ~2,000-contact

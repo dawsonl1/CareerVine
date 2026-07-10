@@ -77,7 +77,14 @@ export function ResolveLinkedinModal({ contactId, contactName, onClose, onLinked
           toastError(data.error || "Couldn't link that profile");
           return;
         }
-        toastSuccess("LinkedIn profile linked — enriching from LinkedIn…");
+        // Only promise an enrich that actually started — the trigger can be
+        // cap-blocked, debounced, disabled, or already in flight.
+        const enrich = (data as { enrich?: string }).enrich;
+        toastSuccess(
+          enrich === "started" || enrich === "pending"
+            ? "LinkedIn profile linked — enriching from LinkedIn…"
+            : "LinkedIn profile linked",
+        );
         onLinked();
         onClose();
       } catch {

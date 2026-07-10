@@ -205,7 +205,6 @@ export interface CompanySummary {
   name: string;
   logo_url: string | null;
   linkedin_url: string | null;
-  domain: string | null;
   current_count: number;
   former_count: number;
   bench_count: number;
@@ -301,7 +300,7 @@ export async function getCompanies(
   const companyRows = await chunked(companyIds, async (chunk) => {
     let q = db()
       .from("companies")
-      .select("id, name, logo_url, linkedin_url, domain")
+      .select("id, name, logo_url, linkedin_url")
       .in("id", chunk);
     if (opts.search?.trim()) {
       q = q.ilike("name", `%${escapeIlikePattern(opts.search.trim())}%`);
@@ -337,7 +336,6 @@ export async function getCompanies(
     name: string;
     logo_url: string | null;
     linkedin_url: string | null;
-    domain: string | null;
   }>).map((c) => {
     const agg = aggByCompany.get(c.id);
     const target = targetByCompany.get(c.id);
@@ -346,7 +344,6 @@ export async function getCompanies(
       name: c.name,
       logo_url: c.logo_url,
       linkedin_url: c.linkedin_url,
-      domain: c.domain,
       current_count: agg?.current.size ?? 0,
       former_count: agg?.former.size ?? 0,
       bench_count: agg?.bench.size ?? 0,
@@ -449,7 +446,7 @@ export interface CompanyNote {
 }
 
 export interface CompanyDetail {
-  company: { id: number; name: string; logo_url: string | null; linkedin_url: string | null; domain: string | null; universal_name: string | null };
+  company: { id: number; name: string; logo_url: string | null; linkedin_url: string | null; universal_name: string | null };
   target: (TargetInfo & { notes: CompanyNote[] }) | null;
   offices: CompanyOffice[];
   facets: LocationFacet[];
@@ -473,7 +470,7 @@ export async function getCompanyDetail(
   const [companyRes, officesRes, targetRes] = await Promise.all([
     db()
       .from("companies")
-      .select("id, name, logo_url, linkedin_url, domain, universal_name")
+      .select("id, name, logo_url, linkedin_url, universal_name")
       .eq("id", companyId)
       .maybeSingle(),
     db()

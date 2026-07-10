@@ -4,13 +4,21 @@
  * Picks the day's re-scrape batch for a user: stalest first (never-scraped
  * contacts lead — last_scraped_at NULLS FIRST), active/prospect before bench,
  * excluding suppressed URLs (the drip would otherwise re-select a tombstoned
- * contact forever), contacts already covered by an in-flight run, and
- * contacts in failure backoff.
+ * contact forever), contacts already covered by an in-flight run, contacts in
+ * failure backoff, contacts scraped more recently than CADENCE_MIN_AGE_DAYS
+ * (a small fleet must not burn the cap on daily re-scrapes of fresh data),
+ * and profiles past the re-link threshold (paying to re-fail a dead URL).
  */
 
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { DAILY_CADENCE_TARGET, SCRAPE_DEBOUNCE_DAYS, ScrapeRunStatus } from "@/lib/constants";
+import {
+  CADENCE_MIN_AGE_DAYS,
+  DAILY_CADENCE_TARGET,
+  SCRAPE_DEBOUNCE_DAYS,
+  SCRAPE_FAILURES_BEFORE_RELINK,
+  ScrapeRunStatus,
+} from "@/lib/constants";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -51,10 +59,15 @@ export async function selectCadenceCandidates(
   );
 
   const backoffCutoff = Date.now() - SCRAPE_DEBOUNCE_DAYS * 24 * 60 * 60 * 1000;
+  const backoffCutoffIso = new Date(backoffCutoff).toISOString();
+  const minAgeCutoffIso = new Date(Date.now() - CADENCE_MIN_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const picked: CadenceCandidate[] = [];
   const seen = new Set<string>();
 
   // Active/prospect before bench: two passes over the same selection logic.
+  // Freshness/backoff/dead-profile exclusions live in SQL so excluded rows
+  // don't consume the fetch window (nullsFirst would otherwise let a block of
+  // in-backoff never-scraped contacts starve everyone behind them).
   for (const statuses of [["active", "prospect"], ["bench"]]) {
     if (picked.length >= target) break;
     const { data: rows } = await service
@@ -63,6 +76,9 @@ export async function selectCadenceCandidates(
       .eq("user_id", userId)
       .in("network_status", statuses)
       .not("linkedin_url", "is", null)
+      .or(`last_scraped_at.is.null,last_scraped_at.lt.${minAgeCutoffIso}`)
+      .or(`scrape_failed_at.is.null,scrape_failed_at.lt.${backoffCutoffIso}`)
+      .lt("scrape_failure_count", SCRAPE_FAILURES_BEFORE_RELINK)
       .order("last_scraped_at", { ascending: true, nullsFirst: true })
       .limit(target * 2); // headroom for exclusions
 

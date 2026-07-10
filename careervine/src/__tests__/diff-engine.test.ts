@@ -171,6 +171,19 @@ describe("computeDiff — promotion", () => {
     );
     expect(events.filter((e) => e.type === "promotion")).toHaveLength(0);
   });
+
+  it("null prior start month is enrichment, not a promotion (baseline rule)", () => {
+    // Backfilled date + reworded title must not congratulate anyone.
+    const events = computeDiff(
+      input({
+        existingEmployment: [{ company_id: 10, title: "Sr. PM", start_month: null, is_current: true }],
+        nextSnapshot: snap({
+          employment: [emp({ title: "Senior Product Manager", start_month: "Jan 2023" })],
+        }),
+      }),
+    );
+    expect(events.filter((e) => e.type === "promotion")).toHaveLength(0);
+  });
 });
 
 describe("computeDiff — snapshot booleans (baseline rule)", () => {

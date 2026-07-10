@@ -17,6 +17,7 @@ import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { importPeopleChunk, type PersonImportInput, type RescrapeDiffCapture } from "@/lib/bulk-import";
 import { buildSnapshot, computeDiff, type ScrapeSnapshot } from "@/lib/change-events/diff-engine";
 import {
+  CADENCE_SOFT_CAP_USD,
   ChangeEventType,
   MONTHLY_SCRAPE_CAP_USD,
   PROFILE_SCRAPER_ACTOR,
@@ -197,10 +198,12 @@ export async function triggerBatchScrape(
   if (contacts.length === 0 || killSwitchOn() || !isApifyConfigured()) return 0;
   const service = createSupabaseServiceClient();
 
-  // Trim the batch to the remaining monthly budget (fail-closed on error).
+  // Trim the batch to the remaining AUTOMATIC budget (fail-closed on error).
+  // Cadence stops at the soft cap so manual actions keep the headroom between
+  // soft and hard cap (plan 29 §9.3 — the Settings copy promises this order).
   const spend = await getMonthlySpendUsd(userId);
   const unit = SCRAPE_UNIT_COST_USD[mode];
-  const affordable = Math.floor((MONTHLY_SCRAPE_CAP_USD - spend) / unit);
+  const affordable = Math.floor((CADENCE_SOFT_CAP_USD - spend) / unit);
   if (affordable <= 0) return 0;
   const batch = contacts.slice(0, affordable);
 
@@ -329,18 +332,42 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
     .from("scrape_runs")
     .select("id, user_id, mode, contact_ids, status")
     .limit(1);
-  const { data: rows } = opts.scrapeRunId != null
+  const { data: rows, error: fetchErr } = opts.scrapeRunId != null
     ? await query.eq("id", opts.scrapeRunId)
     : await query.eq("apify_run_id", opts.apifyRunId);
+  // A transient DB error is NOT "unknown run" — surface it so the callback
+  // route can answer non-2xx and Apify's webhook retry redelivers in minutes
+  // instead of the data waiting on the 24h sweep.
+  if (fetchErr) throw new Error(`run lookup failed: ${fetchErr.message}`);
   const runRow = (rows as Array<{ id: number; user_id: string; mode: Mode; contact_ids: number[]; status: string }> | null)?.[0];
   if (!runRow) return; // unknown run — ignore
   if (runRow.status !== ScrapeRunStatus.Pending) return; // already ingested
 
+  // Atomic ingest claim: Apify may deliver the same webhook more than once,
+  // and two overlapping ingests would double-apply the merge (permanent
+  // duplicate employment rows — no unique index catches them). CAS via count
+  // (never .select(): rule 17 — PostgREST re-applies filters to RETURNING).
+  // A stale claim (crashed ingest) is re-claimable after 10 minutes, and the
+  // row stays 'pending' so the 24h sweep still covers total loss.
+  const staleBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { count: claimed, error: claimErr } = await service
+    .from("scrape_runs")
+    .update({ ingest_claimed_at: now }, { count: "exact" })
+    .eq("id", runRow.id)
+    .eq("status", ScrapeRunStatus.Pending)
+    .or(`ingest_claimed_at.is.null,ingest_claimed_at.lt.${staleBefore}`);
+  if (claimErr) throw new Error(`ingest claim failed: ${claimErr.message}`);
+  if (!claimed) return; // another delivery holds a live claim
+
   const contactIds = runRow.contact_ids ?? [];
+  // Hoisted so the catch can ledger the REAL cost of a charged-but-unprocessed
+  // run instead of $0 (the sweep never revisits terminal rows).
+  let costUsd: number | null = null;
 
   try {
     const run = await getRun(opts.apifyRunId);
     const cost = Number(run.usageTotalUsd ?? 0);
+    costUsd = cost;
 
     if (run.status !== "SUCCEEDED") {
       await markRunTerminal(service, runRow.id, ScrapeRunStatus.Failed, cost, now, `Apify run ${run.status}`);
@@ -399,8 +426,12 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
       await triggerEmailFollowups(service, runRow.user_id, companyChangeContacts);
     }
   } catch (err) {
-    // Never leave the row pending — that would block the contact forever.
-    await markRunTerminal(service, runRow.id, ScrapeRunStatus.Failed, 0, now, err instanceof Error ? err.message : "ingest failed");
+    // Never leave the row pending — that would block the contact forever. And
+    // never ledger a run Apify charged at $0: use the real cost when getRun
+    // succeeded, else the sweep's conservative size×unit estimate.
+    const unit = SCRAPE_UNIT_COST_USD[runRow.mode as keyof typeof SCRAPE_UNIT_COST_USD] ?? SCRAPE_UNIT_COST_USD.profile;
+    const ledgered = costUsd ?? Math.max(1, contactIds.length) * unit;
+    await markRunTerminal(service, runRow.id, ScrapeRunStatus.Failed, ledgered, now, err instanceof Error ? err.message : "ingest failed");
     await bumpFailures(service, contactIds, now);
   }
 }

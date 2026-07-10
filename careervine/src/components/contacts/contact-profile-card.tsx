@@ -63,6 +63,9 @@ export function ContactProfileCard({
   const primaryEmail =
     contact.contact_emails.find((e) => e.is_primary)?.email ||
     contact.contact_emails[0]?.email;
+  // Mirrors the server's contactHasEmail: a bounced-only contact counts as
+  // having NO email, so Find Email stays available exactly when it's needed.
+  const hasLiveEmail = contact.contact_emails.some((e) => e.email && !e.bounced_at);
   const primaryPhone =
     contact.contact_phones.find((p) => p.is_primary) ||
     contact.contact_phones[0];
@@ -443,7 +446,7 @@ export function ContactProfileCard({
             <RefreshCw className={`h-5 w-5 ${scraping ? "animate-spin" : ""}`} />
           </button>
         )}
-        {contact.linkedin_url && !primaryEmail && (
+        {contact.linkedin_url && !hasLiveEmail && (
           <button
             onClick={() => handleScrape("email")}
             disabled={scraping}

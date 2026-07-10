@@ -44,10 +44,13 @@ export async function POST(req: NextRequest) {
   try {
     await ingestScrapeRun({ scrapeRunId, apifyRunId: runId });
   } catch (err) {
-    // Swallow so Apify doesn't hammer retries; the daily sweep (phase 2/3)
-    // re-queues runs left pending. The row stays 'pending' for that backstop.
+    // What escapes ingest is transient plumbing (run-lookup/claim DB errors) —
+    // merge failures are handled inside and marked terminal. Ingest holds an
+    // atomic claim, so a redelivery is safe: answer 503 to get Apify's retry
+    // (minutes) instead of waiting on the 24h sweep. The row stays 'pending'
+    // for that backstop either way.
     console.error("[apify-callback] ingest failed:", err);
-    return NextResponse.json({ ok: false });
+    return NextResponse.json({ ok: false }, { status: 503 });
   }
 
   return NextResponse.json({ ok: true });

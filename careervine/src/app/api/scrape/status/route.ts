@@ -13,21 +13,29 @@ export const GET = withApiHandler({
     const service = createSupabaseServiceClient();
     const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
 
+    // Spend comes from the same server-side SUM the cap enforcement uses —
+    // a client-side sum over a 1000-row page would silently understate for a
+    // cadence-heavy month (80 runs/day ≈ 2,400 rows).
+    const { data: settled, error: sumError } = await service.rpc("sum_scrape_spend", {
+      p_user_id: user.id,
+      p_since: monthStart,
+    });
+    if (sumError) throw new Error(`spend sum failed: ${sumError.message}`);
+
     const { data: rows } = await service
       .from("scrape_runs")
-      .select("status, cost_usd, trigger, created_at")
+      .select("status, trigger, created_at")
       .eq("user_id", user.id)
       .gte("created_at", monthStart)
       .order("created_at", { ascending: false })
       .limit(1000);
 
-    const runs = (rows as Array<{ status: string; cost_usd: number; trigger: string; created_at: string }> | null) ?? [];
+    const runs = (rows as Array<{ status: string; trigger: string; created_at: string }> | null) ?? [];
     const counts: Record<string, number> = { pending: 0, succeeded: 0, failed: 0, timed_out: 0 };
-    let spendUsd = 0;
+    const spendUsd = Number(settled ?? 0);
     let lastCadenceAt: string | null = null;
     for (const r of runs) {
       counts[r.status] = (counts[r.status] ?? 0) + 1;
-      spendUsd += Number(r.cost_usd || 0);
       if (!lastCadenceAt && r.trigger === "cadence") lastCadenceAt = r.created_at;
     }
 
