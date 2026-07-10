@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { processScheduledEmails } from "@/lib/gmail";
+import { filterActiveUserIds } from "@/lib/user-status";
 
 export interface ScheduledEmailCronResult {
   dueRows: number;
@@ -46,7 +47,15 @@ export async function processDueScheduledEmails(
     .order("scheduled_send_at", { ascending: true })
     .limit(200);
 
-  const rows = (data as DueUserRow[] | null) ?? [];
+  const allRows = (data as DueUserRow[] | null) ?? [];
+  // Suspended accounts are frozen: their due emails stay pending (held, not
+  // dropped) and resume when the account is reactivated. They're excluded from
+  // the capacity telemetry too — a held email is not a delivery delay.
+  const activeIds = await filterActiveUserIds(
+    service,
+    [...new Set(allRows.map((row) => row.user_id))],
+  );
+  const rows = allRows.filter((row) => activeIds.has(row.user_id));
   const userIds = [...new Set(rows.map((row) => row.user_id))];
   const oldestDueScheduledAt = rows[0]?.scheduled_send_at ?? null;
   const maxDelayMs = oldestDueScheduledAt

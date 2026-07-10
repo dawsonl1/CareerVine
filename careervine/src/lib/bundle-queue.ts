@@ -75,11 +75,14 @@ export async function findStaleSubscriptionIds(
   service: SupabaseClient,
   opts: { bundleId?: number; limit?: number } = {},
 ): Promise<number[]> {
+  // users!inner skips suspended accounts — their subscriptions stay stale
+  // (held) and resume syncing when the account is reactivated.
   let query = service
     .from("bundle_subscriptions")
-    .select("id, synced_version, data_bundles!inner(version, status)")
+    .select("id, synced_version, data_bundles!inner(version, status), users!inner(status)")
     .eq("status", "active")
     .eq("data_bundles.status", "published")
+    .eq("users.status", "active")
     .order("last_synced_at", { ascending: true, nullsFirst: true })
     .limit(opts.limit ?? 500);
   if (opts.bundleId) query = query.eq("bundle_id", opts.bundleId);

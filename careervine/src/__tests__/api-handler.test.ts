@@ -339,4 +339,64 @@ describe('withApiHandler', () => {
       expect(request.json).not.toHaveBeenCalled();
     });
   });
+
+  describe('requireAdmin', () => {
+    async function mockUser(user: unknown) {
+      const { createSupabaseServerClient } = await import('@/lib/supabase/server-client');
+      (createSupabaseServerClient as any).mockResolvedValueOnce({
+        auth: {
+          getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
+        },
+      });
+    }
+
+    it('allows a user with app_metadata.role === "admin"', async () => {
+      await mockUser({ id: 'admin-1', app_metadata: { role: 'admin' } });
+
+      const handler = withApiHandler({
+        requireAdmin: true,
+        handler: async ({ user }) => ({ userId: user.id }),
+      });
+
+      const { status, data } = await callHandler(handler, makeRequest('GET'));
+      expect(status).toBe(200);
+      expect(data.userId).toBe('admin-1');
+    });
+
+    it('returns 403 for an authenticated non-admin', async () => {
+      // default mock user has no app_metadata.role
+      const handler = withApiHandler({
+        requireAdmin: true,
+        handler: async () => ({ ok: true }),
+      });
+
+      const { status, data } = await callHandler(handler, makeRequest('GET'));
+      expect(status).toBe(403);
+      expect(data.error).toBe('Forbidden');
+    });
+
+    it('returns 403 when role is some other value', async () => {
+      await mockUser({ id: 'u-2', app_metadata: { role: 'editor' } });
+
+      const handler = withApiHandler({
+        requireAdmin: true,
+        handler: async () => ({ ok: true }),
+      });
+
+      const { status } = await callHandler(handler, makeRequest('GET'));
+      expect(status).toBe(403);
+    });
+
+    it('returns 401 (not 403) when unauthenticated', async () => {
+      await mockUser(null);
+
+      const handler = withApiHandler({
+        requireAdmin: true,
+        handler: async () => ({ ok: true }),
+      });
+
+      const { status } = await callHandler(handler, makeRequest('GET'));
+      expect(status).toBe(401);
+    });
+  });
 });

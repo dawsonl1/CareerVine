@@ -81,3 +81,6 @@ supabase/.branches/
 
 # ---- Office lock files ----
 ~$*
+
+# Vercel CLI project-link metadata
+.vercel

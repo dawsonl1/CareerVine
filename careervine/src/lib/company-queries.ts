@@ -15,6 +15,8 @@ import {
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
+import { escapeIlikePattern } from "./search-helpers";
+import { findOrCreateCompany } from "./company-helpers";
 
 type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
 
@@ -301,7 +303,7 @@ export async function getCompanies(
       .select("id, name, logo_url, linkedin_url")
       .in("id", chunk);
     if (opts.search?.trim()) {
-      q = q.ilike("name", `%${opts.search.trim().replace(/([\\%_])/g, "\\$1")}%`);
+      q = q.ilike("name", `%${escapeIlikePattern(opts.search.trim())}%`);
     }
     const { data, error } = await q;
     if (error) throw error;
@@ -879,6 +881,69 @@ async function findOrCreateOfficeLocation(location: CompanyOfficeLocationInput):
     throw error;
   }
   return data as { id: number };
+}
+
+export interface ManualCompanyInput {
+  name: string;
+  linkedin_url: string | null;
+  location: CompanyOfficeLocationInput | null;
+}
+
+/**
+ * Normalize the add-company modal's raw fields. Returns null when no
+ * usable name was given. A location counts as provided only when city or
+ * state is filled — the country field is prefilled ("United States"), so
+ * country alone doesn't imply the user meant to record an office.
+ */
+export function normalizeManualCompanyInput(input: {
+  name?: string | null;
+  linkedin_url?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+}): ManualCompanyInput | null {
+  const name = input.name?.trim();
+  if (!name) return null;
+  const hasLocation = Boolean(input.city?.trim() || input.state?.trim());
+  return {
+    name,
+    linkedin_url: input.linkedin_url?.trim() || null,
+    location: hasLocation ? normalizeCompanyOfficeLocationInput(input) : null,
+  };
+}
+
+/**
+ * "Add company" from the companies page (CAR-34): find-or-create through
+ * the shared identity path (never mints a duplicate row), ensure it's one
+ * of the user's targets so it appears in the default view, and record an
+ * office when a location was given.
+ */
+export async function addCompanyManually(
+  userId: string,
+  input: { name?: string | null; linkedin_url?: string | null; city?: string | null; state?: string | null; country?: string | null },
+): Promise<{ companyId: number; companyName: string; alreadyTargeted: boolean }> {
+  const normalized = normalizeManualCompanyInput(input);
+  if (!normalized) throw new Error("Company name is required");
+
+  const company = await findOrCreateCompany(db(), {
+    name: normalized.name,
+    linkedin_url: normalized.linkedin_url,
+  });
+
+  const { data: existingTarget, error: targetLookupError } = await db()
+    .from("target_companies")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("company_id", company.id)
+    .maybeSingle();
+  if (targetLookupError) throw targetLookupError;
+  if (!existingTarget) await addTargetCompany(userId, company.id);
+
+  if (normalized.location) {
+    await addCompanyOfficeLocation(company.id, normalized.location);
+  }
+
+  return { companyId: company.id, companyName: company.name, alreadyTargeted: Boolean(existingTarget) };
 }
 
 export async function addTargetCompany(userId: string, companyId: number) {

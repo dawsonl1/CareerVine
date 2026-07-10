@@ -39,6 +39,15 @@ CareerVine company pages now let you maintain office locations directly, even wh
 - Keep recruiting notes and location facets accurate before you build out the full contact map.
 - Remove stale inferred offices without losing first-person location data captured on contact profiles.
 
+### Find the Right Company Instantly
+
+As your target list grows, the Companies page keeps it navigable with instant search and stackable filters:
+
+- Search as you type across company names, program names, and tier labels — results update instantly, no page reloads.
+- Narrow the list by target status (researching through closed), outreach traction, tier, or whether you already know someone inside.
+- Filters combine, so "applied companies in Big Tech where I have no contacts yet" is two clicks — and a live count shows how much of your list matches.
+- Every filtered view lives in the URL: share it, bookmark it, or click into a company and come back without losing your place.
+
 ## Contact Profiles That Feel Personal
 
 Every contact profile now supports a dedicated profile photo upload flow, so users can keep their network visually recognizable at a glance:
