@@ -2,12 +2,30 @@
 # Shared helpers for CareerVine's worktree → Linear → PR lifecycle hooks (CAR-33).
 # Deterministic status flips + idempotent comment upserts against Linear's GraphQL API.
 #
-# Design contract: every function is a QUIET NO-OP (returns 0) when LINEAR_API_KEY is
-# unset, so a hook can never block or slow a git action. Diagnostics go to stderr only.
+# Design contract: functions never block or slow the git action (PostToolUse runs after
+# the tool anyway). When sync genuinely can't run, the HOOK exits 2 so the failure is
+# surfaced to the agent for manual repair via MCP — silent skips hid real failures (CAR-39).
 
 LINEAR_API="https://api.linear.app/graphql"
 
 _ln_log() { printf '[linear-hook] %s\n' "$*" >&2; }
+
+# Hook processes inherit the Claude Code APP env, not a login shell — when the app is
+# GUI-launched, ~/.zshenv (→ secrets.zsh) was never sourced, so LINEAR_API_KEY can be
+# absent even though every Bash-tool shell has it (root cause of CAR-39). Self-heal by
+# extracting just this one key from the canonical secrets file — never import the rest.
+_LN_SECRETS="${CLAUDE_SECRETS_FILE:-$HOME/.config/claude/secrets.zsh}"
+if [ -z "${LINEAR_API_KEY:-}" ] && [ -r "$_LN_SECRETS" ]; then
+  eval "$(grep -E '^[[:space:]]*(export[[:space:]]+)?LINEAR_API_KEY=' "$_LN_SECRETS" 2>/dev/null | tail -1)" 2>/dev/null || true
+  [ -n "${LINEAR_API_KEY:-}" ] && export LINEAR_API_KEY
+fi
+
+# For hooks: emit a repair instruction the agent will see (PostToolUse exit 2 feeds
+# stderr back to the model without blocking anything) and exit 2. $*=what to repair.
+_ln_fail_visible() {
+  _ln_log "SYNC FAILED — repair via Linear MCP: $*"
+  exit 2
+}
 
 # Pure parser: extract CAR-XX from any string (branch, filename), upcased. Empty if none.
 # Exposed (underscore-prefixed) so tests can exercise it without a repo/API.
