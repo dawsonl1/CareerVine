@@ -55,25 +55,26 @@ const BACKGROUND_SYNC_MESSAGE =
   "The sync hit a server error. It will keep running in the background — your contacts will appear shortly.";
 
 /**
- * POST one apply step. A 5xx (e.g. a function timeout's 504, whose body is
- * HTML rather than JSON) or a network failure is retried twice with backoff
- * before giving up (CAR-47); null means all attempts failed. `retried`
- * marks a step that only succeeded after a server error — a 409 on such a
- * step usually means the failed call's claim is still held, not that
- * another driver is genuinely syncing.
+ * POST one cursor-loop step. A 5xx (e.g. a function timeout's 504, whose
+ * body is HTML rather than JSON) or a network failure is retried twice with
+ * backoff before giving up (CAR-47); null means all attempts failed.
+ * `retried` marks a step that only succeeded after a server error — a 409
+ * on such a step usually means the failed call's claim is still held, not
+ * that another driver is genuinely syncing.
  */
-async function fetchApplyStep(
+async function fetchStepWithRetry<T>(
+  url: string,
   body: Record<string, unknown>,
-): Promise<{ res: Response; step: ApplyStep & { error?: string }; retried: boolean } | null> {
+): Promise<{ res: Response; step: T & { error?: string }; retried: boolean } | null> {
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await fetch("/api/bundles/apply", {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
       if (res.status < 500) {
-        return { res, step: (await res.json()) as ApplyStep & { error?: string }, retried: attempt > 0 };
+        return { res, step: (await res.json()) as T & { error?: string }, retried: attempt > 0 };
       }
     } catch {
       // Network failure or non-JSON body — treated like a 5xx.
@@ -129,13 +130,21 @@ export default function DataSubscriptionsSection() {
       if (!opts.silent) setProgress((p) => new Map(p).set(bundle.id, { applied: 0, total: bundle.prospect_count }));
       try {
         for (;;) {
-          const outcome = await fetchApplyStep({ bundleId: bundle.id, cursor, pinnedVersion, claimToken });
+          const outcome: { res: Response; step: ApplyStep & { error?: string }; retried: boolean } | null =
+            await fetchStepWithRetry<ApplyStep>("/api/bundles/apply", {
+              bundleId: bundle.id,
+              cursor,
+              pinnedVersion,
+              claimToken,
+            });
           if (!outcome) {
             // Subscribe also enqueued a delayed background job (CAR-47),
             // so this failure message is honest.
             throw new Error(BACKGROUND_SYNC_MESSAGE);
           }
-          const { res, step, retried } = outcome;
+          const res: Response = outcome.res;
+          const step: ApplyStep & { error?: string } = outcome.step;
+          const retried: boolean = outcome.retried;
           if (!res.ok) {
             if (res.status === 409) {
               // After a server error, the 409 is our own dead call's zombie
@@ -192,12 +201,24 @@ export default function DataSubscriptionsSection() {
       let removed = 0;
       let kept = 0;
       for (;;) {
-        const res = await fetch("/api/bundles/unsubscribe", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ bundleId: bundle.id, keepAll: unsubscribeChoice === "keep", cursor }),
-        });
-        const step = (await res.json()) as { done: boolean; nextCursor: number | null; removed: number; kept: number; error?: string };
+        const outcome = await fetchStepWithRetry<{
+          done: boolean;
+          nextCursor: number | null;
+          removed: number;
+          kept: number;
+        }>("/api/bundles/unsubscribe", { bundleId: bundle.id, keepAll: unsubscribeChoice === "keep", cursor });
+        if (!outcome) {
+          // After the first successful step the server holds the cleanup
+          // intent and the worker/cron finishes the removal (CAR-53). If not
+          // even the first step landed, nothing changed server-side — the
+          // background promise would be a lie, so ask for a retry instead.
+          throw new Error(
+            cursor !== undefined
+              ? `Unsubscribed from ${bundle.name}, but the cleanup hit a server error — it will finish in the background.`
+              : "Unsubscribe hit a server error before it could start — please try again.",
+          );
+        }
+        const { res, step } = outcome;
         if (!res.ok) throw new Error(step.error ?? "Unsubscribe failed");
         removed += step.removed;
         kept += step.kept;

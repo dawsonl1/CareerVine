@@ -1046,14 +1046,18 @@ export type Database = {
           synced_version: number;        // Last FULLY applied bundle version (advances to pinned version only)
           last_synced_at: string | null; // When the last full sync completed
           sync_claimed_until: string | null; // Serialization claim so concurrent sync drivers can't race
+          sync_cursor: Record<string, unknown> | null; // Mid-sync checkpoint {phase, afterId, pinnedVersion}; cleared on commit/resubscribe
+          unsubscribe_keep_all: boolean | null; // Pending unsubscribe cleanup intent; non-null = removal loop unfinished
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
-        Insert: Omit<Database["public"]["Tables"]["bundle_subscriptions"]["Row"], "id" | "status" | "synced_version" | "last_synced_at" | "sync_claimed_until" | "created_at" | "updated_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["bundle_subscriptions"]["Row"], "id" | "status" | "synced_version" | "last_synced_at" | "sync_claimed_until" | "sync_cursor" | "unsubscribe_keep_all" | "created_at" | "updated_at"> & {
           status?: string;
           synced_version?: number;
           last_synced_at?: string | null;
           sync_claimed_until?: string | null;
+          sync_cursor?: Record<string, unknown> | null;
+          unsubscribe_keep_all?: boolean | null;
           created_at?: string;
           updated_at?: string;
         };

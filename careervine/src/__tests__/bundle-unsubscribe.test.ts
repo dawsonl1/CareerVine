@@ -93,16 +93,35 @@ function responder(opts: {
 const LINK = { id: 5, contact_id: 42, created_by_bundle: true };
 
 describe('unsubscribeFromBundle', () => {
-  it('flips status to unsubscribed and clears the sync claim on the first call', async () => {
+  it('flips status, clears the sync claim, and records the cleanup intent on the first call', async () => {
     const { client, calls } = createMockClient(responder({ links: [] }));
     await unsubscribeFromBundle(client, SUB, { keepAll: false });
     const statusFlip = calls.find((c) => c.table === 'bundle_subscriptions' && c.op === 'update');
-    expect(statusFlip?.payload).toMatchObject({ status: 'unsubscribed', sync_claimed_until: null });
+    expect(statusFlip?.payload).toMatchObject({
+      status: 'unsubscribed',
+      sync_claimed_until: null,
+      unsubscribe_keep_all: false,
+    });
   });
 
-  it('does not re-flip status on continuation calls', async () => {
+  it('does not re-flip status on continuation calls, but clears the intent on completion', async () => {
     const { client, calls } = createMockClient(responder({ links: [] }));
-    await unsubscribeFromBundle(client, SUB, { keepAll: false, cursor: 5 });
+    const result = await unsubscribeFromBundle(client, SUB, { keepAll: false, cursor: 5 });
+    expect(result.done).toBe(true);
+    const updates = calls.filter((c) => c.table === 'bundle_subscriptions' && c.op === 'update');
+    // Exactly one write: the CAR-53 cleanup-done clear — never a status flip.
+    expect(updates).toHaveLength(1);
+    expect(updates[0].payload).toMatchObject({ unsubscribe_keep_all: null });
+    expect((updates[0].payload as Record<string, unknown>).status).toBeUndefined();
+  });
+
+  it('keeps the cleanup intent when the loop is not done (mid-cursor chunks)', async () => {
+    // A full chunk (links.length === chunkSize) hands back a cursor without
+    // clearing unsubscribe_keep_all — that is what lets the worker resume.
+    const { client, calls } = createMockClient(responder({ links: [LINK] }));
+    const result = await unsubscribeFromBundle(client, SUB, { keepAll: false, cursor: 1, chunkSize: 1 });
+    expect(result.done).toBe(false);
+    expect(result.nextCursor).toBe(LINK.id);
     expect(calls.find((c) => c.table === 'bundle_subscriptions' && c.op === 'update')).toBeUndefined();
   });
 

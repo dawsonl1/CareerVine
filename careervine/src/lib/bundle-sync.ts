@@ -59,6 +59,40 @@ export interface ApplyCursor {
   afterId: number;
 }
 
+/** Persisted mid-sync checkpoint (bundle_subscriptions.sync_cursor). The
+ * pin travels with the cursor so a resumed sync stays on the version it
+ * started against even if a publish landed in between. */
+export interface SyncCheckpoint extends ApplyCursor {
+  pinnedVersion: number;
+}
+
+/** Best-effort checkpoint write after a chunk lands (CAR-54): lets the
+ * worker/cron resume an interrupted sync instead of re-scanning from
+ * chunk 0. Failure is swallowed — the checkpoint is an optimization, and
+ * synced_version still guards correctness. */
+async function persistSyncCheckpoint(
+  client: SupabaseClient,
+  subscriptionId: number,
+  checkpoint: SyncCheckpoint,
+): Promise<void> {
+  await client.from("bundle_subscriptions").update({ sync_cursor: checkpoint }).eq("id", subscriptionId);
+}
+
+/** Read a stored checkpoint off a subscription row; null when absent,
+ * malformed, or stale (already-committed pin). */
+export function readSyncCheckpoint(
+  raw: unknown,
+  syncedVersion: number,
+): SyncCheckpoint | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Partial<SyncCheckpoint>;
+  if ((c.phase !== "apply" && c.phase !== "remove") || typeof c.afterId !== "number" || typeof c.pinnedVersion !== "number") {
+    return null;
+  }
+  if (c.pinnedVersion <= syncedVersion) return null;
+  return { phase: c.phase, afterId: c.afterId, pinnedVersion: c.pinnedVersion };
+}
+
 export interface ApplyStepResult {
   done: boolean;
   nextCursor: ApplyCursor | null;
@@ -497,6 +531,7 @@ export async function applyBundleDelta(
 
     if (prospects.length === chunkSize) {
       result.nextCursor = { phase: "apply", afterId: prospects[prospects.length - 1].id };
+      await persistSyncCheckpoint(client, subscription.id, { ...result.nextCursor, pinnedVersion });
       return result;
     }
     // Apply phase exhausted → removal phase in the same call only when the
@@ -504,6 +539,7 @@ export async function applyBundleDelta(
     // stays bounded.
     if (prospects.length > 0) {
       result.nextCursor = { phase: "remove", afterId: 0 };
+      await persistSyncCheckpoint(client, subscription.id, { ...result.nextCursor, pinnedVersion });
       return result;
     }
   }
@@ -575,13 +611,14 @@ export async function applyBundleDelta(
 
   if (removed.length === chunkSize) {
     result.nextCursor = { phase: "remove", afterId: removed[removed.length - 1].id };
+    await persistSyncCheckpoint(client, subscription.id, { ...result.nextCursor, pinnedVersion });
     return result;
   }
 
-  // ── Both phases complete: commit the sync ──
+  // ── Both phases complete: commit the sync (and drop the checkpoint) ──
   await client
     .from("bundle_subscriptions")
-    .update({ synced_version: pinnedVersion, last_synced_at: nowIso, updated_at: nowIso })
+    .update({ synced_version: pinnedVersion, last_synced_at: nowIso, sync_cursor: null, updated_at: nowIso })
     .eq("id", subscription.id);
   result.done = true;
   return result;
@@ -618,13 +655,29 @@ export async function unsubscribeFromBundle(
   const nowIso = new Date().toISOString();
   const result: UnsubscribeStepResult = { done: false, nextCursor: null, removed: 0, kept: 0 };
 
-  // First call: fence out background syncs before touching linkage.
+  // First call: fence out background syncs before touching linkage, and
+  // record the cleanup intent so an interrupted loop can be resumed by the
+  // worker/cron instead of stranding linkage rows (CAR-53). The intent is
+  // cleared only when the removal loop completes.
   if (!opts.cursor) {
     await client
       .from("bundle_subscriptions")
-      .update({ status: "unsubscribed", sync_claimed_until: null, updated_at: nowIso })
+      .update({
+        status: "unsubscribed",
+        sync_claimed_until: null,
+        sync_cursor: null,
+        unsubscribe_keep_all: opts.keepAll,
+        updated_at: nowIso,
+      })
       .eq("id", subscription.id);
   }
+
+  const markCleanupDone = async () => {
+    await client
+      .from("bundle_subscriptions")
+      .update({ unsubscribe_keep_all: null, updated_at: nowIso })
+      .eq("id", subscription.id);
+  };
 
   if (opts.keepAll) {
     const { data: dropped } = await client
@@ -634,6 +687,7 @@ export async function unsubscribeFromBundle(
       .select("id");
     result.kept = ((dropped as { id: number }[] | null) ?? []).length;
     result.done = true;
+    await markCleanupDone();
     return result;
   }
 
@@ -693,5 +747,6 @@ export async function unsubscribeFromBundle(
     return result;
   }
   result.done = true;
+  await markCleanupDone();
   return result;
 }

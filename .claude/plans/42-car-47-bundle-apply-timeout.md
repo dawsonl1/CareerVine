@@ -68,7 +68,12 @@ Fixed in the PR after the audit:
 
 Confirmed clean by the audit: sink flush ordering vs bundle fingerprinting, error-path equivalence (old code never checked email/education/tag insert errors either), location prefetch semantics, suppression handling, main's `targetContactId` port, vercel.json/hobby/rootDirectory correctness, QStash `delay` API usage, on-mount silent sync error handling, no `iad1` assumptions elsewhere.
 
-Follow-ups ticketed separately (not this PR): unsubscribe-loop resilience (no retry/background recovery; mid-loop death strands linkage rows), worker cursor checkpointing (budget-exceeded restarts a subscription from chunk 0), Upstash Redis region check from pdx1 (rate-limiter RTT), preview-deploy QStash jobs 401→DLQ noise (harmless).
+~~Follow-ups ticketed separately~~ **Scope change (Dawson, 2026-07-10): CAR-53 and CAR-54 are folded into this PR** instead of being deferred. New migration `20260710150000_bundle_sync_resilience.sql` adds two columns to `bundle_subscriptions`:
+
+- **`sync_cursor` (CAR-54):** `applyBundleDelta` persists `{phase, afterId, pinnedVersion}` after every non-final chunk and clears it on commit; the worker/cron resume from it instead of re-scanning from chunk 0 (a resumed old pin that completes behind the live version re-enqueues as still-stale). Any interrupted driver — platform kill, budget expiry, dead browser — now loses at most one chunk of progress. Resubscribe resets it.
+- **`unsubscribe_keep_all` (CAR-53):** the unsubscribe fence-flip records the cleanup intent; it clears only when the removal loop completes. The worker dispatches per row state (active-stale → sync; unsubscribed-with-intent → resume removal, no claim needed since the status flip is the fence and removal is idempotent), the unsubscribe route enqueues a 180s-delayed backup job when the first step returns non-done, the daily cron sweeps `findPendingUnsubscribeIds` as the net behind the net, and the client unsubscribe loop gets the same retry treatment as apply (with an honest "cleanup finishes in the background" vs "try again" message depending on whether the intent was recorded). Resubscribe cancels a pending cleanup — the user wants the data back.
+
+Still deferred (notes only, no ticket needed yet): Upstash Redis region check from pdx1 (rate-limiter RTT), preview-deploy QStash jobs 401→DLQ noise (harmless).
 
 ## Risks
 

@@ -4,6 +4,7 @@ import type { Client } from '@upstash/qstash';
 import {
   enqueueBundleSyncJobs,
   findStaleSubscriptionIds,
+  findPendingUnsubscribeIds,
   processSubscriptionsUnderBudget,
   FANOUT_BATCH_SIZE,
 } from '@/lib/bundle-queue';
@@ -25,7 +26,7 @@ function subRow(id: number, syncedVersion = 0, bundleVersion = 3) {
 function mockService(rows: unknown[]): SupabaseClient {
   const builder: Record<string, unknown> = {};
   Object.assign(builder, {
-    select: () => builder, eq: () => builder, in: () => builder,
+    select: () => builder, eq: () => builder, in: () => builder, not: () => builder,
     order: () => builder, limit: () => builder,
     then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: rows, error: null }).then(resolve),
   });
@@ -145,5 +146,76 @@ describe('processSubscriptionsUnderBudget', () => {
       apply, claim: vi.fn(async () => 't'), release: vi.fn(async () => {}),
     });
     expect(apply.mock.calls[0][3]).toMatchObject({ pinnedVersion: 7 });
+  });
+
+  it('resumes an interrupted sync from its persisted checkpoint (CAR-54)', async () => {
+    const apply = vi.fn<(...args: unknown[]) => Promise<ApplyStepResult>>(async () => stepDone());
+    const row = { ...subRow(1, 0, 3), sync_cursor: { phase: 'remove', afterId: 120, pinnedVersion: 3 } };
+    const result = await processSubscriptionsUnderBudget(mockService([row]), [1], 45_000, {
+      apply, claim: vi.fn(async () => 't'), release: vi.fn(async () => {}),
+    });
+    expect(apply.mock.calls[0][3]).toMatchObject({
+      cursor: { phase: 'remove', afterId: 120 },
+      pinnedVersion: 3,
+    });
+    expect(result.completed).toEqual([1]);
+  });
+
+  it('ignores a stale checkpoint whose pin is already committed', async () => {
+    const apply = vi.fn<(...args: unknown[]) => Promise<ApplyStepResult>>(async () => stepDone());
+    const row = { ...subRow(1, 2, 3), sync_cursor: { phase: 'apply', afterId: 50, pinnedVersion: 2 } };
+    await processSubscriptionsUnderBudget(mockService([row]), [1], 45_000, {
+      apply, claim: vi.fn(async () => 't'), release: vi.fn(async () => {}),
+    });
+    expect(apply.mock.calls[0][3]).toMatchObject({ cursor: null, pinnedVersion: 3 });
+  });
+
+  it('re-enqueues a subscription whose resumed pin finished behind the live version', async () => {
+    const apply = vi.fn<(...args: unknown[]) => Promise<ApplyStepResult>>(async () => stepDone());
+    // Checkpoint pinned v3; the bundle has since published v5 — completing
+    // the resumed pin is progress, but the row is still stale.
+    const row = { ...subRow(1, 0, 5), sync_cursor: { phase: 'apply', afterId: 50, pinnedVersion: 3 } };
+    const result = await processSubscriptionsUnderBudget(mockService([row]), [1], 45_000, {
+      apply, claim: vi.fn(async () => 't'), release: vi.fn(async () => {}),
+    });
+    expect(apply.mock.calls[0][3]).toMatchObject({ pinnedVersion: 3 });
+    expect(result.completed).toEqual([]);
+    expect(result.remaining).toEqual([1]);
+  });
+
+  it('resumes a pending unsubscribe cleanup without claiming (CAR-53)', async () => {
+    const unsubscribe = vi.fn()
+      .mockResolvedValueOnce({ done: false, nextCursor: 50, removed: 3, kept: 1 })
+      .mockResolvedValueOnce({ done: true, nextCursor: null, removed: 2, kept: 0 });
+    const claim = vi.fn(async () => 't');
+    const apply = vi.fn();
+    const row = { ...subRow(1), status: 'unsubscribed', unsubscribe_keep_all: false };
+    const result = await processSubscriptionsUnderBudget(mockService([row]), [1], 45_000, {
+      apply, claim, release: vi.fn(async () => {}), unsubscribe,
+    });
+    expect(result.completed).toEqual([1]);
+    expect(result.removed).toBe(5);
+    expect(unsubscribe).toHaveBeenCalledTimes(2);
+    expect(unsubscribe.mock.calls[0][2]).toMatchObject({ keepAll: false, cursor: null });
+    expect(unsubscribe.mock.calls[1][2]).toMatchObject({ keepAll: false, cursor: 50 });
+    expect(apply).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it('treats a finished unsubscribe (intent cleared) as a completed no-op', async () => {
+    const unsubscribe = vi.fn();
+    const row = { ...subRow(1), status: 'unsubscribed', unsubscribe_keep_all: null };
+    const result = await processSubscriptionsUnderBudget(mockService([row]), [1], 45_000, {
+      apply: vi.fn(), claim: vi.fn(), release: vi.fn(), unsubscribe,
+    });
+    expect(result.completed).toEqual([1]);
+    expect(unsubscribe).not.toHaveBeenCalled();
+  });
+});
+
+describe('findPendingUnsubscribeIds', () => {
+  it('returns ids from the pending-unsubscribe sweep', async () => {
+    const service = mockService([{ id: 7 }, { id: 9 }]);
+    expect(await findPendingUnsubscribeIds(service)).toEqual([7, 9]);
   });
 });

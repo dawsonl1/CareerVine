@@ -63,7 +63,17 @@ export const POST = withApiHandler({
       if (row.status === "active") return { subscription: row, reactivated: false };
       const { data: updated, error } = await supabase
         .from("bundle_subscriptions")
-        .update({ status: "active", synced_version: 0, sync_claimed_until: null, updated_at: nowIso })
+        .update({
+          status: "active",
+          synced_version: 0,
+          sync_claimed_until: null,
+          // A fresh full re-apply starts from scratch: drop any stale sync
+          // checkpoint and cancel a pending unsubscribe cleanup (the user
+          // wants the data back — removing it now would be wrong).
+          sync_cursor: null,
+          unsubscribe_keep_all: null,
+          updated_at: nowIso,
+        })
         .eq("id", row.id)
         .select("id, status, synced_version")
         .single();

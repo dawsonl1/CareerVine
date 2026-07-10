@@ -236,7 +236,13 @@ describe('applyBundleDelta — apply phase', () => {
     const result = await applyBundleDelta(client, SUB, BUNDLE, { chunkSize: 1 });
     expect(result.done).toBe(false);
     expect(result.nextCursor).toEqual({ phase: 'apply', afterId: 301 });
-    expect(calls.find((c) => c.table === 'bundle_subscriptions' && c.op === 'update')).toBeUndefined();
+    // The only subscription write is the resume checkpoint (CAR-54) — no
+    // synced_version commit until both phases complete.
+    const subUpdates = calls.filter((c) => c.table === 'bundle_subscriptions' && c.op === 'update');
+    expect(subUpdates).toHaveLength(1);
+    expect(subUpdates[0].payload).toEqual({
+      sync_cursor: { phase: 'apply', afterId: 301, pinnedVersion: BUNDLE.version },
+    });
   });
 });
 
