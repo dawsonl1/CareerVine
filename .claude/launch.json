@@ -4,12 +4,7 @@
     {
       "name": "careervine-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "careervine",
-        "run",
-        "dev"
-      ],
+      "runtimeArgs": ["--prefix", "careervine", "run", "dev"],
       "port": 3000,
       "autoPort": true
     }
