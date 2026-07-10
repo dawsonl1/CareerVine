@@ -86,6 +86,17 @@ export const bundleProspectPayloadV1Schema = z.object({
    * Mirrors the pipeline's SELECTED→prospect / BENCH→bench split so a bundle
    * can carry a curated core plus a searchable long tail. */
   network_status: z.enum(["prospect", "bench"]).default("prospect"),
+  /** Pipeline-verified role classification (CAR-61). Drives the onboarding
+   * stats ("N alumni in product roles") and the picker's product counts;
+   * the fill-empty merge backfills it onto subscriber contacts. */
+  persona: z
+    .enum(["alum_product", "alum_other", "product_peer", "product_leader", "recruiter"])
+    .nullable()
+    .optional(),
+  /** CANON-mapped current employer name (identity.company) — matched by name
+   * against the bundle's company list for the target-scoped alumni stat
+   * (CAR-61). Display/stats only; never used to build employment rows. */
+  current_company: z.string().trim().min(1).nullable().optional(),
   /** Stable field: CAR-24 photo mirroring swaps the value, not the contract. */
   photo_url: z.string().trim().url().nullable().optional(),
   location: z
@@ -191,6 +202,8 @@ export function mappedPersonToBundlePayload(mapped: MappedPerson): BundleProspec
     public_identifier: mapped.public_identifier,
     headline: mapped.headline,
     network_status: mapped.network_status,
+    persona: mapped.persona,
+    current_company: mapped.canonical_company ?? null,
     photo_url: mapped.photo_url,
     location: mapped.profile_location,
     location_raw: mapped.profile_location_raw,
@@ -262,7 +275,8 @@ export function payloadToMappedPerson(
     public_identifier: payload.public_identifier ?? extractPublicIdentifier(canonicalUrl),
     non_vanity_url: isInternalLinkedinId(slug),
     headline: payload.headline ?? null,
-    persona: null,
+    persona: payload.persona ?? null,
+    canonical_company: payload.current_company ?? null,
     review_note: null,
     verified_school: null,
     network_status: payload.network_status,

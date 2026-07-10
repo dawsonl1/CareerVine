@@ -132,6 +132,10 @@ export interface MappedPerson {
   non_vanity_url: boolean;
   headline: string | null;
   persona: string | null;
+  /** CANON-mapped current employer (identity.company) — bundle stats/display
+   * only. Employment rows are still built exclusively from raw experience
+   * data (see header); this never feeds contact_companies. */
+  canonical_company?: string | null;
   review_note: string | null;
   verified_school: string | null;
   network_status: "prospect" | "bench";
@@ -384,6 +388,7 @@ export function mapPeopleRecord(record: PeopleRecord, opts: MapOptions = {}): Ma
     non_vanity_url: nonVanity,
     headline: raw?.headline?.trim() || null,
     persona,
+    canonical_company: record.identity?.company?.trim() || null,
     review_note: record.pipeline?.review_reason?.trim() || null,
     verified_school: verifiedSchool,
     network_status: networkStatus,

@@ -98,7 +98,7 @@ function BundleOfferStep({
               <span className="font-medium text-foreground">
                 {stats.alumniCount.toLocaleString()} BYU alumni
               </span>{" "}
-              in product roles among{" "}
+              among{" "}
               <span className="font-medium text-foreground">
                 {stats.prospectCount.toLocaleString()} prospects
               </span>{" "}
@@ -266,12 +266,19 @@ function SyncProgressStep({
       <p className="text-sm text-muted-foreground mt-1.5">We&apos;re adding:</p>
       <ul className="mt-4 space-y-2.5">
         <StatLine icon={Users} text={`${stats.prospectCount.toLocaleString()} prospects with contact information`} />
-        <StatLine icon={GraduationCap} text={`${stats.alumniCount.toLocaleString()} BYU alumni in product roles`} />
+        <StatLine
+          icon={GraduationCap}
+          text={
+            stats.alumniProductCount > 0
+              ? `${stats.alumniCount.toLocaleString()} BYU alumni — ${stats.alumniProductCount.toLocaleString()} in product roles`
+              : `${stats.alumniCount.toLocaleString()} BYU alumni`
+          }
+        />
         <StatLine icon={Building2} text={`${stats.companyCount.toLocaleString()} companies with a history of hiring new-grad PMs`} />
         {stats.alumniCompanyCount > 0 && (
-          // Alumni were sourced beyond the target-company list, so this count
-          // (~1,079) exceeds companyCount (99) — never phrase it as a subset.
-          <StatLine icon={Check} text={`${stats.alumniCompanyCount.toLocaleString()} companies where those alumni work today`} />
+          // Target-scoped (CAR-61): current_company is CANON-mapped to the
+          // bundle company names, so this is a true subset of companyCount.
+          <StatLine icon={Check} text={`${stats.alumniCompanyCount.toLocaleString()} of those companies have BYU alumni there today`} />
         )}
       </ul>
 
@@ -433,10 +440,19 @@ function CompanyPickerStep({
                 </p>
               </div>
               {c.alumniCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium shrink-0">
-                  <GraduationCap className="h-3.5 w-3.5" />
-                  {c.alumniCount} BYU {c.alumniCount === 1 ? "alum" : "alumni"}
-                </span>
+                // Two stacked counts (CAR-61): total alumni, then how many of
+                // them hold product roles.
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                    <GraduationCap className="h-3.5 w-3.5" />
+                    {c.alumniCount} BYU {c.alumniCount === 1 ? "alum" : "alumni"}
+                  </span>
+                  {c.productAlumniCount > 0 && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-surface-container-highest text-muted-foreground text-[11px] font-medium">
+                      {c.productAlumniCount} in product {c.productAlumniCount === 1 ? "role" : "roles"}
+                    </span>
+                  )}
+                </div>
               )}
               <button
                 type="button"
