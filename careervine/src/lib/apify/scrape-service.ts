@@ -360,8 +360,9 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
       record: actorItemToPeopleRecord(item, { emailSearched: runRow.mode === ScrapeMode.Email }),
     }));
     const captures: RescrapeDiffCapture[] = [];
-    const summary = await importPeopleChunk(service, runRow.user_id, inputs, undefined, "rescrape", {
-      onDiffCapture: (c) => captures.push(c),
+    const summary = await importPeopleChunk(service, runRow.user_id, inputs, {
+      mergePolicy: "rescrape",
+      hooks: { onDiffCapture: (c) => captures.push(c) },
     });
 
     // Only diff contacts whose merge actually SUCCEEDED — a capture is taken

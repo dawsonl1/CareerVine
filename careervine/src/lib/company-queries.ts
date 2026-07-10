@@ -15,6 +15,7 @@ import {
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
+import { escapeIlikePattern } from "./search-helpers";
 
 type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
 
@@ -302,7 +303,7 @@ export async function getCompanies(
       .select("id, name, logo_url, linkedin_url, domain")
       .in("id", chunk);
     if (opts.search?.trim()) {
-      q = q.ilike("name", `%${opts.search.trim().replace(/([\\%_])/g, "\\$1")}%`);
+      q = q.ilike("name", `%${escapeIlikePattern(opts.search.trim())}%`);
     }
     const { data, error } = await q;
     if (error) throw error;
@@ -775,6 +776,80 @@ export async function addCompanyOffice(companyId: number, locationId: number) {
     .from("company_locations")
     .upsert({ company_id: companyId, location_id: locationId, source: "manual" }, { onConflict: "company_id,location_id", ignoreDuplicates: true });
   if (error) throw error;
+}
+
+export interface CompanyOfficeLocationInput {
+  city: string | null;
+  state: string | null;
+  country: string;
+}
+
+export function normalizeCompanyOfficeLocationInput(input: {
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+}): CompanyOfficeLocationInput {
+  return {
+    city: input.city?.trim() || null,
+    state: input.state?.trim() || null,
+    country: input.country?.trim() || "United States",
+  };
+}
+
+export function formatCompanyOfficeLocationLabel(location: CompanyOfficeLocationInput): string {
+  if (location.city) return [location.city, location.state].filter(Boolean).join(", ");
+  if (location.state) return [location.state, location.country].filter(Boolean).join(", ");
+  return location.country;
+}
+
+export async function addCompanyOfficeLocation(
+  companyId: number,
+  input: { city?: string | null; state?: string | null; country?: string | null },
+): Promise<{ locationId: number; added: boolean; label: string }> {
+  const normalized = normalizeCompanyOfficeLocationInput(input);
+  const location = await findOrCreateOfficeLocation(normalized);
+  const label = formatCompanyOfficeLocationLabel(normalized);
+
+  const { data: existing } = await db()
+    .from("company_locations")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("location_id", location.id)
+    .maybeSingle();
+  if (existing) {
+    return { locationId: location.id, added: false, label };
+  }
+
+  await addCompanyOffice(companyId, location.id);
+  return { locationId: location.id, added: true, label };
+}
+
+async function findOrCreateOfficeLocation(location: CompanyOfficeLocationInput): Promise<{ id: number }> {
+  function buildLookup() {
+    let q = db().from("locations").select("id");
+    q = location.city ? q.eq("city", location.city) : q.is("city", null);
+    q = location.state ? q.eq("state", location.state) : q.is("state", null);
+    return q.eq("country", location.country);
+  }
+
+  const { data: existing } = await buildLookup().maybeSingle();
+  if (existing) return existing as { id: number };
+
+  const { data, error } = await db()
+    .from("locations")
+    .insert({
+      city: location.city,
+      state: location.state,
+      country: location.country,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    const { data: retry } = await buildLookup().maybeSingle();
+    if (retry) return retry as { id: number };
+    throw error;
+  }
+  return data as { id: number };
 }
 
 export async function addTargetCompany(userId: string, companyId: number) {

@@ -1,5 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { transcriptMatchSpeakersSchema } from "@/lib/api-schemas";
 
 /**
@@ -52,14 +52,13 @@ const MATCH_SCHEMA = {
 
 export const POST = withApiHandler({
   schema: transcriptMatchSpeakersSchema,
-  handler: async ({ body }) => {
+  handler: async ({ user, body }) => {
     const { speakerLabels, speakerSamples, contactContext, meetingTitle } = body;
 
     if (contactContext.length === 0) {
       return { matches: [] };
     }
 
-    const openai = getOpenAIClient();
     const model = DEFAULT_MODEL;
 
     // Build contact profiles for the prompt
@@ -103,19 +102,22 @@ export const POST = withApiHandler({
 
     let response;
     try {
-      response = await openai.responses.create({
-        model,
-        instructions,
-        input: inputText,
-        max_output_tokens: 2000,
-        text: {
-          format: {
-            type: "json_schema",
-            ...MATCH_SCHEMA,
+      response = await runWithOpenAIFallback(user.id, (openai) =>
+        openai.responses.create({
+          model,
+          instructions,
+          input: inputText,
+          max_output_tokens: 2000,
+          text: {
+            format: {
+              type: "json_schema",
+              ...MATCH_SCHEMA,
+            },
           },
-        },
-      });
+        }),
+      );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[match-speakers] OpenAI API error:", err);
       throw new ApiError("Failed to analyze speakers. Please try again.", 500);
     }

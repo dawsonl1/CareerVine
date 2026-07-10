@@ -449,7 +449,7 @@ async function addExperienceToContact(
         location_raw: locationRaw,
         workplace_type: workplaceType,
         // AI-parsed provenance: supersedable by scrapes, unlike user-typed
-        // 'manual' rows (migration 20260709030000)
+        // 'manual' rows (migration 20260710030000)
         source: 'extension',
       });
     }

@@ -1,6 +1,6 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailAiWriteSchema } from "@/lib/api-schemas";
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
 
 /**
@@ -45,18 +45,20 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
 
     // ── Call OpenAI ──
 
-    const openai = getOpenAIClient();
     const model = DEFAULT_MODEL;
 
     let response;
     try {
-      response = await openai.responses.create({
-        model,
-        instructions: systemPrompt,
-        input: userParts.join("\n"),
-        max_output_tokens: 2000,
-      });
+      response = await runWithOpenAIFallback(user.id, (openai) =>
+        openai.responses.create({
+          model,
+          instructions: systemPrompt,
+          input: userParts.join("\n"),
+          max_output_tokens: 2000,
+        }),
+      );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[ai-write] OpenAI API error:", err);
       throw new ApiError("Failed to generate email. Please try again.", 500);
     }
@@ -71,12 +73,14 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
     let generatedSubject: string | null = null;
     if (!subject) {
       try {
-        const subjectResponse = await openai.responses.create({
-          model,
-          instructions: "Generate a concise, professional email subject line for the following email. Return ONLY the subject line text, nothing else. No quotes.",
-          input: emailHtml,
-          max_output_tokens: 100,
-        });
+        const subjectResponse = await runWithOpenAIFallback(user.id, (openai) =>
+          openai.responses.create({
+            model,
+            instructions: "Generate a concise, professional email subject line for the following email. Return ONLY the subject line text, nothing else. No quotes.",
+            input: emailHtml,
+            max_output_tokens: 100,
+          }),
+        );
         generatedSubject = subjectResponse.output_text?.trim() || null;
       } catch {
         // Subject generation is best-effort; use null if it fails

@@ -347,3 +347,102 @@ export const extensionParseProfileSchema = z.object({
   cleanedText: z.string().min(1, "cleanedText is required"),
   profileUrl: optionalString,
 });
+
+// ── Settings / BYO OpenAI key ──────────────────────────────────────────
+
+export const openaiKeySaveSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .min(20, "API key is too short")
+    .max(200, "API key is too long")
+    .regex(/^sk-/, "API key must start with sk-"),
+});
+
+// ── Settings / BYO Deepgram key ────────────────────────────────────────
+
+// Deepgram API keys are 40-character lowercase hex strings with no prefix.
+// Validate on shape here; the route additionally makes a live call to Deepgram
+// before storing. Custom message so Zod never echoes the submitted value.
+export const deepgramKeySaveSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .regex(/^[0-9a-f]{40}$/, "That doesn't look like a Deepgram API key."),
+});
+
+// ── Data bundles (plan 29) ─────────────────────────────────────────────
+
+/** Admin publish flow — secret-token route, staged under a publish lock. */
+export const bundlePublishSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("begin"),
+    slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "slug must be kebab-case"),
+    name: z.string().min(1).optional(),
+    description: z.string().nullable().optional(),
+  }),
+  z.object({
+    mode: z.literal("prospects"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+    /** BundleProspectPayloadV1[] — or raw pipeline PeopleRecords when
+     * peopleFormat is 'people_record' (converted server-side). */
+    people: z.array(z.unknown()).min(1).max(50),
+    peopleFormat: z.enum(["payload", "people_record"]).default("payload"),
+  }),
+  z.object({
+    mode: z.literal("companies"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+    companies: z.array(z.unknown()).min(1).max(50),
+  }),
+  z.object({
+    mode: z.literal("finalize"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+  }),
+  z.object({
+    mode: z.literal("abort"),
+    slug: z.string().min(1),
+    stagingVersion: z.number().int().positive(),
+  }),
+]);
+
+/** Admin grant/revoke of shared-token access (CAR-26) — secret-token route.
+ * Identify the user by uuid or email; at least one is required. */
+export const adminAiAccessSchema = z
+  .object({
+    userId: z.string().uuid().optional(),
+    email: z.string().email().optional(),
+    sharedAccess: z.boolean(),
+  })
+  .refine((d) => Boolean(d.userId || d.email), {
+    message: "userId or email is required",
+  });
+
+/** User-facing bundle subscription endpoints. */
+export const bundleSubscribeSchema = z.object({
+  bundleId: z.number().int().positive(),
+});
+
+export const bundleApplySchema = z.object({
+  bundleId: z.number().int().positive(),
+  cursor: z
+    .object({
+      phase: z.enum(["apply", "remove"]),
+      afterId: z.number().int().nonnegative(),
+    })
+    .nullable()
+    .optional(),
+  /** Committed bundle version pinned on the loop's first call — later
+   * calls must pass it back so a concurrent publish can't skew the delta. */
+  pinnedVersion: z.number().int().positive().optional(),
+  /** Sync-claim token from the previous call (CAS renewal). */
+  claimToken: z.string().optional(),
+});
+
+export const bundleUnsubscribeSchema = z.object({
+  bundleId: z.number().int().positive(),
+  keepAll: z.boolean(),
+  cursor: z.number().int().nonnegative().nullable().optional(),
+});

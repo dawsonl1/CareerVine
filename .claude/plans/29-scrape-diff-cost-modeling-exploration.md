@@ -299,11 +299,11 @@ QStash-retry-no-double-run. Suite must pass before every push (rules 3/4).
 0. **✅ DONE (commit 322c911, branch dawson/scrape-diff-cost-modeling-46fd91).** Anniversaries —
    `contact_change_events` migration + pure `computeAnniversaryEvents` (16 Vitest cases) + lazy
    idempotent producer + Up Next integration via the existing suggestion UI (save/complete/snooze
-   mark actioned, dismiss marks dismissed). Migration `20260709000000_contact_change_events.sql`
+   mark actioned, dismiss marks dismissed). Migration `20260710000000_contact_change_events.sql`
    awaits `supabase db push`. Proves the suggestion rails end-to-end, no Apify.
 1. **Per-contact path.** ✅ **Core DONE** (branch dawson/scrape-diff-cost-modeling-46fd91):
    - `scrape_runs` ledger + `contacts.scrape_failed_at/scrape_failure_count` migration
-     (`20260709010000_scrape_runs.sql`, awaits `supabase db push`).
+     (`20260710010000_scrape_runs.sql`, awaits `supabase db push`).
    - Apify REST client (`lib/apify/client.ts`) — starts `harvestapi/linkedin-profile-scraper`
      with a completion webhook + `maxTotalChargeUsd`; fetches run + dataset + cost.
    - Rescrape wrapper (`lib/apify/rescrape-wrapper.ts`) — raw item → schema-v1 record, verified
@@ -323,10 +323,10 @@ QStash-retry-no-double-run. Suite must pass before every push (rules 3/4).
      PersonModal (contact-page find-email already covers the capability). These build atop the merge
      path the review will vet first.
 1b. **✅ DONE.** Employment source model (`contact_companies.source` gains `'extension'`,
-   migration `20260709030000`) → true M2 via the `'reconcile'` collision strategy (supersedes
+   migration `20260710030000`) → true M2 via the `'reconcile'` collision strategy (supersedes
    extension/scraped rows, never manual); extension re-save m6 fix (only deletes rows it owns);
    auto-enrich-on-save wired into the extension import route.
-2. **✅ DONE.** Cadence engine — `contact_scrape_snapshots` (migration `20260709040000`), pure
+2. **✅ DONE.** Cadence engine — `contact_scrape_snapshots` (migration `20260710040000`), pure
    `computeDiff` (19 Vitest cases: company-level pairing, LinkedIn-id false-positive guard,
    boolean baseline rule, title-rewording noise, dedupe keys), diff wired into webhook ingest via
    an `importPeopleChunk` capture hook, daily `/api/cron/scrape-refresh` (QStash, ~80/day,
@@ -340,7 +340,7 @@ QStash-retry-no-double-run. Suite must pass before every push (rules 3/4).
      contact with no usable (non-bounced) email, an email-mode follow-up scrape fires once the
      run is terminal.
    - Actor-B resolver: `searchProfilesByName` (short mode, run-sync, $0.004, ledgered under
-     mode `'resolve'`, migration `20260709050000`); `/api/contacts/[id]/resolve-linkedin` +
+     mode `'resolve'`, migration `20260710050000`); `/api/contacts/[id]/resolve-linkedin` +
      `/link-linkedin`; picker modal on the contact card for URL-less contacts and a "Re-link"
      warning after `SCRAPE_FAILURES_BEFORE_RELINK` consecutive failures. Linking kicks
      auto-enrich. NOTE (deviation from §7.5): URL-rot repair is manual-first (one click via the

@@ -11,6 +11,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import type { Database } from "@/lib/database.types";
 import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark, Hourglass } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { ActionItemSource, ActionDirection } from "@/lib/constants";
 import { useSuggestions } from "@/hooks/use-suggestions";
 import { Select } from "@/components/ui/select";
@@ -85,7 +86,7 @@ export default function ActionItemsPage() {
     finally { setLoading(false); }
   }, [user]);
 
-  const { suggestions, loading: suggestionsLoading, save: saveSuggestionRaw, complete: completeSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions({
+  const { suggestions, loading: suggestionsLoading, aiStatus: suggestionsAiStatus, dismissAiStatus, save: saveSuggestionRaw, complete: completeSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions({
     onSave: loadActionItems,
   });
 
@@ -472,6 +473,21 @@ export default function ActionItemsPage() {
             <Plus className="h-[18px] w-[18px]" /> New task
           </Button>
         </div>
+
+        {/* AI suggestions unavailable — quiet, dismissible prompt (rule-based still show) */}
+        {suggestionsAiStatus && (
+          <div className="relative mb-6">
+            <AiUnavailableNotice compact code={suggestionsAiStatus} />
+            <button
+              type="button"
+              onClick={dismissAiStatus}
+              className="absolute top-2 right-2 p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
+              title="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         {/* Suggested for you banner */}
         {(suggestionsLoading || (suggestions.length > 0 && !suggestionsCollapsed)) && (

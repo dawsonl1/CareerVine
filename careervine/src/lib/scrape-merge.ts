@@ -12,14 +12,33 @@
  *    boomerang stints (two Google rows, different start_month) and
  *    concurrent roles (multiple is_current) stay distinct.
  *  - Deletes apply only to scraped-sourced rows absent from the new
- *    payload.
+ *    payload (never under the bundle policy).
  *  - Email source lifecycle is monotonic: verified > scraped >
  *    pattern_guessed. Re-imports may upgrade, never downgrade.
  *  - Persona is never overwritten with a different non-null value —
  *    conflicts are reported, not applied.
+ *
+ * Merge policies (plan 29): 'pipeline' is the original behavior for
+ * Dawson's scrape-pipeline re-imports, where the pipeline owns scraped
+ * data wholesale (refreshes headline/provenance, deletes scraped rows
+ * absent from the payload). 'bundle' is for shared data-bundle syncs into
+ * OTHER users' accounts: strict fill-empty on contact fields, provenance
+ * stamped on create only, and never deletes employment rows it didn't
+ * supply — two overlapping bundles (or a bundle plus the pipeline) must
+ * not thrash each other's data, and a silent background sync must never
+ * overwrite anything a user typed. 'rescrape' is the in-app Apify
+ * re-scrape/enrich of a contact that already exists (CAR-15): it refreshes
+ * only *observed profile data* and must NEVER touch pipeline- or
+ * user-owned fields — network_status, network_scope, import_source,
+ * import_meta, review_note, persona, verified_school — so a synthetic
+ * re-scrape record (which carries no pipeline block) can't mass-promote
+ * bench→prospect, stamp everyone target_company, or wipe priority ranks
+ * and review verdicts across the fleet.
  */
 
 import type { MappedPerson } from "./scrape-mapper";
+
+export type MergePolicy = "pipeline" | "bundle" | "rescrape";
 
 // ── Employment ─────────────────────────────────────────────────────────
 
@@ -57,19 +76,10 @@ export interface EmploymentMergePlan {
   deleteIds: number[];
 }
 
-/** Natural key: same company + title + start month = the same stint. */
-export function employmentKey(e: {
-  company_id: number;
-  title: string | null;
-  start_month: string | null;
-}): string {
-  return `${e.company_id}|${(e.title ?? "").trim().toLowerCase()}|${(e.start_month ?? "").trim().toLowerCase()}`;
-}
-
 /**
  * How to handle an unmatched CURRENT incoming role at a company that already
  * has an unmatched CURRENT existing role (plan 29 M2):
- *  - "insert" (default, pipeline bulk-import): keep strict natural-key matching;
+ *  - "insert" (default; pipeline and bundle): keep strict natural-key matching;
  *    the incoming row becomes a new sibling row.
  *  - "skip": leave the existing current role in place (just confirm scraped_at)
  *    and drop the incoming duplicate. Never clobbers, never duplicates; worst
@@ -77,16 +87,26 @@ export function employmentKey(e: {
  *  - "supersede": overwrite the existing current role in place with the
  *    scrape's values, regardless of provenance. Unsafe for 'manual' rows —
  *    kept for tests/explicit callers only.
- *  - "reconcile" (rescrape/enrich): per-row by provenance — 'manual' rows get
+ *  - "reconcile" (rescrape default): per-row by provenance — 'manual' rows get
  *    the "skip" treatment (a user's hand-typed role is never overwritten);
  *    'extension' (AI-parsed) and 'scraped' rows are superseded in place, since
  *    a fresh scrape is strictly higher-fidelity than either. Requires the
- *    'extension' source value from migration 20260709030000.
+ *    'extension' source value from migration 20260710030000.
  */
 export type CurrentCollisionStrategy = "insert" | "skip" | "supersede" | "reconcile";
 
 export interface EmploymentMergeOptions {
+  policy?: MergePolicy;
   currentCollisionStrategy?: CurrentCollisionStrategy;
+}
+
+/** Natural key: same company + title + start month = the same stint. */
+export function employmentKey(e: {
+  company_id: number;
+  title: string | null;
+  start_month: string | null;
+}): string {
+  return `${e.company_id}|${(e.title ?? "").trim().toLowerCase()}|${(e.start_month ?? "").trim().toLowerCase()}`;
 }
 
 /** Build the field patch for an existing row matched to an incoming row by natural key. */
@@ -117,8 +137,13 @@ export function computeEmploymentMerge(
   existing: ExistingEmploymentRow[],
   incoming: IncomingEmploymentRow[],
   scrapedAt: string,
-  opts: EmploymentMergeOptions = {},
+  policyOrOpts: MergePolicy | EmploymentMergeOptions = "pipeline",
 ): EmploymentMergePlan {
+  const opts: EmploymentMergeOptions =
+    typeof policyOrOpts === "string" ? { policy: policyOrOpts } : policyOrOpts;
+  const policy: MergePolicy = opts.policy ?? "pipeline";
+  const strategy: CurrentCollisionStrategy = opts.currentCollisionStrategy ?? "insert";
+
   // Dedupe incoming on the natural key (defensive against actor glitches)
   const incomingByKey = new Map<string, IncomingEmploymentRow>();
   for (const row of incoming) {
@@ -142,7 +167,6 @@ export function computeEmploymentMerge(
 
   // Pass B: reconcile an unmatched CURRENT existing row with an unmatched
   // CURRENT incoming row at the same company (same job, different natural key).
-  const strategy: CurrentCollisionStrategy = opts.currentCollisionStrategy ?? "insert";
   if (strategy !== "insert") {
     for (const row of existing) {
       if (consumedExistingIds.has(row.id) || !row.is_current) continue;
@@ -190,13 +214,15 @@ export function computeEmploymentMerge(
     }
   }
 
-  // Pass C: existing scraped rows entirely absent from the payload are deleted.
-  // (Rows whose key exists in the payload but was consumed by another existing
-  // row — duplicates — are left untouched, matching the original behavior.)
-  for (const row of existing) {
-    if (consumedExistingIds.has(row.id)) continue;
-    const key = employmentKey(row);
-    if (!incomingByKey.has(key) && row.source === "scraped") plan.deleteIds.push(row.id);
+  // Pass C: existing scraped rows entirely absent from the payload are deleted —
+  // but only when the caller owns scraped rows wholesale (pipeline re-imports
+  // and full-profile rescrapes). A bundle owns just the rows it sends.
+  if (policy !== "bundle") {
+    for (const row of existing) {
+      if (consumedExistingIds.has(row.id)) continue;
+      const key = employmentKey(row);
+      if (!incomingByKey.has(key) && row.source === "scraped") plan.deleteIds.push(row.id);
+    }
   }
 
   // Pass D: unmatched incoming rows are fresh inserts.
@@ -266,6 +292,7 @@ export interface ExistingContactCore {
   network_status: string;
   location_id: number | null;
   headline: string | null;
+  public_identifier?: string | null;
 }
 
 export interface ContactPatchResult {
@@ -287,28 +314,19 @@ export function resolveNetworkStatus(
   return incoming; // existing === 'bench' (or unknown): follow the pipeline
 }
 
-/**
- * "import" = pipeline bulk import (full provenance write).
- * "rescrape" = in-app re-scrape / enrich of a contact that already exists
- *   (plan 29). A rescrape refreshes only *observed profile data* and must
- *   NEVER touch pipeline- or user-owned fields: network_status, network_scope,
- *   import_source, import_meta, review_note, persona, verified_school. Skipping
- *   them prevents a synthetic re-scrape record — which carries no pipeline
- *   block — from mass-promoting bench→prospect, stamping everyone
- *   target_company, or wiping priority_rank / review verdicts on the whole
- *   fleet (audit blocker B1).
- */
-export type ContactPatchMode = "import" | "rescrape";
-
 export function computeContactPatch(
   existing: ExistingContactCore,
   mapped: MappedPerson,
   nowIso: string,
   profileLocationId: number | null,
-  mode: ContactPatchMode = "import",
+  policy: MergePolicy = "pipeline",
 ): ContactPatchResult {
-  if (mode === "rescrape") {
-    const patch: Record<string, unknown> = { last_scraped_at: nowIso };
+  const patch: Record<string, unknown> = { last_scraped_at: nowIso };
+
+  if (policy === "rescrape") {
+    // Refresh only observed profile data — never pipeline/user-owned fields
+    // (network_status, network_scope, import_source, import_meta, review_note,
+    // persona, verified_school). See the header's 'rescrape' policy notes.
     if (mapped.headline) patch.headline = mapped.headline;
     if (mapped.public_identifier) patch.public_identifier = mapped.public_identifier;
     // Names: manual edits win; refresh only placeholder names.
@@ -322,19 +340,26 @@ export function computeContactPatch(
     return { patch, personaConflict: null };
   }
 
-  const patch: Record<string, unknown> = {
-    review_note: mapped.review_note,
-    import_source: mapped.import_source,
-    import_meta: mapped.import_meta,
+  if (policy === "pipeline") {
+    // The pipeline owns scraped fields + provenance wholesale
+    patch.review_note = mapped.review_note;
+    patch.import_source = mapped.import_source;
+    patch.import_meta = mapped.import_meta;
     // Pipeline-owned segment label — refreshed every import (a person can
     // move onto a target company between tranches)
-    network_scope: mapped.network_scope,
-    last_scraped_at: nowIso,
-  };
+    patch.network_scope = mapped.network_scope;
+    if (mapped.headline) patch.headline = mapped.headline;
+    if (mapped.public_identifier) patch.public_identifier = mapped.public_identifier;
+  } else {
+    // Bundle policy: strict fill-empty — a background sync must never
+    // overwrite a user edit or another source's provenance
+    if (mapped.headline && !existing.headline) patch.headline = mapped.headline;
+    if (mapped.public_identifier && !existing.public_identifier) {
+      patch.public_identifier = mapped.public_identifier;
+    }
+  }
 
-  if (mapped.headline) patch.headline = mapped.headline;
   if (mapped.verified_school) patch.verified_school = mapped.verified_school;
-  if (mapped.public_identifier) patch.public_identifier = mapped.public_identifier;
 
   // Names: manual edits win. Refresh only placeholder names.
   if ((!existing.name || existing.name === "Unknown") && mapped.name) {

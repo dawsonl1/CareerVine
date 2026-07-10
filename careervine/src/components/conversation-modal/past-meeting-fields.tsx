@@ -35,6 +35,7 @@ export function PastMeetingFields({
   onActionCreated,
 }: PastMeetingFieldsProps) {
   const [showTranscript, setShowTranscript] = useState(!!form.transcript);
+  const [transcribeError, setTranscribeError] = useState("");
 
   const hasNotesOrTranscript = form.notes.trim().length > 0 || form.transcript.trim().length > 0;
 
@@ -56,6 +57,7 @@ export function PastMeetingFields({
 
   const handleAudioFile = useCallback(
     async (file: File) => {
+      setTranscribeError("");
       setTranscriptState((prev) => ({ ...prev, isTranscribing: true }));
       try {
         // Upload audio file
@@ -65,7 +67,7 @@ export function PastMeetingFields({
           method: "POST",
           body: formDataUpload,
         });
-        if (!uploadRes.ok) throw new Error("Upload failed");
+        if (!uploadRes.ok) throw new Error("We couldn't upload that file. Please try again.");
         const { attachment } = await uploadRes.json();
 
         setTranscriptState((prev) => ({
@@ -73,13 +75,17 @@ export function PastMeetingFields({
           pendingAudioAttachment: { id: attachment.id, object_path: attachment.object_path },
         }));
 
-        // Transcribe
+        // Transcribe — the server routes through the user's Deepgram key (or the
+        // shared key) and returns a friendly, specific message if both fail.
         const transcribeRes = await fetch("/api/transcripts/transcribe", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ objectPath: attachment.object_path }),
         });
-        if (!transcribeRes.ok) throw new Error("Transcription failed");
+        if (!transcribeRes.ok) {
+          const data = await transcribeRes.json().catch(() => ({}));
+          throw new Error(data.error || "Transcription failed. Please try again.");
+        }
         const { rawText, segments } = await transcribeRes.json();
 
         setForm((prev) => ({ ...prev, transcript: rawText }));
@@ -89,7 +95,10 @@ export function PastMeetingFields({
           pendingTranscriptSource: "audio_deepgram",
           isTranscribing: false,
         }));
-      } catch {
+      } catch (err) {
+        setTranscribeError(
+          err instanceof Error ? err.message : "Transcription failed. Please try again.",
+        );
         setTranscriptState((prev) => ({ ...prev, isTranscribing: false }));
       }
     },
@@ -131,6 +140,9 @@ export function PastMeetingFields({
               onAudioFile={handleAudioFile}
               isTranscribing={transcriptState.isTranscribing}
             />
+            {transcribeError && (
+              <p className="mt-2 text-sm text-destructive">{transcribeError}</p>
+            )}
           </div>
         )}
       </div>

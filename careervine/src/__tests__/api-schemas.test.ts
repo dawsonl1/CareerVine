@@ -12,6 +12,8 @@ import {
   calendarAvailabilityProfileSchema,
   calendarAvailabilityQuerySchema,
   calendarBusyCalendarsSchema,
+  openaiKeySaveSchema,
+  deepgramKeySaveSchema,
 } from '@/lib/api-schemas';
 
 // ── Helper ─────────────────────────────────────────────────────────────
@@ -377,5 +379,61 @@ describe('calendarAvailabilityQuerySchema', () => {
     expectValid(calendarAvailabilityQuerySchema, {
       start: '2026-03-20', end: '2026-03-27',
     });
+  });
+});
+
+// ── openaiKeySaveSchema ────────────────────────────────────────────────
+
+describe('openaiKeySaveSchema', () => {
+  it('accepts a valid sk- key', () => {
+    expectValid(openaiKeySaveSchema, { apiKey: 'sk-proj-abcdefghijklmnopqrst' });
+  });
+
+  it('rejects keys without sk- prefix', () => {
+    expectInvalid(openaiKeySaveSchema, { apiKey: 'not-a-valid-openai-key' });
+  });
+
+  it('rejects keys that are too short', () => {
+    expectInvalid(openaiKeySaveSchema, { apiKey: 'sk-short' });
+  });
+
+  it('does not echo the submitted key in error messages', () => {
+    const result = openaiKeySaveSchema.safeParse({ apiKey: 'bad-key-value-12345' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = result.error.issues.map((i) => i.message).join(' ');
+      expect(message).not.toContain('bad-key-value-12345');
+    }
+  });
+});
+
+// ── deepgramKeySaveSchema ──────────────────────────────────────────────
+
+describe('deepgramKeySaveSchema', () => {
+  const VALID = '0123456789abcdef0123456789abcdef01234567'; // 40 hex chars
+
+  it('accepts a 40-character lowercase hex key', () => {
+    expectValid(deepgramKeySaveSchema, { apiKey: VALID });
+  });
+
+  it('rejects an OpenAI-style sk- key', () => {
+    expectInvalid(deepgramKeySaveSchema, { apiKey: 'sk-proj-abcdefghijklmnopqrst' });
+  });
+
+  it('rejects a key of the wrong length', () => {
+    expectInvalid(deepgramKeySaveSchema, { apiKey: '0123456789abcdef' });
+  });
+
+  it('rejects a key with non-hex characters', () => {
+    expectInvalid(deepgramKeySaveSchema, { apiKey: 'g'.repeat(40) });
+  });
+
+  it('does not echo the submitted key in error messages', () => {
+    const result = deepgramKeySaveSchema.safeParse({ apiKey: 'ZZZ-secret-value-9999' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = result.error.issues.map((i) => i.message).join(' ');
+      expect(message).not.toContain('ZZZ-secret-value-9999');
+    }
   });
 });

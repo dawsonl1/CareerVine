@@ -46,6 +46,7 @@ import {
   computeContactPatch,
   type ExistingEmploymentRow,
   type IncomingEmploymentRow,
+  type MergePolicy,
 } from "./scrape-merge";
 import { addTagsToContact, downloadAndStorePhoto, isValidImportEmail } from "./import-db-helpers";
 
@@ -60,7 +61,10 @@ export interface TrackerState {
 }
 
 export interface PersonImportInput {
-  record: PeopleRecord;
+  /** Raw pipeline record — mapped internally via mapPeopleRecord. */
+  record?: PeopleRecord;
+  /** Pre-mapped person (bundle syncs map payloads themselves). Wins over record. */
+  mapped?: MappedPerson;
   tracker?: TrackerState | null;
 }
 
@@ -68,10 +72,16 @@ export interface PersonImportResult {
   linkedin_url: string | null;
   name: string | null;
   status: "created" | "updated" | "skipped_suppressed" | "error";
+  /** Contact row the person landed in (created or merged into). */
+  contact_id?: number;
   network_status?: string;
   warnings: string[];
   persona_conflict?: { existing: string; incoming: string };
   employment?: { inserted: number; updated: number; deleted: number };
+  /** Contact-table patch applied on the update path — lets bundle sync
+   * compute post-apply fingerprints from the pre-snapshot without a
+   * TOCTOU-prone re-read. */
+  applied_patch?: Record<string, unknown>;
   photo?: "stored" | "skipped" | "none";
   error?: string;
 }
@@ -79,6 +89,23 @@ export interface PersonImportResult {
 export interface ChunkImportSummary {
   results: PersonImportResult[];
   offices_established: number;
+}
+
+export interface ImportChunkOptions {
+  /** Import batch label appended to import_source (pipeline policy only). */
+  batch?: string;
+  /** 'pipeline' (default, original behavior), 'bundle' (strict fill-empty,
+   * create-only provenance, additive employment, no photo phase), or
+   * 'rescrape' (CAR-15 in-app re-scrape: observed-data-only patch, manual
+   * roles protected via the 'reconcile' collision strategy, suppression
+   * skipped, never creates contacts). */
+  mergePolicy?: MergePolicy;
+  /** First line of the notes field on newly created contacts. */
+  noteLabel?: string;
+  /** Skip the best-effort photo phase entirely. */
+  skipPhotos?: boolean;
+  /** Rescrape-only hooks (e.g. the scrape-diff capture). */
+  hooks?: ImportHooks;
 }
 
 /**
@@ -135,10 +162,11 @@ export async function importPeopleChunk(
   supabase: SupabaseClient,
   userId: string,
   people: PersonImportInput[],
-  batch?: string,
-  mode: "import" | "rescrape" = "import",
-  hooks: ImportHooks = {},
+  batchOrOpts?: string | ImportChunkOptions,
 ): Promise<ChunkImportSummary> {
+  const opts: ImportChunkOptions =
+    typeof batchOrOpts === "string" ? { batch: batchOrOpts } : (batchOrOpts ?? {});
+  const policy: MergePolicy = opts.mergePolicy ?? "pipeline";
   const now = new Date().toISOString();
   const results: PersonImportResult[] = [];
   const working: WorkingPerson[] = [];
@@ -146,7 +174,10 @@ export async function importPeopleChunk(
   // ── Map every record; contract violations become per-record errors ──
   for (const input of people) {
     try {
-      const mapped = mapPeopleRecord(input.record, { batch });
+      if (!input.mapped && !input.record) {
+        throw new ScrapeMappingError("Input has neither a record nor a pre-mapped person");
+      }
+      const mapped = input.mapped ?? mapPeopleRecord(input.record!, { batch: opts.batch });
       working.push({
         input,
         mapped,
@@ -160,8 +191,8 @@ export async function importPeopleChunk(
       });
     } catch (err) {
       results.push({
-        linkedin_url: (input.record as PeopleRecord)?.identity?.linkedin_url ?? null,
-        name: (input.record as PeopleRecord)?.identity?.name ?? null,
+        linkedin_url: input.mapped?.linkedin_url ?? input.record?.identity?.linkedin_url ?? null,
+        name: input.mapped?.name ?? input.record?.identity?.name ?? null,
         status: "error",
         warnings: [],
         error: err instanceof ScrapeMappingError ? err.message : "Failed to map record",
@@ -177,7 +208,7 @@ export async function importPeopleChunk(
   // wrongly skip a contact whose URL was previously tombstoned).
   const urls = working.map((w) => w.mapped.linkedin_url);
   const suppressed = new Set<string>();
-  if (mode !== "rescrape") {
+  if (policy !== "rescrape") {
     const { data: suppressedRows } = await supabase
       .from("suppressed_imports")
       .select("linkedin_url")
@@ -373,14 +404,14 @@ export async function importPeopleChunk(
       }
 
       if (existing) {
-        await updateExistingPerson(supabase, w, existing, profileLocationId, now, mode, hooks);
-      } else if (mode === "rescrape") {
+        await updateExistingPerson(supabase, w, existing, profileLocationId, now, policy, opts.hooks);
+      } else if (policy === "rescrape") {
         // A rescrape targets an existing contact; if it vanished (deleted
         // mid-run), record it rather than resurrecting it from thin data.
         w.result.status = "error";
         w.result.error = "Contact not found for rescrape";
       } else {
-        await createNewPerson(supabase, userId, w, profileLocationId, now, batch);
+        await createNewPerson(supabase, userId, w, profileLocationId, now, opts);
       }
       results.push(w.result);
     } catch (err) {
@@ -397,6 +428,10 @@ export async function importPeopleChunk(
   for (const w of working) {
     if (!w.contactId || !w.mapped.photo_url) {
       if (w.result.status === "created" || w.result.status === "updated") w.result.photo = "none";
+      continue;
+    }
+    if (opts.skipPhotos) {
+      w.result.photo = "skipped";
       continue;
     }
     if (Date.now() > deadline) {
@@ -422,11 +457,13 @@ async function createNewPerson(
   w: WorkingPerson,
   profileLocationId: number | null,
   now: string,
-  batch?: string,
+  opts: ImportChunkOptions,
 ) {
   const { mapped, input } = w;
+  const noteLabel =
+    opts.noteLabel ?? `Imported from PM recruiting pipeline${opts.batch ? ` (${opts.batch})` : ""}`;
   const initialNotes = [
-    `Imported from PM recruiting pipeline${batch ? ` (${batch})` : ""} on ${new Date(now).toLocaleDateString()}`,
+    `${noteLabel} on ${new Date(now).toLocaleDateString()}`,
     mapped.history_highlights,
   ]
     .filter(Boolean)
@@ -460,6 +497,7 @@ async function createNewPerson(
   w.contactId = contactId;
   w.created = true;
   w.result.status = "created";
+  w.result.contact_id = contactId;
   w.result.network_status = mapped.network_status;
 
   // Email
@@ -506,24 +544,27 @@ async function updateExistingPerson(
     network_status: string;
     location_id: number | null;
     headline: string | null;
+    public_identifier: string | null;
   },
   profileLocationId: number | null,
   now: string,
-  mode: "import" | "rescrape" = "import",
+  policy: MergePolicy,
   hooks: ImportHooks = {},
 ) {
   const { mapped } = w;
   const contactId = existing.id;
   w.contactId = contactId;
   w.result.status = "updated";
+  w.result.contact_id = contactId;
 
-  const { patch, personaConflict } = computeContactPatch(existing, mapped, now, profileLocationId, mode);
+  const { patch, personaConflict } = computeContactPatch(existing, mapped, now, profileLocationId, policy);
   if (personaConflict) w.result.persona_conflict = personaConflict;
   // Keep the canonical URL current (fixes pre-normalizer variants and
   // internal-id → vanity upgrades matched via public_identifier)
   patch.linkedin_url = mapped.linkedin_url;
   const { error: patchError } = await supabase.from("contacts").update(patch).eq("id", contactId);
   if (patchError) throw new Error(`Contact update failed: ${patchError.message}`);
+  w.result.applied_patch = patch;
   w.result.network_status = (patch.network_status as string | undefined) ?? existing.network_status;
 
   // Emails: monotonic upgrade only
@@ -573,10 +614,9 @@ async function updateExistingPerson(
     (existingEmpRows as ExistingEmploymentRow[] | null) ?? [],
     w.employment.map((e) => e.incoming),
     now,
-    // Enrich/rescrape: "reconcile" a same-company current-role collision —
-    // supersede AI-parsed ('extension') and stale 'scraped' rows with the fresh
-    // scrape, but never touch a user-typed 'manual' row (plan 29 M2).
-    { currentCollisionStrategy: mode === "rescrape" ? "reconcile" : "insert" },
+    // Rescrape reconciles same-company current-role collisions by provenance
+    // (supersede AI-parsed/scraped rows, never manual — plan 29 M2).
+    { policy, currentCollisionStrategy: policy === "rescrape" ? "reconcile" : "insert" },
   );
   if (plan.inserts.length > 0) {
     const { error: insError } = await supabase

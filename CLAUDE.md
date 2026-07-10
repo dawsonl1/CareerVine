@@ -1,34 +1,88 @@
 # Agent Instructions
 
-Read this entire file before starting any task.
+Read both sections below before starting any task.
 
 ## Self-Correcting Rules Engine
 
-This file contains a growing ruleset that improves over time. **At session start, read the entire "Learned Rules" section before doing anything.**
+Two authoritative parts:
+
+- **`## Workflows`** — canonical process, edited in place to stay current. **On any overlap or conflict with a Learned Rule, Workflows wins** (rules absorbed there are archived).
+- **`## Learned Rules`** — append-only log of corrections and preferences. Between conflicting rules, the higher number (newer) wins.
 
 ### How it works
 
-1. When the user corrects you or you make a mistake, **immediately append a new rule** to the "Learned Rules" section at the bottom of this file.
-2. Rules are numbered sequentially and written as clear, imperative instructions.
-3. Format: `N. [CATEGORY] Never/Always do X — because Y.`
-4. Categories: `[STYLE]`, `[CODE]`, `[ARCH]`, `[TOOL]`, `[PROCESS]`, `[DATA]`, `[UX]`, `[OTHER]`
-5. Before starting any task, scan all rules below for relevant constraints.
-6. If two rules conflict, the higher-numbered (newer) rule wins.
-7. Never delete rules. If a rule becomes obsolete, append a new rule that supersedes it.
+1. When Dawson corrects you, rejects an approach, states a preference, or a wrong assumption causes a bug: **immediately append a rule**, rephrased as a precise imperative — `N. [CATEGORY] Never/Always do X — because Y.` Categories: `[STYLE] [CODE] [ARCH] [TOOL] [PROCESS] [DATA] [UX] [OTHER]`.
+2. **Never delete or renumber.** An obsolete rule gets a newer superseding rule (or an inline ⚠️ note). A rule fully absorbed into Workflows or superseded moves **verbatim** to `.claude/rules-archive.md` — the numbering gap stays, the audit trail survives.
 
-### When to add a rule
+---
 
-- User explicitly corrects your output ("no, do it this way")
-- User rejects a file, approach, or pattern
-- You hit a bug caused by a wrong assumption about this codebase
-- User states a preference ("always use X", "never do Y")
+## Workflows
 
-### Rule format example
+Canonical, stable process for this project — edited in place to stay accurate, and authoritative over older Learned Rules. Rules fully absorbed here live in `.claude/rules-archive.md`.
+
+### Linear tickets
+
+Project is managed through Linear — team **"Career Vine"**, ticket prefix **`CAR-`**. All **product work** happens on a ticket (app, extension, MCP server, migrations, shipped tooling); meta-work on agent process files (CLAUDE.md, memory, config) needs none (rule 25).
+
+1. **Before starting any task**, search existing issues (`list_issues`, team "Career Vine"). Reuse a relevant ticket if one exists; otherwise create one in the "Career Vine" team, assigned to Dawson.
+2. **Status flips and plan/PR posts are automated** on ticket-named branches — see "Linear automation" under Worktree lifecycle. Don't do the hooks' job by hand; do verify it happened.
+3. **You still own the rich updates**: progress comments at meaningful steps (slice landed, tests passing), the `manual-steps` checklist, and everything on `main` or non-ticket branches (there, handle status flips yourself via MCP).
+
+### Worktree lifecycle (branching & PRs)
+
+Feature work happens in **worktrees off `main`**, one Linear issue per worktree, with Linear kept in sync automatically by the hooks in `.claude/hooks/` (registered in `.claude/settings.json`, powered by `$LINEAR_API_KEY`). The lifecycle:
+
+1. **Open** — `git worktree add .claude/worktrees/CAR-XX-slug -b dawson/CAR-XX-slug main`. Worktree dir and branch are **both named after the ticket** — the branch name is what binds every automatic Linear update to the right issue. If no issue exists yet, create one first.
+2. **Plan** — write `.claude/plans/NN-CAR-XX-slug.md`. *(Hook: plan is posted to the issue + issue flips to In Progress.)*
+3. **Implement** — build, test, fix. Commit/push to the feature branch freely.
+4. **PR** — sync from `main` first (merge it **into** the branch), confirm tests pass (rule 4), then `gh pr create` with `(CAR-XX)` in the title (established convention, e.g. `Add BYO Deepgram API key for transcription (CAR-30)`) and a body covering what/why and how it was verified. *(Hook: issue flips to In Review + PR link recorded.)* Opening the PR is the end of the agent's autonomous path — stop here and wait.
+5. **Merge** — **only on Dawson's explicit go-ahead, per PR. Rule 14's auto-push authority covers direct commits, NOT merging PRs — never self-merge.** Then `gh pr merge --merge` (merge commit; never rebase; no `--delete-branch` — the cleanup skill owns branch deletion). **Merging deploys production** via Vercel: if the PR contains migrations, Claude applies them itself immediately after merging — `supabase db push --dry-run`, review the plan, then `supabase db push` (rule 27; Dawson never runs supabase commands). *(Hook: issue flips to Done.)*
+6. **Clean up** — when Dawson says "clean up this worktree", run the **`worktree-cleanup` skill** (`.claude/skills/worktree-cleanup/`). It gates deletion on: PR merged, tree clean, issue Done, and **all manual steps surfaced** — then removes the worktree and both branches.
+
+**Risk-based exception:** small, single-file, no-schema, no-new-domain changes may commit directly to `main` (rule 14) without a worktree.
+
+**Never** rebase or force-push `main` or any shared/already-pushed branch. Keep branches current by merging `main` in, so conflicts surface early (where the merge-conflict tooling engages).
+
+**Manual steps are Linear's, not the conversation's:** anything Dawson must genuinely do by hand (Vercel env vars, OAuth grants, external dashboards) gets upserted to the issue as a `<!-- manual-steps -->` checklist the moment it's identified — conversations get deleted; Linear survives. Migrations are never on this list — Claude applies them (rule 27).
+
+**Linear automation — how to work with it:**
+
+- **Hooks own** (only on branches containing `CAR-XX`): plan post + In Progress on plan write; In Review + PR link on `gh pr create`; Done on `gh pr merge`. **Don't duplicate these** — no manual state flips or plan-posting at those moments.
+- **Agents own**: creating/choosing the issue, progress comments at meaningful steps, the `manual-steps` checklist, and all Linear updates when the automation can't bind (work on `main`, branch without `CAR-XX`).
+- **Comment markers** — issue comments are upserted, keyed by an HTML marker on the first line: `<!-- plan-sync -->` (plan), `<!-- pr-link -->` (PR URL), `<!-- manual-steps -->` (Dawson's checklist), `<!-- progress -->` (status summary). Reuse these markers (via MCP or `.claude/hooks/lib/linear.sh`'s `linear_upsert_comment`) instead of posting duplicate comments.
+- **Hooks fail silent by design** (missing `$LINEAR_API_KEY`, unnamed branch, API hiccup) so they never block git. So **verify, don't assume**: after a plan write / PR create / PR merge, check the issue state and repair via MCP if a flip was missed. State changes only move forward (Backlog→Todo→In Progress→In Review→Done); hooks never downgrade, and neither should you without Dawson asking.
+
+### Merge conflicts → `merge-conflict-tool` plugin
+
+On **any** git `CONFLICT` (merge, rebase, or cherry-pick), the **`merge-conflict-tool`** skill is the required resolution process. Do **not** hand-resolve, do **not** `git checkout --ours/--theirs` on a content conflict, and do **not** delete conflict markers manually outside that workflow.
+
+**Setup (one-time, interactive — cannot be done from a non-interactive session):**
 
 ```
-15. [STYLE] Never add emojis to commit messages — project convention.
-
+/plugin marketplace add dawsonl1/merge-conflict-tool
+/plugin install merge-conflict-tool@dawson-plugins
 ```
+
+Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict and the skill isn't installed in the current environment**, load and follow it manually from `~/Projects/claude-plugins/merge-conflict-tool/plugins/merge-conflict-tool/skills/merge-conflict-tool/SKILL.md`.
+
+**CareerVine calibration for the skill:**
+
+- **Verification commands:** `npm run test` and `npm run build`, both run from `careervine/`; plus the Supabase migration consistency check whenever migrations are touched.
+- **Generated files — never hand-merge, regenerate instead:** `careervine/**/database.types.ts` (regenerate via `supabase gen types`) and the lockfile.
+- **Risky surfaces (extra care / halt-and-ask):** Supabase migrations (see rules 10 + 12), MCP OAuth/bearer auth, bundle billing, `vercel.json` / deploy config, and secrets.
+- Visual verification uses the Playwright MCP (installed) — required for any frontend change in the merge result.
+
+### Plan files
+
+- **Location:** repo-root `.claude/plans/`.
+- **Naming:** `NN-CAR-XX-slug.md` — a two-digit sequential prefix (highest existing number + 1) plus the Linear ticket, e.g. `31-car-18-add-companies-without-contacts.md`. One plan file per ticket; never reuse a number.
+- Write a plan before starting any non-trivial feature.
+
+### Testing, deploy & QA (pointers)
+
+- Run `npm run test` (Vitest) from `careervine/` and ensure coverage for new/changed code before committing (rules 3, 4).
+- Don't browser-verify every UI change — reserve previews for high-risk work (rule 13).
+- Push to `main` auto-deploys; env-var changes require a redeploy, empty commit being the established pattern (rule 16). Migrations: Claude applies them itself on landing — dry-run then `supabase db push` (rule 27); never ad-hoc SQL (rule 10).
 
 ---
 
@@ -36,9 +90,9 @@ This file contains a growing ruleset that improves over time. **At session start
 
 <!-- New rules are appended below this line. Do not edit above this section. -->
 
-1. [PROCESS] Always rephrase user-provided rules into precise, unambiguous language optimized for LLM instruction-following before appending them — because the user's phrasing may be conversational, and rules are most effective when written as clear, direct imperatives with explicit scope and rationale.
+> **Archived:** rules 2, 6, 9, 11, 18–23 (superseded or absorbed into Workflows) → `.claude/rules-archive.md`, verbatim. Numbering is never reused — next new rule is 26.
 
-2. [PROCESS] Commit and push to remote frequently (after each meaningful change or logical unit of work) — because the user is working via SSH through VS Code and cannot run the dev server on this machine. They pull and test locally on a separate machine, so they need changes pushed promptly to iterate.
+1. [PROCESS] Always rephrase user-provided rules into precise, unambiguous language optimized for LLM instruction-following before appending them — because the user's phrasing may be conversational, and rules are most effective when written as clear, direct imperatives with explicit scope and rationale.
 
 3. [CODE] When adding new functionality or modifying existing code, always ensure adequate test coverage exists for the changes and remove or update any stale tests that no longer reflect current behavior — because outdated tests give false confidence and missing tests let regressions slip through.
 
@@ -46,20 +100,30 @@ This file contains a growing ruleset that improves over time. **At session start
 
 5. [UX] Prioritize user experience above all else. Every UI decision must favor clean, intuitive design that serves real functionality and utility — never add visual clutter, unnecessary complexity, or decorative elements that don't help the user accomplish their goals. The product exists to meaningfully improve users' lives, so every interaction should feel effortless and purposeful.
 
-6. [PROCESS] Always write implementation plans to `/home/braxtong/Dawson/CareerVine/.claude/plans/` as a markdown file before starting non-trivial features — because the user wants plans persisted and reviewable on disk, not just in conversation context.
-
 7. [PROCESS] After completing a user-facing feature, update the project README to reflect the new capability from a product perspective — describe what the feature does for the user and why it matters, not implementation details. The README should read like a product page that sells the app's value, not a technical changelog.
 
 8. [PROCESS] Always run `git pull` before pushing — because the user frequently pushes empty commits from their local machine to retrigger Vercel deployments (hobby plan limitation), which causes the remote to diverge from this machine's local history. A pre-push pull prevents rejected pushes.
 
-9. [PROCESS] Always number plan files in `.claude/plans/` with a two-digit sequential prefix (e.g., `19-feature-name.md`). Check the highest existing number and increment by one — because the user navigates plans by number, not alphabetically.
-
 10. [DATA] Never run SQL directly against the production Supabase database — because ad-hoc queries bypass migration tracking and can cause schema drift. All schema changes must go through migration files only.
-
-11. [PROCESS] Database migrations are applied to production by the user on their local machine via `git pull`, then `supabase db push` — because the user manages Supabase CLI auth and deployment locally. This machine should only create migration files and commit/push them.
 
 12. [DATA] Never assume a schema/types mismatch means the types file is wrong — check `git log --all -- "*.sql"` for deleted migrations first. Migrations originally lived at `careervine/supabase/migrations/` and moved to root `supabase/migrations/`; `20250217_add_location_to_contact_companies.sql` was deleted in that move (commit `9c718fe`) without being re-created, so `contact_companies.location` existed in production untracked until re-added in `20260707000000_company_pages_and_scrape_import.sql`. Production may contain schema from other lost migrations.
 
 13. [PROCESS] Do not verify every UI change with browser previews and screenshots by default — the user reviews changes themselves, and repeated preview/screenshot cycles slow the iteration loop. Use the preview browser only for high-risk changes (layout restructuring, breakpoint logic), when the user explicitly asks for verification, or when debugging requires observing runtime behavior.
 
 14. [PROCESS] When a task includes code or migration changes, automatically commit and push completed, validated work to `main` without asking for additional confirmation — because the user explicitly prefers an automatic commit/push workflow instead of repeated approval prompts.
+    > ⚠️ Scope (2026-07-09): this authority covers **direct commits** on the risk-based path (Workflows → Worktree lifecycle) — it does NOT extend to merging PRs (never self-merge) and does not bypass the worktree+PR path for feature domains, migrations, or multi-file changes.
+
+15. [PROCESS] Claude Code now runs directly on the user's Mac with authenticated `supabase` and `vercel` CLIs (supersedes the SSH-era assumptions behind rules 2 and 11): when the user explicitly asks Claude to handle deployment end-to-end, Claude may verify/apply migrations (`supabase db push`, dry-run first) and trigger/monitor Vercel deployments itself — because the user granted this on 2026-07-09 ("do everything for me") and the local environment has the required auth.
+    > ⚠️ The "when explicitly asked" condition is SUPERSEDED by rule 27 — applying migrations is now standing authority, no per-task request needed.
+
+16. [PROCESS] Vercel Git auto-deployments on `main` are re-enabled as of 2026-07-09 (the `vercel.json` that disabled them was deleted): every push to `main` deploys production automatically, and environment-variable changes take effect only on the next deployment — so after changing Vercel env vars, trigger a redeploy (empty commit is the established pattern) before relying on them.
+
+17. [CODE] Never detect the success of a conditional Supabase UPDATE via `.select()` on the same query when the update modifies a column that the query's filters test (CAS/claim patterns like `update({lock: x}).is("lock", null).select()`) — PostgREST re-applies the request filters to the RETURNING representation, so a successful update returns empty rows and reads as a failure. Use `.update(payload, { count: "exact" })` and check the count instead. Found live on the first bundle publish (2026-07-09); the same trap silently zeroed finalizePublish's removal count.
+
+24. [PROCESS] Dawson intentionally pastes secret values into chat for Claude to handle — store them in `~/.config/claude/secrets.zsh`, wire them up, and move on. Do not treat pasted secrets as compromised, do not recommend rotation, do not add security caveats about it. (Preference set 2026-07-09; also reflected in global CLAUDE.md Secret handling.)
+
+25. [PROCESS] Linear tickets (rule 18) are required only for work on the product itself — the CareerVine app, extension, MCP server, migrations, and repo tooling that ships with it. Meta-work on agent process files (CLAUDE.md audits/edits, memory, agent config housekeeping) needs no ticket — because Linear tracks the website/product, not Claude's own process maintenance. Narrows rule 18's "every task." (Correction from Dawson, 2026-07-09.)
+
+26. [PROCESS] Never ask Dawson to do something Claude can do itself — exhaust the shell, authenticated CLIs (`gh`, `supabase`, `vercel`, `claude`), the keys in `secrets.zsh`, MCP connectors, and browser control before delegating anything to him. Interactive-looking tasks usually have non-interactive equivalents (`/plugin` TUI ≙ `claude plugin` CLI). Only hand him what genuinely requires him (a decision, an OAuth prompt, a value only he can obtain), request the minimal input rather than a procedure, and state why it can't be done for him — because Dawson's time is the scarce resource and self-service is the point of the agent. (Preference set 2026-07-09; also in global CLAUDE.md preferences.)
+
+27. [PROCESS] Claude applies Supabase migrations itself as **standing authority** — Dawson never runs `supabase` commands. Supersedes rule 15's "when explicitly asked" condition. The moment migration-carrying work lands on `main` (PR merge or direct commit), run `supabase db push --dry-run`, review the plan, then `supabase db push` — and never put `supabase db push` on Dawson's manual-steps checklist again. Rule 10 stands untouched: schema changes go through migration files only, never ad-hoc SQL. (Correction from Dawson, 2026-07-09.)

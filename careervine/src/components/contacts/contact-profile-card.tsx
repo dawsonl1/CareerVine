@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, type ChangeEvent } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useToast } from "@/components/ui/toast";
 import { useCompose } from "@/components/compose-email-context";
@@ -12,7 +12,15 @@ import {
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { ResolveLinkedinModal } from "@/components/contacts/resolve-linkedin-modal";
 import { SCRAPE_FAILURES_BEFORE_RELINK } from "@/lib/constants";
-import { updateContact, addEmailToContact, removeEmailsFromContact, activateContact } from "@/lib/queries";
+import {
+  updateContact,
+  addEmailToContact,
+  removeEmailsFromContact,
+  activateContact,
+  uploadContactPhoto,
+  removeContactPhoto,
+} from "@/lib/queries";
+import { validateContactPhotoFile } from "@/lib/contact-photo";
 import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import type { Contact } from "@/lib/types";
 
@@ -43,6 +51,8 @@ export function ContactProfileCard({
   const [editingEmail, setEditingEmail] = useState(false);
   const [emailValue, setEmailValue] = useState("");
   const emailInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   // Cadence dropdown
   const [cadenceOpen, setCadenceOpen] = useState(false);
@@ -165,6 +175,47 @@ export function ContactProfileCard({
     }
   };
 
+  const handlePhotoUploadClick = () => {
+    if (!photoBusy) photoInputRef.current?.click();
+  };
+
+  const handlePhotoSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const validationError = validateContactPhotoFile(file);
+    if (validationError) {
+      toastError(validationError);
+      return;
+    }
+
+    setPhotoBusy(true);
+    try {
+      await uploadContactPhoto(userId, contact.id, file);
+      onContactUpdate();
+      toastSuccess("Profile photo updated");
+    } catch {
+      toastError("Failed to upload profile photo");
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const handlePhotoRemove = async () => {
+    if (!contact.photo_url || photoBusy) return;
+    setPhotoBusy(true);
+    try {
+      await removeContactPhoto(userId, contact.id);
+      onContactUpdate();
+      toastSuccess("Profile photo removed");
+    } catch {
+      toastError("Failed to remove profile photo");
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
   return (
     <div className="rounded-[16px] border border-outline-variant p-6">
       {/* Profile hero */}
@@ -181,6 +232,33 @@ export function ContactProfileCard({
                 : ""
           }
         />
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          className="hidden"
+          onChange={handlePhotoSelected}
+        />
+        <div className="mb-4 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handlePhotoUploadClick}
+            disabled={photoBusy}
+            className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 cursor-pointer"
+          >
+            {photoBusy ? "Uploading..." : "Upload photo"}
+          </button>
+          {contact.photo_url && (
+            <button
+              type="button"
+              onClick={handlePhotoRemove}
+              disabled={photoBusy}
+              className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-50 cursor-pointer"
+            >
+              Remove
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-2.5">
           <h1 className="text-xl font-medium text-foreground">{contact.name}</h1>
           {contact.contact_status && (

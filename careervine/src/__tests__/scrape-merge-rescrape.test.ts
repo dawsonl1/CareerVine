@@ -77,13 +77,13 @@ describe("computeContactPatch — rescrape mode (B1)", () => {
     expect(patch.name).toBe("Jane Doe");
   });
 
-  it("import mode is unchanged (regression guard)", () => {
-    const { patch } = computeContactPatch(existing, rescrapeMapped, NOW, null, "import");
+  it("pipeline policy is unchanged (regression guard)", () => {
+    const { patch } = computeContactPatch(existing, rescrapeMapped, NOW, null, "pipeline");
     expect(patch.import_source).toBe("apify:rescrape");
     expect(patch.network_status).toBe("prospect"); // bench follows incoming
   });
 
-  it("defaults to import mode when no mode is passed", () => {
+  it("defaults to pipeline policy when none is passed", () => {
     const { patch } = computeContactPatch(existing, rescrapeMapped, NOW, null);
     expect(patch.import_source).toBe("apify:rescrape");
   });

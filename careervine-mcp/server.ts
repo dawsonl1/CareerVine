@@ -18,12 +18,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadEnv } from "./lib/env.ts";
-import { initDb } from "./lib/db.ts";
-import { registerContactTools } from "./tools/contacts.ts";
-import { registerEmailTools } from "./tools/email.ts";
-import { registerOutreachTools } from "./tools/outreach.ts";
-import { registerUpkeepTools } from "./tools/upkeep.ts";
-import { registerCalendarTools } from "./tools/calendar.ts";
+import { initDb } from "@/mcp/lib/db";
+import { registerAllTools } from "@/mcp/register-tools";
 
 async function main() {
   const { userId } = await loadEnv();
@@ -34,11 +30,7 @@ async function main() {
     version: "1.0.0",
   });
 
-  registerContactTools(server);
-  registerEmailTools(server);
-  registerOutreachTools(server);
-  registerUpkeepTools(server);
-  registerCalendarTools(server);
+  registerAllTools(server);
 
   await server.connect(new StdioServerTransport());
   console.error("careervine MCP server ready (stdio)");

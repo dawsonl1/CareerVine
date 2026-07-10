@@ -1,5 +1,5 @@
 export default function PrivacyPolicyPage() {
-  const lastUpdated = "February 18, 2026";
+  const lastUpdated = "July 8, 2026";
 
   return (
     <div className="min-h-screen bg-background">
@@ -54,7 +54,9 @@ export default function PrivacyPolicyPage() {
               <li>To provide and operate the CareerVine service</li>
               <li>To sync and display your Gmail and Google Calendar data within the app</li>
               <li>To parse LinkedIn profiles using AI when you use the Chrome extension</li>
-              <li>To generate AI-written emails using OpenAI when you use the &quot;Write with AI&quot; feature</li>
+              <li>To generate AI-written emails, parse transcripts, and power follow-up suggestions using OpenAI</li>
+              <li>If you provide your own OpenAI API key, to route your AI requests through your OpenAI account instead of ours</li>
+              <li>To transcribe audio/video recordings you upload using Deepgram — or, if you provide your own Deepgram API key, through your Deepgram account instead of ours</li>
               <li>To send you follow-up reminder emails if you configure them</li>
               <li>We do not sell your data to third parties</li>
               <li>We do not use your data for advertising</li>
@@ -73,8 +75,12 @@ export default function PrivacyPolicyPage() {
                 <p>When you connect your Google account, we use Gmail and Google Calendar APIs. CareerVine&apos;s use of Google user data complies with the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-foreground mb-1">OpenAI</h3>
-                <p>Profile data extracted via the Chrome extension and email drafts generated with &quot;Write with AI&quot; are processed by OpenAI&apos;s API. See <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">OpenAI&apos;s Privacy Policy</a>.</p>
+                <h3 className="text-sm font-medium text-foreground mb-1">OpenAI (optional BYO key)</h3>
+                <p>By default, AI features (email drafting, transcript parsing, follow-up suggestions, LinkedIn profile parsing) are processed using CareerVine&apos;s shared OpenAI API key. If you add your own OpenAI API key in Settings → AI, your key is encrypted before storage and used server-side only for your requests — we never return it to your browser. You may optionally enable OpenAI&apos;s data-sharing program on your own account for free daily tokens; if you do, prompts sent through your key (which can include contact names and conversation content) may be used by OpenAI per their policies. See <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">OpenAI&apos;s Privacy Policy</a>.</p>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Deepgram (optional BYO key)</h3>
+                <p>When you upload an audio or video recording of a meeting, the audio is sent to Deepgram to produce a transcript. By default this uses CareerVine&apos;s shared Deepgram API key. If you add your own Deepgram API key in Settings → AI, your key is encrypted before storage and used server-side only for your requests — we never return it to your browser, and transcription runs on your Deepgram account instead. See <a href="https://deepgram.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Deepgram&apos;s Privacy Policy</a>.</p>
               </div>
             </div>
           </section>

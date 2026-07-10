@@ -208,6 +208,29 @@ describe('withApiHandler', () => {
       expect(data.error).toBe('Not found');
     });
 
+    it('echoes a machine code when the ApiError carries one', async () => {
+      const handler = withApiHandler({
+        handler: async () => {
+          throw new ApiError('No OpenAI key available', 402, 'ai_no_key');
+        },
+      });
+
+      const { status, data } = await callHandler(handler, makeRequest('GET'));
+      expect(status).toBe(402);
+      expect(data).toEqual({ error: 'No OpenAI key available', code: 'ai_no_key' });
+    });
+
+    it('omits the code field when the ApiError has none', async () => {
+      const handler = withApiHandler({
+        handler: async () => {
+          throw new ApiError('Not found', 404);
+        },
+      });
+
+      const { data } = await callHandler(handler, makeRequest('GET'));
+      expect(data).not.toHaveProperty('code');
+    });
+
     it('returns 500 for unexpected errors', async () => {
       const handler = withApiHandler({
         handler: async () => {

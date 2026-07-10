@@ -5,7 +5,10 @@
  *   1. Account: profile + password
  *   2. Integrations: Gmail + Google Calendar connections
  *   3. Availability: working hours + busy calendars
- *   4. AI Templates: custom email generation prompts
+ *   4. AI: BYO OpenAI (text AI) + Deepgram (transcription) API keys
+ *   5. AI Templates: custom email generation prompts
+ *   6. Data subscriptions: curated prospect/company bundles
+ *   7. Data & Scraping: LinkedIn re-scrape spend, run health, cadence status
  */
 
 "use client";
@@ -16,15 +19,19 @@ import Navigation from "@/components/navigation";
 import AccountSection from "@/components/settings/account-section";
 import IntegrationsSection from "@/components/settings/integrations-section";
 import AvailabilitySection from "@/components/settings/availability-section";
+import AiKeySection from "@/components/settings/ai-key-section";
 import TemplatesSection from "@/components/settings/templates-section";
+import DataSubscriptionsSection from "@/components/settings/data-subscriptions-section";
 import DataScrapingSection from "@/components/settings/data-scraping-section";
-import { User, Plug, Calendar, Sparkles, RefreshCw } from "lucide-react";
+import { User, Plug, Calendar, Bot, Sparkles, Database, RefreshCw } from "lucide-react";
 
 const tabs = [
   { id: "account", label: "Account", icon: User },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "availability", label: "Availability", icon: Calendar },
+  { id: "ai", label: "AI", icon: Bot },
   { id: "templates", label: "AI Templates", icon: Sparkles },
+  { id: "data", label: "Data subscriptions", icon: Database },
   { id: "scraping", label: "Data & Scraping", icon: RefreshCw },
 ] as const;
 
@@ -113,7 +120,9 @@ function SettingsPage() {
             {activeTab === "account" && <AccountSection />}
             {activeTab === "integrations" && <IntegrationsSection />}
             {activeTab === "availability" && <AvailabilitySection />}
+            {activeTab === "ai" && <AiKeySection />}
             {activeTab === "templates" && <TemplatesSection />}
+            {activeTab === "data" && <DataSubscriptionsSection />}
             {activeTab === "scraping" && <DataScrapingSection />}
           </div>
         </div>

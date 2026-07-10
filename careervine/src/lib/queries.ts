@@ -15,7 +15,8 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import type { Database } from "@/lib/database.types";
 import { RECENTLY_ADDED_DAYS, SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
-import { suppressionTombstoneUrl } from "@/lib/suppression-helpers";
+import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
+import { validateContactPhotoFile } from "@/lib/contact-photo";
 
 // Create a single Supabase client instance for browser-side operations
 const supabase = createSupabaseBrowserClient();
@@ -281,8 +282,7 @@ export async function getFreshJobChangeContactIds(contactIds: number[]): Promise
  * @throws Error if deletion fails
  */
 export async function deleteContact(id: number) {
-  // Delete the contact and return the fields needed for storage cleanup and
-  // the suppression tombstone (single round-trip)
+  // Delete the contact and return cleanup/tombstone fields (single round-trip)
   const { data: contact, error } = await supabase
     .from("contacts")
     .delete()
@@ -292,32 +292,33 @@ export async function deleteContact(id: number) {
 
   if (error) throw error;
 
-  // Tombstone scrape-imported contacts so the next bulk import doesn't resurrect them
-  const tombstoneUrl = contact ? suppressionTombstoneUrl(contact) : null;
-  if (tombstoneUrl && contact.user_id) {
-    try {
+  // Imported contacts get a suppression tombstone so background re-imports
+  // (pipeline tranches, bundle syncs) can't silently resurrect a contact
+  // the user deleted. Manual contacts skip this — nothing re-imports them,
+  // and a tombstone would block a future intentional import of the person.
+  if (contact?.import_source && contact.linkedin_url && contact.user_id) {
+    const canonical = canonicalizeLinkedinUrl(contact.linkedin_url);
+    if (canonical) {
       // A surviving duplicate contact with the same URL still wants import
-      // refreshes — suppressing it would silently freeze that contact
+      // refreshes — suppressing it would silently freeze that contact.
       const { data: survivor } = await supabase
         .from("contacts")
         .select("id")
         .eq("user_id", contact.user_id)
-        .eq("linkedin_url", tombstoneUrl)
+        .eq("linkedin_url", canonical)
         .limit(1)
         .maybeSingle();
       if (!survivor) {
-        const { error: suppressError } = await supabase
+        const { error: tombstoneError } = await supabase
           .from("suppressed_imports")
           .upsert(
-            { user_id: contact.user_id, linkedin_url: tombstoneUrl },
+            { user_id: contact.user_id, linkedin_url: canonical },
             { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
           );
-        if (suppressError) throw suppressError;
+        if (tombstoneError) {
+          console.warn(`[deleteContact] Tombstone write failed for contact ${id}:`, tombstoneError);
+        }
       }
-    } catch (err) {
-      // Tombstone failure should not block — the contact is already deleted;
-      // worst case it resurrects on the next import and can be deleted again
-      console.warn(`[deleteContact] Suppression tombstone failed for contact ${id}:`, err);
     }
   }
 
@@ -331,6 +332,53 @@ export async function deleteContact(id: number) {
       console.warn(`[deleteContact] Photo cleanup failed for contact ${id}:`, err);
     }
   }
+}
+
+/**
+ * Upload and persist a contact photo in Supabase storage, then update the
+ * contact's photo_url with a cache-busted public URL.
+ */
+export async function uploadContactPhoto(userId: string, contactId: number, file: File) {
+  const validationError = validateContactPhotoFile(file);
+  if (validationError) throw new Error(validationError);
+
+  const storagePath = `${userId}/${contactId}.jpg`;
+  const { error: uploadError } = await supabase.storage
+    .from("contact-photos")
+    .upload(storagePath, file, {
+      contentType: file.type,
+      upsert: true,
+    });
+  if (uploadError) throw uploadError;
+
+  const { data: publicUrlData } = supabase.storage
+    .from("contact-photos")
+    .getPublicUrl(storagePath);
+  const photoUrlWithCacheBust = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+
+  const { error: updateError } = await supabase
+    .from("contacts")
+    .update({ photo_url: photoUrlWithCacheBust })
+    .eq("id", contactId)
+    .eq("user_id", userId);
+  if (updateError) throw updateError;
+
+  return photoUrlWithCacheBust;
+}
+
+/**
+ * Remove a contact photo from storage and clear the contact's photo_url.
+ */
+export async function removeContactPhoto(userId: string, contactId: number) {
+  const storagePath = `${userId}/${contactId}.jpg`;
+  await supabase.storage.from("contact-photos").remove([storagePath]);
+
+  const { error: updateError } = await supabase
+    .from("contacts")
+    .update({ photo_url: null })
+    .eq("id", contactId)
+    .eq("user_id", userId);
+  if (updateError) throw updateError;
 }
 
 /**

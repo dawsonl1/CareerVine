@@ -6,6 +6,15 @@ import { fetchCalendarEvents, getCalendarTimezone, getCalendarList, DEFAULT_TIME
 
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes (auto-sync)
 const SYNC_FORCE_COOLDOWN_MS = 5 * 1000; // 5 seconds (manual sync button)
+const INITIAL_SYNC_PAST_DAYS = 7;
+const SYNC_FUTURE_DAYS = 60;
+
+function getSyncWindow(nowMs: number) {
+  return {
+    timeMin: new Date(nowMs - INITIAL_SYNC_PAST_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+    timeMax: new Date(nowMs + SYNC_FUTURE_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
 
 /**
  * POST /api/calendar/sync
@@ -16,6 +25,8 @@ const SYNC_FORCE_COOLDOWN_MS = 5 * 1000; // 5 seconds (manual sync button)
 export const POST = withApiHandler({
   querySchema: calendarSyncQuerySchema,
   handler: async ({ user, query }) => {
+    const nowMs = Date.now();
+    const syncWindow = getSyncWindow(nowMs);
     const service = createSupabaseServiceClient();
     const conn = await service
       .from("gmail_connections")
@@ -66,8 +77,8 @@ export const POST = withApiHandler({
     try {
       const result = await fetchCalendarEvents(user.id, {
         syncToken: conn.data.calendar_sync_token,
-        timeMin: new Date().toISOString(),
-        timeMax: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+        timeMin: syncWindow.timeMin,
+        timeMax: syncWindow.timeMax,
       });
       events = result.events;
       nextSyncToken = result.nextSyncToken || null;
@@ -78,8 +89,8 @@ export const POST = withApiHandler({
           .update({ calendar_sync_token: null })
           .eq("user_id", user.id);
         const result = await fetchCalendarEvents(user.id, {
-          timeMin: new Date().toISOString(),
-          timeMax: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+          timeMin: syncWindow.timeMin,
+          timeMax: syncWindow.timeMax,
         });
         events = result.events;
         nextSyncToken = result.nextSyncToken || null;

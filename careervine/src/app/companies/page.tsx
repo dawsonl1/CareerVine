@@ -1,43 +1,134 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import CompanyFilterBar, { STATUS_LABELS, STATUS_STYLES } from "@/components/companies/company-filter-bar";
 import { getCompanies, type CompanySummary, type CompanySort } from "@/lib/company-queries";
+import {
+  EMPTY_COMPANY_FILTERS,
+  countByStatus,
+  distinctTiers,
+  filterCompanies,
+  hasActiveCompanyFilters,
+  parseCompanyFilters,
+  serializeCompanyFilters,
+  type CompanyFilters,
+} from "@/lib/company-filters";
 import { STAGE_LABELS } from "@/lib/stage-derivation";
-import { Building2, Search, ExternalLink, CalendarClock, Users, Send } from "lucide-react";
+import { Building2, ExternalLink, CalendarClock, Users, Send } from "lucide-react";
 
-const STATUS_LABELS: Record<string, string> = {
-  researching: "Researching",
-  outreach_active: "Outreach active",
-  applied: "Applied",
-  interviewing: "Interviewing",
-  closed: "Closed",
-};
-
-const STATUS_STYLES: Record<string, string> = {
-  researching: "bg-surface-container-high text-on-surface-variant",
-  outreach_active: "bg-primary-container text-on-primary-container",
-  applied: "bg-tertiary-container text-on-tertiary-container",
-  interviewing: "bg-secondary-container text-on-secondary-container",
-  closed: "bg-surface-container text-on-surface-variant line-through",
-};
+const VALID_SORTS: readonly CompanySort[] = ["priority", "next_app_date", "traction", "name"];
 
 function formatDate(d: string): string {
   return new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function CompaniesPage() {
+// useSearchParams requires a Suspense boundary (same pattern as settings/page.tsx)
+export default function CompaniesPageWrapper() {
+  return (
+    <Suspense>
+      <CompaniesPage />
+    </Suspense>
+  );
+}
+
+function CompaniesPage() {
   const { user } = useAuth();
-  const [view, setView] = useState<"targets" | "all">("targets");
-  const [sort, setSort] = useState<CompanySort>("priority");
-  const [search, setSearch] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // URL is the source of truth for view/sort/search so state survives
+  // back-navigation from a company detail page and links are shareable.
+  const view: "targets" | "all" = searchParams.get("view") === "all" ? "all" : "targets";
+  const rawSort = searchParams.get("sort") as CompanySort | null;
+  const sort: CompanySort = rawSort && VALID_SORTS.includes(rawSort) ? rawSort : "priority";
+  const urlFilters = useMemo(() => parseCompanyFilters(searchParams), [searchParams]);
+
+  // Local echo of the search box so typing stays instant; synced to the URL
+  // on a debounce below.
+  const [searchInput, setSearchInput] = useState(urlFilters.q);
+  const lastWrittenQ = useRef(urlFilters.q);
+
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const replaceParams = useCallback(
+    (next: URLSearchParams) => {
+      const qs = next.toString();
+      router.replace(qs ? `/companies?${qs}` : "/companies", { scroll: false });
+    },
+    [router],
+  );
+
+  // External URL changes (back/forward, shared links) → sync the input.
+  // Our own debounced writes update lastWrittenQ first, so they don't
+  // clobber newer keystrokes when the URL catches up.
+  useEffect(() => {
+    if (urlFilters.q !== lastWrittenQ.current) {
+      setSearchInput(urlFilters.q);
+      lastWrittenQ.current = urlFilters.q;
+    }
+  }, [urlFilters.q]);
+
+  // Debounced input → URL (also drives the server-side search in "all" view)
+  useEffect(() => {
+    if (searchInput === urlFilters.q) return;
+    const t = setTimeout(() => {
+      lastWrittenQ.current = searchInput;
+      replaceParams(serializeCompanyFilters({ ...urlFilters, q: searchInput }, searchParams));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchInput, urlFilters, searchParams, replaceParams]);
+
+  const setView = (v: "targets" | "all") => {
+    const p = new URLSearchParams(searchParams.toString());
+    if (v === "all") p.set("view", "all");
+    else p.delete("view");
+    replaceParams(p);
+  };
+
+  const setSort = (s: CompanySort) => {
+    const p = new URLSearchParams(searchParams.toString());
+    if (s === "priority") p.delete("sort");
+    else p.set("sort", s);
+    replaceParams(p);
+  };
+
+  // Facet changes (chips/selects) write straight to the URL; q comes from
+  // the live input so a pending debounce can't be clobbered by stale state.
+  const liveFilters = useMemo<CompanyFilters>(
+    () => ({ ...urlFilters, q: searchInput }),
+    [urlFilters, searchInput],
+  );
+  const setFilters = useCallback(
+    (f: CompanyFilters) => {
+      lastWrittenQ.current = f.q;
+      setSearchInput(f.q);
+      replaceParams(serializeCompanyFilters(f, searchParams));
+    },
+    [replaceParams, searchParams],
+  );
+
+  // Targets view filters client-side: the full aggregate is already in
+  // memory, so filtering is a pure pass — no refetch per keystroke.
+  const deferredQ = useDeferredValue(searchInput);
+  const visible = useMemo(
+    () => (view === "targets" ? filterCompanies(companies, { ...urlFilters, q: deferredQ }) : companies),
+    [view, companies, urlFilters, deferredQ],
+  );
+  const tierOptions = useMemo(() => distinctTiers(companies), [companies]);
+  const statusCounts = useMemo(() => countByStatus(companies), [companies]);
+  const filtersActive = hasActiveCompanyFilters(liveFilters);
+
+  // All-companies view is search-driven: full-history import creates
+  // thousands of past-employer rows — an unfiltered list is a landfill.
+  const serverSearch = view === "all" ? urlFilters.q : undefined;
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -46,21 +137,18 @@ export default function CompaniesPage() {
       const data = await getCompanies(user.id, {
         targetsOnly: view === "targets",
         sort,
-        // All-companies view is search-driven: full-history import creates
-        // thousands of past-employer rows — an unfiltered list is a landfill.
-        search: view === "all" ? search : undefined,
+        search: serverSearch,
         minContacts: 1,
       });
       setCompanies(data);
     } finally {
       setLoading(false);
     }
-  }, [user, view, sort, search]);
+  }, [user, view, sort, serverSearch]);
 
   useEffect(() => {
-    const t = setTimeout(load, view === "all" && search ? 250 : 0);
-    return () => clearTimeout(t);
-  }, [load, view, search]);
+    load();
+  }, [load]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -112,36 +200,49 @@ export default function CompaniesPage() {
           </div>
         </div>
 
-        {/* Search (all view) */}
-        {view === "all" && (
-          <div className="relative mb-6 max-w-md">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search companies…"
-              className="w-full h-11 pl-10 pr-4 rounded-full bg-surface-container-high text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </div>
+        {/* Search + filters */}
+        <CompanyFilterBar
+          view={view}
+          searchInput={searchInput}
+          onSearchChange={setSearchInput}
+          filters={liveFilters}
+          onFiltersChange={setFilters}
+          tierOptions={tierOptions}
+          statusCounts={statusCounts}
+        />
+
+        {/* Result count — only when filtering, so the default view stays quiet */}
+        {!loading && view === "targets" && filtersActive && companies.length > 0 && (
+          <p className="text-xs text-on-surface-variant mb-3">
+            {visible.length} of {companies.length} companies
+          </p>
         )}
 
         {/* List */}
         {loading ? (
           <div className="text-on-surface-variant text-sm py-16 text-center">Loading companies…</div>
-        ) : companies.length === 0 ? (
+        ) : visible.length === 0 ? (
           <Card>
             <CardContent className="py-16 text-center text-on-surface-variant text-sm">
-              {view === "targets"
-                ? "No target companies yet. They arrive with the pipeline import, or add one from a company page."
-                : search
-                  ? "No companies match that search."
-                  : "Type to search across every company in your network history."}
+              {view === "targets" && companies.length > 0 ? (
+                <span className="inline-flex items-center gap-3">
+                  No companies match these filters.
+                  <button onClick={() => setFilters(EMPTY_COMPANY_FILTERS)} className="text-primary font-medium hover:underline">
+                    Clear filters
+                  </button>
+                </span>
+              ) : view === "targets" ? (
+                "No target companies yet. They arrive with the pipeline import, or add one from a company page."
+              ) : urlFilters.q ? (
+                "No companies match that search."
+              ) : (
+                "Type to search across every company in your network history."
+              )}
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-3">
-            {companies.map((c) => (
+            {visible.map((c) => (
               <Link key={c.id} href={`/companies/${c.id}`} className="block group">
                 <Card className="transition-shadow group-hover:shadow-md">
                   <CardContent className="py-4 px-5">

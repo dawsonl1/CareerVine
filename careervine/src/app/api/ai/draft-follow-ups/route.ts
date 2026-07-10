@@ -1,6 +1,6 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { aiDraftFollowUpsSchema } from "@/lib/api-schemas";
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
 
 /**
@@ -57,17 +57,18 @@ Each follow-up should:
     if (ctx.contactInfo) userParts.push(`\nRECIPIENT INFO:\n${ctx.contactInfo}`);
     if (ctx.senderName) userParts.push(`\nSENDER: ${ctx.senderName}`);
 
-    const openai = getOpenAIClient();
-
     let response;
     try {
-      response = await openai.responses.create({
-        model: DEFAULT_MODEL,
-        instructions: systemPrompt,
-        input: userParts.join("\n"),
-        max_output_tokens: 4000,
-      });
+      response = await runWithOpenAIFallback(user.id, (openai) =>
+        openai.responses.create({
+          model: DEFAULT_MODEL,
+          instructions: systemPrompt,
+          input: userParts.join("\n"),
+          max_output_tokens: 4000,
+        }),
+      );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[draft-follow-ups] OpenAI API error:", err);
       throw new ApiError("Failed to generate follow-ups. Please try again.", 500);
     }

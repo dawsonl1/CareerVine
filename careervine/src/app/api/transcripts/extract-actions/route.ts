@@ -1,5 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { transcriptExtractActionsSchema } from "@/lib/api-schemas";
 import { matchSpeakerToAttendee, resolveDueDate } from "@/lib/transcript-action-helpers";
 
@@ -62,10 +62,9 @@ const ACTION_ITEM_SCHEMA = {
 
 export const POST = withApiHandler({
   schema: transcriptExtractActionsSchema,
-  handler: async ({ body }) => {
+  handler: async ({ user, body }) => {
     const { transcript, attendees, meetingDate, userName } = body;
 
-    const openai = getOpenAIClient();
     const model = DEFAULT_MODEL;
 
     const attendeeList = attendees.map((a) => a.name).join(", ");
@@ -103,22 +102,24 @@ export const POST = withApiHandler({
 
     let response;
     try {
-      response = await openai.responses.create({
-        model,
-        instructions,
-        input: truncated,
-        max_output_tokens: 4000,
-        text: {
-          format: {
-            type: "json_schema",
-            ...ACTION_ITEM_SCHEMA,
+      response = await runWithOpenAIFallback(user.id, (openai) =>
+        openai.responses.create({
+          model,
+          instructions,
+          input: truncated,
+          max_output_tokens: 4000,
+          text: {
+            format: {
+              type: "json_schema",
+              ...ACTION_ITEM_SCHEMA,
+            },
           },
-        },
-      });
+        }),
+      );
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error("[extract-actions] OpenAI API error:", errMsg);
-      throw new ApiError(`Failed to extract action items: ${errMsg}`, 500);
+      if (err instanceof AiUnavailableError) throw err;
+      console.error("[extract-actions] OpenAI API error:", err);
+      throw new ApiError("Failed to extract action items. Please try again.", 500);
     }
 
     const responseText = response.output_text || "";

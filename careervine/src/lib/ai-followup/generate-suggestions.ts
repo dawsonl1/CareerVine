@@ -8,19 +8,31 @@
  * Suggestions are never persisted — saving one creates an action item.
  */
 
-import { getOpenAIClient, DEFAULT_MODEL } from "@/lib/openai";
+import { createOpenAIRunner, DEFAULT_MODEL, AiUnavailableError, type OpenAIRunner } from "@/lib/openai";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { gatherContactContext, formatContextForLLM } from "./gather-context";
 import { SuggestionReasonType, ActionItemSource, ActionDirection } from "@/lib/constants";
+import type { AiFailureCode } from "@/lib/ai-errors";
 import type { Suggestion, SuggestionContact } from "./suggestion-types";
 
 const MAX_SUGGESTIONS = 5;
 const MAX_LLM_CONTACTS = 5;
 const CACHE_TTL_MS = 60_000; // 60s cache to avoid duplicate work across pages
 
+/**
+ * Suggestions plus an optional AI-availability status. The rule-based portion
+ * always succeeds; `aiStatus` is set only when the LLM pass couldn't run because
+ * no OpenAI key could serve the request — the dashboard uses it to show a quiet
+ * "add your key" prompt rather than a blocking error.
+ */
+export interface SuggestionsResult {
+  suggestions: Suggestion[];
+  aiStatus?: AiFailureCode;
+}
+
 // ── In-memory cache ────────────────────────────────────────────────────
 
-const suggestionCache = new Map<string, { suggestions: Suggestion[]; expiresAt: number }>();
+const suggestionCache = new Map<string, { result: SuggestionsResult; expiresAt: number }>();
 
 /** Invalidate cached suggestions for a user (e.g. after saving one). */
 export function invalidateSuggestionCache(userId: string) {
@@ -343,6 +355,7 @@ export async function generateLlmSuggestions(
   userId: string,
   contacts: SuggestionContact[],
   coveredContactIds: Set<number>,
+  runAI: OpenAIRunner,
 ): Promise<Suggestion[]> {
   // Pick uncovered contacts with rich data potential (have interactions or notes)
   const candidates = contacts
@@ -373,18 +386,19 @@ export async function generateLlmSuggestions(
     .join("\n\n");
 
   try {
-    const openai = getOpenAIClient();
     const model = DEFAULT_MODEL;
 
-    const response = await openai.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: LLM_SYSTEM_PROMPT },
-        { role: "user", content: batchPrompt },
-      ],
-      response_format: LLM_RESPONSE_SCHEMA,
-      max_tokens: 2000,
-    });
+    const response = await runAI((openai) =>
+      openai.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: LLM_SYSTEM_PROMPT },
+          { role: "user", content: batchPrompt },
+        ],
+        response_format: LLM_RESPONSE_SCHEMA,
+        max_tokens: 2000,
+      }),
+    );
 
     const content = response.choices[0]?.message?.content;
     if (!content) return [];
@@ -431,6 +445,8 @@ export async function generateLlmSuggestions(
       })
       .filter(Boolean) as Suggestion[];
   } catch (err) {
+    // No usable OpenAI key → let the orchestrator surface a quiet status.
+    if (err instanceof AiUnavailableError) throw err;
     console.error("[Suggestion LLM] Error:", err);
     return [];
   }
@@ -438,14 +454,15 @@ export async function generateLlmSuggestions(
 
 // ── Orchestrator ───────────────────────────────────────────────────────
 
-export async function generateSuggestions(userId: string): Promise<Suggestion[]> {
+export async function generateSuggestions(userId: string): Promise<SuggestionsResult> {
   // Check cache first to avoid duplicate work across dashboard/action-items navigation
   const cached = suggestionCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {
-    return cached.suggestions;
+    return cached.result;
   }
 
   const service = createSupabaseServiceClient();
+  const runAI = createOpenAIRunner(userId);
 
   // Fetch candidates, existing AI action items, and waiting-on items in parallel
   const [contacts, existingAiItems, waitingOnResult] = await Promise.all([
@@ -498,10 +515,20 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
   // Also exclude contacts with existing AI action items from LLM pass
   for (const id of existingAiItems) coveredContactIds.add(id);
 
-  // LLM pass for remaining slots
+  // LLM pass for remaining slots. A no-usable-key failure degrades to
+  // rule-based-only results plus an aiStatus the UI surfaces quietly.
   let llmSuggestions: Suggestion[] = [];
+  let aiStatus: AiFailureCode | undefined;
   if (dedupedRuleBased.length < MAX_SUGGESTIONS) {
-    llmSuggestions = await generateLlmSuggestions(userId, contacts, coveredContactIds);
+    try {
+      llmSuggestions = await generateLlmSuggestions(userId, contacts, coveredContactIds, runAI);
+    } catch (err) {
+      if (err instanceof AiUnavailableError) {
+        aiStatus = err.reason;
+      } else {
+        throw err;
+      }
+    }
     // Deduplicate LLM results too
     llmSuggestions = llmSuggestions.filter((s) => !existingAiItems.has(s.contactId));
   }
@@ -520,10 +547,13 @@ export async function generateSuggestions(userId: string): Promise<Suggestion[]>
     }
   }
 
-  const result = unique.slice(0, MAX_SUGGESTIONS);
+  const result: SuggestionsResult = {
+    suggestions: unique.slice(0, MAX_SUGGESTIONS),
+    aiStatus,
+  };
 
   // Cache for 60s to avoid re-running on page navigation
-  suggestionCache.set(userId, { suggestions: result, expiresAt: Date.now() + CACHE_TTL_MS });
+  suggestionCache.set(userId, { result, expiresAt: Date.now() + CACHE_TTL_MS });
 
   return result;
 }

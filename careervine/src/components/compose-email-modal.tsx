@@ -12,6 +12,8 @@ import { AiWriteDropdown } from "@/components/ai-write-dropdown";
 import { AvailabilityPicker } from "@/components/availability-picker";
 import { IntroContextForm } from "@/components/intro-context-form";
 import { FollowUpPlanSection, type FollowUpDraft } from "@/components/follow-up-plan-section";
+import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
+import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
 type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
 
@@ -49,6 +51,8 @@ export function ComposeEmailModal() {
   const [followUpsEnabled, setFollowUpsEnabled] = useState(true);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [introError, setIntroError] = useState<string | null>(null);
+  const [introAiFailure, setIntroAiFailure] = useState<AiFailureCode | null>(null);
+  const [followUpAiFailure, setFollowUpAiFailure] = useState<AiFailureCode | null>(null);
   const introContextRef = useRef<{ howMet: string; goal: string }>({ howMet: "", goal: "" });
 
 
@@ -160,6 +164,8 @@ export function ComposeEmailModal() {
       setFollowUpsEnabled(true);
       setFollowUpError(null);
       setIntroError(null);
+      setIntroAiFailure(null);
+      setFollowUpAiFailure(null);
       introContextRef.current = { howMet: "", goal: "" };
       draftIdRef.current = null;
       sentOrScheduledRef.current = false;
@@ -288,6 +294,7 @@ export function ComposeEmailModal() {
   const generateFollowUps = useCallback(async () => {
     setIntroPhase("generating-followups");
     setFollowUpError(null);
+    setFollowUpAiFailure(null);
     try {
       const res = await fetch("/api/ai/draft-follow-ups", {
         method: "POST",
@@ -313,7 +320,9 @@ export function ComposeEmailModal() {
         );
         setIntroPhase("ready");
       } else {
-        setFollowUpError(data.error || "Failed to generate follow-ups");
+        const code = parseAiFailure(res.status, data);
+        if (code) setFollowUpAiFailure(code);
+        else setFollowUpError(data.error || "Failed to generate follow-ups");
         setIntroPhase("editing");
       }
     } catch {
@@ -756,9 +765,12 @@ export function ComposeEmailModal() {
                         setBodyHtml(data.bodyHtml || "");
                         if (data.subject) setSubject(data.subject);
                         setIntroError(null);
+                        setIntroAiFailure(null);
                         setIntroPhase("editing");
                       } else {
-                        setIntroError(data.error || "Failed to generate email. Please try again.");
+                        const code = parseAiFailure(res.status, data);
+                        if (code) setIntroAiFailure(code);
+                        else setIntroError(data.error || "Failed to generate email. Please try again.");
                         setIntroPhase("context");
                       }
                     } catch {
@@ -769,6 +781,7 @@ export function ComposeEmailModal() {
                   onSkip={async () => {
                     setIntroPhase("generating");
                     setIntroError(null);
+                    setIntroAiFailure(null);
                     try {
                       const res = await fetch("/api/ai/draft-intro", {
                         method: "POST",
@@ -780,9 +793,12 @@ export function ComposeEmailModal() {
                         setBodyHtml(data.bodyHtml || "");
                         if (data.subject) setSubject(data.subject);
                         setIntroError(null);
+                        setIntroAiFailure(null);
                         setIntroPhase("editing");
                       } else {
-                        setIntroError(data.error || "Failed to generate email. Please try again.");
+                        const code = parseAiFailure(res.status, data);
+                        if (code) setIntroAiFailure(code);
+                        else setIntroError(data.error || "Failed to generate email. Please try again.");
                         setIntroPhase("context");
                       }
                     } catch {
@@ -791,8 +807,13 @@ export function ComposeEmailModal() {
                     }
                   }}
                   generating={introPhase === "generating"}
-                  error={introError}
+                  error={introAiFailure ? null : introError}
                 />
+              )}
+              {isIntro && introPhase === "context" && introAiFailure && (
+                <div className="mb-3">
+                  <AiUnavailableNotice code={introAiFailure} />
+                </div>
               )}
 
               <div
@@ -847,11 +868,17 @@ export function ComposeEmailModal() {
                   </div>
                 )}
 
+                {followUpAiFailure && (
+                  <div className="pb-3">
+                    <AiUnavailableNotice code={followUpAiFailure} onRetry={generateFollowUps} />
+                  </div>
+                )}
+
                 <FollowUpPlanSection
                   followUps={followUps}
                   enabled={followUpsEnabled}
                   loading={introPhase === "generating-followups"}
-                  error={followUpError}
+                  error={followUpAiFailure ? null : followUpError}
                   placeholder={introPhase === "editing" && followUps.length === 0}
                   onToggle={setFollowUpsEnabled}
                   onEdit={(id, updates) => {
