@@ -56,8 +56,8 @@ Feature work happens in **worktrees off `main`**, one Linear issue per worktree,
 1. **Open** — `git worktree add .claude/worktrees/CAR-XX-slug -b dawson/CAR-XX-slug main`. Worktree dir and branch are **both named after the ticket** — the branch name is what binds every automatic Linear update to the right issue. If no issue exists yet, create one first.
 2. **Plan** — write `.claude/plans/NN-CAR-XX-slug.md`. *(Hook: plan is posted to the issue + issue flips to In Progress.)*
 3. **Implement** — build, test, fix. Commit/push to the feature branch freely.
-4. **PR** — sync from `main` first (merge it **into** the branch), then `gh pr create`. *(Hook: issue flips to In Review + PR link recorded.)*
-5. **Merge** — on Dawson's go-ahead: `gh pr merge --merge` (merge commit; never rebase — `main` is a live Vercel deploy target). *(Hook: issue flips to Done.)*
+4. **PR** — sync from `main` first (merge it **into** the branch), confirm tests pass (rule 4), then `gh pr create` with `(CAR-XX)` in the title (established convention, e.g. `Add BYO Deepgram API key for transcription (CAR-30)`) and a body covering what/why and how it was verified. *(Hook: issue flips to In Review + PR link recorded.)* Opening the PR is the end of the agent's autonomous path — stop here and wait.
+5. **Merge** — **only on Dawson's explicit go-ahead, per PR. Rule 14's auto-push authority covers direct commits, NOT merging PRs — never self-merge.** Then `gh pr merge --merge` (merge commit; never rebase; no `--delete-branch` — the cleanup skill owns branch deletion). **Merging deploys production** via Vercel: if the PR contains migrations, make sure `supabase db push` is on the issue's `manual-steps` checklist before merging. *(Hook: issue flips to Done.)*
 6. **Clean up** — when Dawson says "clean up this worktree", run the **`worktree-cleanup` skill** (`.claude/skills/worktree-cleanup/`). It gates deletion on: PR merged, tree clean, issue Done, and **all manual steps surfaced** — then removes the worktree and both branches.
 
 **Risk-based exception (rule 19):** small, single-file, no-schema, no-new-domain changes may commit directly to `main` (rule 14) without a worktree.
