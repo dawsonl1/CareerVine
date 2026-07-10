@@ -14,6 +14,12 @@ export type KeyStatus = {
   lastUsedAt?: string | null;
   /** Whether this account may use CareerVine's shared key (CAR-26; OpenAI only). */
   sharedAccess?: boolean;
+  /** 24h shared-AI trial state (CAR-51; OpenAI only). Null = not a trial account. */
+  trialState?: "active" | "expired" | null;
+  /** When the active trial ends (CAR-51). */
+  sharedAccessExpiresAt?: string | null;
+  /** When the user last requested continued access (CAR-51). */
+  accessRequestedAt?: string | null;
 };
 
 /** Provider-specific copy + config for a single BYO API key card. */
@@ -49,6 +55,9 @@ export type ProviderKeyCardConfig = {
   /** Message for the amber problem-key banner. Receives the full key status as
    * a second arg so copy can adapt to shared-key entitlement (CAR-26). */
   problemBanner: (status: "invalid" | "quota_exceeded", keyStatus: KeyStatus) => ReactNode;
+  /** Optional banner above the key controls, driven by the loaded status —
+   * the CAR-51 trial note / locked state slot. Return null to render nothing. */
+  statusBanner?: (keyStatus: KeyStatus) => ReactNode;
 };
 
 function formatDate(iso: string | null | undefined): string {
@@ -212,6 +221,8 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
           <div className="space-y-4">
+            {status && config.statusBanner?.(status)}
+
             {hasProblemKey && status?.status && status.status !== "active" && (
               <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
                 <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />

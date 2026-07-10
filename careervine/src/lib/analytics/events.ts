@@ -49,6 +49,14 @@ export type AnalyticsEvents = {
   // (contact/page views come free from $pageview + autocapture — no
   // curated event needed.)
 
+  // ── Data quality ──────────────────────────────────────────────────
+  /** An identity-less company import created a row whose name resembles an
+   * existing company — the split-row pattern behind CAR-44. */
+  company_duplicate_suspected: {
+    company: string;
+    possible_duplicate: string;
+  };
+
   // ── Outreach loop (the core loop) ─────────────────────────────────
   email_sent: {
     is_follow_up?: boolean;
@@ -82,6 +90,14 @@ export type AnalyticsEvents = {
     edit_ratio?: number;
   };
   transcript_processed: { step: "transcribe" | "parse" | "extract_actions" };
+  /**
+   * 24h shared-AI trial lifecycle (CAR-51). Started fires once when the trial
+   * row is created at first AI use; expired fires once on the lazy post-expiry
+   * flip; requested fires when the user asks for continued access.
+   */
+  ai_trial_started: Record<string, never>;
+  ai_trial_expired: Record<string, never>;
+  ai_access_requested: Record<string, never>;
 
   // ── Bundles (data subscriptions) ──────────────────────────────────
   bundle_subscribed: { bundle_id?: string };

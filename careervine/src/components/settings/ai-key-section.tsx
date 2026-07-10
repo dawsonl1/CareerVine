@@ -1,9 +1,18 @@
 "use client";
 
-import { Bot, Mic } from "lucide-react";
+import { Bot, Mic, Sparkles, Hourglass } from "lucide-react";
 import ProviderKeyCard, {
   type ProviderKeyCardConfig,
 } from "@/components/settings/provider-key-card";
+import { RequestAiAccessButton } from "@/components/ai/ai-unavailable-notice";
+
+function formatTrialEnd(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 /**
  * Setup video URLs — paste a Loom share link or self-hosted file URL to show an
@@ -86,6 +95,43 @@ const openaiConfig: ProviderKeyCardConfig = {
       else. It&apos;s only used server-side to talk to OpenAI on your behalf. Remove it anytime.
     </>
   ),
+  // CAR-51: the trial's two settings moments — the quiet "first day" note
+  // while it runs, and the locked state (with the request-access exit) after
+  // it ends for accounts that never added a key.
+  statusBanner: (status) => {
+    if (status.trialState === "active") {
+      return (
+        <div className="flex gap-3 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm text-foreground">
+          <Sparkles className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+          <p className="text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground">AI included — your first day is on us.</span>{" "}
+            {status.sharedAccessExpiresAt
+              ? `Free AI until ${formatTrialEnd(status.sharedAccessExpiresAt)}. `
+              : ""}
+            Add your own key below to keep AI running after that.
+          </p>
+        </div>
+      );
+    }
+    if (status.trialState === "expired" && !status.hasKey) {
+      return (
+        <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+          <Hourglass className="h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+          <div className="min-w-0 space-y-1.5">
+            <p className="font-medium">Your free AI day has ended</p>
+            <p className="text-muted-foreground leading-relaxed">
+              Add your own OpenAI key below to keep using AI — or request continued access and
+              we&apos;ll follow up by email.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <RequestAiAccessButton initialRequested={Boolean(status.accessRequestedAt)} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  },
   // Honest about entitlement (CAR-26): only claim a shared-key fallback when
   // the account actually has one.
   problemBanner: (status, keyStatus) => (

@@ -1,14 +1,20 @@
 // ── AI-availability failures (CAR-26) ──────────────────────────────────
 // Extension-local mirror of the web app's lib/ai-errors.ts copy map — the two
 // projects share no bundle, so keep wording identical to AI_FAILURE_COPY there.
-// All four codes arrive over HTTP 402 from /api/extension/parse-profile.
+// All codes arrive over HTTP 402 from /api/extension/parse-profile.
 
-export type AiFailureCode = "ai_no_key" | "ai_key_invalid" | "ai_quota_exhausted" | "ai_unavailable";
+export type AiFailureCode =
+  | "ai_no_key"
+  | "ai_key_invalid"
+  | "ai_quota_exhausted"
+  | "ai_trial_expired"
+  | "ai_unavailable";
 
 const AI_FAILURE_CODES: AiFailureCode[] = [
   "ai_no_key",
   "ai_key_invalid",
   "ai_quota_exhausted",
+  "ai_trial_expired",
   "ai_unavailable",
 ];
 
@@ -29,6 +35,14 @@ export const AI_FAILURE_COPY: Record<AiFailureCode, { title: string; body: strin
     title: "Your OpenAI key is out of quota",
     body: "Your key hit its usage limit. Add credit or turn on free daily tokens in your OpenAI account, then try again.",
     ctaLabel: "Manage key",
+    retryable: false,
+  },
+  ai_trial_expired: {
+    // The request-access button lives on the web app's Settings → AI page —
+    // the CTA sends the user there rather than duplicating the flow here.
+    title: "Your free AI day has ended",
+    body: "Your 24-hour AI trial is over. Add your own OpenAI key in Settings — or request continued access from the AI settings page.",
+    ctaLabel: "Open AI settings",
     retryable: false,
   },
   ai_unavailable: {
