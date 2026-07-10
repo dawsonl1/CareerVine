@@ -5,6 +5,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { chunkList } from "@/lib/company-helpers";
 import { makePhotoThumb } from "@/lib/photo-thumb";
 import {
   userPhotoKey,
@@ -71,16 +72,17 @@ export async function addTagsToContacts(
   const tagIds = [...new Set([...allNames].map((n) => tagMap.get(n)?.id).filter(Boolean))] as number[];
   if (tagIds.length === 0) return;
 
-  const { data: existingLinks } = await supabase
-    .from("contact_tags")
-    .select("contact_id, tag_id")
-    .in("contact_id", contactIds)
-    .in("tag_id", tagIds);
-  const linkedSet = new Set(
-    ((existingLinks as Array<{ contact_id: number; tag_id: number }> | null) || []).map(
-      (r) => `${r.contact_id}:${r.tag_id}`,
-    ),
-  );
+  const linkedSet = new Set<string>();
+  for (const idChunk of chunkList(contactIds)) {
+    const { data: existingLinks } = await supabase
+      .from("contact_tags")
+      .select("contact_id, tag_id")
+      .in("contact_id", idChunk)
+      .in("tag_id", tagIds);
+    for (const r of (existingLinks as Array<{ contact_id: number; tag_id: number }> | null) || []) {
+      linkedSet.add(`${r.contact_id}:${r.tag_id}`);
+    }
+  }
 
   const toInsert: Array<{ contact_id: number; tag_id: number }> = [];
   for (const [contactId, names] of normalizedByContact) {

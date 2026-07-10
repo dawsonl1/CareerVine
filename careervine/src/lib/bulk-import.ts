@@ -41,6 +41,7 @@ import {
   prefetchLocations,
   locationLookupKey,
   companyFallbackName,
+  isNameOnlyCompanyInput,
   chunkList,
   escapeIlike,
   type CompanyInput,
@@ -168,6 +169,10 @@ interface WorkingEmployment {
 interface ChunkSinks {
   emails: Array<Record<string, unknown>>;
   education: Array<Record<string, unknown>>;
+  /** contactId-prefixed education keys already sunk this chunk — two chunk
+   * entries resolving to one contact can't see each other's unflushed rows,
+   * and the DB unique index doesn't catch NULL start_year duplicates. */
+  educationKeys: Set<string>;
   tags: Map<number, string[]>;
   resolveSchool: (name: string) => Promise<{ id: number } | null>;
 }
@@ -281,7 +286,10 @@ export async function importPeopleChunk(
           universal_name: emp.company_universal_name,
         };
         const idKey = input.linkedin_company_id?.trim();
-        const nameKey = idKey ? undefined : companyFallbackName(input)?.toLowerCase();
+        // Exact-name short-circuit ONLY for name-only inputs: when the input
+        // also carries a url/universal_name, findOrCreateCompany's higher-
+        // priority matchers must get first crack (CAR-47 audit).
+        const nameKey = isNameOnlyCompanyInput(input) ? companyFallbackName(input)?.toLowerCase() : undefined;
         company =
           (idKey ? companyPrefetch.byId.get(idKey) : nameKey ? companyPrefetch.byName.get(nameKey) : undefined) ??
           (await findOrCreateCompany(supabase, input));
@@ -494,6 +502,7 @@ export async function importPeopleChunk(
   const sinks: ChunkSinks = {
     emails: [],
     education: [],
+    educationKeys: new Set(),
     tags: new Map(),
     resolveSchool: async (name: string) => {
       const trimmed = name.trim();
@@ -685,7 +694,11 @@ async function createNewPerson(
 
   // Tags — collected; flushed for the whole chunk in one batched pass
   if (mapped.tags.length > 0) {
-    sinks.tags.set(contactId, mapped.tags);
+    // Merge, don't overwrite — two chunk entries can resolve to the same
+    // contact (url variant + public_identifier match), and the second must
+    // not clobber the first's tags (CAR-47 audit).
+    const priorTags = sinks.tags.get(contactId);
+    sinks.tags.set(contactId, priorTags ? [...priorTags, ...mapped.tags] : mapped.tags);
   }
 
   // Tracker outreach state — applies ONLY on first import (contract:
@@ -820,7 +833,11 @@ async function updateExistingPerson(
 
   // Tags (additive) — collected; flushed for the whole chunk in one pass
   if (mapped.tags.length > 0) {
-    sinks.tags.set(contactId, mapped.tags);
+    // Merge, don't overwrite — two chunk entries can resolve to the same
+    // contact (url variant + public_identifier match), and the second must
+    // not clobber the first's tags (CAR-47 audit).
+    const priorTags = sinks.tags.get(contactId);
+    sinks.tags.set(contactId, priorTags ? [...priorTags, ...mapped.tags] : mapped.tags);
   }
 }
 
@@ -855,8 +872,10 @@ async function collectEducation(
     const school = await sinks.resolveSchool(edu.school_name);
     if (!school) continue;
     const key = `${school.id}|${(edu.degree ?? "").toLowerCase()}|${(edu.field_of_study ?? "").toLowerCase()}|${edu.start_year ?? ""}`;
-    if (existingKeys.has(key)) continue;
+    const chunkKey = `${contactId}|${key}`;
+    if (existingKeys.has(key) || sinks.educationKeys.has(chunkKey)) continue;
     existingKeys.add(key);
+    sinks.educationKeys.add(chunkKey);
     sinks.education.push({
       contact_id: contactId,
       school_id: school.id,

@@ -243,6 +243,48 @@ describe("importPeopleChunk batching (CAR-47)", () => {
     expect(eduInserts.slice(1).every((c) => !Array.isArray(c.payload))).toBe(true);
   });
 
+  it("merges tags when two chunk entries resolve to the same contact", async () => {
+    // JANE matches by URL; JANE_ALT matches the same contact via
+    // public_identifier. The second entry must not clobber the first's tags.
+    const JANE_ALT = mappedFromPayload({
+      name: "Jane Doe",
+      linkedin_url: "https://www.linkedin.com/in/janedoe-alt",
+      public_identifier: "janedoe",
+      network_status: "prospect",
+      tags: ["second-tag"],
+    });
+    const { respond } = happyPathResponder();
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === "contacts" && state.op === "select") {
+        const inArgs = state.filters.find((f) => f.method === "in");
+        const contactRow = {
+          id: 42, name: "Jane Doe", linkedin_url: JANE.linkedin_url,
+          public_identifier: "janedoe", persona: null, network_status: "prospect",
+          location_id: 500, headline: null, photo_url: null,
+        };
+        if (inArgs && (inArgs.args[0] === "linkedin_url" || inArgs.args[0] === "public_identifier")) {
+          return { data: [contactRow] };
+        }
+        return { data: [] };
+      }
+      if (state.table === "contact_schools" && state.op === "select") return { data: [] };
+      if (state.table === "contact_companies" && state.op === "select") return { data: [] };
+      if (state.table === "contact_emails" && state.op === "select") return { data: [] };
+      return respond(state);
+    });
+
+    const summary = await importPeopleChunk(client, "user-1", [{ mapped: JANE }, { mapped: JANE_ALT }], {
+      mergePolicy: "bundle",
+      skipPhotos: true,
+    });
+
+    expect(summary.results.map((r) => r.status)).toEqual(["updated", "updated"]);
+    const linkInserts = byTable(calls, "contact_tags", "insert");
+    expect(linkInserts).toHaveLength(1);
+    // apm-2026 (JANE) + second-tag (JANE_ALT) both land on contact 42.
+    expect(linkInserts[0].payload as unknown[]).toHaveLength(2);
+  });
+
   it("checks existing education (but not user_id) on the update path", async () => {
     const { respond } = happyPathResponder();
     const { client, calls } = createMockClient((state) => {
@@ -306,6 +348,21 @@ describe("prefetch helpers (CAR-47)", () => {
     );
     // Only the id-less input is name-prefetched (id-bearing must keep the claim path).
     expect(nameQuery?.filters.find((f) => f.method === "in")?.args[1]).toEqual(["Tiny Co"]);
+  });
+
+  it("prefetchCompanies: url/universal-bearing id-less inputs are NOT name-prefetched", async () => {
+    // A name-prefetch hit would outrank findOrCreateCompany's linkedin_url /
+    // universal_name matchers — those inputs must skip the shortcut entirely.
+    const { client, calls } = createMockClient(() => ({ data: [] }));
+    await prefetchCompanies(client, [
+      { name: "Apex", linkedin_url: "https://www.linkedin.com/company/apex-labs" },
+      { name: "Beta Corp", universal_name: "beta-corp" },
+      { name: "Pure Name Co" },
+    ]);
+    const nameQuery = byTable(calls, "companies", "select").find((c) =>
+      c.filters.some((f) => f.method === "in" && f.args[0] === "name"),
+    );
+    expect(nameQuery?.filters.find((f) => f.method === "in")?.args[1]).toEqual(["Pure Name Co"]);
   });
 
   it("prefetchLocations: matches only exact (city, state, country) triples", async () => {

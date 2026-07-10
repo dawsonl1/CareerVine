@@ -51,14 +51,20 @@ type ApplyStep = {
   claimToken?: string;
 };
 
+const BACKGROUND_SYNC_MESSAGE =
+  "The sync hit a server error. It will keep running in the background — your contacts will appear shortly.";
+
 /**
  * POST one apply step. A 5xx (e.g. a function timeout's 504, whose body is
  * HTML rather than JSON) or a network failure is retried twice with backoff
- * before giving up (CAR-47); null means all attempts failed.
+ * before giving up (CAR-47); null means all attempts failed. `retried`
+ * marks a step that only succeeded after a server error — a 409 on such a
+ * step usually means the failed call's claim is still held, not that
+ * another driver is genuinely syncing.
  */
 async function fetchApplyStep(
   body: Record<string, unknown>,
-): Promise<{ res: Response; step: ApplyStep & { error?: string } } | null> {
+): Promise<{ res: Response; step: ApplyStep & { error?: string }; retried: boolean } | null> {
   for (let attempt = 0; ; attempt++) {
     try {
       const res = await fetch("/api/bundles/apply", {
@@ -67,7 +73,7 @@ async function fetchApplyStep(
         body: JSON.stringify(body),
       });
       if (res.status < 500) {
-        return { res, step: (await res.json()) as ApplyStep & { error?: string } };
+        return { res, step: (await res.json()) as ApplyStep & { error?: string }, retried: attempt > 0 };
       }
     } catch {
       // Network failure or non-JSON body — treated like a 5xx.
@@ -127,14 +133,17 @@ export default function DataSubscriptionsSection() {
           if (!outcome) {
             // Subscribe also enqueued a delayed background job (CAR-47),
             // so this failure message is honest.
-            throw new Error(
-              "The sync hit a server error. It will keep running in the background — your contacts will appear shortly.",
-            );
+            throw new Error(BACKGROUND_SYNC_MESSAGE);
           }
-          const { res, step } = outcome;
+          const { res, step, retried } = outcome;
           if (!res.ok) {
-            // 409 = another driver (worker/cron) is already syncing — fine.
-            if (res.status === 409) return false;
+            if (res.status === 409) {
+              // After a server error, the 409 is our own dead call's zombie
+              // claim — surface the background handoff instead of silence.
+              if (retried) throw new Error(BACKGROUND_SYNC_MESSAGE);
+              // Otherwise another driver (worker/cron) is already syncing — fine.
+              return false;
+            }
             throw new Error(step.error ?? "Sync failed");
           }
           applied += step.applied;

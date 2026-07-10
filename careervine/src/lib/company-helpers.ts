@@ -72,12 +72,24 @@ export function chunkList<T>(items: T[], size = 100): T[][] {
   return out;
 }
 
+/** True when a company input carries nothing but a display name — the only
+ * shape whose match can safely short-circuit on an exact-name hit. */
+export function isNameOnlyCompanyInput(input: CompanyInput): boolean {
+  return (
+    !input.linkedin_company_id?.trim() &&
+    !normalizeCompanyLinkedinUrl(input.linkedin_url) &&
+    !normalizeUniversalName(input.universal_name)
+  );
+}
+
 /**
  * Chunk-level company prefetch (CAR-47): a handful of .in() queries instead
- * of a find-or-create round trip per company. Only the two exact-match
- * paths short-circuit; misses fall back to findOrCreateCompany, which keeps
- * the ilike / url / universal-name / claim semantics. Id-bearing inputs are
- * NOT name-prefetched — name-matching those must run the claim logic.
+ * of a find-or-create round trip per company. Only two exact-match paths
+ * short-circuit — stable linkedin_company_id, and exact name for inputs
+ * that are NAME-ONLY (no id, no url, no universal_name). Anything carrying
+ * a stronger identifier than its name must run findOrCreateCompany's full
+ * chain on an id miss, because url/universal-name matches outrank name
+ * matches there and id-bearing name matches trigger the claim logic.
  */
 export async function prefetchCompanies(
   supabase: SupabaseClient,
@@ -97,7 +109,7 @@ export async function prefetchCompanies(
   const names = [
     ...new Set(
       inputs
-        .filter((i) => !i.linkedin_company_id?.trim())
+        .filter(isNameOnlyCompanyInput)
         .map((i) => companyFallbackName(i))
         .filter((n): n is string => Boolean(n)),
     ),

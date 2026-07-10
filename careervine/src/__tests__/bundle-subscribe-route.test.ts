@@ -89,7 +89,9 @@ describe("POST /api/bundles/subscribe (CAR-47 backup sync)", () => {
     const [ids, workerUrl, , opts] = enqueueMock.mock.calls[0] as unknown[];
     expect(ids).toEqual([33]);
     expect(String(workerUrl)).toBe("https://www.careervine.app/api/queue/bundle-sync");
-    expect(opts).toMatchObject({ delaySeconds: 120 });
+    // Must exceed SYNC_CLAIM_MS (2 min): a backup firing inside a
+    // timeout-killed call's claim window would be skipped as claimed.
+    expect(opts).toMatchObject({ delaySeconds: 180 });
   });
 
   it("enqueues on reactivation of an unsubscribed row", async () => {

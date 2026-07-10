@@ -18,8 +18,13 @@ import { enqueueBundleSyncJobs } from "@/lib/bundle-queue";
  * The delay gives the client's loop first claim; a still-running or
  * already-finished sync makes the worker a no-op (claim conflict /
  * synced_version current). Fails silent when QStash isn't configured.
+ *
+ * MUST stay above SYNC_CLAIM_MS (2 min): a timeout-killed apply call
+ * never releases its claim, and a backup firing inside that window
+ * would be skipped against a zombie claim. The worker also re-enqueues
+ * skipped ids after the claim window as a second net.
  */
-const SUBSCRIBE_BACKUP_SYNC_DELAY_S = 120;
+const SUBSCRIBE_BACKUP_SYNC_DELAY_S = 180;
 
 export const POST = withApiHandler({
   schema: bundleSubscribeSchema,

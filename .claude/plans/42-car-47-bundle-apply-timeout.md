@@ -55,6 +55,21 @@ Budget after: ~120 queries/chunk (from ~1,000) → **~1–2s per chunk** with A.
 3. Verify: `bundle_subscriptions` id 3 reaches `synced_version = 3` with `last_synced_at` set; user `50df25ca-…` has ≈2,000 contacts; spot-check one contact's employment/tags/education; Vercel runtime errors stay clean on `/api/bundles/apply`.
 4. Report outcome on CAR-47. Whether to email Jordan an apology/heads-up = Dawson's call (manual-steps item).
 
+## Audit addenda (2026-07-10, 3 adversarial verifier agents over the PR diff)
+
+Fixed in the PR after the audit:
+
+1. **Backup-job/zombie-claim race (must-fix):** a timeout-killed apply call never releases its claim (2 min TTL); a backup job firing at +120s could hit the unexpired claim, be `skipped`, and never retry — stranding the subscriber until the daily cron. Fixed: subscribe delay → **180s**, and the worker now **re-enqueues `skipped` ids** after the claim window (terminates once `synced_version` is current).
+2. **Company match-priority inversion:** the exact-name prefetch outranked `findOrCreateCompany`'s linkedin_url/universal-name matchers for id-less inputs, so an input like {name "Apex", url …/apex-labs} could link the wrong company row. Fixed: name-prefetch (`isNameOnlyCompanyInput`) applies only to inputs with no id, no url, no universal_name.
+3. **Tag-sink clobber:** two chunk entries resolving to one contact (url variant + public_identifier) overwrote each other's tags; now merged.
+4. **Education dup on NULL start_year:** chunk-level `educationKeys` set dedupes across same-contact entries the DB unique index can't catch.
+5. **Silent 409 after timeout:** client now surfaces the "sync continues in the background" message when a retry lands on its own dead call's claim, instead of going quiet.
+6. `addTagsToContacts` link-select `.in()` now chunked at ≤100.
+
+Confirmed clean by the audit: sink flush ordering vs bundle fingerprinting, error-path equivalence (old code never checked email/education/tag insert errors either), location prefetch semantics, suppression handling, main's `targetContactId` port, vercel.json/hobby/rootDirectory correctness, QStash `delay` API usage, on-mount silent sync error handling, no `iad1` assumptions elsewhere.
+
+Follow-ups ticketed separately (not this PR): unsubscribe-loop resilience (no retry/background recovery; mid-loop death strands linkage rows), worker cursor checkpointing (budget-exceeded restarts a subscription from chunk 0), Upstash Redis region check from pdx1 (rate-limiter RTT), preview-deploy QStash jobs 401→DLQ noise (harmless).
+
 ## Risks
 
 - **Exact-match prefetch vs ilike:** case-variant names miss the prefetch and take the old per-company path — slower, never wrong.
