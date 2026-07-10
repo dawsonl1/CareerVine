@@ -34,6 +34,8 @@ export const MILESTONE_THRESHOLDS = {
 export type AnalyticsEvents = {
   // ── Lifecycle / activation funnel ─────────────────────────────────
   user_signed_up: Record<string, never>;
+  /** Confirmation link clicked and verified server-side (/auth/confirm). */
+  user_email_verified: Record<string, never>;
   gmail_connected: Record<string, never>;
   gmail_disconnected: Record<string, never>;
   calendar_connected: Record<string, never>;

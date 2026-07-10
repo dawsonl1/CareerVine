@@ -13,11 +13,15 @@ type Mode = "signin" | "signup" | "forgot" | "check-email" | "forgot-sent";
 
 interface AuthFormProps {
   initialMode?: "signin" | "signup" | "forgot";
+  /** Pre-populated error banner, e.g. an expired confirmation link (?error=). */
+  initialError?: string;
   onBack?: () => void;
 }
 
-export default function AuthForm({ initialMode = "signin", onBack }: AuthFormProps) {
-  const { signUp, signIn, resetPassword } = useAuth();
+const RESEND_COOLDOWN_SECONDS = 60;
+
+export default function AuthForm({ initialMode = "signin", initialError, onBack }: AuthFormProps) {
+  const { signUp, signIn, resetPassword, resendConfirmation } = useAuth();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [formData, setFormData] = useState({
     email: "",
@@ -26,9 +30,25 @@ export default function AuthForm({ initialMode = "signin", onBack }: AuthFormPro
     lastName: "",
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError ?? "");
   const [existingAccount, setExistingAccount] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
+  const [resendError, setResendError] = useState("");
+
+  const handleResend = async () => {
+    setResendState("sending");
+    setResendError("");
+    const result = await resendConfirmation(formData.email);
+    if (result.error) {
+      setResendError(result.error);
+      setResendState("idle");
+      return;
+    }
+    setResendState("sent");
+    // Matches GoTrue's server-side minimum interval between emails.
+    setTimeout(() => setResendState("idle"), RESEND_COOLDOWN_SECONDS * 1000);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,7 +116,7 @@ export default function AuthForm({ initialMode = "signin", onBack }: AuthFormPro
     signin: "Sign in to CareerVine",
     signup: "Create your CareerVine account",
     forgot: "We'll send you a reset link",
-    "check-email": "Confirm your email to continue",
+    "check-email": "One click and you're in",
     "forgot-sent": "Check your inbox for a reset link",
   }[mode];
 
@@ -210,11 +230,32 @@ export default function AuthForm({ initialMode = "signin", onBack }: AuthFormPro
                       <p className="text-sm text-muted-foreground leading-relaxed">
                         We sent a confirmation link to{" "}
                         <span className="font-medium text-foreground">{formData.email}</span>.
-                        Click the link in your email to activate your account, then sign in.
+                        Click it and you'll be signed in automatically — no need to
+                        come back to this page.
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        Don't see it? Check your spam folder.
-                      </p>
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Don't see it? Check your spam folder, or{" "}
+                          <button
+                            type="button"
+                            onClick={handleResend}
+                            disabled={resendState !== "idle"}
+                            className="font-medium text-primary hover:underline cursor-pointer disabled:text-muted-foreground disabled:no-underline disabled:cursor-default"
+                          >
+                            {resendState === "sending"
+                              ? "sending..."
+                              : resendState === "sent"
+                                ? "email sent"
+                                : "resend the email"}
+                          </button>
+                          .
+                        </p>
+                        {resendError && (
+                          <p className="text-xs text-on-error-container bg-error-container px-3 py-2 rounded-[8px]">
+                            {resendError}
+                          </p>
+                        )}
+                      </div>
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground leading-relaxed">
