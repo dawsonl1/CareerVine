@@ -19,7 +19,12 @@ import {
 } from "@/lib/company-queries";
 import { activateContact, getFreshJobChangeContactIds } from "@/lib/queries";
 import type { ContactTier } from "@/components/companies/pipeline/pipeline-layout";
-import { ArrowLeft } from "lucide-react";
+import { useOnboarding } from "@/components/onboarding/onboarding-context";
+import {
+  renderOnboardingIntro,
+  renderOnboardingFollowUps,
+} from "@/lib/onboarding/templates";
+import { ArrowLeft, Mail } from "lucide-react";
 
 /**
  * Company recruiting page (CAR-6): full contact roster on the left, the
@@ -34,6 +39,8 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
   const searchParams = useSearchParams();
   const { error: toastError, success: toastSuccess } = useToast();
   const { openCompose, gmailConnected } = useCompose();
+  const { state: onboardingState } = useOnboarding();
+  const onboardingOutreach = onboardingState === "outreach";
 
   const [company, setCompany] = useState<CompanyDetail["company"] | null>(null);
   const [tabs, setTabs] = useState<LocationTabsData | null>(null);
@@ -95,6 +102,35 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
     router.replace(`/companies/${companyId}${params.size ? `?${params}` : ""}`);
   };
 
+  // Onboarding outreach leg (CAR-50): the guided flow lands here after the
+  // user picks a target company. Compose opens pre-filled from the static
+  // template — alumni variant when the prospect is a BYU alum.
+  const composeForOnboarding = useCallback(
+    (opts?: Parameters<typeof openCompose>[0]) => {
+      if (!onboardingOutreach || !opts?.contactId || !tabs || !company) {
+        openCompose(opts);
+        return;
+      }
+      const person = [...tabs.all.current, ...tabs.all.former, ...tabs.all.bench].find(
+        (p) => p.contact_id === opts.contactId,
+      );
+      const merge = {
+        contactFirstName: (opts.name || person?.name || "").split(/\s+/)[0] || null,
+        companyName: company.name,
+        senderFirstName: (user?.user_metadata?.first_name as string | undefined) ?? null,
+      };
+      const intro = renderOnboardingIntro({ ...merge, isAlum: person?.is_alum ?? false });
+      openCompose({
+        ...opts,
+        subject: intro.subject,
+        bodyHtml: intro.bodyHtml,
+        isIntro: true,
+        templateFollowUps: renderOnboardingFollowUps(merge),
+      });
+    },
+    [onboardingOutreach, tabs, company, user, openCompose],
+  );
+
   const handleSetTier = async (person: CompanyPerson, tier: ContactTier) => {
     try {
       if (tier === "active") await activateContact(person.contact_id);
@@ -125,7 +161,22 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
       return <p className="py-16 text-center text-sm text-on-surface-variant">Loading…</p>;
     }
     return (
-      <PipelineLayout
+      <>
+        {onboardingOutreach && (
+          <div className="mb-5 flex items-start gap-3 p-4 rounded-2xl bg-primary/8 border border-primary/25 shadow-sm">
+            <Mail className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Pick a prospect and hit their email button
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Your intro is pre-written — BYU alumni get the alumni version. Edit anything, then
+                send or schedule. Follow-ups come ready too.
+              </p>
+            </div>
+          </div>
+        )}
+        <PipelineLayout
         userId={user.id}
         companyId={companyId}
         tabs={tabs}
@@ -139,11 +190,12 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         scope={scope}
         onScopeChange={setScope}
         gmailConnected={gmailConnected}
-        onCompose={openCompose}
+        onCompose={composeForOnboarding}
         onSetTier={handleSetTier}
         jobChangeIds={jobChangeIds}
         onOfficesChanged={load}
       />
+      </>
     );
   };
 
