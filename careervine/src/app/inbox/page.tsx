@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRouter } from "next/navigation";
 import DOMPurify from "dompurify";
@@ -43,6 +44,7 @@ import {
   Calendar as CalendarIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useCursorTooltip } from "@/components/ui/cursor-tooltip";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 import { runFullGmailSync } from "@/lib/gmail-sync-client";
@@ -100,6 +102,10 @@ export default function InboxPage() {
   // Thread action menu (3-dot)
   const [threadActionMenuId, setThreadActionMenuId] = useState<string | null>(null);
   const [threadActionMoveOpen, setThreadActionMoveOpen] = useState(false);
+
+  // Direction-arrow hover tooltip (shared across thread rows + expanded messages)
+  const [hoveredArrow, setHoveredArrow] = useState<"inbound" | "outbound" | null>(null);
+  const { posRef: arrowPosRef, tooltipRef: arrowTooltipRef, handleMouseMove: handleArrowMouseMove } = useCursorTooltip();
   const threadActionRef = useRef<HTMLDivElement>(null);
 
   // Follow-up modal
@@ -797,11 +803,16 @@ export default function InboxPage() {
                 onClick={() => handleThreadClick(thread)}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
-                    tabCtx === "trash" ? "bg-surface-container-low" :
-                    tabCtx === "hidden" ? "bg-surface-container-low" :
-                    latest.direction === "outbound" ? "bg-primary-container" : "bg-tertiary-container"
-                  }`}>
+                  <div
+                    className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                      tabCtx === "trash" ? "bg-surface-container-low" :
+                      tabCtx === "hidden" ? "bg-surface-container-low" :
+                      latest.direction === "outbound" ? "bg-primary-container" : "bg-tertiary-container"
+                    }`}
+                    onMouseEnter={tabCtx !== "trash" && tabCtx !== "hidden" ? () => setHoveredArrow(latest.direction as "inbound" | "outbound") : undefined}
+                    onMouseLeave={tabCtx !== "trash" && tabCtx !== "hidden" ? () => setHoveredArrow(null) : undefined}
+                    onMouseMove={tabCtx !== "trash" && tabCtx !== "hidden" ? handleArrowMouseMove : undefined}
+                  >
                     {tabCtx === "trash" ? <Trash2 className="h-4 w-4 text-muted-foreground" /> :
                      tabCtx === "hidden" ? <EyeOff className="h-4 w-4 text-muted-foreground" /> :
                      latest.direction === "outbound" ? <ArrowUpRight className="h-4 w-4 text-on-primary-container" /> :
@@ -951,11 +962,18 @@ export default function InboxPage() {
                           <div key={msg.gmail_message_id} className="rounded-lg border border-outline-variant/40 overflow-hidden">
                             {/* Message header row */}
                             <div className="group/msg flex items-center gap-2.5 p-3 hover:bg-surface-container-low/80 transition-colors cursor-pointer" onClick={() => handleExpandEmail(msg.gmail_message_id)}>
-                              {msg.direction === "outbound" ? (
-                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-primary" />
-                              ) : (
-                                <ArrowDownLeft className="h-3.5 w-3.5 shrink-0 text-tertiary" />
-                              )}
+                              <span
+                                className="shrink-0 flex items-center"
+                                onMouseEnter={() => setHoveredArrow(msg.direction as "inbound" | "outbound")}
+                                onMouseLeave={() => setHoveredArrow(null)}
+                                onMouseMove={handleArrowMouseMove}
+                              >
+                                {msg.direction === "outbound" ? (
+                                  <ArrowUpRight className="h-3.5 w-3.5 text-primary" />
+                                ) : (
+                                  <ArrowDownLeft className="h-3.5 w-3.5 text-tertiary" />
+                                )}
+                              </span>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2.5">
                                   <span className={`text-sm font-medium truncate ${!msg.is_read && msg.direction === "inbound" ? "text-foreground font-semibold" : "text-foreground"}`}>
@@ -1297,6 +1315,20 @@ export default function InboxPage() {
                 {activeTab === "sent" && renderThreadList(filteredSentThreads, "sent")}
                 {activeTab === "trash" && renderThreadList(filteredTrashThreads, "trash")}
                 {activeTab === "hidden" && renderThreadList(filteredHiddenThreads, "hidden")}
+
+                {/* Direction-arrow cursor tooltip */}
+                {hoveredArrow && createPortal(
+                  <div
+                    ref={arrowTooltipRef}
+                    className="fixed z-[9999] px-4 py-2.5 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg pointer-events-none"
+                    style={{ left: arrowPosRef.current.x + 14, top: arrowPosRef.current.y - 44 }}
+                  >
+                    <p className="text-sm text-foreground whitespace-nowrap">
+                      {hoveredArrow === "outbound" ? "Outgoing — you sent this" : "Incoming — sent to you"}
+                    </p>
+                  </div>,
+                  document.body
+                )}
 
                 {/* ─── DRAFTS TAB ─── */}
                 {activeTab === "drafts" && (
