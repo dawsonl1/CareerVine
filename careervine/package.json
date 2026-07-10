@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/posthog-annotate.mjs",
     "start": "next start",
     "lint": "eslint",
     "pretest": "npm install --prefix ../careervine-mcp --no-audit --no-fund --silent",
@@ -36,6 +37,8 @@
     "mcp-handler": "^1.1.0",
     "next": "16.1.6",
     "openai": "^6.22.0",
+    "posthog-js": "^1.399.1",
+    "posthog-node": "^5.40.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "sharp": "^0.35.3",

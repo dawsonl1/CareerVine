@@ -99,7 +99,7 @@ export const GET = withApiHandler({
  */
 export const PUT = withApiHandler({
   schema: deepgramKeySaveSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     checkSaveRateLimit(user.id);
 
     const apiKey = body.apiKey;
@@ -138,6 +138,7 @@ export const PUT = withApiHandler({
     }
 
     evictDeepgramKeyCache(user.id);
+    track("api_key_saved", { provider: "deepgram" });
     return formatKeyStatus(data);
   },
 });

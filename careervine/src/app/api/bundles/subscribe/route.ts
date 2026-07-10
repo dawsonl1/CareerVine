@@ -12,7 +12,7 @@ import { bundleSubscribeSchema } from "@/lib/api-schemas";
 
 export const POST = withApiHandler({
   schema: bundleSubscribeSchema,
-  handler: async ({ supabase, user, body }) => {
+  handler: async ({ supabase, user, body, track }) => {
     const { bundleId } = body as { bundleId: number };
 
     // RLS only exposes published bundles — a null read means missing or
@@ -42,6 +42,7 @@ export const POST = withApiHandler({
         .select("id, status, synced_version")
         .single();
       if (error) throw new ApiError(`Resubscribe failed: ${error.message}`, 500);
+      track("bundle_subscribed", { bundle_id: String(bundleId) });
       return { subscription: updated, reactivated: true };
     }
 
@@ -51,6 +52,7 @@ export const POST = withApiHandler({
       .select("id, status, synced_version")
       .single();
     if (error) throw new ApiError(`Subscribe failed: ${error.message}`, 500);
+    track("bundle_subscribed", { bundle_id: String(bundleId) });
     return { subscription: created, reactivated: false };
   },
 });

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
+import { track } from "@/lib/analytics/client";
 import type { User, Session } from "@supabase/supabase-js";
 
 // Define the shape of our authentication context
@@ -99,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: error.message };
     }
 
+    track("user_signed_up");
     return {};
   };
 

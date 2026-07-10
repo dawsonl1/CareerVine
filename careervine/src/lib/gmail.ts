@@ -148,6 +148,7 @@ import { getOAuth2Client, refreshTokenIfNeeded } from '@/lib/oauth-helpers';
 // Circular with email-send.ts (which imports sendEmail/getConnection from here);
 // safe because both sides use the imports only inside function bodies.
 import { sendTrackedEmail, SendPolicyError } from '@/lib/email-send';
+import { trackServer } from '@/lib/analytics/server';
 
 /**
  * Sync emails for a specific contact by querying Gmail for messages
@@ -278,6 +279,26 @@ export async function syncEmailsForContact(
             .eq("id", contactId)
             .in("network_status", ["prospect", "bench"]);
           if (actError) console.error("Failed to activate contact on reply:", actError);
+
+          // CAR-38 north-star event: thread-attributed replies only — a new
+          // inbound message counts as reply_received iff we previously sent
+          // an outbound message on the same thread. newRows (first insert of
+          // each gmail message) is the dedupe, so re-syncs can't recount.
+          const inbound = newRows.filter((r) => r.direction === "inbound" && r.thread_id);
+          const threadIds = [...new Set(inbound.map((r) => r.thread_id as string))];
+          if (threadIds.length > 0) {
+            const { data: ourThreads } = await supabase
+              .from("email_messages")
+              .select("thread_id")
+              .eq("user_id", userId)
+              .eq("direction", "outbound")
+              .in("thread_id", threadIds);
+            const attributed = new Set((ourThreads ?? []).map((t) => t.thread_id));
+            const replyCount = inbound.filter((r) => attributed.has(r.thread_id as string)).length;
+            for (let i = 0; i < replyCount; i++) {
+              await trackServer(userId, "reply_received", {});
+            }
+          }
         }
       }
 
@@ -777,6 +798,7 @@ export async function processFollowUps(userId: string): Promise<{
         .eq("id", nextMsg.id);
 
       sent++;
+      await trackServer(userId, "email_sent", { is_follow_up: true, is_scheduled: false });
 
       // Check if all messages in the sequence are now sent/cancelled
       const { data: remaining } = await supabase
@@ -919,16 +941,20 @@ export async function processScheduledEmails(userId: string): Promise<{
       // cached + interaction-logged like interactive sends.
       let result: { messageId: string; threadId: string };
       try {
-        result = await sendTrackedEmail(userId, {
-          to: email.recipient_email,
-          cc: email.cc || undefined,
-          bcc: email.bcc || undefined,
-          subject: email.subject,
-          bodyHtml: email.body_html,
-          threadId: email.thread_id || undefined,
-          inReplyTo: email.in_reply_to || undefined,
-          references: email.references_header || undefined,
-        });
+        result = await sendTrackedEmail(
+          userId,
+          {
+            to: email.recipient_email,
+            cc: email.cc || undefined,
+            bcc: email.bcc || undefined,
+            subject: email.subject,
+            bodyHtml: email.body_html,
+            threadId: email.thread_id || undefined,
+            inReplyTo: email.in_reply_to || undefined,
+            references: email.references_header || undefined,
+          },
+          { isScheduled: true },
+        );
       } catch (policyErr) {
         if (policyErr instanceof SendPolicyError) {
           // Cap reached (429) → stop the batch, retry next run. Bounce (422) →

@@ -10,7 +10,7 @@ import { createCalendarEvent } from "@/lib/calendar";
  */
 export const POST = withApiHandler({
   schema: calendarCreateEventSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const {
       summary,
       description,
@@ -70,6 +70,8 @@ export const POST = withApiHandler({
         .eq("id", meetingId)
         .eq("user_id", user.id);
     }
+
+    track("meeting_created", {});
 
     return {
       success: true,

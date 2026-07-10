@@ -62,8 +62,9 @@ const ACTION_ITEM_SCHEMA = {
 
 export const POST = withApiHandler({
   schema: transcriptExtractActionsSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const { transcript, attendees, meetingDate, userName } = body;
+    track("transcript_processed", { step: "extract_actions" });
 
     const model = DEFAULT_MODEL;
 

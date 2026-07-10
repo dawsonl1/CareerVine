@@ -11,7 +11,7 @@ import { AiFollowUpDraftStatus } from "@/lib/constants";
 
 export const PATCH = withApiHandler({
   schema: aiFollowUpPatchSchema,
-  handler: async ({ user, body, params }) => {
+  handler: async ({ user, body, params, track }) => {
     const draftId = Number(params.id);
     if (isNaN(draftId)) throw new ApiError("Invalid draft ID", 400);
 
@@ -66,6 +66,15 @@ export const PATCH = withApiHandler({
       .single();
 
     if (error) throw error;
+
+    // AI acceptance trio (CAR-38): terminal draft statuses map onto outcomes.
+    if (body.status === AiFollowUpDraftStatus.Sent) {
+      track("ai_draft_outcome", { outcome: "sent", edit_ratio: 1 });
+    } else if (body.status === AiFollowUpDraftStatus.EditedAndSent) {
+      track("ai_draft_outcome", { outcome: "edited" });
+    } else if (body.status === AiFollowUpDraftStatus.Dismissed) {
+      track("ai_draft_outcome", { outcome: "discarded" });
+    }
 
     return { success: true, draft: updated };
   },

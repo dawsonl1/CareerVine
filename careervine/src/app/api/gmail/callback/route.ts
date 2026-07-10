@@ -11,7 +11,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
  * Also detects if calendar scopes were granted.
  */
 export const GET = withApiHandler({
-  handler: async ({ user, request }) => {
+  handler: async ({ user, request, track }) => {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code");
     const state = searchParams.get("state");
@@ -82,6 +82,9 @@ export const GET = withApiHandler({
         console.error("Error upserting gmail connection:", error);
         return errorRedirect("Failed to store connection");
       }
+
+      track("gmail_connected", {});
+      if (calendarGranted) track("calendar_connected", {});
 
       return NextResponse.redirect(`${baseUrl}/settings?gmail=connected`);
     } catch (err) {

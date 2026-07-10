@@ -11,6 +11,7 @@
     "https://www.linkedin.com/*",
     "https://www.careervine.app/*",
     "https://iycrlwqjetkwaauzxrhd.supabase.co/*",
+    "https://us.i.posthog.com/*",
     "http://localhost:3000/*",
     "http://127.0.0.1:54321/*"
   ],

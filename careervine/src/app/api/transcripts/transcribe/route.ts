@@ -18,8 +18,9 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
  */
 export const POST = withApiHandler({
   schema: transcriptTranscribeSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const { meetingId, attachmentObjectPath } = body;
+    track("transcript_processed", { step: "transcribe" });
 
     // Validate the user owns this storage path (paths are {userId}/{uuid}_{filename})
     if (!attachmentObjectPath.startsWith(`${user.id}/`) || attachmentObjectPath.includes("..")) {

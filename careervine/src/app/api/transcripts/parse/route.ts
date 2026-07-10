@@ -13,8 +13,9 @@ import { transcriptParseSchema } from "@/lib/api-schemas";
  */
 export const POST = withApiHandler({
   schema: transcriptParseSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const { rawText } = body;
+    track("transcript_processed", { step: "parse" });
     const model = DEFAULT_MODEL;
 
     const segmentSchema = {

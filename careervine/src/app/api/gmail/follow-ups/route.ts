@@ -37,7 +37,7 @@ export const GET = withApiHandler({
  */
 export const POST = withApiHandler({
   schema: gmailFollowUpCreateSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const {
       originalGmailMessageId,
       threadId,
@@ -90,6 +90,7 @@ export const POST = withApiHandler({
       .eq("id", followUp.id)
       .single();
 
+    track("follow_up_sequence_created", { steps: messages.length });
     return { followUp: complete };
   },
 });

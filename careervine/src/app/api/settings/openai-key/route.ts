@@ -108,7 +108,7 @@ export const GET = withApiHandler({
  */
 export const PUT = withApiHandler({
   schema: openaiKeySaveSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     checkSaveRateLimit(user.id);
 
     const apiKey = body.apiKey;
@@ -147,6 +147,7 @@ export const PUT = withApiHandler({
     }
 
     evictOpenAIKeyCache(user.id);
+    track("api_key_saved", { provider: "openai" });
     return formatKeyStatus(data);
   },
 });

@@ -28,6 +28,8 @@ export const gmailSendSchema = z.object({
   threadId: optionalString,
   inReplyTo: optionalString,
   references: optionalString,
+  /** Whether the body originated from an AI draft (CAR-38 acceptance metric). */
+  aiAssisted: z.boolean().optional(),
 });
 
 export const gmailEmailsQuerySchema = z.object({

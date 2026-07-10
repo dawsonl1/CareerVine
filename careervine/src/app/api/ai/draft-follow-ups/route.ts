@@ -9,8 +9,9 @@ import { getContactContext } from "@/lib/ai-helpers";
  */
 export const POST = withApiHandler({
   schema: aiDraftFollowUpsSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const { contactId, introSubject, introBodyHtml, goal, howMet } = body;
+    const startedAt = Date.now();
 
     const ctx = await getContactContext(user.id, contactId);
 
@@ -104,6 +105,7 @@ Each follow-up should:
       }
     }
 
+    track("ai_draft_generated", { kind: "follow_up", latency_ms: Date.now() - startedAt });
     return { followUps };
   },
 });

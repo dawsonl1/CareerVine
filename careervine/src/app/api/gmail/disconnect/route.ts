@@ -6,8 +6,9 @@ import { revokeAccess } from "@/lib/gmail";
  * Revokes the Google token and removes all Gmail data for the user.
  */
 export const POST = withApiHandler({
-  handler: async ({ user }) => {
+  handler: async ({ user, track }) => {
     await revokeAccess(user.id);
+    track("gmail_disconnected", {});
     return { success: true };
   },
 });

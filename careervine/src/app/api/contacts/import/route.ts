@@ -1,5 +1,6 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { contactsImportSchema } from "@/lib/api-schemas";
+import { checkContactMilestone } from "@/lib/analytics/server";
 import { sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
@@ -76,7 +77,7 @@ export const POST = withApiHandler({
   schema: contactsImportSchema,
   extensionAuth: true,
   cors: true,
-  handler: async ({ supabase, user, body }) => {
+  handler: async ({ supabase, user, body, track }) => {
     const { profileData, photoUrl } = body as { profileData: ProfileData; photoUrl?: string };
 
     // Canonicalize before any dedupe — trailing slash / www / case
@@ -112,6 +113,11 @@ export const POST = withApiHandler({
       } catch (err) {
         console.warn(`[import] Photo download/storage failed for contact ${contact.id}:`, err);
       }
+    }
+
+    if (!isUpdate) {
+      track("contact_imported", { source: "extension" });
+      await checkContactMilestone(user.id);
     }
 
     // Auto-enrich (plan 29): kick off an Apify scrape that fills photo, real
