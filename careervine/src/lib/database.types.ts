@@ -30,14 +30,18 @@ export type Database = {
           email: string | null;          // Optional email override
           phone: string | null;          // Optional phone number
           status: "active" | "suspended"; // Account status — service-role writable only
+          apify_enrichment_enabled: boolean; // Admin kill switch: all paid Apify activity (service-role writable only)
+          diff_analysis_enabled: boolean;    // Admin kill switch: change-event production (service-role writable only)
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "created_at" | "updated_at"
+          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
+          apify_enrichment_enabled?: boolean;
+          diff_analysis_enabled?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
@@ -116,8 +120,10 @@ export type Database = {
           network_status: string;        // 'active' | 'prospect' | 'bench' — network tier segregation
           network_scope: string | null;  // 'target_company' | 'broad_network' — pipeline segment; NULL = not a pipeline import
           stage_override: string | null; // Manual override for the derived outreach stage
+          scrape_failed_at: string | null; // Last failed scrape attempt (plan 29)
+          scrape_failure_count: number;   // Consecutive failed scrapes; 0 on success
         };
-        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "network_scope" | "stage_override"> & {
+        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "network_scope" | "stage_override" | "scrape_failed_at" | "scrape_failure_count"> & {
           status_derived_at?: string | null;
           photo_url?: string | null;
           created_at?: string;
@@ -135,6 +141,8 @@ export type Database = {
           network_status?: string;
           network_scope?: string | null;
           stage_override?: string | null;
+          scrape_failed_at?: string | null;
+          scrape_failure_count?: number;
         };
         Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;
       };
@@ -687,6 +695,99 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["suppressed_imports"]["Insert"]>;
+      };
+
+      // Contact change events — detected changes worth an outreach touch (plan 29)
+      contact_change_events: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          contact_id: number;                  // Foreign key to contacts
+          type: string;                        // 'anniversary' | 'company_change' | 'promotion' | 'hiring' | 'open_to_work' | 'certification' | 'location_change'
+          tier: number;                        // 1 act-now, 2 touchpoint, 3 silent
+          dedupe_key: string;                  // Stable idempotency key
+          headline: string;                    // Display "why"
+          evidence: string | null;             // Backing detail
+          suggested_title: string | null;      // Prefilled action item title
+          suggested_description: string | null;
+          old_value: Record<string, unknown> | null; // For scrape diffs
+          new_value: Record<string, unknown> | null;
+          status: string;                      // 'new' | 'actioned' | 'dismissed' | 'snoozed'
+          snoozed_until: string | null;
+          detected_at: string;
+          actioned_at: string | null;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["contact_change_events"]["Row"],
+          "id" | "tier" | "status" | "detected_at" | "snoozed_until" | "actioned_at" | "evidence" | "suggested_title" | "suggested_description" | "old_value" | "new_value"
+        > & {
+          tier?: number;
+          status?: string;
+          snoozed_until?: string | null;
+          detected_at?: string;
+          actioned_at?: string | null;
+          evidence?: string | null;
+          suggested_title?: string | null;
+          suggested_description?: string | null;
+          old_value?: Record<string, unknown> | null;
+          new_value?: Record<string, unknown> | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["contact_change_events"]["Insert"]>;
+      };
+
+      // Scrape runs — Apify run ledger (plan 29)
+      scrape_runs: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          apify_run_id: string | null;         // Apify run id (null until the run is started)
+          actor: string;                       // Apify actor full name
+          mode: string;                        // 'profile' | 'email' | 'resolve'
+          trigger: string;                     // 'manual' | 'enrich_on_save' | 'cadence'
+          contact_ids: number[];               // Contacts covered by this run
+          single_contact_id: number | null;    // The one contact a run targets (in-flight guard)
+          status: string;                      // 'pending' | 'succeeded' | 'failed' | 'timed_out'
+          cost_usd: number;                    // Actual run cost (0 until succeeded)
+          error: string | null;
+          created_at: string;
+          finished_at: string | null;
+          ingest_claimed_at: string | null;    // Webhook ingest's atomic claim (CAS; stale >10min = re-claimable)
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["scrape_runs"]["Row"],
+          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids" | "single_contact_id" | "ingest_claimed_at"
+        > & {
+          apify_run_id?: string | null;
+          status?: string;
+          cost_usd?: number;
+          error?: string | null;
+          created_at?: string;
+          finished_at?: string | null;
+          contact_ids?: number[];
+          single_contact_id?: number | null;
+          ingest_claimed_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["scrape_runs"]["Insert"]>;
+      };
+
+      // Scrape snapshots — normalized per-scrape profile subset (plan 29)
+      contact_scrape_snapshots: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          contact_id: number;                  // Foreign key to contacts
+          scrape_run_id: number | null;        // Producing scrape_runs row (null if run deleted)
+          scraped_at: string;
+          snapshot: Record<string, unknown>;   // Normalized subset — see ScrapeSnapshot in diff-engine.ts
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["contact_scrape_snapshots"]["Row"],
+          "id" | "scraped_at" | "scrape_run_id"
+        > & {
+          scraped_at?: string;
+          scrape_run_id?: number | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["contact_scrape_snapshots"]["Insert"]>;
       };
 
       // Data bundles — admin-curated prospect/company bundle catalog

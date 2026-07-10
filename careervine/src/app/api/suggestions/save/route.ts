@@ -1,8 +1,9 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { suggestionsSaveSchema } from "@/lib/api-schemas";
-import { ActionItemSource } from "@/lib/constants";
+import { ActionItemSource, ChangeEventStatus } from "@/lib/constants";
 import { createActionItem } from "@/lib/queries";
 import { invalidateSuggestionCache } from "@/lib/ai-followup/generate-suggestions";
+import { markChangeEventStatus } from "@/lib/change-events/change-events";
 
 export const POST = withApiHandler({
   schema: suggestionsSaveSchema,
@@ -30,6 +31,12 @@ export const POST = withApiHandler({
 
     // Invalidate cached suggestions so dedup picks up the new item
     invalidateSuggestionCache(user.id);
+
+    // If this suggestion was backed by a persisted change event, mark it actioned
+    // so it stops surfacing (plan 29).
+    if (body.changeEventId != null) {
+      await markChangeEventStatus(body.changeEventId, user.id, ChangeEventStatus.Actioned);
+    }
 
     return { success: true, actionItem };
   },

@@ -282,6 +282,21 @@ export const suggestionsSaveSchema = z.object({
   evidence: z.string().min(1),
   /** When true, creates the action item as already completed (user already did it) */
   completed: z.boolean().optional(),
+  /** When set, the suggestion is backed by a contact_change_events row to mark actioned (plan 29) */
+  changeEventId: z.number().int().optional(),
+});
+
+export const changeEventDismissSchema = z.object({
+  changeEventId: z.number().int(),
+});
+
+export const scrapeContactSchema = z.object({
+  /** 'profile' = refresh only; 'email' = also run SMTP-verified email search */
+  mode: z.enum(["profile", "email"]).optional(),
+});
+
+export const linkLinkedinSchema = z.object({
+  linkedinUrl: z.string().min(1).max(500),
 });
 
 // ── Transcript Action Extraction ──────────────────────────────────────

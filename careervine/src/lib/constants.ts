@@ -69,6 +69,98 @@ export const SuggestionReasonType = {
   TranscriptExtracted: "transcript_extracted",
 } as const;
 
+// ── Contact change events (plan 29) ───────────────────────────────────
+
+export const ChangeEventType = {
+  Anniversary: "anniversary",
+  CompanyChange: "company_change",
+  Promotion: "promotion",
+  Hiring: "hiring",
+  OpenToWork: "open_to_work",
+  Certification: "certification",
+  LocationChange: "location_change",
+} as const;
+
+export const ChangeEventStatus = {
+  New: "new",
+  Actioned: "actioned",
+  Dismissed: "dismissed",
+  Snoozed: "snoozed",
+} as const;
+
+export const ChangeEventTier = {
+  ActNow: 1,
+  Touchpoint: 2,
+  Silent: 3,
+} as const;
+
+// ── Apify scrape runs (plan 29) ───────────────────────────────────────
+
+export const ScrapeRunStatus = {
+  Pending: "pending",
+  Succeeded: "succeeded",
+  Failed: "failed",
+  TimedOut: "timed_out",
+} as const;
+
+export const ScrapeMode = {
+  /** Profile details only — $0.004/profile */
+  Profile: "profile",
+  /** Profile details + SMTP-verified email search — $0.01/profile */
+  Email: "email",
+} as const;
+
+export const ScrapeTrigger = {
+  Manual: "manual",
+  EnrichOnSave: "enrich_on_save",
+  Cadence: "cadence",
+} as const;
+
+/** The Apify actor used for all in-app scrapes (plan 29 §2). */
+export const PROFILE_SCRAPER_ACTOR = "harvestapi/linkedin-profile-scraper";
+
+/** Actor B — the name→profile fallback resolver (plan 29 §2). */
+export const PROFILE_SEARCH_BY_NAME_ACTOR = "harvestapi/linkedin-profile-search-by-name";
+
+/** One short-mode search page ($4/1k pages, ≤10 short profiles). */
+export const RESOLVE_COST_USD = 0.004;
+
+/** Consecutive scrape failures before the UI suggests re-linking the profile. */
+export const SCRAPE_FAILURES_BEFORE_RELINK = 3;
+
+/** Per-profile Apify cost at BRONZE tier, used for pre-run budget checks. */
+export const SCRAPE_UNIT_COST_USD = { profile: 0.004, email: 0.01 } as const;
+
+/** Hard monthly Apify spend cap (Dawson's decision, plan 29 §9). */
+export const MONTHLY_SCRAPE_CAP_USD = 10;
+
+/**
+ * Soft cap for AUTOMATIC spend (plan 29 §9.3 graceful degradation): the
+ * cadence drip stops here so manual refresh / find-email / resolve keep the
+ * remaining headroom up to the hard cap.
+ */
+export const CADENCE_SOFT_CAP_USD = 8;
+
+/** Debounce: skip a manual re-scrape if the contact was scraped this recently. */
+export const SCRAPE_DEBOUNCE_DAYS = 7;
+
+/**
+ * Cadence freshness floor: the daily drip never re-scrapes a contact whose
+ * last successful scrape is younger than this. Keeps a small fleet from
+ * burning the cap on redundant daily re-scrapes (deep-review 3, finding J):
+ * without it, 60 contacts × $0.004 × 30 days ≈ $7.20/mo of pure noise.
+ */
+export const CADENCE_MIN_AGE_DAYS = 14;
+
+/**
+ * Daily cadence drip size (plan 29 §7.3): ~80/day covers a ~2,000-contact
+ * fleet monthly plus headroom (the deep review corrected the original 25).
+ */
+export const DAILY_CADENCE_TARGET = 80;
+
+/** Contacts per cadence Apify run — sized so webhook ingest fits maxDuration. */
+export const CADENCE_BATCH_SIZE = 25;
+
 // ── Action item direction ─────────────────────────────────────────────
 
 export const ActionDirection = {

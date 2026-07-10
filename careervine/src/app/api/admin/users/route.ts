@@ -24,7 +24,7 @@ export const GET = withApiHandler<unknown, { q?: string }>({
 
     let usersQuery = service
       .from("users")
-      .select("id, first_name, last_name, email, phone, status, created_at")
+      .select("id, first_name, last_name, email, phone, status, apify_enrichment_enabled, diff_analysis_enabled, created_at")
       .order("created_at", { ascending: false })
       .limit(200);
 

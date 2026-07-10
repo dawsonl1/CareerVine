@@ -6,6 +6,7 @@ import { backfillEmailsForContact } from "@/lib/gmail";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { findOrCreateCompany, findOrCreateLocation, ensureCompanyLocation } from "@/lib/company-helpers";
 import { addTagsToContact, downloadAndStorePhoto } from "@/lib/import-db-helpers";
+import { triggerEnrichOnSave } from "@/lib/apify/scrape-service";
 import { normalizeLocation, normalizeParsedLocation, locationMatchKey } from "@/lib/location-normalizer";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -113,11 +114,17 @@ export const POST = withApiHandler({
       }
     }
 
+    // Auto-enrich (plan 29): kick off an Apify scrape that fills photo, real
+    // employment history, and a verified email. Async — the run completes via
+    // webhook minutes later; the save itself never waits on or fails from it.
+    const enrich = await triggerEnrichOnSave(user.id, contact.id);
+
     return {
       success: true,
       contact,
       isUpdate,
-      duplicates: duplicates.potentialMatches
+      duplicates: duplicates.potentialMatches,
+      enrich: enrich.status,
     };
   },
 });
@@ -183,12 +190,20 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
 
   if (updateError || !contact) throw new Error(updateError?.message || 'Failed to update contact');
 
-  // Replace experience: back up old data, delete, insert new, restore on failure
+  // Replace experience — but only the rows THIS path owns (source='extension').
+  // Scraped rows carry provenance (location_id, scraped_at) the AI parse can't
+  // reproduce, and manual rows are user-typed; deleting either on a re-save
+  // would destroy better data (plan 29 m6). New inserts dedupe against the
+  // survivors so a role the scrape already covers isn't re-added.
   if (profileData.experience && profileData.experience.length > 0) {
-    const { data: oldExp } = await supabase.from('contact_companies').select('*').eq('contact_id', contactId);
-    await supabase.from('contact_companies').delete().eq('contact_id', contactId);
+    const { data: oldExp } = await supabase
+      .from('contact_companies')
+      .select('*')
+      .eq('contact_id', contactId)
+      .eq('source', 'extension');
+    await supabase.from('contact_companies').delete().eq('contact_id', contactId).eq('source', 'extension');
     try {
-      await addExperienceToContact(supabase, contactId, profileData.experience, profileData.location, true);
+      await addExperienceToContact(supabase, contactId, profileData.experience, profileData.location, false);
     } catch (err) {
       if (oldExp && oldExp.length > 0) {
         await supabase.from('contact_companies').insert(oldExp.map(({ id: _id, ...rest }) => rest));
@@ -433,6 +448,9 @@ async function addExperienceToContact(
         location_source: locationSource,
         location_raw: locationRaw,
         workplace_type: workplaceType,
+        // AI-parsed provenance: supersedable by scrapes, unlike user-typed
+        // 'manual' rows (migration 20260710030000)
+        source: 'extension',
       });
     }
   }

@@ -24,12 +24,29 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/suggestions/generate", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setSuggestions(data.suggestions || []);
+      // Ephemeral AI suggestions + persisted change events (plan 29), in parallel.
+      const [aiRes, ceRes] = await Promise.all([
+        fetch("/api/suggestions/generate", { method: "POST" }),
+        fetch("/api/change-events"),
+      ]);
+      let ai: Suggestion[] = [];
+      if (aiRes.ok) {
+        const data = await aiRes.json();
+        ai = data.suggestions || [];
         setAiStatus(isAiFailureCode(data.aiStatus) ? data.aiStatus : null);
       }
+      const ce: Suggestion[] = ceRes.ok ? (await ceRes.json()).suggestions || [] : [];
+
+      // Change events lead (persisted, higher-signal), then AI suggestions.
+      // Dedupe by contact so one person never shows two rows.
+      const seen = new Set<number>();
+      const merged: Suggestion[] = [];
+      for (const s of [...ce, ...ai]) {
+        if (seen.has(s.contactId)) continue;
+        seen.add(s.contactId);
+        merged.push(s);
+      }
+      setSuggestions(merged);
     } catch {
       // silent
     } finally {
@@ -53,6 +70,7 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
           headline: s.headline,
           evidence: s.evidence,
           ...(opts?.completed && { completed: true }),
+          ...(s.changeEventId != null && { changeEventId: s.changeEventId }),
         }),
       });
       if (res.ok) {
@@ -73,6 +91,14 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
 
   const dismiss = useCallback((s: Suggestion) => {
     setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
+    // Persisted change events must be dismissed server-side so they don't reappear.
+    if (s.changeEventId != null) {
+      fetch("/api/change-events/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changeEventId: s.changeEventId }),
+      }).catch(() => {});
+    }
   }, []);
 
   /** Call once when ready to trigger loading (idempotent). */

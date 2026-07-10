@@ -6,9 +6,12 @@ import { useToast } from "@/components/ui/toast";
 import { useCompose } from "@/components/compose-email-context";
 import {
   Mail, Phone, ExternalLink, MapPin, Clock, Send,
-  Pencil, Trash2, ChevronDown, Check, UserPlus,
+  Pencil, Trash2, ChevronDown, Check, UserPlus, RefreshCw, MailSearch,
+  Link2, AlertTriangle,
 } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { ResolveLinkedinModal } from "@/components/contacts/resolve-linkedin-modal";
+import { SCRAPE_FAILURES_BEFORE_RELINK } from "@/lib/constants";
 import {
   updateContact,
   addEmailToContact,
@@ -60,6 +63,9 @@ export function ContactProfileCard({
   const primaryEmail =
     contact.contact_emails.find((e) => e.is_primary)?.email ||
     contact.contact_emails[0]?.email;
+  // Mirrors the server's contactHasEmail: a bounced-only contact counts as
+  // having NO email, so Find Email stays available exactly when it's needed.
+  const hasLiveEmail = contact.contact_emails.some((e) => e.email && !e.bounced_at);
   const primaryPhone =
     contact.contact_phones.find((p) => p.is_primary) ||
     contact.contact_phones[0];
@@ -112,6 +118,52 @@ export function ContactProfileCard({
       toastError("Failed to add to network");
     }
   };
+
+  // ── LinkedIn re-scrape / find-email (plan 29) ──
+  const [scraping, setScraping] = useState(false);
+  const handleScrape = async (mode: "profile" | "email") => {
+    if (scraping) return;
+    setScraping(true);
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}/scrape`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toastError("Couldn't start the refresh");
+      } else if (data.status === "started") {
+        toastSuccess(mode === "email" ? "Searching LinkedIn for an email…" : "Refreshing from LinkedIn…");
+      } else if (data.status === "pending") {
+        toastSuccess("A refresh is already in progress");
+      } else if (data.status === "debounced") {
+        toastSuccess("Already refreshed in the last few days");
+      } else if (data.status === "cap_reached") {
+        toastError("Monthly scrape budget reached");
+      } else if (data.status === "no_url") {
+        toastError("This contact has no LinkedIn URL to scrape");
+      } else if (data.status === "disabled") {
+        toastError("Scraping isn't configured yet");
+      } else if (data.status === "disabled_by_admin") {
+        toastError("LinkedIn enrichment is turned off for this account");
+      }
+    } catch {
+      toastError("Couldn't start the refresh");
+    } finally {
+      setScraping(false);
+    }
+  };
+
+  const dataAsOf = contact.last_scraped_at
+    ? `Data as of ${new Date(contact.last_scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+    : null;
+
+  // LinkedIn resolve/re-link modal (plan 29 §6.3)
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const linkLooksBroken =
+    Boolean(contact.linkedin_url) &&
+    (contact.scrape_failure_count ?? 0) >= SCRAPE_FAILURES_BEFORE_RELINK;
 
   const saveCadence = async (days: number | null) => {
     setCadenceOpen(false);
@@ -304,7 +356,7 @@ export function ContactProfileCard({
         )}
 
         {/* LinkedIn */}
-        {contact.linkedin_url && (
+        {contact.linkedin_url ? (
           <div className="flex items-center gap-3 text-base">
             <ExternalLink className="h-5 w-5 text-muted-foreground shrink-0" />
             <a
@@ -315,6 +367,34 @@ export function ContactProfileCard({
             >
               LinkedIn
             </a>
+            {linkLooksBroken && (
+              <button
+                onClick={() => setResolveOpen(true)}
+                className="flex items-center gap-1 text-xs text-amber-600 hover:underline cursor-pointer"
+                title="Recent refreshes failed — the profile may have moved"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Re-link
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 text-base">
+            <Link2 className="h-5 w-5 text-muted-foreground shrink-0" />
+            <button
+              onClick={() => setResolveOpen(true)}
+              className="text-primary hover:underline cursor-pointer text-left"
+            >
+              Link LinkedIn profile
+            </button>
+          </div>
+        )}
+
+        {/* Scrape freshness (plan 29) */}
+        {dataAsOf && (
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4 shrink-0" />
+            <span>{dataAsOf}</span>
           </div>
         )}
 
@@ -358,6 +438,26 @@ export function ContactProfileCard({
 
       {/* Footer actions */}
       <div className="flex justify-center gap-1.5 mt-5 pt-5 border-t border-outline-variant">
+        {contact.linkedin_url && (
+          <button
+            onClick={() => handleScrape("profile")}
+            disabled={scraping}
+            className="p-2.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-default"
+            title="Refresh from LinkedIn"
+          >
+            <RefreshCw className={`h-5 w-5 ${scraping ? "animate-spin" : ""}`} />
+          </button>
+        )}
+        {contact.linkedin_url && !hasLiveEmail && (
+          <button
+            onClick={() => handleScrape("email")}
+            disabled={scraping}
+            className="p-2.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-default"
+            title="Find email on LinkedIn"
+          >
+            <MailSearch className="h-5 w-5" />
+          </button>
+        )}
         <button
           onClick={onEdit}
           className="p-2.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors"
@@ -373,6 +473,15 @@ export function ContactProfileCard({
           <Trash2 className="h-5 w-5" />
         </button>
       </div>
+
+      {resolveOpen && (
+        <ResolveLinkedinModal
+          contactId={contact.id}
+          contactName={contact.name}
+          onClose={() => setResolveOpen(false)}
+          onLinked={onContactUpdate}
+        />
+      )}
     </div>
   );
 }

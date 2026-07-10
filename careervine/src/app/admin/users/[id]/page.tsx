@@ -12,12 +12,14 @@ import AccountSection from "@/components/admin/account-section";
 import BundlesSection from "@/components/admin/bundles-section";
 import AiSection from "@/components/admin/ai-section";
 import ContactsSection from "@/components/admin/contacts-section";
+import ScrapingSection from "@/components/admin/scraping-section";
 
 export default function AdminUserDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params.id;
   const [user, setUser] = useState<AdminUserDetail | null>(null);
+  const [monthSpendUsd, setMonthSpendUsd] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,8 +30,9 @@ export default function AdminUserDetailPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Request failed (${res.status})`);
       }
-      const body = (await res.json()) as { user: AdminUserDetail };
+      const body = (await res.json()) as { user: AdminUserDetail; apifyMonthSpendUsd?: number };
       setUser(body.user);
+      setMonthSpendUsd(body.apifyMonthSpendUsd ?? null);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -93,6 +96,7 @@ export default function AdminUserDetailPage() {
             onDeleted={() => router.push("/admin/users")}
           />
           <AiSection user={user} onChanged={load} />
+          <ScrapingSection user={user} monthSpendUsd={monthSpendUsd} onChanged={load} />
           <BundlesSection userId={user.id} />
           <ContactsSection userId={user.id} />
         </div>

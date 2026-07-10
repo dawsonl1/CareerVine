@@ -2,10 +2,11 @@
 
 /**
  * Admin users list — permissions are visible and toggleable per row (CAR-36):
- * shared-AI fallback is an inline toggle, bundle visibility lives in an
- * expandable per-row panel. Reversible writes are optimistic-with-rollback +
- * toast; destructive actions (suspend, delete, role) stay behind the detail
- * page's confirm modals.
+ * shared-AI fallback, Apify scraping, and change alerts are inline toggles,
+ * bundle visibility lives in an expandable per-row panel. Reversible writes
+ * are optimistic-with-rollback + toast; destructive actions (suspend, delete,
+ * role) stay behind the detail page's confirm modals. The "Apify controls"
+ * card on top carries the tenant-wide bulk switches (plan 36 / CAR-25).
  */
 
 import { useEffect, useState } from "react";
@@ -16,6 +17,7 @@ import {
   ChevronRight,
   ChevronDown,
   Database,
+  RefreshCw,
   Users as UsersIcon,
 } from "lucide-react";
 import type { AdminUserListItem } from "@/lib/admin-users";
@@ -35,6 +37,16 @@ function formatDate(iso: string | null): string {
   });
 }
 
+type ScrapeControlKey = "apify_enrichment_enabled" | "diff_analysis_enabled";
+
+const SCRAPE_CONTROL_FIELD: Record<
+  ScrapeControlKey,
+  "apifyEnrichmentEnabled" | "diffAnalysisEnabled"
+> = {
+  apify_enrichment_enabled: "apifyEnrichmentEnabled",
+  diff_analysis_enabled: "diffAnalysisEnabled",
+};
+
 export default function AdminUsersPage() {
   const { success, error: toastError } = useToast();
   const [q, setQ] = useState("");
@@ -43,6 +55,9 @@ export default function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savingAiId, setSavingAiId] = useState<string | null>(null);
+  const [savingScrapeId, setSavingScrapeId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // Debounced search.
   useEffect(() => {
@@ -73,7 +88,7 @@ export default function AdminUsersPage() {
       clearTimeout(t);
       controller.abort();
     };
-  }, [q]);
+  }, [q, refreshKey]);
 
   const patchUser = (id: string, patch: Partial<AdminUserListItem>) => {
     setUsers((prev) =>
@@ -109,6 +124,58 @@ export default function AdminUsersPage() {
     }
   };
 
+  /** Optimistic Apify kill-switch flip, rolled back on failure (plan 36). */
+  const setScrapeControl = async (
+    user: AdminUserListItem,
+    key: ScrapeControlKey,
+    value: boolean,
+  ) => {
+    if (savingScrapeId) return;
+    const field = SCRAPE_CONTROL_FIELD[key];
+    const prev = user[field];
+    setSavingScrapeId(`${user.id}:${key}`);
+    patchUser(user.id, { [field]: value });
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/scrape-controls`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      const label = key === "apify_enrichment_enabled" ? "Apify enrichment" : "Change alerts";
+      success(`${label} ${value ? "on" : "off"} for ${user.email ?? "this account"}`);
+    } catch (err) {
+      patchUser(user.id, { [field]: prev });
+      toastError((err as Error).message);
+    } finally {
+      setSavingScrapeId(null);
+    }
+  };
+
+  /** Bulk Apify kill switches (plan 36): one call flips every account. */
+  const bulkSet = async (key: ScrapeControlKey, value: boolean) => {
+    const label = key === "apify_enrichment_enabled" ? "Apify enrichment" : "change detection";
+    if (bulkBusy) return;
+    if (!window.confirm(`Turn ${label} ${value ? "ON" : "OFF"} for ALL accounts?`)) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/admin/scrape-controls/bulk", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      success(`${label[0].toUpperCase()}${label.slice(1)} ${value ? "on" : "off"} for ${body.affected} accounts`);
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      toastError((e as Error).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   /** Keep the row's n/m chip in sync with toggles inside the expander. */
   const onBundleItemsChange = (userId: string, items: BundleAccessItem[]) => {
     patchUser(userId, {
@@ -137,6 +204,54 @@ export default function AdminUsersPage() {
           className="w-full rounded-full border border-outline-variant bg-surface py-2.5 pl-10 pr-4 text-sm text-on-surface placeholder:text-muted-foreground focus:border-primary focus:outline-none"
         />
       </div>
+
+      {/* Apify spend controls (plan 36) */}
+      {users && !loading && (
+        <div className="mb-4 rounded-2xl border border-outline-variant bg-surface p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-on-surface">
+            <RefreshCw className="h-4 w-4 text-primary" />
+            Apify controls
+          </div>
+          <div className="mt-3 flex flex-col gap-2">
+            {(
+              [
+                {
+                  key: "apify_enrichment_enabled" as const,
+                  label: "Enrichment",
+                  on: users.filter((u) => u.apifyEnrichmentEnabled).length,
+                },
+                {
+                  key: "diff_analysis_enabled" as const,
+                  label: "Change detection",
+                  on: users.filter((u) => u.diffAnalysisEnabled).length,
+                },
+              ]
+            ).map((row) => (
+              <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {row.label}: on for {row.on}/{users.length}
+                </span>
+                <span className="flex gap-2">
+                  <button
+                    onClick={() => void bulkSet(row.key, true)}
+                    disabled={bulkBusy}
+                    className="rounded-full border border-outline-variant px-3 py-1 text-xs text-on-surface hover:bg-surface-container disabled:opacity-50 cursor-pointer"
+                  >
+                    All on
+                  </button>
+                  <button
+                    onClick={() => void bulkSet(row.key, false)}
+                    disabled={bulkBusy}
+                    className="rounded-full border border-outline-variant px-3 py-1 text-xs text-destructive hover:bg-surface-container disabled:opacity-50 cursor-pointer"
+                  >
+                    All off
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Result count */}
       {users && !loading && (
@@ -208,7 +323,7 @@ export default function AdminUsersPage() {
                   </Link>
 
                   {/* Permissions — inline, reversible */}
-                  <div className="flex shrink-0 items-center gap-2 pl-13 sm:pl-0">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 pl-13 sm:pl-0">
                     <Tooltip
                       label={
                         u.aiFallbackPolicy === "shared"
@@ -224,6 +339,48 @@ export default function AdminUsersPage() {
                           checked={u.aiFallbackPolicy === "shared"}
                           disabled={savingAiId === u.id}
                           onChange={(next) => void setAiPolicy(u, next)}
+                        />
+                      </span>
+                    </Tooltip>
+
+                    <Tooltip
+                      label={
+                        u.apifyEnrichmentEnabled
+                          ? "Paid LinkedIn enrichment is on: auto-enrich, daily refresh drip, manual refresh, find-email, profile search"
+                          : "All paid LinkedIn enrichment is off for this account — no new Apify spend"
+                      }
+                    >
+                      <span className="flex items-center gap-1.5 rounded-full border border-outline-variant px-3 py-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Scraping
+                        </span>
+                        <Toggle
+                          checked={u.apifyEnrichmentEnabled}
+                          disabled={savingScrapeId === `${u.id}:apify_enrichment_enabled`}
+                          onChange={(next) =>
+                            void setScrapeControl(u, "apify_enrichment_enabled", next)
+                          }
+                        />
+                      </span>
+                    </Tooltip>
+
+                    <Tooltip
+                      label={
+                        u.diffAnalysisEnabled
+                          ? "Job-change and anniversary alerts flow into their Up Next feed"
+                          : "No change alerts — refreshed data still lands, but nothing is surfaced"
+                      }
+                    >
+                      <span className="flex items-center gap-1.5 rounded-full border border-outline-variant px-3 py-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Change alerts
+                        </span>
+                        <Toggle
+                          checked={u.diffAnalysisEnabled}
+                          disabled={savingScrapeId === `${u.id}:diff_analysis_enabled`}
+                          onChange={(next) =>
+                            void setScrapeControl(u, "diff_analysis_enabled", next)
+                          }
                         />
                       </span>
                     </Tooltip>

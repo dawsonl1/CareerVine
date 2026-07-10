@@ -16,6 +16,7 @@ export interface Suggestion {
   suggestedTitle: string;    // Pre-filled action item title if saved
   suggestedDescription: string; // Pre-filled action item description if saved
   daysSinceContact: number | null; // Days since last interaction
+  changeEventId?: number;    // When backed by a persisted contact_change_events row (plan 29)
 }
 
 export interface SuggestionContact {
