@@ -15,8 +15,8 @@ import { Toggle } from "@/components/ui/toggle";
 import type { AdminUserDetail } from "@/lib/admin-users";
 
 const CONTROLS: Array<{
-  key: "apify_enrichment_enabled" | "diff_analysis_enabled";
-  field: "apifyEnrichmentEnabled" | "diffAnalysisEnabled";
+  key: "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled";
+  field: "apifyEnrichmentEnabled" | "diffAnalysisEnabled" | "discoveryEnabled";
   label: string;
   description: string;
 }> = [
@@ -33,6 +33,13 @@ const CONTROLS: Array<{
     label: "Change detection",
     description:
       "Job-change and anniversary events from refreshed profiles. Off = scraped data still lands, but no new items in their Up Next feed.",
+  },
+  {
+    key: "discovery_enabled",
+    field: "discoveryEnabled",
+    label: "Discovery feed",
+    description:
+      "Weekly search for new PM hires at this account's target companies (~$0.10 per company page). Default off — new spend, opt in per account.",
   },
 ];
 
@@ -59,7 +66,7 @@ export default function ScrapingSection({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
-      const label = key === "apify_enrichment_enabled" ? "Apify enrichment" : "Change detection";
+      const label = CONTROLS.find((c) => c.key === key)?.label ?? key;
       success(`${label} ${value ? "on" : "off"} for ${user.email ?? "this account"}`);
       onChanged();
     } catch (err) {

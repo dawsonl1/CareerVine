@@ -113,6 +113,14 @@ export interface ImportChunkOptions {
   skipPhotos?: boolean;
   /** Rescrape-only hooks (e.g. the scrape-diff capture). */
   hooks?: ImportHooks;
+  /**
+   * Single-record rescrapes only: the contact this run targets. Used as the
+   * existing-contact match when URL/public-identifier lookup misses — a
+   * contact stored under an internal member-id URL (discovery add, resolver
+   * link) scrapes back with its vanity URL, which would otherwise read as
+   * "Contact not found for rescrape" forever (plan 41).
+   */
+  targetContactId?: number;
 }
 
 /**
@@ -446,6 +454,18 @@ export async function importPeopleChunk(
     if (c.public_identifier) pidMap.set(c.public_identifier, c);
   }
 
+  // Explicit target for single-record rescrapes (see ImportChunkOptions).
+  let targetRow: ContactCoreRow | undefined;
+  if (opts.targetContactId != null && working.length === 1) {
+    const { data: byId } = await supabase
+      .from("contacts")
+      .select("id, name, linkedin_url, public_identifier, persona, network_status, location_id, headline, photo_url")
+      .eq("user_id", userId)
+      .eq("id", opts.targetContactId)
+      .maybeSingle();
+    targetRow = (byId as ContactCoreRow | null) ?? undefined;
+  }
+
   // ── Chunk-level sinks + school prefetch (CAR-47) ──
   // Emails, education rows, and tags are collected during the per-person
   // pass and flushed in bulk afterwards — still before this function
@@ -499,7 +519,8 @@ export async function importPeopleChunk(
     try {
       const existing =
         urlMap.get(mapped.linkedin_url) ??
-        (mapped.public_identifier ? pidMap.get(mapped.public_identifier) : undefined);
+        (mapped.public_identifier ? pidMap.get(mapped.public_identifier) : undefined) ??
+        targetRow;
       w.existingPhotoUrl = existing?.photo_url ?? null;
 
       // Profile location row (only created when it will actually be used)

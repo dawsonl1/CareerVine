@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const enqueueMock = vi.fn(async () => 1);
+const enqueueMock = vi.fn(async (..._args: unknown[]) => 1);
 vi.mock("@/lib/bundle-queue", () => ({
   enqueueBundleSyncJobs: (...args: unknown[]) => enqueueMock(...args),
 }));

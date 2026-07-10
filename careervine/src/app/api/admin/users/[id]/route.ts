@@ -17,7 +17,7 @@ export const GET = withApiHandler({
 
     const { data: pub, error } = await service
       .from("users")
-      .select("id, first_name, last_name, email, phone, status, apify_enrichment_enabled, diff_analysis_enabled, created_at")
+      .select("id, first_name, last_name, email, phone, status, apify_enrichment_enabled, diff_analysis_enabled, discovery_enabled, created_at")
       .eq("id", id)
       .maybeSingle();
 

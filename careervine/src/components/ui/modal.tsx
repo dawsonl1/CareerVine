@@ -148,8 +148,8 @@ export function Modal({
           </div>
         )}
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Body — headline supplies top spacing when present */}
+        <div className={`flex-1 overflow-y-auto px-6 pb-6 ${title ? "" : "pt-6"}`}>
           {children}
         </div>
       </div>

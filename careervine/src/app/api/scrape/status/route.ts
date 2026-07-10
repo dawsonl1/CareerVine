@@ -1,7 +1,7 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { isApifyConfigured } from "@/lib/apify/client";
-import { MONTHLY_SCRAPE_CAP_USD, ScrapeRunStatus } from "@/lib/constants";
+import { MONTHLY_SCRAPE_CAP_USD, ScrapeMode, ScrapeRunStatus } from "@/lib/constants";
 
 /**
  * GET /api/scrape/status — the Settings "Data & Scraping" readout (plan 29
@@ -22,21 +22,38 @@ export const GET = withApiHandler({
     });
     if (sumError) throw new Error(`spend sum failed: ${sumError.message}`);
 
+    // Discovery lane breakdown (plan 41 §7). Read-only display, so an RPC
+    // error fails OPEN to $0 (with a warning) instead of 500ing the whole
+    // readout — the opposite of the cap checks, which fail closed.
+    let discoverySpendUsd = 0;
+    const { data: discoverySettled, error: discoveryError } = await service.rpc(
+      "sum_scrape_spend_mode",
+      { p_user_id: user.id, p_since: monthStart, p_mode: ScrapeMode.Discovery },
+    );
+    if (discoveryError) {
+      console.warn(`[scrape/status] discovery spend sum failed: ${discoveryError.message}`);
+    } else {
+      discoverySpendUsd = Number(discoverySettled ?? 0);
+    }
+
     const { data: rows } = await service
       .from("scrape_runs")
-      .select("status, trigger, created_at")
+      .select("status, trigger, mode, created_at")
       .eq("user_id", user.id)
       .gte("created_at", monthStart)
       .order("created_at", { ascending: false })
       .limit(1000);
 
-    const runs = (rows as Array<{ status: string; trigger: string; created_at: string }> | null) ?? [];
+    const runs =
+      (rows as Array<{ status: string; trigger: string; mode: string; created_at: string }> | null) ?? [];
     const counts: Record<string, number> = { pending: 0, succeeded: 0, failed: 0, timed_out: 0 };
     const spendUsd = Number(settled ?? 0);
     let lastCadenceAt: string | null = null;
+    let discoveryRuns = 0;
     for (const r of runs) {
       counts[r.status] = (counts[r.status] ?? 0) + 1;
       if (!lastCadenceAt && r.trigger === "cadence") lastCadenceAt = r.created_at;
+      if (r.mode === ScrapeMode.Discovery) discoveryRuns += 1;
     }
 
     return {
@@ -48,6 +65,10 @@ export const GET = withApiHandler({
       pendingRuns: counts[ScrapeRunStatus.Pending],
       counts,
       lastCadenceAt,
+      discovery: {
+        spendUsd: Math.round(discoverySpendUsd * 10000) / 10000,
+        runs: discoveryRuns,
+      },
       monthStart,
     };
   },

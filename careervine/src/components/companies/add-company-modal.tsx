@@ -58,7 +58,7 @@ export function AddCompanyModal({ userId, onClose }: AddCompanyModalProps) {
           e.preventDefault();
           submit();
         }}
-        className="px-6 pb-6 space-y-4"
+        className="space-y-4"
       >
         <div>
           <label htmlFor="add-company-name" className="block text-sm font-medium text-on-surface mb-1.5">

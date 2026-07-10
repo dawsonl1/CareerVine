@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { RefreshCw, CircleDollarSign, Activity, PauseCircle } from "lucide-react";
+import { RefreshCw, CircleDollarSign, Activity, PauseCircle, Search } from "lucide-react";
 
 interface ScrapeStatus {
   configured: boolean;
@@ -20,6 +20,7 @@ interface ScrapeStatus {
   pendingRuns: number;
   counts: Record<string, number>;
   lastCadenceAt: string | null;
+  discovery?: { spendUsd: number; runs: number };
 }
 
 export default function DataScrapingSection() {
@@ -52,6 +53,12 @@ export default function DataScrapingSection() {
   const pct = Math.min(100, Math.round((status.spendUsd / status.capUsd) * 100));
   const succeeded = status.counts.succeeded ?? 0;
   const failed = (status.counts.failed ?? 0) + (status.counts.timed_out ?? 0);
+  // Discovery line only appears once the feature has actually run — keeps
+  // the card clean for accounts with the discovery feed off.
+  const discovery =
+    status.discovery && (status.discovery.runs > 0 || status.discovery.spendUsd > 0)
+      ? status.discovery
+      : null;
 
   return (
     <div className="space-y-4 max-w-2xl">
@@ -114,6 +121,13 @@ export default function DataScrapingSection() {
               ? `Last automatic refresh: ${new Date(status.lastCadenceAt).toLocaleString()}`
               : "No automatic refresh has run yet this month."}
           </div>
+          {discovery && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Search className="h-3.5 w-3.5" />
+              Discovery feed: ${discovery.spendUsd.toFixed(2)} this month · {discovery.runs} search
+              {discovery.runs === 1 ? "" : "es"}
+            </div>
+          )}
         </CardContent>
       </Card>
 

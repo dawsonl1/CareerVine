@@ -108,12 +108,15 @@ export const ScrapeMode = {
   Profile: "profile",
   /** Profile details + SMTP-verified email search — $0.01/profile */
   Email: "email",
+  /** Discovery people-search page — $0.10/page, ≤25 short profiles (plan 41) */
+  Discovery: "discovery",
 } as const;
 
 export const ScrapeTrigger = {
   Manual: "manual",
   EnrichOnSave: "enrich_on_save",
   Cadence: "cadence",
+  Discovery: "discovery",
 } as const;
 
 /** The Apify actor used for all in-app scrapes (plan 29 §2). */
@@ -160,6 +163,34 @@ export const DAILY_CADENCE_TARGET = 80;
 
 /** Contacts per cadence Apify run — sized so webhook ingest fits maxDuration. */
 export const CADENCE_BATCH_SIZE = 25;
+
+// ── Discovery feed (plan 41, CAR-29) ─────────────────────────────────
+
+/** Actor C — the filter-based people search powering the discovery feed. */
+export const PROFILE_SEARCH_ACTOR = "harvestapi/linkedin-profile-search";
+
+/** One discovery search page ($0.10 at BRONZE, ≤25 short profiles). */
+export const DISCOVERY_PAGE_COST_USD = 0.1;
+
+/**
+ * Soft monthly cap for discovery spend — its own lane so the weekly search
+ * can never eat the cadence drip's budget (and vice versa). The $10 global
+ * hard cap still applies on top.
+ */
+export const DISCOVERY_SOFT_CAP_USD = 2;
+
+/** Target companies queried per weekly discovery cron run. */
+export const DISCOVERY_COMPANIES_PER_RUN = 5;
+
+/**
+ * Per-company re-query floor. The actor's recentlyChangedJobs window is 90
+ * days, so a ~monthly revisit misses nobody; 30 days keeps the rotation
+ * cheap while the cron cycles through the whole eligible target list.
+ */
+export const DISCOVERY_MIN_AGE_DAYS = 30;
+
+/** LinkedIn function id for Product Management (verified actor enum). */
+export const DISCOVERY_FUNCTION_IDS = ["19"];
 
 // ── Action item direction ─────────────────────────────────────────────
 

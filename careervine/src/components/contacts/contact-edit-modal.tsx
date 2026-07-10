@@ -237,7 +237,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
     <Modal isOpen={isOpen} onClose={onClose} title="Edit contact" size="lg">
       <form
         onSubmit={async (e) => { e.preventDefault(); await handleSave(); }}
-        className="px-6 pb-6 space-y-4"
+        className="space-y-4"
       >
         {/* Basics */}
         <div>

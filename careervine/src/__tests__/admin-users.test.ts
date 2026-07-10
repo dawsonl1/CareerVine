@@ -15,6 +15,7 @@ const basePub: PublicUserRow = {
   status: "active",
   apify_enrichment_enabled: true,
   diff_analysis_enabled: true,
+  discovery_enabled: false,
   created_at: "2026-01-01T00:00:00Z",
 };
 
@@ -59,6 +60,13 @@ describe("shapeAdminUser", () => {
     );
     expect(off.apifyEnrichmentEnabled).toBe(false);
     expect(off.diffAnalysisEnabled).toBe(false);
+  });
+
+  it("carries the discovery switch through (plan 41, default off)", () => {
+    expect(shapeAdminUser(basePub, undefined, "none", false).discoveryEnabled).toBe(false);
+    expect(
+      shapeAdminUser({ ...basePub, discovery_enabled: true }, undefined, "none", false).discoveryEnabled,
+    ).toBe(true);
   });
 
   it("carries status, phone, and key status through", () => {

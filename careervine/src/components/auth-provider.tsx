@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { track } from "@/lib/analytics/client";
+import { hardNavigate } from "@/lib/hard-navigate";
 import type { User, Session } from "@supabase/supabase-js";
 
 // Define the shape of our authentication context
@@ -11,7 +12,7 @@ type AuthContextType = {
   user: User | null;           // Current authenticated user or null
   session: Session | null;     // Current session or null
   loading: boolean;             // Loading state while checking auth
-  signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error?: string; existingAccount?: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
@@ -82,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Returns error message if signup fails
    */
   const signUp = async (email: string, password: string, firstName: string, lastName: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -98,6 +99,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Return error message if signup fails, empty object if successful
     if (error) {
       return { error: error.message };
+    }
+
+    // With email confirmations enabled, Supabase obfuscates duplicate signups:
+    // it returns success with a fake user whose identities array is empty
+    // instead of an error. Surface that as "account already exists" so the UI
+    // doesn't show a check-your-email screen for an email that never sends.
+    if (data.user && data.user.identities?.length === 0) {
+      return {
+        error: "An account with this email already exists.",
+        existingAccount: true,
+      };
     }
 
     track("user_signed_up");
@@ -133,11 +145,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Sign out current user
-   * Clears session from Supabase and browser storage
-   * Auth state change listener will automatically update React state
+   * Clears session from Supabase and browser storage, then hard-navigates
+   * to the landing page so all in-memory state resets. Redirects even if
+   * the server revocation call fails — the local session is cleared anyway.
    */
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Server revocation failed — the local session is cleared regardless.
+    }
+    hardNavigate("/");
   };
 
   const resetPassword = async (email: string) => {

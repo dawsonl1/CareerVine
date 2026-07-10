@@ -40,6 +40,7 @@ import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { LogConversationFab } from "@/components/home/log-conversation-fab";
 import { UnifiedActionList, type UnifiedActionItem, type SnoozeAction } from "@/components/home/unified-action-list";
 import { TodaySchedule, type ScheduleEvent } from "@/components/home/today-schedule";
+import { DiscoveryDigest } from "@/components/home/discovery-digest";
 import { type NewContact } from "@/components/home/new-contacts";
 import { NetworkingStats } from "@/components/home/networking-stats";
 
@@ -739,6 +740,7 @@ export default function Home() {
               }}
               onEventCreated={loadSchedule}
             />
+            <DiscoveryDigest />
           </div>
         </div>
 
