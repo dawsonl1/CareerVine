@@ -15,6 +15,13 @@ export type AiDraftContext = {
   articleUrl?: string;
 };
 
+/** Pre-written follow-up steps that seed the intro follow-up plan without AI (CAR-50 onboarding). */
+export type TemplateFollowUp = {
+  subject: string;
+  bodyHtml: string;
+  delayDays: number;
+};
+
 type ComposeOptions = {
   to?: string;
   name?: string;
@@ -27,6 +34,7 @@ type ComposeOptions = {
   aiDraftContext?: AiDraftContext;
   isIntro?: boolean;
   contactId?: number;
+  templateFollowUps?: TemplateFollowUp[];
 };
 
 type ComposeContextValue = {
@@ -42,6 +50,7 @@ type ComposeContextValue = {
   aiDraftContext: AiDraftContext | null;
   isIntro: boolean;
   contactId: number;
+  templateFollowUps: TemplateFollowUp[] | null;
   gmailConnected: boolean;
   gmailLoading: boolean;
   gmailAddress: string;
@@ -63,6 +72,7 @@ const ComposeContext = createContext<ComposeContextValue>({
   aiDraftContext: null,
   isIntro: false,
   contactId: 0,
+  templateFollowUps: null,
   gmailConnected: false,
   gmailLoading: true,
   gmailAddress: "",
@@ -91,6 +101,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   const [aiDraftCtx, setAiDraftCtx] = useState<AiDraftContext | null>(null);
   const [isIntro, setIsIntro] = useState(false);
   const [contactId, setContactId] = useState(0);
+  const [templateFollowUps, setTemplateFollowUps] = useState<TemplateFollowUp[] | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -150,6 +161,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setAiDraftCtx(opts?.aiDraftContext || null);
     setIsIntro(opts?.isIntro || false);
     setContactId(opts?.contactId || 0);
+    setTemplateFollowUps(opts?.templateFollowUps?.length ? opts.templateFollowUps : null);
     setIsOpen(true);
   }, []);
 
@@ -166,6 +178,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setAiDraftCtx(null);
     setIsIntro(false);
     setContactId(0);
+    setTemplateFollowUps(null);
   }, []);
 
   return (
@@ -183,6 +196,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         aiDraftContext: aiDraftCtx,
         isIntro,
         contactId,
+        templateFollowUps,
         gmailConnected: !!gmailConn,
         gmailLoading,
         gmailAddress: gmailConn?.gmail_address || "",

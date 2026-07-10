@@ -42,7 +42,7 @@ export function ComposeEmailModal() {
   const {
     isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml,
     replyThreadId, replyInReplyTo, replyReferences, replyQuotedHtml,
-    aiDraftContext, isIntro, contactId, gmailAddress, closeCompose,
+    aiDraftContext, isIntro, contactId, templateFollowUps, gmailAddress, closeCompose,
   } = useCompose();
 
   const [showAiContext, setShowAiContext] = useState(false);
@@ -164,8 +164,23 @@ export function ComposeEmailModal() {
       setShowSchedule(false);
       setScheduleDatetime("");
       setShowAiContext(false);
-      setIntroPhase(isIntro && !prefillBodyHtml ? "context" : "editing");
-      setFollowUps([]);
+      // Pre-written follow-ups (onboarding templates) skip the AI generate
+      // gate entirely: the plan arrives ready and stays fully editable.
+      if (isIntro && templateFollowUps?.length) {
+        setIntroPhase("ready");
+        setFollowUps(
+          templateFollowUps.map((fu, i) => ({
+            id: `fu-${i}`,
+            subject: fu.subject,
+            bodyHtml: fu.bodyHtml,
+            delayDays: fu.delayDays,
+            projectedDate: formatProjectedDate(fu.delayDays),
+          })),
+        );
+      } else {
+        setIntroPhase(isIntro && !prefillBodyHtml ? "context" : "editing");
+        setFollowUps([]);
+      }
       setFollowUpsEnabled(true);
       setFollowUpError(null);
       setIntroError(null);
@@ -183,7 +198,15 @@ export function ComposeEmailModal() {
       // starts as a human draft until an AI generation lands in the body.
       aiBodyRef.current = aiDraftContext && prefillBodyHtml ? prefillBodyHtml : null;
       track("compose_opened", {
-        source: aiDraftContext ? "ai_followup" : isIntro ? "intro" : isReply ? "reply" : "blank",
+        source: aiDraftContext
+          ? "ai_followup"
+          : templateFollowUps?.length
+            ? "onboarding"
+            : isIntro
+              ? "intro"
+              : isReply
+                ? "reply"
+                : "blank",
       });
       setTimeout(() => {
         if (prefillTo) {
@@ -193,7 +216,7 @@ export function ComposeEmailModal() {
         }
       }, 100);
     }
-  }, [isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml]);
+  }, [isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml, templateFollowUps]);
 
   // Contact autocomplete: debounced search
   const searchContacts = useCallback(async (query: string) => {
@@ -901,6 +924,7 @@ export function ComposeEmailModal() {
 
                 <FollowUpPlanSection
                   followUps={followUps}
+                  badgeLabel={templateFollowUps?.length ? "Pre-written — edit freely" : undefined}
                   enabled={followUpsEnabled}
                   loading={introPhase === "generating-followups"}
                   error={followUpAiFailure ? null : followUpError}

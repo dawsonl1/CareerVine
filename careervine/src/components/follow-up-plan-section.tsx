@@ -18,6 +18,8 @@ interface FollowUpPlanSectionProps {
   loading: boolean;
   error: string | null;
   placeholder: boolean;
+  /** Provenance pill next to the title; defaults to "AI-generated". */
+  badgeLabel?: string;
   onToggle: (enabled: boolean) => void;
   onEdit: (id: string, updates: Partial<FollowUpDraft>) => void;
   onRemove: (id: string) => void;
@@ -39,6 +41,7 @@ export function FollowUpPlanSection({
   loading,
   error,
   placeholder,
+  badgeLabel = "AI-generated",
   onToggle,
   onEdit,
   onRemove,
@@ -54,7 +57,7 @@ export function FollowUpPlanSection({
           <span className="text-sm font-semibold text-foreground">Follow-up plan</span>
           {!placeholder && !loading && (
             <span className="text-[10px] text-muted-foreground bg-surface-container-highest px-2 py-0.5 rounded-full">
-              AI-generated
+              {badgeLabel}
             </span>
           )}
         </div>

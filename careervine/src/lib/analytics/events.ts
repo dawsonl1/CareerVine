@@ -85,6 +85,18 @@ export type AnalyticsEvents = {
   bundle_subscribed: { bundle_id?: string };
   bundle_unsubscribed: { bundle_id?: string };
 
+  // ── Guided onboarding funnel (CAR-50) ─────────────────────────────
+  /** First-run intro opened for a brand-new account. */
+  onboarding_started: Record<string, never>;
+  onboarding_bundle_accepted: Record<string, never>;
+  onboarding_bundle_declined: Record<string, never>;
+  onboarding_sync_completed: { prospects?: number };
+  onboarding_company_picked: { alumni_count?: number };
+  /** Activation: the guided flow's first outreach email went out. */
+  onboarding_email_sent: Record<string, never>;
+  onboarding_completed: Record<string, never>;
+  onboarding_skipped: { at_step: string };
+
   // ── Settings ──────────────────────────────────────────────────────
   api_key_saved: { provider: "openai" | "deepgram" };
 
