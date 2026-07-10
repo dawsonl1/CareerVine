@@ -84,3 +84,4 @@ supabase/.branches/
 
 # Vercel CLI project-link metadata
 .vercel
+.env*
