@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import CompanyFilterBar, { STATUS_LABELS, STATUS_STYLES } from "@/components/companies/company-filter-bar";
+import { AddCompanyModal } from "@/components/companies/add-company-modal";
 import { getCompanies, type CompanySummary, type CompanySort } from "@/lib/company-queries";
 import {
   EMPTY_COMPANY_FILTERS,
@@ -21,7 +22,7 @@ import {
   type CompanyFilters,
 } from "@/lib/company-filters";
 import { STAGE_LABELS } from "@/lib/stage-derivation";
-import { Building2, ExternalLink, CalendarClock, Users, Send } from "lucide-react";
+import { Building2, ExternalLink, CalendarClock, Users, Send, Plus } from "lucide-react";
 
 const VALID_SORTS: readonly CompanySort[] = ["priority", "next_app_date", "traction", "name"];
 
@@ -57,6 +58,7 @@ function CompaniesPage() {
 
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddCompany, setShowAddCompany] = useState(false);
 
   const replaceParams = useCallback(
     (next: URLSearchParams) => {
@@ -165,6 +167,9 @@ function CompaniesPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <Button size="sm" variant="outline" onClick={() => setShowAddCompany(true)}>
+              <Plus className="w-4 h-4 mr-1.5" /> Add company
+            </Button>
             <Link href="/outreach">
               <Button size="sm">
                 <Send className="w-4 h-4 mr-1.5" /> Start outreach flow
@@ -232,7 +237,12 @@ function CompaniesPage() {
                   </button>
                 </span>
               ) : view === "targets" ? (
-                "No target companies yet. They arrive with the pipeline import, or add one from a company page."
+                <span className="inline-flex items-center gap-3">
+                  No target companies yet.
+                  <button onClick={() => setShowAddCompany(true)} className="text-primary font-medium hover:underline">
+                    Add a company
+                  </button>
+                </span>
               ) : urlFilters.q ? (
                 "No companies match that search."
               ) : (
@@ -308,6 +318,8 @@ function CompaniesPage() {
           </div>
         )}
       </main>
+
+      {showAddCompany && user && <AddCompanyModal userId={user.id} onClose={() => setShowAddCompany(false)} />}
     </div>
   );
 }

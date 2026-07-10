@@ -115,6 +115,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Return error message if signin fails, empty object if successful
     if (error) {
+      // Suspended accounts are banned in GoTrue; translate its error into a
+      // distinct message instead of a generic sign-in failure.
+      if (/banned/i.test(error.message)) {
+        return {
+          error:
+            "Your account has been suspended. Contact support if you think this is a mistake.",
+        };
+      }
       return { error: error.message };
     }
 

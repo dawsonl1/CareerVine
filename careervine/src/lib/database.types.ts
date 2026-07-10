@@ -29,10 +29,16 @@ export type Database = {
           last_name: string;             // User's last name
           email: string | null;          // Optional email override
           phone: string | null;          // Optional phone number
+          status: "active" | "suspended"; // Account status — service-role writable only
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
-        Insert: Omit<Database["public"]["Tables"]["users"]["Row"], "id" | "created_at" | "updated_at">;
+        Insert: Omit<
+          Database["public"]["Tables"]["users"]["Row"],
+          "id" | "status" | "created_at" | "updated_at"
+        > & {
+          status?: "active" | "suspended";
+        };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
 
@@ -792,10 +798,11 @@ export type Database = {
           prospect_count: number;        // Denormalized live-prospect count (recomputed at finalize)
           company_count: number;         // Denormalized company count (recomputed at finalize)
           published_at: string | null;   // First/last publish timestamp
+          default_visible: boolean;      // Hidden-until-granted default (false = hidden); per-account overrides win
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
-        Insert: Omit<Database["public"]["Tables"]["data_bundles"]["Row"], "id" | "version" | "staging_version" | "staging_claimed_at" | "status" | "prospect_count" | "company_count" | "published_at" | "created_at" | "updated_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["data_bundles"]["Row"], "id" | "version" | "staging_version" | "staging_claimed_at" | "status" | "prospect_count" | "company_count" | "published_at" | "default_visible" | "created_at" | "updated_at"> & {
           version?: number;
           staging_version?: number | null;
           staging_claimed_at?: string | null;
@@ -803,10 +810,46 @@ export type Database = {
           prospect_count?: number;
           company_count?: number;
           published_at?: string | null;
+          default_visible?: boolean;
           created_at?: string;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["data_bundles"]["Insert"]>;
+      };
+
+      // Per-(user, bundle) visibility override — service-role access only
+      bundle_access_overrides: {
+        Row: {
+          user_id: string;               // FK to users
+          bundle_id: number;             // FK to data_bundles
+          allowed: boolean;              // true = grant a hidden bundle; false = hide a visible one
+          updated_by: string | null;     // admin who set it
+          updated_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["bundle_access_overrides"]["Row"], "updated_at"> & {
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["bundle_access_overrides"]["Insert"]>;
+      };
+
+      // Admin action audit trail — service-role access only
+      admin_audit_log: {
+        Row: {
+          id: string;                    // UUID primary key
+          admin_id: string;              // FK to users (the acting admin)
+          target_user_id: string | null; // FK to users (account acted upon)
+          action: string;                // Action slug
+          detail: unknown;               // jsonb context
+          outcome: "ok" | "error";       // Whether the action succeeded
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["admin_audit_log"]["Row"], "id" | "detail" | "outcome" | "created_at"> & {
+          id?: string;
+          detail?: unknown;
+          outcome?: "ok" | "error";
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["admin_audit_log"]["Insert"]>;
       };
 
       // Bundle prospects — versioned bundle content (CareerVine-owned payload contract)

@@ -14,7 +14,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import SignOutButton from "@/components/sign-out-button";
-import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox, MessageSquare, Building2 } from "lucide-react";
+import { Users, Calendar, CheckSquare, LayoutDashboard, Sprout, Inbox, MessageSquare, Building2, ShieldCheck } from "lucide-react";
 import SetupBanner from "@/components/setup-banner";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -24,6 +24,8 @@ export default function Navigation() {
   const { gmailConnected, unreadCount } = useCompose();
 
   if (!user) return null;
+
+  const showAdmin = user.app_metadata?.role === "admin";
 
   const navItems = [
     { href: "/", label: "Home", icon: LayoutDashboard },
@@ -104,6 +106,20 @@ export default function Navigation() {
                 <Calendar className="h-5 w-5" />
               </Link>
             </Tooltip>
+            {showAdmin && (
+              <Tooltip label="Admin">
+                <Link
+                  href="/admin"
+                  className={`state-layer w-11 h-11 rounded-[10px] flex items-center justify-center transition-colors ${
+                    pathname.startsWith("/admin")
+                      ? "bg-secondary-container text-on-secondary-container"
+                      : "text-muted-foreground hover:text-foreground hover:bg-surface-container-high"
+                  }`}
+                >
+                  <ShieldCheck className="h-5 w-5" />
+                </Link>
+              </Tooltip>
+            )}
             <div className="hidden 2xl:flex flex-col items-end ml-1">
               <span className="text-base font-medium text-foreground leading-tight">
                 {user.user_metadata?.first_name || "User"}

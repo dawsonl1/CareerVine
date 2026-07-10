@@ -132,17 +132,20 @@ CREATE POLICY "bundle_subscriptions_insert_own" ON bundle_subscriptions
 -- ═══════════════════════════════════════════════════════════
 -- 3. admin_audit_log — who did what to whom
 -- ═══════════════════════════════════════════════════════════
+-- Deliberately NO foreign keys: audit rows must outlive the accounts they
+-- reference (account deletion would otherwise be blocked by — or cascade away —
+-- its own audit trail). Emails/context ride in detail for post-deletion reads.
 CREATE TABLE admin_audit_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  admin_id       uuid NOT NULL REFERENCES users(id),
-  target_user_id uuid REFERENCES users(id),
+  admin_id       uuid NOT NULL,
+  target_user_id uuid,
   action  text NOT NULL,
   detail  jsonb NOT NULL DEFAULT '{}',
   outcome text NOT NULL DEFAULT 'ok' CHECK (outcome IN ('ok', 'error')),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE admin_audit_log IS 'Append-only trail of admin actions on user accounts. Written via the service role from lib/admin.ts writeAudit().';
+COMMENT ON TABLE admin_audit_log IS 'Append-only trail of admin actions on user accounts. Written via the service role from lib/admin.ts writeAudit(). No FKs by design — rows survive account deletion.';
 
 CREATE INDEX admin_audit_log_target_idx ON admin_audit_log (target_user_id, created_at DESC);
 
