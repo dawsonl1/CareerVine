@@ -83,6 +83,17 @@ function stageIndex(stage: PipelineStage): number {
   return PIPELINE_STAGES.indexOf(stage);
 }
 
+/** "coffee · Jul 8" — latest logged touchpoint, shown in the outreach stage. */
+function lastInteractionSuffix(person: CompanyPerson): string | null {
+  const li = person.last_interaction;
+  if (!li) return null;
+  const date = new Date(li.date);
+  const when = Number.isNaN(date.getTime())
+    ? ""
+    : ` · ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  return `${li.type}${when}`;
+}
+
 function PipelineStepList({
   progressStage,
   expandedStage,
@@ -264,6 +275,9 @@ function StageSummary({
               {p.stage && (
                 <span className="text-on-surface-variant"> · {STAGE_LABELS[p.stage]}</span>
               )}
+              {lastInteractionSuffix(p) && (
+                <span className="text-on-surface-variant"> · {lastInteractionSuffix(p)}</span>
+              )}
             </li>
           ))}
         </ul>
@@ -404,6 +418,9 @@ function StageFormFields({
               </Link>
               {p.stage && (
                 <span className="text-xs text-on-surface-variant ml-1">· {STAGE_LABELS[p.stage]}</span>
+              )}
+              {lastInteractionSuffix(p) && (
+                <span className="text-xs text-on-surface-variant ml-1">· {lastInteractionSuffix(p)}</span>
               )}
             </li>
           ))}

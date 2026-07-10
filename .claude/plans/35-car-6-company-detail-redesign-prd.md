@@ -1871,7 +1871,18 @@ Priya · replied · Marcus · contacted · +3 more
 - Program name / apps-open / job-potential from Researching.
 - Inline email compose (link out to outreach or contact detail).
 
-### 22.5 Manual offline log (preview storage)
+### 22.5 Manual offline log (preview storage) — **SUPERSEDED (2026-07-10)**
+
+> **Do not build.** Dawson's call during the CAR-6 production audit: offline
+> touchpoints belong on the **contact**, not the company pipeline. The
+> existing `interactions` system already covers it — `createInteraction`
+> feeds stage derivation, so a logged coffee chat surfaces in every
+> relevant company's outreach section automatically, across all companies
+> that contact touches. Personless company touchpoints are just pipeline
+> notes. The only piece kept from this section is a read-only display
+> enhancement (shipped): the outreach section shows each contact's most
+> recent interaction ("coffee · Jul 8") next to their stage. Original
+> design below for the record.
 
 **Purpose:** Capture touchpoints that aren't reflected in CRM stage yet (in-person coffee, LinkedIn, recruiter booth, etc.).
 

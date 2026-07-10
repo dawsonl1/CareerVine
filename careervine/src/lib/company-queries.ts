@@ -503,6 +503,8 @@ export interface CompanyPerson {
   linkedin_url: string | null;
   stage: OutreachStage | null;
   email: { address: string; source: string; bounced: boolean } | null;
+  /** Most recent logged interaction (offline touchpoints live on the contact). */
+  last_interaction: { type: string; date: string } | null;
   adjacency_score: number | null;
   /** Employment rows at this company (all current titles, newest first). */
   roles: Array<{
@@ -633,8 +635,8 @@ export async function getCompanyDetail(
   const rows = ((empRows as unknown as EmpRow[] | null) ?? []);
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
 
-  // Emails, alum badge, stages
-  const [emailRows, schoolRows] = await Promise.all([
+  // Emails, alum badge, stages, latest logged interaction
+  const [emailRows, schoolRows, interactionRows] = await Promise.all([
     chunked(contactIds, async (chunk) => {
       const { data } = await db()
         .from("contact_emails")
@@ -647,6 +649,14 @@ export async function getCompanyDetail(
         .from("contact_schools")
         .select("contact_id, schools(name)")
         .in("contact_id", chunk);
+      return data ?? [];
+    }),
+    chunked(contactIds, async (chunk) => {
+      const { data } = await db()
+        .from("interactions")
+        .select("contact_id, interaction_type, interaction_date")
+        .in("contact_id", chunk)
+        .order("interaction_date", { ascending: false });
       return data ?? [];
     }),
   ]);
@@ -662,6 +672,14 @@ export async function getCompanyDetail(
   const alumContacts = new Set<number>();
   for (const s of schoolRows as unknown as Array<{ contact_id: number; schools: { name: string } | null }>) {
     if (s.schools?.name && isByuSchoolName(s.schools.name)) alumContacts.add(s.contact_id);
+  }
+
+  // Rows arrive newest-first per chunk; keep the first seen per contact.
+  const lastInteractionByContact = new Map<number, { type: string; date: string }>();
+  for (const i of interactionRows as Array<{ contact_id: number; interaction_type: string; interaction_date: string }>) {
+    if (!lastInteractionByContact.has(i.contact_id)) {
+      lastInteractionByContact.set(i.contact_id, { type: i.interaction_type, date: i.interaction_date });
+    }
   }
 
   const nonBench = new Map<number, { id: number; stage_override: string | null }>();
@@ -698,6 +716,7 @@ export async function getCompanyDetail(
         linkedin_url: r.contacts.linkedin_url,
         stage: stages.get(r.contact_id)?.stage ?? null,
         email: emailByContact.get(r.contact_id) ?? null,
+        last_interaction: lastInteractionByContact.get(r.contact_id) ?? null,
         adjacency_score: Number.isNaN(adjacency) ? null : adjacency,
         roles: [],
       };
