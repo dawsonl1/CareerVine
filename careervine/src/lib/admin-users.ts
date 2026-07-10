@@ -18,20 +18,28 @@ export type AdminUserKeyStatus =
   | "quota_exceeded"
   | "none";
 
-export interface AdminUserListItem {
+export interface AdminUserBase {
   id: string;
   firstName: string;
   lastName: string;
   email: string | null;
   status: "active" | "suspended";
   aiFallbackPolicy: "cutoff" | "shared";
+  apifyEnrichmentEnabled: boolean;
+  diffAnalysisEnabled: boolean;
   isAdmin: boolean;
   keyStatus: AdminUserKeyStatus;
   lastSignInAt: string | null;
   createdAt: string;
 }
 
-export interface AdminUserDetail extends AdminUserListItem {
+export interface AdminUserListItem extends AdminUserBase {
+  /** Published bundles this user can currently see (CAR-36 list summary). */
+  bundlesVisible: number;
+  bundlesTotal: number;
+}
+
+export interface AdminUserDetail extends AdminUserBase {
   phone: string | null;
 }
 
@@ -43,6 +51,8 @@ export interface PublicUserRow {
   email: string | null;
   phone: string | null;
   status: "active" | "suspended";
+  apify_enrichment_enabled: boolean;
+  diff_analysis_enabled: boolean;
   created_at: string;
 }
 
@@ -73,6 +83,8 @@ export function shapeAdminUser(
     phone: pub.phone ?? null,
     status: pub.status,
     aiFallbackPolicy: sharedAccess ? "shared" : "cutoff",
+    apifyEnrichmentEnabled: pub.apify_enrichment_enabled,
+    diffAnalysisEnabled: pub.diff_analysis_enabled,
     isAdmin: auth?.app_metadata?.role === "admin",
     keyStatus,
     lastSignInAt: auth?.last_sign_in_at ?? null,

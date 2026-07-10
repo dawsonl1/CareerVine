@@ -20,10 +20,10 @@ function company(overrides: CompanyOverrides): CompanySummary {
     name: "Acme",
     logo_url: null,
     linkedin_url: null,
-    domain: null,
     current_count: 0,
     former_count: 0,
     bench_count: 0,
+    office_scopes: [],
     traction: null,
     ...rest,
     target:
@@ -72,7 +72,7 @@ describe("filterCompanies", () => {
     });
 
     it("does not match untargeted fields", () => {
-      const rows = [company({ name: "Acme", domain: "stripe.com" })];
+      const rows = [company({ name: "Acme", linkedin_url: "https://linkedin.com/company/stripe" })];
       expect(filterCompanies(rows, filters({ q: "stripe" }))).toEqual([]);
     });
   });

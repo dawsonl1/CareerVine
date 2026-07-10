@@ -1268,6 +1268,7 @@ export async function getOrCreateTargetCompany(companyId: number): Promise<numbe
     .select("id")
     .eq("user_id", uid())
     .eq("company_id", companyId)
+    .is("location_id", null)
     .maybeSingle();
   if (data) return (data as { id: number }).id;
   const { data: created, error } = await db()

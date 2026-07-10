@@ -95,13 +95,44 @@ export interface ChunkImportSummary {
 export interface ImportChunkOptions {
   /** Import batch label appended to import_source (pipeline policy only). */
   batch?: string;
-  /** 'pipeline' (default, original behavior) or 'bundle' (strict fill-empty,
-   * create-only provenance, additive employment, no photo phase). */
+  /** 'pipeline' (default, original behavior), 'bundle' (strict fill-empty,
+   * create-only provenance, additive employment, no photo phase), or
+   * 'rescrape' (CAR-15 in-app re-scrape: observed-data-only patch, manual
+   * roles protected via the 'reconcile' collision strategy, suppression
+   * skipped, never creates contacts). */
   mergePolicy?: MergePolicy;
   /** First line of the notes field on newly created contacts. */
   noteLabel?: string;
   /** Skip the best-effort photo phase entirely. */
   skipPhotos?: boolean;
+  /** Rescrape-only hooks (e.g. the scrape-diff capture). */
+  hooks?: ImportHooks;
+}
+
+/**
+ * Pre-merge capture for the scrape-diff engine (plan 29 §5): the contact's
+ * employment rows as they existed BEFORE this import, plus the incoming rows
+ * with their resolved companies. The ingest layer feeds this to computeDiff —
+ * the diff must see the pre-merge state, and company resolution only happens
+ * inside this module.
+ */
+export interface RescrapeDiffCapture {
+  contactId: number;
+  contactName: string;
+  linkedinUrl: string; // canonical — correlates back to the raw actor item
+  existingEmployment: Array<{ company_id: number; title: string | null; start_month: string | null; is_current: boolean }>;
+  incomingEmployment: Array<{
+    company_id: number;
+    linkedin_company_id: string | null;
+    company_name: string | null;
+    title: string | null;
+    start_month: string | null;
+    is_current: boolean;
+  }>;
+}
+
+export interface ImportHooks {
+  onDiffCapture?: (capture: RescrapeDiffCapture) => void;
 }
 
 /** Wall-clock budget for best-effort photo downloads per request. */
@@ -124,6 +155,8 @@ interface WorkingPerson {
   result: PersonImportResult;
   contactId?: number;
   created?: boolean;
+  /** The matched contact's photo before this import — rescrapes never replace it. */
+  existingPhotoUrl?: string | null;
 }
 
 // ── Main entry ─────────────────────────────────────────────────────────
@@ -173,13 +206,21 @@ export async function importPeopleChunk(
   if (working.length === 0) return { results, offices_established: 0 };
 
   // ── Suppression tombstones ──
+  // Tombstones stop NEW imports of deleted contacts. A rescrape only refreshes
+  // contacts that already exist, so suppression does not apply (and would
+  // wrongly skip a contact whose URL was previously tombstoned).
   const urls = working.map((w) => w.mapped.linkedin_url);
-  const { data: suppressedRows } = await supabase
-    .from("suppressed_imports")
-    .select("linkedin_url")
-    .eq("user_id", userId)
-    .in("linkedin_url", urls);
-  const suppressed = new Set(((suppressedRows as { linkedin_url: string }[] | null) ?? []).map((r) => r.linkedin_url));
+  const suppressed = new Set<string>();
+  if (policy !== "rescrape") {
+    const { data: suppressedRows } = await supabase
+      .from("suppressed_imports")
+      .select("linkedin_url")
+      .eq("user_id", userId)
+      .in("linkedin_url", urls);
+    for (const r of (suppressedRows as { linkedin_url: string }[] | null) ?? []) {
+      suppressed.add(r.linkedin_url);
+    }
+  }
 
   // ── Resolve companies once per chunk ──
   const companyCache = new Map<string, CompanyRecord>();
@@ -354,6 +395,7 @@ export async function importPeopleChunk(
       const existing =
         urlMap.get(mapped.linkedin_url) ??
         (mapped.public_identifier ? pidMap.get(mapped.public_identifier) : undefined);
+      w.existingPhotoUrl = existing?.photo_url ?? null;
 
       // Profile location row (only created when it will actually be used)
       let profileLocationId: number | null = null;
@@ -366,7 +408,12 @@ export async function importPeopleChunk(
       }
 
       if (existing) {
-        await updateExistingPerson(supabase, w, existing, profileLocationId, now, policy);
+        await updateExistingPerson(supabase, w, existing, profileLocationId, now, policy, opts.hooks);
+      } else if (policy === "rescrape") {
+        // A rescrape targets an existing contact; if it vanished (deleted
+        // mid-run), record it rather than resurrecting it from thin data.
+        w.result.status = "error";
+        w.result.error = "Contact not found for rescrape";
       } else {
         await createNewPerson(supabase, userId, w, profileLocationId, now, opts);
       }
@@ -394,6 +441,12 @@ export async function importPeopleChunk(
       continue;
     }
     if (opts.skipPhotos) {
+      w.result.photo = "skipped";
+      continue;
+    }
+    // Rescrapes are fill-empty on photos: a contact who already has one (user
+    // upload from the photo feature, or a prior import) keeps it.
+    if (policy === "rescrape" && w.existingPhotoUrl) {
       w.result.photo = "skipped";
       continue;
     }
@@ -516,6 +569,7 @@ async function updateExistingPerson(
   profileLocationId: number | null,
   now: string,
   policy: MergePolicy,
+  hooks: ImportHooks = {},
 ) {
   const { mapped } = w;
   const contactId = existing.id;
@@ -540,12 +594,21 @@ async function updateExistingPerson(
   if (mapped.email && isValidImportEmail(mapped.email.address)) {
     const { data: emailRows } = await supabase
       .from("contact_emails")
-      .select("id, email, is_primary, source")
+      .select("id, email, is_primary, source, bounced_at")
       .eq("contact_id", contactId);
     const emailPlan = computeEmailMerge(
-      (emailRows as { id: number; email: string | null; is_primary: boolean; source: string }[] | null) ?? [],
+      (emailRows as { id: number; email: string | null; is_primary: boolean; source: string; bounced_at: string | null }[] | null) ?? [],
       mapped.email,
     );
+    // Demote bounced former primaries BEFORE the new primary lands, so the
+    // contact never has two primary rows mid-apply.
+    if (emailPlan.demotePrimaryIds?.length) {
+      const { error: demoteError } = await supabase
+        .from("contact_emails")
+        .update({ is_primary: false })
+        .in("id", emailPlan.demotePrimaryIds);
+      if (demoteError) throw new Error(`Email primary demotion failed: ${demoteError.message}`);
+    }
     if (emailPlan.insert) await supabase.from("contact_emails").insert({ contact_id: contactId, ...emailPlan.insert });
     if (emailPlan.update) await supabase.from("contact_emails").update(emailPlan.update.fields).eq("id", emailPlan.update.id);
   }
@@ -555,11 +618,37 @@ async function updateExistingPerson(
     .from("contact_companies")
     .select("id, company_id, title, start_month, end_month, is_current, location_id, location_source, location_raw, workplace_type, employment_type, source")
     .eq("contact_id", contactId);
+
+  // Capture the PRE-merge state for the scrape-diff engine (plan 29 §5).
+  if (hooks.onDiffCapture) {
+    hooks.onDiffCapture({
+      contactId,
+      contactName: existing.name,
+      linkedinUrl: mapped.linkedin_url,
+      existingEmployment: ((existingEmpRows as ExistingEmploymentRow[] | null) ?? []).map((r) => ({
+        company_id: r.company_id,
+        title: r.title,
+        start_month: r.start_month,
+        is_current: r.is_current,
+      })),
+      incomingEmployment: w.employment.map((e) => ({
+        company_id: e.company.id,
+        linkedin_company_id: e.company.linkedin_company_id,
+        company_name: e.company.name,
+        title: e.incoming.title,
+        start_month: e.incoming.start_month,
+        is_current: e.incoming.is_current,
+      })),
+    });
+  }
+
   const plan = computeEmploymentMerge(
     (existingEmpRows as ExistingEmploymentRow[] | null) ?? [],
     w.employment.map((e) => e.incoming),
     now,
-    policy,
+    // Rescrape reconciles same-company current-role collisions by provenance
+    // (supersede AI-parsed/scraped rows, never manual — plan 29 M2).
+    { policy, currentCollisionStrategy: policy === "rescrape" ? "reconcile" : "insert" },
   );
   if (plan.inserts.length > 0) {
     const { error: insError } = await supabase
@@ -568,10 +657,14 @@ async function updateExistingPerson(
     if (insError) throw new Error(`Employment insert failed: ${insError.message}`);
   }
   for (const update of plan.updates) {
-    await supabase.from("contact_companies").update(update.fields).eq("id", update.id);
+    const { error: updError } = await supabase.from("contact_companies").update(update.fields).eq("id", update.id);
+    // A silently-failed supersede would make the diff re-detect the same change
+    // (and re-fire its email follow-up) every cycle — fail the merge instead.
+    if (updError) throw new Error(`Employment update failed: ${updError.message}`);
   }
   if (plan.deleteIds.length > 0) {
-    await supabase.from("contact_companies").delete().in("id", plan.deleteIds);
+    const { error: delError } = await supabase.from("contact_companies").delete().in("id", plan.deleteIds);
+    if (delError) throw new Error(`Employment delete failed: ${delError.message}`);
   }
   w.result.employment = {
     inserted: plan.inserts.length,

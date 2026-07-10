@@ -250,8 +250,25 @@ export async function appendContactNote(contactId: number, note: string) {
 }
 
 /**
+ * Contact ids (from the given set) with an unactioned company-change event —
+ * the plan-29 Q5 bench promote-hint: a bench contact who just moved into a
+ * target company is worth a look. RLS scopes to the current user's rows.
+ */
+export async function getFreshJobChangeContactIds(contactIds: number[]): Promise<Set<number>> {
+  if (contactIds.length === 0) return new Set();
+  const { data, error } = await supabase
+    .from("contact_change_events")
+    .select("contact_id")
+    .eq("type", "company_change")
+    .eq("status", "new")
+    .in("contact_id", contactIds);
+  if (error) throw error;
+  return new Set(((data as { contact_id: number }[] | null) ?? []).map((r) => r.contact_id));
+}
+
+/**
  * Delete a contact and all related data
- * 
+ *
  * Note: Due to foreign key constraints with ON DELETE CASCADE,
  * this will automatically delete:
  * - Contact emails
@@ -291,14 +308,25 @@ export async function deleteContact(id: number) {
   if (contact?.import_source && contact.linkedin_url && contact.user_id) {
     const canonical = canonicalizeLinkedinUrl(contact.linkedin_url);
     if (canonical) {
-      const { error: tombstoneError } = await supabase
-        .from("suppressed_imports")
-        .upsert(
-          { user_id: contact.user_id, linkedin_url: canonical },
-          { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
-        );
-      if (tombstoneError) {
-        console.warn(`[deleteContact] Tombstone write failed for contact ${id}:`, tombstoneError);
+      // A surviving duplicate contact with the same URL still wants import
+      // refreshes — suppressing it would silently freeze that contact.
+      const { data: survivor } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("user_id", contact.user_id)
+        .eq("linkedin_url", canonical)
+        .limit(1)
+        .maybeSingle();
+      if (!survivor) {
+        const { error: tombstoneError } = await supabase
+          .from("suppressed_imports")
+          .upsert(
+            { user_id: contact.user_id, linkedin_url: canonical },
+            { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
+          );
+        if (tombstoneError) {
+          console.warn(`[deleteContact] Tombstone write failed for contact ${id}:`, tombstoneError);
+        }
       }
     }
   }

@@ -1,0 +1,9 @@
+{
+  "description": "Email-enrichment pass. Runs ONCE over all confirmed keeper URLs (IB alumni + confirmed office contacts) to fetch emails. By-URL scrape so we don't re-search. Verified against harvestapi/linkedin-profile-scraper schema: field is `urls`, mode enum below, flat $0.01/profile (no page/start fee).",
+  "actor": "harvestapi~linkedin-profile-scraper",
+  "urlsField": "urls",
+  "maxTotalChargeUsd": 6,
+  "input": {
+    "profileScraperMode": "Profile details + email search ($10 per 1k)"
+  }
+}

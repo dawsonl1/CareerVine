@@ -9,10 +9,10 @@ function company(overrides: Partial<CompanySummary> & { name: string }): Company
     id: Math.floor(Math.random() * 100000),
     logo_url: null,
     linkedin_url: null,
-    domain: null,
     current_count: 2,
     former_count: 0,
     bench_count: 0,
+    office_scopes: [],
     traction: null,
     target: {
       id: 1,

@@ -17,14 +17,15 @@ export const GET = withApiHandler({
 
     const { data: pub, error } = await service
       .from("users")
-      .select("id, first_name, last_name, email, phone, status, created_at")
+      .select("id, first_name, last_name, email, phone, status, apify_enrichment_enabled, diff_analysis_enabled, created_at")
       .eq("id", id)
       .maybeSingle();
 
     if (error) throw new Error(error.message);
     if (!pub) throw new ApiError("User not found", 404);
 
-    const [{ data: authData }, { data: keyRow }, { data: accessRow }] =
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
+    const [{ data: authData }, { data: keyRow }, { data: accessRow }, { data: spend }] =
       await Promise.all([
         service.auth.admin.getUserById(id),
         service
@@ -38,6 +39,10 @@ export const GET = withApiHandler({
           .select("shared_access")
           .eq("user_id", id)
           .maybeSingle(),
+        // Month-to-date Apify spend — shown next to the kill switches so the
+        // toggle sits beside the number it controls (plan 36). Same RPC as
+        // cap enforcement; best-effort here (null on error, never blocks).
+        service.rpc("sum_scrape_spend", { p_user_id: id, p_since: monthStart }),
       ]);
 
     const user = shapeAdminUser(
@@ -47,7 +52,7 @@ export const GET = withApiHandler({
       (accessRow as { shared_access: boolean } | null)?.shared_access === true,
     );
 
-    return { user };
+    return { user, apifyMonthSpendUsd: Number(spend ?? 0) };
   },
 });
 

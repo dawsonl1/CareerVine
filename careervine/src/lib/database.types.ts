@@ -30,14 +30,18 @@ export type Database = {
           email: string | null;          // Optional email override
           phone: string | null;          // Optional phone number
           status: "active" | "suspended"; // Account status — service-role writable only
+          apify_enrichment_enabled: boolean; // Admin kill switch: all paid Apify activity (service-role writable only)
+          diff_analysis_enabled: boolean;    // Admin kill switch: change-event production (service-role writable only)
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "created_at" | "updated_at"
+          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
+          apify_enrichment_enabled?: boolean;
+          diff_analysis_enabled?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
@@ -116,8 +120,10 @@ export type Database = {
           network_status: string;        // 'active' | 'prospect' | 'bench' — network tier segregation
           network_scope: string | null;  // 'target_company' | 'broad_network' — pipeline segment; NULL = not a pipeline import
           stage_override: string | null; // Manual override for the derived outreach stage
+          scrape_failed_at: string | null; // Last failed scrape attempt (plan 29)
+          scrape_failure_count: number;   // Consecutive failed scrapes; 0 on success
         };
-        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "network_scope" | "stage_override"> & {
+        Insert: Omit<Database["public"]["Tables"]["contacts"]["Row"], "id" | "status_derived_at" | "photo_url" | "created_at" | "reach_out_snoozed_until" | "first_outreach_skipped" | "suggestion_cooldown_until" | "headline" | "persona" | "review_note" | "verified_school" | "import_source" | "import_meta" | "public_identifier" | "last_scraped_at" | "network_status" | "network_scope" | "stage_override" | "scrape_failed_at" | "scrape_failure_count"> & {
           status_derived_at?: string | null;
           photo_url?: string | null;
           created_at?: string;
@@ -135,6 +141,8 @@ export type Database = {
           network_status?: string;
           network_scope?: string | null;
           stage_override?: string | null;
+          scrape_failed_at?: string | null;
+          scrape_failure_count?: number;
         };
         Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;
       };
@@ -189,15 +197,13 @@ export type Database = {
           linkedin_company_id: string | null; // Stable LinkedIn numeric id — primary join key for scraped data
           linkedin_url: string | null;   // LinkedIn company page URL
           universal_name: string | null; // LinkedIn company slug (e.g., "google")
-          domain: string | null;         // Company website domain
           logo_url: string | null;       // Company logo URL
         };
-        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "domain" | "logo_url"> & {
+        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "logo_url"> & {
           id?: number;
           linkedin_company_id?: string | null;
           linkedin_url?: string | null;
           universal_name?: string | null;
-          domain?: string | null;
           logo_url?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["companies"]["Insert"]>;
@@ -649,15 +655,113 @@ export type Database = {
           app_window_text: string | null; // Free-text application-window hint — display only
           next_app_date: string | null;  // Real application date set by hand; the only field sorting/alerts use
           status: string;                // 'researching' | 'outreach_active' | 'applied' | 'interviewing' | 'closed'
+          location_id: number | null;    // NULL = company-wide scope; set = office-scoped target (CAR-6)
+          is_targeted: boolean;          // Soft targeting flag — false keeps pipeline data while hiding from target views
+          active_cycle: number;          // Pipeline cycle the user last worked in for this scope
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
-        Insert: Omit<Database["public"]["Tables"]["target_companies"]["Row"], "id" | "status" | "created_at" | "updated_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["target_companies"]["Row"], "id" | "status" | "location_id" | "is_targeted" | "active_cycle" | "created_at" | "updated_at"> & {
           status?: string;
+          location_id?: number | null;
+          is_targeted?: boolean;
+          active_cycle?: number;
           created_at?: string;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["target_companies"]["Insert"]>;
+      };
+
+      // Pipeline cycles — one application cycle per target scope (CAR-6)
+      pipeline_cycles: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          target_company_id: number;     // Foreign key to target_companies (the scope)
+          cycle_number: number;          // 1-based cycle index within the scope
+          selected_stage: string;        // 'researching' | 'outreach_active' | 'applied' | 'interviewing' | 'closed'
+          declined_next_cycle: boolean;  // Closed stage: user declined to start another cycle
+          created_at: string;            // Auto-generated timestamp
+          updated_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_cycles"]["Row"], "id" | "selected_stage" | "declined_next_cycle" | "created_at" | "updated_at"> & {
+          selected_stage?: string;
+          declined_next_cycle?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_cycles"]["Insert"]>;
+      };
+
+      // Researching-stage programs per pipeline cycle (CAR-6)
+      pipeline_programs: {
+        Row: {
+          id: string;                    // Client-generated uuid
+          cycle_id: number;              // Foreign key to pipeline_cycles
+          name: string;                  // Program name
+          apps_open: string;             // Free text or "date:YYYY-MM-DD" sentinel
+          job_potential: string;         // Free text
+          position: number;              // Display order within the cycle
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_programs"]["Row"], "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_programs"]["Insert"]>;
+      };
+
+      // Researching-stage notes per pipeline cycle (CAR-6)
+      pipeline_notes: {
+        Row: {
+          id: string;                    // Client-generated uuid
+          cycle_id: number;              // Foreign key to pipeline_cycles
+          body: string;                  // Note text
+          position: number;              // Display order within the cycle
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_notes"]["Row"], "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_notes"]["Insert"]>;
+      };
+
+      // Applied-stage job applications per pipeline cycle (CAR-6)
+      pipeline_applications: {
+        Row: {
+          id: string;                    // Client-generated uuid
+          cycle_id: number;              // Foreign key to pipeline_cycles
+          job_title: string;             // Role applied for
+          location: string;              // Free-text location (editable at company scope; office scope implies it)
+          date_applied: string | null;   // ISO date (YYYY-MM-DD)
+          resume_path: string | null;    // Storage path in application-files bucket
+          resume_name: string | null;    // Original filename
+          resume_size_bytes: number | null;
+          cover_letter_path: string | null;
+          cover_letter_name: string | null;
+          cover_letter_size_bytes: number | null;
+          position: number;              // Display order within the cycle
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_applications"]["Row"], "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_applications"]["Insert"]>;
+      };
+
+      // Interviewing-stage rounds per pipeline cycle (CAR-6)
+      pipeline_interview_rounds: {
+        Row: {
+          id: string;                    // Client-generated uuid
+          cycle_id: number;              // Foreign key to pipeline_cycles
+          interview_date: string | null; // ISO date (YYYY-MM-DD)
+          interviewer: string;           // Who's interviewing
+          questions: string;             // Prep / notes text
+          position: number;              // Display order within the cycle
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_interview_rounds"]["Row"], "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_interview_rounds"]["Insert"]>;
       };
 
       // Target company notes — timestamped recruiting-intel log
@@ -687,6 +791,99 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["suppressed_imports"]["Insert"]>;
+      };
+
+      // Contact change events — detected changes worth an outreach touch (plan 29)
+      contact_change_events: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          contact_id: number;                  // Foreign key to contacts
+          type: string;                        // 'anniversary' | 'company_change' | 'promotion' | 'hiring' | 'open_to_work' | 'certification' | 'location_change'
+          tier: number;                        // 1 act-now, 2 touchpoint, 3 silent
+          dedupe_key: string;                  // Stable idempotency key
+          headline: string;                    // Display "why"
+          evidence: string | null;             // Backing detail
+          suggested_title: string | null;      // Prefilled action item title
+          suggested_description: string | null;
+          old_value: Record<string, unknown> | null; // For scrape diffs
+          new_value: Record<string, unknown> | null;
+          status: string;                      // 'new' | 'actioned' | 'dismissed' | 'snoozed'
+          snoozed_until: string | null;
+          detected_at: string;
+          actioned_at: string | null;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["contact_change_events"]["Row"],
+          "id" | "tier" | "status" | "detected_at" | "snoozed_until" | "actioned_at" | "evidence" | "suggested_title" | "suggested_description" | "old_value" | "new_value"
+        > & {
+          tier?: number;
+          status?: string;
+          snoozed_until?: string | null;
+          detected_at?: string;
+          actioned_at?: string | null;
+          evidence?: string | null;
+          suggested_title?: string | null;
+          suggested_description?: string | null;
+          old_value?: Record<string, unknown> | null;
+          new_value?: Record<string, unknown> | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["contact_change_events"]["Insert"]>;
+      };
+
+      // Scrape runs — Apify run ledger (plan 29)
+      scrape_runs: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          apify_run_id: string | null;         // Apify run id (null until the run is started)
+          actor: string;                       // Apify actor full name
+          mode: string;                        // 'profile' | 'email' | 'resolve'
+          trigger: string;                     // 'manual' | 'enrich_on_save' | 'cadence'
+          contact_ids: number[];               // Contacts covered by this run
+          single_contact_id: number | null;    // The one contact a run targets (in-flight guard)
+          status: string;                      // 'pending' | 'succeeded' | 'failed' | 'timed_out'
+          cost_usd: number;                    // Actual run cost (0 until succeeded)
+          error: string | null;
+          created_at: string;
+          finished_at: string | null;
+          ingest_claimed_at: string | null;    // Webhook ingest's atomic claim (CAS; stale >10min = re-claimable)
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["scrape_runs"]["Row"],
+          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids" | "single_contact_id" | "ingest_claimed_at"
+        > & {
+          apify_run_id?: string | null;
+          status?: string;
+          cost_usd?: number;
+          error?: string | null;
+          created_at?: string;
+          finished_at?: string | null;
+          contact_ids?: number[];
+          single_contact_id?: number | null;
+          ingest_claimed_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["scrape_runs"]["Insert"]>;
+      };
+
+      // Scrape snapshots — normalized per-scrape profile subset (plan 29)
+      contact_scrape_snapshots: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          contact_id: number;                  // Foreign key to contacts
+          scrape_run_id: number | null;        // Producing scrape_runs row (null if run deleted)
+          scraped_at: string;
+          snapshot: Record<string, unknown>;   // Normalized subset — see ScrapeSnapshot in diff-engine.ts
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["contact_scrape_snapshots"]["Row"],
+          "id" | "scraped_at" | "scrape_run_id"
+        > & {
+          scraped_at?: string;
+          scrape_run_id?: number | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["contact_scrape_snapshots"]["Insert"]>;
       };
 
       // Data bundles — admin-curated prospect/company bundle catalog

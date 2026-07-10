@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { hasInAppBackHistory } from "@/lib/nav-history";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import Navigation from "@/components/navigation";
@@ -248,10 +249,11 @@ export default function ContactDetailPage() {
         <div className="mb-6">
           <button
             onClick={() => {
-              // Use back() only if the referrer is from our own app
-              const referrer = typeof document !== "undefined" ? document.referrer : "";
-              const isInternalReferrer = referrer && new URL(referrer).origin === window.location.origin;
-              if (isInternalReferrer) {
+              // Client-side route changes never update document.referrer,
+              // so use the in-app nav trail instead: back() returns to
+              // wherever the user came from (company page, contacts list,
+              // …); direct loads fall back to the contacts list.
+              if (hasInAppBackHistory()) {
                 router.back();
               } else {
                 router.push("/contacts");
