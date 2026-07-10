@@ -47,6 +47,14 @@ export type AnalyticsEvents = {
   // (contact/page views come free from $pageview + autocapture — no
   // curated event needed.)
 
+  // ── Data quality ──────────────────────────────────────────────────
+  /** An identity-less company import created a row whose name resembles an
+   * existing company — the split-row pattern behind CAR-44. */
+  company_duplicate_suspected: {
+    company: string;
+    possible_duplicate: string;
+  };
+
   // ── Outreach loop (the core loop) ─────────────────────────────────
   email_sent: {
     is_follow_up?: boolean;

@@ -8,11 +8,15 @@
  * Company matching order:
  *  1. linkedin_company_id (stable LinkedIn numeric id) — the primary key
  *     for scraped data.
- *  2. Normalized name match (trimmed, ESCAPED ilike).
- *     When a scraped companyId is in hand, the name-matched row is
+ *  2. linkedin_url (exact, trailing-slash-normalized, ESCAPED ilike).
+ *  3. universal_name (exact, lowercased, ESCAPED ilike).
+ *  4. Normalized name match via companies.name_normalized (CAR-44) —
+ *     case/punctuation/legal-suffix-insensitive equality, never fuzzy.
+ *     At 2–4, when a scraped companyId is in hand, the matched row is
  *     "claimed" by backfilling linkedin_company_id (requires the
  *     companies UPDATE RLS policy added in the plan-24 migration).
- *  3. Insert. Unique-violation races resolve by refetch.
+ *  5. Insert. Unique-violation races resolve by refetch. Identity-less
+ *     inserts run a similarity probe and surface possible_duplicate_of.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -20,6 +24,25 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /** Escape %, _ and \ so user data can't act as ilike wildcards. */
 export function escapeIlike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
+}
+
+/**
+ * Normalized company-name key: lowercase, every non-alphanumeric run
+ * becomes one space, trim, strip trailing legal-suffix tokens. Matches
+ * "Rubrik" ↔ "Rubrik, Inc." but deliberately NOT "Zoom" ↔ "Zoom Video
+ * Communications" — conservative equality, never token-fuzzy (CAR-44).
+ *
+ * MUST stay in sync with the SQL expression behind
+ * companies.name_normalized (migration 20260710170000).
+ */
+const LEGAL_SUFFIX_TOKENS =
+  "inc|incorporated|llc|llp|ltd|limited|corp|corporation|co|company|lp|plc|gmbh|pllc";
+export function normalizeCompanyName(name: string): string {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  return base.replace(new RegExp(`( (${LEGAL_SUFFIX_TOKENS}))+$`), "");
 }
 
 export interface CompanyInput {
@@ -37,6 +60,13 @@ export interface CompanyRecord {
   linkedin_url: string | null;
   universal_name: string | null;
   logo_url: string | null;
+}
+
+export interface CompanyResolveResult extends CompanyRecord {
+  /** Set when an identity-less insert created a row whose name resembles an
+   * existing company (parenthetical/slash token or name prefix). The row IS
+   * created — this is a warning surface for imports, not a block (CAR-44). */
+  possible_duplicate_of?: { id: number; name: string };
 }
 
 // NOTE: companies.domain was dropped in prod (20260709135000, CAR-6 branch) —
@@ -127,7 +157,7 @@ export async function prefetchCompanies(
 export async function findOrCreateCompany(
   supabase: SupabaseClient,
   input: CompanyInput,
-): Promise<CompanyRecord> {
+): Promise<CompanyResolveResult> {
   const companyId = input.linkedin_company_id?.trim() || null;
   const linkedinUrl = normalizeCompanyLinkedinUrl(input.linkedin_url);
   const universalName = normalizeUniversalName(input.universal_name);
@@ -176,13 +206,17 @@ export async function findOrCreateCompany(
     }
   }
 
-  // 4. Name match (escaped ilike). limit(1): case variants could coexist.
+  // 4. Name match — normalized equality (case/punctuation/legal-suffix
+  //    insensitive) via companies.name_normalized, so "Rubrik" resolves to
+  //    an existing "Rubrik, Inc." instead of minting a split row (CAR-44).
+  //    Falls back to exact escaped ilike when the name normalizes away.
+  //    limit(1) + id order: normalized variants could coexist.
   if (name) {
-    const { data: byName } = await supabase
-      .from("companies")
-      .select(COMPANY_COLS)
-      .ilike("name", escapeIlike(name))
-      .limit(1);
+    const nameNorm = normalizeCompanyName(name);
+    const byNameQuery = supabase.from("companies").select(COMPANY_COLS);
+    const { data: byName } = nameNorm
+      ? await byNameQuery.eq("name_normalized", nameNorm).order("id", { ascending: true }).limit(1)
+      : await byNameQuery.ilike("name", escapeIlike(name)).limit(1);
     const existing = (byName as CompanyRecord[] | null)?.[0];
     if (existing) {
       if (companyId && !existing.linkedin_company_id) {
@@ -192,7 +226,14 @@ export async function findOrCreateCompany(
     }
   }
 
-  // 3. Insert
+  // 5. Insert. Identity-less inserts (no id/url/universal_name) are how
+  //    split company rows were minted (CAR-44) — probe for a similar-looking
+  //    existing row first so the caller can surface a duplicate warning.
+  const suspectedDuplicate =
+    !companyId && !linkedinUrl && !universalName && name
+      ? await probeSimilarCompany(supabase, name)
+      : null;
+
   const insertData = {
     name: name!,
     linkedin_company_id: companyId,
@@ -205,7 +246,17 @@ export async function findOrCreateCompany(
     .insert(insertData)
     .select(COMPANY_COLS)
     .single();
-  if (!error && created) return created as CompanyRecord;
+  if (!error && created) {
+    const record = created as CompanyResolveResult;
+    if (suspectedDuplicate && suspectedDuplicate.id !== record.id) {
+      console.warn(
+        `[company-helpers] created identity-less company "${record.name}" (id ${record.id}) ` +
+          `which may duplicate "${suspectedDuplicate.name}" (id ${suspectedDuplicate.id})`,
+      );
+      record.possible_duplicate_of = { id: suspectedDuplicate.id, name: suspectedDuplicate.name };
+    }
+    return record;
+  }
 
   // Unique-violation race (name or linkedin_company_id): refetch
   if (companyId) {
@@ -242,6 +293,56 @@ export async function findOrCreateCompany(
   const retried = (retryByName as CompanyRecord[] | null)?.[0];
   if (retried) return retried as CompanyRecord;
   throw error ?? new Error(`Failed to find or create company "${name}"`);
+}
+
+/**
+ * Cheap similarity probe used only for identity-less creates: does the new
+ * name look like an existing company? Checks (a) each parenthetical/slash
+ * token — "Verifi (Visa)" ~ "Visa", "TikTok / ByteDance" ~ "ByteDance" —
+ * and (b) the normalized name as a prefix of an existing normalized name —
+ * "Zoom" ~ "Zoom Video Communications". Heuristic warn surface only; it
+ * never blocks the insert or auto-merges.
+ */
+async function probeSimilarCompany(
+  supabase: SupabaseClient,
+  name: string,
+): Promise<CompanyRecord | null> {
+  const norm = normalizeCompanyName(name);
+  if (!norm) return null;
+
+  const tokens = new Set<string>();
+  for (const segment of name.split("/")) {
+    const parentheticals = [...segment.matchAll(/\(([^)]+)\)/g)].map((m) => m[1]);
+    const base = segment.replace(/\([^)]*\)/g, " ");
+    for (const candidate of [base, ...parentheticals]) {
+      const tokenNorm = normalizeCompanyName(candidate);
+      if (tokenNorm && tokenNorm !== norm && tokenNorm.length >= 3) tokens.add(tokenNorm);
+    }
+  }
+  if (tokens.size > 0) {
+    const { data } = await supabase
+      .from("companies")
+      .select(COMPANY_COLS)
+      .in("name_normalized", [...tokens])
+      .order("id", { ascending: true })
+      .limit(1);
+    const hit = (data as CompanyRecord[] | null)?.[0];
+    if (hit) return hit;
+  }
+
+  // Prefix probe: an existing longer name starting with this one. Length
+  // floor keeps ultra-short names ("X") from matching half the table.
+  if (norm.length >= 4) {
+    const { data } = await supabase
+      .from("companies")
+      .select(COMPANY_COLS)
+      .like("name_normalized", `${escapeIlike(norm)} %`)
+      .order("id", { ascending: true })
+      .limit(1);
+    const hit = (data as CompanyRecord[] | null)?.[0];
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** Backfill linkedin metadata onto a name-matched row. */
