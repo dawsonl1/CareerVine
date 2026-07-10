@@ -18,5 +18,5 @@ if [ -z "$ref" ]; then
   ref=$(_ln_parse_ref "$head")
 fi
 [ -n "$ref" ] || exit 0
-linear_set_state "$ref" "Done" || true
+linear_set_state "$ref" "Done" || _ln_fail_visible "$ref needs state set to Done"
 exit 0

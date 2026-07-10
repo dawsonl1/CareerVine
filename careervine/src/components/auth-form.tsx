@@ -12,7 +12,7 @@ import {
 type Mode = "signin" | "signup" | "forgot" | "check-email" | "forgot-sent";
 
 interface AuthFormProps {
-  initialMode?: "signin" | "signup";
+  initialMode?: "signin" | "signup" | "forgot";
   onBack?: () => void;
 }
 
