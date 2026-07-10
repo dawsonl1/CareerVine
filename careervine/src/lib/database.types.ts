@@ -56,6 +56,27 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["user_api_keys"]["Insert"]>;
       };
 
+      // Shared-token access entitlement (CAR-26) — service-role access only.
+      // Default OFF: no row / shared_access=false means the user must BYO key.
+      user_ai_access: {
+        Row: {
+          user_id: string;
+          shared_access: boolean;
+          granted_at: string | null;
+          granted_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["user_ai_access"]["Row"], "shared_access" | "granted_at" | "granted_by" | "created_at" | "updated_at"> & {
+          shared_access?: boolean;
+          granted_at?: string | null;
+          granted_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_ai_access"]["Insert"]>;
+      };
+
       // Contacts table - core entity for professional network
       contacts: {
         Row: {
@@ -162,15 +183,13 @@ export type Database = {
           linkedin_company_id: string | null; // Stable LinkedIn numeric id — primary join key for scraped data
           linkedin_url: string | null;   // LinkedIn company page URL
           universal_name: string | null; // LinkedIn company slug (e.g., "google")
-          domain: string | null;         // Company website domain
           logo_url: string | null;       // Company logo URL
         };
-        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "domain" | "logo_url"> & {
+        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "logo_url"> & {
           id?: number;
           linkedin_company_id?: string | null;
           linkedin_url?: string | null;
           universal_name?: string | null;
-          domain?: string | null;
           logo_url?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["companies"]["Insert"]>;

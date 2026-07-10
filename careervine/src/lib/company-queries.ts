@@ -203,7 +203,6 @@ export interface CompanySummary {
   name: string;
   logo_url: string | null;
   linkedin_url: string | null;
-  domain: string | null;
   current_count: number;
   former_count: number;
   bench_count: number;
@@ -299,7 +298,7 @@ export async function getCompanies(
   const companyRows = await chunked(companyIds, async (chunk) => {
     let q = db()
       .from("companies")
-      .select("id, name, logo_url, linkedin_url, domain")
+      .select("id, name, logo_url, linkedin_url")
       .in("id", chunk);
     if (opts.search?.trim()) {
       q = q.ilike("name", `%${opts.search.trim().replace(/([\\%_])/g, "\\$1")}%`);
@@ -335,7 +334,6 @@ export async function getCompanies(
     name: string;
     logo_url: string | null;
     linkedin_url: string | null;
-    domain: string | null;
   }>).map((c) => {
     const agg = aggByCompany.get(c.id);
     const target = targetByCompany.get(c.id);
@@ -344,7 +342,6 @@ export async function getCompanies(
       name: c.name,
       logo_url: c.logo_url,
       linkedin_url: c.linkedin_url,
-      domain: c.domain,
       current_count: agg?.current.size ?? 0,
       former_count: agg?.former.size ?? 0,
       bench_count: agg?.bench.size ?? 0,
@@ -420,6 +417,9 @@ export interface CompanyPerson {
     end_month: string | null;
     location_id: number | null;
     location_label: string | null;
+    location_city: string | null;
+    location_state: string | null;
+    location_country: string | null;
     workplace_type: string | null;
   }>;
 }
@@ -429,6 +429,9 @@ export interface LocationFacet {
   label: string;
   location_id: number | null;
   count: number;
+  city: string | null;
+  state: string | null;
+  country: string | null;
 }
 
 export interface CompanyOffice {
@@ -447,7 +450,7 @@ export interface CompanyNote {
 }
 
 export interface CompanyDetail {
-  company: { id: number; name: string; logo_url: string | null; linkedin_url: string | null; domain: string | null; universal_name: string | null };
+  company: { id: number; name: string; logo_url: string | null; linkedin_url: string | null; universal_name: string | null };
   target: (TargetInfo & { notes: CompanyNote[] }) | null;
   offices: CompanyOffice[];
   facets: LocationFacet[];
@@ -471,7 +474,7 @@ export async function getCompanyDetail(
   const [companyRes, officesRes, targetRes] = await Promise.all([
     db()
       .from("companies")
-      .select("id, name, logo_url, linkedin_url, domain, universal_name")
+      .select("id, name, logo_url, linkedin_url, universal_name")
       .eq("id", companyId)
       .maybeSingle(),
     db()
@@ -605,6 +608,9 @@ export async function getCompanyDetail(
       end_month: r.end_month,
       location_id: r.location_id,
       location_label: locationLabel(r.locations),
+      location_city: r.locations?.city ?? null,
+      location_state: r.locations?.state ?? null,
+      location_country: r.locations?.country ?? null,
       workplace_type: r.workplace_type,
     });
   }
@@ -613,11 +619,24 @@ export async function getCompanyDetail(
   }
 
   // Facets over everyone at the company (honest buckets incl. Remote/Unknown)
-  const facetCounts = new Map<string, { label: string; location_id: number | null; contacts: Set<number> }>();
+  const facetCounts = new Map<
+    string,
+    {
+      label: string;
+      location_id: number | null;
+      city: string | null;
+      state: string | null;
+      country: string | null;
+      contacts: Set<number>;
+    }
+  >();
   for (const r of rows) {
     let key: string;
     let label: string;
     let locId: number | null = null;
+    let city: string | null = null;
+    let state: string | null = null;
+    let country: string | null = null;
     if (r.workplace_type === "remote") {
       key = "remote";
       label = "Remote";
@@ -625,19 +644,30 @@ export async function getCompanyDetail(
       key = String(r.location_id);
       label = locationLabel(r.locations) ?? `Location ${r.location_id}`;
       locId = r.location_id;
+      city = r.locations?.city ?? null;
+      state = r.locations?.state ?? null;
+      country = r.locations?.country ?? null;
     } else {
       key = "unknown";
       label = "Unknown";
     }
     let f = facetCounts.get(key);
     if (!f) {
-      f = { label, location_id: locId, contacts: new Set() };
+      f = { label, location_id: locId, city, state, country, contacts: new Set() };
       facetCounts.set(key, f);
     }
     f.contacts.add(r.contact_id);
   }
   const facets: LocationFacet[] = [...facetCounts.entries()]
-    .map(([key, f]) => ({ key, label: f.label, location_id: f.location_id, count: f.contacts.size }))
+    .map(([key, f]) => ({
+      key,
+      label: f.label,
+      location_id: f.location_id,
+      count: f.contacts.size,
+      city: f.city,
+      state: f.state,
+      country: f.country,
+    }))
     .sort((a, b) => {
       // Real locations first (by count desc), then Remote, then Unknown
       const special = (k: string) => (k === "unknown" ? 2 : k === "remote" ? 1 : 0);
@@ -859,6 +889,12 @@ export async function addTargetCompany(userId: string, companyId: number) {
     .single();
   if (error) throw error;
   return data as { id: number };
+}
+
+/** Remove a company from the user's targets (notes cascade-delete). */
+export async function removeTargetCompany(targetId: number) {
+  const { error } = await db().from("target_companies").delete().eq("id", targetId);
+  if (error) throw error;
 }
 
 export async function updateTargetCompany(

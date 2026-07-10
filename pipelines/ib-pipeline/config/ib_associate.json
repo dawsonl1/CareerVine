@@ -1,0 +1,29 @@
+{
+  "description": "Office band -- Associate. Target 3 confirmed NON-alum IB associates per office. Full mode, NO email (deferred to Stage 2c).",
+  "actor": "harvestapi~linkedin-company-employees",
+  "band": "associate",
+  "targetPerOffice": 3,
+  "companiesField": "companies",
+  "maxTotalChargeUsd": 3,
+  "input": {
+    "profileScraperMode": "Full ($8 per 1k)",
+    "companyBatchMode": "one_by_one",
+    "maxItemsPerCompany": 3,
+    "jobTitles": [
+      "Investment Banking Associate",
+      "Associate"
+    ],
+    "excludeCurrentJobTitles": [
+      "Equity Research",
+      "Research Associate",
+      "Credit",
+      "Risk",
+      "Data",
+      "Product",
+      "Wealth",
+      "Private Bank",
+      "Operations",
+      "Sales Associate"
+    ]
+  }
+}

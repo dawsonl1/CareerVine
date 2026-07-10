@@ -1,0 +1,30 @@
+{
+  "description": "Office band -- Analyst. Target 6 confirmed NON-alum IB analysts per office. run_ib.py injects one office (company URL + locations) per run and drives the confirm-to-target backfill loop. Full mode, NO email (deferred to Stage 2c).",
+  "actor": "harvestapi~linkedin-company-employees",
+  "band": "analyst",
+  "targetPerOffice": 6,
+  "companiesField": "companies",
+  "maxTotalChargeUsd": 3,
+  "input": {
+    "profileScraperMode": "Full ($8 per 1k)",
+    "companyBatchMode": "one_by_one",
+    "maxItemsPerCompany": 6,
+    "jobTitles": [
+      "Investment Banking Analyst",
+      "Analyst"
+    ],
+    "excludeCurrentJobTitles": [
+      "Equity Research",
+      "Research Analyst",
+      "Credit",
+      "Risk",
+      "Data",
+      "Product",
+      "Wealth",
+      "Private Bank",
+      "Operations",
+      "Quantitative",
+      "Business Analyst"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+# Scraped LinkedIn data is real people's PII (names, emails, work history).
+# It must never be committed to the product repo. We keep only code, config,
+# and the banks/offices reference data under version control.
+scrapes/
+reviews/
+output/
+run_launched*.json

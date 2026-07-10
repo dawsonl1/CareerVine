@@ -1,5 +1,5 @@
-import { DeepgramClient } from "@deepgram/sdk";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { runWithDeepgramFallback } from "@/lib/deepgram";
 import { transcriptTranscribeSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
@@ -26,9 +26,6 @@ export const POST = withApiHandler({
       throw new ApiError("Invalid attachment path", 403);
     }
 
-    const apiKey = process.env.DEEPGRAM_API_KEY;
-    if (!apiKey) throw new ApiError("Deepgram API key not configured", 500);
-
     const serviceClient = createSupabaseServiceClient();
 
     // Get signed URL and verify meeting ownership in parallel (when meetingId provided)
@@ -54,37 +51,38 @@ export const POST = withApiHandler({
       throw new ApiError("Meeting not found", 404);
     }
 
-    // Call Deepgram pre-recorded API with diarization
-    const deepgram = new DeepgramClient({ apiKey });
-    let result;
-    try {
-      result = await deepgram.listen.v1.media.transcribeUrl({
-        url: signedUrlResult.data.signedUrl,
+    // Transcribe with per-user BYO Deepgram key routing + graceful fallback to
+    // CareerVine's shared key. A rejected/out-of-credit user key is marked and
+    // the call retried on the shared key inside the runner; if both fail, the
+    // runner throws a friendly coded ApiError for the client to map.
+    const signedUrl = signedUrlResult.data.signedUrl;
+    const { segments, rawText } = await runWithDeepgramFallback(user.id, async (deepgram) => {
+      const result = await deepgram.listen.v1.media.transcribeUrl({
+        url: signedUrl,
         model: "nova-3",
         diarize: true,
         punctuate: true,
         smart_format: true,
         utterances: true,
       });
-    } catch (dgError) {
-      console.error("[transcribe] Deepgram error:", dgError);
-      throw new ApiError("Transcription failed. Please try again.", 500);
-    }
 
-    // Map Deepgram utterances to our segment format
-    const utterances = ("results" in result ? result.results?.utterances : undefined) ?? [];
-    const segments = utterances.map((u: any, i: number) => ({
-      speaker_label: `Speaker ${u.speaker}`,
-      started_at: u.start ?? null,
-      ended_at: u.end ?? null,
-      content: u.transcript?.trim() ?? "",
-      ordinal: i,
-    }));
+      // Map Deepgram utterances to our segment format
+      const utterances = ("results" in result ? result.results?.utterances : undefined) ?? [];
+      const segs = utterances.map((u: any, i: number) => ({
+        speaker_label: `Speaker ${u.speaker}`,
+        started_at: u.start ?? null,
+        ended_at: u.end ?? null,
+        content: u.transcript?.trim() ?? "",
+        ordinal: i,
+      }));
 
-    // Build raw text for backward compat / search
-    const rawText = segments
-      .map((s: any) => `${s.speaker_label}: ${s.content}`)
-      .join("\n\n");
+      // Build raw text for backward compat / search
+      const raw = segs
+        .map((s) => `${s.speaker_label}: ${s.content}`)
+        .join("\n\n");
+
+      return { segments: segs, rawText: raw };
+    });
 
     // Only persist to DB when editing an existing meeting
     if (meetingId && segments.length > 0) {

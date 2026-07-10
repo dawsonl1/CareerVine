@@ -1,0 +1,272 @@
+[
+  {
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "tier_full": "Bulge Bracket",
+    "hq": "New York, NY",
+    "n_offices": 8,
+    "linkedin_url": "https://www.linkedin.com/company/goldman-sachs"
+  },
+  {
+    "bank_id": "morgan-stanley",
+    "bank": "Morgan Stanley",
+    "tier": "BB",
+    "tier_full": "Bulge Bracket",
+    "hq": "New York, NY",
+    "n_offices": 6,
+    "linkedin_url": "https://www.linkedin.com/company/morgan-stanley"
+  },
+  {
+    "bank_id": "j-p-morgan",
+    "bank": "J.P. Morgan",
+    "tier": "BB",
+    "tier_full": "Bulge Bracket",
+    "hq": "New York, NY",
+    "n_offices": 7,
+    "linkedin_url": "https://www.linkedin.com/company/jpmorgan"
+  },
+  {
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "tier_full": "Bulge Bracket",
+    "hq": "New York, NY",
+    "n_offices": 8,
+    "linkedin_url": "https://www.linkedin.com/company/bank-of-america"
+  },
+  {
+    "bank_id": "citi",
+    "bank": "Citi",
+    "tier": "BB",
+    "tier_full": "Bulge Bracket",
+    "hq": "New York, NY",
+    "n_offices": 5,
+    "linkedin_url": "https://www.linkedin.com/company/citi"
+  },
+  {
+    "bank_id": "barclays",
+    "bank": "Barclays",
+    "tier": "BB",
+    "tier_full": "Bulge Bracket",
+    "hq": "New York, NY",
+    "n_offices": 7,
+    "linkedin_url": "https://www.linkedin.com/company/barclays-corporate-and-investment-bank"
+  },
+  {
+    "bank_id": "ubs",
+    "bank": "UBS",
+    "tier": "BB",
+    "tier_full": "Bulge Bracket",
+    "hq": "New York, NY",
+    "n_offices": 5,
+    "linkedin_url": "https://www.linkedin.com/company/ubs"
+  },
+  {
+    "bank_id": "deutsche-bank",
+    "bank": "Deutsche Bank",
+    "tier": "BB",
+    "tier_full": "Bulge Bracket",
+    "hq": "New York, NY",
+    "n_offices": 4,
+    "linkedin_url": "https://www.linkedin.com/company/deutsche-bank"
+  },
+  {
+    "bank_id": "wells-fargo-cib",
+    "bank": "Wells Fargo (CIB)",
+    "tier": "BB-adjacent",
+    "tier_full": "Balance-sheet / BB-adjacent",
+    "hq": "Charlotte, NC",
+    "n_offices": 7,
+    "linkedin_url": "https://www.linkedin.com/company/wells-fargo"
+  },
+  {
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "tier_full": "Balance-sheet / BB-adjacent",
+    "hq": "New York, NY",
+    "n_offices": 11,
+    "linkedin_url": "https://www.linkedin.com/company/rbc-capital-markets"
+  },
+  {
+    "bank_id": "centerview-partners",
+    "bank": "Centerview Partners",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "New York, NY",
+    "n_offices": 3,
+    "linkedin_url": "https://www.linkedin.com/company/centerview-partners"
+  },
+  {
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "New York, NY",
+    "n_offices": 10,
+    "linkedin_url": "https://www.linkedin.com/company/evercore"
+  },
+  {
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "New York, NY",
+    "n_offices": 9,
+    "linkedin_url": "https://www.linkedin.com/company/lazard"
+  },
+  {
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "New York, NY",
+    "n_offices": 8,
+    "linkedin_url": "https://www.linkedin.com/company/moelis-&-company"
+  },
+  {
+    "bank_id": "pjt-partners",
+    "bank": "PJT Partners",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "New York, NY",
+    "n_offices": 6,
+    "linkedin_url": "https://www.linkedin.com/company/pjt-partners"
+  },
+  {
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "New York, NY",
+    "n_offices": 8,
+    "linkedin_url": "https://www.linkedin.com/company/perella-weinberg-partners"
+  },
+  {
+    "bank_id": "qatalyst-partners",
+    "bank": "Qatalyst Partners",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "San Francisco, CA",
+    "n_offices": 1,
+    "linkedin_url": "https://www.linkedin.com/company/qatalyst-partners"
+  },
+  {
+    "bank_id": "guggenheim-securities",
+    "bank": "Guggenheim Securities",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "New York, NY",
+    "n_offices": 7,
+    "linkedin_url": "https://www.linkedin.com/company/guggenheim-securities"
+  },
+  {
+    "bank_id": "rothschild-co",
+    "bank": "Rothschild & Co",
+    "tier": "EB",
+    "tier_full": "Elite Boutique",
+    "hq": "New York, NY",
+    "n_offices": 4,
+    "linkedin_url": "https://www.linkedin.com/company/rothschild-&-co"
+  },
+  {
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "New York, NY",
+    "n_offices": 13,
+    "linkedin_url": "https://www.linkedin.com/company/jefferies"
+  },
+  {
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "Los Angeles, CA",
+    "n_offices": 13,
+    "linkedin_url": "https://www.linkedin.com/company/houlihan-lokey"
+  },
+  {
+    "bank_id": "william-blair",
+    "bank": "William Blair",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "Chicago, IL",
+    "n_offices": 6,
+    "linkedin_url": "https://www.linkedin.com/company/william-blair"
+  },
+  {
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "Milwaukee, WI",
+    "n_offices": 8,
+    "linkedin_url": "https://www.linkedin.com/company/robert-w-baird-co"
+  },
+  {
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "Richmond, VA",
+    "n_offices": 9,
+    "linkedin_url": "https://www.linkedin.com/company/harris-williams"
+  },
+  {
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "Minneapolis, MN",
+    "n_offices": 10,
+    "linkedin_url": "https://www.linkedin.com/company/piper-sandler"
+  },
+  {
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "St. Louis, MO",
+    "n_offices": 13,
+    "linkedin_url": "https://www.linkedin.com/company/stifel"
+  },
+  {
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "New York, NY",
+    "n_offices": 9,
+    "linkedin_url": "https://www.linkedin.com/company/kbw"
+  },
+  {
+    "bank_id": "raymond-james",
+    "bank": "Raymond James",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "St. Petersburg, FL",
+    "n_offices": 7,
+    "linkedin_url": "https://www.linkedin.com/company/raymond-james"
+  },
+  {
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "Chicago, IL",
+    "n_offices": 11,
+    "linkedin_url": "https://www.linkedin.com/company/lincoln-international"
+  },
+  {
+    "bank_id": "td-cowen",
+    "bank": "TD Cowen",
+    "tier": "MM",
+    "tier_full": "Middle Market",
+    "hq": "New York, NY",
+    "n_offices": 5,
+    "linkedin_url": "https://www.linkedin.com/company/td-cowen"
+  }
+]

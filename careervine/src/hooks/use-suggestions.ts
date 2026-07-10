@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
+import { isAiFailureCode, type AiFailureCode } from "@/lib/ai-errors";
 
 interface UseSuggestionsOptions {
   /** Called after a suggestion is successfully saved (not completed) */
@@ -15,6 +16,9 @@ interface UseSuggestionsOptions {
 export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  // Set when the LLM pass couldn't run for lack of a usable OpenAI key. Surfaced
+  // as a quiet, dismissible prompt — rule-based suggestions still render.
+  const [aiStatus, setAiStatus] = useState<AiFailureCode | null>(null);
   const hasTriggered = useRef(false);
 
   const load = useCallback(async () => {
@@ -24,6 +28,7 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
       if (res.ok) {
         const data = await res.json();
         setSuggestions(data.suggestions || []);
+        setAiStatus(isAiFailureCode(data.aiStatus) ? data.aiStatus : null);
       }
     } catch {
       // silent
@@ -31,6 +36,8 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
       setLoading(false);
     }
   }, []);
+
+  const dismissAiStatus = useCallback(() => setAiStatus(null), []);
 
   /** Internal: save a suggestion, optionally marking it as already completed. */
   const saveSuggestion = useCallback(async (s: Suggestion, opts?: { completed?: boolean }): Promise<boolean> => {
@@ -75,5 +82,5 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
     load();
   }, [load]);
 
-  return { suggestions, loading, load, save, complete, dismiss, triggerOnce };
+  return { suggestions, loading, aiStatus, dismissAiStatus, load, save, complete, dismiss, triggerOnce };
 }

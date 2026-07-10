@@ -173,7 +173,14 @@ function analyzeCurrentProfile(profileId, calledFromNav = false) {
         const { latestProfile, latestPhotoUrl } = await chrome.storage.local.get(['latestProfile', 'latestPhotoUrl']);
         if (latestProfile) await setCachedProfile(profileId, latestProfile, latestPhotoUrl);
       }
-      dispatchProgress('done', 100);
+      if (result?.parseError) {
+        // Parsing failed server-side (e.g. no usable OpenAI key, CAR-26).
+        // Tell the panel WHY so it can render a specific state, not "done".
+        emit('parseerror', result.parseError);
+        dispatchProgress('error', 0);
+      } else {
+        dispatchProgress('done', 100);
+      }
       emit('analyzing', { analyzing: false });
     }).catch(() => {
       isAnalyzing = false;
@@ -250,10 +257,23 @@ async function scrapeCurrentProfile() {
     if (!isExtensionContextValid()) return { scraped: false };
 
     dispatchProgress('parsing', 60);
-    await chrome.runtime.sendMessage({
+    const parseResponse = await chrome.runtime.sendMessage({
       action: 'parseProfile',
       data: { cleanedText, profileUrl: window.location.href, photoUrl }
     });
+
+    if (parseResponse?.error) {
+      // Don't start the scrape cooldown on a failed parse — a retry should be
+      // possible immediately (the manual Analyze button resets it anyway).
+      return {
+        scraped: false,
+        parseError: {
+          message: parseResponse.error,
+          code: parseResponse.code,
+          status: parseResponse.status
+        }
+      };
+    }
 
     lastScrapeTimestamp = Date.now();
     return { scraped: true };

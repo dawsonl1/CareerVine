@@ -36,11 +36,10 @@ export interface CompanyRecord {
   linkedin_company_id: string | null;
   linkedin_url: string | null;
   universal_name: string | null;
-  domain: string | null;
   logo_url: string | null;
 }
 
-const COMPANY_COLS = "id, name, linkedin_company_id, linkedin_url, universal_name, domain, logo_url";
+const COMPANY_COLS = "id, name, linkedin_company_id, linkedin_url, universal_name, logo_url";
 
 function normalizeCompanyLinkedinUrl(url: string | null | undefined): string | null {
   if (!url) return null;

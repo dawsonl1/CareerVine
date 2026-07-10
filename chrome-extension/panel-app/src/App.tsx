@@ -11,9 +11,60 @@ import {
   ExternalLink,
   Mail,
   Pencil,
+  AlertTriangle,
+  Sparkles,
+  CloudOff,
 } from "lucide-react";
 
 declare const chrome: any;
+
+// ── AI-availability failures (CAR-26) ──────────────────────────────────
+// Extension-local mirror of the web app's lib/ai-errors.ts copy map — the two
+// projects share no bundle, so keep wording identical to AI_FAILURE_COPY there.
+// All four codes arrive over HTTP 402 from /api/extension/parse-profile.
+
+type AiFailureCode = "ai_no_key" | "ai_key_invalid" | "ai_quota_exhausted" | "ai_unavailable";
+
+const AI_FAILURE_CODES: AiFailureCode[] = [
+  "ai_no_key",
+  "ai_key_invalid",
+  "ai_quota_exhausted",
+  "ai_unavailable",
+];
+
+const AI_FAILURE_COPY: Record<AiFailureCode, { title: string; body: string; ctaLabel: string; retryable: boolean }> = {
+  ai_no_key: {
+    title: "Add your OpenAI key to use AI",
+    body: "CareerVine's AI features need an OpenAI key. Add yours in Settings — with OpenAI's free daily tokens, most people pay nothing.",
+    ctaLabel: "Add your key",
+    retryable: false,
+  },
+  ai_key_invalid: {
+    title: "Your OpenAI key was rejected",
+    body: "OpenAI didn't accept your key. Update it in Settings to keep using AI features.",
+    ctaLabel: "Update key",
+    retryable: false,
+  },
+  ai_quota_exhausted: {
+    title: "Your OpenAI key is out of quota",
+    body: "Your key hit its usage limit. Add credit or turn on free daily tokens in your OpenAI account, then try again.",
+    ctaLabel: "Manage key",
+    retryable: false,
+  },
+  ai_unavailable: {
+    title: "AI is temporarily unavailable",
+    body: "We couldn't reach AI right now. Try again in a moment — or add your own OpenAI key so this never blocks you.",
+    ctaLabel: "Add your key",
+    retryable: true,
+  },
+};
+
+/** Mirror of the web app's parseAiFailure: 402 → known code, or ai_unavailable
+ * as the defensive default; any other status is not an AI-availability failure. */
+function mapAiFailure(status: unknown, code: unknown): AiFailureCode | null {
+  if (status !== 402) return null;
+  return AI_FAILURE_CODES.includes(code as AiFailureCode) ? (code as AiFailureCode) : "ai_unavailable";
+}
 
 type Location = {
   city: string | null;
@@ -926,6 +977,7 @@ const App: React.FC = () => {
   const [existingContact, setExistingContact] = useState<any>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState(false);
+  const [aiFailure, setAiFailure] = useState<AiFailureCode | null>(null);
   
   const checkAuthentication = async () => {
     try {
@@ -1030,6 +1082,7 @@ const App: React.FC = () => {
       setProgressPercent(0);
       setPhotoUrl(null);
       setPhotoError(false);
+      setAiFailure(null);
     };
 
     const handleStorageChange = (
@@ -1057,6 +1110,7 @@ const App: React.FC = () => {
         setProfile(null);
         setStatusText(null);
         setErrorText(null);
+        setAiFailure(null);
         setProgressStage('starting');
         setProgressPercent(0);
       } else {
@@ -1105,6 +1159,22 @@ const App: React.FC = () => {
       setOnProfilePage(true);
     };
 
+    // Parse failed server-side. AI-availability failures (402, CAR-26) get a
+    // specific graceful state; anything else surfaces its message instead of
+    // dead-ending on the misleading "Ready to analyze" empty state.
+    const handleParseError = (event: CustomEvent) => {
+      const detail = event.detail || {};
+      const code = mapAiFailure(detail.status, detail.code);
+      if (code) {
+        setAiFailure(code);
+        setErrorText(null);
+      } else {
+        setErrorText(detail.message || "Couldn't analyze this profile. Please try again.");
+      }
+      setProfile(null);
+      setLoading(false);
+    };
+
     const bus = (window as any).__cv_bus;
     chrome?.storage?.onChanged?.addListener(handleStorageChange);
     bus?.addEventListener('analyzing', handleAnalyzing as EventListener);
@@ -1114,6 +1184,7 @@ const App: React.FC = () => {
     bus?.addEventListener('cachedhit', handleCacheHit as EventListener);
     bus?.addEventListener('dbmatch', handleDBMatch as EventListener);
     bus?.addEventListener('dbnomatch', handleDBNoMatch as EventListener);
+    bus?.addEventListener('parseerror', handleParseError as EventListener);
 
     return () => {
       chrome?.storage?.onChanged?.removeListener(handleStorageChange);
@@ -1124,6 +1195,7 @@ const App: React.FC = () => {
       bus?.removeEventListener('cachedhit', handleCacheHit as EventListener);
       bus?.removeEventListener('dbmatch', handleDBMatch as EventListener);
       bus?.removeEventListener('dbnomatch', handleDBNoMatch as EventListener);
+      bus?.removeEventListener('parseerror', handleParseError as EventListener);
     };
   }, []);
 
@@ -1334,13 +1406,44 @@ const App: React.FC = () => {
         {!existingContact && (
           <div className="cv-empty">
             {onProfilePage ? (
-              <>
-                <p className="cv-empty-title">Ready to analyze</p>
-                <p className="cv-empty-subtitle">Click below to scrape this LinkedIn profile.</p>
-                <button className="cv-analyze-btn" onClick={handleRequestScrape}>
-                  Analyze Profile
-                </button>
-              </>
+              aiFailure ? (
+                /* AI-availability failure (CAR-26) — specific graceful state */
+                <>
+                  {aiFailure === "ai_no_key" ? (
+                    <Sparkles className="cv-empty-icon cv-ai-notice-icon" />
+                  ) : aiFailure === "ai_unavailable" ? (
+                    <CloudOff className="cv-empty-icon cv-ai-notice-icon" />
+                  ) : (
+                    <AlertTriangle className="cv-empty-icon cv-ai-notice-icon" />
+                  )}
+                  <p className="cv-empty-title">{AI_FAILURE_COPY[aiFailure].title}</p>
+                  <p className="cv-empty-subtitle">{AI_FAILURE_COPY[aiFailure].body}</p>
+                  <div className="cv-ai-notice-actions">
+                    {AI_FAILURE_COPY[aiFailure].retryable && (
+                      <button className="cv-analyze-btn" onClick={handleRequestScrape}>
+                        Try again
+                      </button>
+                    )}
+                    <a
+                      href={`${webappBaseUrl}/settings?tab=ai`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={AI_FAILURE_COPY[aiFailure].retryable ? "cv-ai-notice-link" : "cv-analyze-btn"}
+                    >
+                      {AI_FAILURE_COPY[aiFailure].ctaLabel}
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="cv-empty-title">Ready to analyze</p>
+                  <p className="cv-empty-subtitle">Click below to scrape this LinkedIn profile.</p>
+                  {errorText && <p className="cv-empty-error">{errorText}</p>}
+                  <button className="cv-analyze-btn" onClick={handleRequestScrape}>
+                    {errorText ? "Try again" : "Analyze Profile"}
+                  </button>
+                </>
+              )
             ) : (
               <>
                 <MapPin className="cv-empty-icon" />

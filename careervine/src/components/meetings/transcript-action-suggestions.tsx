@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { createActionItem } from "@/lib/queries";
 import { ActionItemSource, SuggestionReasonType } from "@/lib/constants";
 import { Sparkles, Check, X, Calendar, User, AlertTriangle, CheckSquare, Hourglass, Pencil } from "lucide-react";
+import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
+import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
 /** Compact inline date picker — renders as a small "Add date" button that opens a native date input */
 function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
@@ -78,6 +80,7 @@ export function TranscriptActionSuggestions({
   const [loading, setLoading] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiFailure, setAiFailure] = useState<AiFailureCode | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -94,6 +97,7 @@ export function TranscriptActionSuggestions({
   const extractActions = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setAiFailure(null);
     try {
       const res = await fetch("/api/transcripts/extract-actions", {
         method: "POST",
@@ -109,6 +113,11 @@ export function TranscriptActionSuggestions({
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        const code = parseAiFailure(res.status, data);
+        if (code) {
+          setAiFailure(code);
+          return;
+        }
         throw new Error(data.error || "Failed to extract action items");
       }
 
@@ -197,6 +206,15 @@ export function TranscriptActionSuggestions({
         {[1, 2, 3].map((i) => (
           <div key={i} className="h-16 rounded-[8px] bg-surface-container animate-pulse" />
         ))}
+      </div>
+    );
+  }
+
+  // AI-availability state (no usable OpenAI key)
+  if (aiFailure) {
+    return (
+      <div className="mt-4">
+        <AiUnavailableNotice code={aiFailure} onRetry={extractActions} />
       </div>
     );
   }

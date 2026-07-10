@@ -17,6 +17,7 @@ import {
   deleteCompanyOffice,
   addCompanyOfficeLocation,
   addTargetCompany,
+  removeTargetCompany,
   updateTargetCompany,
   addTargetCompanyNote,
   deleteTargetCompanyNote,
@@ -25,7 +26,7 @@ import {
 } from "@/lib/company-queries";
 import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
 import {
-  ArrowLeft, ExternalLink, Globe, Target, ChevronDown, ChevronRight,
+  ArrowLeft, ExternalLink, Target, ChevronDown, ChevronRight,
   MapPin, X, Plus, AlertTriangle, Mail, GraduationCap, Trash2, StickyNote,
 } from "lucide-react";
 
@@ -54,6 +55,13 @@ const STATUS_LABELS: Record<string, string> = {
   applied: "Applied",
   interviewing: "Interviewing",
   closed: "Closed",
+};
+const STATUS_STYLES: Record<string, string> = {
+  researching: "bg-surface-container-high text-on-surface-variant",
+  outreach_active: "bg-primary-container text-on-primary-container",
+  applied: "bg-tertiary-container text-on-tertiary-container",
+  interviewing: "bg-secondary-container text-on-secondary-container",
+  closed: "bg-surface-container text-on-surface-variant line-through",
 };
 
 function staleness(lastScrapedAt: string | null): string | null {
@@ -144,9 +152,27 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
   const handleAddTarget = async () => {
     try {
       await addTargetCompany(user.id, companyId);
+      toastSuccess(`${company.name} added to your targets`);
       load();
     } catch {
       toastError("Failed to add target");
+    }
+  };
+
+  const handleRemoveTarget = async () => {
+    if (!target) return;
+    const noteCount = target.notes.length;
+    const warning =
+      noteCount > 0
+        ? `Remove ${company.name} from your targets? This will also delete ${noteCount} recruiting note${noteCount === 1 ? "" : "s"}.`
+        : `Remove ${company.name} from your targets?`;
+    if (!window.confirm(warning)) return;
+    try {
+      await removeTargetCompany(target.id);
+      toastSuccess(`${company.name} removed from your targets`);
+      load();
+    } catch {
+      toastError("Failed to remove target");
     }
   };
 
@@ -201,39 +227,37 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
     <div className="min-h-screen bg-background">
       <Navigation />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link href="/companies" className="inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface mb-4">
-          <ArrowLeft className="w-4 h-4" /> Companies
+        <Link
+          href="/companies"
+          className="group inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface mb-4 -ml-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-surface-container-high"
+        >
+          <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" /> Companies
         </Link>
+
+        <p className="text-xs text-on-surface-variant mb-3">
+          <Link href={`/companies/${companyId}/preview/pipeline`} className="text-primary hover:underline">
+            Preview pipeline layout →
+          </Link>
+          {" · "}
+          <Link href={`/companies/${companyId}/preview/tabs`} className="text-primary hover:underline">
+            tabs
+          </Link>
+        </p>
 
         {/* ── Header ── */}
         <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-          <div className="flex items-center gap-4 min-w-0">
-            <div className="w-14 h-14 rounded-2xl bg-surface-container-high flex items-center justify-center overflow-hidden shrink-0">
-              {company.logo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={company.logo_url} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-xl font-semibold text-on-surface-variant">{company.name.charAt(0)}</span>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold text-on-surface truncate">{company.name}</h1>
+            <div className="flex items-center gap-3 mt-1 text-sm text-on-surface-variant flex-wrap">
+              <span>
+                {contactCount} contact{contactCount === 1 ? "" : "s"}
+                {bench.length > 0 && <span className="opacity-70"> · {bench.length} bench</span>}
+              </span>
+              {company.linkedin_url && (
+                <a href={company.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary">
+                  <ExternalLink className="w-3.5 h-3.5" /> LinkedIn
+                </a>
               )}
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-semibold text-on-surface truncate">{company.name}</h1>
-              <div className="flex items-center gap-3 mt-1 text-sm text-on-surface-variant flex-wrap">
-                <span>
-                  {contactCount} contact{contactCount === 1 ? "" : "s"}
-                  {bench.length > 0 && <span className="opacity-70"> · {bench.length} bench</span>}
-                </span>
-                {company.linkedin_url && (
-                  <a href={company.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary">
-                    <ExternalLink className="w-3.5 h-3.5" /> LinkedIn
-                  </a>
-                )}
-                {company.domain && (
-                  <a href={`https://${company.domain}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary">
-                    <Globe className="w-3.5 h-3.5" /> {company.domain}
-                  </a>
-                )}
-              </div>
             </div>
           </div>
 
@@ -429,8 +453,49 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
             )}
           </div>
 
-          {/* ── Recruiting intel ── */}
+          {/* ── Target + recruiting intel ── */}
           <div className="space-y-4">
+            <Card>
+              <CardContent className="py-3.5 px-4">
+                {target ? (
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Target className="w-4 h-4 text-primary shrink-0" />
+                        <span className="text-sm font-medium text-on-surface">On your targets</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${STATUS_STYLES[target.status] ?? STATUS_STYLES.researching}`}>
+                          {STATUS_LABELS[target.status] ?? target.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-on-surface-variant mt-1.5">
+                        Status and app date live in the header. Recruiting notes unlock here.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemoveTarget}
+                      className="text-xs text-on-surface-variant hover:text-error shrink-0 pt-0.5"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2">
+                      <Target className="w-4 h-4 text-on-surface-variant" />
+                      <span className="text-sm font-medium text-on-surface">Not on your targets</span>
+                    </div>
+                    <p className="text-xs text-on-surface-variant">
+                      Add this company to track recruiting status, app dates, and intel notes.
+                    </p>
+                    <Button variant="tonal" size="sm" onClick={handleAddTarget}>
+                      <Target className="w-4 h-4 mr-1.5" /> Add to targets
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <h2 className="text-sm font-semibold text-on-surface flex items-center gap-2">
               <StickyNote className="w-4 h-4 text-primary" /> Recruiting notes
             </h2>
@@ -492,7 +557,7 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                 )}
               </>
             ) : (
-              <p className="text-xs text-on-surface-variant px-1">Add this company to your targets to log recruiting intel.</p>
+              <p className="text-xs text-on-surface-variant px-1">Add this company to your targets above to start logging recruiting intel.</p>
             )}
           </div>
         </div>

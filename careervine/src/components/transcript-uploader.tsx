@@ -4,6 +4,8 @@ import { useState, useRef, useCallback } from "react";
 import { Upload, FileText, Mic, Loader2 } from "lucide-react";
 import { parseTranscript, type ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import { inputClasses } from "@/lib/form-styles";
+import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
+import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
 /** Debounce a callback by `delay` ms. Returns a stable function ref. */
 function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number): T {
@@ -48,6 +50,7 @@ export default function TranscriptUploader({
 }: TranscriptUploaderProps) {
   const [mode, setMode] = useState<TranscriptMode>("paste");
   const [parseStatus, setParseStatus] = useState<string | null>(null);
+  const [aiFailure, setAiFailure] = useState<AiFailureCode | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
 
@@ -89,6 +92,7 @@ export default function TranscriptUploader({
     } else {
       // Try LLM fallback
       setParseStatus(`Parsing ${file.name} with AI...`);
+      setAiFailure(null);
       try {
         const res = await fetch("/api/transcripts/parse", {
           method: "POST",
@@ -104,7 +108,13 @@ export default function TranscriptUploader({
             setParseStatus(`Could not detect speakers in ${file.name}`);
           }
         } else {
-          setParseStatus(`Could not parse ${file.name}`);
+          const code = parseAiFailure(res.status, await res.json().catch(() => null));
+          if (code) {
+            setAiFailure(code);
+            setParseStatus(null);
+          } else {
+            setParseStatus(`Could not parse ${file.name}`);
+          }
         }
       } catch {
         setParseStatus(`Could not parse ${file.name}`);
@@ -198,6 +208,7 @@ export default function TranscriptUploader({
       )}
 
       {/* Parse status */}
+      {aiFailure && <AiUnavailableNotice compact code={aiFailure} />}
       {parseStatus && (
         <p className="text-sm text-muted-foreground">{parseStatus}</p>
       )}
