@@ -128,7 +128,19 @@ function happyPathResponder(): { respond: Responder; nextContactId: () => number
     if (state.table === "company_locations" && state.op === "select") return { data: [] };
     if (state.table === "schools" && state.op === "select") return { data: [{ id: 77, name: "BYU" }] };
     if (state.table === "contacts" && state.op === "select") return { data: [] }; // no existing contacts
-    if (state.table === "contacts" && state.op === "insert") return { data: { id: ++contactId } };
+    if (state.table === "contacts" && state.op === "insert") {
+      // Bulk create (CAR-57) returns id + linkedin_url per row; the
+      // single-object shape serves the per-row fallback path.
+      if (Array.isArray(state.payload)) {
+        return {
+          data: (state.payload as Array<{ linkedin_url: string | null }>).map((r) => ({
+            id: ++contactId,
+            linkedin_url: r.linkedin_url,
+          })),
+        };
+      }
+      return { data: { id: ++contactId } };
+    }
     if (state.table === "tags" && state.op === "select") return { data: [] };
     if (state.table === "tags" && state.op === "insert") {
       const rows = state.payload as Array<{ name: string }>;
@@ -153,6 +165,18 @@ describe("importPeopleChunk batching (CAR-47)", () => {
 
     expect(summary.results.map((r) => r.status)).toEqual(["created", "created"]);
     expect(summary.results.every((r) => typeof r.contact_id === "number")).toBe(true);
+
+    // Contacts: ONE bulk insert for the whole chunk (CAR-57).
+    const contactInserts = byTable(calls, "contacts", "insert");
+    expect(contactInserts).toHaveLength(1);
+    expect((contactInserts[0].payload as unknown[]).length).toBe(2);
+
+    // Employment: ONE bulk insert across the chunk (jane 1 + bob 2).
+    const empInserts = byTable(calls, "contact_companies", "insert");
+    expect(empInserts).toHaveLength(1);
+    expect((empInserts[0].payload as unknown[]).length).toBe(3);
+    expect(summary.results[0].employment).toEqual({ inserted: 1, updated: 0, deleted: 0 });
+    expect(summary.results[1].employment).toEqual({ inserted: 2, updated: 0, deleted: 0 });
 
     // Companies: one id-prefetch + one name-prefetch, NO per-company fallback.
     expect(byTable(calls, "companies", "select")).toHaveLength(2);
@@ -324,6 +348,126 @@ describe("importPeopleChunk batching (CAR-47)", () => {
         c.filters.some((f) => f.method === "in" && (f.args[0] === "linkedin_url" || f.args[0] === "public_identifier")),
       ),
     ).toBe(true);
+  });
+});
+
+describe("bulk create path (CAR-57)", () => {
+  it("degrades a failed bulk contact insert to per-row, keeping statuses accurate", async () => {
+    const { respond } = happyPathResponder();
+    let singleId = 200;
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === "contacts" && state.op === "insert") {
+        return Array.isArray(state.payload)
+          ? { error: { message: "bulk failed" } }
+          : { data: { id: ++singleId } };
+      }
+      return respond(state);
+    });
+
+    const summary = await importPeopleChunk(client, "user-1", [{ mapped: JANE }, { mapped: BOB }], {
+      mergePolicy: "bundle",
+      skipPhotos: true,
+    });
+
+    expect(summary.results.map((r) => r.status)).toEqual(["created", "created"]);
+    expect(summary.results.map((r) => r.contact_id)).toEqual([201, 202]);
+    // 1 failed bulk + 2 per-row fallbacks
+    const contactInserts = byTable(calls, "contacts", "insert");
+    expect(contactInserts).toHaveLength(3);
+    expect(contactInserts.slice(1).every((c) => !Array.isArray(c.payload))).toBe(true);
+  });
+
+  it("recovers a failed per-row insert by refetching and merging as an update", async () => {
+    const { respond } = happyPathResponder();
+    const janeRow = {
+      id: 42, name: "Jane Doe", linkedin_url: JANE.linkedin_url,
+      public_identifier: "janedoe", persona: null, network_status: "prospect",
+      location_id: 500, headline: null, photo_url: null,
+    };
+    let singleId = 200;
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === "contacts" && state.op === "insert") {
+        if (Array.isArray(state.payload)) return { error: { message: "bulk failed" } };
+        // Jane's single-row insert fails (simulated racing writer)…
+        return (state.payload as { linkedin_url: string | null }).linkedin_url === JANE.linkedin_url
+          ? { error: { message: "row failed" } }
+          : { data: { id: ++singleId } };
+      }
+      // …and the refetch finds the contact the racer created.
+      if (state.table === "contacts" && state.op === "select") {
+        const refetch = state.filters.find((f) => f.method === "eq" && f.args[0] === "linkedin_url");
+        if (refetch) return { data: refetch.args[1] === JANE.linkedin_url ? [janeRow] : [] };
+        return { data: [] };
+      }
+      if (state.table === "contact_schools" && state.op === "select") return { data: [] };
+      if (state.table === "contact_companies" && state.op === "select") return { data: [] };
+      if (state.table === "contact_emails" && state.op === "select") return { data: [] };
+      return respond(state);
+    });
+
+    const summary = await importPeopleChunk(client, "user-1", [{ mapped: JANE }, { mapped: BOB }], {
+      mergePolicy: "bundle",
+      skipPhotos: true,
+    });
+
+    expect(summary.results.map((r) => r.status)).toEqual(["updated", "created"]);
+    expect(summary.results[0].contact_id).toBe(42);
+    expect(summary.results[1].contact_id).toBe(201);
+    // Jane took the update path — an applied_patch is recorded for
+    // bundle fingerprint bookkeeping, exactly like a normal update.
+    expect(summary.results[0].applied_patch).toBeDefined();
+    expect(byTable(calls, "contacts", "update")).toHaveLength(1);
+  });
+
+  it("isolates a per-row insert failure with no recoverable contact to that person", async () => {
+    const { respond } = happyPathResponder();
+    let singleId = 200;
+    const { client } = createMockClient((state) => {
+      if (state.table === "contacts" && state.op === "insert") {
+        if (Array.isArray(state.payload)) return { error: { message: "bulk failed" } };
+        return (state.payload as { linkedin_url: string | null }).linkedin_url === JANE.linkedin_url
+          ? { error: { message: "malformed row" } }
+          : { data: { id: ++singleId } };
+      }
+      return respond(state); // refetch misses (contacts selects return [])
+    });
+
+    const summary = await importPeopleChunk(client, "user-1", [{ mapped: JANE }, { mapped: BOB }], {
+      mergePolicy: "bundle",
+      skipPhotos: true,
+    });
+
+    expect(summary.results.map((r) => r.status)).toEqual(["error", "created"]);
+    expect(summary.results[0].error).toBe("malformed row");
+    expect(summary.results[1].contact_id).toBe(201);
+  });
+
+  it("degrades a failed bulk employment insert to per-person, isolating the bad person", async () => {
+    const { respond } = happyPathResponder();
+    const { client, calls } = createMockClient((state) => {
+      // The chunk-wide insert (3 rows) and Bob's per-person rows (2) fail;
+      // Jane's single row lands.
+      if (state.table === "contact_companies" && state.op === "insert") {
+        return (state.payload as unknown[]).length >= 2 ? { error: { message: "emp failed" } } : { data: null };
+      }
+      return respond(state);
+    });
+
+    const summary = await importPeopleChunk(client, "user-1", [{ mapped: JANE }, { mapped: BOB }], {
+      mergePolicy: "bundle",
+      skipPhotos: true,
+    });
+
+    expect(summary.results[0].status).toBe("created");
+    expect(summary.results[0].employment).toEqual({ inserted: 1, updated: 0, deleted: 0 });
+    expect(summary.results[1].status).toBe("error");
+    expect(summary.results[1].error).toContain("Employment insert failed");
+    // 1 failed bulk + 2 per-person fallbacks
+    expect(byTable(calls, "contact_companies", "insert")).toHaveLength(3);
+    // Education skipped for the errored person — only Jane's row flushes.
+    const eduInserts = byTable(calls, "contact_schools", "insert");
+    expect(eduInserts).toHaveLength(1);
+    expect((eduInserts[0].payload as unknown[]).length).toBe(1);
   });
 });
 
