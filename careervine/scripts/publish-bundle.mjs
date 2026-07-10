@@ -66,7 +66,16 @@ async function call(body) {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
+    // Never follow redirects: fetch strips the Authorization header on a
+    // cross-origin hop (careervine.app 307s to www.careervine.app), which
+    // reads as a baffling 401. Fail loudly with the right URL instead.
+    redirect: "manual",
   });
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(
+      `${endpoint} redirects to ${res.headers.get("location") ?? "?"} — pass that host via --url (auth headers don't survive redirects)`,
+    );
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(`${body.mode} failed (${res.status}): ${json.error ?? "unknown error"}`);
