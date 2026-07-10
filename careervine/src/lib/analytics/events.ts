@@ -102,6 +102,14 @@ export type AnalyticsEvents = {
   // ── Client-only intent events ─────────────────────────────────────
   compose_opened: { source?: string };
   quick_capture_used: Record<string, never>;
+  /**
+   * Connect-CTA clicks (CAR-58). Paired with the server-side
+   * gmail_connected/calendar_connected success events, these make Google
+   * consent-screen abandonment measurable — without them a click that goes
+   * nowhere is indistinguishable from never trying.
+   */
+  gmail_connect_clicked: { source: "setup_banner" | "settings" | "inbox" };
+  calendar_connect_clicked: { source: "setup_banner" | "settings" };
 
   // ── Guardrails ────────────────────────────────────────────────────
   send_cap_hit: Record<string, never>;

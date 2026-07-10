@@ -12,6 +12,16 @@ vi.mock("@/lib/supabase/service-client", () => ({
   createSupabaseServiceClient: () => ({ from: fromMock }),
 }));
 
+// posthog-node — capture $set assertions (CAR-58 person-state properties).
+const captureMock = vi.fn();
+const flushMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("posthog-node", () => ({
+  PostHog: class {
+    capture = captureMock;
+    flush = flushMock;
+  },
+}));
+
 import { MIRRORED_EVENTS, MILESTONE_THRESHOLDS } from "@/lib/analytics/events";
 import { editRatio } from "@/lib/analytics/edit-ratio";
 import {
@@ -24,6 +34,8 @@ beforeEach(() => {
   _resetAnalyticsForTests();
   insertMock.mockReset().mockResolvedValue({ error: null });
   fromMock.mockClear();
+  captureMock.mockClear();
+  flushMock.mockClear();
   delete process.env.NEXT_PUBLIC_POSTHOG_KEY;
 });
 
@@ -94,6 +106,52 @@ describe("trackServer", () => {
   it("never throws when the mirror insert fails", async () => {
     insertMock.mockRejectedValueOnce(new Error("db down"));
     await expect(trackServer("user-1", "reply_received", {})).resolves.toBeUndefined();
+  });
+});
+
+describe("connection-state person properties (CAR-58)", () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test";
+  });
+
+  it("$sets gmail_connected on the person when the connect event fires", async () => {
+    await trackServer("user-1", "gmail_connected", {});
+    expect(captureMock).toHaveBeenCalledWith({
+      distinctId: "user-1",
+      event: "gmail_connected",
+      properties: { surface: "server", $set: { gmail_connected: true } },
+    });
+  });
+
+  it("clears both flags on gmail_disconnected (revoke deletes the whole row)", async () => {
+    await trackServer("user-1", "gmail_disconnected", {});
+    expect(captureMock).toHaveBeenCalledWith({
+      distinctId: "user-1",
+      event: "gmail_disconnected",
+      properties: {
+        surface: "server",
+        $set: { gmail_connected: false, calendar_connected: false },
+      },
+    });
+  });
+
+  it("$sets calendar state on calendar connect/disconnect", async () => {
+    await trackServer("user-1", "calendar_connected", {});
+    await trackServer("user-1", "calendar_disconnected", {});
+    expect(captureMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      properties: { surface: "server", $set: { calendar_connected: true } },
+    }));
+    expect(captureMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      properties: { surface: "server", $set: { calendar_connected: false } },
+    }));
+  });
+
+  it("does not attach $set to non-connection events", async () => {
+    await trackServer("user-1", "email_sent", {});
+    expect(captureMock).toHaveBeenCalledWith(
+      expect.objectContaining({ properties: { surface: "server" } }),
+    );
+    expect(captureMock.mock.calls[0][0].properties).not.toHaveProperty("$set");
   });
 });
 
