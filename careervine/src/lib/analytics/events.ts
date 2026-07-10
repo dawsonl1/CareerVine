@@ -80,6 +80,14 @@ export type AnalyticsEvents = {
     edit_ratio?: number;
   };
   transcript_processed: { step: "transcribe" | "parse" | "extract_actions" };
+  /**
+   * 24h shared-AI trial lifecycle (CAR-51). Started fires once when the trial
+   * row is created at first AI use; expired fires once on the lazy post-expiry
+   * flip; requested fires when the user asks for continued access.
+   */
+  ai_trial_started: Record<string, never>;
+  ai_trial_expired: Record<string, never>;
+  ai_access_requested: Record<string, never>;
 
   // ── Bundles (data subscriptions) ──────────────────────────────────
   bundle_subscribed: { bundle_id?: string };

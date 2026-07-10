@@ -6,6 +6,7 @@ import {
   listAllAuthUsers,
   keyStatusFor,
   sanitizeSearch,
+  isEffectivelyShared,
   type AdminUserListItem,
   type PublicUserRow,
 } from "@/lib/admin-users";
@@ -44,7 +45,7 @@ export const GET = withApiHandler<unknown, { q?: string }>({
       await Promise.all([
         listAllAuthUsers(service),
         service.from("user_api_keys").select("user_id, status").eq("provider", "openai"),
-        service.from("user_ai_access").select("user_id, shared_access"),
+        service.from("user_ai_access").select("user_id, shared_access, expires_at"),
         service.from("data_bundles").select("id, default_visible").eq("status", "published"),
         // .in() with an empty list is invalid PostgREST — skip the query instead.
         ids.length
@@ -61,8 +62,8 @@ export const GET = withApiHandler<unknown, { q?: string }>({
     }
     const sharedAccessById = new Set<string>();
     for (const a of accessRows.data ?? []) {
-      const row = a as { user_id: string; shared_access: boolean };
-      if (row.shared_access) sharedAccessById.add(row.user_id);
+      const row = a as { user_id: string; shared_access: boolean; expires_at: string | null };
+      if (isEffectivelyShared(row)) sharedAccessById.add(row.user_id);
     }
 
     const publishedBundles = ((bundleRows.data ?? []) as Array<{

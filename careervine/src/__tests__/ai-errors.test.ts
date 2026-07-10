@@ -11,6 +11,7 @@ describe("parseAiFailure", () => {
     expect(parseAiFailure(402, { error: "x", code: "ai_no_key" })).toBe("ai_no_key");
     expect(parseAiFailure(402, { code: "ai_key_invalid" })).toBe("ai_key_invalid");
     expect(parseAiFailure(402, { code: "ai_quota_exhausted" })).toBe("ai_quota_exhausted");
+    expect(parseAiFailure(402, { code: "ai_trial_expired" })).toBe("ai_trial_expired");
     expect(parseAiFailure(402, { code: "ai_unavailable" })).toBe("ai_unavailable");
   });
 
@@ -39,7 +40,7 @@ describe("isAiFailureCode", () => {
 
 describe("AI_FAILURE_COPY", () => {
   it("has complete, settings-linked copy for every code", () => {
-    for (const code of ["ai_no_key", "ai_key_invalid", "ai_quota_exhausted", "ai_unavailable"] as const) {
+    for (const code of ["ai_no_key", "ai_key_invalid", "ai_quota_exhausted", "ai_trial_expired", "ai_unavailable"] as const) {
       const copy = AI_FAILURE_COPY[code];
       expect(copy.title.length).toBeGreaterThan(0);
       expect(copy.body.length).toBeGreaterThan(0);
@@ -54,6 +55,7 @@ describe("AI_FAILURE_COPY", () => {
     expect(AI_FAILURE_COPY.ai_no_key.retryable).toBe(false);
     expect(AI_FAILURE_COPY.ai_key_invalid.retryable).toBe(false);
     expect(AI_FAILURE_COPY.ai_quota_exhausted.retryable).toBe(false);
+    expect(AI_FAILURE_COPY.ai_trial_expired.retryable).toBe(false);
   });
 
   it("uses HTTP 402 as the availability status", () => {

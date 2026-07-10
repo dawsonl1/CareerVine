@@ -15,6 +15,7 @@ export type AiFailureCode =
   | "ai_no_key" // no personal key AND no shared access
   | "ai_key_invalid" // personal key rejected (401), no shared access
   | "ai_quota_exhausted" // personal key out of quota, no shared access
+  | "ai_trial_expired" // 24h shared-AI trial ended, no personal key (CAR-51)
   | "ai_unavailable"; // shared key failing / not configured, or provider outage (incl. Deepgram)
 
 /** HTTP status every AI-availability failure is emitted with. */
@@ -65,6 +66,14 @@ export const AI_FAILURE_COPY: Record<AiFailureCode, AiFailureCopy> = {
     ctaHref: SETTINGS_AI_HREF,
     retryable: false,
     serverMessage: "OpenAI key has no remaining quota",
+  },
+  ai_trial_expired: {
+    title: "Your free AI day has ended",
+    body: "Your 24-hour AI trial is over. Add your own OpenAI key to keep using AI — or request continued access and we'll follow up by email.",
+    ctaLabel: "Add your key",
+    ctaHref: SETTINGS_AI_HREF,
+    retryable: false,
+    serverMessage: "Shared AI trial has expired",
   },
   ai_unavailable: {
     title: "AI is temporarily unavailable",

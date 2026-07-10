@@ -9,6 +9,8 @@ import { getContactContext } from "@/lib/ai-helpers";
  */
 export const POST = withApiHandler({
   schema: aiDraftIntroSchema,
+  // CAR-51: spend cap on shared-key AI — far above any human drafting pace.
+  rateLimit: { bucket: "careervine-ai-draft-intro", limit: 30, window: "1 h" },
   handler: async ({ user, body, track }) => {
     const { contactId, howMet, goal, notes } = body;
     const startedAt = Date.now();

@@ -9,6 +9,8 @@ import { getContactContext } from "@/lib/ai-helpers";
  */
 export const POST = withApiHandler({
   schema: gmailAiWriteSchema,
+  // CAR-51: spend cap on shared-key AI — far above any human drafting pace.
+  rateLimit: { bucket: "careervine-ai-write", limit: 40, window: "1 h" },
   handler: async ({ user, body, track }) => {
     const { prompt, contactId, meetingIds, additionalContext, subject } = body;
     const startedAt = Date.now();

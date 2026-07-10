@@ -64,6 +64,11 @@ describe("POST /api/admin/ai-access", () => {
     const [payload] = upsert.mock.calls[0];
     expect(payload).toMatchObject({ user_id: VALID_UUID, shared_access: true });
     expect(payload.granted_at).toBeTruthy();
+    // CAR-51: a manual grant is permanent and must overwrite a stale trial
+    // expiry (upsert conflict-merge keeps unspecified columns) and settle any
+    // pending access request.
+    expect(payload.expires_at).toBeNull();
+    expect(payload.access_requested_at).toBeNull();
   });
 
   it("revokes access and clears granted_at", async () => {
