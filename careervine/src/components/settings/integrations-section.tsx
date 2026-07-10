@@ -111,6 +111,10 @@ export default function IntegrationsSection() {
 
   if (!user) return null;
 
+  // Gmail + Calendar are the priority connections — keep the MCP card below
+  // them until both are connected.
+  const bothConnected = !gmailLoading && !calendarLoading && Boolean(gmailConn) && calendarConnected;
+
   return (
     <div className="space-y-7">
       {gmailMessage && (
@@ -120,7 +124,7 @@ export default function IntegrationsSection() {
         </div>
       )}
 
-      <McpConnectCard />
+      {bothConnected && <McpConnectCard />}
 
       {/* Gmail */}
       <Card variant="outlined">
@@ -231,6 +235,8 @@ export default function IntegrationsSection() {
           )}
         </CardContent>
       </Card>
+
+      {!bothConnected && <McpConnectCard />}
     </div>
   );
 }
