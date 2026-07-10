@@ -4,5 +4,13 @@
   "supabaseAnonKey": "sb_publishable_1WPOaIis1MzOM3SUuW1wMw_l5ZGr3n3",
   "environment": "production",
   "posthogKey": "phc_m84TWLcvy3XwTXwMTNcmr6SEv4eVjdAMjYoZ53PhUhWL",
-  "posthogHost": "https://us.i.posthog.com"
+  "posthogHost": "https://us.i.posthog.com",
+  "internalUserIds": [
+    "63198da1-446a-43e0-b845-7ce708819cbe",
+    "d24b6d9b-1edb-49ce-9273-a6c87592cfb1",
+    "296266b9-641d-4e7a-ae3c-d27de3b49fe0",
+    "b376e8af-7a9c-4540-836e-f83ffd7e25eb",
+    "dae9cb35-e06b-4615-a7a2-6dfbaced0c5d",
+    "c82baf35-4123-4018-a504-313efcd6c4d1"
+  ]
 }
