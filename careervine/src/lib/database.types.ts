@@ -18,6 +18,16 @@
  * - Update: What you can UPDATE (partial fields allowed)
  */
 
+// Guided first-run onboarding progress (CAR-50). Mirrors the CHECK constraint
+// in 20260711003000_user_onboarding_state.sql; states are the flow's resume points.
+export type OnboardingState =
+  | "not_started"
+  | "syncing"
+  | "pick_company"
+  | "outreach"
+  | "completed"
+  | "skipped";
+
 export type Database = {
   public: {
     Tables: {
@@ -33,17 +43,19 @@ export type Database = {
           apify_enrichment_enabled: boolean; // Admin kill switch: all paid Apify activity (service-role writable only)
           diff_analysis_enabled: boolean;    // Admin kill switch: change-event production (service-role writable only)
           discovery_enabled: boolean;        // Admin switch: weekly discovery feed, default off (service-role writable only)
+          onboarding_state: OnboardingState; // Guided first-run progress (CAR-50) — user-writable, forward-only in app
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "created_at" | "updated_at"
+          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "onboarding_state" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
           apify_enrichment_enabled?: boolean;
           diff_analysis_enabled?: boolean;
           discovery_enabled?: boolean;
+          onboarding_state?: OnboardingState;
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
