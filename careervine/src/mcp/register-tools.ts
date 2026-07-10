@@ -27,7 +27,11 @@ function instrumentToolCalls(server: McpServer): void {
       const startedAt = Date.now();
       const result = await cb(...args);
       try {
-        void trackServer(
+        // Awaited: on the serverless remote MCP route nothing drains pending
+        // captures before the lambda freezes, so fire-and-forget events were
+        // silently dropped (CAR-58). trackServer never throws, and flushAt:1
+        // sends immediately — one extra round-trip per tool call.
+        await trackServer(
           uid(),
           "mcp_tool_called",
           { tool: name, success: !result?.isError, duration_ms: Date.now() - startedAt },

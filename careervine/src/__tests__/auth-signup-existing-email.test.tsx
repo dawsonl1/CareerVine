@@ -8,9 +8,11 @@ const signUpMock = vi.fn();
 const resendMock = vi.fn();
 const resetPasswordMock = vi.fn();
 const trackMock = vi.fn();
+const identifyNewUserMock = vi.fn();
 
 vi.mock("@/lib/analytics/client", () => ({
   track: (...args: unknown[]) => trackMock(...args),
+  identifyNewUser: (...args: unknown[]) => identifyNewUserMock(...args),
 }));
 
 vi.mock("@/lib/supabase/browser-client", () => ({
@@ -32,6 +34,7 @@ beforeEach(() => {
   resendMock.mockReset();
   resetPasswordMock.mockReset();
   trackMock.mockReset();
+  identifyNewUserMock.mockReset();
 });
 
 afterEach(cleanup);
@@ -86,6 +89,13 @@ describe("AuthProvider.signUp — duplicate email detection", () => {
 
     expect(result!.error).toBeUndefined();
     expect(result!.existingAccount).toBeUndefined();
+    // Identity must bind to the real (still-unconfirmed) user id BEFORE the
+    // signup event fires, so the event can't land on an anonymous person that
+    // later merges into the wrong account (CAR-58).
+    expect(identifyNewUserMock).toHaveBeenCalledWith("new", "new@example.com");
+    expect(identifyNewUserMock.mock.invocationCallOrder[0]).toBeLessThan(
+      trackMock.mock.invocationCallOrder[0],
+    );
     expect(trackMock).toHaveBeenCalledWith("user_signed_up");
   });
 

@@ -16,6 +16,7 @@ import {
   activateContact, getNetworkTierCounts,
 } from "@/lib/queries";
 import { promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
+import { track } from "@/lib/analytics/client";
 import type { Contact, TagRow } from "@/lib/types";
 import {
   Plus, Users, Search, ChevronDown, Mail, Phone,
@@ -327,6 +328,11 @@ export default function ContactsPage() {
       }
 
       for (const tagId of selectedTagIds) await addTagToContact(contactId, tagId);
+
+      track("contact_imported", { source: "manual" });
+      // Manual adds happen via the browser Supabase client, so the server
+      // never sees them — ask it to re-check the contacts_5 milestone.
+      void fetch("/api/analytics/milestones", { method: "POST" }).catch(() => {});
 
       closeForm();
       await loadContacts();

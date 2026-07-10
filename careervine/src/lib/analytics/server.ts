@@ -55,6 +55,21 @@ export function _resetAnalyticsForTests(): void {
 }
 
 /**
+ * Connection events double as person-state writers (CAR-58): each `$set`s the
+ * current connection booleans on the PostHog person, so "who is connected
+ * right now" is queryable via person properties regardless of when event
+ * tracking shipped (all pre-CAR-38 connections have no gmail_connected event).
+ * gmail_disconnected clears both flags because revokeAccess deletes the whole
+ * gmail_connections row, calendar scopes included.
+ */
+const PERSON_STATE_PROPS: Partial<Record<AnalyticsEvent, Record<string, boolean>>> = {
+  gmail_connected: { gmail_connected: true },
+  gmail_disconnected: { gmail_connected: false, calendar_connected: false },
+  calendar_connected: { calendar_connected: true },
+  calendar_disconnected: { calendar_connected: false },
+};
+
+/**
  * Record an event for a user. Fire-and-forget safe (`void trackServer(...)`)
  * in long-lived processes; in serverless routes the caller should await it
  * (api-handler does this automatically for ctx.track) so the flush isn't
@@ -67,7 +82,12 @@ export async function trackServer<E extends AnalyticsEvent>(
   surface: Surface = "server",
 ): Promise<void> {
   if (!userId) return;
-  const properties = { ...props, surface };
+  const stateProps = PERSON_STATE_PROPS[event];
+  const properties = {
+    ...props,
+    surface,
+    ...(stateProps ? { $set: stateProps } : {}),
+  };
 
   const jobs: Promise<unknown>[] = [];
 
@@ -93,6 +113,16 @@ export async function trackServer<E extends AnalyticsEvent>(
 
   if (jobs.length === 0) return;
   await Promise.allSettled(jobs);
+}
+
+/**
+ * api_error guardrail for the QStash cron routes (CAR-58): they run outside
+ * withApiHandler with no acting user, so route crashes were invisible to the
+ * guardrail. Events attribute to a fixed system distinct id — the count is
+ * what matters, not the person.
+ */
+export async function trackCronError(route: string): Promise<void> {
+  await trackServer("system:cron", "api_error", { route, method: "POST" });
 }
 
 /**

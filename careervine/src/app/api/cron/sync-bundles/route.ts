@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
+import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
   enqueueBundleSyncJobs,
@@ -37,6 +38,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
+  return withCronGuard("/api/cron/sync-bundles", () => runJob(req));
+}
+
+async function runJob(req: NextRequest): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
   // Stale syncs + unfinished unsubscribe cleanups (CAR-53) — the worker
   // dispatches per row state, so one job type covers both.

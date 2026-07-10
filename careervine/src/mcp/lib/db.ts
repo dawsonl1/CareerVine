@@ -17,6 +17,7 @@ import { setCompanyQueriesClient } from "@/lib/company-queries";
 import { escapeIlike, findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
+import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -335,6 +336,13 @@ export async function createContactFull(input: NewContactInput): Promise<number>
     await db().from("contacts").delete().eq("id", contactId).eq("user_id", uid());
     throw childErr;
   }
+
+  // Assistant-created contacts count toward the contacts funnel and the
+  // contacts_5 milestone like every other surface (CAR-58 audit: this path
+  // was invisible, so AI-driven users looked like they never activated).
+  await trackServer(uid(), "contact_imported", { source: "mcp" }, "mcp");
+  await checkContactMilestone(uid());
+
   return contactId;
 }
 

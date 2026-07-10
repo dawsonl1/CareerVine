@@ -23,7 +23,6 @@ export const POST = withApiHandler({
   rateLimit: { bucket: "careervine-transcripts-transcribe", limit: 10, window: "1 h" },
   handler: async ({ user, body, track }) => {
     const { meetingId, attachmentObjectPath } = body;
-    track("transcript_processed", { step: "transcribe" });
 
     // Validate the user owns this storage path (paths are {userId}/{uuid}_{filename})
     if (!attachmentObjectPath.startsWith(`${user.id}/`) || attachmentObjectPath.includes("..")) {
@@ -127,6 +126,8 @@ export const POST = withApiHandler({
       }
     }
 
+    // After the work: a failed transcription must not count as processed (CAR-58).
+    track("transcript_processed", { step: "transcribe" });
     return { segments, rawText };
   },
 });

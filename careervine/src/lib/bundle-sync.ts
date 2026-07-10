@@ -454,6 +454,7 @@ export async function applyBundleDelta(
           mergePolicy: "bundle",
           skipPhotos: true,
           noteLabel: `Imported from data bundle "${bundle.name}"`,
+          analyticsSource: "bundle",
         },
       );
 

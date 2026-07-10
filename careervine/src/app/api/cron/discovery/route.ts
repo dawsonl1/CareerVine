@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
+import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { triggerDiscoveryBatch } from "@/lib/apify/discovery";
 import { isApifyConfigured } from "@/lib/apify/client";
@@ -30,6 +31,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
+  return withCronGuard("/api/cron/discovery", () => runJob());
+}
+
+async function runJob(): Promise<NextResponse> {
   if (process.env.APIFY_SCRAPE_DISABLED === "true" || !isApifyConfigured()) {
     return NextResponse.json({ started: 0, disabled: true });
   }

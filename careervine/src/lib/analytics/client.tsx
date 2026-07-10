@@ -55,6 +55,38 @@ export function track<E extends AnalyticsEvent>(
 }
 
 /**
+ * Like track(), but delivered via sendBeacon so the event survives an
+ * immediate full-page navigation (e.g. the Connect Gmail CTAs, which are
+ * plain <a> links straight into the Google OAuth redirect).
+ */
+export function trackBeforeNavigate<E extends AnalyticsEvent>(
+  event: E,
+  ...args: AnalyticsEvents[E] extends Record<string, never>
+    ? [] | [AnalyticsEvents[E]]
+    : [AnalyticsEvents[E]]
+): void {
+  if (!ensureInit()) return;
+  posthog.capture(
+    event,
+    { ...(args[0] ?? {}), surface: "web" },
+    { transport: "sendBeacon" },
+  );
+}
+
+/**
+ * Bind the PostHog person to a just-created account (CAR-58 audit). Supabase
+ * returns the new user's id even while the account is unconfirmed, and
+ * identifying BEFORE user_signed_up fires attaches the event to the real
+ * person — so a later login by a *different* user in this browser can't
+ * inherit the signup via anon-id aliasing, and confirming the email on
+ * another device still lands on the same person.
+ */
+export function identifyNewUser(userId: string, email?: string | null): void {
+  if (!ensureInit()) return;
+  posthog.identify(userId, email ? { email } : undefined);
+}
+
+/**
  * Wraps the app (inside AuthProvider). Ties the PostHog person to the
  * Supabase user id on sign-in and severs it on sign-out so a shared browser
  * can't attribute one user's events to another.

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
-import { track } from "@/lib/analytics/client";
+import { track, identifyNewUser } from "@/lib/analytics/client";
 import { hardNavigate } from "@/lib/hard-navigate";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -117,6 +117,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
+    // Identify first so the signup lands on the real (still-unconfirmed) user
+    // rather than the anonymous device id — see identifyNewUser for why.
+    if (data.user) identifyNewUser(data.user.id, email);
     track("user_signed_up");
     return {};
   };

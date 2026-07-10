@@ -471,12 +471,15 @@ export type Database = {
           is_trashed: boolean;
           is_hidden: boolean;
           is_simulated: boolean;
+          /** Whether the outbound message body was AI-drafted (CAR-58). */
+          ai_assisted: boolean;
           direction: string | null;
           matched_contact_id: number | null;
           created_at: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["email_messages"]["Row"], "id" | "created_at" | "is_simulated"> & {
+        Insert: Omit<Database["public"]["Tables"]["email_messages"]["Row"], "id" | "created_at" | "is_simulated" | "ai_assisted"> & {
           is_simulated?: boolean;
+          ai_assisted?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["email_messages"]["Insert"]>;
       };

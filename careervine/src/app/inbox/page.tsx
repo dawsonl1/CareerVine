@@ -48,6 +48,7 @@ import { useCursorTooltip } from "@/components/ui/cursor-tooltip";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 import { runFullGmailSync } from "@/lib/gmail-sync-client";
+import { trackBeforeNavigate } from "@/lib/analytics/client";
 
 // ── Types ──
 
@@ -545,7 +546,10 @@ export default function InboxPage() {
           <div className="max-w-md mx-auto mb-6 text-left">
             <OAuthWarning />
           </div>
-          <Button href="/api/gmail/auth">
+          <Button
+            href="/api/gmail/auth"
+            onClick={() => trackBeforeNavigate("gmail_connect_clicked", { source: "inbox" })}
+          >
             <Mail className="h-5 w-5 mr-2" />
             Connect Gmail
           </Button>

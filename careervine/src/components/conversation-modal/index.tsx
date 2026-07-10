@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useQuickCapture } from "@/components/quick-capture-context";
+import { track } from "@/lib/analytics/client";
 import { useToast } from "@/components/ui/toast";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { useContactsWithEmails } from "@/hooks/use-contacts-with-emails";
@@ -368,6 +369,7 @@ export function ConversationModal() {
       }
 
       toastSuccess(isEditMode ? "Meeting updated" : "Conversation logged");
+      if (!isEditMode) track("quick_capture_used");
       close();
 
       // Notify other components to refresh

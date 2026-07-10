@@ -226,18 +226,26 @@ export async function syncEmailsForContact(
       const newRows = rows.filter((r) => !existingIds.has(r.gmail_message_id));
       const existingRows = rows.filter((r) => existingIds.has(r.gmail_message_id));
 
-      // Insert new messages (includes is_read from Gmail)
+      // Insert new messages (includes is_read from Gmail). ignoreDuplicates
+      // makes this ON CONFLICT DO NOTHING, and RETURNING then contains only
+      // the rows THIS call actually inserted — so a concurrent sync of the
+      // same contact (manual sync overlapping the cron pass) can't both
+      // claim the same message and double-fire reply_received (CAR-58).
       if (newRows.length > 0) {
-        const { error } = await supabase.from("email_messages").upsert(newRows, {
-          onConflict: "user_id,gmail_message_id",
-          ignoreDuplicates: false,
-        });
+        const { data: insertedRows, error } = await supabase
+          .from("email_messages")
+          .upsert(newRows, {
+            onConflict: "user_id,gmail_message_id",
+            ignoreDuplicates: true,
+          })
+          .select("gmail_message_id, thread_id, direction");
         if (error) console.error("Insert error:", error);
+        const inserted = insertedRows ?? [];
 
         // An inbound message means the contact wrote back — that reply is
         // what graduates imported prospects/bench into the active network
         // (plan 24 tier transition). Outbound-only threads never graduate.
-        if (newRows.some((r) => r.direction === "inbound")) {
+        if (inserted.some((r) => r.direction === "inbound")) {
           const { error: actError } = await supabase
             .from("contacts")
             .update({ network_status: "active" })
@@ -247,21 +255,29 @@ export async function syncEmailsForContact(
 
           // CAR-38 north-star event: thread-attributed replies only — a new
           // inbound message counts as reply_received iff we previously sent
-          // an outbound message on the same thread. newRows (first insert of
-          // each gmail message) is the dedupe, so re-syncs can't recount.
-          const inbound = newRows.filter((r) => r.direction === "inbound" && r.thread_id);
+          // an outbound message on the same thread. The insert above is the
+          // dedupe: only rows this call created are attributed, so re-syncs
+          // and concurrent syncs can't recount. ai_assisted comes from the
+          // outbound side of the thread (stamped at send time, CAR-58).
+          const inbound = inserted.filter((r) => r.direction === "inbound" && r.thread_id);
           const threadIds = [...new Set(inbound.map((r) => r.thread_id as string))];
           if (threadIds.length > 0) {
             const { data: ourThreads } = await supabase
               .from("email_messages")
-              .select("thread_id")
+              .select("thread_id, ai_assisted")
               .eq("user_id", userId)
               .eq("direction", "outbound")
               .in("thread_id", threadIds);
-            const attributed = new Set((ourThreads ?? []).map((t) => t.thread_id));
-            const replyCount = inbound.filter((r) => attributed.has(r.thread_id as string)).length;
-            for (let i = 0; i < replyCount; i++) {
-              await trackServer(userId, "reply_received", {});
+            const attributed = new Map<string, boolean>();
+            for (const t of ourThreads ?? []) {
+              if (!t.thread_id) continue;
+              attributed.set(t.thread_id, (attributed.get(t.thread_id) ?? false) || t.ai_assisted === true);
+            }
+            for (const r of inbound) {
+              if (!attributed.has(r.thread_id as string)) continue;
+              await trackServer(userId, "reply_received", {
+                ai_assisted: attributed.get(r.thread_id as string) ?? false,
+              });
             }
           }
         }
@@ -690,102 +706,6 @@ export async function activateContactByEmail(userId: string, email: string) {
   if (actError) console.error("Failed to activate contact on reply:", actError);
 }
 
-export async function processFollowUps(userId: string): Promise<{
-  sent: number;
-  cancelled: number;
-  errors: number;
-}> {
-  const supabase = createSupabaseServiceClient();
-  const now = new Date().toISOString();
-
-  // Get all active follow-up sequences for this user that have pending messages due
-  const { data: activeFollowUps } = await supabase
-    .from("email_follow_ups")
-    .select("*, email_follow_up_messages(*)")
-    .eq("user_id", userId)
-    .eq("status", "active");
-
-  if (!activeFollowUps || activeFollowUps.length === 0) {
-    return { sent: 0, cancelled: 0, errors: 0 };
-  }
-
-  let sent = 0;
-  let cancelled = 0;
-  let errors = 0;
-
-  for (const followUp of activeFollowUps) {
-    const pendingMessages = (followUp.email_follow_up_messages || [])
-      .filter((m: { status: string; scheduled_send_at: string }) => m.status === "pending" && m.scheduled_send_at <= now)
-      .sort((a: { sequence_number: number }, b: { sequence_number: number }) => a.sequence_number - b.sequence_number);
-
-    if (pendingMessages.length === 0) continue;
-
-    // Check for reply before sending
-    const hasReply = await checkForReplyInThread(
-      userId,
-      followUp.thread_id,
-      followUp.original_sent_at
-    );
-
-    if (hasReply) {
-      // Cancel entire sequence
-      await supabase
-        .from("email_follow_ups")
-        .update({ status: "cancelled_reply", updated_at: now })
-        .eq("id", followUp.id);
-
-      await supabase
-        .from("email_follow_up_messages")
-        .update({ status: "cancelled" })
-        .eq("follow_up_id", followUp.id)
-        .eq("status", "pending");
-
-      // Their reply graduates prospects/bench into the active network
-      await activateContactByEmail(userId, followUp.recipient_email);
-
-      cancelled++;
-      continue;
-    }
-
-    // Send the next due message (one at a time per sequence)
-    const nextMsg = pendingMessages[0];
-    try {
-      await sendEmail(userId, {
-        to: followUp.recipient_email,
-        subject: nextMsg.subject,
-        bodyHtml: nextMsg.body_html,
-        threadId: followUp.thread_id,
-      });
-
-      await supabase
-        .from("email_follow_up_messages")
-        .update({ status: "sent", sent_at: now })
-        .eq("id", nextMsg.id);
-
-      sent++;
-      await trackServer(userId, "email_sent", { is_follow_up: true, is_scheduled: false });
-
-      // Check if all messages in the sequence are now sent/cancelled
-      const { data: remaining } = await supabase
-        .from("email_follow_up_messages")
-        .select("id")
-        .eq("follow_up_id", followUp.id)
-        .eq("status", "pending");
-
-      if (!remaining || remaining.length === 0) {
-        await supabase
-          .from("email_follow_ups")
-          .update({ status: "completed", updated_at: now })
-          .eq("id", followUp.id);
-      }
-    } catch (err) {
-      console.error(`Error sending follow-up message ${nextMsg.id}:`, err);
-      errors++;
-    }
-  }
-
-  return { sent, cancelled, errors };
-}
 
 export interface ComposeEmailOptions {
   to: string;

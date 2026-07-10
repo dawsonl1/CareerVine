@@ -43,7 +43,7 @@ export type AnalyticsEvents = {
 
   // ── Contacts loop ─────────────────────────────────────────────────
   contact_imported: {
-    source: "extension" | "bulk" | "manual" | "bundle";
+    source: "extension" | "bulk" | "manual" | "bundle" | "mcp" | "discovery";
     count?: number;
   };
   // (contact/page views come free from $pageview + autocapture — no
@@ -76,18 +76,22 @@ export type AnalyticsEvents = {
 
   // ── AI features ───────────────────────────────────────────────────
   ai_draft_generated: {
-    kind: "intro" | "follow_up" | "write" | "suggestion";
+    kind: "intro" | "follow_up" | "write";
     latency_ms?: number;
   };
   /**
    * Acceptance-rate trio for any AI-generated draft. `edit_ratio` is the
    * share of the generated draft that survived to send (1 = sent verbatim,
    * 0 = fully rewritten) — distinguishes "tweaked greeting" from "rewrote
-   * everything". Only present for sent/edited outcomes.
+   * everything". Only present for sent/edited outcomes. `kind` mirrors
+   * ai_draft_generated so per-surface acceptance rates are computable
+   * (CAR-58 audit: outcomes were kindless, so intro/write/follow_up
+   * acceptance couldn't be separated).
    */
   ai_draft_outcome: {
     outcome: "sent" | "edited" | "discarded";
     edit_ratio?: number;
+    kind?: "intro" | "follow_up" | "write";
   };
   transcript_processed: { step: "transcribe" | "parse" | "extract_actions" };
   /**
@@ -132,6 +136,14 @@ export type AnalyticsEvents = {
   // ── Client-only intent events ─────────────────────────────────────
   compose_opened: { source?: string };
   quick_capture_used: Record<string, never>;
+  /**
+   * Connect-CTA clicks (CAR-58). Paired with the server-side
+   * gmail_connected/calendar_connected success events, these make Google
+   * consent-screen abandonment measurable — without them a click that goes
+   * nowhere is indistinguishable from never trying.
+   */
+  gmail_connect_clicked: { source: "setup_banner" | "settings" | "inbox" };
+  calendar_connect_clicked: { source: "setup_banner" | "settings" };
 
   // ── Guardrails ────────────────────────────────────────────────────
   send_cap_hit: Record<string, never>;

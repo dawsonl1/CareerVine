@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
+import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getGmailClient, activateContactByEmail } from "@/lib/gmail";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
@@ -27,6 +28,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
+  return withCronGuard("/api/cron/send-follow-ups", () => runJob());
+}
+
+async function runJob(): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
   const now = new Date().toISOString();
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
@@ -180,7 +185,7 @@ export async function POST(req: NextRequest) {
           threadId: threadId,
           inReplyTo: parent.original_gmail_message_id,
           references: parent.original_gmail_message_id,
-        });
+        }, { isFollowUp: true });
 
         await service
           .from("email_follow_up_messages")

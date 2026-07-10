@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 import { processDueScheduledEmails } from "@/lib/scheduled-email-cron";
+import { withCronGuard } from "@/lib/cron-guard";
 
 export const maxDuration = 60;
 
@@ -23,6 +24,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  const result = await processDueScheduledEmails();
-  return NextResponse.json(result);
+  return withCronGuard("/api/cron/send-scheduled-emails", async () => {
+    const result = await processDueScheduledEmails();
+    return NextResponse.json(result);
+  });
 }

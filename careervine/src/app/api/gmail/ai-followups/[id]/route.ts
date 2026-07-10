@@ -69,11 +69,15 @@ export const PATCH = withApiHandler({
 
     // AI acceptance trio (CAR-38): terminal draft statuses map onto outcomes.
     if (body.status === AiFollowUpDraftStatus.Sent) {
-      track("ai_draft_outcome", { outcome: "sent", edit_ratio: 1 });
+      track("ai_draft_outcome", { outcome: "sent", edit_ratio: 1, kind: "follow_up" });
     } else if (body.status === AiFollowUpDraftStatus.EditedAndSent) {
-      track("ai_draft_outcome", { outcome: "edited" });
+      track("ai_draft_outcome", {
+        outcome: "edited",
+        kind: "follow_up",
+        ...(body.editRatio !== undefined ? { edit_ratio: body.editRatio } : {}),
+      });
     } else if (body.status === AiFollowUpDraftStatus.Dismissed) {
-      track("ai_draft_outcome", { outcome: "discarded" });
+      track("ai_draft_outcome", { outcome: "discarded", kind: "follow_up" });
     }
 
     return { success: true, draft: updated };
