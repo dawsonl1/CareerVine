@@ -12,7 +12,12 @@
  *                          (falls back to https://$VERCEL_URL)
  */
 
-import { PROFILE_SCRAPER_ACTOR, PROFILE_SEARCH_BY_NAME_ACTOR } from "@/lib/constants";
+import {
+  DISCOVERY_FUNCTION_IDS,
+  PROFILE_SCRAPER_ACTOR,
+  PROFILE_SEARCH_ACTOR,
+  PROFILE_SEARCH_BY_NAME_ACTOR,
+} from "@/lib/constants";
 import { ApiError } from "@/lib/api-handler";
 
 const APIFY_BASE = "https://api.apify.com/v2";
@@ -131,6 +136,52 @@ export async function getDatasetItems(datasetId: string): Promise<ApifyProfileIt
   const res = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?token=${token}&clean=true&format=json`);
   if (!res.ok) throw new ApiError(`Apify dataset fetch failed (${res.status})`, 502);
   return (await res.json()) as ApifyProfileItem[];
+}
+
+/**
+ * Actor C (plan 41): start a discovery people-search run — new hires in a PM
+ * function at one target company. Short mode, one page (≤25 short profiles,
+ * $0.10); async with the same terminal-event webhook as the profile scraper.
+ */
+export async function startProfileSearchRun(opts: {
+  companyLinkedinUrl: string;
+  maxTotalChargeUsd: number;
+  callbackUrl: string;
+}): Promise<ApifyRun> {
+  const token = getApifyToken();
+
+  const webhooks = Buffer.from(
+    JSON.stringify([{ eventTypes: WEBHOOK_EVENT_TYPES, requestUrl: opts.callbackUrl }]),
+  ).toString("base64");
+
+  const params = new URLSearchParams({
+    token,
+    maxTotalChargeUsd: String(opts.maxTotalChargeUsd),
+    webhooks,
+  });
+
+  const actor = PROFILE_SEARCH_ACTOR.replace("/", "~");
+  const res = await fetch(`${APIFY_BASE}/acts/${actor}/runs?${params.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      profileScraperMode: "Short",
+      currentCompanies: [opts.companyLinkedinUrl],
+      functionIds: DISCOVERY_FUNCTION_IDS,
+      recentlyChangedJobs: true,
+      maxItems: 25,
+      takePages: 1,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(`Apify discovery run start failed (${res.status}): ${text.slice(0, 300)}`, 502);
+  }
+
+  const json = (await res.json()) as { data?: ApifyRun };
+  if (!json.data?.id) throw new ApiError("Apify discovery run start returned no run id", 502);
+  return json.data;
 }
 
 /** One short profile from the search-by-name actor. */

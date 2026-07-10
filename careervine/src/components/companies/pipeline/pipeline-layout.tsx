@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { DiscoveryCard } from "@/components/companies/discovery-card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import type { LocationBlock, LocationTabsData } from "@/lib/company-scopes";
@@ -1254,6 +1255,9 @@ export function PipelineLayout({
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(440px,560px)] gap-6 items-start">
+        <div className="min-w-0 space-y-6">
+        {/* Discovery candidates (plan 41) — absent unless the weekly search found someone */}
+        <DiscoveryCard companyId={companyId} />
         <section className="min-w-0 rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-4">
           <div className="flex items-center justify-between gap-3 mb-4">
             <h2 className="text-sm font-medium text-on-surface">Contacts</h2>
@@ -1301,6 +1305,7 @@ export function PipelineLayout({
           )}
           <BenchSection bench={peopleBlock.bench} jobChangeIds={jobChangeIds} onSetTier={onSetTier} />
         </section>
+        </div>
 
         <RecruitingPanel
           userId={userId}

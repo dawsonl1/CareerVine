@@ -27,6 +27,7 @@ export interface AdminUserBase {
   aiFallbackPolicy: "cutoff" | "shared";
   apifyEnrichmentEnabled: boolean;
   diffAnalysisEnabled: boolean;
+  discoveryEnabled: boolean;
   isAdmin: boolean;
   keyStatus: AdminUserKeyStatus;
   lastSignInAt: string | null;
@@ -53,6 +54,7 @@ export interface PublicUserRow {
   status: "active" | "suspended";
   apify_enrichment_enabled: boolean;
   diff_analysis_enabled: boolean;
+  discovery_enabled: boolean;
   created_at: string;
 }
 
@@ -85,6 +87,7 @@ export function shapeAdminUser(
     aiFallbackPolicy: sharedAccess ? "shared" : "cutoff",
     apifyEnrichmentEnabled: pub.apify_enrichment_enabled,
     diffAnalysisEnabled: pub.diff_analysis_enabled,
+    discoveryEnabled: pub.discovery_enabled,
     isAdmin: auth?.app_metadata?.role === "admin",
     keyStatus,
     lastSignInAt: auth?.last_sign_in_at ?? null,
