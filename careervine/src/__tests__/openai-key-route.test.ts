@@ -75,7 +75,7 @@ async function call(handler: any, request: any) {
   return { status: response.status, data, text: JSON.stringify(data) };
 }
 
-function mockSelectRow(row: Record<string, unknown> | null) {
+function buildTable(row: Record<string, unknown> | null) {
   const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
   const single = vi.fn().mockResolvedValue({ data: row, error: null });
   const eqProvider = vi.fn().mockReturnValue({ maybeSingle, single });
@@ -87,8 +87,19 @@ function mockSelectRow(row: Record<string, unknown> | null) {
   const deleteEqUser = vi.fn().mockReturnValue({ eq: deleteEqProvider });
   const del = vi.fn().mockReturnValue({ eq: deleteEqUser });
   const upsert = vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ single }) });
-  mockFrom.mockReturnValue({ select, upsert, delete: del });
-  return { maybeSingle, single, upsert, del };
+  return { chain: { select, upsert, delete: del }, maybeSingle, single, upsert, del };
+}
+
+function mockSelectRow(
+  row: Record<string, unknown> | null,
+  accessRow: Record<string, unknown> | null = row,
+) {
+  const keys = buildTable(row);
+  const access = buildTable(accessRow);
+  mockFrom.mockImplementation((table: string) =>
+    table === "user_ai_access" ? access.chain : keys.chain,
+  );
+  return { ...keys, access };
 }
 
 describe("settings/openai-key route", () => {
@@ -103,7 +114,48 @@ describe("settings/openai-key route", () => {
     mockSelectRow(null);
     const { status, data } = await call(GET, makeRequest("GET"));
     expect(status).toBe(200);
-    expect(data).toEqual({ hasKey: false, sharedAccess: false });
+    expect(data).toEqual({
+      hasKey: false,
+      sharedAccess: false,
+      trialState: null,
+      sharedAccessExpiresAt: null,
+      accessRequestedAt: null,
+    });
+  });
+
+  it("GET surfaces an active trial (CAR-51)", async () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    mockSelectRow(null, {
+      shared_access: true,
+      expires_at: future,
+      granted_by: "trial",
+      access_requested_at: null,
+    });
+    const { data } = await call(GET, makeRequest("GET"));
+    expect(data).toMatchObject({
+      hasKey: false,
+      sharedAccess: true,
+      trialState: "active",
+      sharedAccessExpiresAt: future,
+    });
+  });
+
+  it("GET reports an expired trial as not entitled even before the lazy flip", async () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    mockSelectRow(null, {
+      shared_access: true, // stale — flip hasn't run yet
+      expires_at: past,
+      granted_by: "trial",
+      access_requested_at: "2026-07-09T00:00:00Z",
+    });
+    const { data } = await call(GET, makeRequest("GET"));
+    expect(data).toMatchObject({
+      hasKey: false,
+      sharedAccess: false,
+      trialState: "expired",
+      sharedAccessExpiresAt: null,
+      accessRequestedAt: "2026-07-09T00:00:00Z",
+    });
   });
 
   it("GET returns metadata only", async () => {

@@ -62,6 +62,8 @@ const ACTION_ITEM_SCHEMA = {
 
 export const POST = withApiHandler({
   schema: transcriptExtractActionsSchema,
+  // CAR-51: spend cap on shared-key AI — transcripts are the heaviest calls.
+  rateLimit: { bucket: "careervine-transcripts-extract", limit: 20, window: "1 h" },
   handler: async ({ user, body, track }) => {
     const { transcript, attendees, meetingDate, userName } = body;
     track("transcript_processed", { step: "extract_actions" });

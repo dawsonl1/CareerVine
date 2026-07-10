@@ -75,14 +75,18 @@ export type Database = {
           user_id: string;
           shared_access: boolean;
           granted_at: string | null;
-          granted_by: string | null;
+          granted_by: string | null;          // audit note: 'admin', admin uuid, or 'trial' (CAR-51)
+          expires_at: string | null;          // NULL = permanent grant; trial rows = first AI use + 24h (CAR-51)
+          access_requested_at: string | null; // last "Request AI access" click after expiry (CAR-51)
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["user_ai_access"]["Row"], "shared_access" | "granted_at" | "granted_by" | "created_at" | "updated_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["user_ai_access"]["Row"], "shared_access" | "granted_at" | "granted_by" | "expires_at" | "access_requested_at" | "created_at" | "updated_at"> & {
           shared_access?: boolean;
           granted_at?: string | null;
           granted_by?: string | null;
+          expires_at?: string | null;
+          access_requested_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

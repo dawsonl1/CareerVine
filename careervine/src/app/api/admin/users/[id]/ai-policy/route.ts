@@ -43,6 +43,11 @@ export const PATCH = withApiHandler<z.infer<typeof schema>>({
       shared_access: sharedAccess,
       granted_at: sharedAccess ? new Date().toISOString() : null,
       granted_by: sharedAccess ? admin.id : null,
+      // Manual grants are permanent — and must overwrite a stale trial
+      // expiry, or the upsert's conflict-merge would keep the user locked
+      // (CAR-51). A grant also settles any pending access request.
+      expires_at: null,
+      ...(sharedAccess ? { access_requested_at: null } : {}),
       updated_at: new Date().toISOString(),
     });
     if (error) throw new ApiError(`Policy update failed: ${error.message}`, 400);
