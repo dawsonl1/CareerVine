@@ -32,7 +32,11 @@ import {
   MapPin,
   Briefcase,
   ExternalLink,
+  UserPlus,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ResearchingNotesEditor } from "@/components/companies/pipeline/researching-notes";
 import { ResearchingProgramsEditor } from "@/components/companies/pipeline/researching-programs";
 import { AppliedApplicationsEditor } from "@/components/companies/pipeline/applied-applications";
@@ -561,6 +565,66 @@ function ContactEmailAction({
   );
 }
 
+export type ContactTier = "active" | "prospect" | "bench";
+
+/**
+ * Tier-move icon stack from the contacts list: add to network on top,
+ * prospect⇄archive below. Hidden for contacts already in the network.
+ */
+function TierMoves({
+  person,
+  onSetTier,
+}: {
+  person: CompanyPerson;
+  onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
+}) {
+  if (person.network_status === "active") return null;
+
+  return (
+    <div className="flex flex-col gap-0.5 shrink-0">
+      <Tooltip label="Add to network">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSetTier(person, "active");
+          }}
+          className="p-1 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high cursor-pointer transition-colors"
+        >
+          <UserPlus className="w-4 h-4" />
+        </button>
+      </Tooltip>
+      {person.network_status === "prospect" ? (
+        <Tooltip label="Move to archive">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSetTier(person, "bench");
+            }}
+            className="p-1 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high cursor-pointer transition-colors"
+          >
+            <Archive className="w-4 h-4" />
+          </button>
+        </Tooltip>
+      ) : (
+        <Tooltip label="Move to prospects">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSetTier(person, "prospect");
+            }}
+            className="p-1 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high cursor-pointer transition-colors"
+          >
+            <ArchiveRestore className="w-4 h-4" />
+          </button>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
 function staleness(lastScrapedAt: string | null): string | null {
   if (!lastScrapedAt) return null;
   return `Data as of ${new Date(lastScrapedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
@@ -572,12 +636,14 @@ function ContactRow({
   showLocation,
   gmailConnected,
   onCompose,
+  onSetTier,
 }: {
   person: CompanyPerson;
   isFormer: boolean;
   showLocation?: boolean;
   gmailConnected: boolean;
   onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+  onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
 }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
@@ -650,6 +716,8 @@ function ContactRow({
         <div onClick={(e) => e.stopPropagation()}>
           <ContactEmailAction person={person} gmailConnected={gmailConnected} onCompose={onCompose} />
         </div>
+
+        <TierMoves person={person} onSetTier={onSetTier} />
 
         {/* Quick-preview chevron — stops propagation so row click navigates */}
         <button
@@ -748,10 +816,10 @@ function ContactGroupHeading({ label, count }: { label: string; count: number })
 
 function BenchSection({
   bench,
-  onPromote,
+  onSetTier,
 }: {
   bench: CompanyPerson[];
-  onPromote: (person: CompanyPerson) => void;
+  onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
 }) {
   const [open, setOpen] = useState(false);
   if (bench.length === 0) return null;
@@ -795,9 +863,7 @@ function BenchSection({
                   adj {p.adjacency_score}
                 </span>
               )}
-              <Button size="sm" variant="tonal" onClick={() => onPromote(p)}>
-                Add to outreach
-              </Button>
+              <TierMoves person={p} onSetTier={onSetTier} />
             </div>
           ))}
         </div>
@@ -957,7 +1023,7 @@ export function PipelineLayout({
   onScopeChange,
   gmailConnected,
   onCompose,
-  onPromote,
+  onSetTier,
   onOfficesChanged,
 }: {
   userId: string;
@@ -974,7 +1040,7 @@ export function PipelineLayout({
   onScopeChange: (scopeKey: string) => void;
   gmailConnected: boolean;
   onCompose: (opts: { to: string; name: string; contactId: number }) => void;
-  onPromote: (person: CompanyPerson) => void;
+  onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
   onOfficesChanged: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -1149,6 +1215,7 @@ export function PipelineLayout({
                           showLocation={showLocationOnContacts}
                           gmailConnected={gmailConnected}
                           onCompose={onCompose}
+                          onSetTier={onSetTier}
                         />
                       ))}
                     </div>
@@ -1156,7 +1223,7 @@ export function PipelineLayout({
               )}
             </div>
           )}
-          <BenchSection bench={peopleBlock.bench} onPromote={onPromote} />
+          <BenchSection bench={peopleBlock.bench} onSetTier={onSetTier} />
         </section>
 
         <RecruitingPanel

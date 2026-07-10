@@ -12,10 +12,13 @@ import { usePipelineAutosave } from "@/hooks/use-pipeline-autosave";
 import { fetchCompanyScopes, type LocationTabsData } from "@/lib/company-scopes";
 import { loadPipeline, type LoadedPipeline } from "@/lib/pipeline-queries";
 import {
+  demoteContactToBench,
   promoteContactToProspect,
   type CompanyDetail,
   type CompanyPerson,
 } from "@/lib/company-queries";
+import { activateContact } from "@/lib/queries";
+import type { ContactTier } from "@/components/companies/pipeline/pipeline-layout";
 import { ArrowLeft } from "lucide-react";
 
 /**
@@ -86,13 +89,21 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
     router.replace(`/companies/${companyId}${params.size ? `?${params}` : ""}`);
   };
 
-  const handlePromote = async (person: CompanyPerson) => {
+  const handleSetTier = async (person: CompanyPerson, tier: ContactTier) => {
     try {
-      await promoteContactToProspect(person.contact_id);
-      toastSuccess(`${person.name} added to outreach`);
+      if (tier === "active") await activateContact(person.contact_id);
+      else if (tier === "prospect") await promoteContactToProspect(person.contact_id);
+      else await demoteContactToBench(person.contact_id);
+      toastSuccess(
+        tier === "active"
+          ? `${person.name} added to your network`
+          : tier === "prospect"
+            ? `${person.name} moved to prospects`
+            : `${person.name} archived`,
+      );
       load();
     } catch {
-      toastError("Failed to promote");
+      toastError("Failed to move contact");
     }
   };
 
@@ -123,7 +134,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         onScopeChange={setScope}
         gmailConnected={gmailConnected}
         onCompose={openCompose}
-        onPromote={handlePromote}
+        onSetTier={handleSetTier}
         onOfficesChanged={load}
       />
     );
