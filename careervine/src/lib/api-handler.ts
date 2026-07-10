@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ZodSchema, ZodError } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { getExtensionAuth, corsHeaders } from "@/lib/extension-auth";
+import { checkRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
 import { trackServer } from "@/lib/analytics/server";
 import type { AnalyticsEvent, AnalyticsEvents } from "@/lib/analytics/events";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
@@ -61,6 +62,12 @@ interface RouteConfig<TBody = unknown, TQuery = unknown> {
   authOptional?: boolean;
   /** When true, the authenticated user must carry app_metadata.role === 'admin' or the request is rejected with 403. */
   requireAdmin?: boolean;
+  /**
+   * Opt-in per-user rate limit (CAR-41), checked right after auth resolves.
+   * Skipped when there is no user (authOptional). On exceeded the wrapper
+   * returns 429 `{ error, code: 'rate_limited', resetAt }` with Retry-After.
+   */
+  rateLimit?: RateLimitOptions;
   /** The actual route logic. Return data to send as JSON. */
   handler: (ctx: HandlerContext<TBody, TQuery>) => Promise<unknown>;
 }
@@ -137,6 +144,30 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         const role = (user as User | null)?.app_metadata?.role;
         if (role !== "admin") {
           return jsonResponse({ error: "Forbidden" }, 403, headers);
+        }
+      }
+
+      // ── Rate limit ──────────────────────────────────────────────
+      // Runs before body parse so over-limit requests stay cheap. The 429
+      // is returned directly (not thrown as ApiError) because the catch
+      // path cannot carry the Retry-After header.
+      const rateLimitUserId = (user as User | null)?.id;
+      if (config.rateLimit && rateLimitUserId) {
+        const rate = await checkRateLimit(rateLimitUserId, config.rateLimit);
+        if (!rate.allowed) {
+          const retryAfterSec = Math.max(
+            1,
+            Math.ceil(((rate.resetAt ?? Date.now()) - Date.now()) / 1000),
+          );
+          return jsonResponse(
+            {
+              error: "Rate limit exceeded. Please try again later.",
+              code: "rate_limited",
+              resetAt: rate.resetAt,
+            },
+            429,
+            { ...headers, "Retry-After": String(retryAfterSec) },
+          );
         }
       }
 

@@ -17,6 +17,10 @@ export const POST = withApiHandler({
   schema: extensionParseProfileSchema,
   extensionAuth: true,
   cors: true,
+  // Bounds requests per user — every shared-key call spends real OpenAI money
+  // (CAR-41). Single tier for everyone; shared-vs-BYO is decided inside
+  // runWithOpenAIFallback and can flip mid-request, so it can't gate here.
+  rateLimit: { bucket: "careervine-parse-profile", limit: 60, window: "1 h" },
   handler: async ({ user, body }) => {
     const { cleanedText, profileUrl } = body;
 
