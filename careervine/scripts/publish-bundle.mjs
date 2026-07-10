@@ -19,9 +19,18 @@
  *   or raw pipeline people-records with --people-format people_record.
  * companies.json: array of { name, linkedin_company_id?, linkedin_url?,
  *   universal_name?, offices: [{ city, state, country? }] }.
+ *
+ * Photo mirroring (CAR-35): before publishing, every media.licdn.com photo
+ * is fetched, thumbnailed, and uploaded once to the shared R2 bundle prefix;
+ * the payload then carries the durable R2 URL instead of the expiring
+ * LinkedIn one. Successes are cached in <people-file dir>/photo-mirror-cache.json
+ * so republishing is incremental. Requires R2_* env (see scripts/lib/r2-photos.mjs);
+ * disable with --no-mirror-photos.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { mirrorToBundlePhoto, mapConcurrent } from "./lib/r2-photos.mjs";
 
 function arg(name, fallback = undefined) {
   const i = process.argv.indexOf(`--${name}`);
@@ -76,6 +85,73 @@ const companies = companiesFile ? JSON.parse(readFileSync(companiesFile, "utf8")
 if (!Array.isArray(people) || !Array.isArray(companies)) {
   console.error("--people / --companies files must contain JSON arrays");
   process.exit(1);
+}
+
+// ── Photo mirror pass (CAR-35) ──────────────────────────────────────────
+// Swaps expiring media.licdn.com photo URLs for durable, shared R2 copies,
+// in place, before anything is sent. One mirrored object per distinct
+// source URL; the cache file makes republishing incremental.
+
+const mirrorPhotos = !process.argv.includes("--no-mirror-photos");
+
+/** Every mutable {obj, field} slot that may hold a licdn photo URL. */
+function photoSlots(person) {
+  if (peopleFormat === "payload") return [{ obj: person, field: "photo_url" }];
+  return (person.raw_profiles ?? [])
+    .filter((p) => p?.data)
+    .map((p) => ({ obj: p.data, field: "photo" }));
+}
+
+if (mirrorPhotos && people.length > 0) {
+  const cachePath = join(dirname(peopleFile), "photo-mirror-cache.json");
+  let cache = {};
+  try {
+    cache = JSON.parse(readFileSync(cachePath, "utf8"));
+  } catch {
+    /* first run */
+  }
+
+  const slots = people.flatMap(photoSlots).filter(
+    (s) => typeof s.obj[s.field] === "string" && s.obj[s.field].startsWith("https://media.licdn.com/"),
+  );
+  const distinct = [...new Set(slots.map((s) => s.obj[s.field]))];
+  const toMirror = distinct.filter((url) => !cache[url]);
+  console.log(
+    `Photo mirror: ${distinct.length} distinct licdn URLs (${distinct.length - toMirror.length} cached, ${toMirror.length} to fetch)`,
+  );
+
+  let mirrored = 0;
+  let failed = 0;
+  await mapConcurrent(toMirror, 8, async (url) => {
+    try {
+      cache[url] = await mirrorToBundlePhoto(url);
+      mirrored++;
+      if (mirrored % 100 === 0) {
+        console.log(`  mirrored ${mirrored}/${toMirror.length}…`);
+        writeFileSync(cachePath, JSON.stringify(cache, null, 2));
+      }
+    } catch (err) {
+      failed++;
+      console.warn(`  photo failed (${String(err?.message ?? err)}): ${url.slice(0, 80)}…`);
+    }
+  });
+  writeFileSync(cachePath, JSON.stringify(cache, null, 2));
+
+  let swapped = 0;
+  let dropped = 0;
+  for (const s of slots) {
+    const r2Url = cache[s.obj[s.field]];
+    if (r2Url) {
+      s.obj[s.field] = r2Url;
+      swapped++;
+    } else {
+      // licdn URLs expire — publishing one would strand subscribers with a
+      // broken image. No photo beats a dead photo.
+      s.obj[s.field] = null;
+      dropped++;
+    }
+  }
+  console.log(`Photo mirror: ${mirrored} newly mirrored, ${failed} failed, ${swapped} slots swapped, ${dropped} dropped`);
 }
 
 console.log(`Publishing "${slug}" to ${baseUrl} (${people.length} prospects, ${companies.length} companies)`);

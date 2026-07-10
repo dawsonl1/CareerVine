@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   mapPeopleRecord,
   pickRichestProfile,
@@ -313,5 +313,30 @@ describe('formatActorDate', () => {
     expect(formatActorDate({ text: 'Present' })).toBeNull();
     expect(formatActorDate(null)).toBeNull();
     expect(formatActorDate({})).toBeNull();
+  });
+});
+
+describe('mapPeopleRecord — photo URL allowlist (CAR-35)', () => {
+  const BASE = 'https://assets.careervine.app';
+
+  function recordWithPhoto(photo: string | null) {
+    const record = makeRecord();
+    record.raw_profiles![0].data!.photo = photo;
+    return record;
+  }
+
+  it('passes through already-mirrored R2 bundle photos', () => {
+    vi.stubEnv('R2_PUBLIC_BASE_URL', BASE);
+    try {
+      const url = `${BASE}/careervine/bundle-photos/abcdef0123456789.webp`;
+      expect(mapPeopleRecord(recordWithPhoto(url)).photo_url).toBe(url);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('still rejects arbitrary external photo hosts', () => {
+    expect(mapPeopleRecord(recordWithPhoto('https://evil.example.com/x.jpg')).photo_url).toBeNull();
+    expect(mapPeopleRecord(recordWithPhoto(null)).photo_url).toBeNull();
   });
 });
