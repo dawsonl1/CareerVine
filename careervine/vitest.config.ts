@@ -15,6 +15,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@ext': path.resolve(__dirname, '../chrome-extension/src'),
+      '@panel': path.resolve(__dirname, '../chrome-extension/panel-app/src'),
     },
   },
 });
