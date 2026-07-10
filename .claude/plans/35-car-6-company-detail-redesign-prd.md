@@ -1980,3 +1980,52 @@ applied: {
 | Date | Change |
 |------|--------|
 | 2026-07-09 | §23 — multi-job applied + PDF uploads in pipeline preview |
+
+---
+
+## 24. Implementation plan — promote pipeline preview to production (confirmed)
+
+**Status:** Approved by Dawson 2026-07-09. The pipeline preview **is** the company page. All other PoC layouts die. localStorage/IndexedDB PoC data is **discarded** (fresh start seeded from `target_companies`). Full feature parity with the old page: email compose, bench expand + promote, manage offices.
+
+### 24.1 Schema (one migration)
+
+Follows §18.2.1 + §21.4 + §23.4:
+
+1. **`target_companies` becomes the scope table** — add `location_id int REFERENCES locations(id) ON DELETE CASCADE` (NULL = company-wide), add `is_targeted boolean NOT NULL DEFAULT true`, add `active_cycle int NOT NULL DEFAULT 1`; drop the `(user_id, company_id)` unique constraint; add partial unique indexes (company-wide where `location_id IS NULL`; `(user_id, company_id, location_id)` where NOT NULL). `is_targeted` is a **soft flag** so un-targeting never destroys cycle data (Philosophy 2, §18.12 Q4).
+2. **`pipeline_cycles`** — `target_company_id` FK cascade, `cycle_number`, `selected_stage` (same enum as status), `declined_next_cycle`, unique `(target_company_id, cycle_number)`.
+3. **Cycle children** (uuid PKs client-generated so upserts work; all with `position` for ordering): `pipeline_programs` (name, apps_open, job_potential), `pipeline_notes` (body), `pipeline_applications` (job_title, location, date_applied, resume_path/name/size, cover_path/name/size), `pipeline_interview_rounds` (interview_date, interviewer, questions).
+4. **RLS** — ownership chained through `target_companies.user_id = auth.uid()` (same pattern as `target_company_notes`).
+5. **RPCs** — `save_pipeline_cycle(target_company_id, cycle_number, payload jsonb)` upserts the cycle + syncs all four child tables atomically; `delete_pipeline_cycle(...)` deletes and renumbers higher cycles. Avoids 8 debounced client queries per save and rule-17 CAS traps.
+6. **Storage** — private bucket `application-files` (5 MB limit, PDF only), paths `{user_id}/{uuid}.pdf`, per-user-folder RLS policies.
+
+### 24.2 Data layer
+
+- New `src/lib/pipeline-queries.ts`: `loadPipelineState` (scope rows + cycles + children → the existing state shape), `ensureScopeTarget` / `setScopeTargeted` (soft toggle), `saveCycle` (RPC), `deleteCycle` (RPC), `setActiveCycle`, file upload/signed-URL/delete helpers.
+- `pipeline-preview-storage.ts` → rename to `pipeline-state.ts`: **keep** types, normalizers, patch helpers, default builders; **drop** localStorage load/save, versioning, and legacy-shape migration paths (PoC data is discarded).
+- `company-location-preview.ts`: remove `mockTargetMeta` + injected sample note; office `isTargeted`/`status` come from real scope rows. Keep the facet-key convention (`String(location_id)`).
+- Scope keys map: `"all"` ↔ company-wide row (`location_id NULL`); office key ↔ row with that `location_id`. Remote/Unknown buckets stay non-targetable.
+- Status sync: changing the active cycle's stage writes `target_companies.status` on that scope row, so `/companies` list + `/outreach` stay accurate.
+- Autosave: `usePipelineAutosave` hook — same reducer state as preview, dirty-tracking per (scope, cycle), ~800 ms debounce, flush on unload; small Saved/Saving indicator. Targeting toggles + active-cycle changes write immediately.
+
+### 24.3 UI
+
+- `/companies/[id]/page.tsx` renders the pipeline layout (Navigation + back link + PipelineLayout) wired to the DB. Scope selection moves to `?location=` URL param (shareable, replaces localStorage `scope`); search + mainTab are transient component state.
+- Parity ports from the old page, restyled to the pipeline aesthetic: **email compose** (real Mail button → compose modal, bounce block + pattern-guess warning), **bench** (expandable list, adjacency score, promote to outreach), **manage offices** (add/delete panel near the Location dropdown).
+- `pipeline-pdf-upload.tsx` re-targeted from IndexedDB to Supabase Storage (same UI; signed URL on view).
+- **Delete**: all six `/preview` routes, `stack/cards/accordion/split/tabs` layouts, `preview-page.tsx`, `PreviewBanner`/`CompanyHeaderThin` (`shared.tsx`), `PREVIEW_VARIANTS`, `pipeline-preview-files.ts`, the old page body, and the "Preview pipeline layout →" links.
+
+### 24.4 Downstream parity
+
+- `getCompanies` (targets view): a company is targeted if **any** scope row has `is_targeted`; card fields prefer the company-wide row, else derived from office rows.
+- `addTargetCompany` / MCP `get_company` path: pin to company-wide scope (`location_id IS NULL`) explicitly; verify the careervine MCP server queries still behave.
+- `removeTargetCompany` stays a hard delete (list-page flow); the pipeline page uses the soft toggle.
+
+### 24.5 Tests & verification
+
+- Retarget existing pipeline state tests to `pipeline-state.ts`; delete localStorage/legacy-migration tests; add tests for cycle→payload mapping, scope-key mapping, and targets-view derivation.
+- `npm run test` + `npm run build` from `careervine/`; migration dry-run then `supabase db push`.
+- Browser verification (high-risk restructure): full loop on a real company — target office, edit each stage, upload PDF, reload, cross-scope isolation.
+
+### 24.6 Delivery
+
+Work continues on the existing CAR-6 branch; single PR to `main` (migration + cross-cutting ⇒ PR path per rule 19). Slices: (1) migration, (2) data layer + tests, (3) page swap + autosave, (4) parity ports + deletions, (5) downstream parity + verification.
