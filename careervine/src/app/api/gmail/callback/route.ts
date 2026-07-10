@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { google } from "googleapis";
-import { getOAuth2Client } from "@/lib/oauth-helpers";
+import { getOAuth2Client, encryptOAuthToken } from "@/lib/oauth-helpers";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 /**
@@ -69,8 +69,8 @@ export const GET = withApiHandler({
         {
           user_id: user.id,
           gmail_address: gmailAddress,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
+          access_token: encryptOAuthToken(tokens.access_token),
+          refresh_token: encryptOAuthToken(tokens.refresh_token),
           token_expires_at: new Date(tokens.expiry_date || Date.now() + 3600_000).toISOString(),
           calendar_scopes_granted: calendarGranted,
           updated_at: new Date().toISOString(),

@@ -29,6 +29,8 @@ vi.mock("googleapis", () => ({
 vi.mock("@/lib/oauth-helpers", () => ({
   getOAuth2Client: () => ({ setCredentials: () => {} }),
   refreshTokenIfNeeded: async () => {},
+  decryptOAuthToken: (v: string) => v,
+  encryptOAuthToken: (v: string) => v,
 }));
 
 vi.mock("@/lib/supabase/service-client", () => ({
