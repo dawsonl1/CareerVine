@@ -11,6 +11,7 @@ import SecuritySection from "@/components/admin/security-section";
 import AccountSection from "@/components/admin/account-section";
 import BundlesSection from "@/components/admin/bundles-section";
 import AiSection from "@/components/admin/ai-section";
+import ContactsSection from "@/components/admin/contacts-section";
 
 export default function AdminUserDetailPage() {
   const params = useParams<{ id: string }>();
@@ -93,6 +94,7 @@ export default function AdminUserDetailPage() {
           />
           <AiSection user={user} onChanged={load} />
           <BundlesSection userId={user.id} />
+          <ContactsSection userId={user.id} />
         </div>
       )}
     </div>
