@@ -37,14 +37,21 @@ function formatDate(iso: string | null): string {
   });
 }
 
-type ScrapeControlKey = "apify_enrichment_enabled" | "diff_analysis_enabled";
+type ScrapeControlKey = "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled";
 
 const SCRAPE_CONTROL_FIELD: Record<
   ScrapeControlKey,
-  "apifyEnrichmentEnabled" | "diffAnalysisEnabled"
+  "apifyEnrichmentEnabled" | "diffAnalysisEnabled" | "discoveryEnabled"
 > = {
   apify_enrichment_enabled: "apifyEnrichmentEnabled",
   diff_analysis_enabled: "diffAnalysisEnabled",
+  discovery_enabled: "discoveryEnabled",
+};
+
+const SCRAPE_CONTROL_LABEL: Record<ScrapeControlKey, string> = {
+  apify_enrichment_enabled: "Apify enrichment",
+  diff_analysis_enabled: "Change detection",
+  discovery_enabled: "Discovery feed",
 };
 
 export default function AdminUsersPage() {
@@ -143,8 +150,7 @@ export default function AdminUsersPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
-      const label = key === "apify_enrichment_enabled" ? "Apify enrichment" : "Change alerts";
-      success(`${label} ${value ? "on" : "off"} for ${user.email ?? "this account"}`);
+      success(`${SCRAPE_CONTROL_LABEL[key]} ${value ? "on" : "off"} for ${user.email ?? "this account"}`);
     } catch (err) {
       patchUser(user.id, { [field]: prev });
       toastError((err as Error).message);
@@ -155,7 +161,7 @@ export default function AdminUsersPage() {
 
   /** Bulk Apify kill switches (plan 36): one call flips every account. */
   const bulkSet = async (key: ScrapeControlKey, value: boolean) => {
-    const label = key === "apify_enrichment_enabled" ? "Apify enrichment" : "change detection";
+    const label = SCRAPE_CONTROL_LABEL[key];
     if (bulkBusy) return;
     if (!window.confirm(`Turn ${label} ${value ? "ON" : "OFF"} for ALL accounts?`)) return;
     setBulkBusy(true);
@@ -224,6 +230,11 @@ export default function AdminUsersPage() {
                   key: "diff_analysis_enabled" as const,
                   label: "Change detection",
                   on: users.filter((u) => u.diffAnalysisEnabled).length,
+                },
+                {
+                  key: "discovery_enabled" as const,
+                  label: "Discovery feed",
+                  on: users.filter((u) => u.discoveryEnabled).length,
                 },
               ]
             ).map((row) => (
@@ -380,6 +391,27 @@ export default function AdminUsersPage() {
                           disabled={savingScrapeId === `${u.id}:diff_analysis_enabled`}
                           onChange={(next) =>
                             void setScrapeControl(u, "diff_analysis_enabled", next)
+                          }
+                        />
+                      </span>
+                    </Tooltip>
+
+                    <Tooltip
+                      label={
+                        u.discoveryEnabled
+                          ? "Weekly search for new PM hires at their target companies (~$0.10 per company page)"
+                          : "Discovery feed off — no weekly new-hire searches for this account"
+                      }
+                    >
+                      <span className="flex items-center gap-1.5 rounded-full border border-outline-variant px-3 py-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Discovery
+                        </span>
+                        <Toggle
+                          checked={u.discoveryEnabled}
+                          disabled={savingScrapeId === `${u.id}:discovery_enabled`}
+                          onChange={(next) =>
+                            void setScrapeControl(u, "discovery_enabled", next)
                           }
                         />
                       </span>

@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { track } from "@/lib/analytics/client";
+import { hardNavigate } from "@/lib/hard-navigate";
 import type { User, Session } from "@supabase/supabase-js";
 
 // Define the shape of our authentication context
@@ -133,11 +134,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Sign out current user
-   * Clears session from Supabase and browser storage
-   * Auth state change listener will automatically update React state
+   * Clears session from Supabase and browser storage, then hard-navigates
+   * to the landing page so all in-memory state resets. Redirects even if
+   * the server revocation call fails — the local session is cleared anyway.
    */
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Server revocation failed — the local session is cleared regardless.
+    }
+    hardNavigate("/");
   };
 
   const resetPassword = async (email: string) => {

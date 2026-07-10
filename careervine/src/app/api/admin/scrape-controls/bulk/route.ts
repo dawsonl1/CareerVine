@@ -7,9 +7,13 @@ const schema = z
   .object({
     apify_enrichment_enabled: z.boolean().optional(),
     diff_analysis_enabled: z.boolean().optional(),
+    discovery_enabled: z.boolean().optional(),
   })
   .refine(
-    (b) => b.apify_enrichment_enabled !== undefined || b.diff_analysis_enabled !== undefined,
+    (b) =>
+      b.apify_enrichment_enabled !== undefined ||
+      b.diff_analysis_enabled !== undefined ||
+      b.discovery_enabled !== undefined,
     { message: "At least one control must be provided" },
   );
 
@@ -27,6 +31,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     const update: Record<string, boolean> = {};
     if (body.apify_enrichment_enabled !== undefined) update.apify_enrichment_enabled = body.apify_enrichment_enabled;
     if (body.diff_analysis_enabled !== undefined) update.diff_analysis_enabled = body.diff_analysis_enabled;
+    if (body.discovery_enabled !== undefined) update.discovery_enabled = body.discovery_enabled;
 
     // not-is-null on id = an always-true predicate PostgREST accepts for a
     // deliberate full-table UPDATE (it refuses a bare unfiltered update).
