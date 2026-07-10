@@ -21,15 +21,15 @@ const OPTIONS: Array<{
 }> = [
   {
     value: "shared",
-    label: "Fall back to shared key",
+    label: "Grant the shared key",
     description:
       "When their own key is missing, invalid, or out of quota, AI features run on CareerVine's shared key.",
   },
   {
     value: "cutoff",
-    label: "Cut AI off",
+    label: "Cut AI off (default)",
     description:
-      "No shared fallback — AI features show an “unavailable” error until they add a working key.",
+      "No shared fallback — AI features show a graceful “unavailable” state until they add a working key.",
   },
 ];
 

@@ -344,6 +344,18 @@ export const openaiKeySaveSchema = z.object({
     .regex(/^sk-/, "API key must start with sk-"),
 });
 
+// ── Settings / BYO Deepgram key ────────────────────────────────────────
+
+// Deepgram API keys are 40-character lowercase hex strings with no prefix.
+// Validate on shape here; the route additionally makes a live call to Deepgram
+// before storing. Custom message so Zod never echoes the submitted value.
+export const deepgramKeySaveSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .regex(/^[0-9a-f]{40}$/, "That doesn't look like a Deepgram API key."),
+});
+
 // ── Data bundles (plan 29) ─────────────────────────────────────────────
 
 /** Admin publish flow — secret-token route, staged under a publish lock. */
@@ -380,6 +392,18 @@ export const bundlePublishSchema = z.discriminatedUnion("mode", [
     stagingVersion: z.number().int().positive(),
   }),
 ]);
+
+/** Admin grant/revoke of shared-token access (CAR-26) — secret-token route.
+ * Identify the user by uuid or email; at least one is required. */
+export const adminAiAccessSchema = z
+  .object({
+    userId: z.string().uuid().optional(),
+    email: z.string().email().optional(),
+    sharedAccess: z.boolean(),
+  })
+  .refine((d) => Boolean(d.userId || d.email), {
+    message: "userId or email is required",
+  });
 
 /** User-facing bundle subscription endpoints. */
 export const bundleSubscribeSchema = z.object({

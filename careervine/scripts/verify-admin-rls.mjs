@@ -7,10 +7,10 @@
  * Creates a disposable test user, signs in as them, and asserts:
  *   1. self profile update works (first_name)
  *   2. self status escalation is BLOCKED
- *   3. self ai_fallback_policy escalation is BLOCKED
- *   4. a bundle hidden by a deny override disappears from their SELECT
- *   5. self-subscribing to that hidden bundle is BLOCKED
- *   6. bundle_access_overrides and admin_audit_log are unreadable
+ *   3. a bundle hidden by a deny override disappears from their SELECT
+ *   4. self-subscribing to that hidden bundle is BLOCKED
+ *   5. bundle_access_overrides, admin_audit_log, and user_ai_access are
+ *      unreadable/unwritable by users
  * Then deletes the test user (cascade) and its override rows.
  *
  * Usage:
@@ -62,26 +62,24 @@ try {
     check("user can update own profile fields", !error, error?.message);
   }
 
-  // ── 2/3. Privileged-column self-escalation blocked ────────────────────
+  // ── 2. Privileged-column self-escalation blocked ──────────────────────
   {
     const { error } = await userClient
       .from("users").update({ status: "suspended" }).eq("id", userId);
     check("user CANNOT update own status", !!error, error ? error.code : "update succeeded!");
   }
   {
-    const { error } = await userClient
-      .from("users").update({ ai_fallback_policy: "cutoff" }).eq("id", userId);
-    check("user CANNOT update own ai_fallback_policy", !!error, error ? error.code : "update succeeded!");
-  }
-  {
     // Verify the escalation truly didn't land.
     const { data } = await service
-      .from("users").select("status, ai_fallback_policy").eq("id", userId).single();
-    check(
-      "privileged columns unchanged in DB",
-      data?.status === "active" && data?.ai_fallback_policy === "shared",
-      JSON.stringify(data),
-    );
+      .from("users").select("status").eq("id", userId).single();
+    check("status unchanged in DB", data?.status === "active", JSON.stringify(data));
+  }
+  {
+    // Shared-key entitlement (user_ai_access) must not be self-grantable.
+    const { error } = await userClient
+      .from("user_ai_access")
+      .upsert({ user_id: userId, shared_access: true });
+    check("user CANNOT self-grant shared AI access", !!error, error ? error.code : "upsert succeeded!");
   }
 
   // ── 4/5. Bundle visibility via a deny override ────────────────────────
@@ -132,6 +130,10 @@ try {
   {
     const { data, error } = await userClient.from("admin_audit_log").select("id");
     check("admin_audit_log unreadable by users", !!error || (data ?? []).length === 0, error?.code);
+  }
+  {
+    const { data, error } = await userClient.from("user_ai_access").select("user_id");
+    check("user_ai_access unreadable by users", !!error || (data ?? []).length === 0, error?.code);
   }
 } catch (err) {
   console.error(`Setup/verify error: ${err.message}`);

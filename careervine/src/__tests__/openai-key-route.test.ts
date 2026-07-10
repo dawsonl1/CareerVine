@@ -79,7 +79,9 @@ function mockSelectRow(row: Record<string, unknown> | null) {
   const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
   const single = vi.fn().mockResolvedValue({ data: row, error: null });
   const eqProvider = vi.fn().mockReturnValue({ maybeSingle, single });
-  const eqUser = vi.fn().mockReturnValue({ eq: eqProvider });
+  // eqUser supports both the two-eq user_api_keys read and the one-eq
+  // user_ai_access read (CAR-26 sharedAccess lookup) off the same builder.
+  const eqUser = vi.fn().mockReturnValue({ eq: eqProvider, maybeSingle });
   const select = vi.fn().mockReturnValue({ eq: eqUser });
   const deleteEqProvider = vi.fn().mockResolvedValue({});
   const deleteEqUser = vi.fn().mockReturnValue({ eq: deleteEqProvider });
@@ -101,7 +103,7 @@ describe("settings/openai-key route", () => {
     mockSelectRow(null);
     const { status, data } = await call(GET, makeRequest("GET"));
     expect(status).toBe(200);
-    expect(data).toEqual({ hasKey: false });
+    expect(data).toEqual({ hasKey: false, sharedAccess: false });
   });
 
   it("GET returns metadata only", async () => {

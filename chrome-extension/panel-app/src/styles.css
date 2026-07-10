@@ -1657,6 +1657,40 @@
   background: #245524;
 }
 
+/* ---- AI-availability notice (CAR-26) ---- */
+a.cv-analyze-btn {
+  text-decoration: none;
+}
+
+.cv-ai-notice-icon {
+  color: #b45309; /* amber-700 — matches the web app's amber notice */
+}
+
+.cv-ai-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cv-ai-notice-link {
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #2d6a30;
+  text-decoration: none;
+}
+
+.cv-ai-notice-link:hover {
+  text-decoration: underline;
+}
+
+.cv-empty-error {
+  font-size: 13px;
+  color: #b91c1c;
+  margin: 10px 0 0 0;
+  max-width: 260px;
+}
+
 /* ---- Re-analyze Button ---- */
 .cv-reanalyze-btn {
   padding: 6px 14px;

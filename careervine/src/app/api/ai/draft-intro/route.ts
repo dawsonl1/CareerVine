@@ -1,6 +1,6 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { aiDraftIntroSchema } from "@/lib/api-schemas";
-import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
 
 /**
@@ -64,6 +64,7 @@ ${toneInstruction}`;
         }),
       );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[draft-intro] OpenAI API error:", err);
       throw new ApiError("Failed to generate email. Please try again.", 500);
     }

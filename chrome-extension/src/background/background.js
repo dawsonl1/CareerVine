@@ -155,7 +155,12 @@ async function authenticatedPost(path, body) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `HTTP ${response.status}`);
+    const error = new Error(errorData.error || `HTTP ${response.status}`);
+    // Preserve the machine-readable failure info (e.g. CAR-26 AI-availability
+    // codes over 402) so callers can surface a specific state, not a string.
+    error.code = errorData.code;
+    error.status = response.status;
+    throw error;
   }
 
   return response.json();
@@ -181,7 +186,7 @@ async function handleParseProfile(data, sendResponse) {
 
     sendResponse({ success: true, profileData: result.profileData });
   } catch (error) {
-    sendResponse({ error: error.message });
+    sendResponse({ error: error.message, code: error.code, status: error.status });
   }
 }
 

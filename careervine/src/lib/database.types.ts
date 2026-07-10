@@ -30,16 +30,14 @@ export type Database = {
           email: string | null;          // Optional email override
           phone: string | null;          // Optional phone number
           status: "active" | "suspended"; // Account status — service-role writable only
-          ai_fallback_policy: "cutoff" | "shared"; // Shared-key fallback vs cutoff — service-role writable only
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "ai_fallback_policy" | "created_at" | "updated_at"
+          "id" | "status" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
-          ai_fallback_policy?: "cutoff" | "shared";
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
@@ -62,6 +60,27 @@ export type Database = {
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["user_api_keys"]["Insert"]>;
+      };
+
+      // Shared-token access entitlement (CAR-26) — service-role access only.
+      // Default OFF: no row / shared_access=false means the user must BYO key.
+      user_ai_access: {
+        Row: {
+          user_id: string;
+          shared_access: boolean;
+          granted_at: string | null;
+          granted_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["user_ai_access"]["Row"], "shared_access" | "granted_at" | "granted_by" | "created_at" | "updated_at"> & {
+          shared_access?: boolean;
+          granted_at?: string | null;
+          granted_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_ai_access"]["Insert"]>;
       };
 
       // Contacts table - core entity for professional network

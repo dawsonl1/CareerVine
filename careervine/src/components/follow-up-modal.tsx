@@ -7,6 +7,8 @@ import {
   X, Plus, Clock, Check, AlertCircle, ChevronRight, Pencil, Wand2,
 } from "lucide-react";
 import type { EmailFollowUp } from "@/lib/types";
+import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
+import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
 export type FollowUpDraft = {
   /** For follow-up #1: days after original email. For #2+: days after previous follow-up. */
@@ -82,6 +84,7 @@ export function FollowUpModal({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiFailure, setAiFailure] = useState<AiFailureCode | null>(null);
 
   const isEditing = !!existingFollowUp;
 
@@ -442,6 +445,8 @@ export function FollowUpModal({
                     disabled={generatingAi}
                     onClick={async () => {
                       setGeneratingAi(true);
+                      setAiFailure(null);
+                      setError("");
                       try {
                         const res = await fetch("/api/gmail/ai-write", {
                           method: "POST",
@@ -453,13 +458,19 @@ export function FollowUpModal({
                           }),
                         });
                         const data = await res.json();
-                        if (data.body) {
-                          updateDraft(activeTab, { bodyHtml: data.body });
+                        if (!res.ok) {
+                          const code = parseAiFailure(res.status, data);
+                          if (code) setAiFailure(code);
+                          else setError(data.error || "Couldn't generate. Please try again.");
+                        } else if (data.bodyHtml) {
+                          updateDraft(activeTab, { bodyHtml: data.bodyHtml });
                           if (data.subject && !currentDraft.bodyHtml.trim()) {
                             updateDraft(activeTab, { subject: data.subject });
                           }
                         }
-                      } catch {}
+                      } catch {
+                        setError("Couldn't generate. Please try again.");
+                      }
                       setGeneratingAi(false);
                     }}
                     className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer disabled:opacity-50"
@@ -478,6 +489,11 @@ export function FollowUpModal({
                   onChange={(html) => updateDraft(activeTab, { bodyHtml: html })}
                   placeholder={`Write your follow-up message to ${contactName || recipientEmail}…`}
                 />
+                {aiFailure && (
+                  <div className="mt-2">
+                    <AiUnavailableNotice compact code={aiFailure} />
+                  </div>
+                )}
               </div>
             </div>
 

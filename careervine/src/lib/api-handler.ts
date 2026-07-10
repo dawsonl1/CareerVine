@@ -19,12 +19,11 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 // ── Types ──────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
-  /** Optional machine-readable code, serialized alongside the message. */
-  public code?: string;
-
   constructor(
     message: string,
     public status: number = 400,
+    /** Optional machine-readable code so clients can map errors to UX copy. */
+    public code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -187,7 +186,9 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
       // Known API errors thrown intentionally
       if (error instanceof ApiError) {
         return jsonResponse(
-          { error: error.message, ...(error.code ? { code: error.code } : {}) },
+          error.code
+            ? { error: error.message, code: error.code }
+            : { error: error.message },
           error.status,
           headers,
         );

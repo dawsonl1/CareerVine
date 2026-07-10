@@ -13,7 +13,6 @@ const basePub: PublicUserRow = {
   email: "ada@profile.example",
   phone: "555-1234",
   status: "active",
-  ai_fallback_policy: "shared",
   created_at: "2026-01-01T00:00:00Z",
 };
 
@@ -23,31 +22,37 @@ describe("shapeAdminUser", () => {
       basePub,
       { email: "ada@auth.example", last_sign_in_at: "2026-02-02T00:00:00Z", app_metadata: {} },
       "active",
+      true,
     );
     expect(shaped.email).toBe("ada@auth.example");
     expect(shaped.lastSignInAt).toBe("2026-02-02T00:00:00Z");
   });
 
   it("falls back to the profile email when auth is missing", () => {
-    const shaped = shapeAdminUser(basePub, undefined, "none");
+    const shaped = shapeAdminUser(basePub, undefined, "none", false);
     expect(shaped.email).toBe("ada@profile.example");
     expect(shaped.lastSignInAt).toBeNull();
     expect(shaped.isAdmin).toBe(false);
   });
 
   it("reflects the admin role from app_metadata", () => {
-    const shaped = shapeAdminUser(basePub, { app_metadata: { role: "admin" } }, "active");
+    const shaped = shapeAdminUser(basePub, { app_metadata: { role: "admin" } }, "active", false);
     expect(shaped.isAdmin).toBe(true);
   });
 
-  it("carries status, policy, phone, and key status through", () => {
+  it("derives the policy from the shared-access entitlement (default cutoff)", () => {
+    expect(shapeAdminUser(basePub, undefined, "none", true).aiFallbackPolicy).toBe("shared");
+    expect(shapeAdminUser(basePub, undefined, "none", false).aiFallbackPolicy).toBe("cutoff");
+  });
+
+  it("carries status, phone, and key status through", () => {
     const shaped = shapeAdminUser(
-      { ...basePub, status: "suspended", ai_fallback_policy: "cutoff" },
+      { ...basePub, status: "suspended" },
       undefined,
       "quota_exceeded",
+      false,
     );
     expect(shaped.status).toBe("suspended");
-    expect(shaped.aiFallbackPolicy).toBe("cutoff");
     expect(shaped.phone).toBe("555-1234");
     expect(shaped.keyStatus).toBe("quota_exceeded");
   });
@@ -57,6 +62,7 @@ describe("shapeAdminUser", () => {
       { ...basePub, first_name: null, last_name: null },
       undefined,
       "none",
+      false,
     );
     expect(shaped.firstName).toBe("");
     expect(shaped.lastName).toBe("");

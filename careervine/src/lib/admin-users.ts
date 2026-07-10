@@ -1,10 +1,13 @@
 /**
  * Shared shapes + pure helpers for the admin user surface.
  *
- * The list/detail API routes gather data from three sources — public.users
- * (profile + status + policy), auth.users (canonical email, last sign-in,
- * app_metadata.role), and user_api_keys (key state) — and merge them through
- * `shapeAdminUser` so the merge logic is unit-testable in isolation.
+ * The list/detail API routes gather data from four sources — public.users
+ * (profile + status), auth.users (canonical email, last sign-in,
+ * app_metadata.role), user_api_keys (key state), and user_ai_access (shared-key
+ * entitlement, CAR-26) — and merge them through `shapeAdminUser` so the merge
+ * logic is unit-testable in isolation. The UI-facing `aiFallbackPolicy` is
+ * derived from the entitlement: shared_access granted → 'shared', else 'cutoff'
+ * (the default-OFF model).
  */
 
 import type { SupabaseClient, User } from "@supabase/supabase-js";
@@ -40,7 +43,6 @@ export interface PublicUserRow {
   email: string | null;
   phone: string | null;
   status: "active" | "suspended";
-  ai_fallback_policy: "cutoff" | "shared";
   created_at: string;
 }
 
@@ -53,13 +55,15 @@ export interface AuthUserProjection {
 }
 
 /**
- * Merge the three sources into one detail shape. Pure — no I/O.
+ * Merge the sources into one detail shape. Pure — no I/O.
  * Canonical email prefers the auth record, falling back to the profile row.
+ * `sharedAccess` is the user_ai_access entitlement (absent row = false).
  */
 export function shapeAdminUser(
   pub: PublicUserRow,
   auth: AuthUserProjection | undefined,
   keyStatus: AdminUserKeyStatus,
+  sharedAccess: boolean,
 ): AdminUserDetail {
   return {
     id: pub.id,
@@ -68,9 +72,8 @@ export function shapeAdminUser(
     email: auth?.email ?? pub.email ?? null,
     phone: pub.phone ?? null,
     status: pub.status,
-    aiFallbackPolicy: pub.ai_fallback_policy,
+    aiFallbackPolicy: sharedAccess ? "shared" : "cutoff",
     isAdmin: auth?.app_metadata?.role === "admin",
-
     keyStatus,
     lastSignInAt: auth?.last_sign_in_at ?? null,
     createdAt: pub.created_at,

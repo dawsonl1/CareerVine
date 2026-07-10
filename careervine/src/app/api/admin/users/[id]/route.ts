@@ -17,27 +17,34 @@ export const GET = withApiHandler({
 
     const { data: pub, error } = await service
       .from("users")
-      .select("id, first_name, last_name, email, phone, status, ai_fallback_policy, created_at")
+      .select("id, first_name, last_name, email, phone, status, created_at")
       .eq("id", id)
       .maybeSingle();
 
     if (error) throw new Error(error.message);
     if (!pub) throw new ApiError("User not found", 404);
 
-    const [{ data: authData }, { data: keyRow }] = await Promise.all([
-      service.auth.admin.getUserById(id),
-      service
-        .from("user_api_keys")
-        .select("status")
-        .eq("user_id", id)
-        .eq("provider", "openai")
-        .maybeSingle(),
-    ]);
+    const [{ data: authData }, { data: keyRow }, { data: accessRow }] =
+      await Promise.all([
+        service.auth.admin.getUserById(id),
+        service
+          .from("user_api_keys")
+          .select("status")
+          .eq("user_id", id)
+          .eq("provider", "openai")
+          .maybeSingle(),
+        service
+          .from("user_ai_access")
+          .select("shared_access")
+          .eq("user_id", id)
+          .maybeSingle(),
+      ]);
 
     const user = shapeAdminUser(
       pub as PublicUserRow,
       authData?.user ?? undefined,
       keyStatusFor((keyRow as { status: string } | null)?.status),
+      (accessRow as { shared_access: boolean } | null)?.shared_access === true,
     );
 
     return { user };

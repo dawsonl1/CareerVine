@@ -76,18 +76,30 @@ async function validateOpenAIKey(apiKey: string): Promise<void> {
 export const GET = withApiHandler({
   handler: async ({ user }) => {
     const service = createSupabaseServiceClient();
-    const { data, error } = await service
-      .from("user_api_keys")
-      .select("key_last4, status, created_at, last_used_at")
-      .eq("user_id", user.id)
-      .eq("provider", OPENAI_PROVIDER)
-      .maybeSingle();
+    const [keyResult, accessResult] = await Promise.all([
+      service
+        .from("user_api_keys")
+        .select("key_last4, status, created_at, last_used_at")
+        .eq("user_id", user.id)
+        .eq("provider", OPENAI_PROVIDER)
+        .maybeSingle(),
+      service
+        .from("user_ai_access")
+        .select("shared_access")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
+
+    // sharedAccess tells the UI whether the no-key state is a hard block (must
+    // BYO) or a courtesy fallback — the surfacing end of CAR-26's gating.
+    const sharedAccess = accessResult.data?.shared_access === true;
+    const { data, error } = keyResult;
 
     if (error || !data) {
-      return { hasKey: false };
+      return { hasKey: false, sharedAccess };
     }
 
-    return formatKeyStatus(data);
+    return { ...formatKeyStatus(data), sharedAccess };
   },
 });
 
