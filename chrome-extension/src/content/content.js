@@ -304,7 +304,8 @@ async function scrapeCurrentProfile() {
         parseError: {
           message: parseResponse.error,
           code: parseResponse.code,
-          status: parseResponse.status
+          status: parseResponse.status,
+          resetAt: parseResponse.resetAt
         }
       };
     }

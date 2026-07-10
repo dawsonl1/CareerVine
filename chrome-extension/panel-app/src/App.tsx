@@ -15,56 +15,18 @@ import {
   Sparkles,
   CloudOff,
 } from "lucide-react";
+import { isRateLimited, rateLimitedCopy } from "./rate-limit-copy";
+import { AI_FAILURE_COPY, mapAiFailure, type AiFailureCode } from "./ai-failure";
+
+import {
+  MONTH_ABBREVS,
+  calcDuration,
+  deriveContactStatus,
+  standardizeLocation,
+  standardizeMonth,
+} from "./lib/profile-format";
 
 declare const chrome: any;
-
-// ── AI-availability failures (CAR-26) ──────────────────────────────────
-// Extension-local mirror of the web app's lib/ai-errors.ts copy map — the two
-// projects share no bundle, so keep wording identical to AI_FAILURE_COPY there.
-// All four codes arrive over HTTP 402 from /api/extension/parse-profile.
-
-type AiFailureCode = "ai_no_key" | "ai_key_invalid" | "ai_quota_exhausted" | "ai_unavailable";
-
-const AI_FAILURE_CODES: AiFailureCode[] = [
-  "ai_no_key",
-  "ai_key_invalid",
-  "ai_quota_exhausted",
-  "ai_unavailable",
-];
-
-const AI_FAILURE_COPY: Record<AiFailureCode, { title: string; body: string; ctaLabel: string; retryable: boolean }> = {
-  ai_no_key: {
-    title: "Add your OpenAI key to use AI",
-    body: "CareerVine's AI features need an OpenAI key. Add yours in Settings — with OpenAI's free daily tokens, most people pay nothing.",
-    ctaLabel: "Add your key",
-    retryable: false,
-  },
-  ai_key_invalid: {
-    title: "Your OpenAI key was rejected",
-    body: "OpenAI didn't accept your key. Update it in Settings to keep using AI features.",
-    ctaLabel: "Update key",
-    retryable: false,
-  },
-  ai_quota_exhausted: {
-    title: "Your OpenAI key is out of quota",
-    body: "Your key hit its usage limit. Add credit or turn on free daily tokens in your OpenAI account, then try again.",
-    ctaLabel: "Manage key",
-    retryable: false,
-  },
-  ai_unavailable: {
-    title: "AI is temporarily unavailable",
-    body: "We couldn't reach AI right now. Try again in a moment — or add your own OpenAI key so this never blocks you.",
-    ctaLabel: "Add your key",
-    retryable: true,
-  },
-};
-
-/** Mirror of the web app's parseAiFailure: 402 → known code, or ai_unavailable
- * as the defensive default; any other status is not an AI-availability failure. */
-function mapAiFailure(status: unknown, code: unknown): AiFailureCode | null {
-  if (status !== 402) return null;
-  return AI_FAILURE_CODES.includes(code as AiFailureCode) ? (code as AiFailureCode) : "ai_unavailable";
-}
 
 type Location = {
   city: string | null;
@@ -119,68 +81,6 @@ const FOLLOW_UP_OPTIONS = [
   "1 year",
 ];
 
-// Month abbreviations for parsing education end dates
-const MONTH_NAMES: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-  january: 0, february: 1, march: 2, april: 3, june: 5,
-  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
-};
-
-// Client-side contact status derivation (mirrors backend deriveContactStatus)
-// Month-aware: "May 2027" -> student until June 2027; "2027" -> student until July 2027
-const deriveContactStatus = (education: Education[], now: Date = new Date()): { contact_status: 'student' | 'professional'; expected_graduation: string | null } => {
-  let isStudent = false;
-  let latestGradLabel: string | null = null;
-  let latestCutoff: Date | null = null;
-
-  for (const edu of education) {
-    if (edu.is_current || edu.end_year === "Present") {
-      isStudent = true;
-      continue;
-    }
-    if (!edu.end_year) continue;
-
-    const trimmed = edu.end_year.trim();
-
-    // Try month+year: "May 2027"
-    const monthYearMatch = trimmed.match(/^([A-Za-z]+)\s+(\d{4})$/);
-    if (monthYearMatch) {
-      const mi = MONTH_NAMES[monthYearMatch[1].toLowerCase()];
-      const yr = parseInt(monthYearMatch[2]);
-      if (mi !== undefined && !isNaN(yr)) {
-        const cutoff = new Date(yr, mi + 1, 1);
-        if (now < cutoff) {
-          isStudent = true;
-          if (!latestCutoff || cutoff > latestCutoff) {
-            latestCutoff = cutoff;
-            latestGradLabel = trimmed;
-          }
-        }
-        continue;
-      }
-    }
-
-    // Year-only: "2027" -> student until July of that year
-    const yearOnly = parseInt(trimmed);
-    if (!isNaN(yearOnly) && yearOnly > 1900) {
-      const cutoff = new Date(yearOnly, 6, 1); // July 1
-      if (now < cutoff) {
-        isStudent = true;
-        if (!latestCutoff || cutoff > latestCutoff) {
-          latestCutoff = cutoff;
-          latestGradLabel = trimmed;
-        }
-      }
-    }
-  }
-
-  if (isStudent) {
-    return { contact_status: 'student', expected_graduation: latestGradLabel };
-  }
-  return { contact_status: 'professional', expected_graduation: null };
-};
-
 const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null => {
   if (!data) return null;
   const experience = (data.experience ?? []).map((exp, index) => ({
@@ -221,7 +121,7 @@ const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null =>
     location: {
       city: data.location?.city ?? "",
       state: data.location?.state ?? "",
-      country: data.location?.country ?? "United States",
+      country: data.location?.country ?? null,
     },
     industry: data.industry ?? "",
     generated_notes: data.generated_notes ?? "",
@@ -235,101 +135,6 @@ const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null =>
     current_company: currentExp?.company ?? null,
     email: data.email ?? null,
   };
-};
-
-// Month abbreviations for standardization
-const MONTH_ABBREVS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-// Parse any date format into a Date object
-const parseAnyDate = (dateStr: string): Date | null => {
-  if (!dateStr || dateStr === "Present") return dateStr === "Present" ? new Date() : null;
-  
-  // Clean up the string
-  const cleaned = dateStr.trim();
-  
-  // Try "Mon YYYY" format (e.g., "Aug 2024")
-  const abbrevMatch = cleaned.match(/^([A-Za-z]{3})\s+(\d{4})$/);
-  if (abbrevMatch) {
-    const mi = MONTH_ABBREVS.findIndex(m => m.toLowerCase() === abbrevMatch[1].toLowerCase());
-    if (mi !== -1) return new Date(parseInt(abbrevMatch[2]), mi);
-  }
-  
-  // Try "Month YYYY" format (e.g., "August 2024")
-  const fullMatch = cleaned.match(/^([A-Za-z]+)\s+(\d{4})$/);
-  if (fullMatch) {
-    const mi = MONTH_FULL.findIndex(m => m.toLowerCase() === fullMatch[1].toLowerCase());
-    if (mi !== -1) return new Date(parseInt(fullMatch[2]), mi);
-  }
-  
-  // Try "Month YY" format with truncated 2-digit year (e.g., "September 24" -> "September 2024")
-  // Only match numbers > 12 to avoid confusing day-of-month (e.g., "September 4") with years
-  const truncatedMatch = cleaned.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
-  if (truncatedMatch) {
-    const num = parseInt(truncatedMatch[2]);
-    // Numbers 1-31 are ambiguous (could be day-of-month), so only treat > 31 as definite years
-    // Numbers 13-31 are also ambiguous but less likely to be years, so skip them too
-    // Only treat 2-digit numbers as truncated years (e.g., 24 -> 2024)
-    if (num >= 20 && num <= 99) {
-      const mi = MONTH_FULL.findIndex(m => m.toLowerCase() === truncatedMatch[1].toLowerCase());
-      const miAbbrev = MONTH_ABBREVS.findIndex(m => m.toLowerCase() === truncatedMatch[1].toLowerCase());
-      const monthIndex = mi !== -1 ? mi : miAbbrev;
-      if (monthIndex !== -1) {
-        const year = num + 2000;
-        return new Date(year, monthIndex);
-      }
-    }
-  }
-  
-  // Try "Mon YYY" format with 3-digit year (e.g., "Dec 202" -> "Dec 2020")
-  const threeDigitYear = cleaned.match(/^([A-Za-z]+)\s+(\d{3})$/);
-  if (threeDigitYear) {
-    const mi = MONTH_FULL.findIndex(m => m.toLowerCase() === threeDigitYear[1].toLowerCase());
-    const miAbbrev = MONTH_ABBREVS.findIndex(m => m.toLowerCase() === threeDigitYear[1].toLowerCase());
-    const monthIndex = mi !== -1 ? mi : miAbbrev;
-    if (monthIndex !== -1) {
-      // Assume it's a truncated 4-digit year starting with 202
-      const year = parseInt(threeDigitYear[2] + "0");
-      return new Date(year, monthIndex);
-    }
-  }
-  
-  // Try just year "YYYY"
-  const yearMatch = cleaned.match(/^(\d{4})$/);
-  if (yearMatch) return new Date(parseInt(yearMatch[1]), 0);
-  
-  return null;
-};
-
-// Standardize a date string to "Mon YYYY" format (e.g., "Aug 2024")
-const standardizeMonth = (dateStr: string | null): string => {
-  if (!dateStr) return "";
-  if (dateStr === "Present") return "Present";
-  
-  const date = parseAnyDate(dateStr);
-  if (!date) return dateStr; // Return original if can't parse
-  
-  return `${MONTH_ABBREVS[date.getMonth()]} ${date.getFullYear()}`;
-};
-
-// Calculate duration between two dates and return formatted string
-const calcDuration = (start: string | null, end: string | null): string => {
-  if (!start) return "";
-  
-  const startDate = parseAnyDate(start);
-  if (!startDate) return "";
-  
-  const endDate = end === "Present" ? new Date() : parseAnyDate(end || "");
-  if (!endDate) return "";
-  
-  const totalMonths = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
-  const years = Math.floor(totalMonths / 12);
-  const months = totalMonths % 12;
-  
-  if (years > 0 && months > 0) return `${years} yr ${months} mos`;
-  if (years > 0) return `${years} yr`;
-  if (months > 0) return `${months} mos`;
-  return "";
 };
 
 // Format a date range with duration: "Aug 2024 - Jul 2025 · 1 yr"
@@ -373,99 +178,6 @@ const formatEducationDateRange = (startYear: string | null, endYear: string | nu
   }
   return `${startYear} - ${endFormatted}`;
 };
-
-// US state abbreviations
-const STATE_ABBREVS: Record<string, string> = {
-  "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
-  "colorado": "CO", "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA",
-  "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA",
-  "kansas": "KS", "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
-  "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS", "missouri": "MO",
-  "montana": "MT", "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
-  "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", "ohio": "OH",
-  "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
-  "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT",
-  "virginia": "VA", "washington": "WA", "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
-  "district of columbia": "DC"
-};
-
-// Standardize location to "City, ST, USA" format
-const standardizeLocation = (location: string | null): string => {
-  if (!location) return "";
-  
-  // Clean up the string
-  const cleaned = location.trim().replace(/\s+/g, ' ');
-  
-  // If it's a work arrangement, return as-is
-  const workArrangementTypes = ['remote', 'on-site', 'onsite', 'hybrid'];
-  if (workArrangementTypes.some(type => cleaned.toLowerCase() === type)) {
-    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase(); // Capitalize first letter
-  }
-  
-  // If it looks like other job types, return empty (these aren't locations)
-  const jobTypes = ['internship', 'contract', 'freelance', 'part-time', 'full-time', 'temporary', 'remote work', 'on site', 'self-employed', 'self employed'];
-  if (jobTypes.some(jobType => cleaned.toLowerCase().includes(jobType))) {
-    return "";
-  }
-  
-  // Split by comma and clean up
-  const parts = location.split(",").map(p => p.trim()).filter(Boolean);
-  if (parts.length === 0) return location;
-  
-  // Try to identify city, state, country
-  let city = parts[0];
-  let state: string | null = null;
-  let country: string | null = parts[parts.length - 1];
-  
-  if (parts.length >= 3) {
-    // Assume: City, State, Country
-    state = parts[1];
-    country = parts[2];
-  } else if (parts.length === 2) {
-    // Could be City, State or City, Country
-    const secondPart = parts[1].toLowerCase();
-    if (STATE_ABBREVS[secondPart] || Object.values(STATE_ABBREVS).includes(parts[1].toUpperCase())) {
-      state = parts[1];
-      country = "USA";
-    } else if (secondPart.includes("united states") || secondPart === "usa" || secondPart === "us") {
-      country = "USA";
-    } else if (parts[0].length > 2 && parts[1].length <= 2) {
-      // Likely City, State (city name longer than state abbreviation)
-      state = parts[1];
-      country = "USA";
-    } else {
-      // Assume it's City, Country or just City, State
-      state = parts[1];
-      country = "USA";
-    }
-  } else if (parts.length === 1) {
-    // Single city name - don't treat it as a country
-    city = parts[0];
-    state = null;
-    country = null;
-  }
-  
-  // Abbreviate state if full name
-  const stateLower = state?.toLowerCase();
-  if (stateLower && STATE_ABBREVS[stateLower]) {
-    state = STATE_ABBREVS[stateLower];
-  } else if (state && state.length > 2) {
-    // Keep as-is if not a recognized state
-  }
-  
-  // Standardize country
-  if (country) {
-    const countryLower = country.toLowerCase();
-    if (countryLower.includes("united states") || countryLower === "us" || countryLower === "usa") {
-      country = "USA";
-    }
-  }
-  
-  // Build result
-  const result = [city, state, country].filter(Boolean).join(", ");
-  return result || location;
-};
-
 
 // Hook: close a dropdown/popover when clicking outside its ref (works in Shadow DOM)
 const useClickOutside = (ref: React.RefObject<HTMLElement | null>, onClose: () => void, isOpen: boolean) => {
@@ -1135,14 +847,17 @@ const App: React.FC = () => {
     };
 
     // Parse failed server-side. AI-availability failures (402, CAR-26) get a
-    // specific graceful state; anything else surfaces its message instead of
-    // dead-ending on the misleading "Ready to analyze" empty state.
+    // specific graceful state, rate limiting (429, CAR-41) gets minutes-until-
+    // reset copy; anything else surfaces its message instead of dead-ending on
+    // the misleading "Ready to analyze" empty state.
     const handleParseError = (event: CustomEvent) => {
       const detail = event.detail || {};
       const code = mapAiFailure(detail.status, detail.code);
       if (code) {
         setAiFailure(code);
         setErrorText(null);
+      } else if (isRateLimited(detail.status, detail.code)) {
+        setErrorText(rateLimitedCopy(detail.resetAt));
       } else {
         setErrorText(detail.message || "Couldn't analyze this profile. Please try again.");
       }

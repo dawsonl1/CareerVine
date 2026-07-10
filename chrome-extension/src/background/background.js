@@ -204,6 +204,7 @@ async function authenticatedPost(path, body) {
     // codes over 402) so callers can surface a specific state, not a string.
     error.code = errorData.code;
     error.status = response.status;
+    error.resetAt = errorData.resetAt;
     throw error;
   }
 
@@ -224,7 +225,7 @@ async function handleParseProfile(data, sendResponse) {
     trackEvent('profile_scraped');
     sendResponse({ success: true, profileData: result.profileData });
   } catch (error) {
-    sendResponse({ error: error.message, code: error.code, status: error.status });
+    sendResponse({ error: error.message, code: error.code, status: error.status, resetAt: error.resetAt });
   }
 }
 

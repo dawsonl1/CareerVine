@@ -4,7 +4,7 @@ import { initDb } from "@/mcp/lib/db";
 import { runWithUserAsync } from "@/mcp/user-context";
 import { verifyMcpToken } from "@/mcp/verify-token";
 import { getMcpResourceUrl } from "@/mcp/auth-config";
-import { checkMcpRateLimit } from "@/mcp/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 // Service client singleton — user id comes from ALS per request.
 initDb();
@@ -23,13 +23,18 @@ const authedHandler = withMcpAuth(
     if (typeof userId !== "string") {
       return mcpHandler(req);
     }
-    const rate = await checkMcpRateLimit(userId);
-    if (!rate.ok) {
+    const rate = await checkRateLimit(userId, {
+      bucket: "careervine-mcp",
+      limit: 100,
+      window: "1 h",
+    });
+    if (!rate.allowed) {
+      const retryAfterMs = Math.max(0, (rate.resetAt ?? Date.now()) - Date.now());
       return new Response(JSON.stringify({ error: "rate_limit_exceeded" }), {
         status: 429,
         headers: {
           "Content-Type": "application/json",
-          "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)),
+          "Retry-After": String(Math.ceil(retryAfterMs / 1000)),
         },
       });
     }

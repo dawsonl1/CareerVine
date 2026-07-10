@@ -26,7 +26,12 @@ vi.mock('@/lib/extension-auth', () => ({
   },
 }));
 
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 59, resetAt: null }),
+}));
+
 import { withApiHandler, ApiError } from '@/lib/api-handler';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -324,6 +329,97 @@ describe('withApiHandler', () => {
       const { status, data } = await callHandler(handler, makeRequest('GET'));
       expect(status).toBe(200);
       expect(data.userId).toBe('user-123');
+    });
+  });
+
+  describe('rate limiting (CAR-41)', () => {
+    const RATE_CONFIG = { bucket: 'test-bucket', limit: 60, window: '1 h' } as const;
+
+    it('returns 429 with rate_limited code, resetAt, Retry-After and CORS headers when exceeded', async () => {
+      const resetAt = Date.now() + 10 * 60_000;
+      (checkRateLimit as any).mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt });
+
+      const handlerFn = vi.fn(async () => ({ ok: true }));
+      const handler = withApiHandler({
+        extensionAuth: true,
+        cors: true,
+        rateLimit: RATE_CONFIG,
+        handler: handlerFn,
+      });
+
+      const response = await handler(makeRequest('POST', {}));
+      const data = await response.json();
+
+      expect(response.status).toBe(429);
+      expect(data).toEqual({
+        error: 'Rate limit exceeded. Please try again later.',
+        code: 'rate_limited',
+        resetAt,
+      });
+      const retryAfter = Number(response.headers.get('Retry-After'));
+      expect(retryAfter).toBeGreaterThanOrEqual(1);
+      expect(retryAfter).toBeLessThanOrEqual(600);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+      expect(handlerFn).not.toHaveBeenCalled();
+    });
+
+    it('passes the request through untouched when under the limit', async () => {
+      const handler = withApiHandler({
+        extensionAuth: true,
+        rateLimit: RATE_CONFIG,
+        handler: async () => ({ ok: true }),
+      });
+
+      const { status, data } = await callHandler(handler, makeRequest('POST', {}));
+      expect(status).toBe(200);
+      expect(data.ok).toBe(true);
+      expect(checkRateLimit).toHaveBeenCalledWith('user-123', RATE_CONFIG);
+    });
+
+    it('checks the limit before parsing the body', async () => {
+      (checkRateLimit as any).mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt: Date.now() });
+
+      const request = makeRequest('POST', { some: 'body' });
+      const handler = withApiHandler({
+        schema: z.object({ some: z.string() }),
+        rateLimit: RATE_CONFIG,
+        handler: async () => ({ ok: true }),
+      });
+
+      const response = await handler(request);
+      expect(response.status).toBe(429);
+      expect(request.json).not.toHaveBeenCalled();
+    });
+
+    it('skips the check when authOptional resolves no user', async () => {
+      const { createSupabaseServerClient } = await import('@/lib/supabase/server-client');
+      (createSupabaseServerClient as any).mockResolvedValueOnce({
+        auth: {
+          getUser: vi.fn().mockResolvedValue({
+            data: { user: null },
+            error: { message: 'Not authenticated' },
+          }),
+        },
+      });
+
+      const handler = withApiHandler({
+        authOptional: true,
+        rateLimit: RATE_CONFIG,
+        handler: async () => ({ ok: true }),
+      });
+
+      const { status } = await callHandler(handler, makeRequest('GET'));
+      expect(status).toBe(200);
+      expect(checkRateLimit).not.toHaveBeenCalled();
+    });
+
+    it('never calls the limiter when no rateLimit config is set', async () => {
+      const handler = withApiHandler({
+        handler: async () => ({ ok: true }),
+      });
+
+      await callHandler(handler, makeRequest('GET'));
+      expect(checkRateLimit).not.toHaveBeenCalled();
     });
   });
 
