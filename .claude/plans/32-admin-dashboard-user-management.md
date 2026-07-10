@@ -1,7 +1,7 @@
 # 32 — Admin Dashboard & User Management
 
 **Linear:** Project "Admin Dashboard & User Management" · anchor [CAR-25](https://linear.app/career-vine/issue/CAR-25)
-**Status:** Detailed plan — revised after adversarial audit (UX + technical + sequencing). Ready to build.
+**Status:** ✅ Built (all 7 slices, single PR). Migration applied to prod 2026-07-09; RLS verified live via `careervine/scripts/verify-admin-rls.mjs` (9/9 checks); first admin granted (dawsonlpitcher@gmail.com). Implementation deviations from plan: no `/api/bundles/list` route needed (RLS enforces visibility end-to-end through the existing user-scoped reads), and suspend uses GoTrue's native `ban_duration` (rejects login + token refresh at the auth layer) instead of a hand-rolled sign-in check — plus session revocation via the GoTrue admin logout endpoint.
 **Scope:** CAR-25 (foundation + AI policy + bundle access), CAR-23 (manage accounts), CAR-21 (contact injection)
 **Depends on:** CAR-16 (BYO OpenAI keys — Done), CAR-5 (Data bundles — In Progress)
 
