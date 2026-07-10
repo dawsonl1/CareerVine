@@ -50,6 +50,9 @@ async function trackEvent(event, properties = {}, distinctIdOverride = null) {
     await ensureConfig();
     if (!config.posthogKey) return;
     const distinctId = distinctIdOverride || (await analyticsDistinctId());
+    // Internal accounts (Dawson/test users) are excluded from analytics
+    // (CAR-60) — same id list the web app ships in its env config.
+    if ((config.internalUserIds || []).includes(distinctId)) return;
     await fetch(`${config.posthogHost}/capture/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

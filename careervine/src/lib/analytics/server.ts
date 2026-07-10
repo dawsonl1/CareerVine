@@ -16,6 +16,7 @@
 import { PostHog } from "posthog-node";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { EmailDirection } from "@/lib/constants";
+import { isInternalUser } from "./internal";
 import {
   MILESTONE_THRESHOLDS,
   MIRRORED_EVENTS,
@@ -82,6 +83,10 @@ export async function trackServer<E extends AnalyticsEvent>(
   surface: Surface = "server",
 ): Promise<void> {
   if (!userId) return;
+  // Internal accounts produce no analytics — covers every server surface
+  // (API routes, cron sends, both MCP processes) in one place (CAR-60).
+  // Milestones still record to user_milestones; only the events are dropped.
+  if (isInternalUser(userId)) return;
   const stateProps = PERSON_STATE_PROPS[event];
   const properties = {
     ...props,

@@ -24,6 +24,7 @@ vi.mock("posthog-node", () => ({
 
 import { MIRRORED_EVENTS, MILESTONE_THRESHOLDS } from "@/lib/analytics/events";
 import { editRatio } from "@/lib/analytics/edit-ratio";
+import { isInternalUser, _resetInternalUsersForTests } from "@/lib/analytics/internal";
 import {
   trackServer,
   trackCronError,
@@ -33,15 +34,18 @@ import {
 
 beforeEach(() => {
   _resetAnalyticsForTests();
+  _resetInternalUsersForTests();
   insertMock.mockReset().mockResolvedValue({ error: null });
   fromMock.mockClear();
   captureMock.mockClear();
   flushMock.mockClear();
   delete process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  delete process.env.NEXT_PUBLIC_ANALYTICS_INTERNAL_USER_IDS;
 });
 
 afterEach(() => {
   delete process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  delete process.env.NEXT_PUBLIC_ANALYTICS_INTERNAL_USER_IDS;
 });
 
 describe("event registry", () => {
@@ -153,6 +157,31 @@ describe("connection-state person properties (CAR-58)", () => {
       expect.objectContaining({ properties: { surface: "server" } }),
     );
     expect(captureMock.mock.calls[0][0].properties).not.toHaveProperty("$set");
+  });
+});
+
+describe("internal-account exclusion (CAR-60)", () => {
+  it("parses the comma-separated env var and matches only listed ids", () => {
+    process.env.NEXT_PUBLIC_ANALYTICS_INTERNAL_USER_IDS = " user-a , user-b,";
+    expect(isInternalUser("user-a")).toBe(true);
+    expect(isInternalUser("user-b")).toBe(true);
+    expect(isInternalUser("user-c")).toBe(false);
+    expect(isInternalUser(null)).toBe(false);
+  });
+
+  it("treats an unset env var as no internal users", () => {
+    expect(isInternalUser("anyone")).toBe(false);
+  });
+
+  it("drops all trackServer work for internal users — no capture, no mirror", async () => {
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test";
+    process.env.NEXT_PUBLIC_ANALYTICS_INTERNAL_USER_IDS = "internal-1";
+    await trackServer("internal-1", "email_sent", {});
+    expect(captureMock).not.toHaveBeenCalled();
+    expect(fromMock).not.toHaveBeenCalled();
+
+    await trackServer("real-user", "email_sent", {});
+    expect(captureMock).toHaveBeenCalledTimes(1);
   });
 });
 
