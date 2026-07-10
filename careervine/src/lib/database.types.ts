@@ -204,8 +204,9 @@ export type Database = {
           linkedin_url: string | null;   // LinkedIn company page URL
           universal_name: string | null; // LinkedIn company slug (e.g., "google")
           logo_url: string | null;       // Company logo URL
+          name_normalized: string | null; // GENERATED (20260710170000) normalized matching key — read-only
         };
-        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "logo_url"> & {
+        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "logo_url" | "name_normalized"> & {
           id?: number;
           linkedin_company_id?: string | null;
           linkedin_url?: string | null;
