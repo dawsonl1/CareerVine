@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@panel/*": ["../chrome-extension/panel-app/src/*"]
     }
   },
   "include": [
