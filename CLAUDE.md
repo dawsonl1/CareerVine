@@ -45,10 +45,9 @@ Canonical, stable process for this project. Unlike Learned Rules (an append-only
 
 Project is managed through Linear — team **"Career Vine"**, ticket prefix **`CAR-`**. No work happens off-ticket. (Standing order; see rule 18.)
 
-1. **Before starting any task**, search existing issues (`list_issues`, team "Career Vine"). Reuse a relevant ticket if one exists; otherwise create one in the "Career Vine" team.
-2. When work begins, set the ticket to **In Progress** and assign it to Dawson.
-3. **Update at each meaningful step** via a comment or status update: plan written, each implementation slice landed, tests passing, committed/pushed.
-4. Mark it **Done** when complete.
+1. **Before starting any task**, search existing issues (`list_issues`, team "Career Vine"). Reuse a relevant ticket if one exists; otherwise create one in the "Career Vine" team, assigned to Dawson.
+2. **Status flips and plan/PR posts are automated** on ticket-named branches — see "Linear automation" under Worktree lifecycle. Don't do the hooks' job by hand; do verify it happened.
+3. **You still own the rich updates**: progress comments at meaningful steps (slice landed, tests passing), the `manual-steps` checklist, and everything on `main` or non-ticket branches (there, handle status flips yourself via MCP).
 
 ### Worktree lifecycle (branching & PRs)
 
@@ -66,6 +65,13 @@ Feature work happens in **worktrees off `main`**, one Linear issue per worktree,
 **Never** rebase or force-push `main` or any shared/already-pushed branch. Keep branches current by merging `main` in, so conflicts surface early (where the merge-conflict tooling engages).
 
 **Manual steps are Linear's, not the conversation's:** anything Dawson must do by hand (env vars, `supabase db push`, secrets, redeploys) gets upserted to the issue as a `<!-- manual-steps -->` checklist the moment it's identified — conversations get deleted; Linear survives (rule 23).
+
+**Linear automation — how to work with it:**
+
+- **Hooks own** (only on branches containing `CAR-XX`): plan post + In Progress on plan write; In Review + PR link on `gh pr create`; Done on `gh pr merge`. **Don't duplicate these** — no manual state flips or plan-posting at those moments.
+- **Agents own**: creating/choosing the issue, progress comments at meaningful steps, the `manual-steps` checklist, and all Linear updates when the automation can't bind (work on `main`, branch without `CAR-XX`).
+- **Comment markers** — issue comments are upserted, keyed by an HTML marker on the first line: `<!-- plan-sync -->` (plan), `<!-- pr-link -->` (PR URL), `<!-- manual-steps -->` (Dawson's checklist), `<!-- progress -->` (status summary). Reuse these markers (via MCP or `.claude/hooks/lib/linear.sh`'s `linear_upsert_comment`) instead of posting duplicate comments.
+- **Hooks fail silent by design** (missing `$LINEAR_API_KEY`, unnamed branch, API hiccup) so they never block git. So **verify, don't assume**: after a plan write / PR create / PR merge, check the issue state and repair via MCP if a flip was missed. State changes only move forward (Backlog→Todo→In Progress→In Review→Done); hooks never downgrade, and neither should you without Dawson asking.
 
 ### Merge conflicts → `merge-conflict-tool` plugin
 
