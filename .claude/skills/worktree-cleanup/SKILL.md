@@ -46,7 +46,7 @@ Check the issue state (MCP `get_issue` on `$REF`, or the hooks' lib). If not **D
 
 ### 5. Gate: manual steps owed — THE critical gate
 
-Read the issue's comments for a `<!-- manual-steps -->` checklist and scan the conversation/plan for anything Dawson must do by hand (env vars to add, `supabase db push` to run, secrets, redeploys, DNS, external dashboards).
+Read the issue's comments for a `<!-- manual-steps -->` checklist and scan the conversation/plan for anything Dawson must genuinely do by hand (Vercel env vars, OAuth grants, DNS, external dashboards). Migrations are never Dawson's — if the merged PR carried one that hasn't been applied, apply it now yourself (`supabase db push --dry-run`, review, `supabase db push` — CLAUDE.md rule 27).
 
 - Unchecked items → **present them as explicit instructions and stop.** Do not delete. Wait for "done" or "waive".
 - Nothing owed → say so explicitly ("no manual steps outstanding") so the all-clear is on record.

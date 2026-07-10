@@ -36,14 +36,14 @@ Feature work happens in **worktrees off `main`**, one Linear issue per worktree,
 2. **Plan** — write `.claude/plans/NN-CAR-XX-slug.md`. *(Hook: plan is posted to the issue + issue flips to In Progress.)*
 3. **Implement** — build, test, fix. Commit/push to the feature branch freely.
 4. **PR** — sync from `main` first (merge it **into** the branch), confirm tests pass (rule 4), then `gh pr create` with `(CAR-XX)` in the title (established convention, e.g. `Add BYO Deepgram API key for transcription (CAR-30)`) and a body covering what/why and how it was verified. *(Hook: issue flips to In Review + PR link recorded.)* Opening the PR is the end of the agent's autonomous path — stop here and wait.
-5. **Merge** — **only on Dawson's explicit go-ahead, per PR. Rule 14's auto-push authority covers direct commits, NOT merging PRs — never self-merge.** Then `gh pr merge --merge` (merge commit; never rebase; no `--delete-branch` — the cleanup skill owns branch deletion). **Merging deploys production** via Vercel: if the PR contains migrations, make sure `supabase db push` is on the issue's `manual-steps` checklist before merging. *(Hook: issue flips to Done.)*
+5. **Merge** — **only on Dawson's explicit go-ahead, per PR. Rule 14's auto-push authority covers direct commits, NOT merging PRs — never self-merge.** Then `gh pr merge --merge` (merge commit; never rebase; no `--delete-branch` — the cleanup skill owns branch deletion). **Merging deploys production** via Vercel: if the PR contains migrations, Claude applies them itself immediately after merging — `supabase db push --dry-run`, review the plan, then `supabase db push` (rule 27; Dawson never runs supabase commands). *(Hook: issue flips to Done.)*
 6. **Clean up** — when Dawson says "clean up this worktree", run the **`worktree-cleanup` skill** (`.claude/skills/worktree-cleanup/`). It gates deletion on: PR merged, tree clean, issue Done, and **all manual steps surfaced** — then removes the worktree and both branches.
 
 **Risk-based exception:** small, single-file, no-schema, no-new-domain changes may commit directly to `main` (rule 14) without a worktree.
 
 **Never** rebase or force-push `main` or any shared/already-pushed branch. Keep branches current by merging `main` in, so conflicts surface early (where the merge-conflict tooling engages).
 
-**Manual steps are Linear's, not the conversation's:** anything Dawson must do by hand (env vars, `supabase db push`, secrets, redeploys) gets upserted to the issue as a `<!-- manual-steps -->` checklist the moment it's identified — conversations get deleted; Linear survives.
+**Manual steps are Linear's, not the conversation's:** anything Dawson must genuinely do by hand (Vercel env vars, OAuth grants, external dashboards) gets upserted to the issue as a `<!-- manual-steps -->` checklist the moment it's identified — conversations get deleted; Linear survives. Migrations are never on this list — Claude applies them (rule 27).
 
 **Linear automation — how to work with it:**
 
@@ -82,7 +82,7 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 
 - Run `npm run test` (Vitest) from `careervine/` and ensure coverage for new/changed code before committing (rules 3, 4).
 - Don't browser-verify every UI change — reserve previews for high-risk work (rule 13).
-- Push to `main` auto-deploys; env-var changes require a redeploy, empty commit being the established pattern (rule 16). Migrations: dry-run then `supabase db push`; never ad-hoc SQL (rules 10, 15).
+- Push to `main` auto-deploys; env-var changes require a redeploy, empty commit being the established pattern (rule 16). Migrations: Claude applies them itself on landing — dry-run then `supabase db push` (rule 27); never ad-hoc SQL (rule 10).
 
 ---
 
@@ -114,6 +114,7 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
     > ⚠️ Scope (2026-07-09): this authority covers **direct commits** on the risk-based path (Workflows → Worktree lifecycle) — it does NOT extend to merging PRs (never self-merge) and does not bypass the worktree+PR path for feature domains, migrations, or multi-file changes.
 
 15. [PROCESS] Claude Code now runs directly on the user's Mac with authenticated `supabase` and `vercel` CLIs (supersedes the SSH-era assumptions behind rules 2 and 11): when the user explicitly asks Claude to handle deployment end-to-end, Claude may verify/apply migrations (`supabase db push`, dry-run first) and trigger/monitor Vercel deployments itself — because the user granted this on 2026-07-09 ("do everything for me") and the local environment has the required auth.
+    > ⚠️ The "when explicitly asked" condition is SUPERSEDED by rule 27 — applying migrations is now standing authority, no per-task request needed.
 
 16. [PROCESS] Vercel Git auto-deployments on `main` are re-enabled as of 2026-07-09 (the `vercel.json` that disabled them was deleted): every push to `main` deploys production automatically, and environment-variable changes take effect only on the next deployment — so after changing Vercel env vars, trigger a redeploy (empty commit is the established pattern) before relying on them.
 
@@ -124,3 +125,5 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 25. [PROCESS] Linear tickets (rule 18) are required only for work on the product itself — the CareerVine app, extension, MCP server, migrations, and repo tooling that ships with it. Meta-work on agent process files (CLAUDE.md audits/edits, memory, agent config housekeeping) needs no ticket — because Linear tracks the website/product, not Claude's own process maintenance. Narrows rule 18's "every task." (Correction from Dawson, 2026-07-09.)
 
 26. [PROCESS] Never ask Dawson to do something Claude can do itself — exhaust the shell, authenticated CLIs (`gh`, `supabase`, `vercel`, `claude`), the keys in `secrets.zsh`, MCP connectors, and browser control before delegating anything to him. Interactive-looking tasks usually have non-interactive equivalents (`/plugin` TUI ≙ `claude plugin` CLI). Only hand him what genuinely requires him (a decision, an OAuth prompt, a value only he can obtain), request the minimal input rather than a procedure, and state why it can't be done for him — because Dawson's time is the scarce resource and self-service is the point of the agent. (Preference set 2026-07-09; also in global CLAUDE.md preferences.)
+
+27. [PROCESS] Claude applies Supabase migrations itself as **standing authority** — Dawson never runs `supabase` commands. Supersedes rule 15's "when explicitly asked" condition. The moment migration-carrying work lands on `main` (PR merge or direct commit), run `supabase db push --dry-run`, review the plan, then `supabase db push` — and never put `supabase db push` on Dawson's manual-steps checklist again. Rule 10 stands untouched: schema changes go through migration files only, never ad-hoc SQL. (Correction from Dawson, 2026-07-09.)
