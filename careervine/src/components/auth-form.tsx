@@ -27,17 +27,21 @@ export default function AuthForm({ initialMode = "signin", onBack }: AuthFormPro
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [existingAccount, setExistingAccount] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setExistingAccount(false);
 
     try {
       if (mode === "signup") {
         const result = await signUp(formData.email, formData.password, formData.firstName, formData.lastName);
-        if (result.error) {
+        if (result.existingAccount) {
+          setExistingAccount(true);
+        } else if (result.error) {
           setError(result.error);
         } else {
           setMode("check-email");
@@ -73,6 +77,7 @@ export default function AuthForm({ initialMode = "signin", onBack }: AuthFormPro
 
   const switchMode = (next: Mode) => {
     setError("");
+    setExistingAccount(false);
     setMode(next);
   };
 
@@ -232,6 +237,33 @@ export default function AuthForm({ initialMode = "signin", onBack }: AuthFormPro
               <Card variant="outlined">
                 <CardContent className="px-6 py-8">
                   <form className="space-y-5" onSubmit={handleSubmit}>
+                    {/* Existing account notice — signup with an already-registered email */}
+                    {existingAccount && (
+                      <div className="bg-error-container text-on-error-container px-4 py-3 rounded-[12px] text-sm space-y-1.5">
+                        <p>
+                          An account with this email already exists.{" "}
+                          <button
+                            type="button"
+                            onClick={() => switchMode("signin")}
+                            className="font-medium underline cursor-pointer"
+                          >
+                            Sign in
+                          </button>{" "}
+                          instead.
+                        </p>
+                        <p className="text-xs">
+                          Forgot your password?{" "}
+                          <button
+                            type="button"
+                            onClick={() => switchMode("forgot")}
+                            className="font-medium underline cursor-pointer"
+                          >
+                            Reset it
+                          </button>
+                        </p>
+                      </div>
+                    )}
+
                     {/* Error */}
                     {error && (
                       <div className="bg-error-container text-on-error-container px-4 py-3 rounded-[12px] text-sm">
