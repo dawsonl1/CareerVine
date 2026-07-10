@@ -14,6 +14,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ZodSchema, ZodError } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { getExtensionAuth, corsHeaders } from "@/lib/extension-auth";
+import { trackServer } from "@/lib/analytics/server";
+import type { AnalyticsEvent, AnalyticsEvents } from "@/lib/analytics/events";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -37,6 +39,13 @@ interface HandlerContext<TBody = unknown, TQuery = unknown> {
   body: TBody;
   query: TQuery;
   params: Record<string, string>;
+  /**
+   * Record a product-analytics event for the authenticated user (CAR-38).
+   * Fire-and-forget from the handler's perspective — the wrapper awaits all
+   * pending captures after the handler returns, so events survive the
+   * serverless freeze without the handler blocking on them.
+   */
+  track: <E extends AnalyticsEvent>(event: E, props: AnalyticsEvents[E]) => void;
 }
 
 interface RouteConfig<TBody = unknown, TQuery = unknown> {
@@ -88,6 +97,11 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
     context?: { params?: Promise<Record<string, string>> },
   ) => {
     const headers = config.cors ? corsHeaders : undefined;
+
+    // Analytics captures started during this request; awaited (never thrown)
+    // before the response goes out so the lambda doesn't freeze mid-flush.
+    const pendingTracks: Promise<void>[] = [];
+    let trackUserId: string | null = null;
 
     try {
       // ── Auth ────────────────────────────────────────────────────
@@ -169,6 +183,7 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
       }
 
       // ── Handler ─────────────────────────────────────────────────
+      trackUserId = (user as User | null)?.id ?? null;
       const data = await config.handler({
         request,
         user,
@@ -176,7 +191,12 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         body,
         query,
         params,
+        track: (event, props) => {
+          pendingTracks.push(trackServer(trackUserId, event, props));
+        },
       });
+
+      await Promise.allSettled(pendingTracks);
 
       // Allow handlers to return a NextResponse directly (e.g. redirects)
       if (data instanceof NextResponse) return data;
@@ -185,6 +205,7 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
     } catch (error) {
       // Known API errors thrown intentionally
       if (error instanceof ApiError) {
+        await Promise.allSettled(pendingTracks);
         return jsonResponse(
           error.code
             ? { error: error.message, code: error.code }
@@ -194,8 +215,16 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         );
       }
 
-      // Unexpected errors
+      // Unexpected errors — the api_error guardrail event catches releases
+      // that break a route before users report it.
       console.error(`[API Error] ${request.method} ${request.nextUrl.pathname}:`, error);
+      pendingTracks.push(
+        trackServer(trackUserId, "api_error", {
+          route: request.nextUrl.pathname,
+          method: request.method,
+        }),
+      );
+      await Promise.allSettled(pendingTracks);
       return jsonResponse(
         { error: "An unexpected error occurred" },
         500,

@@ -9,8 +9,9 @@ import { getContactContext } from "@/lib/ai-helpers";
  */
 export const POST = withApiHandler({
   schema: aiDraftIntroSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const { contactId, howMet, goal, notes } = body;
+    const startedAt = Date.now();
 
     const ctx = await getContactContext(user.id, contactId);
 
@@ -91,6 +92,7 @@ ${toneInstruction}`;
       bodyHtml = output.trim();
     }
 
+    track("ai_draft_generated", { kind: "intro", latency_ms: Date.now() - startedAt });
     return { subject, bodyHtml };
   },
 });

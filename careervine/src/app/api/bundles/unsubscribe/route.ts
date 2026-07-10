@@ -15,7 +15,7 @@ export const maxDuration = 60;
 
 export const POST = withApiHandler({
   schema: bundleUnsubscribeSchema,
-  handler: async ({ supabase, user, body }) => {
+  handler: async ({ supabase, user, body, track }) => {
     const input = body as { bundleId: number; keepAll: boolean; cursor?: number | null };
 
     const { data: subRow } = await supabase
@@ -26,10 +26,13 @@ export const POST = withApiHandler({
       .maybeSingle();
     if (!subRow) throw new ApiError("Not subscribed to this bundle", 404);
 
-    return await unsubscribeFromBundle(
+    const result = await unsubscribeFromBundle(
       supabase,
       subRow as { id: number; user_id: string; bundle_id: number; status: string; synced_version: number },
       { keepAll: input.keepAll, cursor: input.cursor },
     );
+    // Cursor-looped: only the first chunk records the unsubscribe decision.
+    if (input.cursor == null) track("bundle_unsubscribed", { bundle_id: String(input.bundleId) });
+    return result;
   },
 });

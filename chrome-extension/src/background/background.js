@@ -30,6 +30,43 @@ function ensureConfig() {
   return configPromise;
 }
 
+// ── Product analytics (CAR-38) ─────────────────────────────────────────
+// Minimal PostHog capture over fetch — no SDK in the service worker.
+// No-ops when posthogKey is empty (until the PostHog project is provisioned).
+// Anonymous device id until login; merged into the user via $create_alias.
+
+async function analyticsDistinctId() {
+  const { session } = await chrome.storage.local.get(['session']);
+  if (session?.user?.id) return session.user.id;
+  const { anonId } = await chrome.storage.local.get(['anonId']);
+  if (anonId) return anonId;
+  const fresh = crypto.randomUUID();
+  await chrome.storage.local.set({ anonId: fresh });
+  return fresh;
+}
+
+async function trackEvent(event, properties = {}, distinctIdOverride = null) {
+  try {
+    await ensureConfig();
+    if (!config.posthogKey) return;
+    const distinctId = distinctIdOverride || (await analyticsDistinctId());
+    await fetch(`${config.posthogHost}/capture/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: config.posthogKey,
+        event,
+        distinct_id: distinctId,
+        properties: { ...properties, surface: 'extension' },
+        timestamp: new Date().toISOString()
+      })
+    });
+  } catch (error) {
+    // Analytics must never break the extension
+    console.warn('Analytics capture failed:', error.message);
+  }
+}
+
 // Extract only the fields we need from a raw Supabase session
 function buildStoredSession(raw) {
   return {
@@ -184,6 +221,8 @@ async function handleParseProfile(data, sendResponse) {
     }
     await chrome.storage.local.set(storageUpdate);
 
+    trackEvent('profile_scraped');
+
     sendResponse({ success: true, profileData: result.profileData });
   } catch (error) {
     sendResponse({ error: error.message, code: error.code, status: error.status });
@@ -243,6 +282,14 @@ async function handleAuthentication(credentials, sendResponse) {
 
     const fullSession = await response.json();
     const storedSession = buildStoredSession(fullSession);
+
+    // Merge the anonymous install identity into the real user, then record
+    // the login (CAR-38 onboarding funnel).
+    const { anonId } = await chrome.storage.local.get(['anonId']);
+    if (anonId && storedSession.user?.id) {
+      await trackEvent('$create_alias', { distinct_id: storedSession.user.id, alias: anonId }, storedSession.user.id);
+    }
+    await trackEvent('extension_logged_in', {}, storedSession.user?.id);
 
     await chrome.storage.local.set({ session: storedSession });
 
@@ -320,6 +367,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
     // Set default values
     await chrome.storage.local.set({ session: null });
+
+    // Onboarding funnel start (CAR-38) — anonymous until first login
+    await trackEvent('extension_installed');
   }
 });
 

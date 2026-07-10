@@ -7,7 +7,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
  * Does NOT disconnect Gmail.
  */
 export const POST = withApiHandler({
-  handler: async ({ user }) => {
+  handler: async ({ user, track }) => {
     const service = createSupabaseServiceClient();
 
     // Clear calendar scopes and sync state
@@ -26,6 +26,7 @@ export const POST = withApiHandler({
       .delete()
       .eq("user_id", user.id);
 
+    track("calendar_disconnected", {});
     return { success: true };
   },
 });

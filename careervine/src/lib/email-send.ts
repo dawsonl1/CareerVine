@@ -20,6 +20,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendEmail, getConnection, type ComposeEmailOptions } from "@/lib/gmail";
 import { EmailDirection, GmailLabel } from "@/lib/constants";
+import { trackServer, checkCompaniesEmailedMilestone } from "@/lib/analytics/server";
 
 /**
  * Daily outbound cap (plan 24 Phase 4). Consumer Gmail allows ~500/day,
@@ -50,7 +51,9 @@ export interface TrackedSendResult {
 
 export async function sendTrackedEmail(
   userId: string,
-  opts: ComposeEmailOptions
+  opts: ComposeEmailOptions,
+  /** Analytics context the transport layer can't infer (CAR-38). */
+  analytics?: { aiAssisted?: boolean; isScheduled?: boolean }
 ): Promise<TrackedSendResult> {
   const service = createSupabaseServiceClient();
   const toAddr = opts.to.trim().toLowerCase();
@@ -67,6 +70,7 @@ export async function sendTrackedEmail(
     .eq("is_simulated", false)
     .gte("date", midnight.toISOString());
   if ((sentToday ?? 0) >= DAILY_SEND_CAP) {
+    await trackServer(userId, "send_cap_hit", {});
     throw new SendPolicyError(
       `Daily send limit reached (${DAILY_SEND_CAP}). Sending more today risks Gmail deliverability — try again tomorrow.`,
       429,
@@ -130,6 +134,13 @@ export async function sendTrackedEmail(
       summary: `Sent: ${opts.subject}`,
     }).then(null, (err: unknown) => console.error("Failed to create email interaction:", err));
   }
+
+  await trackServer(userId, "email_sent", {
+    is_follow_up: false,
+    is_scheduled: analytics?.isScheduled ?? false,
+    ai_assisted: analytics?.aiAssisted ?? false,
+  });
+  await checkCompaniesEmailedMilestone(userId);
 
   return {
     messageId: result.messageId,

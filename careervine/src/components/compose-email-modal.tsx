@@ -14,6 +14,8 @@ import { IntroContextForm } from "@/components/intro-context-form";
 import { FollowUpPlanSection, type FollowUpDraft } from "@/components/follow-up-plan-section";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
+import { track } from "@/lib/analytics/client";
+import { editRatio } from "@/lib/analytics/edit-ratio";
 
 type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
 
@@ -54,6 +56,9 @@ export function ComposeEmailModal() {
   const [introAiFailure, setIntroAiFailure] = useState<AiFailureCode | null>(null);
   const [followUpAiFailure, setFollowUpAiFailure] = useState<AiFailureCode | null>(null);
   const introContextRef = useRef<{ howMet: string; goal: string }>({ howMet: "", goal: "" });
+  // Last AI-generated body in this compose session — the baseline for the
+  // ai_draft_outcome acceptance metric (CAR-38). Null = human-only draft.
+  const aiBodyRef = useRef<string | null>(null);
 
 
   const isReply = !!replyThreadId;
@@ -174,6 +179,12 @@ export function ComposeEmailModal() {
       setSelectedContactName(prefillName || "");
       setContactQuery("");
       setContactEmailOptions([]);
+      // AI-followup drafts arrive pre-filled with AI content; anything else
+      // starts as a human draft until an AI generation lands in the body.
+      aiBodyRef.current = aiDraftContext && prefillBodyHtml ? prefillBodyHtml : null;
+      track("compose_opened", {
+        source: aiDraftContext ? "ai_followup" : isIntro ? "intro" : isReply ? "reply" : "blank",
+      });
       setTimeout(() => {
         if (prefillTo) {
           // Focus subject if To is pre-filled
@@ -346,6 +357,7 @@ export function ComposeEmailModal() {
           bcc: bcc.trim() || undefined,
           subject: subject.trim(),
           bodyHtml,
+          aiAssisted: aiBodyRef.current != null,
           ...(replyThreadId ? { threadId: replyThreadId } : {}),
           ...(replyInReplyTo ? { inReplyTo: replyInReplyTo } : {}),
           ...(replyReferences ? { references: replyReferences } : {}),
@@ -357,6 +369,16 @@ export function ComposeEmailModal() {
       setSent(true);
       sentOrScheduledRef.current = true;
       deleteDraft();
+
+      // AI acceptance (CAR-38). AI-followup drafts are recorded server-side
+      // by the status PATCH below, so only ai-write/intro drafts fire here.
+      if (aiBodyRef.current != null && !aiDraftContext?.draftId) {
+        const ratio = editRatio(aiBodyRef.current, bodyHtml);
+        track("ai_draft_outcome", {
+          outcome: ratio === 1 ? "sent" : "edited",
+          edit_ratio: ratio,
+        });
+      }
 
       // Create follow-up records for intro emails
       if (data.messageId && data.threadId) {
@@ -705,6 +727,7 @@ export function ComposeEmailModal() {
                 existingSubject={subject}
                 onGenerated={(body, generatedSubject) => {
                   setBodyHtml(body);
+                  aiBodyRef.current = body;
                   if (generatedSubject && !subject.trim()) {
                     setSubject(generatedSubject);
                   }
@@ -763,6 +786,7 @@ export function ComposeEmailModal() {
                       const data = await res.json();
                       if (res.ok) {
                         setBodyHtml(data.bodyHtml || "");
+                        aiBodyRef.current = data.bodyHtml || null;
                         if (data.subject) setSubject(data.subject);
                         setIntroError(null);
                         setIntroAiFailure(null);
@@ -791,6 +815,7 @@ export function ComposeEmailModal() {
                       const data = await res.json();
                       if (res.ok) {
                         setBodyHtml(data.bodyHtml || "");
+                        aiBodyRef.current = data.bodyHtml || null;
                         if (data.subject) setSubject(data.subject);
                         setIntroError(null);
                         setIntroAiFailure(null);

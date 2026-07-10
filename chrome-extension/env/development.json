@@ -2,5 +2,7 @@
   "apiBaseUrl": "http://localhost:3000/api",
   "supabaseUrl": "http://127.0.0.1:54321",
   "supabaseAnonKey": "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH",
-  "environment": "development"
+  "environment": "development",
+  "posthogKey": "",
+  "posthogHost": "https://us.i.posthog.com"
 }

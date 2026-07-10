@@ -19,6 +19,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
+import { AnalyticsProvider } from "@/lib/analytics/client";
 import { ComposeEmailProvider } from "@/components/compose-email-context";
 import { ComposeEmailModal } from "@/components/compose-email-modal";
 import { QuickCaptureProvider } from "@/components/quick-capture-context";
@@ -91,15 +92,17 @@ export default function RootLayout({
           to work properly across the application.
         */}
         <AuthProvider>
-          <ToastProvider>
-            <ComposeEmailProvider>
-              <QuickCaptureProvider>
-                {children}
-                <ComposeEmailModal />
-                <QuickCaptureModal />
-              </QuickCaptureProvider>
-            </ComposeEmailProvider>
-          </ToastProvider>
+          <AnalyticsProvider>
+            <ToastProvider>
+              <ComposeEmailProvider>
+                <QuickCaptureProvider>
+                  {children}
+                  <ComposeEmailModal />
+                  <QuickCaptureModal />
+                </QuickCaptureProvider>
+              </ComposeEmailProvider>
+            </ToastProvider>
+          </AnalyticsProvider>
         </AuthProvider>
         <Analytics />
         <SpeedInsights />

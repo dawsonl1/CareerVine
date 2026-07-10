@@ -12,14 +12,18 @@ import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 export const POST = withApiHandler({
   schema: gmailSendSchema,
   handler: async ({ user, body }) => {
-    const { to, cc, bcc, subject, bodyHtml, threadId, inReplyTo, references } = body;
+    const { to, cc, bcc, subject, bodyHtml, threadId, inReplyTo, references, aiAssisted } = body;
 
     try {
-      const result = await sendTrackedEmail(user.id, {
-        to, cc, bcc, subject,
-        bodyHtml: bodyHtml || "",
-        threadId, inReplyTo, references,
-      });
+      const result = await sendTrackedEmail(
+        user.id,
+        {
+          to, cc, bcc, subject,
+          bodyHtml: bodyHtml || "",
+          threadId, inReplyTo, references,
+        },
+        { aiAssisted },
+      );
       return { success: true, messageId: result.messageId, threadId: result.threadId };
     } catch (err) {
       if (err instanceof SendPolicyError) throw new ApiError(err.message, err.status);

@@ -37,7 +37,7 @@ export const GET = withApiHandler({
  */
 export const POST = withApiHandler({
   schema: gmailScheduleCreateSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const {
       to, cc, bcc, subject, bodyHtml, scheduledSendAt,
       threadId, inReplyTo, references,
@@ -68,6 +68,12 @@ export const POST = withApiHandler({
 
     if (error) throw error;
 
+    track("email_scheduled", {
+      send_in_hours: Math.max(
+        0,
+        Math.round((new Date(scheduledSendAt).getTime() - Date.now()) / 3600_000),
+      ),
+    });
     return { scheduledEmail: data };
   },
 });

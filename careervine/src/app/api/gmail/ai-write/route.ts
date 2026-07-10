@@ -9,8 +9,9 @@ import { getContactContext } from "@/lib/ai-helpers";
  */
 export const POST = withApiHandler({
   schema: gmailAiWriteSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, track }) => {
     const { prompt, contactId, meetingIds, additionalContext, subject } = body;
+    const startedAt = Date.now();
 
     // ── Gather context via shared helper ──
     const ctx = contactId
@@ -87,6 +88,7 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
       }
     }
 
+    track("ai_draft_generated", { kind: "write", latency_ms: Date.now() - startedAt });
     return {
       success: true,
       bodyHtml: emailHtml,
