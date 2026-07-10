@@ -5,7 +5,7 @@ import { Plus, X } from "lucide-react";
 import {
   createResearchingNoteId,
   type PipelineResearchingNote,
-} from "@/lib/pipeline-preview-storage";
+} from "@/lib/pipeline-state";
 
 const noteTextareaClassName =
   "w-full bg-transparent text-sm text-on-surface placeholder:text-on-surface-variant/60 resize-none overflow-hidden focus:outline-none leading-relaxed py-0.5";

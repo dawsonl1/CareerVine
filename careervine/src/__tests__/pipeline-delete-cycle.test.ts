@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultCycleFormState,
-  defaultPipelinePreviewState,
+  defaultPipelineState,
   deleteScopeCycle,
   getScopeState,
   patchScopeState,
-} from "@/lib/pipeline-preview-storage";
-import type { LocationTabsData } from "@/lib/company-location-preview";
+} from "@/lib/pipeline-state";
+import type { LocationTabsData } from "@/lib/company-scopes";
 
 const emptyTabs: LocationTabsData = {
   all: {
@@ -41,12 +41,12 @@ function cycleWithNote(body: string) {
 
 describe("deleteScopeCycle", () => {
   it("does not delete the only remaining cycle", () => {
-    const state = defaultPipelinePreviewState(emptyTabs, null);
+    const state = defaultPipelineState(emptyTabs, null);
     expect(deleteScopeCycle(state, "all", 1)).toBe(state);
   });
 
   it("removes a cycle and renumbers the rest", () => {
-    let state = defaultPipelinePreviewState(emptyTabs, null);
+    let state = defaultPipelineState(emptyTabs, null);
     state = patchScopeState(state, "all", {
       cycleCount: 3,
       activeCycle: 2,
@@ -68,7 +68,7 @@ describe("deleteScopeCycle", () => {
   });
 
   it("keeps a later active cycle selected when deleting an earlier one", () => {
-    let state = defaultPipelinePreviewState(emptyTabs, null);
+    let state = defaultPipelineState(emptyTabs, null);
     state = patchScopeState(state, "all", {
       cycleCount: 2,
       activeCycle: 2,

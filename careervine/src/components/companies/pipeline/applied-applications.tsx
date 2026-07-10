@@ -2,11 +2,11 @@
 
 import { Plus, Trash2 } from "lucide-react";
 import { ApplicationDatePicker } from "@/components/ui/application-date-picker";
-import { PipelinePdfUploadField } from "@/components/companies/location-first-preview/pipeline-pdf-upload";
+import { PipelinePdfUploadField } from "@/components/companies/pipeline/pipeline-file-upload";
 import {
   createJobApplicationId,
   type PipelineJobApplication,
-} from "@/lib/pipeline-preview-storage";
+} from "@/lib/pipeline-state";
 
 const inputClassName =
   "w-full h-9 px-3 rounded-md border border-outline-variant/50 bg-surface-container-high/50 text-sm text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30";
@@ -23,7 +23,7 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 function ApplicationCard({
   application,
   index,
-  companyId,
+  userId,
   isCompanyScope,
   defaultLocation,
   onChange,
@@ -31,7 +31,7 @@ function ApplicationCard({
 }: {
   application: PipelineJobApplication;
   index: number;
-  companyId: number;
+  userId: string;
   isCompanyScope: boolean;
   defaultLocation: string;
   onChange: (patch: Partial<PipelineJobApplication>) => void;
@@ -88,16 +88,16 @@ function ApplicationCard({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FieldRow label="Resume (PDF)">
           <PipelinePdfUploadField
-            companyId={companyId}
-            fileId={application.resumeFileId}
-            onFileIdChange={(resumeFileId) => onChange({ resumeFileId })}
+            userId={userId}
+            file={application.resume}
+            onFileChange={(resume) => onChange({ resume })}
           />
         </FieldRow>
         <FieldRow label="Cover letter (PDF)">
           <PipelinePdfUploadField
-            companyId={companyId}
-            fileId={application.coverLetterFileId}
-            onFileIdChange={(coverLetterFileId) => onChange({ coverLetterFileId })}
+            userId={userId}
+            file={application.coverLetter}
+            onFileChange={(coverLetter) => onChange({ coverLetter })}
           />
         </FieldRow>
       </div>
@@ -106,13 +106,13 @@ function ApplicationCard({
 }
 
 export function AppliedApplicationsEditor({
-  companyId,
+  userId,
   applications,
   isCompanyScope,
   defaultLocation,
   onChange,
 }: {
-  companyId: number;
+  userId: string;
   applications: PipelineJobApplication[];
   isCompanyScope: boolean;
   defaultLocation: string;
@@ -126,8 +126,8 @@ export function AppliedApplicationsEditor({
         jobTitle: "",
         location: isCompanyScope ? "" : defaultLocation,
         dateApplied: "",
-        resumeFileId: null,
-        coverLetterFileId: null,
+        resume: null,
+        coverLetter: null,
       },
     ]);
   };
@@ -153,7 +153,7 @@ export function AppliedApplicationsEditor({
               <ApplicationCard
                 application={application}
                 index={index}
-                companyId={companyId}
+                userId={userId}
                 isCompanyScope={isCompanyScope}
                 defaultLocation={defaultLocation}
                 onChange={(patch) => updateApplication(application.id, patch)}

@@ -4,47 +4,44 @@ import {
   createResearchingProgramId,
   defaultCycleFormState,
   normalizeCycleFormState,
-} from "@/lib/pipeline-preview-storage";
+} from "@/lib/pipeline-state";
 import { formatProgramSummaryLine } from "@/lib/researching-program-summary";
 
 describe("pipeline researching notes", () => {
-  it("migrates legacy single note string to notes array", () => {
-    const legacy = {
+  it("trims note bodies and drops empty notes on normalize", () => {
+    const normalized = normalizeCycleFormState({
       ...defaultCycleFormState(),
       researching: {
         programs: [],
-        note: "Apps open in September",
+        notes: [
+          { id: "n1", body: "  Apps open in September  " },
+          { id: "n2", body: "   " },
+        ],
       },
-    } as ReturnType<typeof defaultCycleFormState>;
+    });
 
-    const normalized = normalizeCycleFormState(legacy);
     expect(normalized.researching.notes).toHaveLength(1);
     expect(normalized.researching.notes[0].body).toBe("Apps open in September");
-    expect(normalized.researching.notes[0].id).toBeTruthy();
+    expect(normalized.researching.notes[0].id).toBe("n1");
   });
 
   it("creates stable note ids", () => {
-    expect(createResearchingNoteId()).toMatch(/^note-|^[0-9a-f-]{36}$/i);
+    expect(createResearchingNoteId()).toMatch(/^[0-9a-f-]{36}$/i);
   });
 });
 
 describe("pipeline researching programs", () => {
-  it("migrates legacy flat researching fields to a program", () => {
-    const legacy = {
-      ...defaultCycleFormState(),
-      researching: {
-        notes: [],
-        program: "IB Analyst",
-        appsOpen: "date:2026-09-01",
-        jobPotential: "8",
-      },
-    } as ReturnType<typeof defaultCycleFormState>;
+  it("seeds a program from target-row hints via defaultCycleFormState", () => {
+    const seeded = defaultCycleFormState({
+      program: "IB Analyst",
+      appsOpen: "date:2026-09-01",
+      jobPotential: "8",
+    });
 
-    const normalized = normalizeCycleFormState(legacy);
-    expect(normalized.researching.programs).toHaveLength(1);
-    expect(normalized.researching.programs[0].name).toBe("IB Analyst");
-    expect(normalized.researching.programs[0].appsOpen).toBe("date:2026-09-01");
-    expect(normalized.researching.programs[0].jobPotential).toBe("8");
+    expect(seeded.researching.programs).toHaveLength(1);
+    expect(seeded.researching.programs[0].name).toBe("IB Analyst");
+    expect(seeded.researching.programs[0].appsOpen).toBe("date:2026-09-01");
+    expect(seeded.researching.programs[0].jobPotential).toBe("8");
   });
 
   it("formats program summary lines", () => {

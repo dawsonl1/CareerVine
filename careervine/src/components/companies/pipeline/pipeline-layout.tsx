@@ -1,36 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import type { LocationTabsData, PreviewLocationBlock } from "@/lib/company-location-preview";
-import type { CompanyDetail, CompanyPerson } from "@/lib/company-queries";
+import type { LocationBlock, LocationTabsData } from "@/lib/company-scopes";
+import type { CompanyOffice, CompanyPerson } from "@/lib/company-queries";
 import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
 import { formatRoleLocationInList } from "@/lib/location-tab-label";
 import {
   PIPELINE_STAGES,
   type CycleFormState,
-  type PipelinePreviewState,
   type PipelineStage,
-  defaultCycleFormState,
-  defaultPipelinePreviewState,
+  type PipelineState,
   getActiveCycleState,
   getScopeState,
-  loadPipelinePreviewState,
-  mergePipelinePreviewState,
-  patchCycleFormState,
-  patchPipelinePreviewState,
-  patchScopeState,
-  savePipelinePreviewState,
-  deleteScopeCycle,
-} from "@/lib/pipeline-preview-storage";
-import { Search, Mail, GraduationCap, Target, Check, Trash2 } from "lucide-react";
-import { ResearchingNotesEditor } from "@/components/companies/location-first-preview/researching-notes";
-import { ResearchingProgramsEditor } from "@/components/companies/location-first-preview/researching-programs";
-import { AppliedApplicationsEditor } from "@/components/companies/location-first-preview/applied-applications";
-import { InterviewingRoundsEditor } from "@/components/companies/location-first-preview/interviewing-rounds";
+} from "@/lib/pipeline-state";
+import type { PipelineActions, PipelineSaveStatus } from "@/hooks/use-pipeline-autosave";
+import {
+  Search,
+  Mail,
+  GraduationCap,
+  Target,
+  Check,
+  Trash2,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import { ResearchingNotesEditor } from "@/components/companies/pipeline/researching-notes";
+import { ResearchingProgramsEditor } from "@/components/companies/pipeline/researching-programs";
+import { AppliedApplicationsEditor } from "@/components/companies/pipeline/applied-applications";
+import { InterviewingRoundsEditor } from "@/components/companies/pipeline/interviewing-rounds";
+import { ManageOfficesPanel } from "@/components/companies/pipeline/manage-offices-panel";
 import { formatProgramSummaryLine } from "@/lib/researching-program-summary";
 import { formatApplicationSummaryLine } from "@/lib/applied-application-summary";
 import { formatApplicationDateDisplay } from "@/lib/application-date-value";
@@ -51,6 +54,13 @@ const STAGE_STYLES: Record<OutreachStage, string> = {
   call_scheduled: "bg-secondary-container text-on-secondary-container",
   call_done: "bg-secondary-container text-on-secondary-container",
   referral: "bg-tertiary-container text-on-tertiary-container",
+};
+
+const SAVE_STATUS_LABELS: Record<PipelineSaveStatus, string | null> = {
+  idle: null,
+  saving: "Saving…",
+  saved: "Saved",
+  error: "Save failed — check your connection",
 };
 
 function stageIndex(stage: PipelineStage): number {
@@ -316,7 +326,7 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 function StageFormFields({
   stage,
   cycleForm,
-  companyId,
+  userId,
   isCompanyScope,
   scopeLabel,
   outreachContacts,
@@ -326,11 +336,11 @@ function StageFormFields({
 }: {
   stage: PipelineStage;
   cycleForm: CycleFormState;
-  companyId: number;
+  userId: string;
   isCompanyScope: boolean;
   scopeLabel: string;
   outreachContacts: CompanyPerson[];
-  block: PreviewLocationBlock | null;
+  block: LocationBlock | null;
   onPatchCycle: (patch: (prev: CycleFormState) => CycleFormState) => void;
   onStartNextCycle: () => void;
 }) {
@@ -387,7 +397,7 @@ function StageFormFields({
       return (
         <FieldRow label="Applications">
           <AppliedApplicationsEditor
-            companyId={companyId}
+            userId={userId}
             applications={applied.applications}
             isCompanyScope={isCompanyScope}
             defaultLocation={scopeLabel}
@@ -500,7 +510,56 @@ function CycleTab({
   );
 }
 
-function ContactRow({ person, showLocation }: { person: CompanyPerson; showLocation?: boolean }) {
+function ContactEmailAction({
+  person,
+  gmailConnected,
+  onCompose,
+}: {
+  person: CompanyPerson;
+  gmailConnected: boolean;
+  onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+}) {
+  const email = person.email;
+  if (!email) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      {email.source === "pattern_guessed" && !email.bounced && (
+        <span title="This address is pattern-guessed — verify before heavy outreach">
+          <AlertTriangle className="w-4 h-4 text-yellow-600" />
+        </span>
+      )}
+      {email.bounced && (
+        <span className="text-[11px] text-error font-medium" title="This address bounced">
+          bounced
+        </span>
+      )}
+      {gmailConnected && !email.bounced && (
+        <Button
+          size="sm"
+          variant="text"
+          className="shrink-0 h-8 w-8 p-0"
+          onClick={() => onCompose({ to: email.address, name: person.name, contactId: person.contact_id })}
+          title={`Email ${email.address}`}
+        >
+          <Mail className="w-4 h-4" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ContactRow({
+  person,
+  showLocation,
+  gmailConnected,
+  onCompose,
+}: {
+  person: CompanyPerson;
+  showLocation?: boolean;
+  gmailConnected: boolean;
+  onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+}) {
   const role = person.roles[0];
   const locationSuffix = showLocation && role ? formatRoleLocationInList(role) : null;
 
@@ -531,17 +590,68 @@ function ContactRow({ person, showLocation }: { person: CompanyPerson; showLocat
           {locationSuffix && <> · {locationSuffix}</>}
         </p>
       </div>
-      {person.email && (
-        <Button size="sm" variant="text" disabled className="shrink-0 opacity-50 h-8 w-8 p-0">
-          <Mail className="w-4 h-4" />
-        </Button>
+      <ContactEmailAction person={person} gmailConnected={gmailConnected} onCompose={onCompose} />
+    </div>
+  );
+}
+
+function BenchSection({
+  bench,
+  onPromote,
+}: {
+  bench: CompanyPerson[];
+  onPromote: (person: CompanyPerson) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (bench.length === 0) return null;
+
+  return (
+    <div className="mt-4 pt-3 border-t border-outline-variant/25">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant hover:text-on-surface py-1"
+      >
+        {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        {open ? `${bench.length} on the bench` : `${bench.length} on the bench (hidden from list)`}
+      </button>
+      {open && (
+        <div className="space-y-1.5 mt-1.5">
+          {bench.map((p) => (
+            <div
+              key={p.contact_id}
+              className="flex items-center gap-3 py-2 px-3 rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors"
+            >
+              <ContactAvatar name={p.name} photoUrl={p.photo_url} className="w-8 h-8 text-xs shrink-0" />
+              <div className="min-w-0 flex-1">
+                <Link
+                  href={`/contacts/${p.contact_id}`}
+                  className="text-sm font-medium text-on-surface hover:text-primary truncate block"
+                >
+                  {p.name}
+                </Link>
+                <p className="text-xs text-on-surface-variant truncate">
+                  {p.roles[0]?.title ?? p.headline ?? ""}
+                </p>
+              </div>
+              {p.adjacency_score != null && (
+                <span className="text-[10px] text-on-surface-variant shrink-0" title="Pipeline adjacency score">
+                  adj {p.adjacency_score}
+                </span>
+              )}
+              <Button size="sm" variant="tonal" onClick={() => onPromote(p)}>
+                Add to outreach
+              </Button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
 function RecruitingPanel({
-  companyId,
+  userId,
   scopeLabel,
   isCompanyScope,
   targeted,
@@ -556,12 +666,12 @@ function RecruitingPanel({
   onStartNextCycle,
   onDeleteCycle,
 }: {
-  companyId: number;
+  userId: string;
   scopeLabel: string;
   isCompanyScope: boolean;
   targeted: boolean;
   onTargetChange: (targeted: boolean) => void;
-  block: PreviewLocationBlock | null;
+  block: LocationBlock | null;
   people: CompanyPerson[];
   scopeState: ReturnType<typeof getScopeState>;
   cycleForm: CycleFormState;
@@ -660,7 +770,7 @@ function RecruitingPanel({
                 <StageFormFields
                   stage={stage}
                   cycleForm={cycleForm}
-                  companyId={companyId}
+                  userId={userId}
                   isCompanyScope={isCompanyScope}
                   scopeLabel={scopeLabel}
                   outreachContacts={outreachContacts}
@@ -677,54 +787,46 @@ function RecruitingPanel({
 }
 
 export function PipelineLayout({
+  userId,
   companyId,
   tabs,
   companyName,
   totalContacts,
   linkedinUrl,
-  target,
+  offices,
+  state,
+  actions,
+  saveStatus,
+  scope,
+  onScopeChange,
+  gmailConnected,
+  onCompose,
+  onPromote,
+  onOfficesChanged,
 }: {
+  userId: string;
   companyId: number;
   tabs: LocationTabsData;
   companyName: string;
   totalContacts: number;
   linkedinUrl: string | null;
-  target: CompanyDetail["target"];
+  offices: CompanyOffice[];
+  state: PipelineState;
+  actions: PipelineActions;
+  saveStatus: PipelineSaveStatus;
+  scope: string;
+  onScopeChange: (scopeKey: string) => void;
+  gmailConnected: boolean;
+  onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+  onPromote: (person: CompanyPerson) => void;
+  onOfficesChanged: () => void;
 }) {
-  const [hydrated, setHydrated] = useState(false);
-  const [preview, setPreview] = useState<PipelinePreviewState>(() =>
-    defaultPipelinePreviewState(tabs, target),
-  );
+  const [search, setSearch] = useState("");
+  const [manageOffices, setManageOffices] = useState(false);
 
-  const hydratedRef = useRef(false);
-
-  useEffect(() => {
-    if (hydratedRef.current) return;
-    hydratedRef.current = true;
-    const saved = loadPipelinePreviewState(companyId);
-    setPreview(saved ? mergePipelinePreviewState(saved, tabs) : defaultPipelinePreviewState(tabs, target));
-    setHydrated(true);
-  }, [companyId, tabs, target]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    savePipelinePreviewState(companyId, preview);
-  }, [companyId, preview, hydrated]);
-
-  const { scope, search, companyTargeted, officeTargeted } = preview;
-  const scopeState = getScopeState(preview, scope);
-  const cycleForm = getActiveCycleState(preview, scope);
-
-  const setPreviewPatch = useCallback((patch: Partial<PipelinePreviewState>) => {
-    setPreview((prev) => patchPipelinePreviewState(prev, patch));
-  }, []);
-
-  const patchCycle = useCallback(
-    (patch: (prev: CycleFormState) => CycleFormState) => {
-      setPreview((prev) => patchCycleFormState(prev, prev.scope, getScopeState(prev, prev.scope).activeCycle, patch));
-    },
-    [],
-  );
+  const { companyTargeted, officeTargeted } = state;
+  const scopeState = getScopeState(state, scope);
+  const cycleForm = getActiveCycleState(state, scope);
 
   const scopeOptions = useMemo(() => {
     const opts = [{ value: "all", label: `All · ${tabs.all.contactCount} contacts` }];
@@ -759,7 +861,7 @@ export function PipelineLayout({
     ? companyTargeted
     : (officeTargeted[scope] ?? officeBlock?.isTargeted ?? false);
 
-  const recruitingBlock: PreviewLocationBlock | null = isCompanyScope
+  const recruitingBlock: LocationBlock | null = isCompanyScope
     ? tabs.companyWide ??
       (companyTargeted
         ? {
@@ -783,32 +885,7 @@ export function PipelineLayout({
       : null;
 
   const scopeLabel = isCompanyScope ? "Company-wide" : (officeBlock?.tabLabel ?? scope);
-
-  const handleStartNextCycle = () => {
-    setPreview((prev) => {
-      const scopeKey = prev.scope;
-      const current = getScopeState(prev, scopeKey);
-      const nextCycle = current.cycleCount + 1;
-      const nextScope = {
-        ...current,
-        cycleCount: nextCycle,
-        activeCycle: nextCycle,
-        cycles: {
-          ...current.cycles,
-          [String(nextCycle)]: defaultCycleFormState({ selectedStage: "researching" }),
-        },
-      };
-      return patchScopeState(prev, scopeKey, nextScope);
-    });
-  };
-
-  const handleDeleteCycle = (cycle: number) => {
-    setPreview((prev) => deleteScopeCycle(prev, prev.scope, cycle));
-  };
-
-  if (!hydrated) {
-    return <p className="text-sm text-on-surface-variant py-16 text-center">Loading preview…</p>;
-  }
+  const saveLabel = SAVE_STATUS_LABELS[saveStatus];
 
   return (
     <div>
@@ -829,19 +906,40 @@ export function PipelineLayout({
                 LinkedIn
               </a>
             )}
+            {saveLabel && (
+              <span
+                className={`text-xs ${saveStatus === "error" ? "text-error" : "text-on-surface-variant/70"}`}
+                aria-live="polite"
+              >
+                {saveLabel}
+              </span>
+            )}
           </div>
         </div>
         <div className="w-full sm:w-56 shrink-0">
           <FieldRow label="Location">
             <Select
               value={scope}
-              onChange={(v) => setPreviewPatch({ scope: v })}
+              onChange={onScopeChange}
               options={scopeOptions}
               className="[&_button]:h-10 [&_button]:text-sm"
             />
           </FieldRow>
+          <button
+            type="button"
+            onClick={() => setManageOffices((v) => !v)}
+            className="mt-1.5 text-xs text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline"
+          >
+            {manageOffices ? "Close office management" : "Manage offices"}
+          </button>
         </div>
       </div>
+
+      {manageOffices && (
+        <div className="mb-6">
+          <ManageOfficesPanel companyId={companyId} offices={offices} onChanged={onOfficesChanged} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(440px,560px)] gap-6 items-start">
         <section className="min-w-0 rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-4">
@@ -854,7 +952,7 @@ export function PipelineLayout({
             <input
               type="search"
               value={search}
-              onChange={(e) => setPreviewPatch({ search: e.target.value })}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search contacts"
               className="w-full h-10 pl-9 pr-3 rounded-lg border border-outline-variant/50 bg-surface-container-high/40 text-sm text-on-surface placeholder:text-on-surface-variant/60"
             />
@@ -864,37 +962,34 @@ export function PipelineLayout({
               <p className="text-sm text-on-surface-variant py-8 text-center">No contacts match.</p>
             ) : (
               filteredPeople.map((p) => (
-                <ContactRow key={p.contact_id} person={p} showLocation={showLocationOnContacts} />
+                <ContactRow
+                  key={p.contact_id}
+                  person={p}
+                  showLocation={showLocationOnContacts}
+                  gmailConnected={gmailConnected}
+                  onCompose={onCompose}
+                />
               ))
             )}
           </div>
-          {peopleBlock.bench.length > 0 && (
-            <p className="text-xs text-on-surface-variant mt-4 pt-3 border-t border-outline-variant/25">
-              {peopleBlock.bench.length} on bench (hidden from list)
-            </p>
-          )}
+          <BenchSection bench={peopleBlock.bench} onPromote={onPromote} />
         </section>
 
         <RecruitingPanel
-          companyId={companyId}
+          userId={userId}
           scopeLabel={scopeLabel}
           isCompanyScope={isCompanyScope}
           targeted={targeted}
-          onTargetChange={(v) => {
-            if (isCompanyScope) setPreviewPatch({ companyTargeted: v });
-            else setPreviewPatch({ officeTargeted: { ...officeTargeted, [scope]: v } });
-          }}
+          onTargetChange={(v) => actions.setScopeTargeted(scope, v)}
           block={recruitingBlock}
           people={filteredPeople}
           scopeState={scopeState}
           cycleForm={cycleForm}
-          onSelectStage={(stage) => patchCycle((prev) => ({ ...prev, selectedStage: stage }))}
-          onPatchCycle={patchCycle}
-          onSetActiveCycle={(cycle) => {
-            setPreview((prev) => patchScopeState(prev, prev.scope, { activeCycle: cycle }));
-          }}
-          onStartNextCycle={handleStartNextCycle}
-          onDeleteCycle={handleDeleteCycle}
+          onSelectStage={(stage) => actions.selectStage(scope, stage)}
+          onPatchCycle={(patch) => actions.patchActiveCycle(scope, patch)}
+          onSetActiveCycle={(cycle) => actions.setActiveCycle(scope, cycle)}
+          onStartNextCycle={() => actions.startNextCycle(scope)}
+          onDeleteCycle={(cycle) => actions.deleteCycle(scope, cycle)}
         />
       </div>
     </div>

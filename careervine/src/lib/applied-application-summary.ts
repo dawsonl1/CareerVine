@@ -1,4 +1,4 @@
-import type { PipelineJobApplication } from "@/lib/pipeline-preview-storage";
+import type { PipelineJobApplication } from "@/lib/pipeline-state";
 import { formatApplicationDateDisplay } from "@/lib/application-date-value";
 
 export function applicationHasContent(application: PipelineJobApplication): boolean {
@@ -6,8 +6,8 @@ export function applicationHasContent(application: PipelineJobApplication): bool
     application.jobTitle.trim() ||
       application.location.trim() ||
       application.dateApplied.trim() ||
-      application.resumeFileId ||
-      application.coverLetterFileId,
+      application.resume ||
+      application.coverLetter,
   );
 }
 
@@ -25,8 +25,8 @@ export function formatApplicationSummaryLine(application: PipelineJobApplication
   if (date) parts.push(date);
 
   const docs: string[] = [];
-  if (application.resumeFileId) docs.push("Resume");
-  if (application.coverLetterFileId) docs.push("Cover letter");
+  if (application.resume) docs.push("Resume");
+  if (application.coverLetter) docs.push("Cover letter");
   if (docs.length > 0) parts.push(docs.join(" + "));
 
   return parts.join(" · ");

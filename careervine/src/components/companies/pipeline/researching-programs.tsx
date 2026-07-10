@@ -5,7 +5,7 @@ import { ApplicationsOpenPicker } from "@/components/ui/applications-open-picker
 import {
   createResearchingProgramId,
   type PipelineResearchingProgram,
-} from "@/lib/pipeline-preview-storage";
+} from "@/lib/pipeline-state";
 
 const inputClassName =
   "w-full h-9 px-3 rounded-md border border-outline-variant/50 bg-surface-container-high/50 text-sm text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30";

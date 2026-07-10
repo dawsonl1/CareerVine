@@ -3,10 +3,10 @@ import {
   defaultCycleFormState,
   normalizeCycleFormState,
   patchCycleFormState,
-  defaultPipelinePreviewState,
+  defaultPipelineState,
   getActiveCycleState,
-} from "@/lib/pipeline-preview-storage";
-import type { LocationTabsData } from "@/lib/company-location-preview";
+} from "@/lib/pipeline-state";
+import type { LocationTabsData } from "@/lib/company-scopes";
 
 const emptyTabs: LocationTabsData = {
   all: {
@@ -46,7 +46,7 @@ describe("pipeline closed stage", () => {
   });
 
   it("persists declining another application cycle", () => {
-    let state = defaultPipelinePreviewState(emptyTabs, null);
+    let state = defaultPipelineState(emptyTabs, null);
     state = patchCycleFormState(state, "all", 1, (prev) => ({
       ...prev,
       selectedStage: "closed",

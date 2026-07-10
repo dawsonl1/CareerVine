@@ -1,5 +1,5 @@
 import { formatApplicationsOpenDisplay } from "@/lib/applications-open-value";
-import type { PipelineResearchingProgram } from "@/lib/pipeline-preview-storage";
+import type { PipelineResearchingProgram } from "@/lib/pipeline-state";
 
 export function programHasContent(program: PipelineResearchingProgram): boolean {
   return Boolean(

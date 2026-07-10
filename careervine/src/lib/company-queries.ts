@@ -250,12 +250,26 @@ export async function getCompanies(
     fetchUserEmploymentRows(userId),
     db()
       .from("target_companies")
-      .select("id, company_id, priority_score, tier, program_name, app_window_text, next_app_date, status")
-      .eq("user_id", userId),
+      .select("id, company_id, location_id, priority_score, tier, program_name, app_window_text, next_app_date, status")
+      .eq("user_id", userId)
+      .eq("is_targeted", true),
   ]);
   if (targetsRes.error) throw targetsRes.error;
-  const targets = (targetsRes.data ?? []) as Array<TargetInfo & { company_id: number }>;
-  const targetByCompany = new Map(targets.map((t) => [t.company_id, t]));
+  const targets = (targetsRes.data ?? []) as Array<TargetInfo & { company_id: number; location_id: number | null }>;
+  // A company is a target if ANY scope (company-wide or office) is targeted.
+  // The card shows the company-wide row when present, else the highest-priority office scope.
+  const targetByCompany = new Map<number, TargetInfo & { company_id: number; location_id: number | null }>();
+  for (const t of targets) {
+    const existing = targetByCompany.get(t.company_id);
+    if (!existing) {
+      targetByCompany.set(t.company_id, t);
+      continue;
+    }
+    if (existing.location_id == null) continue;
+    if (t.location_id == null || (t.priority_score ?? -1) > (existing.priority_score ?? -1)) {
+      targetByCompany.set(t.company_id, t);
+    }
+  }
 
   // Aggregate people per company; bench counted separately, never mixed
   interface Agg {
@@ -488,6 +502,8 @@ export async function getCompanyDetail(
       .select("id, priority_score, tier, program_name, app_window_text, next_app_date, status")
       .eq("user_id", userId)
       .eq("company_id", companyId)
+      .is("location_id", null)
+      .eq("is_targeted", true)
       .maybeSingle(),
   ]);
   if (companyRes.error) throw companyRes.error;
@@ -932,12 +948,16 @@ export async function addCompanyManually(
 
   const { data: existingTarget, error: targetLookupError } = await db()
     .from("target_companies")
-    .select("id")
+    .select("id, is_targeted")
     .eq("user_id", userId)
     .eq("company_id", company.id)
+    .is("location_id", null)
     .maybeSingle();
   if (targetLookupError) throw targetLookupError;
   if (!existingTarget) await addTargetCompany(userId, company.id);
+  else if (!(existingTarget as { is_targeted: boolean }).is_targeted) {
+    await updateTargetCompanyTargeted((existingTarget as { id: number }).id, true);
+  }
 
   if (normalized.location) {
     await addCompanyOfficeLocation(company.id, normalized.location);
@@ -947,6 +967,23 @@ export async function addCompanyManually(
 }
 
 export async function addTargetCompany(userId: string, companyId: number) {
+  // A soft-untargeted company-wide row may already exist (CAR-6 keeps
+  // pipeline data on un-target) — revive it instead of violating the
+  // partial unique index.
+  const { data: existing, error: lookupError } = await db()
+    .from("target_companies")
+    .select("id, is_targeted")
+    .eq("user_id", userId)
+    .eq("company_id", companyId)
+    .is("location_id", null)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+  if (existing) {
+    const row = existing as { id: number; is_targeted: boolean };
+    if (!row.is_targeted) await updateTargetCompanyTargeted(row.id, true);
+    return { id: row.id };
+  }
+
   const { data, error } = await db()
     .from("target_companies")
     .insert({ user_id: userId, company_id: companyId })
@@ -954,6 +991,14 @@ export async function addTargetCompany(userId: string, companyId: number) {
     .single();
   if (error) throw error;
   return data as { id: number };
+}
+
+export async function updateTargetCompanyTargeted(targetId: number, isTargeted: boolean) {
+  const { error } = await db()
+    .from("target_companies")
+    .update({ is_targeted: isTargeted, updated_at: new Date().toISOString() })
+    .eq("id", targetId);
+  if (error) throw error;
 }
 
 /** Remove a company from the user's targets (notes cascade-delete). */

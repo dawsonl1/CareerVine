@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { defaultCycleFormState, normalizeCycleFormState } from "@/lib/pipeline-preview-storage";
+import { defaultCycleFormState, normalizeCycleFormState } from "@/lib/pipeline-state";
 
 describe("pipeline interviewing rounds", () => {
   it("defaults to no interview rounds", () => {
     expect(defaultCycleFormState().interviewing.rounds).toEqual([]);
   });
 
-  it("migrates legacy two empty default rounds to none", () => {
+  it("keeps user-added empty rounds and assigns ids", () => {
     const normalized = normalizeCycleFormState({
       selectedStage: "interviewing",
       researching: { programs: [], notes: [] },
@@ -19,7 +19,8 @@ describe("pipeline interviewing rounds", () => {
       },
     } as never);
 
-    expect(normalized.interviewing.rounds).toEqual([]);
+    expect(normalized.interviewing.rounds).toHaveLength(2);
+    expect(normalized.interviewing.rounds.every((r) => r.id)).toBe(true);
   });
 
   it("keeps rounds with content and assigns ids", () => {
@@ -30,7 +31,7 @@ describe("pipeline interviewing rounds", () => {
       interviewing: {
         rounds: [{ date: "2026-03-01", interviewer: "Alex", questions: "" }],
       },
-    });
+    } as never);
 
     expect(normalized.interviewing.rounds).toHaveLength(1);
     expect(normalized.interviewing.rounds[0]?.interviewer).toBe("Alex");
