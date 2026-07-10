@@ -9,11 +9,32 @@
 
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { bundleSubscribeSchema } from "@/lib/api-schemas";
+import { enqueueBundleSyncJobs } from "@/lib/bundle-queue";
+
+/**
+ * Backup sync driver (CAR-47): the client drives the initial copy
+ * interactively, but if the tab closes or its loop dies, this delayed
+ * QStash job finishes the sync instead of waiting for the daily cron.
+ * The delay gives the client's loop first claim; a still-running or
+ * already-finished sync makes the worker a no-op (claim conflict /
+ * synced_version current). Fails silent when QStash isn't configured.
+ */
+const SUBSCRIBE_BACKUP_SYNC_DELAY_S = 120;
 
 export const POST = withApiHandler({
   schema: bundleSubscribeSchema,
-  handler: async ({ supabase, user, body, track }) => {
+  handler: async ({ supabase, user, body, track, request }) => {
     const { bundleId } = body as { bundleId: number };
+
+    // Never throws: enqueueBundleSyncJobs catches per-batch and returns a
+    // count; without QSTASH_TOKEN it returns 0.
+    const enqueueBackupSync = (subscriptionId: number) =>
+      enqueueBundleSyncJobs(
+        [subscriptionId],
+        new URL("/api/queue/bundle-sync", request.url).toString(),
+        undefined,
+        { delaySeconds: SUBSCRIBE_BACKUP_SYNC_DELAY_S },
+      );
 
     // RLS only exposes published bundles — a null read means missing or
     // unpublished either way.
@@ -42,6 +63,7 @@ export const POST = withApiHandler({
         .select("id, status, synced_version")
         .single();
       if (error) throw new ApiError(`Resubscribe failed: ${error.message}`, 500);
+      await enqueueBackupSync(row.id);
       track("bundle_subscribed", { bundle_id: String(bundleId) });
       return { subscription: updated, reactivated: true };
     }
@@ -52,6 +74,7 @@ export const POST = withApiHandler({
       .select("id, status, synced_version")
       .single();
     if (error) throw new ApiError(`Subscribe failed: ${error.message}`, 500);
+    await enqueueBackupSync((created as { id: number }).id);
     track("bundle_subscribed", { bundle_id: String(bundleId) });
     return { subscription: created, reactivated: false };
   },

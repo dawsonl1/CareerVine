@@ -65,6 +65,53 @@ export function companyFallbackName(input: CompanyInput): string | null {
   return null;
 }
 
+/** PostgREST selects are GETs — chunk .in() lists so URLs stay bounded. */
+export function chunkList<T>(items: T[], size = 100): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
+ * Chunk-level company prefetch (CAR-47): a handful of .in() queries instead
+ * of a find-or-create round trip per company. Only the two exact-match
+ * paths short-circuit; misses fall back to findOrCreateCompany, which keeps
+ * the ilike / url / universal-name / claim semantics. Id-bearing inputs are
+ * NOT name-prefetched — name-matching those must run the claim logic.
+ */
+export async function prefetchCompanies(
+  supabase: SupabaseClient,
+  inputs: CompanyInput[],
+): Promise<{ byId: Map<string, CompanyRecord>; byName: Map<string, CompanyRecord> }> {
+  const byId = new Map<string, CompanyRecord>();
+  const byName = new Map<string, CompanyRecord>();
+
+  const ids = [...new Set(inputs.map((i) => i.linkedin_company_id?.trim()).filter(Boolean))] as string[];
+  for (const chunk of chunkList(ids)) {
+    const { data } = await supabase.from("companies").select(COMPANY_COLS).in("linkedin_company_id", chunk);
+    for (const row of (data as CompanyRecord[] | null) ?? []) {
+      if (row.linkedin_company_id) byId.set(row.linkedin_company_id, row);
+    }
+  }
+
+  const names = [
+    ...new Set(
+      inputs
+        .filter((i) => !i.linkedin_company_id?.trim())
+        .map((i) => companyFallbackName(i))
+        .filter((n): n is string => Boolean(n)),
+    ),
+  ];
+  for (const chunk of chunkList(names)) {
+    const { data } = await supabase.from("companies").select(COMPANY_COLS).in("name", chunk);
+    for (const row of (data as CompanyRecord[] | null) ?? []) {
+      const key = row.name.toLowerCase();
+      if (!byName.has(key)) byName.set(key, row);
+    }
+  }
+  return { byId, byName };
+}
+
 export async function findOrCreateCompany(
   supabase: SupabaseClient,
   input: CompanyInput,
@@ -229,6 +276,34 @@ export interface LocationInput {
   country: string;
 }
 
+/** Exact-equality lookup key mirroring findOrCreateLocation's filters. */
+export const locationLookupKey = (l: { city: string | null; state: string | null; country: string }) =>
+  `${l.city ?? ""}|${l.state ?? ""}|${l.country}`;
+
+/**
+ * Chunk-level location prefetch (CAR-47). Import location resolution only
+ * ever runs for city-grain locations (locationMatchKey gates it), so one
+ * city-keyed sweep covers a whole chunk; matching is the same exact
+ * (city, state, country) equality findOrCreateLocation uses, and misses
+ * fall back to it.
+ */
+export async function prefetchLocations(
+  supabase: SupabaseClient,
+  inputs: LocationInput[],
+): Promise<Map<string, { id: number }>> {
+  const out = new Map<string, { id: number }>();
+  const wanted = new Set(inputs.map(locationLookupKey));
+  const cities = [...new Set(inputs.map((i) => i.city).filter(Boolean))] as string[];
+  for (const chunk of chunkList(cities)) {
+    const { data } = await supabase.from("locations").select("id, city, state, country").in("city", chunk);
+    for (const row of (data as Array<{ id: number; city: string | null; state: string | null; country: string }> | null) ?? []) {
+      const key = locationLookupKey(row);
+      if (wanted.has(key) && !out.has(key)) out.set(key, { id: row.id });
+    }
+  }
+  return out;
+}
+
 /**
  * NULL-aware find-or-create on locations (city+state+country unique).
  * Consolidates the copies that lived in queries.ts and the import route.
@@ -279,4 +354,27 @@ export async function ensureCompanyLocation(
       { onConflict: "company_id,location_id", ignoreDuplicates: true },
     );
   if (error) throw error;
+}
+
+/**
+ * Bulk ensureCompanyLocation (CAR-47): one ignore-duplicates upsert for a
+ * whole chunk of offices. A failed bulk write degrades to per-row so one
+ * bad pair can't sink the rest.
+ */
+export async function ensureCompanyLocations(
+  supabase: SupabaseClient,
+  pairs: Array<{ company_id: number; location_id: number }>,
+  source: "scraped" | "manual" = "scraped",
+): Promise<void> {
+  if (pairs.length === 0) return;
+  const { error } = await supabase
+    .from("company_locations")
+    .upsert(
+      pairs.map((p) => ({ ...p, source })),
+      { onConflict: "company_id,location_id", ignoreDuplicates: true },
+    );
+  if (!error) return;
+  for (const p of pairs) {
+    await ensureCompanyLocation(supabase, p.company_id, p.location_id, source);
+  }
 }

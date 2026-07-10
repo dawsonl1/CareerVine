@@ -51,6 +51,32 @@ type ApplyStep = {
   claimToken?: string;
 };
 
+/**
+ * POST one apply step. A 5xx (e.g. a function timeout's 504, whose body is
+ * HTML rather than JSON) or a network failure is retried twice with backoff
+ * before giving up (CAR-47); null means all attempts failed.
+ */
+async function fetchApplyStep(
+  body: Record<string, unknown>,
+): Promise<{ res: Response; step: ApplyStep & { error?: string } } | null> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch("/api/bundles/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.status < 500) {
+        return { res, step: (await res.json()) as ApplyStep & { error?: string } };
+      }
+    } catch {
+      // Network failure or non-JSON body — treated like a 5xx.
+    }
+    if (attempt >= 2) return null;
+    await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
+  }
+}
+
 export default function DataSubscriptionsSection() {
   const { user } = useAuth();
   const { success, error: toastError } = useToast();
@@ -97,12 +123,15 @@ export default function DataSubscriptionsSection() {
       if (!opts.silent) setProgress((p) => new Map(p).set(bundle.id, { applied: 0, total: bundle.prospect_count }));
       try {
         for (;;) {
-          const res = await fetch("/api/bundles/apply", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ bundleId: bundle.id, cursor, pinnedVersion, claimToken }),
-          });
-          const step = (await res.json()) as ApplyStep & { error?: string };
+          const outcome = await fetchApplyStep({ bundleId: bundle.id, cursor, pinnedVersion, claimToken });
+          if (!outcome) {
+            // Subscribe also enqueued a delayed background job (CAR-47),
+            // so this failure message is honest.
+            throw new Error(
+              "The sync hit a server error. It will keep running in the background — your contacts will appear shortly.",
+            );
+          }
+          const { res, step } = outcome;
           if (!res.ok) {
             // 409 = another driver (worker/cron) is already syncing — fine.
             if (res.status === 409) return false;

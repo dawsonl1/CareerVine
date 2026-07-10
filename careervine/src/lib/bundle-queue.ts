@@ -48,6 +48,7 @@ export async function enqueueBundleSyncJobs(
   subscriptionIds: number[],
   workerUrl: string,
   client: Client | null = getQstashClient(),
+  opts: { delaySeconds?: number } = {},
 ): Promise<number> {
   if (!client || subscriptionIds.length === 0) return 0;
   let published = 0;
@@ -58,6 +59,7 @@ export async function enqueueBundleSyncJobs(
         url: workerUrl,
         body: { subscriptionIds: batch } satisfies BundleSyncJob,
         retries: 3,
+        ...(opts.delaySeconds ? { delay: opts.delaySeconds } : {}),
         // Cap concurrent worker invocations so a large fan-out can't
         // stampede Supabase.
         flowControl: { key: "bundle-sync", parallelism: 2 },
