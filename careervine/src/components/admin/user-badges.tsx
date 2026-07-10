@@ -38,11 +38,3 @@ export function KeyBadge({ status }: { status: AdminUserKeyStatus }) {
   const { label, className } = KEY_LABELS[status];
   return <Chip label={label} className={className} />;
 }
-
-export function PolicyBadge({ policy }: { policy: "cutoff" | "shared" }) {
-  return policy === "cutoff" ? (
-    <Chip label="AI cutoff" className="bg-surface-container-high text-on-surface-variant" />
-  ) : (
-    <Chip label="Shared fallback" className="bg-surface-container-high text-on-surface-variant" />
-  );
-}

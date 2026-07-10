@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { effectiveBundleVisibility } from "@/lib/admin-bundles";
+import {
+  effectiveBundleVisibility,
+  bundleVisibilityCount,
+} from "@/lib/admin-bundles";
 
 /**
  * Mirror of the SQL bundle_visible_to() predicate — the two must agree.
@@ -23,5 +26,56 @@ describe("effectiveBundleVisibility", () => {
   it("override matching the default is still honored", () => {
     expect(effectiveBundleVisibility(true, true)).toBe(true);
     expect(effectiveBundleVisibility(false, false)).toBe(false);
+  });
+});
+
+/**
+ * List-view summary (CAR-36) — must fold each bundle through the same
+ * effectiveBundleVisibility predicate the detail view and RLS use.
+ */
+describe("bundleVisibilityCount", () => {
+  const bundles = [
+    { id: 1, defaultVisible: true },
+    { id: 2, defaultVisible: false },
+    { id: 3, defaultVisible: true },
+  ];
+
+  it("no overrides → counts the defaults", () => {
+    expect(bundleVisibilityCount(bundles, new Map())).toEqual({
+      visible: 2,
+      total: 3,
+    });
+  });
+
+  it("grant override adds a hidden-by-default bundle", () => {
+    expect(bundleVisibilityCount(bundles, new Map([[2, true]]))).toEqual({
+      visible: 3,
+      total: 3,
+    });
+  });
+
+  it("deny override removes a visible-by-default bundle", () => {
+    expect(bundleVisibilityCount(bundles, new Map([[1, false]]))).toEqual({
+      visible: 1,
+      total: 3,
+    });
+  });
+
+  it("mixed overrides resolve per bundle", () => {
+    const overrides = new Map([
+      [1, false],
+      [2, true],
+    ]);
+    expect(bundleVisibilityCount(bundles, overrides)).toEqual({
+      visible: 2,
+      total: 3,
+    });
+  });
+
+  it("no published bundles → 0/0", () => {
+    expect(bundleVisibilityCount([], new Map([[9, true]]))).toEqual({
+      visible: 0,
+      total: 0,
+    });
   });
 });
