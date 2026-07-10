@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Loader2, ChevronRight, Users as UsersIcon } from "lucide-react";
+import { Search, Loader2, ChevronRight, Users as UsersIcon, RefreshCw } from "lucide-react";
 import type { AdminUserListItem } from "@/lib/admin-users";
 import {
   AdminBadge,
@@ -10,6 +10,7 @@ import {
   KeyBadge,
   PolicyBadge,
 } from "@/components/admin/user-badges";
+import { useToast } from "@/components/ui/toast";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "never";
@@ -25,6 +26,9 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUserListItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const { success, error: toastError } = useToast();
 
   // Debounced search.
   useEffect(() => {
@@ -55,7 +59,33 @@ export default function AdminUsersPage() {
       clearTimeout(t);
       controller.abort();
     };
-  }, [q]);
+  }, [q, refreshKey]);
+
+  // Bulk Apify kill switches (plan 36): one call flips every account.
+  const bulkSet = async (
+    key: "apify_enrichment_enabled" | "diff_analysis_enabled",
+    value: boolean,
+  ) => {
+    const label = key === "apify_enrichment_enabled" ? "Apify enrichment" : "change detection";
+    if (bulkBusy) return;
+    if (!window.confirm(`Turn ${label} ${value ? "ON" : "OFF"} for ALL accounts?`)) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/admin/scrape-controls/bulk", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      success(`${label[0].toUpperCase()}${label.slice(1)} ${value ? "on" : "off"} for ${body.affected} accounts`);
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      toastError((e as Error).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   return (
     <div>
@@ -77,6 +107,54 @@ export default function AdminUsersPage() {
           className="w-full rounded-full border border-outline-variant bg-surface py-2.5 pl-10 pr-4 text-sm text-on-surface placeholder:text-muted-foreground focus:border-primary focus:outline-none"
         />
       </div>
+
+      {/* Apify spend controls (plan 36) */}
+      {users && !loading && (
+        <div className="mb-4 rounded-2xl border border-outline-variant bg-surface p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-on-surface">
+            <RefreshCw className="h-4 w-4 text-primary" />
+            Apify controls
+          </div>
+          <div className="mt-3 flex flex-col gap-2">
+            {(
+              [
+                {
+                  key: "apify_enrichment_enabled" as const,
+                  label: "Enrichment",
+                  on: users.filter((u) => u.apifyEnrichmentEnabled).length,
+                },
+                {
+                  key: "diff_analysis_enabled" as const,
+                  label: "Change detection",
+                  on: users.filter((u) => u.diffAnalysisEnabled).length,
+                },
+              ]
+            ).map((row) => (
+              <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {row.label}: on for {row.on}/{users.length}
+                </span>
+                <span className="flex gap-2">
+                  <button
+                    onClick={() => void bulkSet(row.key, true)}
+                    disabled={bulkBusy}
+                    className="rounded-full border border-outline-variant px-3 py-1 text-xs text-on-surface hover:bg-surface-container disabled:opacity-50 cursor-pointer"
+                  >
+                    All on
+                  </button>
+                  <button
+                    onClick={() => void bulkSet(row.key, false)}
+                    disabled={bulkBusy}
+                    className="rounded-full border border-outline-variant px-3 py-1 text-xs text-destructive hover:bg-surface-container disabled:opacity-50 cursor-pointer"
+                  >
+                    All off
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Result count */}
       {users && !loading && (
@@ -130,6 +208,9 @@ export default function AdminUsersPage() {
                     </span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                       <span className="truncate">{u.email ?? "—"}</span>
+                      {!u.apifyEnrichmentEnabled && (
+                        <span className="rounded-full bg-surface-container px-2 py-0.5 text-xs">scraping off</span>
+                      )}
                     </span>
                   </span>
                   <span className="hidden shrink-0 items-center gap-2 sm:flex">

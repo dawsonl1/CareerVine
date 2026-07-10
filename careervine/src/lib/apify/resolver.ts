@@ -21,6 +21,7 @@ import {
 } from "@/lib/constants";
 import { searchProfilesByName, isApifyConfigured, type ApifySearchProfileItem } from "./client";
 import { getMonthlySpendUsd, triggerEnrichOnSave, type TriggerResult } from "./scrape-service";
+import { getApifyControls } from "./account-controls";
 
 export interface ResolveCandidate {
   linkedinUrl: string; // canonical
@@ -33,11 +34,16 @@ export interface ResolveCandidate {
 export type ResolveResult =
   | { status: "candidates"; candidates: ResolveCandidate[] }
   | { status: "cap_reached" }
-  | { status: "disabled" };
+  | { status: "disabled" }
+  | { status: "disabled_by_admin" };
 
 export async function resolveContactLinkedin(userId: string, contactId: number): Promise<ResolveResult> {
   if (process.env.APIFY_SCRAPE_DISABLED === "true" || !isApifyConfigured()) return { status: "disabled" };
   const service = createSupabaseServiceClient();
+
+  // Per-account admin kill switch (plan 36) — the search page costs money too.
+  const controls = await getApifyControls(service, userId);
+  if (!controls.enrichmentEnabled) return { status: "disabled_by_admin" };
 
   const { data: contact } = await service
     .from("contacts")

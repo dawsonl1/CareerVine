@@ -30,14 +30,18 @@ export type Database = {
           email: string | null;          // Optional email override
           phone: string | null;          // Optional phone number
           status: "active" | "suspended"; // Account status — service-role writable only
+          apify_enrichment_enabled: boolean; // Admin kill switch: all paid Apify activity (service-role writable only)
+          diff_analysis_enabled: boolean;    // Admin kill switch: change-event production (service-role writable only)
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "created_at" | "updated_at"
+          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
+          apify_enrichment_enabled?: boolean;
+          diff_analysis_enabled?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };

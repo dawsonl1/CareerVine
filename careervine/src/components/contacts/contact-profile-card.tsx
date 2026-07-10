@@ -145,6 +145,8 @@ export function ContactProfileCard({
         toastError("This contact has no LinkedIn URL to scrape");
       } else if (data.status === "disabled") {
         toastError("Scraping isn't configured yet");
+      } else if (data.status === "disabled_by_admin") {
+        toastError("LinkedIn enrichment is turned off for this account");
       }
     } catch {
       toastError("Couldn't start the refresh");

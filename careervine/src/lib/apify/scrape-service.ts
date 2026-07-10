@@ -35,6 +35,7 @@ import {
   type ApifyProfileItem,
 } from "./client";
 import { actorItemToPeopleRecord } from "./rescrape-wrapper";
+import { getApifyControls } from "./account-controls";
 
 type Mode = "profile" | "email";
 type Trigger = "manual" | "enrich_on_save" | "cadence";
@@ -46,7 +47,8 @@ export type TriggerResult =
   | { status: "debounced"; lastScrapedAt: string }
   | { status: "no_url" }
   | { status: "cap_reached"; spendUsd: number }
-  | { status: "disabled" };
+  | { status: "disabled" }
+  | { status: "disabled_by_admin" };
 
 function killSwitchOn(): boolean {
   return process.env.APIFY_SCRAPE_DISABLED === "true";
@@ -106,6 +108,11 @@ export async function triggerContactScrape(opts: {
   if (killSwitchOn() || !isApifyConfigured()) return { status: "disabled" };
 
   const service = createSupabaseServiceClient();
+
+  // Per-account admin kill switch (plan 36) — gates every paid trigger path
+  // that funnels through here (manual, enrich-on-save, email follow-ups).
+  const controls = await getApifyControls(service, userId);
+  if (!controls.enrichmentEnabled) return { status: "disabled_by_admin" };
 
   const { data: contact } = await service
     .from("contacts")
@@ -197,6 +204,11 @@ export async function triggerBatchScrape(
 ): Promise<number> {
   if (contacts.length === 0 || killSwitchOn() || !isApifyConfigured()) return 0;
   const service = createSupabaseServiceClient();
+
+  // Per-account admin kill switch (plan 36). The cron also pre-filters, but
+  // this is the authoritative gate for any future batch caller.
+  const controls = await getApifyControls(service, userId);
+  if (!controls.enrichmentEnabled) return 0;
 
   // Trim the batch to the remaining AUTOMATIC budget (fail-closed on error).
   // Cadence stops at the soft cap so manual actions keep the headroom between
@@ -405,12 +417,16 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
     const goodCaptures = captures.filter((c) => mergedUrls.has(c.linkedinUrl));
 
     // Scrape-diff: emit change events + snapshots. Isolated — a diff failure
-    // must never fail an already-merged run.
+    // must never fail an already-merged run. Skipped entirely when the admin
+    // turned diff analysis off for this account (plan 36) — data still merged.
     let companyChangeContacts: number[] = [];
-    try {
-      companyChangeContacts = await processDiffs(service, runRow.user_id, runRow.id, items, goodCaptures, now);
-    } catch (err) {
-      console.error(`[scrape] diff processing failed for run ${runRow.id}:`, err);
+    const controls = await getApifyControls(service, runRow.user_id);
+    if (controls.diffEnabled) {
+      try {
+        companyChangeContacts = await processDiffs(service, runRow.user_id, runRow.id, items, goodCaptures, now);
+      } catch (err) {
+        console.error(`[scrape] diff processing failed for run ${runRow.id}:`, err);
+      }
     }
 
     const { succeeded, failed } = await reconcileContacts(service, contactIds, summary.results);

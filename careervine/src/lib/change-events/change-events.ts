@@ -11,6 +11,7 @@
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { getApifyControls } from "@/lib/apify/account-controls";
 import { ChangeEventStatus, ChangeEventTier } from "@/lib/constants";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
 import { computeAnniversaryEvents, type AnniversaryContact } from "./anniversary";
@@ -41,6 +42,11 @@ export async function syncAnniversaryEvents(
   lastSyncByUser.set(userId, Date.now());
 
   const service = createSupabaseServiceClient();
+
+  // Admin kill switch (plan 36): diff analysis off = no new change events,
+  // anniversaries included. Flips take effect within the sync throttle window.
+  const controls = await getApifyControls(service, userId);
+  if (!controls.diffEnabled) return 0;
 
   // Page the read — an unbounded select silently caps at 1000 rows, which would
   // drop anniversaries for contacts beyond the first page.

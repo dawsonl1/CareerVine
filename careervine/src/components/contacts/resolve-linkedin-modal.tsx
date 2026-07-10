@@ -113,7 +113,7 @@ export function ResolveLinkedinModal({ contactId, contactName, onClose, onLinked
         )}
         {phase === "disabled" && (
           <p className="text-sm text-muted-foreground py-4">
-            LinkedIn scraping isn’t configured. You can still paste a profile URL below.
+            LinkedIn search isn’t available on this account right now. You can still paste a profile URL below.
           </p>
         )}
         {phase === "error" && (

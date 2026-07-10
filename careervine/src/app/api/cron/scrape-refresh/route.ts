@@ -41,8 +41,13 @@ export async function POST(req: NextRequest) {
 
   const service = createSupabaseServiceClient();
   // Suspended = frozen: skipped by server-side automation (admin foundation),
-  // same convention as the other crons — and paid scraping doubly so.
-  const { data: users } = await service.from("users").select("id").eq("status", "active");
+  // same convention as the other crons — and paid scraping doubly so. Also
+  // skip accounts whose Apify enrichment the admin switched off (plan 36).
+  const { data: users } = await service
+    .from("users")
+    .select("id")
+    .eq("status", "active")
+    .eq("apify_enrichment_enabled", true);
 
   let scraped = 0;
   const perUser: Record<string, number> = {};
