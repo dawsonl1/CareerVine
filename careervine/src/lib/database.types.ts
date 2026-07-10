@@ -647,15 +647,113 @@ export type Database = {
           app_window_text: string | null; // Free-text application-window hint — display only
           next_app_date: string | null;  // Real application date set by hand; the only field sorting/alerts use
           status: string;                // 'researching' | 'outreach_active' | 'applied' | 'interviewing' | 'closed'
+          location_id: number | null;    // NULL = company-wide scope; set = office-scoped target (CAR-6)
+          is_targeted: boolean;          // Soft targeting flag — false keeps pipeline data while hiding from target views
+          active_cycle: number;          // Pipeline cycle the user last worked in for this scope
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
-        Insert: Omit<Database["public"]["Tables"]["target_companies"]["Row"], "id" | "status" | "created_at" | "updated_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["target_companies"]["Row"], "id" | "status" | "location_id" | "is_targeted" | "active_cycle" | "created_at" | "updated_at"> & {
           status?: string;
+          location_id?: number | null;
+          is_targeted?: boolean;
+          active_cycle?: number;
           created_at?: string;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["target_companies"]["Insert"]>;
+      };
+
+      // Pipeline cycles — one application cycle per target scope (CAR-6)
+      pipeline_cycles: {
+        Row: {
+          id: number;                    // Auto-incrementing primary key
+          target_company_id: number;     // Foreign key to target_companies (the scope)
+          cycle_number: number;          // 1-based cycle index within the scope
+          selected_stage: string;        // 'researching' | 'outreach_active' | 'applied' | 'interviewing' | 'closed'
+          declined_next_cycle: boolean;  // Closed stage: user declined to start another cycle
+          created_at: string;            // Auto-generated timestamp
+          updated_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_cycles"]["Row"], "id" | "selected_stage" | "declined_next_cycle" | "created_at" | "updated_at"> & {
+          selected_stage?: string;
+          declined_next_cycle?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_cycles"]["Insert"]>;
+      };
+
+      // Researching-stage programs per pipeline cycle (CAR-6)
+      pipeline_programs: {
+        Row: {
+          id: string;                    // Client-generated uuid
+          cycle_id: number;              // Foreign key to pipeline_cycles
+          name: string;                  // Program name
+          apps_open: string;             // Free text or "date:YYYY-MM-DD" sentinel
+          job_potential: string;         // Free text
+          position: number;              // Display order within the cycle
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_programs"]["Row"], "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_programs"]["Insert"]>;
+      };
+
+      // Researching-stage notes per pipeline cycle (CAR-6)
+      pipeline_notes: {
+        Row: {
+          id: string;                    // Client-generated uuid
+          cycle_id: number;              // Foreign key to pipeline_cycles
+          body: string;                  // Note text
+          position: number;              // Display order within the cycle
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_notes"]["Row"], "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_notes"]["Insert"]>;
+      };
+
+      // Applied-stage job applications per pipeline cycle (CAR-6)
+      pipeline_applications: {
+        Row: {
+          id: string;                    // Client-generated uuid
+          cycle_id: number;              // Foreign key to pipeline_cycles
+          job_title: string;             // Role applied for
+          location: string;              // Free-text location (editable at company scope; office scope implies it)
+          date_applied: string | null;   // ISO date (YYYY-MM-DD)
+          resume_path: string | null;    // Storage path in application-files bucket
+          resume_name: string | null;    // Original filename
+          resume_size_bytes: number | null;
+          cover_letter_path: string | null;
+          cover_letter_name: string | null;
+          cover_letter_size_bytes: number | null;
+          position: number;              // Display order within the cycle
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_applications"]["Row"], "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_applications"]["Insert"]>;
+      };
+
+      // Interviewing-stage rounds per pipeline cycle (CAR-6)
+      pipeline_interview_rounds: {
+        Row: {
+          id: string;                    // Client-generated uuid
+          cycle_id: number;              // Foreign key to pipeline_cycles
+          interview_date: string | null; // ISO date (YYYY-MM-DD)
+          interviewer: string;           // Who's interviewing
+          questions: string;             // Prep / notes text
+          position: number;              // Display order within the cycle
+          created_at: string;            // Auto-generated timestamp
+        };
+        Insert: Omit<Database["public"]["Tables"]["pipeline_interview_rounds"]["Row"], "created_at"> & {
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pipeline_interview_rounds"]["Insert"]>;
       };
 
       // Target company notes — timestamped recruiting-intel log
