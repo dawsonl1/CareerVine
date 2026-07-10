@@ -23,6 +23,8 @@ export function ContactAvatar({ name, photoUrl, className = "", ringClassName = 
       <img
         src={photoUrl}
         alt={name}
+        loading="lazy"
+        decoding="async"
         referrerPolicy="no-referrer"
         className={`rounded-full object-cover shrink-0 ${ring} ${className}`}
         onError={() => setImgError(true)}

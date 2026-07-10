@@ -5,6 +5,14 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { makePhotoThumb } from "@/lib/photo-thumb";
+import {
+  userPhotoKey,
+  putPhotoObject,
+  r2PublicUrl,
+  isUserPhotoUrl,
+  deletePhotoByUrl,
+} from "@/lib/r2";
 
 interface TagLinkRow {
   tag_id: number;
@@ -58,7 +66,7 @@ export async function addTagsToContact(
 }
 
 /**
- * Download a LinkedIn CDN profile photo into the contact-photos bucket and
+ * Mirror a LinkedIn CDN profile photo into R2 as a small WebP thumbnail and
  * point the contact at it. SSRF-guarded (media.licdn.com only), 5s fetch
  * timeout, 5MB cap. Throws on failure — callers treat photos as
  * best-effort.
@@ -97,34 +105,40 @@ export async function downloadAndStorePhoto(
     return;
   }
 
-  // Validate content-type is an image format
+  // Cheap sanity check before decoding; sharp is the real validator and
+  // throws on anything that isn't a decodable image.
   const contentType = response.headers.get("content-type") || "";
   const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-  const resolvedContentType = ALLOWED_IMAGE_TYPES.find((t) => contentType.startsWith(t)) || "image/jpeg";
+  if (contentType && !ALLOWED_IMAGE_TYPES.some((t) => contentType.startsWith(t))) {
+    console.warn(`[import] Rejected non-image content-type: ${contentType}`);
+    return;
+  }
 
-  const storagePath = `${userId}/${contactId}.jpg`;
+  const thumb = await makePhotoThumb(imageBuffer);
+  const key = userPhotoKey(userId, contactId, thumb);
+  await putPhotoObject(key, thumb);
+  const newPhotoUrl = r2PublicUrl(key);
 
-  // Upload photo (upsert handles re-imports atomically)
-  const { error: uploadError } = await supabase.storage
-    .from("contact-photos")
-    .upload(storagePath, imageBuffer, {
-      contentType: resolvedContentType,
-      upsert: true,
-    });
-  if (uploadError) throw uploadError;
-
-  // Get the public URL with cache-busting timestamp and update the contact record
-  const { data: publicUrlData } = supabase.storage
-    .from("contact-photos")
-    .getPublicUrl(storagePath);
-  const photoUrlWithCacheBust = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+  // Swap the pointer, then clean up the previous version (content-hashed
+  // keys mean a changed photo is a different object).
+  const { data: prevRow } = await supabase
+    .from("contacts")
+    .select("photo_url")
+    .eq("id", contactId)
+    .eq("user_id", userId)
+    .single();
+  const prevUrl = (prevRow as { photo_url: string | null } | null)?.photo_url ?? null;
 
   const { error: updateError } = await supabase
     .from("contacts")
-    .update({ photo_url: photoUrlWithCacheBust })
+    .update({ photo_url: newPhotoUrl })
     .eq("id", contactId)
     .eq("user_id", userId);
   if (updateError) throw updateError;
+
+  if (prevUrl && prevUrl !== newPhotoUrl && isUserPhotoUrl(prevUrl)) {
+    await deletePhotoByUrl(prevUrl);
+  }
 }
 
 /** Same validation the extension update path applies to incoming emails. */

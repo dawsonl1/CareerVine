@@ -49,6 +49,7 @@ import {
   type MergePolicy,
 } from "./scrape-merge";
 import { addTagsToContact, downloadAndStorePhoto, isValidImportEmail } from "./import-db-helpers";
+import { isBundlePhotoUrl, bundlePhotoOverwriteAllowed } from "./photo-urls";
 
 // ── Input / output shapes ──────────────────────────────────────────────
 
@@ -386,6 +387,12 @@ export async function importPeopleChunk(
       if (w.result.status === "created" || w.result.status === "updated") w.result.photo = "none";
       continue;
     }
+    // Shared bundle photos are already in R2 — the persistence pass wrote
+    // the URL as a plain column value; nothing to download.
+    if (isBundlePhotoUrl(w.mapped.photo_url)) {
+      w.result.photo = "stored";
+      continue;
+    }
     if (opts.skipPhotos) {
       w.result.photo = "skipped";
       continue;
@@ -440,6 +447,9 @@ async function createNewPerson(
       network_scope: mapped.network_scope,
       import_source: mapped.import_source,
       import_meta: mapped.import_meta,
+      // Shared bundle photos (already in R2) land directly on the row;
+      // external CDN URLs go through the mirror phase instead.
+      photo_url: isBundlePhotoUrl(mapped.photo_url) ? mapped.photo_url : null,
       last_scraped_at: now,
       location_id: profileLocationId,
       notes: initialNotes,
@@ -501,6 +511,7 @@ async function updateExistingPerson(
     location_id: number | null;
     headline: string | null;
     public_identifier: string | null;
+    photo_url: string | null;
   },
   profileLocationId: number | null,
   now: string,
@@ -517,6 +528,9 @@ async function updateExistingPerson(
   // Keep the canonical URL current (fixes pre-normalizer variants and
   // internal-id → vanity upgrades matched via public_identifier)
   patch.linkedin_url = mapped.linkedin_url;
+  if (bundlePhotoOverwriteAllowed(existing.photo_url, mapped.photo_url)) {
+    patch.photo_url = mapped.photo_url;
+  }
   const { error: patchError } = await supabase.from("contacts").update(patch).eq("id", contactId);
   if (patchError) throw new Error(`Contact update failed: ${patchError.message}`);
   w.result.applied_patch = patch;
