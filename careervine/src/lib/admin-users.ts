@@ -18,7 +18,7 @@ export type AdminUserKeyStatus =
   | "quota_exceeded"
   | "none";
 
-export interface AdminUserListItem {
+export interface AdminUserBase {
   id: string;
   firstName: string;
   lastName: string;
@@ -31,7 +31,13 @@ export interface AdminUserListItem {
   createdAt: string;
 }
 
-export interface AdminUserDetail extends AdminUserListItem {
+export interface AdminUserListItem extends AdminUserBase {
+  /** Published bundles this user can currently see (CAR-36 list summary). */
+  bundlesVisible: number;
+  bundlesTotal: number;
+}
+
+export interface AdminUserDetail extends AdminUserBase {
   phone: string | null;
 }
 
