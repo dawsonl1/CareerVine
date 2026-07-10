@@ -20,10 +20,10 @@
  *     1h expiry). Safe on any deployed build.
  *
  *   node scripts/configure-auth-emails.mjs --smtp
- *     Point Supabase at SendGrid (smtp.sendgrid.net, sender
+ *     Point Supabase at Resend (smtp.resend.com, sender
  *     noreply@careervine.app) and raise the email rate limit. Requires
- *     $SENDGRID_API_KEY. Independent of the template state — safe anytime
- *     once the careervine.app SendGrid domain authentication is valid.
+ *     $RESEND_API_KEY. Independent of the template state — safe anytime
+ *     once the careervine.app Resend domain is verified.
  *
  * Auth: $SUPABASE_ACCESS_TOKEN, or the Supabase CLI's token from the macOS
  * keychain (the CLI must be logged in).
@@ -132,22 +132,23 @@ if (mode === "--show") {
   console.log(`${mode === "--apply" ? "Branded" : "Stock"} templates applied:`);
   for (const k of Object.keys(payload)) console.log(`  ${k}`);
 } else if (mode === "--smtp") {
-  const pass = process.env.SENDGRID_API_KEY;
+  const pass = process.env.RESEND_API_KEY;
   if (!pass) {
-    console.error("--smtp requires $SENDGRID_API_KEY");
+    console.error("--smtp requires $RESEND_API_KEY");
     process.exit(1);
   }
   await request("PATCH", {
-    smtp_host: "smtp.sendgrid.net",
+    smtp_host: "smtp.resend.com",
     smtp_port: "587", // the Management API models the port as a string
-    smtp_user: "apikey",
+    smtp_user: "resend",
     smtp_pass: pass,
     smtp_admin_email: "noreply@careervine.app",
     smtp_sender_name: "CareerVine",
-    // Built-in SMTP capped this at 2/hr; SendGrid carries real volume.
+    // Built-in SMTP capped this at 2/hr; Resend carries real volume
+    // (free tier: 100/day, 3k/month).
     rate_limit_email_sent: 30,
   });
-  console.log("Custom SMTP configured: SendGrid, noreply@careervine.app, 30 emails/hr.");
+  console.log("Custom SMTP configured: Resend, noreply@careervine.app, 30 emails/hr.");
 } else {
   console.error("Usage: configure-auth-emails.mjs --show | --apply | --revert | --smtp");
   process.exit(1);
