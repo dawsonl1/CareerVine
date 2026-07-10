@@ -541,25 +541,30 @@ function ContactEmailAction({
   return (
     <div className="flex items-center gap-1.5 shrink-0">
       {email.source === "pattern_guessed" && !email.bounced && (
-        <span title="This address is pattern-guessed — verify before heavy outreach">
+        <Tooltip label="Pattern-guessed address — verify before heavy outreach">
           <AlertTriangle className="w-4 h-4 text-yellow-600" />
-        </span>
+        </Tooltip>
       )}
-      {email.bounced && (
-        <span className="text-[11px] text-error font-medium" title="This address bounced">
-          bounced
-        </span>
-      )}
-      {gmailConnected && !email.bounced && (
-        <Button
-          size="sm"
-          variant="text"
-          className="shrink-0 h-8 w-8 p-0"
-          onClick={() => onCompose({ to: email.address, name: person.name, contactId: person.contact_id })}
-          title={`Email ${email.address}`}
-        >
-          <Mail className="w-4 h-4" />
-        </Button>
+      {email.bounced ? (
+        <Tooltip label="This address bounced — sending is disabled">
+          <span className="text-[11px] text-error font-medium">bounced</span>
+        </Tooltip>
+      ) : gmailConnected ? (
+        <Tooltip label={`Email ${email.address}`}>
+          <button
+            type="button"
+            onClick={() => onCompose({ to: email.address, name: person.name, contactId: person.contact_id })}
+            className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high cursor-pointer transition-colors"
+          >
+            <Mail className="w-4 h-4" />
+          </button>
+        </Tooltip>
+      ) : (
+        <Tooltip label="Connect Gmail to email contacts">
+          <span className="p-1.5 rounded-lg text-on-surface-variant/40">
+            <Mail className="w-4 h-4" />
+          </span>
+        </Tooltip>
       )}
     </div>
   );
