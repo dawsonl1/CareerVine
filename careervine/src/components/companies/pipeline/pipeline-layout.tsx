@@ -734,6 +734,18 @@ function ContactRow({
   );
 }
 
+function ContactGroupHeading({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-2 pt-1">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-on-surface-variant">
+        {label}
+      </p>
+      <span className="text-[11px] text-on-surface-variant/70 tabular-nums">{count}</span>
+      <div className="flex-1 h-px bg-outline-variant/25" />
+    </div>
+  );
+}
+
 function BenchSection({
   bench,
   onPromote,
@@ -752,7 +764,7 @@ function BenchSection({
         className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant hover:text-on-surface py-1"
       >
         {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        {open ? `${bench.length} on the bench` : `${bench.length} on the bench (hidden from list)`}
+        {open ? `${bench.length} archived` : `${bench.length} archived (hidden from list)`}
       </button>
       {open && (
         <div className="space-y-1.5 mt-1.5">
@@ -1006,6 +1018,17 @@ export function PipelineLayout({
     );
   }, [peopleBlock, search]);
 
+  // Tier separation — the avatar rings only read correctly when network
+  // contacts and prospects live in distinct groups (matches /contacts).
+  const networkPeople = useMemo(
+    () => filteredPeople.filter((p) => p.network_status === "active"),
+    [filteredPeople],
+  );
+  const prospectPeople = useMemo(
+    () => filteredPeople.filter((p) => p.network_status !== "active"),
+    [filteredPeople],
+  );
+
   const targeted = isCompanyScope
     ? companyTargeted
     : (officeTargeted[scope] ?? officeBlock?.isTargeted ?? false);
@@ -1106,22 +1129,33 @@ export function PipelineLayout({
               className="w-full h-10 pl-9 pr-3 rounded-lg border border-outline-variant/50 bg-surface-container-high/40 text-sm text-on-surface placeholder:text-on-surface-variant/60"
             />
           </div>
-          <div className="space-y-2">
-            {filteredPeople.length === 0 ? (
-              <p className="text-sm text-on-surface-variant py-8 text-center">No contacts match.</p>
-            ) : (
-              filteredPeople.map((p) => (
-                <ContactRow
-                  key={p.contact_id}
-                  person={p}
-                  isFormer={formerIds.has(p.contact_id)}
-                  showLocation={showLocationOnContacts}
-                  gmailConnected={gmailConnected}
-                  onCompose={onCompose}
-                />
-              ))
-            )}
-          </div>
+          {filteredPeople.length === 0 ? (
+            <p className="text-sm text-on-surface-variant py-8 text-center">No contacts match.</p>
+          ) : (
+            <div className="space-y-2">
+              {[
+                { label: "Your network", people: networkPeople },
+                { label: "Prospects", people: prospectPeople },
+              ].map(
+                ({ label, people }) =>
+                  people.length > 0 && (
+                    <div key={label} className="space-y-2">
+                      <ContactGroupHeading label={label} count={people.length} />
+                      {people.map((p) => (
+                        <ContactRow
+                          key={p.contact_id}
+                          person={p}
+                          isFormer={formerIds.has(p.contact_id)}
+                          showLocation={showLocationOnContacts}
+                          gmailConnected={gmailConnected}
+                          onCompose={onCompose}
+                        />
+                      ))}
+                    </div>
+                  ),
+              )}
+            </div>
+          )}
           <BenchSection bench={peopleBlock.bench} onPromote={onPromote} />
         </section>
 
