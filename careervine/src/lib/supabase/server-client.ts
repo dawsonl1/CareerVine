@@ -14,21 +14,23 @@
  * @returns Promise<SupabaseClient> instance configured for server
  */
 
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabaseEnv } from "./config";
 
 export const createSupabaseServerClient = async () => {
   const { url, anonKey } = getSupabaseEnv();
   const cookieStore = await cookies();
-  
+
   return createServerClient(url, anonKey, {
     cookies: {
       // Read all cookies from the request
       getAll: () => cookieStore.getAll(),
-      // Write cookies back to the response
-      setAll: (cookiesToSet: { name: string; value: string }[]) => {
-        cookiesToSet.forEach(({ name, value }) => cookieStore.set(name, value));
+      // Write cookies back to the response — options must pass through, or
+      // fresh sessions (e.g. /auth/confirm's verifyOtp) lose maxAge/path and
+      // degrade to browser-session cookies.
+      setAll: (cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) => {
+        cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
       },
     },
   });

@@ -17,6 +17,8 @@ export const maxDuration = 60;
 interface TargetCompanyInput {
   name: string;
   linkedin_url?: string | null;
+  linkedin_company_id?: string | null;
+  universal_name?: string | null;
   priority_score?: number | null;
   tier?: string | null;
   program_name?: string | null;
@@ -31,19 +33,31 @@ export const POST = withApiHandler({
   schema: targetCompaniesBulkImportSchema,
   extensionAuth: true,
   cors: true,
-  handler: async ({ supabase, user, body }) => {
+  handler: async ({ supabase, user, body, track }) => {
     const { companies } = body as { companies: TargetCompanyInput[] };
 
     let created = 0;
     let updated = 0;
     const errors: Array<{ name: string; error: string }> = [];
+    // Identity-less rows whose name resembles an existing company — the
+    // split-row pattern CAR-44 cleaned up. Import succeeds; caller decides.
+    const warnings: Array<{ name: string; possible_duplicate_of: string }> = [];
 
     for (const input of companies) {
       try {
         const company = await findOrCreateCompany(supabase, {
           name: input.name,
           linkedin_url: input.linkedin_url,
+          linkedin_company_id: input.linkedin_company_id,
+          universal_name: input.universal_name,
         });
+        if (company.possible_duplicate_of) {
+          warnings.push({ name: company.name, possible_duplicate_of: company.possible_duplicate_of.name });
+          track("company_duplicate_suspected", {
+            company: company.name,
+            possible_duplicate: company.possible_duplicate_of.name,
+          });
+        }
 
         const researchFields = {
           priority_score: input.priority_score ?? null,
@@ -82,6 +96,6 @@ export const POST = withApiHandler({
       }
     }
 
-    return { created, updated, errors };
+    return { created, updated, errors, warnings };
   },
 });

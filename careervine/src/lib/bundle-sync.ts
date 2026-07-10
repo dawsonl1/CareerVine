@@ -33,11 +33,16 @@
 import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payload";
+import { chunkList } from "./company-helpers";
 import { importPeopleChunk, type PersonImportResult } from "./bulk-import";
 import { stableStringify } from "./bundle-publish";
 
 export const SYNC_CLAIM_MS = 2 * 60 * 1000;
-export const SYNC_CHUNK_SIZE = 50;
+/** Prospects per apply chunk. Raised 50 → 150 (CAR-57): with the create
+ * path bulk-inserted, per-chunk cost is ~flat per row (~3–4s at 150), so
+ * bigger chunks cut per-chunk overhead (claim renew, checkpoint, HTTP/
+ * QStash hops) while staying far inside the 60s function window. */
+export const SYNC_CHUNK_SIZE = 150;
 
 export interface BundleCore {
   id: number;
@@ -405,13 +410,18 @@ export async function applyBundleDelta(
       }
 
       // Pre-apply fingerprint pass over contacts that already exist.
+      // chunkList bounds the URL .in() list — 150 encoded LinkedIn URLs in
+      // one GET query string flirts with infra header limits (CAR-57).
       const urls = parsed.map((p) => p.mapped.linkedin_url);
-      const { data: existingContacts } = await client
-        .from("contacts")
-        .select("id, linkedin_url")
-        .eq("user_id", subscription.user_id)
-        .in("linkedin_url", urls);
-      const existingIds = ((existingContacts as Array<{ id: number }> | null) ?? []).map((c) => c.id);
+      const existingIds: number[] = [];
+      for (const urlChunk of chunkList(urls)) {
+        const { data: existingContacts } = await client
+          .from("contacts")
+          .select("id, linkedin_url")
+          .eq("user_id", subscription.user_id)
+          .in("linkedin_url", urlChunk);
+        existingIds.push(...(((existingContacts as Array<{ id: number }> | null) ?? []).map((c) => c.id)));
+      }
       const signals = await fetchTouchSignals(client, subscription.user_id, existingIds);
 
       const stateUpserts: Record<string, unknown>[] = [];

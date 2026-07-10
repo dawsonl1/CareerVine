@@ -63,6 +63,11 @@ export async function POST(req: NextRequest) {
       shared_access: sharedAccess,
       granted_at: sharedAccess ? now : null,
       granted_by: "admin",
+      // Manual grants are permanent — and must overwrite a stale trial
+      // expiry, or the upsert's conflict-merge would keep the user locked
+      // (CAR-51). A grant also settles any pending access request.
+      expires_at: null,
+      ...(sharedAccess ? { access_requested_at: null } : {}),
       updated_at: now,
     },
     { onConflict: "user_id" },

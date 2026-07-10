@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/admin";
 import {
   shapeAdminUser,
   keyStatusFor,
+  isEffectivelyShared,
   type PublicUserRow,
 } from "@/lib/admin-users";
 
@@ -36,7 +37,7 @@ export const GET = withApiHandler({
           .maybeSingle(),
         service
           .from("user_ai_access")
-          .select("shared_access")
+          .select("shared_access, expires_at")
           .eq("user_id", id)
           .maybeSingle(),
         // Month-to-date Apify spend — shown next to the kill switches so the
@@ -49,7 +50,7 @@ export const GET = withApiHandler({
       pub as PublicUserRow,
       authData?.user ?? undefined,
       keyStatusFor((keyRow as { status: string } | null)?.status),
-      (accessRow as { shared_access: boolean } | null)?.shared_access === true,
+      isEffectivelyShared(accessRow as { shared_access: boolean; expires_at: string | null } | null),
     );
 
     return { user, apifyMonthSpendUsd: Number(spend ?? 0) };

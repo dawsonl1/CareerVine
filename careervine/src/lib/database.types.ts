@@ -75,14 +75,18 @@ export type Database = {
           user_id: string;
           shared_access: boolean;
           granted_at: string | null;
-          granted_by: string | null;
+          granted_by: string | null;          // audit note: 'admin', admin uuid, or 'trial' (CAR-51)
+          expires_at: string | null;          // NULL = permanent grant; trial rows = first AI use + 24h (CAR-51)
+          access_requested_at: string | null; // last "Request AI access" click after expiry (CAR-51)
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["user_ai_access"]["Row"], "shared_access" | "granted_at" | "granted_by" | "created_at" | "updated_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["user_ai_access"]["Row"], "shared_access" | "granted_at" | "granted_by" | "expires_at" | "access_requested_at" | "created_at" | "updated_at"> & {
           shared_access?: boolean;
           granted_at?: string | null;
           granted_by?: string | null;
+          expires_at?: string | null;
+          access_requested_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -200,8 +204,9 @@ export type Database = {
           linkedin_url: string | null;   // LinkedIn company page URL
           universal_name: string | null; // LinkedIn company slug (e.g., "google")
           logo_url: string | null;       // Company logo URL
+          name_normalized: string | null; // GENERATED (20260710170000) normalized matching key — read-only
         };
-        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "logo_url"> & {
+        Insert: Omit<Database["public"]["Tables"]["companies"]["Row"], "id" | "linkedin_company_id" | "linkedin_url" | "universal_name" | "logo_url" | "name_normalized"> & {
           id?: number;
           linkedin_company_id?: string | null;
           linkedin_url?: string | null;

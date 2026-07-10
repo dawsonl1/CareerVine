@@ -31,11 +31,23 @@ function AuthPage() {
   const initialMode =
     rawMode === "signup" ? "signup" : rawMode === "reset" ? "forgot" : "signin";
 
+  // /auth/confirm bounces invalid or expired email links here with context.
+  const initialError =
+    searchParams.get("error") === "confirm-expired"
+      ? "That confirmation link is invalid or has expired. If you've already confirmed your email, just sign in — otherwise sign in to get a fresh link."
+      : undefined;
+
   useEffect(() => {
     if (!loading && user) router.replace("/");
   }, [loading, user, router]);
 
   if (loading || user) return null;
 
-  return <AuthForm initialMode={initialMode} onBack={() => router.push("/")} />;
+  return (
+    <AuthForm
+      initialMode={initialMode}
+      initialError={initialError}
+      onBack={() => router.push("/")}
+    />
+  );
 }

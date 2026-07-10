@@ -8,6 +8,7 @@ const CODES: AiFailureCode[] = [
   "ai_no_key",
   "ai_key_invalid",
   "ai_quota_exhausted",
+  "ai_trial_expired",
   "ai_unavailable",
 ];
 
@@ -41,5 +42,38 @@ describe("AiUnavailableNotice", () => {
     // Retryable code but no handler: no retry button.
     render(<AiUnavailableNotice code="ai_unavailable" />);
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("shows Request AI access only for ai_trial_expired, and settles into a sent state", async () => {
+    // Other codes must not grow the button.
+    render(<AiUnavailableNotice code="ai_no_key" />);
+    expect(screen.queryByRole("button", { name: "Request AI access" })).toBeNull();
+    cleanup();
+
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AiUnavailableNotice code="ai_trial_expired" />);
+    const button = screen.getByRole("button", { name: "Request AI access" });
+    fireEvent.click(button);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/ai/request-access", { method: "POST" });
+    expect(await screen.findByText(/Request sent/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Request AI access" })).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("surfaces a request failure and lets the user retry", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AiUnavailableNotice code="ai_trial_expired" />);
+    fireEvent.click(screen.getByRole("button", { name: "Request AI access" }));
+
+    expect(await screen.findByText(/Couldn't send/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Request AI access" })).toBeTruthy();
+
+    vi.unstubAllGlobals();
   });
 });

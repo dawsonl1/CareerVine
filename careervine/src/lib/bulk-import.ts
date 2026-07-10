@@ -198,6 +198,28 @@ interface WorkingPerson {
   existingPhotoUrl?: string | null;
 }
 
+const CONTACT_CORE_COLUMNS =
+  "id, name, linkedin_url, public_identifier, persona, network_status, location_id, headline, photo_url";
+
+interface ContactCoreRow {
+  id: number;
+  name: string;
+  linkedin_url: string | null;
+  public_identifier: string | null;
+  persona: string | null;
+  network_status: string;
+  location_id: number | null;
+  headline: string | null;
+  photo_url: string | null;
+}
+
+/** A new contact awaiting the chunk's bulk insert (CAR-57). */
+interface PendingCreate {
+  w: WorkingPerson;
+  row: Record<string, unknown>;
+  profileLocationId: number | null;
+}
+
 // ── Main entry ─────────────────────────────────────────────────────────
 
 export async function importPeopleChunk(
@@ -251,13 +273,17 @@ export async function importPeopleChunk(
   const urls = working.map((w) => w.mapped.linkedin_url);
   const suppressed = new Set<string>();
   if (policy !== "rescrape") {
-    const { data: suppressedRows } = await supabase
-      .from("suppressed_imports")
-      .select("linkedin_url")
-      .eq("user_id", userId)
-      .in("linkedin_url", urls);
-    for (const r of (suppressedRows as { linkedin_url: string }[] | null) ?? []) {
-      suppressed.add(r.linkedin_url);
+    // chunkList bounds the .in() list — 150+ URL-encoded LinkedIn URLs in
+    // one GET query string flirts with infra header limits (CAR-57).
+    for (const urlChunk of chunkList(urls)) {
+      const { data: suppressedRows } = await supabase
+        .from("suppressed_imports")
+        .select("linkedin_url")
+        .eq("user_id", userId)
+        .in("linkedin_url", urlChunk);
+      for (const r of (suppressedRows as { linkedin_url: string }[] | null) ?? []) {
+        suppressed.add(r.linkedin_url);
+      }
     }
   }
 
@@ -438,38 +464,30 @@ export async function importPeopleChunk(
   }
 
   // ── Existing-contact lookup (canonical url, then public_identifier) ──
-  const { data: byUrl } = await supabase
-    .from("contacts")
-    .select("id, name, linkedin_url, public_identifier, persona, network_status, location_id, headline, photo_url")
-    .eq("user_id", userId)
-    .in("linkedin_url", urls);
-  const pids = working.map((w) => w.mapped.public_identifier).filter(Boolean) as string[];
-  const { data: byPid } = pids.length
-    ? await supabase
-        .from("contacts")
-        .select("id, name, linkedin_url, public_identifier, persona, network_status, location_id, headline, photo_url")
-        .eq("user_id", userId)
-        .in("public_identifier", pids)
-    : { data: [] };
-
-  type ContactCoreRow = {
-    id: number;
-    name: string;
-    linkedin_url: string | null;
-    public_identifier: string | null;
-    persona: string | null;
-    network_status: string;
-    location_id: number | null;
-    headline: string | null;
-    photo_url: string | null;
-  };
+  // Both lookups are chunked for the same header-limit reason as the
+  // suppression sweep (CAR-57).
   const urlMap = new Map<string, ContactCoreRow>();
-  for (const c of (byUrl as ContactCoreRow[] | null) ?? []) {
-    if (c.linkedin_url) urlMap.set(c.linkedin_url, c);
+  for (const urlChunk of chunkList(urls)) {
+    const { data: byUrl } = await supabase
+      .from("contacts")
+      .select(CONTACT_CORE_COLUMNS)
+      .eq("user_id", userId)
+      .in("linkedin_url", urlChunk);
+    for (const c of (byUrl as ContactCoreRow[] | null) ?? []) {
+      if (c.linkedin_url) urlMap.set(c.linkedin_url, c);
+    }
   }
+  const pids = working.map((w) => w.mapped.public_identifier).filter(Boolean) as string[];
   const pidMap = new Map<string, ContactCoreRow>();
-  for (const c of (byPid as ContactCoreRow[] | null) ?? []) {
-    if (c.public_identifier) pidMap.set(c.public_identifier, c);
+  for (const pidChunk of chunkList(pids)) {
+    const { data: byPid } = await supabase
+      .from("contacts")
+      .select(CONTACT_CORE_COLUMNS)
+      .eq("user_id", userId)
+      .in("public_identifier", pidChunk);
+    for (const c of (byPid as ContactCoreRow[] | null) ?? []) {
+      if (c.public_identifier) pidMap.set(c.public_identifier, c);
+    }
   }
 
   // Explicit target for single-record rescrapes (see ImportChunkOptions).
@@ -477,7 +495,7 @@ export async function importPeopleChunk(
   if (opts.targetContactId != null && working.length === 1) {
     const { data: byId } = await supabase
       .from("contacts")
-      .select("id, name, linkedin_url, public_identifier, persona, network_status, location_id, headline, photo_url")
+      .select(CONTACT_CORE_COLUMNS)
       .eq("user_id", userId)
       .eq("id", opts.targetContactId)
       .maybeSingle();
@@ -527,6 +545,10 @@ export async function importPeopleChunk(
   };
 
   // ── Per-person persistence ──
+  // Updates run inline; creates are deferred into ONE bulk contacts insert
+  // for the chunk (CAR-57) — results are pushed here in input order and
+  // hold live references, so the bulk pass mutates them in place.
+  const pendingCreates: PendingCreate[] = [];
   for (const w of working) {
     const { mapped } = w;
     if (suppressed.has(mapped.linkedin_url)) {
@@ -560,7 +582,7 @@ export async function importPeopleChunk(
         w.result.status = "error";
         w.result.error = "Contact not found for rescrape";
       } else {
-        await createNewPerson(supabase, userId, w, profileLocationId, now, opts, sinks);
+        pendingCreates.push({ w, row: buildContactInsertRow(userId, w, profileLocationId, now, opts), profileLocationId });
       }
       results.push(w.result);
     } catch (err) {
@@ -571,6 +593,9 @@ export async function importPeopleChunk(
       });
     }
   }
+
+  // ── Bulk create path (CAR-57) ──
+  await bulkCreatePersons(supabase, userId, pendingCreates, now, policy, opts, sinks);
 
   // ── Flush chunk-level sinks (CAR-47): bulk writes, per-row fallback ──
   if (sinks.emails.length > 0) {
@@ -636,18 +661,16 @@ export async function importPeopleChunk(
   return { results, offices_established: officesEstablished };
 }
 
-// ── Create path ────────────────────────────────────────────────────────
+// ── Create path (bulk per chunk, CAR-57) ──────────────────────────────
 
-async function createNewPerson(
-  supabase: SupabaseClient,
+function buildContactInsertRow(
   userId: string,
   w: WorkingPerson,
   profileLocationId: number | null,
   now: string,
   opts: ImportChunkOptions,
-  sinks: ChunkSinks,
-) {
-  const { mapped, input } = w;
+): Record<string, unknown> {
+  const { mapped } = w;
   const noteLabel =
     opts.noteLabel ?? `Imported from PM recruiting pipeline${opts.batch ? ` (${opts.batch})` : ""}`;
   const initialNotes = [
@@ -657,74 +680,200 @@ async function createNewPerson(
     .filter(Boolean)
     .join("\n\n");
 
-  const { data: contact, error } = await supabase
-    .from("contacts")
-    .insert({
-      user_id: userId,
-      name: mapped.name,
-      linkedin_url: mapped.linkedin_url,
-      public_identifier: mapped.public_identifier,
-      headline: mapped.headline,
-      persona: mapped.persona,
-      review_note: mapped.review_note,
-      verified_school: mapped.verified_school,
-      network_status: mapped.network_status,
-      network_scope: mapped.network_scope,
-      import_source: mapped.import_source,
-      import_meta: mapped.import_meta,
-      // Shared bundle photos (already in R2) land directly on the row;
-      // external CDN URLs go through the mirror phase instead.
-      photo_url: isBundlePhotoUrl(mapped.photo_url) ? mapped.photo_url : null,
-      last_scraped_at: now,
-      location_id: profileLocationId,
-      notes: initialNotes,
-      contact_status: "professional",
-      status_derived_at: now,
-    })
-    .select("id")
-    .single();
-  if (error || !contact) throw new Error(error?.message ?? "Failed to create contact");
-  const contactId = (contact as { id: number }).id;
+  return {
+    user_id: userId,
+    name: mapped.name,
+    linkedin_url: mapped.linkedin_url,
+    public_identifier: mapped.public_identifier,
+    headline: mapped.headline,
+    persona: mapped.persona,
+    review_note: mapped.review_note,
+    verified_school: mapped.verified_school,
+    network_status: mapped.network_status,
+    network_scope: mapped.network_scope,
+    import_source: mapped.import_source,
+    import_meta: mapped.import_meta,
+    // Shared bundle photos (already in R2) land directly on the row;
+    // external CDN URLs go through the mirror phase instead.
+    photo_url: isBundlePhotoUrl(mapped.photo_url) ? mapped.photo_url : null,
+    last_scraped_at: now,
+    location_id: profileLocationId,
+    notes: initialNotes,
+    contact_status: "professional",
+    status_derived_at: now,
+  };
+}
+
+function markCreated(w: WorkingPerson, contactId: number) {
   w.contactId = contactId;
   w.created = true;
   w.result.status = "created";
   w.result.contact_id = contactId;
-  w.result.network_status = mapped.network_status;
+  w.result.network_status = w.mapped.network_status;
+}
 
-  // Email — collected; the chunk flush bulk-inserts it (CAR-47)
-  if (mapped.email && isValidImportEmail(mapped.email.address)) {
-    sinks.emails.push({
-      contact_id: contactId,
-      email: mapped.email.address,
-      is_primary: true,
-      source: mapped.email.source,
-    });
+/** Re-look-up a contact after a failed single-row insert: covers a racing
+ * insert from a non-claimed writer (and a future unique index) — found →
+ * the person merges instead of erroring. */
+async function refetchExistingContact(
+  supabase: SupabaseClient,
+  userId: string,
+  mapped: MappedPerson,
+): Promise<ContactCoreRow | undefined> {
+  const { data: byUrl } = await supabase
+    .from("contacts")
+    .select(CONTACT_CORE_COLUMNS)
+    .eq("user_id", userId)
+    .eq("linkedin_url", mapped.linkedin_url)
+    .limit(1);
+  const urlHit = (byUrl as ContactCoreRow[] | null)?.[0];
+  if (urlHit) return urlHit;
+  if (!mapped.public_identifier) return undefined;
+  const { data: byPid } = await supabase
+    .from("contacts")
+    .select(CONTACT_CORE_COLUMNS)
+    .eq("user_id", userId)
+    .eq("public_identifier", mapped.public_identifier)
+    .limit(1);
+  return (byPid as ContactCoreRow[] | null)?.[0];
+}
+
+/**
+ * Create every genuinely-new person of the chunk in two bulk statements:
+ * one `contacts` insert (ids mapped back from RETURNING) and one
+ * `contact_companies` insert across the whole chunk. Either bulk write
+ * failing degrades to per-row/per-person work (CAR-47 pattern) so one
+ * malformed prospect can't sink the other 49 — per-person `result.status`
+ * stays accurate throughout.
+ */
+async function bulkCreatePersons(
+  supabase: SupabaseClient,
+  userId: string,
+  pending: PendingCreate[],
+  now: string,
+  policy: MergePolicy,
+  opts: ImportChunkOptions,
+  sinks: ChunkSinks,
+) {
+  if (pending.length === 0) return;
+
+  const { data: created, error } = await supabase
+    .from("contacts")
+    .insert(pending.map((p) => p.row))
+    .select("id, linkedin_url");
+  const createdRows = (created as Array<{ id: number; linkedin_url: string | null }> | null) ?? [];
+
+  if (!error && createdRows.length === pending.length) {
+    // RETURNING preserves VALUES order in Postgres; the linkedin_url
+    // cross-check guards the assumption, falling back to URL matching
+    // (URLs are unique within a chunk on every current caller).
+    const positional = createdRows.every((r, i) => r.linkedin_url === pending[i].w.mapped.linkedin_url);
+    const byUrl = positional ? null : new Map(createdRows.map((r) => [r.linkedin_url, r.id]));
+    for (let i = 0; i < pending.length; i++) {
+      const id = positional ? createdRows[i].id : byUrl!.get(pending[i].w.mapped.linkedin_url);
+      if (id != null) {
+        markCreated(pending[i].w, id);
+      } else {
+        pending[i].w.result.status = "error";
+        pending[i].w.result.error = "Failed to create contact";
+      }
+    }
+  } else {
+    // Bulk insert failed (or returned short) → per-row fallback. A row
+    // that still fails is re-checked for an existing contact and merged
+    // as an update when found.
+    for (const p of pending) {
+      try {
+        const { data: contact, error: rowError } = await supabase
+          .from("contacts")
+          .insert(p.row)
+          .select("id")
+          .single();
+        if (!rowError && contact) {
+          markCreated(p.w, (contact as { id: number }).id);
+          continue;
+        }
+        const existing = await refetchExistingContact(supabase, userId, p.w.mapped);
+        if (!existing) throw new Error(rowError?.message ?? "Failed to create contact");
+        p.w.existingPhotoUrl = existing.photo_url;
+        await updateExistingPerson(supabase, p.w, existing, p.profileLocationId, now, policy, sinks, opts.hooks);
+      } catch (err) {
+        p.w.result.status = "error";
+        p.w.result.error = err instanceof Error ? err.message : "Import failed";
+      }
+    }
   }
 
-  // Employment (all incoming, scraped-sourced)
-  if (w.employment.length > 0) {
-    const { error: empError } = await supabase.from("contact_companies").insert(
-      w.employment.map((e) => ({ contact_id: contactId, ...e.incoming, source: "scraped", scraped_at: now })),
-    );
-    if (empError) throw new Error(`Employment insert failed: ${empError.message}`);
-    w.result.employment = { inserted: w.employment.length, updated: 0, deleted: 0 };
+  // ── Created persons: emails + one chunk-wide employment insert ──
+  const createdPending = pending.filter((p) => p.w.created && p.w.result.status === "created");
+
+  for (const p of createdPending) {
+    const { mapped } = p.w;
+    // Email — collected; the chunk flush bulk-inserts it (CAR-47)
+    if (mapped.email && isValidImportEmail(mapped.email.address)) {
+      sinks.emails.push({
+        contact_id: p.w.contactId,
+        email: mapped.email.address,
+        is_primary: true,
+        source: mapped.email.source,
+      });
+    }
   }
 
-  // Education — a just-created contact has none, so no existing-rows check
-  await collectEducation(contactId, w, sinks, { checkExisting: false, supabase });
-
-  // Tags — collected; flushed for the whole chunk in one batched pass
-  if (mapped.tags.length > 0) {
-    // Merge, don't overwrite — two chunk entries can resolve to the same
-    // contact (url variant + public_identifier match), and the second must
-    // not clobber the first's tags (CAR-47 audit).
-    const priorTags = sinks.tags.get(contactId);
-    sinks.tags.set(contactId, priorTags ? [...priorTags, ...mapped.tags] : mapped.tags);
+  const employmentRowsOf = (p: PendingCreate) =>
+    p.w.employment.map((e) => ({ contact_id: p.w.contactId, ...e.incoming, source: "scraped", scraped_at: now }));
+  const withEmployment = createdPending.filter((p) => p.w.employment.length > 0);
+  const allEmploymentRows = withEmployment.flatMap(employmentRowsOf);
+  if (allEmploymentRows.length > 0) {
+    const { error: empError } = await supabase.from("contact_companies").insert(allEmploymentRows);
+    if (empError) {
+      // Per-person fallback: a person whose rows still fail is marked
+      // error (contact exists, employment didn't — same as the old
+      // per-person throw); everyone else keeps accurate counts.
+      for (const p of withEmployment) {
+        const { error: rowError } = await supabase.from("contact_companies").insert(employmentRowsOf(p));
+        if (rowError) {
+          p.w.result.status = "error";
+          p.w.result.error = `Employment insert failed: ${rowError.message}`;
+        } else {
+          p.w.result.employment = { inserted: p.w.employment.length, updated: 0, deleted: 0 };
+        }
+      }
+    } else {
+      for (const p of withEmployment) {
+        p.w.result.employment = { inserted: p.w.employment.length, updated: 0, deleted: 0 };
+      }
+    }
   }
 
-  // Tracker outreach state — applies ONLY on first import (contract:
-  // after that, CareerVine owns outreach state)
-  await applyTrackerState(supabase, userId, contactId, input.tracker, now);
+  // ── Education / tags / tracker — skipped for persons that errored above
+  // (matches the old per-person flow, where the employment throw aborted
+  // the rest of that person's steps) ──
+  for (const p of createdPending) {
+    if (p.w.result.status !== "created") continue;
+    const { mapped, input } = p.w;
+    const contactId = p.w.contactId!;
+    try {
+      // Education — a just-created contact has none, so no existing-rows check
+      await collectEducation(contactId, p.w, sinks, { checkExisting: false, supabase });
+
+      // Tags — collected; flushed for the whole chunk in one batched pass.
+      // Merge, don't overwrite — two chunk entries can resolve to the same
+      // contact (url variant + public_identifier match), and the second must
+      // not clobber the first's tags (CAR-47 audit).
+      if (mapped.tags.length > 0) {
+        const priorTags = sinks.tags.get(contactId);
+        sinks.tags.set(contactId, priorTags ? [...priorTags, ...mapped.tags] : mapped.tags);
+      }
+
+      // Tracker outreach state — applies ONLY on first import (contract:
+      // after that, CareerVine owns outreach state)
+      await applyTrackerState(supabase, userId, contactId, input.tracker, now);
+    } catch (err) {
+      p.w.result.status = "error";
+      p.w.result.error = err instanceof Error ? err.message : "Import failed";
+    }
+  }
 }
 
 // ── Update path ────────────────────────────────────────────────────────

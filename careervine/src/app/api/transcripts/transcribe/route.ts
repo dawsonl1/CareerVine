@@ -18,6 +18,9 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
  */
 export const POST = withApiHandler({
   schema: transcriptTranscribeSchema,
+  // CAR-51: spend cap — this route can fall back to the shared Deepgram key,
+  // and 10 meeting transcriptions/hour is far above normal use.
+  rateLimit: { bucket: "careervine-transcripts-transcribe", limit: 10, window: "1 h" },
   handler: async ({ user, body, track }) => {
     const { meetingId, attachmentObjectPath } = body;
 

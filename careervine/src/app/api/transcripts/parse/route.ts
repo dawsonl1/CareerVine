@@ -13,6 +13,8 @@ import { transcriptParseSchema } from "@/lib/api-schemas";
  */
 export const POST = withApiHandler({
   schema: transcriptParseSchema,
+  // CAR-51: spend cap on shared-key AI — transcripts are the heaviest calls.
+  rateLimit: { bucket: "careervine-transcripts-parse", limit: 12, window: "1 h" },
   handler: async ({ user, body, track }) => {
     const { rawText } = body;
     const model = DEFAULT_MODEL;
