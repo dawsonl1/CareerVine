@@ -240,6 +240,11 @@ export const targetCompaniesBulkImportSchema = z.object({
       z.object({
         name: z.string().min(1).max(300),
         linkedin_url: z.string().max(500).nullish(),
+        // Stable LinkedIn identity (CAR-44): sheets that know the numeric
+        // company id / slug should send them so imported rows unify with
+        // scraper-created rows instead of minting identity-less splits.
+        linkedin_company_id: z.string().max(50).nullish(),
+        universal_name: z.string().max(200).nullish(),
         priority_score: z.number().nullish(),
         tier: z.string().max(200).nullish(),
         program_name: z.string().max(300).nullish(),

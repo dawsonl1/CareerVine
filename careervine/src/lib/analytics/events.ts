@@ -34,6 +34,8 @@ export const MILESTONE_THRESHOLDS = {
 export type AnalyticsEvents = {
   // ── Lifecycle / activation funnel ─────────────────────────────────
   user_signed_up: Record<string, never>;
+  /** Confirmation link clicked and verified server-side (/auth/confirm). */
+  user_email_verified: Record<string, never>;
   gmail_connected: Record<string, never>;
   gmail_disconnected: Record<string, never>;
   calendar_connected: Record<string, never>;
@@ -46,6 +48,14 @@ export type AnalyticsEvents = {
   };
   // (contact/page views come free from $pageview + autocapture — no
   // curated event needed.)
+
+  // ── Data quality ──────────────────────────────────────────────────
+  /** An identity-less company import created a row whose name resembles an
+   * existing company — the split-row pattern behind CAR-44. */
+  company_duplicate_suspected: {
+    company: string;
+    possible_duplicate: string;
+  };
 
   // ── Outreach loop (the core loop) ─────────────────────────────────
   email_sent: {

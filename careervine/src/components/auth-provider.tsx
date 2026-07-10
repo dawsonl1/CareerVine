@@ -16,6 +16,7 @@ type AuthContextType = {
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
+  resendConfirmation: (email: string) => Promise<{ error?: string }>;
 };
 
 // Create the React context with undefined as default
@@ -93,6 +94,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           first_name: firstName,
           last_name: lastName,
         },
+        // The confirmation email's token_hash link lands here, where the
+        // session is minted server-side — works cross-tab and cross-device,
+        // unlike the PKCE code exchange (CAR-52).
+        emailRedirectTo: `${window.location.origin}/auth/confirm`,
       },
     });
 
@@ -160,7 +165,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const resetPassword = async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      // Recovery goes through /auth/confirm too: the session is established
+      // server-side before /reset-password loads, instead of relying on the
+      // hash-token auto-detection race the page used to paper over.
+      redirectTo: `${window.location.origin}/auth/confirm?next=/reset-password`,
+    });
+    if (error) return { error: error.message };
+    return {};
+  };
+
+  /**
+   * Re-send the signup confirmation email. Without this, a user whose link
+   * expired would be stranded: sign-in rejects unconfirmed emails and signup
+   * rejects the duplicate. Rate limiting is enforced server-side by GoTrue.
+   */
+  const resendConfirmation = async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/confirm`,
+      },
     });
     if (error) return { error: error.message };
     return {};
@@ -177,6 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signOut,
         resetPassword,
+        resendConfirmation,
       }}
     >
       {children}
