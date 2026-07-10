@@ -1,6 +1,6 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { aiDraftFollowUpsSchema } from "@/lib/api-schemas";
-import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
 
 /**
@@ -68,6 +68,7 @@ Each follow-up should:
         }),
       );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[draft-follow-ups] OpenAI API error:", err);
       throw new ApiError("Failed to generate follow-ups. Please try again.", 500);
     }

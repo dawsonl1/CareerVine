@@ -1,5 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { extensionParseProfileSchema } from "@/lib/api-schemas";
 import { addIsCurrentToExperience, addIsCurrentToEducation, deriveCurrentRole, deriveContactStatus } from '@/lib/profile-helpers';
 import { handleOptions } from '@/lib/extension-auth';
@@ -138,6 +138,7 @@ export const POST = withApiHandler({
         }),
       );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[parse-profile] OpenAI API error:", err);
       throw new ApiError("Failed to parse profile. Please try again.", 500);
     }

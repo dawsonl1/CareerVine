@@ -1,5 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { transcriptParseSchema } from "@/lib/api-schemas";
 
 /**
@@ -72,6 +72,7 @@ export const POST = withApiHandler({
         }),
       );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[transcripts/parse] OpenAI API error:", err);
       throw new ApiError("Failed to parse transcript. Please try again.", 500);
     }

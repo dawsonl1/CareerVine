@@ -1,5 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { transcriptExtractActionsSchema } from "@/lib/api-schemas";
 import { matchSpeakerToAttendee, resolveDueDate } from "@/lib/transcript-action-helpers";
 
@@ -117,6 +117,7 @@ export const POST = withApiHandler({
         }),
       );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[extract-actions] OpenAI API error:", err);
       throw new ApiError("Failed to extract action items. Please try again.", 500);
     }

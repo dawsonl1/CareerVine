@@ -23,49 +23,31 @@ vi.mock("@/lib/crypto", () => ({
   CryptoError: class CryptoError extends Error {},
 }));
 
-const mockResponsesCreate = vi.fn();
+// The routing lib pulls in the Deepgram SDK; stub it so imports are hermetic.
+vi.mock("@deepgram/sdk", () => ({
+  DeepgramClient: class DeepgramClient {
+    constructor() {}
+  },
+}));
 
-vi.mock("openai", () => {
-  // Mirrors the real openai APIError closely enough for the route's error
-  // handling: code derives from the error body (the real property is
-  // readonly, so tests must pass it through the constructor, not assign it).
-  class APIError extends Error {
-    status: number;
-    code?: string;
-    constructor(status: number, error: unknown, message?: string) {
-      super(message || "API error");
-      this.status = status;
-      this.code = (error as { code?: string } | undefined)?.code;
-    }
-  }
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
 
-  class AuthenticationError extends APIError {
-    constructor(status = 401, error: unknown = { code: "invalid_api_key" }, message = "invalid") {
-      super(status, error, message);
-    }
-  }
+import { GET, PUT, DELETE } from "@/app/api/settings/deepgram-key/route";
+import { evictDeepgramKeyCache } from "@/lib/deepgram";
 
-  return {
-    default: class OpenAI {
-      responses = { create: mockResponsesCreate };
-      constructor() {}
-    },
-    APIError,
-    AuthenticationError,
-  };
-});
-
-import { GET, PUT, DELETE } from "@/app/api/settings/openai-key/route";
-import { evictOpenAIKeyCache } from "@/lib/openai";
+// 40 lowercase hex characters — a well-formed Deepgram key.
+const VALID_KEY = "0123456789abcdef0123456789abcdef01234567";
 
 function makeRequest(method: string, body?: unknown) {
   return {
     method,
-    nextUrl: new URL("http://localhost:3000/api/settings/openai-key"),
+    nextUrl: new URL("http://localhost:3000/api/settings/deepgram-key"),
     headers: new Headers(),
-    json: body !== undefined
-      ? vi.fn().mockResolvedValue(body)
-      : vi.fn().mockRejectedValue(new Error("No body")),
+    json:
+      body !== undefined
+        ? vi.fn().mockResolvedValue(body)
+        : vi.fn().mockRejectedValue(new Error("No body")),
   } as any;
 }
 
@@ -79,9 +61,7 @@ function mockSelectRow(row: Record<string, unknown> | null) {
   const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
   const single = vi.fn().mockResolvedValue({ data: row, error: null });
   const eqProvider = vi.fn().mockReturnValue({ maybeSingle, single });
-  // eqUser supports both the two-eq user_api_keys read and the one-eq
-  // user_ai_access read (CAR-26 sharedAccess lookup) off the same builder.
-  const eqUser = vi.fn().mockReturnValue({ eq: eqProvider, maybeSingle });
+  const eqUser = vi.fn().mockReturnValue({ eq: eqProvider });
   const select = vi.fn().mockReturnValue({ eq: eqUser });
   const deleteEqProvider = vi.fn().mockResolvedValue({});
   const deleteEqUser = vi.fn().mockReturnValue({ eq: deleteEqProvider });
@@ -91,24 +71,24 @@ function mockSelectRow(row: Record<string, unknown> | null) {
   return { maybeSingle, single, upsert, del };
 }
 
-describe("settings/openai-key route", () => {
+describe("settings/deepgram-key route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.BYOK_ENCRYPTION_KEY = Buffer.alloc(32, 1).toString("base64");
-    evictOpenAIKeyCache("user-123");
-    mockResponsesCreate.mockResolvedValue({ output_text: "hello" });
+    evictDeepgramKeyCache("user-123");
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
   });
 
   it("GET returns hasKey false when no row", async () => {
     mockSelectRow(null);
     const { status, data } = await call(GET, makeRequest("GET"));
     expect(status).toBe(200);
-    expect(data).toEqual({ hasKey: false, sharedAccess: false });
+    expect(data).toEqual({ hasKey: false });
   });
 
   it("GET returns metadata only", async () => {
     mockSelectRow({
-      key_last4: "Ab3d",
+      key_last4: "4567",
       status: "active",
       created_at: "2026-01-01T00:00:00Z",
       last_used_at: null,
@@ -117,65 +97,49 @@ describe("settings/openai-key route", () => {
     const { status, data, text } = await call(GET, makeRequest("GET"));
     expect(status).toBe(200);
     expect(data.hasKey).toBe(true);
-    expect(data.last4).toBe("Ab3d");
-    expect(text).not.toContain("sk-");
+    expect(data.last4).toBe("4567");
+    expect(text).not.toContain(VALID_KEY);
     expect(text).not.toContain("enc:");
   });
 
   it("PUT rejects invalid key format", async () => {
     const { status } = await call(PUT, makeRequest("PUT", { apiKey: "not-a-key" }));
     expect(status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("PUT rejects OpenAI 401 without echoing key", async () => {
-    // Runtime is the mock above; the type is the real class, whose
-    // constructor takes (status, error, message, headers).
-    const { AuthenticationError } = await import("openai");
-    mockResponsesCreate.mockRejectedValueOnce(
-      new AuthenticationError(401, { code: "invalid_api_key" }, "invalid", new Headers()),
-    );
-    const { status, data, text } = await call(
-      PUT,
-      makeRequest("PUT", { apiKey: "sk-proj-secret-key-1234567890" }),
-    );
+  it("PUT rejects a key Deepgram returns 401 for, without echoing it", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    const { status, data, text } = await call(PUT, makeRequest("PUT", { apiKey: VALID_KEY }));
     expect(status).toBe(400);
     expect(data.error).toContain("rejected");
-    expect(text).not.toContain("sk-proj-secret");
+    expect(text).not.toContain(VALID_KEY);
   });
 
-  it("PUT rejects insufficient_quota", async () => {
-    const { APIError } = await import("openai");
-    // code is readonly on the real type — pass it via the error body, which
-    // both the real class and the mock derive it from.
-    const err = new APIError(429, { message: "quota", code: "insufficient_quota" }, "quota", undefined);
-    mockResponsesCreate.mockRejectedValueOnce(err);
-    const { status, data } = await call(
-      PUT,
-      makeRequest("PUT", { apiKey: "sk-proj-secret-key-1234567890" }),
-    );
+  it("PUT rejects a key with no Deepgram credit", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 402 });
+    const { status, data } = await call(PUT, makeRequest("PUT", { apiKey: VALID_KEY }));
     expect(status).toBe(400);
-    expect(data.error).toContain("quota");
+    expect(data.error).toContain("credit");
   });
 
-  it("PUT saves encrypted key", async () => {
+  it("PUT saves the encrypted key with provider=deepgram", async () => {
     const db = mockSelectRow({
-      key_last4: "7890",
+      key_last4: "4567",
       status: "active",
       created_at: "2026-01-01T00:00:00Z",
       last_used_at: null,
     });
 
-    const { status, data } = await call(
-      PUT,
-      makeRequest("PUT", { apiKey: "sk-proj-secret-key-1234567890" }),
-    );
+    const { status, data } = await call(PUT, makeRequest("PUT", { apiKey: VALID_KEY }));
 
     expect(status).toBe(200);
     expect(data.hasKey).toBe(true);
     expect(db.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        encrypted_key: "enc:sk-proj-secret-key-1234567890",
-        key_last4: "7890",
+        provider: "deepgram",
+        encrypted_key: `enc:${VALID_KEY}`,
+        key_last4: "4567",
         status: "active",
       }),
     );

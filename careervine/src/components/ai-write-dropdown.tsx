@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { Sparkles, ChevronDown, X, Loader2, MessageSquare, Calendar, Check } from "lucide-react";
+import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
+import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
 type PresetTemplate = {
   name: string;
@@ -40,6 +42,8 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
   const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
+  const [aiFailure, setAiFailure] = useState<AiFailureCode | null>(null);
+  const [lastPrompt, setLastPrompt] = useState("");
 
   // Custom prompt mode
   const [showCustomPrompt, setShowCustomPrompt] = useState(false);
@@ -99,6 +103,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
     setSelectedMeetingIds([]);
     setPendingPrompt(null);
     setError("");
+    setAiFailure(null);
   };
 
   // Close on outside click
@@ -106,6 +111,8 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
 
   const handleGenerate = async (prompt: string) => {
     setError("");
+    setAiFailure(null);
+    setLastPrompt(prompt);
     setGenerating(true);
     try {
       const res = await fetch("/api/gmail/ai-write", {
@@ -119,7 +126,14 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        const code = parseAiFailure(res.status, data);
+        if (code) {
+          setAiFailure(code);
+          return;
+        }
+        throw new Error(data.error);
+      }
       onGenerated(data.bodyHtml, data.subject);
       setOpen(false);
       resetState();
@@ -299,7 +313,13 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                 )}
               </div>
 
-              {error && <p className="text-sm text-destructive px-4 pb-2.5">{error}</p>}
+              {aiFailure ? (
+                <div className="px-4 pb-2.5">
+                  <AiUnavailableNotice compact code={aiFailure} onRetry={() => handleGenerate(lastPrompt)} />
+                </div>
+              ) : (
+                error && <p className="text-sm text-destructive px-4 pb-2.5">{error}</p>
+              )}
 
               <div className="px-4 pb-4 flex items-center justify-between">
                 {meetings.length > 0 ? (
@@ -350,7 +370,13 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                 )}
               </div>
 
-              {error && <p className="text-sm text-destructive px-4 pt-2.5">{error}</p>}
+              {aiFailure ? (
+                <div className="px-4 pt-2.5">
+                  <AiUnavailableNotice compact code={aiFailure} onRetry={() => handleGenerate(lastPrompt)} />
+                </div>
+              ) : (
+                error && <p className="text-sm text-destructive px-4 pt-2.5">{error}</p>
+              )}
 
               <div className="max-h-72 overflow-y-auto py-1">
                 {allTemplates.map((t, i) => (

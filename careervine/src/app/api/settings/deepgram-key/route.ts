@@ -1,11 +1,10 @@
-import OpenAI, { APIError } from "openai";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { openaiKeySaveSchema } from "@/lib/api-schemas";
+import { deepgramKeySaveSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { encryptSecret, CryptoError } from "@/lib/crypto";
-import { DEFAULT_MODEL, evictOpenAIKeyCache } from "@/lib/openai";
+import { evictDeepgramKeyCache } from "@/lib/deepgram";
 
-const OPENAI_PROVIDER = "openai";
+const DEEPGRAM_PROVIDER = "deepgram";
 const SAVE_WINDOW_MS = 10 * 60 * 1000;
 const SAVE_MAX_ATTEMPTS = 5;
 
@@ -42,72 +41,64 @@ function formatKeyStatus(row: {
   };
 }
 
-async function validateOpenAIKey(apiKey: string): Promise<void> {
-  const client = new OpenAI({ apiKey });
-
+/**
+ * Verifies a Deepgram key with a zero-cost authenticated call (list projects)
+ * against Deepgram's REST API — version-stable and independent of the SDK.
+ * Never surfaces the key in any error.
+ */
+async function validateDeepgramKey(apiKey: string): Promise<void> {
+  let res: Response;
   try {
-    await client.responses.create({
-      model: DEFAULT_MODEL,
-      input: "Reply with one word: hello",
-      max_output_tokens: 16,
+    res = await fetch("https://api.deepgram.com/v1/projects", {
+      headers: { Authorization: `Token ${apiKey}` },
     });
-  } catch (err) {
-    if (err instanceof APIError) {
-      if (err.status === 401) {
-        throw new ApiError(
-          "That key was rejected by OpenAI. Check that you copied the full key.",
-          400,
-        );
-      }
-      if (err.code === "insufficient_quota") {
-        throw new ApiError(
-          "Your key is valid but has no available quota. Enable data sharing for free daily tokens (see the video above) or add credit to your OpenAI account.",
-          400,
-        );
-      }
-    }
-    throw new ApiError("Couldn't reach OpenAI to verify — try again.", 502);
+  } catch {
+    throw new ApiError("Couldn't reach Deepgram to verify — try again.", 502);
   }
+
+  if (res.ok) return;
+
+  if (res.status === 401 || res.status === 403) {
+    throw new ApiError(
+      "That key was rejected by Deepgram. Check that you copied the full key.",
+      400,
+    );
+  }
+  if (res.status === 402 || res.status === 429) {
+    throw new ApiError(
+      "That key is valid but has no available Deepgram credit. Add credit to your Deepgram account and try again.",
+      400,
+    );
+  }
+  throw new ApiError("Couldn't verify the key with Deepgram — try again.", 502);
 }
 
 /**
- * GET /api/settings/openai-key — metadata only, never the key itself.
+ * GET /api/settings/deepgram-key — metadata only, never the key itself.
  */
 export const GET = withApiHandler({
   handler: async ({ user }) => {
     const service = createSupabaseServiceClient();
-    const [keyResult, accessResult] = await Promise.all([
-      service
-        .from("user_api_keys")
-        .select("key_last4, status, created_at, last_used_at")
-        .eq("user_id", user.id)
-        .eq("provider", OPENAI_PROVIDER)
-        .maybeSingle(),
-      service
-        .from("user_ai_access")
-        .select("shared_access")
-        .eq("user_id", user.id)
-        .maybeSingle(),
-    ]);
-
-    // sharedAccess tells the UI whether the no-key state is a hard block (must
-    // BYO) or a courtesy fallback — the surfacing end of CAR-26's gating.
-    const sharedAccess = accessResult.data?.shared_access === true;
-    const { data, error } = keyResult;
+    const { data, error } = await service
+      .from("user_api_keys")
+      .select("key_last4, status, created_at, last_used_at")
+      .eq("user_id", user.id)
+      .eq("provider", DEEPGRAM_PROVIDER)
+      .maybeSingle();
 
     if (error || !data) {
-      return { hasKey: false, sharedAccess };
+      return { hasKey: false };
     }
 
-    return { ...formatKeyStatus(data), sharedAccess };
+    return formatKeyStatus(data);
   },
 });
 
 /**
- * PUT /api/settings/openai-key — validate, encrypt, and store a user's key.
+ * PUT /api/settings/deepgram-key — validate, encrypt, and store a user's key.
  */
 export const PUT = withApiHandler({
-  schema: openaiKeySaveSchema,
+  schema: deepgramKeySaveSchema,
   handler: async ({ user, body }) => {
     checkSaveRateLimit(user.id);
 
@@ -118,13 +109,13 @@ export const PUT = withApiHandler({
       encryptedKey = encryptSecret(apiKey);
     } catch (err) {
       if (err instanceof CryptoError) {
-        console.error("[settings/openai-key] BYOK_ENCRYPTION_KEY is not configured");
+        console.error("[settings/deepgram-key] BYOK_ENCRYPTION_KEY is not configured");
         throw new ApiError("Key storage is not configured on the server.", 500);
       }
       throw err;
     }
 
-    await validateOpenAIKey(apiKey);
+    await validateDeepgramKey(apiKey);
 
     const service = createSupabaseServiceClient();
     const now = new Date().toISOString();
@@ -132,7 +123,7 @@ export const PUT = withApiHandler({
       .from("user_api_keys")
       .upsert({
         user_id: user.id,
-        provider: OPENAI_PROVIDER,
+        provider: DEEPGRAM_PROVIDER,
         encrypted_key: encryptedKey,
         key_last4: apiKey.slice(-4),
         status: "active",
@@ -146,13 +137,13 @@ export const PUT = withApiHandler({
       throw new ApiError("Failed to save API key.", 500);
     }
 
-    evictOpenAIKeyCache(user.id);
+    evictDeepgramKeyCache(user.id);
     return formatKeyStatus(data);
   },
 });
 
 /**
- * DELETE /api/settings/openai-key — remove stored key.
+ * DELETE /api/settings/deepgram-key — remove stored key.
  */
 export const DELETE = withApiHandler({
   handler: async ({ user }) => {
@@ -161,9 +152,9 @@ export const DELETE = withApiHandler({
       .from("user_api_keys")
       .delete()
       .eq("user_id", user.id)
-      .eq("provider", OPENAI_PROVIDER);
+      .eq("provider", DEEPGRAM_PROVIDER);
 
-    evictOpenAIKeyCache(user.id);
+    evictDeepgramKeyCache(user.id);
     return { hasKey: false };
   },
 });

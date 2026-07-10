@@ -3,12 +3,23 @@
  *
  * Centralizes API key handling and default model configuration
  * so every call site doesn't repeat the same setup.
+ *
+ * CAR-26: routing is now entitlement-aware. A user without an eligible personal
+ * key falls back to the shared app key ONLY if they have shared access
+ * (user_ai_access.shared_access). Otherwise resolution returns a typed failure
+ * (AiUnavailableError) that feature UIs render as a graceful "add your key" state
+ * instead of silently spending the app owner's credits or throwing an opaque 500.
  */
 
 import OpenAI, { APIError } from "openai";
 import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, CryptoError } from "@/lib/crypto";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import {
+  AI_FAILURE_COPY,
+  AI_UNAVAILABLE_STATUS,
+  type AiFailureCode,
+} from "@/lib/ai-errors";
 
 let cachedAppClient: OpenAI | null = null;
 
@@ -16,6 +27,7 @@ const CACHE_TTL_MS = 60_000;
 const MAX_CACHE_ENTRIES = 500;
 const QUOTA_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const OPENAI_PROVIDER = "openai";
+const SHARED_ACCESS_CACHE_TTL_MS = 60_000;
 
 type CacheEntry = {
   apiKey: string;
@@ -26,12 +38,31 @@ type CacheEntry = {
 
 const keyCache = new Map<string, CacheEntry>();
 
-export type ResolvedOpenAI = {
-  client: OpenAI;
-  source: "user" | "app";
-};
+type SharedAccessEntry = { granted: boolean; expiresAt: number };
+const sharedAccessCache = new Map<string, SharedAccessEntry>();
+
+/** Personal-key state relevant to picking a failure code when no key is usable. */
+type PersonalKeyState = "none" | "invalid" | "quota_exceeded";
+
+export type OpenAIResolution =
+  | { ok: true; client: OpenAI; source: "user" | "app" }
+  | { ok: false; code: AiFailureCode };
 
 export type OpenAIRunner = <T>(fn: (client: OpenAI) => Promise<T>) => Promise<T>;
+
+/**
+ * Thrown when no OpenAI key can serve a request (no personal key + no shared
+ * access, a dead personal key with no fallback, or the shared key itself
+ * failing). Carries an AI failure code the client maps to a graceful state.
+ * Extends ApiError so it flows through withApiHandler as `{ error, code }` at
+ * HTTP 402 with no extra handling.
+ */
+export class AiUnavailableError extends ApiError {
+  constructor(public reason: AiFailureCode) {
+    super(AI_FAILURE_COPY[reason].serverMessage, AI_UNAVAILABLE_STATUS, reason);
+    this.name = "AiUnavailableError";
+  }
+}
 
 /** Default model for AI features. Reads OPENAI_MODEL env var with fallback. */
 export const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? "gpt-5-mini";
@@ -59,6 +90,10 @@ export function getOpenAIClient(): OpenAI {
 
 export function evictOpenAIKeyCache(userId: string): void {
   keyCache.delete(userId);
+}
+
+export function evictSharedAccessCache(userId: string): void {
+  sharedAccessCache.delete(userId);
 }
 
 function evictOldestCacheEntry(): void {
@@ -105,6 +140,36 @@ function isUserKeyEligible(status: string, updatedAt: string): boolean {
   if (status === "invalid") return false;
   if (status === "quota_exceeded" && !isQuotaCooldownExpired(updatedAt)) return false;
   return true;
+}
+
+/**
+ * Whether the user is entitled to CareerVine's shared key. Cached 60s.
+ * Fails CLOSED (not entitled) on any lookup error — the spend-safe default that
+ * matches the default-OFF entitlement model. Only consulted when a personal key
+ * is unusable, so the common BYO-active path never pays for this.
+ */
+async function hasSharedAccess(userId: string): Promise<boolean> {
+  const cached = sharedAccessCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.granted;
+
+  let granted = false;
+  try {
+    const service = createSupabaseServiceClient();
+    const { data } = await service
+      .from("user_ai_access")
+      .select("shared_access")
+      .eq("user_id", userId)
+      .maybeSingle();
+    granted = data?.shared_access === true;
+  } catch {
+    granted = false;
+  }
+
+  sharedAccessCache.set(userId, {
+    granted,
+    expiresAt: Date.now() + SHARED_ACCESS_CACHE_TTL_MS,
+  });
+  return granted;
 }
 
 async function isCacheEntryValid(userId: string, entry: CacheEntry): Promise<boolean> {
@@ -193,17 +258,40 @@ function isQuotaError(err: unknown): boolean {
 }
 
 /**
- * Resolves the OpenAI client for a user, preferring their BYO key when active.
- * Any lookup/decryption failure falls back to the app client.
+ * No usable personal key: return the shared client if entitled, otherwise a
+ * typed failure whose code reflects why the personal key was unusable.
  */
-export async function getOpenAIForUser(userId: string): Promise<ResolvedOpenAI> {
+async function resolveWithoutPersonalKey(
+  userId: string,
+  keyState: PersonalKeyState,
+): Promise<OpenAIResolution> {
+  if (await hasSharedAccess(userId)) {
+    try {
+      return { ok: true, client: getAppOpenAIClient(), source: "app" };
+    } catch {
+      // Shared access granted but the app key isn't configured.
+      return { ok: false, code: "ai_unavailable" };
+    }
+  }
+
+  if (keyState === "invalid") return { ok: false, code: "ai_key_invalid" };
+  if (keyState === "quota_exceeded") return { ok: false, code: "ai_quota_exhausted" };
+  return { ok: false, code: "ai_no_key" };
+}
+
+/**
+ * Resolves the OpenAI client for a user, preferring their BYO key when active,
+ * else the shared key when entitled, else a typed AI-availability failure.
+ * Any unexpected lookup/decryption failure resolves to `ai_unavailable`.
+ */
+export async function getOpenAIForUser(userId: string): Promise<OpenAIResolution> {
   try {
     const cachedEntry = getCachedEntry(userId);
     if (cachedEntry) {
       const stillValid = await isCacheEntryValid(userId, cachedEntry);
       if (stillValid) {
         touchLastUsed(userId);
-        return { client: buildClient(cachedEntry.apiKey), source: "user" };
+        return { ok: true, client: buildClient(cachedEntry.apiKey), source: "user" };
       }
       keyCache.delete(userId);
     }
@@ -217,11 +305,13 @@ export async function getOpenAIForUser(userId: string): Promise<ResolvedOpenAI> 
       .maybeSingle();
 
     if (error || !data) {
-      return { client: getAppOpenAIClient(), source: "app" };
+      return resolveWithoutPersonalKey(userId, "none");
     }
 
     if (!isUserKeyEligible(data.status, data.updated_at)) {
-      return { client: getAppOpenAIClient(), source: "app" };
+      const keyState: PersonalKeyState =
+        data.status === "invalid" ? "invalid" : "quota_exceeded";
+      return resolveWithoutPersonalKey(userId, keyState);
     }
 
     let apiKey: string;
@@ -231,30 +321,69 @@ export async function getOpenAIForUser(userId: string): Promise<ResolvedOpenAI> 
       if (err instanceof CryptoError) {
         void markKeyStatus(userId, "invalid");
       }
-      return { client: getAppOpenAIClient(), source: "app" };
+      // A key that can't be decrypted is as good as invalid.
+      return resolveWithoutPersonalKey(userId, "invalid");
     }
 
     setCachedKey(userId, apiKey, data.status, data.updated_at);
     touchLastUsed(userId);
-    return { client: buildClient(apiKey), source: "user" };
+    return { ok: true, client: buildClient(apiKey), source: "user" };
   } catch {
-    return { client: getAppOpenAIClient(), source: "app" };
+    return { ok: false, code: "ai_unavailable" };
   }
 }
 
 const routing = {
   getOpenAIForUser,
   getAppOpenAIClient,
+  hasSharedAccess,
 };
 
 /**
- * Runs an OpenAI call with per-user key routing and graceful fallback.
+ * A user-key call failed with an auth/quota error. Fall back to the shared key
+ * if entitled, otherwise throw the typed failure so the UI can surface it.
+ */
+async function fallbackToSharedOrFail<T>(
+  userId: string,
+  fn: (client: OpenAI) => Promise<T>,
+  failCode: AiFailureCode,
+): Promise<T> {
+  if (!(await routing.hasSharedAccess(userId))) {
+    throw new AiUnavailableError(failCode);
+  }
+
+  let appClient: OpenAI;
+  try {
+    appClient = routing.getAppOpenAIClient();
+  } catch {
+    throw new AiUnavailableError("ai_unavailable");
+  }
+
+  try {
+    return await fn(appClient);
+  } catch (retryErr) {
+    // The shared key itself is dead — nothing left to fall back to.
+    if (isAuthError(retryErr) || isQuotaError(retryErr)) {
+      throw new AiUnavailableError("ai_unavailable");
+    }
+    scrubOpenAIError(retryErr);
+  }
+}
+
+/**
+ * Runs an OpenAI call with per-user key routing and entitlement-aware fallback.
+ * Throws AiUnavailableError when no key can serve the request; scrubs and
+ * propagates other OpenAI errors (rate limit / 5xx / network).
  */
 export async function runWithOpenAIFallback<T>(
   userId: string,
   fn: (client: OpenAI) => Promise<T>,
 ): Promise<T> {
   const resolved = await routing.getOpenAIForUser(userId);
+
+  if (!resolved.ok) {
+    throw new AiUnavailableError(resolved.code);
+  }
 
   try {
     const result = await fn(resolved.client);
@@ -264,27 +393,24 @@ export async function runWithOpenAIFallback<T>(
     return result;
   } catch (err) {
     if (resolved.source === "app") {
+      // The shared key itself failed. Auth/quota → nothing to fall back to.
+      if (isAuthError(err) || isQuotaError(err)) {
+        throw new AiUnavailableError("ai_unavailable");
+      }
       scrubOpenAIError(err);
     }
 
+    // resolved.source === "user": mark the key, then fall back only if entitled.
     if (isAuthError(err)) {
       evictOpenAIKeyCache(userId);
       void markKeyStatus(userId, "invalid");
-      try {
-        return await fn(routing.getAppOpenAIClient());
-      } catch (retryErr) {
-        scrubOpenAIError(retryErr);
-      }
+      return fallbackToSharedOrFail(userId, fn, "ai_key_invalid");
     }
 
     if (isQuotaError(err)) {
       evictOpenAIKeyCache(userId);
       void markKeyStatus(userId, "quota_exceeded");
-      try {
-        return await fn(routing.getAppOpenAIClient());
-      } catch (retryErr) {
-        scrubOpenAIError(retryErr);
-      }
+      return fallbackToSharedOrFail(userId, fn, "ai_quota_exhausted");
     }
 
     scrubOpenAIError(err);

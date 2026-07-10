@@ -1,5 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { runWithOpenAIFallback, DEFAULT_MODEL } from "@/lib/openai";
+import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { transcriptMatchSpeakersSchema } from "@/lib/api-schemas";
 
 /**
@@ -117,6 +117,7 @@ export const POST = withApiHandler({
         }),
       );
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       console.error("[match-speakers] OpenAI API error:", err);
       throw new ApiError("Failed to analyze speakers. Please try again.", 500);
     }
