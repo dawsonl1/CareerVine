@@ -32,16 +32,18 @@ export type Database = {
           status: "active" | "suspended"; // Account status — service-role writable only
           apify_enrichment_enabled: boolean; // Admin kill switch: all paid Apify activity (service-role writable only)
           diff_analysis_enabled: boolean;    // Admin kill switch: change-event production (service-role writable only)
+          discovery_enabled: boolean;        // Admin switch: weekly discovery feed, default off (service-role writable only)
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "created_at" | "updated_at"
+          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
           apify_enrichment_enabled?: boolean;
           diff_analysis_enabled?: boolean;
+          discovery_enabled?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
@@ -658,14 +660,16 @@ export type Database = {
           location_id: number | null;    // NULL = company-wide scope; set = office-scoped target (CAR-6)
           is_targeted: boolean;          // Soft targeting flag — false keeps pipeline data while hiding from target views
           active_cycle: number;          // Pipeline cycle the user last worked in for this scope
+          last_discovery_at: string | null; // When the discovery cron last queried this company (plan 41)
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
-        Insert: Omit<Database["public"]["Tables"]["target_companies"]["Row"], "id" | "status" | "location_id" | "is_targeted" | "active_cycle" | "created_at" | "updated_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["target_companies"]["Row"], "id" | "status" | "location_id" | "is_targeted" | "active_cycle" | "last_discovery_at" | "created_at" | "updated_at"> & {
           status?: string;
           location_id?: number | null;
           is_targeted?: boolean;
           active_cycle?: number;
+          last_discovery_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -838,10 +842,11 @@ export type Database = {
           user_id: string;                     // Foreign key to users
           apify_run_id: string | null;         // Apify run id (null until the run is started)
           actor: string;                       // Apify actor full name
-          mode: string;                        // 'profile' | 'email' | 'resolve'
-          trigger: string;                     // 'manual' | 'enrich_on_save' | 'cadence'
+          mode: string;                        // 'profile' | 'email' | 'resolve' | 'discovery'
+          trigger: string;                     // 'manual' | 'enrich_on_save' | 'cadence' | 'discovery'
           contact_ids: number[];               // Contacts covered by this run
           single_contact_id: number | null;    // The one contact a run targets (in-flight guard)
+          company_id: number | null;           // Discovery runs: the company searched (plan 41)
           status: string;                      // 'pending' | 'succeeded' | 'failed' | 'timed_out'
           cost_usd: number;                    // Actual run cost (0 until succeeded)
           error: string | null;
@@ -851,7 +856,7 @@ export type Database = {
         };
         Insert: Omit<
           Database["public"]["Tables"]["scrape_runs"]["Row"],
-          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids" | "single_contact_id" | "ingest_claimed_at"
+          "id" | "apify_run_id" | "status" | "cost_usd" | "error" | "created_at" | "finished_at" | "contact_ids" | "single_contact_id" | "company_id" | "ingest_claimed_at"
         > & {
           apify_run_id?: string | null;
           status?: string;
@@ -861,6 +866,7 @@ export type Database = {
           finished_at?: string | null;
           contact_ids?: number[];
           single_contact_id?: number | null;
+          company_id?: number | null;
           ingest_claimed_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["scrape_runs"]["Insert"]>;
@@ -884,6 +890,43 @@ export type Database = {
           scrape_run_id?: number | null;
         };
         Update: Partial<Database["public"]["Tables"]["contact_scrape_snapshots"]["Insert"]>;
+      };
+
+      // Discovery-feed candidates — strangers found by the weekly target-company
+      // people search (plan 41). Dismiss is sticky; writes via service client.
+      discovery_candidates: {
+        Row: {
+          id: number;                          // Auto-incrementing primary key
+          user_id: string;                     // Foreign key to users
+          company_id: number;                  // Foreign key to companies (the target searched)
+          linkedin_url: string;                // Canonical LinkedIn profile URL (dedupe key)
+          public_identifier: string | null;    // LinkedIn slug (secondary dedupe key)
+          name: string;
+          headline: string | null;
+          location: string | null;
+          photo_url: string | null;
+          position: string | null;             // Current title at the target company, when known
+          raw: Record<string, unknown>;        // Short-profile item as returned by the actor
+          status: string;                      // 'new' | 'added' | 'dismissed'
+          added_contact_id: number | null;     // Contact created from this candidate
+          first_seen_at: string;
+          last_seen_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["discovery_candidates"]["Row"],
+          "id" | "public_identifier" | "headline" | "location" | "photo_url" | "position" | "status" | "added_contact_id" | "first_seen_at" | "last_seen_at"
+        > & {
+          public_identifier?: string | null;
+          headline?: string | null;
+          location?: string | null;
+          photo_url?: string | null;
+          position?: string | null;
+          status?: string;
+          added_contact_id?: number | null;
+          first_seen_at?: string;
+          last_seen_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["discovery_candidates"]["Insert"]>;
       };
 
       // Data bundles — admin-curated prospect/company bundle catalog

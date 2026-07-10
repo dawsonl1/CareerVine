@@ -36,6 +36,12 @@ import {
 } from "./client";
 import { actorItemToPeopleRecord } from "./rescrape-wrapper";
 import { getApifyControls } from "./account-controls";
+import { ingestDiscoveryRun } from "./discovery";
+import { estimateRunCostUsd, getDiscoverySpendUsd, getMonthlySpendUsd } from "./spend";
+
+// Spend accounting moved to ./spend (plan 41) — re-exported so existing
+// callers (resolver, routes, tests) keep their import path.
+export { getMonthlySpendUsd } from "./spend";
 
 type Mode = "profile" | "email";
 type Trigger = "manual" | "enrich_on_save" | "cadence";
@@ -52,44 +58,6 @@ export type TriggerResult =
 
 function killSwitchOn(): boolean {
   return process.env.APIFY_SCRAPE_DISABLED === "true";
-}
-
-function monthStartIso(now = new Date()): string {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-}
-
-/**
- * Effective month-to-date spend for the cap check: settled cost (server-side
- * SUM, so it can't be truncated by the client's row ceiling) plus a
- * conservative reserve for still-in-flight runs whose cost hasn't landed yet.
- * Throws on query error so the caller fails CLOSED (never treats an error as $0).
- */
-export async function getMonthlySpendUsd(userId: string): Promise<number> {
-  const service = createSupabaseServiceClient();
-  const since = monthStartIso();
-
-  const { data: settled, error: sumError } = await service.rpc("sum_scrape_spend", {
-    p_user_id: userId,
-    p_since: since,
-  });
-  if (sumError) throw new Error(`spend sum failed: ${sumError.message}`);
-
-  const { data: pending, error: pendingError } = await service
-    .from("scrape_runs")
-    .select("mode, contact_ids")
-    .eq("user_id", userId)
-    .eq("status", ScrapeRunStatus.Pending)
-    .gte("created_at", since);
-  if (pendingError) throw new Error(`pending fetch failed: ${pendingError.message}`);
-
-  // Reserve each in-flight run at its ACTUAL size × unit cost — a pending
-  // cadence batch covers up to 25 profiles, so a flat per-run penny would
-  // under-reserve ~25× and let concurrent batches blow past the cap.
-  const reserve = ((pending as { mode: string; contact_ids: number[] }[] | null) ?? []).reduce((sum, r) => {
-    const unit = SCRAPE_UNIT_COST_USD[r.mode as keyof typeof SCRAPE_UNIT_COST_USD] ?? SCRAPE_UNIT_COST_USD.email;
-    return sum + Math.max(1, r.contact_ids?.length ?? 1) * unit;
-  }, 0);
-  return Number(settled ?? 0) + reserve;
 }
 
 /**
@@ -213,9 +181,16 @@ export async function triggerBatchScrape(
   // Trim the batch to the remaining AUTOMATIC budget (fail-closed on error).
   // Cadence stops at the soft cap so manual actions keep the headroom between
   // soft and hard cap (plan 29 §9.3 — the Settings copy promises this order).
+  // Discovery spend is subtracted from the soft-cap math (plan 41 §3.5): the
+  // weekly search has its own soft lane and must not throttle the drip. The
+  // HARD cap still counts every dollar, so the total can never overshoot.
   const spend = await getMonthlySpendUsd(userId);
+  const discoverySpend = await getDiscoverySpendUsd(userId);
   const unit = SCRAPE_UNIT_COST_USD[mode];
-  const affordable = Math.floor((CADENCE_SOFT_CAP_USD - spend) / unit);
+  const affordable = Math.min(
+    Math.floor((CADENCE_SOFT_CAP_USD - (spend - discoverySpend)) / unit),
+    Math.floor((MONTHLY_SCRAPE_CAP_USD - spend) / unit),
+  );
   if (affordable <= 0) return 0;
   const batch = contacts.slice(0, affordable);
 
@@ -279,8 +254,7 @@ export async function sweepStuckRuns(): Promise<number> {
   const rows = (stuck as { id: number; mode: string; contact_ids: number[] }[] | null) ?? [];
 
   for (const run of rows) {
-    const unit = SCRAPE_UNIT_COST_USD[run.mode as keyof typeof SCRAPE_UNIT_COST_USD] ?? SCRAPE_UNIT_COST_USD.profile;
-    const estimated = Math.max(1, run.contact_ids?.length ?? 1) * unit;
+    const estimated = estimateRunCostUsd(run.mode, run.contact_ids?.length ?? 1, SCRAPE_UNIT_COST_USD.profile);
     await service
       .from("scrape_runs")
       .update({ status: ScrapeRunStatus.TimedOut, cost_usd: estimated, error: "No webhook within 24h (estimated cost)", finished_at: now })
@@ -342,7 +316,7 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
 
   const query = service
     .from("scrape_runs")
-    .select("id, user_id, mode, contact_ids, status")
+    .select("id, user_id, mode, contact_ids, company_id, status")
     .limit(1);
   const { data: rows, error: fetchErr } = opts.scrapeRunId != null
     ? await query.eq("id", opts.scrapeRunId)
@@ -351,7 +325,7 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
   // route can answer non-2xx and Apify's webhook retry redelivers in minutes
   // instead of the data waiting on the 24h sweep.
   if (fetchErr) throw new Error(`run lookup failed: ${fetchErr.message}`);
-  const runRow = (rows as Array<{ id: number; user_id: string; mode: Mode; contact_ids: number[]; status: string }> | null)?.[0];
+  const runRow = (rows as Array<{ id: number; user_id: string; mode: string; contact_ids: number[]; company_id: number | null; status: string }> | null)?.[0];
   if (!runRow) return; // unknown run — ignore
   if (runRow.status !== ScrapeRunStatus.Pending) return; // already ingested
 
@@ -370,6 +344,13 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
     .or(`ingest_claimed_at.is.null,ingest_claimed_at.lt.${staleBefore}`);
   if (claimErr) throw new Error(`ingest claim failed: ${claimErr.message}`);
   if (!claimed) return; // another delivery holds a live claim
+
+  // Discovery runs produce candidates, not contact merges — separate ingest
+  // path sharing this lookup + claim (plan 41 §3.4).
+  if (runRow.mode === ScrapeMode.Discovery) {
+    await ingestDiscoveryRun(service, runRow, opts.apifyRunId, now);
+    return;
+  }
 
   const contactIds = runRow.contact_ids ?? [];
   // Hoisted so the catch can ledger the REAL cost of a charged-but-unprocessed
@@ -401,6 +382,11 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
     const captures: RescrapeDiffCapture[] = [];
     const summary = await importPeopleChunk(service, runRow.user_id, inputs, {
       mergePolicy: "rescrape",
+      // Single-contact runs identify their target, so the merge can find it
+      // even when the item's vanity URL doesn't match a stored internal-id
+      // URL (discovery adds, resolver links) — the rescrape patch then fills
+      // public_identifier and future runs match normally.
+      targetContactId: contactIds.length === 1 ? contactIds[0] : undefined,
       hooks: { onDiffCapture: (c) => captures.push(c) },
     });
 
@@ -445,8 +431,7 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
     // Never leave the row pending — that would block the contact forever. And
     // never ledger a run Apify charged at $0: use the real cost when getRun
     // succeeded, else the sweep's conservative size×unit estimate.
-    const unit = SCRAPE_UNIT_COST_USD[runRow.mode as keyof typeof SCRAPE_UNIT_COST_USD] ?? SCRAPE_UNIT_COST_USD.profile;
-    const ledgered = costUsd ?? Math.max(1, contactIds.length) * unit;
+    const ledgered = costUsd ?? estimateRunCostUsd(runRow.mode, contactIds.length, SCRAPE_UNIT_COST_USD.profile);
     await markRunTerminal(service, runRow.id, ScrapeRunStatus.Failed, ledgered, now, err instanceof Error ? err.message : "ingest failed");
     await bumpFailures(service, contactIds, now);
   }
