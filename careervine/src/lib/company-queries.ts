@@ -200,6 +200,12 @@ export interface TargetInfo {
   status: string;
 }
 
+export interface OfficeScopeSummary {
+  location_id: number;
+  label: string;
+  status: string;
+}
+
 export interface CompanySummary {
   id: number;
   name: string;
@@ -209,8 +215,82 @@ export interface CompanySummary {
   former_count: number;
   bench_count: number;
   target: TargetInfo | null;
+  /** Targeted office scopes (location-level targets), highest priority first. */
+  office_scopes: OfficeScopeSummary[];
   /** Max derived stage across non-bench contacts (targets view only). */
   traction: OutreachStage | null;
+}
+
+/** One target_companies row (any scope, targeted or not) for derivation. */
+export interface CompanyTargetScopeRow {
+  id: number;
+  location_id: number | null;
+  is_targeted: boolean;
+  priority_score: number | null;
+  tier: string | null;
+  program_name: string | null;
+  app_window_text: string | null;
+  next_app_date: string | null;
+  status: string;
+  location_label: string | null;
+}
+
+/**
+ * Collapse a company's scope rows into what the dashboard card shows.
+ *
+ * The status chip follows the company-wide row when it's targeted, else
+ * the highest-priority targeted office. Tier / program / window hint are
+ * employer attributes (§18.12 Q5 Option C), so they come from the
+ * company-wide row even when it's a soft-untargeted container. The app
+ * date is the nearest across targeted scopes (deadlines drive action);
+ * priority is the max, so list sorting sees the strongest scope.
+ */
+export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
+  target: TargetInfo | null;
+  office_scopes: OfficeScopeSummary[];
+} {
+  const companyWide = rows.find((r) => r.location_id == null) ?? null;
+  const targetedOffices = rows
+    .filter((r) => r.location_id != null && r.is_targeted)
+    .sort(
+      (a, b) =>
+        (b.priority_score ?? -1) - (a.priority_score ?? -1) ||
+        (a.location_label ?? "").localeCompare(b.location_label ?? ""),
+    );
+
+  const office_scopes: OfficeScopeSummary[] = targetedOffices.map((r) => ({
+    location_id: r.location_id!,
+    label: r.location_label ?? `Location ${r.location_id}`,
+    status: r.status,
+  }));
+
+  const primary = companyWide?.is_targeted ? companyWide : targetedOffices[0] ?? null;
+  if (!primary) return { target: null, office_scopes: [] };
+
+  const targetedScopes = [
+    ...(companyWide?.is_targeted ? [companyWide] : []),
+    ...targetedOffices,
+  ];
+  const appDates = targetedScopes
+    .map((r) => r.next_app_date)
+    .filter((d): d is string => d != null)
+    .sort();
+  const priorities = targetedScopes
+    .map((r) => r.priority_score)
+    .filter((p): p is number => p != null);
+
+  return {
+    target: {
+      id: primary.id,
+      status: primary.status,
+      tier: companyWide?.tier ?? primary.tier ?? null,
+      program_name: companyWide?.program_name ?? primary.program_name ?? null,
+      app_window_text: companyWide?.app_window_text ?? primary.app_window_text ?? null,
+      next_app_date: appDates[0] ?? null,
+      priority_score: priorities.length > 0 ? Math.max(...priorities) : null,
+    },
+    office_scopes,
+  };
 }
 
 export type CompanySort = "priority" | "traction" | "next_app_date" | "name";
@@ -248,14 +328,36 @@ export async function getCompanies(
 
   const [employment, targetsRes] = await Promise.all([
     fetchUserEmploymentRows(userId),
+    // All scope rows, including soft-untargeted containers: tier/program
+    // live on the company-wide row even when only offices are targeted.
     db()
       .from("target_companies")
-      .select("id, company_id, priority_score, tier, program_name, app_window_text, next_app_date, status")
+      .select(
+        "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
+      )
       .eq("user_id", userId),
   ]);
   if (targetsRes.error) throw targetsRes.error;
-  const targets = (targetsRes.data ?? []) as Array<TargetInfo & { company_id: number }>;
-  const targetByCompany = new Map(targets.map((t) => [t.company_id, t]));
+  const scopeRows = (targetsRes.data ?? []) as unknown as Array<
+    Omit<CompanyTargetScopeRow, "location_label"> & {
+      company_id: number;
+      locations: { city: string | null; state: string | null; country: string } | null;
+    }
+  >;
+  // A company is a target if ANY scope (company-wide or office) is targeted.
+  const targetByCompany = new Map<number, ReturnType<typeof deriveCompanyTarget>>();
+  {
+    const rowsByCompany = new Map<number, CompanyTargetScopeRow[]>();
+    for (const r of scopeRows) {
+      const list = rowsByCompany.get(r.company_id) ?? [];
+      list.push({ ...r, location_label: locationLabel(r.locations) });
+      rowsByCompany.set(r.company_id, list);
+    }
+    for (const [companyId, rows] of rowsByCompany) {
+      const derived = deriveCompanyTarget(rows);
+      if (derived.target) targetByCompany.set(companyId, derived);
+    }
+  }
 
   // Aggregate people per company; bench counted separately, never mixed
   interface Agg {
@@ -286,13 +388,13 @@ export async function getCompanies(
   // Which companies to show
   let companyIds: number[];
   if (targetsOnly) {
-    companyIds = targets.map((t) => t.company_id);
+    companyIds = [...targetByCompany.keys()];
   } else {
     const minContacts = opts.minContacts ?? 1;
     companyIds = [...aggByCompany.entries()]
       .filter(([, agg]) => agg.current.size + agg.former.size >= minContacts)
       .map(([id]) => id);
-    for (const t of targets) if (!companyIds.includes(t.company_id)) companyIds.push(t.company_id);
+    for (const id of targetByCompany.keys()) if (!companyIds.includes(id)) companyIds.push(id);
   }
   if (companyIds.length === 0) return [];
 
@@ -338,7 +440,7 @@ export async function getCompanies(
     linkedin_url: string | null;
   }>).map((c) => {
     const agg = aggByCompany.get(c.id);
-    const target = targetByCompany.get(c.id);
+    const derived = targetByCompany.get(c.id);
     return {
       id: c.id,
       name: c.name,
@@ -347,17 +449,8 @@ export async function getCompanies(
       current_count: agg?.current.size ?? 0,
       former_count: agg?.former.size ?? 0,
       bench_count: agg?.bench.size ?? 0,
-      target: target
-        ? {
-            id: target.id,
-            priority_score: target.priority_score,
-            tier: target.tier,
-            program_name: target.program_name,
-            app_window_text: target.app_window_text,
-            next_app_date: target.next_app_date,
-            status: target.status,
-          }
-        : null,
+      target: derived?.target ?? null,
+      office_scopes: derived?.office_scopes ?? [],
       traction: traction.get(c.id) ?? null,
     };
   });
@@ -407,8 +500,11 @@ export interface CompanyPerson {
   review_note: string | null;
   selection_reason: string | null;
   last_scraped_at: string | null;
+  linkedin_url: string | null;
   stage: OutreachStage | null;
   email: { address: string; source: string; bounced: boolean } | null;
+  /** Most recent logged interaction (offline touchpoints live on the contact). */
+  last_interaction: { type: string; date: string } | null;
   adjacency_score: number | null;
   /** Employment rows at this company (all current titles, newest first). */
   roles: Array<{
@@ -419,6 +515,9 @@ export interface CompanyPerson {
     end_month: string | null;
     location_id: number | null;
     location_label: string | null;
+    location_city: string | null;
+    location_state: string | null;
+    location_country: string | null;
     workplace_type: string | null;
   }>;
 }
@@ -428,6 +527,9 @@ export interface LocationFacet {
   label: string;
   location_id: number | null;
   count: number;
+  city: string | null;
+  state: string | null;
+  country: string | null;
 }
 
 export interface CompanyOffice {
@@ -435,6 +537,9 @@ export interface CompanyOffice {
   location_id: number;
   source: string;
   label: string;
+  city: string | null;
+  state: string | null;
+  country: string | null;
 }
 
 export interface CompanyNote {
@@ -482,6 +587,8 @@ export async function getCompanyDetail(
       .select("id, priority_score, tier, program_name, app_window_text, next_app_date, status")
       .eq("user_id", userId)
       .eq("company_id", companyId)
+      .is("location_id", null)
+      .eq("is_targeted", true)
       .maybeSingle(),
   ]);
   if (companyRes.error) throw companyRes.error;
@@ -493,7 +600,7 @@ export async function getCompanyDetail(
     .select(
       `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
        locations(city, state, country),
-       contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta)`,
+       contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta, linkedin_url)`,
     )
     .eq("company_id", companyId)
     .eq("contacts.user_id", userId)
@@ -522,13 +629,14 @@ export async function getCompanyDetail(
       last_scraped_at: string | null;
       stage_override: string | null;
       import_meta: Record<string, unknown> | null;
+      linkedin_url: string | null;
     };
   };
   const rows = ((empRows as unknown as EmpRow[] | null) ?? []);
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
 
-  // Emails, alum badge, stages
-  const [emailRows, schoolRows] = await Promise.all([
+  // Emails, alum badge, stages, latest logged interaction
+  const [emailRows, schoolRows, interactionRows] = await Promise.all([
     chunked(contactIds, async (chunk) => {
       const { data } = await db()
         .from("contact_emails")
@@ -541,6 +649,14 @@ export async function getCompanyDetail(
         .from("contact_schools")
         .select("contact_id, schools(name)")
         .in("contact_id", chunk);
+      return data ?? [];
+    }),
+    chunked(contactIds, async (chunk) => {
+      const { data } = await db()
+        .from("interactions")
+        .select("contact_id, interaction_type, interaction_date")
+        .in("contact_id", chunk)
+        .order("interaction_date", { ascending: false });
       return data ?? [];
     }),
   ]);
@@ -556,6 +672,14 @@ export async function getCompanyDetail(
   const alumContacts = new Set<number>();
   for (const s of schoolRows as unknown as Array<{ contact_id: number; schools: { name: string } | null }>) {
     if (s.schools?.name && isByuSchoolName(s.schools.name)) alumContacts.add(s.contact_id);
+  }
+
+  // Rows arrive newest-first per chunk; keep the first seen per contact.
+  const lastInteractionByContact = new Map<number, { type: string; date: string }>();
+  for (const i of interactionRows as Array<{ contact_id: number; interaction_type: string; interaction_date: string }>) {
+    if (!lastInteractionByContact.has(i.contact_id)) {
+      lastInteractionByContact.set(i.contact_id, { type: i.interaction_type, date: i.interaction_date });
+    }
   }
 
   const nonBench = new Map<number, { id: number; stage_override: string | null }>();
@@ -589,8 +713,10 @@ export async function getCompanyDetail(
             ? meta.selection_reason
             : null,
         last_scraped_at: r.contacts.last_scraped_at,
+        linkedin_url: r.contacts.linkedin_url,
         stage: stages.get(r.contact_id)?.stage ?? null,
         email: emailByContact.get(r.contact_id) ?? null,
+        last_interaction: lastInteractionByContact.get(r.contact_id) ?? null,
         adjacency_score: Number.isNaN(adjacency) ? null : adjacency,
         roles: [],
       };
@@ -604,6 +730,9 @@ export async function getCompanyDetail(
       end_month: r.end_month,
       location_id: r.location_id,
       location_label: locationLabel(r.locations),
+      location_city: r.locations?.city ?? null,
+      location_state: r.locations?.state ?? null,
+      location_country: r.locations?.country ?? null,
       workplace_type: r.workplace_type,
     });
   }
@@ -612,11 +741,24 @@ export async function getCompanyDetail(
   }
 
   // Facets over everyone at the company (honest buckets incl. Remote/Unknown)
-  const facetCounts = new Map<string, { label: string; location_id: number | null; contacts: Set<number> }>();
+  const facetCounts = new Map<
+    string,
+    {
+      label: string;
+      location_id: number | null;
+      city: string | null;
+      state: string | null;
+      country: string | null;
+      contacts: Set<number>;
+    }
+  >();
   for (const r of rows) {
     let key: string;
     let label: string;
     let locId: number | null = null;
+    let city: string | null = null;
+    let state: string | null = null;
+    let country: string | null = null;
     if (r.workplace_type === "remote") {
       key = "remote";
       label = "Remote";
@@ -624,19 +766,30 @@ export async function getCompanyDetail(
       key = String(r.location_id);
       label = locationLabel(r.locations) ?? `Location ${r.location_id}`;
       locId = r.location_id;
+      city = r.locations?.city ?? null;
+      state = r.locations?.state ?? null;
+      country = r.locations?.country ?? null;
     } else {
       key = "unknown";
       label = "Unknown";
     }
     let f = facetCounts.get(key);
     if (!f) {
-      f = { label, location_id: locId, contacts: new Set() };
+      f = { label, location_id: locId, city, state, country, contacts: new Set() };
       facetCounts.set(key, f);
     }
     f.contacts.add(r.contact_id);
   }
   const facets: LocationFacet[] = [...facetCounts.entries()]
-    .map(([key, f]) => ({ key, label: f.label, location_id: f.location_id, count: f.contacts.size }))
+    .map(([key, f]) => ({
+      key,
+      label: f.label,
+      location_id: f.location_id,
+      count: f.contacts.size,
+      city: f.city,
+      state: f.state,
+      country: f.country,
+    }))
     .sort((a, b) => {
       // Real locations first (by count desc), then Remote, then Unknown
       const special = (k: string) => (k === "unknown" ? 2 : k === "remote" ? 1 : 0);
@@ -724,6 +877,9 @@ export async function getCompanyDetail(
     location_id: o.location_id,
     source: o.source,
     label: locationLabel(o.locations) ?? `Location ${o.location_id}`,
+    city: o.locations?.city ?? null,
+    state: o.locations?.state ?? null,
+    country: o.locations?.country ?? null,
   }));
 
   return {
@@ -767,6 +923,18 @@ export async function deleteCompanyOffice(office: { id: number; location_id: num
   if (clearError) throw clearError;
   const { error } = await db().from("company_locations").delete().eq("id", office.id);
   if (error) throw error;
+
+  // Deleting the office removes it from the scope dropdown; soft-untarget
+  // the (RLS-scoped, own) target row for it so a targeted-but-invisible
+  // ghost can't linger on the targets list. Pipeline data is kept and
+  // resurfaces if the office is re-added.
+  const { error: untargetError } = await db()
+    .from("target_companies")
+    .update({ is_targeted: false, updated_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .eq("location_id", office.location_id)
+    .eq("is_targeted", true);
+  if (untargetError) throw untargetError;
 }
 
 export async function addCompanyOffice(companyId: number, locationId: number) {
@@ -899,12 +1067,16 @@ export async function addCompanyManually(
 
   const { data: existingTarget, error: targetLookupError } = await db()
     .from("target_companies")
-    .select("id")
+    .select("id, is_targeted")
     .eq("user_id", userId)
     .eq("company_id", company.id)
+    .is("location_id", null)
     .maybeSingle();
   if (targetLookupError) throw targetLookupError;
   if (!existingTarget) await addTargetCompany(userId, company.id);
+  else if (!(existingTarget as { is_targeted: boolean }).is_targeted) {
+    await updateTargetCompanyTargeted((existingTarget as { id: number }).id, true);
+  }
 
   if (normalized.location) {
     await addCompanyOfficeLocation(company.id, normalized.location);
@@ -914,6 +1086,23 @@ export async function addCompanyManually(
 }
 
 export async function addTargetCompany(userId: string, companyId: number) {
+  // A soft-untargeted company-wide row may already exist (CAR-6 keeps
+  // pipeline data on un-target) — revive it instead of violating the
+  // partial unique index.
+  const { data: existing, error: lookupError } = await db()
+    .from("target_companies")
+    .select("id, is_targeted")
+    .eq("user_id", userId)
+    .eq("company_id", companyId)
+    .is("location_id", null)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+  if (existing) {
+    const row = existing as { id: number; is_targeted: boolean };
+    if (!row.is_targeted) await updateTargetCompanyTargeted(row.id, true);
+    return { id: row.id };
+  }
+
   const { data, error } = await db()
     .from("target_companies")
     .insert({ user_id: userId, company_id: companyId })
@@ -921,6 +1110,20 @@ export async function addTargetCompany(userId: string, companyId: number) {
     .single();
   if (error) throw error;
   return data as { id: number };
+}
+
+export async function updateTargetCompanyTargeted(targetId: number, isTargeted: boolean) {
+  const { error } = await db()
+    .from("target_companies")
+    .update({ is_targeted: isTargeted, updated_at: new Date().toISOString() })
+    .eq("id", targetId);
+  if (error) throw error;
+}
+
+/** Remove a company from the user's targets (notes cascade-delete). */
+export async function removeTargetCompany(targetId: number) {
+  const { error } = await db().from("target_companies").delete().eq("id", targetId);
+  if (error) throw error;
 }
 
 export async function updateTargetCompany(

@@ -1,0 +1,28 @@
+{
+  "description": "Office band -- Vice President. Target 1 confirmed NON-alum IB VP per office. Seniority filter enforces the level. Full mode, NO email (deferred to Stage 2c).",
+  "actor": "harvestapi~linkedin-company-employees",
+  "band": "vp",
+  "targetPerOffice": 1,
+  "companiesField": "companies",
+  "maxTotalChargeUsd": 2,
+  "input": {
+    "profileScraperMode": "Full ($8 per 1k)",
+    "companyBatchMode": "one_by_one",
+    "maxItemsPerCompany": 1,
+    "jobTitles": [
+      "Investment Banking Vice President",
+      "Vice President"
+    ],
+    "seniorityLevelIds": [
+      "300"
+    ],
+    "excludeCurrentJobTitles": [
+      "Wealth",
+      "Private Bank",
+      "Operations",
+      "Product",
+      "Risk",
+      "Credit"
+    ]
+  }
+}

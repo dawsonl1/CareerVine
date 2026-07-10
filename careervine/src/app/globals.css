@@ -116,6 +116,9 @@
   --color-on-error-container: var(--md-on-error-container);
   --color-outline: var(--md-outline);
   --color-outline-variant: var(--md-outline-variant);
+  --color-surface-container-lowest: var(--md-surface-container-lowest);
+  --color-on-surface: var(--md-on-surface);
+  --color-on-surface-variant: var(--md-on-surface-variant);
   --color-inverse-surface: var(--md-inverse-surface);
   --color-inverse-on-surface: var(--md-inverse-on-surface);
   --font-sans: var(--font-geist-sans);
@@ -246,4 +249,47 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
 @keyframes onboarding-pulse {
   0%, 100% { box-shadow: 0 0 0 4px rgba(76, 175, 80, 0.3); }
   50% { box-shadow: 0 0 0 8px rgba(76, 175, 80, 0.1); }
+}
+
+@keyframes range-end-prompt {
+  0%, 100% {
+    border-color: color-mix(in srgb, var(--md-primary) 30%, var(--md-outline-variant));
+    background: color-mix(in srgb, var(--md-primary-container) 18%, transparent);
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--md-primary) 65%, var(--md-outline-variant));
+    background: color-mix(in srgb, var(--md-primary-container) 38%, transparent);
+  }
+}
+
+@keyframes range-start-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--md-primary) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--md-primary) 18%, transparent);
+  }
+}
+
+@keyframes range-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-range-end-prompt {
+  animation: range-end-prompt 1.5s ease-in-out infinite;
+}
+
+.animate-range-start-pulse {
+  animation: range-start-pulse 1.5s ease-in-out infinite;
+}
+
+.animate-range-hint-in {
+  animation: range-hint-in 220ms ease-out;
 }

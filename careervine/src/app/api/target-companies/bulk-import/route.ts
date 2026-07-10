@@ -57,12 +57,14 @@ export const POST = withApiHandler({
           .select("id")
           .eq("user_id", user.id)
           .eq("company_id", company.id)
+          .is("location_id", null)
           .maybeSingle();
 
         if (existing) {
+          // Re-importing a target sheet re-targets soft-untargeted rows.
           const { error } = await supabase
             .from("target_companies")
-            .update({ ...researchFields, updated_at: new Date().toISOString() })
+            .update({ ...researchFields, is_targeted: true, updated_at: new Date().toISOString() })
             .eq("id", (existing as { id: number }).id);
           if (error) throw new Error(error.message);
           updated++;

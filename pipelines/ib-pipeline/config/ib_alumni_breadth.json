@@ -1,0 +1,16 @@
+{
+  "description": "Stage 2a breadth: every BYU-family alum at each bank. NO job-title filter, so we catch IB alumni at ALL levels (analyst -> MD); review keeps only the currently-in-IB ones. Full mode, NO email (email deferred to confirmed keepers in Stage 2c). One run per bank; run_ib.py injects a single company URL per run.",
+  "actor": "harvestapi~linkedin-profile-search",
+  "companiesField": "currentCompanies",
+  "maxTotalChargeUsd": 3,
+  "input": {
+    "profileScraperMode": "Full",
+    "schools": [
+      "Brigham Young University",
+      "Brigham Young University - Idaho",
+      "BYU Marriott School of Business"
+    ],
+    "maxItems": 200,
+    "takePages": 8
+  }
+}

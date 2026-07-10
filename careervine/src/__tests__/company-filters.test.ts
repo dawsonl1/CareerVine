@@ -23,6 +23,7 @@ function company(overrides: CompanyOverrides): CompanySummary {
     current_count: 0,
     former_count: 0,
     bench_count: 0,
+    office_scopes: [],
     traction: null,
     ...rest,
     target:

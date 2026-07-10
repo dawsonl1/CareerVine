@@ -22,7 +22,7 @@ import {
   type CompanyFilters,
 } from "@/lib/company-filters";
 import { STAGE_LABELS } from "@/lib/stage-derivation";
-import { Building2, ExternalLink, CalendarClock, Users, Send, Plus } from "lucide-react";
+import { Building2, ExternalLink, CalendarClock, Users, Send, Plus, MapPin } from "lucide-react";
 
 const VALID_SORTS: readonly CompanySort[] = ["priority", "next_app_date", "traction", "name"];
 
@@ -301,6 +301,21 @@ function CompaniesPage() {
                             </span>
                           ) : null}
                         </div>
+                        {/* Office scopes — only when location-level targets exist (§21.5) */}
+                        {c.office_scopes.length > 0 && (
+                          <div className="flex items-center gap-1.5 mt-1 text-xs text-on-surface-variant flex-wrap">
+                            <MapPin className="w-3.5 h-3.5 shrink-0" />
+                            {c.office_scopes.slice(0, 2).map((s, i) => (
+                              <span key={s.location_id} className="truncate">
+                                {i > 0 && <span className="opacity-60">— </span>}
+                                {s.label} · {STATUS_LABELS[s.status] ?? s.status}
+                              </span>
+                            ))}
+                            {c.office_scopes.length > 2 && (
+                              <span className="opacity-70">+{c.office_scopes.length - 2} more</span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {c.target?.priority_score != null && (

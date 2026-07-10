@@ -9,8 +9,10 @@
 
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { trackPathForBackNav } from "@/lib/nav-history";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import SignOutButton from "@/components/sign-out-button";
@@ -22,6 +24,12 @@ export default function Navigation() {
   const { user } = useAuth();
   const pathname = usePathname();
   const { gmailConnected, unreadCount } = useCompose();
+
+  // Record the pathname trail so detail-page Back buttons can tell
+  // in-app arrivals (router.back) from direct loads (default route).
+  useEffect(() => {
+    trackPathForBackNav(pathname);
+  }, [pathname]);
 
   if (!user) return null;
 

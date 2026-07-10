@@ -1,0 +1,2282 @@
+[
+  {
+    "office_id": "goldman-sachs-new-york",
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "goldman-sachs-san-francisco",
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "goldman-sachs-los-angeles",
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "goldman-sachs-chicago",
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "goldman-sachs-houston",
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "goldman-sachs-dallas",
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  },
+  {
+    "office_id": "goldman-sachs-atlanta",
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "goldman-sachs-salt-lake-city",
+    "bank_id": "goldman-sachs",
+    "bank": "Goldman Sachs",
+    "tier": "BB",
+    "city": "Salt Lake City",
+    "state": "UT",
+    "hq": false,
+    "linkedin_location": "Salt Lake City, UT"
+  },
+  {
+    "office_id": "morgan-stanley-new-york",
+    "bank_id": "morgan-stanley",
+    "bank": "Morgan Stanley",
+    "tier": "BB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "morgan-stanley-menlo-park",
+    "bank_id": "morgan-stanley",
+    "bank": "Morgan Stanley",
+    "tier": "BB",
+    "city": "Menlo Park",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Menlo Park, CA"
+  },
+  {
+    "office_id": "morgan-stanley-san-francisco",
+    "bank_id": "morgan-stanley",
+    "bank": "Morgan Stanley",
+    "tier": "BB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "morgan-stanley-los-angeles",
+    "bank_id": "morgan-stanley",
+    "bank": "Morgan Stanley",
+    "tier": "BB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "morgan-stanley-houston",
+    "bank_id": "morgan-stanley",
+    "bank": "Morgan Stanley",
+    "tier": "BB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "morgan-stanley-chicago",
+    "bank_id": "morgan-stanley",
+    "bank": "Morgan Stanley",
+    "tier": "BB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "j-p-morgan-new-york",
+    "bank_id": "j-p-morgan",
+    "bank": "J.P. Morgan",
+    "tier": "BB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "j-p-morgan-san-francisco",
+    "bank_id": "j-p-morgan",
+    "bank": "J.P. Morgan",
+    "tier": "BB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "j-p-morgan-los-angeles",
+    "bank_id": "j-p-morgan",
+    "bank": "J.P. Morgan",
+    "tier": "BB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "j-p-morgan-chicago",
+    "bank_id": "j-p-morgan",
+    "bank": "J.P. Morgan",
+    "tier": "BB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "j-p-morgan-houston",
+    "bank_id": "j-p-morgan",
+    "bank": "J.P. Morgan",
+    "tier": "BB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "j-p-morgan-atlanta",
+    "bank_id": "j-p-morgan",
+    "bank": "J.P. Morgan",
+    "tier": "BB",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "j-p-morgan-boston",
+    "bank_id": "j-p-morgan",
+    "bank": "J.P. Morgan",
+    "tier": "BB",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "bofa-securities-new-york",
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "bofa-securities-charlotte",
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "bofa-securities-san-francisco",
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "bofa-securities-chicago",
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "bofa-securities-houston",
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "bofa-securities-los-angeles",
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "bofa-securities-dallas",
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  },
+  {
+    "office_id": "bofa-securities-atlanta",
+    "bank_id": "bofa-securities",
+    "bank": "BofA Securities",
+    "tier": "BB",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "citi-new-york",
+    "bank_id": "citi",
+    "bank": "Citi",
+    "tier": "BB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "citi-san-francisco",
+    "bank_id": "citi",
+    "bank": "Citi",
+    "tier": "BB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "citi-los-angeles",
+    "bank_id": "citi",
+    "bank": "Citi",
+    "tier": "BB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "citi-houston",
+    "bank_id": "citi",
+    "bank": "Citi",
+    "tier": "BB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "citi-chicago",
+    "bank_id": "citi",
+    "bank": "Citi",
+    "tier": "BB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "barclays-new-york",
+    "bank_id": "barclays",
+    "bank": "Barclays",
+    "tier": "BB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "barclays-san-francisco",
+    "bank_id": "barclays",
+    "bank": "Barclays",
+    "tier": "BB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "barclays-menlo-park",
+    "bank_id": "barclays",
+    "bank": "Barclays",
+    "tier": "BB",
+    "city": "Menlo Park",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Menlo Park, CA"
+  },
+  {
+    "office_id": "barclays-los-angeles",
+    "bank_id": "barclays",
+    "bank": "Barclays",
+    "tier": "BB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "barclays-chicago",
+    "bank_id": "barclays",
+    "bank": "Barclays",
+    "tier": "BB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "barclays-houston",
+    "bank_id": "barclays",
+    "bank": "Barclays",
+    "tier": "BB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "barclays-atlanta",
+    "bank_id": "barclays",
+    "bank": "Barclays",
+    "tier": "BB",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "ubs-new-york",
+    "bank_id": "ubs",
+    "bank": "UBS",
+    "tier": "BB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "ubs-san-francisco",
+    "bank_id": "ubs",
+    "bank": "UBS",
+    "tier": "BB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "ubs-los-angeles",
+    "bank_id": "ubs",
+    "bank": "UBS",
+    "tier": "BB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "ubs-chicago",
+    "bank_id": "ubs",
+    "bank": "UBS",
+    "tier": "BB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "ubs-houston",
+    "bank_id": "ubs",
+    "bank": "UBS",
+    "tier": "BB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "deutsche-bank-new-york",
+    "bank_id": "deutsche-bank",
+    "bank": "Deutsche Bank",
+    "tier": "BB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "deutsche-bank-san-francisco",
+    "bank_id": "deutsche-bank",
+    "bank": "Deutsche Bank",
+    "tier": "BB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "deutsche-bank-chicago",
+    "bank_id": "deutsche-bank",
+    "bank": "Deutsche Bank",
+    "tier": "BB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "deutsche-bank-houston",
+    "bank_id": "deutsche-bank",
+    "bank": "Deutsche Bank",
+    "tier": "BB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "wells-fargo-cib-charlotte",
+    "bank_id": "wells-fargo-cib",
+    "bank": "Wells Fargo (CIB)",
+    "tier": "BB-adjacent",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": true,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "wells-fargo-cib-new-york",
+    "bank_id": "wells-fargo-cib",
+    "bank": "Wells Fargo (CIB)",
+    "tier": "BB-adjacent",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "wells-fargo-cib-chicago",
+    "bank_id": "wells-fargo-cib",
+    "bank": "Wells Fargo (CIB)",
+    "tier": "BB-adjacent",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "wells-fargo-cib-houston",
+    "bank_id": "wells-fargo-cib",
+    "bank": "Wells Fargo (CIB)",
+    "tier": "BB-adjacent",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "wells-fargo-cib-san-francisco",
+    "bank_id": "wells-fargo-cib",
+    "bank": "Wells Fargo (CIB)",
+    "tier": "BB-adjacent",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "wells-fargo-cib-los-angeles",
+    "bank_id": "wells-fargo-cib",
+    "bank": "Wells Fargo (CIB)",
+    "tier": "BB-adjacent",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "wells-fargo-cib-boston",
+    "bank_id": "wells-fargo-cib",
+    "bank": "Wells Fargo (CIB)",
+    "tier": "BB-adjacent",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "rbc-capital-markets-new-york",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "rbc-capital-markets-san-francisco",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "rbc-capital-markets-los-angeles",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "rbc-capital-markets-chicago",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "rbc-capital-markets-houston",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "rbc-capital-markets-dallas",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  },
+  {
+    "office_id": "rbc-capital-markets-austin",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Austin",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Austin, TX"
+  },
+  {
+    "office_id": "rbc-capital-markets-atlanta",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "rbc-capital-markets-boston",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "rbc-capital-markets-minneapolis",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Minneapolis",
+    "state": "MN",
+    "hq": false,
+    "linkedin_location": "Minneapolis, MN"
+  },
+  {
+    "office_id": "rbc-capital-markets-charlotte",
+    "bank_id": "rbc-capital-markets",
+    "bank": "RBC Capital Markets",
+    "tier": "BB-adjacent",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "centerview-partners-new-york",
+    "bank_id": "centerview-partners",
+    "bank": "Centerview Partners",
+    "tier": "EB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "centerview-partners-menlo-park",
+    "bank_id": "centerview-partners",
+    "bank": "Centerview Partners",
+    "tier": "EB",
+    "city": "Menlo Park",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Menlo Park, CA"
+  },
+  {
+    "office_id": "centerview-partners-san-francisco",
+    "bank_id": "centerview-partners",
+    "bank": "Centerview Partners",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "evercore-new-york",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "evercore-boston",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "evercore-chicago",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "evercore-dallas",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  },
+  {
+    "office_id": "evercore-houston",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "evercore-los-angeles",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "evercore-menlo-park",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "Menlo Park",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Menlo Park, CA"
+  },
+  {
+    "office_id": "evercore-minneapolis",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "Minneapolis",
+    "state": "MN",
+    "hq": false,
+    "linkedin_location": "Minneapolis, MN"
+  },
+  {
+    "office_id": "evercore-san-francisco",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "evercore-washington",
+    "bank_id": "evercore",
+    "bank": "Evercore",
+    "tier": "EB",
+    "city": "Washington",
+    "state": "DC",
+    "hq": false,
+    "linkedin_location": "Washington, DC"
+  },
+  {
+    "office_id": "lazard-new-york",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "lazard-austin",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "Austin",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Austin, TX"
+  },
+  {
+    "office_id": "lazard-boston",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "lazard-charlotte",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "lazard-chicago",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "lazard-houston",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "lazard-los-angeles",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "lazard-minneapolis",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "Minneapolis",
+    "state": "MN",
+    "hq": false,
+    "linkedin_location": "Minneapolis, MN"
+  },
+  {
+    "office_id": "lazard-san-francisco",
+    "bank_id": "lazard",
+    "bank": "Lazard",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "moelis-company-new-york",
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "moelis-company-boston",
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "moelis-company-chicago",
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "moelis-company-houston",
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "moelis-company-los-angeles",
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "moelis-company-san-francisco",
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "moelis-company-washington",
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "city": "Washington",
+    "state": "DC",
+    "hq": false,
+    "linkedin_location": "Washington, DC"
+  },
+  {
+    "office_id": "moelis-company-west-palm-beach",
+    "bank_id": "moelis-company",
+    "bank": "Moelis & Company",
+    "tier": "EB",
+    "city": "West Palm Beach",
+    "state": "FL",
+    "hq": false,
+    "linkedin_location": "West Palm Beach, FL"
+  },
+  {
+    "office_id": "pjt-partners-new-york",
+    "bank_id": "pjt-partners",
+    "bank": "PJT Partners",
+    "tier": "EB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "pjt-partners-boston",
+    "bank_id": "pjt-partners",
+    "bank": "PJT Partners",
+    "tier": "EB",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "pjt-partners-chicago",
+    "bank_id": "pjt-partners",
+    "bank": "PJT Partners",
+    "tier": "EB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "pjt-partners-houston",
+    "bank_id": "pjt-partners",
+    "bank": "PJT Partners",
+    "tier": "EB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "pjt-partners-los-angeles",
+    "bank_id": "pjt-partners",
+    "bank": "PJT Partners",
+    "tier": "EB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "pjt-partners-san-francisco",
+    "bank_id": "pjt-partners",
+    "bank": "PJT Partners",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "perella-weinberg-partners-new-york",
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "perella-weinberg-partners-houston",
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "perella-weinberg-partners-los-angeles",
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "perella-weinberg-partners-san-francisco",
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "perella-weinberg-partners-chicago",
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "perella-weinberg-partners-denver",
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "city": "Denver",
+    "state": "CO",
+    "hq": false,
+    "linkedin_location": "Denver, CO"
+  },
+  {
+    "office_id": "perella-weinberg-partners-palm-beach",
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "city": "Palm Beach",
+    "state": "FL",
+    "hq": false,
+    "linkedin_location": "Palm Beach, FL"
+  },
+  {
+    "office_id": "perella-weinberg-partners-greenwich",
+    "bank_id": "perella-weinberg-partners",
+    "bank": "Perella Weinberg Partners",
+    "tier": "EB",
+    "city": "Greenwich",
+    "state": "CT",
+    "hq": false,
+    "linkedin_location": "Greenwich, CT"
+  },
+  {
+    "office_id": "qatalyst-partners-san-francisco",
+    "bank_id": "qatalyst-partners",
+    "bank": "Qatalyst Partners",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": true,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "guggenheim-securities-new-york",
+    "bank_id": "guggenheim-securities",
+    "bank": "Guggenheim Securities",
+    "tier": "EB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "guggenheim-securities-atlanta",
+    "bank_id": "guggenheim-securities",
+    "bank": "Guggenheim Securities",
+    "tier": "EB",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "guggenheim-securities-boston",
+    "bank_id": "guggenheim-securities",
+    "bank": "Guggenheim Securities",
+    "tier": "EB",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "guggenheim-securities-chicago",
+    "bank_id": "guggenheim-securities",
+    "bank": "Guggenheim Securities",
+    "tier": "EB",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "guggenheim-securities-houston",
+    "bank_id": "guggenheim-securities",
+    "bank": "Guggenheim Securities",
+    "tier": "EB",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "guggenheim-securities-menlo-park",
+    "bank_id": "guggenheim-securities",
+    "bank": "Guggenheim Securities",
+    "tier": "EB",
+    "city": "Menlo Park",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Menlo Park, CA"
+  },
+  {
+    "office_id": "guggenheim-securities-san-francisco",
+    "bank_id": "guggenheim-securities",
+    "bank": "Guggenheim Securities",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "rothschild-co-new-york",
+    "bank_id": "rothschild-co",
+    "bank": "Rothschild & Co",
+    "tier": "EB",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "rothschild-co-boston",
+    "bank_id": "rothschild-co",
+    "bank": "Rothschild & Co",
+    "tier": "EB",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "rothschild-co-santa-monica",
+    "bank_id": "rothschild-co",
+    "bank": "Rothschild & Co",
+    "tier": "EB",
+    "city": "Santa Monica",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Santa Monica, CA"
+  },
+  {
+    "office_id": "rothschild-co-san-francisco",
+    "bank_id": "rothschild-co",
+    "bank": "Rothschild & Co",
+    "tier": "EB",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "jefferies-new-york",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "jefferies-boston",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "jefferies-stamford",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Stamford",
+    "state": "CT",
+    "hq": false,
+    "linkedin_location": "Stamford, CT"
+  },
+  {
+    "office_id": "jefferies-charlotte",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "jefferies-richmond",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Richmond",
+    "state": "VA",
+    "hq": false,
+    "linkedin_location": "Richmond, VA"
+  },
+  {
+    "office_id": "jefferies-miami",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Miami",
+    "state": "FL",
+    "hq": false,
+    "linkedin_location": "Miami, FL"
+  },
+  {
+    "office_id": "jefferies-nashville",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Nashville",
+    "state": "TN",
+    "hq": false,
+    "linkedin_location": "Nashville, TN"
+  },
+  {
+    "office_id": "jefferies-chicago",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "jefferies-dallas",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  },
+  {
+    "office_id": "jefferies-houston",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "jefferies-palo-alto",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Palo Alto",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Palo Alto, CA"
+  },
+  {
+    "office_id": "jefferies-san-francisco",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "jefferies-los-angeles",
+    "bank_id": "jefferies",
+    "bank": "Jefferies",
+    "tier": "MM",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "houlihan-lokey-los-angeles",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": true,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "houlihan-lokey-new-york",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "houlihan-lokey-chicago",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "houlihan-lokey-san-francisco",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "houlihan-lokey-minneapolis",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Minneapolis",
+    "state": "MN",
+    "hq": false,
+    "linkedin_location": "Minneapolis, MN"
+  },
+  {
+    "office_id": "houlihan-lokey-dallas",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  },
+  {
+    "office_id": "houlihan-lokey-houston",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "houlihan-lokey-atlanta",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "houlihan-lokey-boston",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "houlihan-lokey-charlotte",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "houlihan-lokey-miami",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Miami",
+    "state": "FL",
+    "hq": false,
+    "linkedin_location": "Miami, FL"
+  },
+  {
+    "office_id": "houlihan-lokey-baltimore",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Baltimore",
+    "state": "MD",
+    "hq": false,
+    "linkedin_location": "Baltimore, MD"
+  },
+  {
+    "office_id": "houlihan-lokey-washington",
+    "bank_id": "houlihan-lokey",
+    "bank": "Houlihan Lokey",
+    "tier": "MM",
+    "city": "Washington",
+    "state": "DC",
+    "hq": false,
+    "linkedin_location": "Washington, DC"
+  },
+  {
+    "office_id": "william-blair-chicago",
+    "bank_id": "william-blair",
+    "bank": "William Blair",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": true,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "william-blair-new-york",
+    "bank_id": "william-blair",
+    "bank": "William Blair",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "william-blair-san-francisco",
+    "bank_id": "william-blair",
+    "bank": "William Blair",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "william-blair-los-angeles",
+    "bank_id": "william-blair",
+    "bank": "William Blair",
+    "tier": "MM",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "william-blair-atlanta",
+    "bank_id": "william-blair",
+    "bank": "William Blair",
+    "tier": "MM",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "william-blair-charlotte",
+    "bank_id": "william-blair",
+    "bank": "William Blair",
+    "tier": "MM",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "robert-w-baird-milwaukee",
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "city": "Milwaukee",
+    "state": "WI",
+    "hq": true,
+    "linkedin_location": "Milwaukee, WI"
+  },
+  {
+    "office_id": "robert-w-baird-chicago",
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "robert-w-baird-new-york",
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "robert-w-baird-boston",
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "robert-w-baird-charlotte",
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "robert-w-baird-denver",
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "city": "Denver",
+    "state": "CO",
+    "hq": false,
+    "linkedin_location": "Denver, CO"
+  },
+  {
+    "office_id": "robert-w-baird-louisville",
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "city": "Louisville",
+    "state": "KY",
+    "hq": false,
+    "linkedin_location": "Louisville, KY"
+  },
+  {
+    "office_id": "robert-w-baird-nashville",
+    "bank_id": "robert-w-baird",
+    "bank": "Robert W. Baird",
+    "tier": "MM",
+    "city": "Nashville",
+    "state": "TN",
+    "hq": false,
+    "linkedin_location": "Nashville, TN"
+  },
+  {
+    "office_id": "harris-williams-richmond",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "Richmond",
+    "state": "VA",
+    "hq": true,
+    "linkedin_location": "Richmond, VA"
+  },
+  {
+    "office_id": "harris-williams-boston",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "harris-williams-new-york",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "harris-williams-washington",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "Washington",
+    "state": "DC",
+    "hq": false,
+    "linkedin_location": "Washington, DC"
+  },
+  {
+    "office_id": "harris-williams-cleveland",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "Cleveland",
+    "state": "OH",
+    "hq": false,
+    "linkedin_location": "Cleveland, OH"
+  },
+  {
+    "office_id": "harris-williams-minneapolis",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "Minneapolis",
+    "state": "MN",
+    "hq": false,
+    "linkedin_location": "Minneapolis, MN"
+  },
+  {
+    "office_id": "harris-williams-chicago",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "harris-williams-san-francisco",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "harris-williams-charlotte",
+    "bank_id": "harris-williams",
+    "bank": "Harris Williams",
+    "tier": "MM",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "piper-sandler-minneapolis",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "Minneapolis",
+    "state": "MN",
+    "hq": true,
+    "linkedin_location": "Minneapolis, MN"
+  },
+  {
+    "office_id": "piper-sandler-new-york",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "piper-sandler-boston",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "piper-sandler-chicago",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "piper-sandler-charlotte",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "piper-sandler-houston",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "piper-sandler-san-francisco",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "piper-sandler-los-angeles",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "piper-sandler-denver",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "Denver",
+    "state": "CO",
+    "hq": false,
+    "linkedin_location": "Denver, CO"
+  },
+  {
+    "office_id": "piper-sandler-nashville",
+    "bank_id": "piper-sandler",
+    "bank": "Piper Sandler",
+    "tier": "MM",
+    "city": "Nashville",
+    "state": "TN",
+    "hq": false,
+    "linkedin_location": "Nashville, TN"
+  },
+  {
+    "office_id": "stifel-st-louis",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "St. Louis",
+    "state": "MO",
+    "hq": true,
+    "linkedin_location": "St. Louis, MO"
+  },
+  {
+    "office_id": "stifel-new-york",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "stifel-baltimore",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Baltimore",
+    "state": "MD",
+    "hq": false,
+    "linkedin_location": "Baltimore, MD"
+  },
+  {
+    "office_id": "stifel-boston",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "stifel-chicago",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "stifel-san-francisco",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "stifel-denver",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Denver",
+    "state": "CO",
+    "hq": false,
+    "linkedin_location": "Denver, CO"
+  },
+  {
+    "office_id": "stifel-houston",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Houston",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Houston, TX"
+  },
+  {
+    "office_id": "stifel-atlanta",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "stifel-los-angeles",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "stifel-miami",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Miami",
+    "state": "FL",
+    "hq": false,
+    "linkedin_location": "Miami, FL"
+  },
+  {
+    "office_id": "stifel-washington",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Washington",
+    "state": "DC",
+    "hq": false,
+    "linkedin_location": "Washington, DC"
+  },
+  {
+    "office_id": "stifel-minneapolis",
+    "bank_id": "stifel",
+    "bank": "Stifel",
+    "tier": "MM",
+    "city": "Minneapolis",
+    "state": "MN",
+    "hq": false,
+    "linkedin_location": "Minneapolis, MN"
+  },
+  {
+    "office_id": "kbw-stifel-new-york",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "kbw-stifel-boston",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "kbw-stifel-hartford",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "Hartford",
+    "state": "CT",
+    "hq": false,
+    "linkedin_location": "Hartford, CT"
+  },
+  {
+    "office_id": "kbw-stifel-richmond",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "Richmond",
+    "state": "VA",
+    "hq": false,
+    "linkedin_location": "Richmond, VA"
+  },
+  {
+    "office_id": "kbw-stifel-atlanta",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "kbw-stifel-chicago",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "kbw-stifel-austin",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "Austin",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Austin, TX"
+  },
+  {
+    "office_id": "kbw-stifel-san-francisco",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "kbw-stifel-columbus",
+    "bank_id": "kbw-stifel",
+    "bank": "KBW (Stifel)",
+    "tier": "MM",
+    "city": "Columbus",
+    "state": "OH",
+    "hq": false,
+    "linkedin_location": "Columbus, OH"
+  },
+  {
+    "office_id": "raymond-james-st-petersburg",
+    "bank_id": "raymond-james",
+    "bank": "Raymond James",
+    "tier": "MM",
+    "city": "St. Petersburg",
+    "state": "FL",
+    "hq": true,
+    "linkedin_location": "St. Petersburg, FL"
+  },
+  {
+    "office_id": "raymond-james-new-york",
+    "bank_id": "raymond-james",
+    "bank": "Raymond James",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "raymond-james-atlanta",
+    "bank_id": "raymond-james",
+    "bank": "Raymond James",
+    "tier": "MM",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "raymond-james-boston",
+    "bank_id": "raymond-james",
+    "bank": "Raymond James",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "raymond-james-charlotte",
+    "bank_id": "raymond-james",
+    "bank": "Raymond James",
+    "tier": "MM",
+    "city": "Charlotte",
+    "state": "NC",
+    "hq": false,
+    "linkedin_location": "Charlotte, NC"
+  },
+  {
+    "office_id": "raymond-james-chicago",
+    "bank_id": "raymond-james",
+    "bank": "Raymond James",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": false,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "raymond-james-dallas",
+    "bank_id": "raymond-james",
+    "bank": "Raymond James",
+    "tier": "MM",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  },
+  {
+    "office_id": "lincoln-international-chicago",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "Chicago",
+    "state": "IL",
+    "hq": true,
+    "linkedin_location": "Chicago, IL"
+  },
+  {
+    "office_id": "lincoln-international-new-york",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": false,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "lincoln-international-boston",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "Boston",
+    "state": "MA",
+    "hq": false,
+    "linkedin_location": "Boston, MA"
+  },
+  {
+    "office_id": "lincoln-international-atlanta",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "Atlanta",
+    "state": "GA",
+    "hq": false,
+    "linkedin_location": "Atlanta, GA"
+  },
+  {
+    "office_id": "lincoln-international-dallas",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  },
+  {
+    "office_id": "lincoln-international-los-angeles",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "Los Angeles",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "Los Angeles, CA"
+  },
+  {
+    "office_id": "lincoln-international-san-francisco",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "lincoln-international-richmond",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "Richmond",
+    "state": "VA",
+    "hq": false,
+    "linkedin_location": "Richmond, VA"
+  },
+  {
+    "office_id": "lincoln-international-mclean",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "McLean",
+    "state": "VA",
+    "hq": false,
+    "linkedin_location": "McLean, VA"
+  },
+  {
+    "office_id": "lincoln-international-miami",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "Miami",
+    "state": "FL",
+    "hq": false,
+    "linkedin_location": "Miami, FL"
+  },
+  {
+    "office_id": "lincoln-international-cleveland",
+    "bank_id": "lincoln-international",
+    "bank": "Lincoln International",
+    "tier": "MM",
+    "city": "Cleveland",
+    "state": "OH",
+    "hq": false,
+    "linkedin_location": "Cleveland, OH"
+  },
+  {
+    "office_id": "td-cowen-new-york",
+    "bank_id": "td-cowen",
+    "bank": "TD Cowen",
+    "tier": "MM",
+    "city": "New York",
+    "state": "NY",
+    "hq": true,
+    "linkedin_location": "New York, NY"
+  },
+  {
+    "office_id": "td-cowen-san-francisco",
+    "bank_id": "td-cowen",
+    "bank": "TD Cowen",
+    "tier": "MM",
+    "city": "San Francisco",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "San Francisco, CA"
+  },
+  {
+    "office_id": "td-cowen-washington",
+    "bank_id": "td-cowen",
+    "bank": "TD Cowen",
+    "tier": "MM",
+    "city": "Washington",
+    "state": "DC",
+    "hq": false,
+    "linkedin_location": "Washington, DC"
+  },
+  {
+    "office_id": "td-cowen-el-segundo",
+    "bank_id": "td-cowen",
+    "bank": "TD Cowen",
+    "tier": "MM",
+    "city": "El Segundo",
+    "state": "CA",
+    "hq": false,
+    "linkedin_location": "El Segundo, CA"
+  },
+  {
+    "office_id": "td-cowen-dallas",
+    "bank_id": "td-cowen",
+    "bank": "TD Cowen",
+    "tier": "MM",
+    "city": "Dallas",
+    "state": "TX",
+    "hq": false,
+    "linkedin_location": "Dallas, TX"
+  }
+]

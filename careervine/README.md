@@ -33,11 +33,13 @@ This keeps delivery and data freshness reliable without requiring users to keep 
 
 ## Company Intelligence Workflow
 
-CareerVine company pages now let you maintain office locations directly, even when you do not yet have a contact tied to that office.
+Every company page is a recruiting command center: your full contact roster on one side, a living pipeline on the other.
 
-- Add new offices from `Companies -> Company -> Manage offices` using city/state/country.
-- Keep recruiting notes and location facets accurate before you build out the full contact map.
-- Remove stale inferred offices without losing first-person location data captured on contact profiles.
+- Track each employer through a visual pipeline — Researching, Active outreach, Applied, Interviewing, Closed — with the details that matter at each step: programs you're considering, research notes, every application you've submitted (with your actual resume and cover letter PDFs attached), and interview rounds.
+- Target the whole company, a single office, or both — "Applied to Capital One generally" and "actively networking into the New York office" are separate pipelines with their own status and notes, switchable from one location dropdown.
+- Applied more than once? Cycles keep each application season separate, so last year's run doesn't muddy this year's.
+- Everything saves as you type — no save buttons — and your pipeline stage flows straight into the Companies dashboard so priorities stay honest.
+- Email a prospect in one click (with bounced and pattern-guessed addresses clearly flagged), promote bench contacts into outreach, and manage office locations without leaving the page.
 
 ### Find the Right Company Instantly
 
