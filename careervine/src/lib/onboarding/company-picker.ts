@@ -13,6 +13,8 @@ export type PickerCompany = {
   logoUrl: string | null;
   contactCount: number;
   alumniCount: number;
+  /** Alumni whose pipeline persona is a product role (CAR-61). */
+  productAlumniCount: number;
   alreadyTargeted: boolean;
 };
 
@@ -23,9 +25,16 @@ export async function getPickerCompanies(userId: string): Promise<PickerCompany[
     supabase.rpc("user_company_alumni_counts"),
   ]);
 
-  const alumniByCompany = new Map<number, number>();
-  for (const row of (alumniRes.data as { company_id: number; alumni_count: number }[] | null) ?? []) {
-    alumniByCompany.set(row.company_id, Number(row.alumni_count) || 0);
+  const alumniByCompany = new Map<number, { alumni: number; product: number }>();
+  const rows =
+    (alumniRes.data as
+      | { company_id: number; alumni_count: number; product_alumni_count: number }[]
+      | null) ?? [];
+  for (const row of rows) {
+    alumniByCompany.set(row.company_id, {
+      alumni: Number(row.alumni_count) || 0,
+      product: Number(row.product_alumni_count) || 0,
+    });
   }
 
   return companies
@@ -34,13 +43,15 @@ export async function getPickerCompanies(userId: string): Promise<PickerCompany[
       name: c.name,
       logoUrl: c.logo_url,
       contactCount: c.current_count,
-      alumniCount: alumniByCompany.get(c.id) ?? 0,
+      alumniCount: alumniByCompany.get(c.id)?.alumni ?? 0,
+      productAlumniCount: alumniByCompany.get(c.id)?.product ?? 0,
       alreadyTargeted: c.target != null,
     }))
     .filter((c) => c.contactCount > 0)
     .sort(
       (a, b) =>
         b.alumniCount - a.alumniCount ||
+        b.productAlumniCount - a.productAlumniCount ||
         b.contactCount - a.contactCount ||
         a.name.localeCompare(b.name),
     );

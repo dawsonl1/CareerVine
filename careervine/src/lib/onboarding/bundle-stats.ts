@@ -21,6 +21,10 @@ export type OnboardingBundleStats = {
   prospectCount: number;
   companyCount: number;
   alumniCount: number;
+  /** Alumni whose pipeline persona is a product role (CAR-61). */
+  alumniProductCount: number;
+  /** How many of the bundle's companies have a BYU alum there today — a
+   * subset of companyCount by construction (CAR-61). */
   alumniCompanyCount: number;
 };
 
@@ -37,6 +41,7 @@ export async function getOnboardingBundleStats(): Promise<OnboardingBundleStats 
   const bundle = bundles.find((b) => b.slug === ONBOARDING_BUNDLE_SLUG) ?? bundles[0];
 
   let alumniCount = 0;
+  let alumniProductCount = 0;
   let alumniCompanyCount = 0;
   const { data: stats } = await supabase.rpc("bundle_alumni_stats", {
     p_bundle_id: bundle.id,
@@ -44,6 +49,7 @@ export async function getOnboardingBundleStats(): Promise<OnboardingBundleStats 
   const row = Array.isArray(stats) ? stats[0] : stats;
   if (row) {
     alumniCount = Number(row.alumni_count) || 0;
+    alumniProductCount = Number(row.alumni_product_count) || 0;
     alumniCompanyCount = Number(row.alumni_company_count) || 0;
   }
 
@@ -55,6 +61,7 @@ export async function getOnboardingBundleStats(): Promise<OnboardingBundleStats 
     prospectCount: bundle.prospect_count,
     companyCount: bundle.company_count,
     alumniCount,
+    alumniProductCount,
     alumniCompanyCount,
   };
 }
