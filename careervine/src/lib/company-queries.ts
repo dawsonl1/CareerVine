@@ -15,6 +15,7 @@ import {
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
+import { escapeIlikePattern } from "./search-helpers";
 
 type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
 
@@ -302,7 +303,7 @@ export async function getCompanies(
       .select("id, name, logo_url, linkedin_url, domain")
       .in("id", chunk);
     if (opts.search?.trim()) {
-      q = q.ilike("name", `%${opts.search.trim().replace(/([\\%_])/g, "\\$1")}%`);
+      q = q.ilike("name", `%${escapeIlikePattern(opts.search.trim())}%`);
     }
     const { data, error } = await q;
     if (error) throw error;
