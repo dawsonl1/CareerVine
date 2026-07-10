@@ -14,13 +14,19 @@ class PopupManager {
   async init() {
     // Set up event listeners
     this.setupEventListeners();
-    
+
+    // Show the installed version (single source of truth: the manifest)
+    const versionEl = document.querySelector('.app-version');
+    if (versionEl) {
+      versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
+    }
+
     // Check authentication status
     await this.checkAuthStatus();
-    
+
     // Load recent contacts
     await this.loadRecentContacts();
-    
+
     // Get current tab info
     await this.getCurrentTabInfo();
   }
@@ -47,7 +53,16 @@ class PopupManager {
     if (signupLink) {
       signupLink.addEventListener('click', (e) => {
         e.preventDefault();
-        chrome.tabs.create({ url: 'https://www.careervine.app/auth' });
+        chrome.tabs.create({ url: 'https://www.careervine.app/auth?mode=signup' });
+      });
+    }
+
+    // Forgot password link
+    const forgotLink = document.getElementById('forgotLink');
+    if (forgotLink) {
+      forgotLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        chrome.tabs.create({ url: 'https://www.careervine.app/auth?mode=reset' });
       });
     }
 
@@ -218,11 +233,8 @@ class PopupManager {
       if (tab.url?.includes('linkedin.com/in/')) {
         pageInfo.textContent = 'LinkedIn Profile Page';
         pageInfo.style.color = '#2d6a30';
-      } else if (tab.url?.includes('linkedin.com/company/')) {
-        pageInfo.textContent = 'LinkedIn Company Page';
-        pageInfo.style.color = '#2d6a30';
       } else {
-        pageInfo.textContent = 'Not a LinkedIn page';
+        pageInfo.textContent = 'Not a LinkedIn profile';
         pageInfo.style.color = '#666';
       }
       

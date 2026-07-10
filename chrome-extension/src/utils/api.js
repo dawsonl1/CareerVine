@@ -61,40 +61,6 @@ class CareerVineAPI {
     });
   }
 
-  /**
-   * Get the latest scraped profile
-   */
-  async getLatestProfile() {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'getLatestProfile' }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else {
-          resolve(response?.profileData || null);
-        }
-      });
-    });
-  }
-
-  /**
-   * Import profile data to CareerVine
-   */
-  async importData(profileData) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { action: 'importData', data: profileData },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else if (response?.error) {
-            reject(new Error(response.error));
-          } else {
-            resolve(response);
-          }
-        }
-      );
-    });
-  }
 }
 
 // Make available globally

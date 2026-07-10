@@ -251,6 +251,16 @@ body {
   text-decoration: underline;
 }
 
+.forgot-password-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -8px;
+}
+
+.forgot-password-row .auth-footer-link {
+  font-size: 12px;
+}
+
 /* Main Section */
 .main-section {
   display: flex;

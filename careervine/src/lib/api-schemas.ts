@@ -329,7 +329,12 @@ export const aiDraftFollowUpsSchema = z.object({
 // ── Extension ──────────────────────────────────────────────────────────
 
 export const extensionParseProfileSchema = z.object({
-  cleanedText: z.string().min(1, "cleanedText is required"),
+  // Cleaned profile text is typically <15k chars; the cap bounds OpenAI cost
+  // if a buggy or malicious client posts raw page dumps.
+  cleanedText: z
+    .string()
+    .min(1, "cleanedText is required")
+    .max(60_000, "cleanedText is too long"),
   profileUrl: optionalString,
 });
 

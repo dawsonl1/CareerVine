@@ -73,6 +73,11 @@ async function refreshSession(session) {
   }
 }
 
+// Single-flight guard: Supabase rotates refresh tokens, so two concurrent
+// refreshes with the same token can revoke the whole session. Concurrent
+// callers share one in-flight refresh instead.
+let refreshPromise = null;
+
 // Get a valid session, refreshing if expired
 async function getValidSession() {
   const { session } = await chrome.storage.local.get(['session']);
@@ -84,7 +89,12 @@ async function getValidSession() {
 
   if (isExpired) {
     if (session.refresh_token) {
-      const refreshed = await refreshSession(session);
+      if (!refreshPromise) {
+        refreshPromise = refreshSession(session).finally(() => {
+          refreshPromise = null;
+        });
+      }
+      const refreshed = await refreshPromise;
       if (refreshed) return refreshed;
     }
     await chrome.storage.local.remove(['session']);
@@ -116,9 +126,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       case 'logout':
         await handleLogout(sendResponse);
-        break;
-      case 'getLatestProfile':
-        await handleGetLatestProfile(sendResponse);
         break;
       case 'getConfig':
         sendResponse({ apiBaseUrl: config.apiBaseUrl, environment: config.environment });
@@ -173,17 +180,10 @@ async function handleParseProfile(data, sendResponse) {
       profileUrl: data.profileUrl
     });
 
-    // Store profile data and photo URL separately
-    // photoUrl is DOM-scraped, not AI-parsed — kept outside latestProfile
-    const storageUpdate = { latestProfile: result.profileData };
-    if (data.photoUrl) {
-      storageUpdate.latestPhotoUrl = data.photoUrl;
-    } else {
-      // Clear stale photo from a previous profile
-      await chrome.storage.local.remove(['latestPhotoUrl']);
-    }
-    await chrome.storage.local.set(storageUpdate);
-
+    // Profile data flows back to the calling tab's content script, which
+    // caches it per-profile and hands it to its own panel over the bus.
+    // Nothing is written to global storage — that's what let one tab's
+    // scrape overwrite another tab's panel.
     sendResponse({ success: true, profileData: result.profileData });
   } catch (error) {
     sendResponse({ error: error.message, code: error.code, status: error.status });
@@ -287,25 +287,19 @@ async function handleCheckDuplicate(data, sendResponse) {
     });
     sendResponse({ success: true, duplicates: result.duplicates || [] });
   } catch (error) {
-    sendResponse({ duplicates: [], suggestions: [] });
+    // error flag lets the content script skip caching this as "no match"
+    // (e.g. the check ran while signed out and should retry after login)
+    sendResponse({ duplicates: [], error: error.message });
   }
 }
 
 async function handleLogout(sendResponse) {
   try {
+    // latestProfile/latestPhotoUrl are legacy keys — kept in the remove list
+    // so stale installs get cleaned up.
     await chrome.storage.local.remove(['session', 'latestProfile', 'latestPhotoUrl', 'recentContacts', 'autoScrapeEnabled', 'profileCache']);
     sendResponse({ success: true });
   } catch (error) {
-    sendResponse({ error: error.message });
-  }
-}
-
-async function handleGetLatestProfile(sendResponse) {
-  try {
-    const { latestProfile } = await chrome.storage.local.get(['latestProfile']);
-    sendResponse({ profileData: latestProfile });
-  } catch (error) {
-    console.error('Get latest profile error:', error);
     sendResponse({ error: error.message });
   }
 }

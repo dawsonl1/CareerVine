@@ -1318,6 +1318,13 @@
   text-decoration: underline;
 }
 
+.cv-login-forgot-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -8px;
+  font-size: 12px;
+}
+
 /* Location Suggestions */
 .cv-location-input-wrapper {
   position: relative;

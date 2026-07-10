@@ -8,7 +8,7 @@ let isPanelOpen = false;
 let isAnalyzing = false;
 let lastAnalyzedProfileId = null;
 let lastScrapeTimestamp = 0;
-let lastCheckedProfileId = null; // Track which profile we last checked against the DB
+let lastDbCheck = null; // { profileId, contact|null } — cached so results can be re-emitted
 let autoScrapeEnabled = false;
 const SCRAPE_COOLDOWN_MS = 30000;
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -74,6 +74,8 @@ function createFAB() {
   const fab = document.createElement('button');
   fab.id = '_cv-f';
   fab.className = '_cv-f';
+  // Only useful on profile pages — hidden elsewhere (feed, jobs, search)
+  if (!extractProfileId(window.location.href)) fab.style.display = 'none';
   fab.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M7 20h10"/>
@@ -115,15 +117,8 @@ async function tryLoadFromCache(profileId) {
   const { profileCache = {} } = await chrome.storage.local.get(['profileCache']);
   const entry = profileCache[profileId];
   if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
-    const storageUpdate = { latestProfile: entry.data };
-    if (entry.photoUrl) {
-      storageUpdate.latestPhotoUrl = entry.photoUrl;
-    } else {
-      await chrome.storage.local.remove(['latestPhotoUrl']);
-    }
-    await chrome.storage.local.set(storageUpdate);
     lastAnalyzedProfileId = profileId;
-    emit('cachedhit', { profileData: entry.data });
+    emit('cachedhit', { profileData: entry.data, photoUrl: entry.photoUrl || null });
     return true;
   }
   return false;
@@ -131,9 +126,23 @@ async function tryLoadFromCache(profileId) {
 
 // ---- DB lookup (no scraping, no page interaction) ----
 
+function emitDbResult({ profileId, contact }) {
+  if (contact) {
+    emit('dbmatch', { contact, profileId });
+  } else {
+    emit('dbnomatch', { profileId });
+  }
+}
+
 async function checkProfileInDB(profileId) {
-  if (lastCheckedProfileId === profileId) return;
   if (!isExtensionContextValid()) return;
+
+  // Re-emit the cached result instead of refetching — the panel may have
+  // missed the first emission (e.g. it hadn't mounted yet on first open).
+  if (lastDbCheck && lastDbCheck.profileId === profileId) {
+    emitDbResult(lastDbCheck);
+    return;
+  }
 
   try {
     const linkedinUrl = `https://www.linkedin.com/in/${profileId}/`;
@@ -142,13 +151,16 @@ async function checkProfileInDB(profileId) {
       data: { linkedinUrl }
     });
 
-    lastCheckedProfileId = profileId;
-
-    if (response?.duplicates?.length > 0) {
-      emit('dbmatch', { contact: response.duplicates[0], profileId });
-    } else {
+    if (response?.error) {
+      // Check failed (e.g. not signed in) — report no-match but don't cache,
+      // so a later sync (post-login) refetches instead of replaying this.
       emit('dbnomatch', { profileId });
+      return;
     }
+
+    const contact = response?.duplicates?.length > 0 ? response.duplicates[0] : null;
+    lastDbCheck = { profileId, contact };
+    emitDbResult(lastDbCheck);
   } catch {
     emit('dbnomatch', { profileId });
   }
@@ -170,8 +182,8 @@ function analyzeCurrentProfile(profileId, calledFromNav = false) {
       isAnalyzing = false;
       if (result?.scraped) {
         lastAnalyzedProfileId = profileId;
-        const { latestProfile, latestPhotoUrl } = await chrome.storage.local.get(['latestProfile', 'latestPhotoUrl']);
-        if (latestProfile) await setCachedProfile(profileId, latestProfile, latestPhotoUrl);
+        await setCachedProfile(profileId, result.profileData, result.photoUrl);
+        emit('profiledata', { profileData: result.profileData, photoUrl: result.photoUrl || null });
       }
       if (result?.parseError) {
         // Parsing failed server-side (e.g. no usable OpenAI key, CAR-26).
@@ -196,7 +208,37 @@ function analyzeCurrentProfile(profileId, calledFromNav = false) {
   }
 }
 
+// Push the current page's state to the panel: DB check, cache, auto-scrape.
+// Runs when the panel signals it has mounted ('panel-ready') and on every
+// re-open of an already-mounted panel.
+function syncPanelState() {
+  const currentProfileId = extractProfileId(window.location.href);
+  if (!currentProfileId) {
+    emit('leftprofile');
+    return;
+  }
+
+  // Check DB first (fast, no page interaction)
+  checkProfileInDB(currentProfileId);
+
+  if (currentProfileId !== lastAnalyzedProfileId) {
+    // Try cache — if hit, profile loads instantly
+    tryLoadFromCache(currentProfileId).then((hit) => {
+      if (!hit) {
+        if (autoScrapeEnabled) {
+          analyzeCurrentProfile(currentProfileId);
+        } else {
+          // Nothing to show — tell the panel it's a fresh profile so it
+          // leaves its loading state and offers manual analysis.
+          emit('newprofile', { profileId: currentProfileId });
+        }
+      }
+    }).catch(() => {});
+  }
+}
+
 function openPanel() {
+  const firstOpen = !_shadowRoot;
   createPanel();
   if (_shadowRoot) {
     const panel = _shadowRoot.getElementById('_cv-p');
@@ -204,19 +246,11 @@ function openPanel() {
       panel.classList.add('open');
       isPanelOpen = true;
 
-      const currentProfileId = extractProfileId(window.location.href);
-      if (currentProfileId) {
-        // Check DB first (fast, no page interaction)
-        checkProfileInDB(currentProfileId);
-
-        if (currentProfileId !== lastAnalyzedProfileId) {
-          // Try cache — if hit, profile loads instantly
-          tryLoadFromCache(currentProfileId).then((hit) => {
-            if (!hit && autoScrapeEnabled) {
-              analyzeCurrentProfile(currentProfileId);
-            }
-          }).catch(() => {});
-        }
+      // On first open the React app hasn't mounted yet — it announces
+      // 'panel-ready' when its listeners are attached, and syncPanelState
+      // runs then. Only sync directly on re-open of a mounted panel.
+      if (!firstOpen) {
+        syncPanelState();
       }
     }
   }
@@ -259,7 +293,7 @@ async function scrapeCurrentProfile() {
     dispatchProgress('parsing', 60);
     const parseResponse = await chrome.runtime.sendMessage({
       action: 'parseProfile',
-      data: { cleanedText, profileUrl: window.location.href, photoUrl }
+      data: { cleanedText, profileUrl: window.location.href }
     });
 
     if (parseResponse?.error) {
@@ -276,17 +310,13 @@ async function scrapeCurrentProfile() {
     }
 
     lastScrapeTimestamp = Date.now();
-    return { scraped: true };
+    return { scraped: true, profileData: parseResponse?.profileData || null, photoUrl };
   } catch (error) {
     return { scraped: false };
   }
 }
 
 // ---- Navigation detection ----
-
-function clearLatestProfileStorage() {
-  chrome.storage.local.remove(['latestProfile', 'latestPhotoUrl']);
-}
 
 let lastProfileId = extractProfileId(window.location.href);
 
@@ -295,7 +325,16 @@ function extractProfileId(url) {
   return match ? match[1] : null;
 }
 
+function updateFabVisibility() {
+  const fab = document.getElementById('_cv-f');
+  if (fab) {
+    fab.style.display = extractProfileId(window.location.href) ? '' : 'none';
+  }
+}
+
 function handleProfileNavigation() {
+  updateFabVisibility();
+
   const currentProfileId = extractProfileId(window.location.href);
 
   if (currentProfileId && currentProfileId !== lastProfileId) {
@@ -303,7 +342,6 @@ function handleProfileNavigation() {
     isAnalyzing = false;
     lastAnalyzedProfileId = null;
     lastScrapeTimestamp = 0;
-    lastCheckedProfileId = null; // Reset so DB check runs for new profile
 
     // Always check DB for the new profile (fast, no page interaction)
     checkProfileInDB(currentProfileId);
@@ -311,27 +349,22 @@ function handleProfileNavigation() {
     if (isPanelOpen) {
       tryLoadFromCache(currentProfileId).then((hit) => {
         if (!hit) {
-          clearLatestProfileStorage();
           emit('newprofile', { profileId: currentProfileId });
           if (autoScrapeEnabled) {
             analyzeCurrentProfile(currentProfileId, true);
           }
         }
       }).catch(() => {
-        clearLatestProfileStorage();
         emit('newprofile', { profileId: currentProfileId });
       });
     } else {
-      clearLatestProfileStorage();
       emit('newprofile', { profileId: currentProfileId });
     }
   } else if (!currentProfileId && lastProfileId) {
     lastProfileId = null;
     isAnalyzing = false;
     lastAnalyzedProfileId = null;
-    lastCheckedProfileId = null;
 
-    clearLatestProfileStorage();
     emit('leftprofile');
   }
 }
@@ -340,6 +373,11 @@ function handleProfileNavigation() {
 
 if (!window.__cv_init) {
   window.__cv_init = true;
+
+  // React panel announces its listeners are attached — safe to push state.
+  _bus.addEventListener('panel-ready', () => {
+    syncPanelState();
+  });
 
   _bus.addEventListener('request-scrape', () => {
     const currentProfileId = extractProfileId(window.location.href);

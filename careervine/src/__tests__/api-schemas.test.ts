@@ -14,6 +14,7 @@ import {
   calendarBusyCalendarsSchema,
   openaiKeySaveSchema,
   deepgramKeySaveSchema,
+  extensionParseProfileSchema,
 } from '@/lib/api-schemas';
 
 // ── Helper ─────────────────────────────────────────────────────────────
@@ -435,5 +436,32 @@ describe('deepgramKeySaveSchema', () => {
       const message = result.error.issues.map((i) => i.message).join(' ');
       expect(message).not.toContain('ZZZ-secret-value-9999');
     }
+  });
+});
+
+// ── extensionParseProfileSchema ────────────────────────────────────────
+
+describe('extensionParseProfileSchema', () => {
+  it('accepts typical cleaned profile text with a URL', () => {
+    expectValid(extensionParseProfileSchema, {
+      cleanedText: 'Jane Doe\nProduct Manager\nExperience\nAcme Corp',
+      profileUrl: 'https://www.linkedin.com/in/janedoe/',
+    });
+  });
+
+  it('accepts text without a profileUrl', () => {
+    expectValid(extensionParseProfileSchema, { cleanedText: 'Jane Doe' });
+  });
+
+  it('rejects empty cleanedText', () => {
+    expectInvalid(extensionParseProfileSchema, { cleanedText: '' });
+  });
+
+  it('accepts text at the 60k cap', () => {
+    expectValid(extensionParseProfileSchema, { cleanedText: 'a'.repeat(60_000) });
+  });
+
+  it('rejects text over the 60k cap (cost guard)', () => {
+    expectInvalid(extensionParseProfileSchema, { cleanedText: 'a'.repeat(60_001) });
   });
 });
