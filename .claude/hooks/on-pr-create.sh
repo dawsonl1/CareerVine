@@ -16,6 +16,8 @@ url=$(printf '%s' "$out" | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9
 [ -n "$url" ] || exit 0
 
 ref=$(linear_issue_ref); [ -n "$ref" ] || exit 0
-linear_set_state "$ref" "In Review" || true
-linear_upsert_comment "$ref" "pr-link" "$(printf '<!-- pr-link -->\n🔀 **PR:** %s' "$url")" || true
+synced=1
+linear_set_state "$ref" "In Review" || synced=0
+linear_upsert_comment "$ref" "pr-link" "$(printf '<!-- pr-link -->\n🔀 **PR:** %s' "$url")" || synced=0
+[ "$synced" -eq 1 ] || _ln_fail_visible "$ref needs state In Review and a <!-- pr-link --> comment with $url"
 exit 0

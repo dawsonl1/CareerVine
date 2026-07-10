@@ -29,7 +29,30 @@ eq "rank Canceled=-1"  "$(linear_rank Canceled)"       "-1"
 [ "$(linear_rank 'In Progress')" -lt "$(linear_rank 'In Review')" ] && ok "no downgrade InReview->InProgress" || bad "ordering" "bad"
 
 # key-absent safety: linear_gql must fail (return 1) without a key, never hang or emit stdout
-( unset LINEAR_API_KEY; out=$(linear_gql 'query{__typename}' 2>/dev/null); rc=$?; [ $rc -ne 0 ] && [ -z "$out" ] ) \
+# (CLAUDE_SECRETS_FILE pointed at a missing file so self-heal can't reload the real key)
+( unset LINEAR_API_KEY; export CLAUDE_SECRETS_FILE=/nonexistent
+  . "$DIR/lib/linear.sh"
+  out=$(linear_gql 'query{__typename}' 2>/dev/null); rc=$?; [ $rc -ne 0 ] && [ -z "$out" ] ) \
   && ok "no key -> quiet failure" || bad "no-key path" "leaked"
+
+# self-heal (CAR-39): with no key in the env, sourcing the lib recovers it from the
+# secrets file — hooks inherit the GUI app env, which never sourced ~/.zshenv.
+tmpsecrets=$(mktemp)
+printf 'export SOME_OTHER_KEY="nope"\nexport LINEAR_API_KEY="test-key-123"  # trailing comment\n' > "$tmpsecrets"
+got=$( unset LINEAR_API_KEY; export CLAUDE_SECRETS_FILE="$tmpsecrets"
+  . "$DIR/lib/linear.sh"; printf '%s' "${LINEAR_API_KEY:-}" )
+eq "self-heal loads key from secrets file" "$got" "test-key-123"
+got=$( unset LINEAR_API_KEY; export CLAUDE_SECRETS_FILE="$tmpsecrets"
+  . "$DIR/lib/linear.sh"; printf '%s' "${SOME_OTHER_KEY:-}" )
+eq "self-heal imports ONLY the Linear key" "$got" ""
+got=$( LINEAR_API_KEY="already-set" ; export LINEAR_API_KEY; export CLAUDE_SECRETS_FILE="$tmpsecrets"
+  . "$DIR/lib/linear.sh"; printf '%s' "$LINEAR_API_KEY" )
+eq "self-heal never clobbers an existing key" "$got" "already-set"
+rm -f "$tmpsecrets"
+
+# _ln_fail_visible: exits 2 (PostToolUse's surface-to-agent code) with the repair hint on stderr
+err=$( ( _ln_fail_visible "CAR-1 needs X" ) 2>&1 ); rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -q 'repair via Linear MCP: CAR-1 needs X' \
+  && ok "fail-visible exits 2 with repair hint" || bad "fail-visible" "rc=$rc err=$err"
 
 [ "$fail" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "FAILURES"; exit 1; }

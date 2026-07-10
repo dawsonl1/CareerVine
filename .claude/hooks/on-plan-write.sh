@@ -20,6 +20,8 @@ ref=$(_ln_parse_ref "$(basename "$fp")"); [ -n "$ref" ] || ref=$(linear_issue_re
 [ -n "$ref" ] || exit 0
 
 body=$(printf '<!-- plan-sync -->\n📋 **Plan** — `%s`\n\n%s' "$(basename "$fp")" "$(cat "$fp")")
-linear_upsert_comment "$ref" "plan-sync" "$body" || true
-linear_set_state "$ref" "In Progress" || true
+synced=1
+linear_upsert_comment "$ref" "plan-sync" "$body" || synced=0
+linear_set_state "$ref" "In Progress" || synced=0
+[ "$synced" -eq 1 ] || _ln_fail_visible "$ref needs the plan posted as a <!-- plan-sync --> comment and state set to In Progress"
 exit 0
