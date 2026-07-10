@@ -1235,7 +1235,9 @@ export function PipelineLayout({
             />
           </div>
           {filteredPeople.length === 0 ? (
-            <p className="text-sm text-on-surface-variant py-8 text-center">No contacts match.</p>
+            <p className="text-sm text-on-surface-variant py-8 text-center">
+              {search.trim() ? "No contacts match." : "No contacts at this office yet."}
+            </p>
           ) : (
             <div className="space-y-2">
               {[

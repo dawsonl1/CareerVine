@@ -2029,3 +2029,47 @@ Follows §18.2.1 + §21.4 + §23.4:
 ### 24.6 Delivery
 
 Work continues on the existing CAR-6 branch; single PR to `main` (migration + cross-cutting ⇒ PR path per rule 19). Slices: (1) migration, (2) data layer + tests, (3) page swap + autosave, (4) parity ports + deletions, (5) downstream parity + verification.
+
+---
+
+## 25. Scope-audit fixes: zero-contact offices + scope-aware list cards (approved 2026-07-10)
+
+**Context:** The post-ship scope audit confirmed the §21 matrix works (company-wide + N offices, all independent, verified live) and surfaced four gaps. Dawson accepted two as by-design (Remote/Unknown not targetable; no hard delete) and approved fixing the other two.
+
+### 25.1 Gap 1 — manual offices with zero contacts can't be targeted
+
+**Root cause:** the Location dropdown is built from `tabs.offices`, which comes from `getCompanyDetail().facets` — derived purely from contact employment rows. The `company_locations` registry (including manually added offices) feeds only the Manage Offices panel, so a zero-contact office never becomes a scope. This breaks Persona C ("researching before I have anyone there") and story C2.4's intent.
+
+**Fix (in `fetchCompanyScopes`):** after building facet-based office blocks, append a block for every `company_locations` row whose `location_id` no facet covered:
+
+- Same key convention (`String(location_id)`) — targeting, pipelines, and pre-target containers work unchanged, zero new schema.
+- `contactCount: 0`, empty people arrays, no per-facet `getCompanyDetail` call.
+- `CompanyOffice` gains `city/state/country` (already selected in the query, just not mapped) so registry blocks get the same compact `formatOfficeTabLabel` tab labels as facet blocks.
+- Registry blocks sort after contact-bearing offices (existing count-desc sort handles it).
+- Contacts panel empty state copy: "No contacts at this office yet" when the list is empty without a search query (the current "No contacts match." implies a failed search).
+
+**Office deletion edge:** deleting a `company_locations` row currently leaves the user's scope row for that location alive but invisible (no facet, no registry entry) — a targeted ghost that still counts on the targets list. `deleteCompanyOffice` will now also soft-untarget the deleting user's scope row for that location (data kept per Philosophy 2; resurfaces if the office is re-added).
+
+### 25.2 Gap 2 — `/companies` cards are scope-blind
+
+**Root cause:** `getCompanies` collapses all scope rows into one `TargetInfo` (company-wide preferred, else highest-priority office). The card shows its status with no scope context, and tier/program/app-window vanish when only offices are targeted (they live on the company-wide row).
+
+**Fix — derivation (extracted as a pure, tested helper `deriveCompanyTarget(rows)` per company):**
+
+| Card field | Source |
+|---|---|
+| Targeted at all? | any scope row with `is_targeted` |
+| Status chip (+ filters/sort) | company-wide row when targeted, else highest-priority targeted office |
+| `tier`, `program_name`, `app_window_text` | company-wide row **regardless of its is_targeted** — they describe the employer (§18.12 Q5 Option C), so office-only targeting keeps them |
+| `next_app_date` | nearest non-null date across targeted scopes (deadlines drive action) |
+| `priority_score` | max across targeted scopes |
+
+`CompanySummary` gains `office_scopes: Array<{ location_id, label, status }>` (targeted office scopes with location labels, joined in the existing query).
+
+**Fix — card UI (§21.5 subtitle, kept compact):** one muted line under the card meta, only when office scopes are targeted: `MapPin New York · Outreach active — London · Applied` (up to two offices with statuses, then "+N more"). Company-wide-only cards look exactly as today. The primary status chip is unchanged, so the status facet filter and priority sort keep working.
+
+### 25.3 Tests & verification
+
+- Unit tests for `deriveCompanyTarget` (company-wide only / office-only / mixed / untargeted container contributing tier but not targeting / nearest-date / max-priority) and for the registry-office merge.
+- `company-filters` test factory updated for the new field.
+- Browser: add a zero-contact manual office → appears in dropdown → target it → shows on `/companies` with scope line; office-only and mixed cards render; delete office → scope soft-untargets.

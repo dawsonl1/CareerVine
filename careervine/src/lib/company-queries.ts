@@ -200,6 +200,12 @@ export interface TargetInfo {
   status: string;
 }
 
+export interface OfficeScopeSummary {
+  location_id: number;
+  label: string;
+  status: string;
+}
+
 export interface CompanySummary {
   id: number;
   name: string;
@@ -209,8 +215,82 @@ export interface CompanySummary {
   former_count: number;
   bench_count: number;
   target: TargetInfo | null;
+  /** Targeted office scopes (location-level targets), highest priority first. */
+  office_scopes: OfficeScopeSummary[];
   /** Max derived stage across non-bench contacts (targets view only). */
   traction: OutreachStage | null;
+}
+
+/** One target_companies row (any scope, targeted or not) for derivation. */
+export interface CompanyTargetScopeRow {
+  id: number;
+  location_id: number | null;
+  is_targeted: boolean;
+  priority_score: number | null;
+  tier: string | null;
+  program_name: string | null;
+  app_window_text: string | null;
+  next_app_date: string | null;
+  status: string;
+  location_label: string | null;
+}
+
+/**
+ * Collapse a company's scope rows into what the dashboard card shows.
+ *
+ * The status chip follows the company-wide row when it's targeted, else
+ * the highest-priority targeted office. Tier / program / window hint are
+ * employer attributes (§18.12 Q5 Option C), so they come from the
+ * company-wide row even when it's a soft-untargeted container. The app
+ * date is the nearest across targeted scopes (deadlines drive action);
+ * priority is the max, so list sorting sees the strongest scope.
+ */
+export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
+  target: TargetInfo | null;
+  office_scopes: OfficeScopeSummary[];
+} {
+  const companyWide = rows.find((r) => r.location_id == null) ?? null;
+  const targetedOffices = rows
+    .filter((r) => r.location_id != null && r.is_targeted)
+    .sort(
+      (a, b) =>
+        (b.priority_score ?? -1) - (a.priority_score ?? -1) ||
+        (a.location_label ?? "").localeCompare(b.location_label ?? ""),
+    );
+
+  const office_scopes: OfficeScopeSummary[] = targetedOffices.map((r) => ({
+    location_id: r.location_id!,
+    label: r.location_label ?? `Location ${r.location_id}`,
+    status: r.status,
+  }));
+
+  const primary = companyWide?.is_targeted ? companyWide : targetedOffices[0] ?? null;
+  if (!primary) return { target: null, office_scopes: [] };
+
+  const targetedScopes = [
+    ...(companyWide?.is_targeted ? [companyWide] : []),
+    ...targetedOffices,
+  ];
+  const appDates = targetedScopes
+    .map((r) => r.next_app_date)
+    .filter((d): d is string => d != null)
+    .sort();
+  const priorities = targetedScopes
+    .map((r) => r.priority_score)
+    .filter((p): p is number => p != null);
+
+  return {
+    target: {
+      id: primary.id,
+      status: primary.status,
+      tier: companyWide?.tier ?? primary.tier ?? null,
+      program_name: companyWide?.program_name ?? primary.program_name ?? null,
+      app_window_text: companyWide?.app_window_text ?? primary.app_window_text ?? null,
+      next_app_date: appDates[0] ?? null,
+      priority_score: priorities.length > 0 ? Math.max(...priorities) : null,
+    },
+    office_scopes,
+  };
 }
 
 export type CompanySort = "priority" | "traction" | "next_app_date" | "name";
@@ -248,26 +328,34 @@ export async function getCompanies(
 
   const [employment, targetsRes] = await Promise.all([
     fetchUserEmploymentRows(userId),
+    // All scope rows, including soft-untargeted containers: tier/program
+    // live on the company-wide row even when only offices are targeted.
     db()
       .from("target_companies")
-      .select("id, company_id, location_id, priority_score, tier, program_name, app_window_text, next_app_date, status")
-      .eq("user_id", userId)
-      .eq("is_targeted", true),
+      .select(
+        "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
+      )
+      .eq("user_id", userId),
   ]);
   if (targetsRes.error) throw targetsRes.error;
-  const targets = (targetsRes.data ?? []) as Array<TargetInfo & { company_id: number; location_id: number | null }>;
-  // A company is a target if ANY scope (company-wide or office) is targeted.
-  // The card shows the company-wide row when present, else the highest-priority office scope.
-  const targetByCompany = new Map<number, TargetInfo & { company_id: number; location_id: number | null }>();
-  for (const t of targets) {
-    const existing = targetByCompany.get(t.company_id);
-    if (!existing) {
-      targetByCompany.set(t.company_id, t);
-      continue;
+  const scopeRows = (targetsRes.data ?? []) as unknown as Array<
+    Omit<CompanyTargetScopeRow, "location_label"> & {
+      company_id: number;
+      locations: { city: string | null; state: string | null; country: string } | null;
     }
-    if (existing.location_id == null) continue;
-    if (t.location_id == null || (t.priority_score ?? -1) > (existing.priority_score ?? -1)) {
-      targetByCompany.set(t.company_id, t);
+  >;
+  // A company is a target if ANY scope (company-wide or office) is targeted.
+  const targetByCompany = new Map<number, ReturnType<typeof deriveCompanyTarget>>();
+  {
+    const rowsByCompany = new Map<number, CompanyTargetScopeRow[]>();
+    for (const r of scopeRows) {
+      const list = rowsByCompany.get(r.company_id) ?? [];
+      list.push({ ...r, location_label: locationLabel(r.locations) });
+      rowsByCompany.set(r.company_id, list);
+    }
+    for (const [companyId, rows] of rowsByCompany) {
+      const derived = deriveCompanyTarget(rows);
+      if (derived.target) targetByCompany.set(companyId, derived);
     }
   }
 
@@ -300,13 +388,13 @@ export async function getCompanies(
   // Which companies to show
   let companyIds: number[];
   if (targetsOnly) {
-    companyIds = targets.map((t) => t.company_id);
+    companyIds = [...targetByCompany.keys()];
   } else {
     const minContacts = opts.minContacts ?? 1;
     companyIds = [...aggByCompany.entries()]
       .filter(([, agg]) => agg.current.size + agg.former.size >= minContacts)
       .map(([id]) => id);
-    for (const t of targets) if (!companyIds.includes(t.company_id)) companyIds.push(t.company_id);
+    for (const id of targetByCompany.keys()) if (!companyIds.includes(id)) companyIds.push(id);
   }
   if (companyIds.length === 0) return [];
 
@@ -352,7 +440,7 @@ export async function getCompanies(
     linkedin_url: string | null;
   }>).map((c) => {
     const agg = aggByCompany.get(c.id);
-    const target = targetByCompany.get(c.id);
+    const derived = targetByCompany.get(c.id);
     return {
       id: c.id,
       name: c.name,
@@ -361,17 +449,8 @@ export async function getCompanies(
       current_count: agg?.current.size ?? 0,
       former_count: agg?.former.size ?? 0,
       bench_count: agg?.bench.size ?? 0,
-      target: target
-        ? {
-            id: target.id,
-            priority_score: target.priority_score,
-            tier: target.tier,
-            program_name: target.program_name,
-            app_window_text: target.app_window_text,
-            next_app_date: target.next_app_date,
-            status: target.status,
-          }
-        : null,
+      target: derived?.target ?? null,
+      office_scopes: derived?.office_scopes ?? [],
       traction: traction.get(c.id) ?? null,
     };
   });
@@ -456,6 +535,9 @@ export interface CompanyOffice {
   location_id: number;
   source: string;
   label: string;
+  city: string | null;
+  state: string | null;
+  country: string | null;
 }
 
 export interface CompanyNote {
@@ -776,6 +858,9 @@ export async function getCompanyDetail(
     location_id: o.location_id,
     source: o.source,
     label: locationLabel(o.locations) ?? `Location ${o.location_id}`,
+    city: o.locations?.city ?? null,
+    state: o.locations?.state ?? null,
+    country: o.locations?.country ?? null,
   }));
 
   return {
@@ -819,6 +904,18 @@ export async function deleteCompanyOffice(office: { id: number; location_id: num
   if (clearError) throw clearError;
   const { error } = await db().from("company_locations").delete().eq("id", office.id);
   if (error) throw error;
+
+  // Deleting the office removes it from the scope dropdown; soft-untarget
+  // the (RLS-scoped, own) target row for it so a targeted-but-invisible
+  // ghost can't linger on the targets list. Pipeline data is kept and
+  // resurfaces if the office is re-added.
+  const { error: untargetError } = await db()
+    .from("target_companies")
+    .update({ is_targeted: false, updated_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .eq("location_id", office.location_id)
+    .eq("is_targeted", true);
+  if (untargetError) throw untargetError;
 }
 
 export async function addCompanyOffice(companyId: number, locationId: number) {

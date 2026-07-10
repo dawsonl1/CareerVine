@@ -14,6 +14,7 @@ import {
   getCompanyDetail,
   type CompanyDetail,
   type CompanyNote,
+  type CompanyOffice,
   type CompanyPerson,
   type LocationFacet,
 } from "@/lib/company-queries";
@@ -64,6 +65,41 @@ function notesForLocation(allNotes: CompanyNote[], facet: LocationFacet): Compan
 
 function isOfficeFacetKey(key: string): boolean {
   return key !== "remote" && key !== "unknown";
+}
+
+/**
+ * Registry offices (company_locations) that no contact facet covered —
+ * manually added or freshly scraped offices with zero contacts. They must
+ * still be scopes so "add the office, target it, log research before you
+ * know anyone there" works (plan 35 Persona C / story C2.4).
+ */
+export function registryOfficeBlocks(
+  registryOffices: CompanyOffice[],
+  facetOfficeKeys: Set<string>,
+  officeScopes: Map<string, { is_targeted: boolean; status: string; next_app_date: string | null; app_window_text: string | null }>,
+): LocationBlock[] {
+  return registryOffices
+    .filter((o) => !facetOfficeKeys.has(String(o.location_id)))
+    .map((o) => {
+      const key = String(o.location_id);
+      const scopeRow = officeScopes.get(key);
+      return {
+        key,
+        label: o.label,
+        tabLabel: formatOfficeTabLabel(o.city, o.state, o.country ?? ""),
+        location_id: o.location_id,
+        contactCount: 0,
+        isTargeted: Boolean(scopeRow?.is_targeted),
+        status: scopeRow?.is_targeted ? scopeRow.status : null,
+        next_app_date: scopeRow?.next_app_date ?? null,
+        app_window_text: scopeRow?.app_window_text ?? null,
+        notes: [],
+        current: [],
+        former: [],
+        bench: [],
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
 }
 
 interface OfficeScopeRow {
@@ -146,6 +182,15 @@ export async function fetchCompanyScopes(
   });
 
   offices.sort((a, b) => b.contactCount - a.contactCount || a.label.localeCompare(b.label));
+
+  // Zero-contact registry offices go after the contact-bearing ones.
+  offices.push(
+    ...registryOfficeBlocks(
+      base.offices,
+      new Set(offices.map((o) => o.key)),
+      officeScopes,
+    ),
+  );
 
   const totalContacts = countPeople(base.current, base.former);
   const companyWideNotes = allNotes.filter((n) => n.location_id == null);

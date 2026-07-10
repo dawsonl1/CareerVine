@@ -12,6 +12,7 @@ function company(overrides: Partial<CompanySummary> & { name: string }): Company
     current_count: 2,
     former_count: 0,
     bench_count: 0,
+    office_scopes: [],
     traction: null,
     target: {
       id: 1,
