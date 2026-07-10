@@ -17,6 +17,8 @@ import {
   Chrome,
   Calendar,
   Plus,
+  Users,
+  Building2,
 } from "lucide-react";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
 
@@ -228,26 +230,57 @@ function GettingStartedList({
   onLogConversation: () => void;
   calendarConnected: boolean;
 }) {
-  const items = [
+  // Set by CAR-40 when the extension ships on the Chrome Web Store; until
+  // then the extension row stays informational rather than a dead link.
+  const extensionUrl = process.env.NEXT_PUBLIC_EXTENSION_STORE_URL;
+
+  // Ordered by payoff-per-effort for a brand-new account (CAR-50): seed a
+  // network first, aim it at a company, then wire up sending.
+  const items: Array<{
+    id: string;
+    icon: React.ReactNode;
+    title: string;
+    subtitle: string;
+    onClick?: () => void;
+  }> = [
     {
-      id: "getting-started-extension",
-      icon: <Chrome className="h-6 w-6 text-[#39656b]" />,
-      title: "Install the Chrome extension",
-      subtitle: "Add contacts from LinkedIn in one click",
+      id: "getting-started-bundle",
+      icon: <Users className="h-6 w-6 text-primary" />,
+      title: "Add the curated target database",
+      subtitle: "PMs, recruiters, and BYU alumni at companies that hire new grads",
+      onClick: () => window.location.assign("/settings?tab=data"),
+    },
+    {
+      id: "getting-started-company",
+      icon: <Building2 className="h-6 w-6 text-[#39656b]" />,
+      title: "Pick a target company",
+      subtitle: "Alumni-heavy companies are the warmest place to start",
+      onClick: () => window.location.assign("/companies"),
     },
     ...(!calendarConnected
       ? [{
           id: "getting-started-calendar",
           icon: <Calendar className="h-6 w-6 text-[#e8a838]" />,
-          title: "Connect Google Calendar",
-          subtitle: "See today's meetings with contact context",
+          title: "Connect Gmail & Google Calendar",
+          subtitle: "Send outreach and see meetings with contact context",
+          onClick: () => window.location.assign("/settings?tab=integrations"),
         }]
       : []),
+    {
+      id: "getting-started-extension",
+      icon: <Chrome className="h-6 w-6 text-[#39656b]" />,
+      title: "Install the Chrome extension",
+      subtitle: "Add contacts from LinkedIn in one click",
+      ...(extensionUrl
+        ? { onClick: () => window.open(extensionUrl, "_blank", "noopener") }
+        : {}),
+    },
     {
       id: "getting-started-log",
       icon: <Plus className="h-6 w-6 text-primary" />,
       title: "Log your first conversation",
       subtitle: "Capture a recent interaction before details fade",
+      onClick: onLogConversation,
     },
   ];
 
@@ -256,8 +289,10 @@ function GettingStartedList({
       {items.map((item) => (
         <div
           key={item.id}
-          className="flex items-center gap-4 py-5 px-5 cursor-pointer hover:bg-surface-container-low transition-colors"
-          onClick={item.id === "getting-started-log" ? onLogConversation : item.id === "getting-started-calendar" ? () => window.location.assign("/settings?tab=integrations") : undefined}
+          className={`flex items-center gap-4 py-5 px-5 transition-colors ${
+            item.onClick ? "cursor-pointer hover:bg-surface-container-low" : ""
+          }`}
+          onClick={item.onClick}
         >
           <div className="w-14 h-14 rounded-full bg-surface-container-high flex items-center justify-center shrink-0">
             {item.icon}

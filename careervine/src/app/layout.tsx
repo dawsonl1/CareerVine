@@ -22,6 +22,8 @@ import { AuthProvider } from "@/components/auth-provider";
 import { AnalyticsProvider } from "@/lib/analytics/client";
 import { ComposeEmailProvider } from "@/components/compose-email-context";
 import { ComposeEmailModal } from "@/components/compose-email-modal";
+import { OnboardingProvider } from "@/components/onboarding/onboarding-context";
+import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { QuickCaptureProvider } from "@/components/quick-capture-context";
 import { QuickCaptureModal } from "@/components/quick-capture-modal";
 import { ToastProvider } from "@/components/ui/toast";
@@ -95,11 +97,14 @@ export default function RootLayout({
           <AnalyticsProvider>
             <ToastProvider>
               <ComposeEmailProvider>
-                <QuickCaptureProvider>
-                  {children}
-                  <ComposeEmailModal />
-                  <QuickCaptureModal />
-                </QuickCaptureProvider>
+                <OnboardingProvider>
+                  <QuickCaptureProvider>
+                    {children}
+                    <ComposeEmailModal />
+                    <QuickCaptureModal />
+                    <OnboardingFlow />
+                  </QuickCaptureProvider>
+                </OnboardingProvider>
               </ComposeEmailProvider>
             </ToastProvider>
           </AnalyticsProvider>

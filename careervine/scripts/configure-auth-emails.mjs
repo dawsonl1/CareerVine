@@ -27,6 +27,13 @@
  *
  * Auth: $SUPABASE_ACCESS_TOKEN, or the Supabase CLI's token from the macOS
  * keychain (the CLI must be logged in).
+ *
+ * Propagation gotcha (observed 2026-07-10): template BODIES take effect within
+ * seconds of a PATCH, but SUBJECT lines only after GoTrue restarts — which a
+ * soft config reload does not do. Changing any smtp_* field forces the
+ * restart. So after --apply/--revert, expect stock subjects for a while, or
+ * nudge an smtp field (e.g. smtp_max_frequency 60→59→60) to make subjects
+ * land immediately.
  */
 
 import { execFileSync } from "node:child_process";

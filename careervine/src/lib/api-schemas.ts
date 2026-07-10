@@ -17,6 +17,9 @@ const optionalNumber = z.coerce.number().optional();
 
 export const gmailAuthQuerySchema = z.object({
   scopes: optionalString,
+  // Post-OAuth landing path (CAR-50 onboarding connects from a modal).
+  // Same-origin relative paths only — validated in auth and callback.
+  returnTo: optionalString,
 });
 
 export const gmailSendSchema = z.object({

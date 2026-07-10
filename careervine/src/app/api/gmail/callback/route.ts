@@ -33,12 +33,18 @@ export const GET = withApiHandler({
     }
 
     // Validate CSRF state — decode and check user ID + freshness
-    let stateData: { userId?: string; ts?: number };
+    let stateData: { userId?: string; ts?: number; returnTo?: string };
     try {
       stateData = JSON.parse(Buffer.from(state, "base64url").toString());
     } catch {
       return errorRedirect("Invalid state");
     }
+
+    // Same-origin relative landing path (CAR-50); anything suspect → /settings.
+    const returnTo =
+      stateData.returnTo && stateData.returnTo.startsWith("/") && !stateData.returnTo.startsWith("//")
+        ? stateData.returnTo
+        : null;
 
     if (stateData.userId !== user.id) {
       return errorRedirect("State mismatch");
@@ -86,7 +92,7 @@ export const GET = withApiHandler({
       track("gmail_connected", {});
       if (calendarGranted) track("calendar_connected", {});
 
-      return NextResponse.redirect(`${baseUrl}/settings?gmail=connected`);
+      return NextResponse.redirect(`${baseUrl}${returnTo ?? "/settings?gmail=connected"}`);
     } catch (err) {
       console.error("Gmail callback error:", err);
       return errorRedirect("Connection failed — please try again");
