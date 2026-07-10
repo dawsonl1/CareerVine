@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   renderOnboardingIntro,
   renderOnboardingFollowUps,
-  ONBOARDING_FOLLOW_UP_DELAY_DAYS,
+  ONBOARDING_FOLLOW_UP_DELAYS,
 } from "@/lib/onboarding/templates";
 
 const ctx = {
@@ -57,11 +57,15 @@ describe("renderOnboardingIntro", () => {
 });
 
 describe("renderOnboardingFollowUps", () => {
-  it("returns three follow-ups, a week apart by default", () => {
+  it("returns three follow-ups a week apart — cumulative offsets from send (7/14/21)", () => {
     const followUps = renderOnboardingFollowUps(ctx);
     expect(followUps).toHaveLength(3);
+    // delayDays is an absolute offset from the original send, so weekly
+    // spacing means strictly increasing 7/14/21 — NOT 7/7/7, which would
+    // land all three touches on the same day.
+    expect(followUps.map((fu) => fu.delayDays)).toEqual([...ONBOARDING_FOLLOW_UP_DELAYS]);
+    expect(followUps.map((fu) => fu.delayDays)).toEqual([7, 14, 21]);
     for (const fu of followUps) {
-      expect(fu.delayDays).toBe(ONBOARDING_FOLLOW_UP_DELAY_DAYS);
       expect(fu.subject.length).toBeGreaterThan(0);
       expect(fu.bodyHtml).toContain("Hi Sarah,");
     }

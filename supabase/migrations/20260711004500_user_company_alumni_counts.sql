@@ -12,7 +12,12 @@ RETURNS TABLE (company_id int, alumni_count bigint)
 LANGUAGE sql STABLE SET search_path = public AS $$
   SELECT cc.company_id, count(DISTINCT c.id) AS alumni_count
   FROM contact_companies cc
-  JOIN contacts c ON c.id = cc.contact_id AND c.user_id = auth.uid()
+  JOIN contacts c ON c.id = cc.contact_id
+    AND c.user_id = auth.uid()
+    -- Bench is excluded everywhere "current contacts" are counted
+    -- (getCompanies' current_count, company-page buckets); counting bench
+    -- here would let alumni_count exceed the picker's contact count.
+    AND c.network_status <> 'bench'
   WHERE cc.is_current
     AND EXISTS (
       SELECT 1

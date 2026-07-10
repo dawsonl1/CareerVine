@@ -165,14 +165,37 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         {onboardingOutreach && (
           <div className="mb-5 flex items-start gap-3 p-4 rounded-2xl bg-primary/8 border border-primary/25 shadow-sm">
             <Mail className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Pick a prospect and hit their email button
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Your intro is pre-written — BYU alumni get the alumni version. Edit anything, then
-                send or schedule. Follow-ups come ready too.
-              </p>
+            <div className="flex-1">
+              {gmailConnected ? (
+                <>
+                  <p className="text-sm font-medium text-foreground">
+                    Pick a prospect and hit their email button
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Your intro is pre-written — BYU alumni get the alumni version. Edit anything,
+                    then send or schedule. Follow-ups come ready too.
+                  </p>
+                </>
+              ) : (
+                // Without Gmail every email button on this page is inert —
+                // the nudge must offer the connect, not promise a dead button.
+                <>
+                  <p className="text-sm font-medium text-foreground">
+                    Connect Gmail to send your first pre-written intro
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Your intro and follow-ups are ready — one connection away. You&apos;ll come
+                    right back to this page.
+                  </p>
+                  <a
+                    href={`/api/gmail/auth?returnTo=${encodeURIComponent(`/companies/${companyId}`)}`}
+                    className="inline-flex items-center gap-2 mt-2.5 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    Connect Gmail
+                  </a>
+                </>
+              )}
             </div>
           </div>
         )}

@@ -89,18 +89,21 @@ export function renderOnboardingIntro(
   };
 }
 
-// Default cadence per the onboarding flow: three touches, a week apart,
-// auto-cancelled by the sequence cron if the prospect replies.
-export const ONBOARDING_FOLLOW_UP_DELAY_DAYS = 7;
+// Default cadence per the onboarding flow: three touches, a week apart.
+// delayDays is an ABSOLUTE offset from the original send (the follow-up
+// route schedules each step at originalSentAt + delayDays, same as the AI
+// path's [7, 14, 21]) — NOT an inter-step gap. Auto-cancelled by the
+// sequence cron if the prospect replies.
+export const ONBOARDING_FOLLOW_UP_DELAYS = [7, 14, 21] as const;
 
 export function renderOnboardingFollowUps(ctx: MergeContext): RenderedFollowUp[] {
   const f = fields(ctx);
-  const d = ONBOARDING_FOLLOW_UP_DELAY_DAYS;
+  const [d1, d2, d3] = ONBOARDING_FOLLOW_UP_DELAYS;
 
   return [
     {
       subject: `Quick follow-up`,
-      delayDays: d,
+      delayDays: d1,
       bodyHtml:
         paragraphs(
           `Hi ${f.first_name},`,
@@ -109,7 +112,7 @@ export function renderOnboardingFollowUps(ctx: MergeContext): RenderedFollowUp[]
     },
     {
       subject: `Still hoping to connect`,
-      delayDays: d,
+      delayDays: d2,
       bodyHtml:
         paragraphs(
           `Hi ${f.first_name},`,
@@ -118,7 +121,7 @@ export function renderOnboardingFollowUps(ctx: MergeContext): RenderedFollowUp[]
     },
     {
       subject: `Last note from me`,
-      delayDays: d,
+      delayDays: d3,
       bodyHtml:
         paragraphs(
           `Hi ${f.first_name},`,

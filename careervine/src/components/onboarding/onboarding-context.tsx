@@ -86,22 +86,29 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     [advance],
   );
 
-  // The outreach leg completes when any email goes out while the flow is in
-  // 'outreach' — the composer fires this event on both send and schedule.
+  // The outreach leg completes when the guided flow's templated intro goes
+  // out (send or schedule). The composer marks that send with
+  // detail.onboardingIntro — unrelated sends (inbox replies, regular
+  // intros) must NOT pop the finale.
   useEffect(() => {
     if (state !== "outreach") return;
-    const onSent = () => {
+    const onSent = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { onboardingIntro?: boolean } | undefined;
+      if (!detail?.onboardingIntro) return;
       track("onboarding_email_sent", {});
+      // Persist the terminal state at send time — the confetti is cosmetic,
+      // and a closed tab mid-finale must not leave onboarding armed forever.
+      advance("completed");
       setShowFinale(true);
     };
     window.addEventListener("careervine:email-sent", onSent);
     return () => window.removeEventListener("careervine:email-sent", onSent);
-  }, [state]);
+  }, [state, advance]);
 
   const finishFinale = useCallback(() => {
     setShowFinale(false);
     track("onboarding_completed", {});
-    advance("completed");
+    advance("completed"); // no-op if already persisted at send time
   }, [advance]);
 
   return (

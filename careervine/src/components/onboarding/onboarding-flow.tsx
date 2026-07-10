@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
@@ -243,6 +243,11 @@ function SyncProgressStep({
         await pollUntilSynced();
       }
     })();
+    // Unmount (skip, advance, navigation) must stop the poll loop and
+    // suppress a stale finish() — doneRef is the loop's exit signal.
+    return () => {
+      doneRef.current = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -551,6 +556,7 @@ export function OnboardingFlow() {
   const { user } = useAuth();
   const { state, showFinale, advance, skip, finishFinale } = useOnboarding();
   const router = useRouter();
+  const pathname = usePathname();
   const [stats, setStats] = useState<OnboardingBundleStats | null>(null);
   const [statsResolved, setStatsResolved] = useState(false);
   const [declinedSplash, setDeclinedSplash] = useState(false);
@@ -566,19 +572,17 @@ export function OnboardingFlow() {
       .finally(() => setStatsResolved(true));
   }, [active]);
 
+  // The OAuth-return tab lands on /onboarding/connected while state is
+  // 'syncing' — without this guard the full sync modal would remount there,
+  // cover the "Connected!" message, and start a duplicate apply loop.
+  if (pathname === "/onboarding/connected") return null;
+
   if (!user || state === null) return null;
 
   if (showFinale) return <FinaleStep onDone={finishFinale} />;
 
   if (declinedSplash) {
-    return (
-      <IntroSplashStep
-        onDone={() => {
-          setDeclinedSplash(false);
-          advance("completed");
-        }}
-      />
-    );
+    return <IntroSplashStep onDone={() => setDeclinedSplash(false)} />;
   }
 
   // No published bundle to offer — fall back to the brief intro.
@@ -597,6 +601,9 @@ export function OnboardingFlow() {
         }}
         onDecline={() => {
           track("onboarding_bundle_declined", {});
+          // Persist immediately so a refresh mid-splash doesn't re-offer the
+          // bundle; the splash itself is purely cosmetic local state.
+          advance("completed");
           setDeclinedSplash(true);
         }}
         onSkip={() => skip("bundle_offer")}

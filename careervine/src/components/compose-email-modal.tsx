@@ -422,7 +422,14 @@ export function ComposeEmailModal() {
         }).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
       }
 
-      window.dispatchEvent(new CustomEvent("careervine:email-sent"));
+      // onboardingIntro marks the guided flow's templated first outreach so
+      // the finale doesn't fire on unrelated sends (isIntro is too broad —
+      // it's also true for regular intro composes).
+      window.dispatchEvent(
+        new CustomEvent("careervine:email-sent", {
+          detail: { onboardingIntro: !!templateFollowUps?.length },
+        }),
+      );
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send email");
@@ -489,7 +496,14 @@ export function ComposeEmailModal() {
         }).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
       }
 
-      window.dispatchEvent(new CustomEvent("careervine:email-sent"));
+      // onboardingIntro marks the guided flow's templated first outreach so
+      // the finale doesn't fire on unrelated sends (isIntro is too broad —
+      // it's also true for regular intro composes).
+      window.dispatchEvent(
+        new CustomEvent("careervine:email-sent", {
+          detail: { onboardingIntro: !!templateFollowUps?.length },
+        }),
+      );
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to schedule email");
