@@ -953,17 +953,51 @@ function RecruitingPanel({
         </FieldRow>
 
         {!targeted ? (
-          <div className="rounded-lg border border-dashed border-outline-variant/50 p-4 text-center space-y-2">
-            <Target className="w-5 h-5 mx-auto text-on-surface-variant opacity-60" />
-            <p className="text-sm text-on-surface-variant">
-              {isCompanyScope
-                ? "Mark as a target to track your recruiting pipeline here."
-                : `Target ${scopeLabel} to track status and notes for this office.`}
-            </p>
-            <Button size="sm" variant="tonal" onClick={() => onTargetChange(true)}>
-              {isCompanyScope ? "Target company" : `Target ${scopeLabel}`}
-            </Button>
-          </div>
+          <>
+            <div className="rounded-lg border border-dashed border-outline-variant/50 p-4 text-center space-y-2">
+              <Target className="w-5 h-5 mx-auto text-on-surface-variant opacity-60" />
+              <p className="text-sm text-on-surface-variant">
+                {isCompanyScope
+                  ? "Mark as a target to track your recruiting pipeline here."
+                  : `Target ${scopeLabel} to track status and notes for this office.`}
+              </p>
+              <Button size="sm" variant="tonal" onClick={() => onTargetChange(true)}>
+                {isCompanyScope ? "Target company" : `Target ${scopeLabel}`}
+              </Button>
+            </div>
+
+            {/* Pre-target research — saved on the scope's container row and
+                carried into the pipeline untouched if this becomes a target. */}
+            <div className="rounded-lg border border-outline-variant/40 p-3 space-y-3">
+              <FieldRow label="Programs">
+                <ResearchingProgramsEditor
+                  programs={cycleForm.researching.programs}
+                  onChange={(programs) =>
+                    onPatchCycle((prev) => ({
+                      ...prev,
+                      researching: { ...prev.researching, programs },
+                    }))
+                  }
+                />
+              </FieldRow>
+              <FieldRow label="Notes">
+                <ResearchingNotesEditor
+                  notes={cycleForm.researching.notes}
+                  onChange={(notes) =>
+                    onPatchCycle((prev) => ({
+                      ...prev,
+                      researching: { ...prev.researching, notes },
+                    }))
+                  }
+                  intelNotes={block?.notes}
+                />
+              </FieldRow>
+              <p className="text-[11px] text-on-surface-variant/70">
+                Research is saved even without targeting — it carries into the pipeline if you
+                target {isCompanyScope ? "this company" : scopeLabel} later.
+              </p>
+            </div>
+          </>
         ) : (
           <>
             {scopeState.cycleCount > 1 && (

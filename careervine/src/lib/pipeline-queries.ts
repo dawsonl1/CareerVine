@@ -206,15 +206,12 @@ export async function loadPipeline(userId: string, companyId: number): Promise<L
   return result;
 }
 
-/**
- * Make sure a target row exists (and is targeted) for the scope; returns
- * its id. Race-free enough for a single user editing their own page.
- */
-export async function ensureScopeTarget(
+async function ensureScopeRow(
   userId: string,
   companyId: number,
   locationId: number | null,
-  seed?: { status?: PipelineStage },
+  seed: { status?: PipelineStage } | undefined,
+  setTargeted: boolean,
 ): Promise<number> {
   let query = db()
     .from("target_companies")
@@ -226,7 +223,7 @@ export async function ensureScopeTarget(
   if (lookupError) throw lookupError;
 
   if (existing) {
-    if (!existing.is_targeted) {
+    if (setTargeted && !existing.is_targeted) {
       const { error } = await db()
         .from("target_companies")
         .update({ is_targeted: true, updated_at: new Date().toISOString() })
@@ -242,13 +239,40 @@ export async function ensureScopeTarget(
       user_id: userId,
       company_id: companyId,
       location_id: locationId,
-      is_targeted: true,
+      is_targeted: setTargeted,
       ...(seed?.status ? { status: seed.status } : {}),
     })
     .select("id")
     .single();
   if (insertError) throw insertError;
   return (inserted as { id: number }).id;
+}
+
+/**
+ * Make sure a target row exists (and is targeted) for the scope; returns
+ * its id. Race-free enough for a single user editing their own page.
+ */
+export async function ensureScopeTarget(
+  userId: string,
+  companyId: number,
+  locationId: number | null,
+  seed?: { status?: PipelineStage },
+): Promise<number> {
+  return ensureScopeRow(userId, companyId, locationId, seed, true);
+}
+
+/**
+ * Make sure a scope row exists WITHOUT changing its targeting: research
+ * notes/programs can be stored on a non-target company (is_targeted =
+ * false container) and carry over untouched when the user targets it.
+ */
+export async function ensureScopeContainer(
+  userId: string,
+  companyId: number,
+  locationId: number | null,
+  seed?: { status?: PipelineStage },
+): Promise<number> {
+  return ensureScopeRow(userId, companyId, locationId, seed, false);
 }
 
 /** Soft un-target: hides the scope from target views, keeps pipeline data. */

@@ -30,6 +30,7 @@ import {
 import {
   type LoadedPipeline,
   deletePipelineCycle,
+  ensureScopeContainer,
   ensureScopeTarget,
   locationIdForScopeKey,
   savePipelineCycle,
@@ -112,10 +113,25 @@ export function usePipelineAutosave({
   // ── Persistence plumbing ────────────────────────────────────────────
 
   const resolveTargetId = useCallback(
-    async (scopeKey: string, seedStage?: PipelineStage): Promise<number> => {
+    async (
+      scopeKey: string,
+      seedStage?: PipelineStage,
+      mode: "container" | "target" = "container",
+    ): Promise<number> => {
       const known = targetIdsRef.current[scopeKey];
-      if (known) return known;
-      const id = await ensureScopeTarget(userId!, companyId, locationIdForScopeKey(scopeKey), {
+      if (known) {
+        // Explicit targeting must still flip a known container row.
+        if (mode === "target") {
+          await ensureScopeTarget(userId!, companyId, locationIdForScopeKey(scopeKey), {
+            status: seedStage,
+          });
+        }
+        return known;
+      }
+      // Background saves create a non-targeted container so research on a
+      // non-target company never silently adds it to the targets list.
+      const ensure = mode === "target" ? ensureScopeTarget : ensureScopeContainer;
+      const id = await ensure(userId!, companyId, locationIdForScopeKey(scopeKey), {
         status: seedStage,
       });
       targetIdsRef.current[scopeKey] = id;
@@ -215,9 +231,10 @@ export function usePipelineAutosave({
           runPersist(async () => {
             const current = stateRef.current;
             const form = current ? getActiveCycleState(current, scopeKey) : defaultCycleFormState();
-            const targetId = await resolveTargetId(scopeKey, form.selectedStage);
+            const targetId = await resolveTargetId(scopeKey, form.selectedStage, "target");
             // Persist the visible cycle so the scope row and its pipeline
-            // exist together from the first targeting action.
+            // exist together from the first targeting action. Pre-target
+            // research (container row) is already in cycle 1 and carries over.
             const scope = current ? getScopeState(current, scopeKey) : defaultScopePipelineState();
             await savePipelineCycle(targetId, scope.activeCycle, form);
             await syncScopeStatus(targetId, form.selectedStage);
