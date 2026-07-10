@@ -489,6 +489,21 @@ export async function getCompanies(
 
 // ── Company detail ─────────────────────────────────────────────────────
 
+const personaRank = (p: string | null) => {
+  const order = ["recruiter", "product_leader", "alum_product", "product_peer", "alum_other"];
+  const i = p ? order.indexOf(p) : -1;
+  return i === -1 ? order.length : i;
+};
+
+/** Contacts-list order: BYU alumni always lead, then persona rank, then name. */
+export const byAlumThenPersona = (
+  a: Pick<CompanyPerson, "is_alum" | "persona" | "name">,
+  b: Pick<CompanyPerson, "is_alum" | "persona" | "name">,
+) =>
+  Number(b.is_alum) - Number(a.is_alum) ||
+  personaRank(a.persona) - personaRank(b.persona) ||
+  a.name.localeCompare(b.name);
+
 export interface CompanyPerson {
   contact_id: number;
   name: string;
@@ -814,12 +829,6 @@ export async function getCompanyDetail(
   const isCurrent = new Set(rows.filter((r) => r.is_current).map((r) => r.contact_id));
   const inScope = (id: number) => !scopedIds || scopedIds.has(id);
 
-  const personaRank = (p: string | null) => {
-    const order = ["recruiter", "product_leader", "alum_product", "product_peer", "alum_other"];
-    const i = p ? order.indexOf(p) : -1;
-    return i === -1 ? order.length : i;
-  };
-
   const current: CompanyPerson[] = [];
   const former: CompanyPerson[] = [];
   const bench: CompanyPerson[] = [];
@@ -833,10 +842,8 @@ export async function getCompanyDetail(
       former.push(person);
     }
   }
-  const byPersona = (a: CompanyPerson, b: CompanyPerson) =>
-    personaRank(a.persona) - personaRank(b.persona) || a.name.localeCompare(b.name);
-  current.sort(byPersona);
-  former.sort(byPersona);
+  current.sort(byAlumThenPersona);
+  former.sort(byAlumThenPersona);
   // Bench: the pipeline's own ranking (adjacency), best first
   bench.sort((a, b) => (b.adjacency_score ?? -1) - (a.adjacency_score ?? -1) || a.name.localeCompare(b.name));
 
