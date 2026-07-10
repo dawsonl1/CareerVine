@@ -3,6 +3,7 @@ import { Receiver } from "@upstash/qstash";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getGmailClient, activateContactByEmail } from "@/lib/gmail";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
+import { filterActiveUserIds } from "@/lib/user-status";
 
 const receiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
@@ -64,10 +65,13 @@ export async function POST(req: NextRequest) {
 
   // Pre-fetch gmail_connections for all users to avoid N+1
   const userIds = [...new Set([...bySequence.values()].map((msgs) => (msgs[0] as any).email_follow_ups.user_id))];
+  // Suspended accounts are frozen: their follow-ups stay pending (held, not
+  // dropped) and resume if the account is reactivated.
+  const activeUserIds = await filterActiveUserIds(service, userIds);
   const { data: connections } = await service
     .from("gmail_connections")
     .select("user_id, gmail_address")
-    .in("user_id", userIds);
+    .in("user_id", [...activeUserIds]);
   const emailByUser = new Map((connections || []).map((c: any) => [c.user_id, c.gmail_address?.toLowerCase() || ""]));
 
   // Cache Gmail clients per user to avoid redundant auth
@@ -77,6 +81,8 @@ export async function POST(req: NextRequest) {
     const parent = (messages[0] as any).email_follow_ups;
     const userId = parent.user_id;
     const threadId = parent.thread_id;
+
+    if (!activeUserIds.has(userId)) continue;
 
     // Check if Gmail is accessible for this user (cached)
     let gmail = gmailClients.get(userId);
