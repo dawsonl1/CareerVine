@@ -421,6 +421,7 @@ export interface CompanyPerson {
   review_note: string | null;
   selection_reason: string | null;
   last_scraped_at: string | null;
+  linkedin_url: string | null;
   stage: OutreachStage | null;
   email: { address: string; source: string; bounced: boolean } | null;
   adjacency_score: number | null;
@@ -515,7 +516,7 @@ export async function getCompanyDetail(
     .select(
       `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
        locations(city, state, country),
-       contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta)`,
+       contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta, linkedin_url)`,
     )
     .eq("company_id", companyId)
     .eq("contacts.user_id", userId)
@@ -544,6 +545,7 @@ export async function getCompanyDetail(
       last_scraped_at: string | null;
       stage_override: string | null;
       import_meta: Record<string, unknown> | null;
+      linkedin_url: string | null;
     };
   };
   const rows = ((empRows as unknown as EmpRow[] | null) ?? []);
@@ -611,6 +613,7 @@ export async function getCompanyDetail(
             ? meta.selection_reason
             : null,
         last_scraped_at: r.contacts.last_scraped_at,
+        linkedin_url: r.contacts.linkedin_url,
         stage: stages.get(r.contact_id)?.stage ?? null,
         email: emailByContact.get(r.contact_id) ?? null,
         adjacency_score: Number.isNaN(adjacency) ? null : adjacency,

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -28,6 +29,9 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  MapPin,
+  Briefcase,
+  ExternalLink,
 } from "lucide-react";
 import { ResearchingNotesEditor } from "@/components/companies/pipeline/researching-notes";
 import { ResearchingProgramsEditor } from "@/components/companies/pipeline/researching-programs";
@@ -54,6 +58,14 @@ const STAGE_STYLES: Record<OutreachStage, string> = {
   call_scheduled: "bg-secondary-container text-on-secondary-container",
   call_done: "bg-secondary-container text-on-secondary-container",
   referral: "bg-tertiary-container text-on-tertiary-container",
+};
+
+const PERSONA_LABELS: Record<string, string> = {
+  alum_product: "Alum · Product",
+  alum_other: "Alum",
+  product_peer: "Product peer",
+  product_leader: "Product leader",
+  recruiter: "Recruiter",
 };
 
 const SAVE_STATUS_LABELS: Record<PipelineSaveStatus, string | null> = {
@@ -549,48 +561,175 @@ function ContactEmailAction({
   );
 }
 
+function staleness(lastScrapedAt: string | null): string | null {
+  if (!lastScrapedAt) return null;
+  return `Data as of ${new Date(lastScrapedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+}
+
 function ContactRow({
   person,
+  isFormer,
   showLocation,
   gmailConnected,
   onCompose,
 }: {
   person: CompanyPerson;
+  isFormer: boolean;
   showLocation?: boolean;
   gmailConnected: boolean;
   onCompose: (opts: { to: string; name: string; contactId: number }) => void;
 }) {
+  const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
   const role = person.roles[0];
-  const locationSuffix = showLocation && role ? formatRoleLocationInList(role) : null;
+  const locationSuffix = role ? formatRoleLocationInList(role) : null;
+  const whySelected = person.selection_reason ?? person.review_note;
+  const stale = staleness(person.last_scraped_at);
 
   return (
-    <div className="flex items-center gap-3 py-2.5 px-3 rounded-lg border border-outline-variant/30 bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
-      <ContactAvatar name={person.name} photoUrl={person.photo_url} className="w-9 h-9 text-xs shrink-0" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <Link
-            href={`/contacts/${person.contact_id}`}
-            className="text-sm font-medium text-on-surface hover:text-primary truncate"
-          >
-            {person.name}
-          </Link>
-          {person.is_alum && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-primary-container text-on-primary-container flex items-center gap-0.5">
-              <GraduationCap className="w-2.5 h-2.5" /> BYU
+    <div className="rounded-lg border border-outline-variant/30 bg-surface-container-lowest hover:border-outline-variant hover:shadow-sm transition-all">
+      <div
+        className="flex items-center gap-3 py-3 px-3 cursor-pointer"
+        onClick={() => router.push(`/contacts/${person.contact_id}`)}
+      >
+        <ContactAvatar
+          name={person.name}
+          photoUrl={person.photo_url}
+          className="w-12 h-12 text-sm shrink-0"
+          ringClassName={person.network_status === "prospect" ? "ring-teal-500 ring-offset-2" : ""}
+        />
+
+        {/* Name + badges + title */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-medium text-on-surface truncate">{person.name}</span>
+            {person.persona && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-surface-container-high text-on-surface-variant">
+                {PERSONA_LABELS[person.persona] ?? person.persona}
+              </span>
+            )}
+            {person.is_alum && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-primary-container text-on-primary-container flex items-center gap-0.5">
+                <GraduationCap className="w-2.5 h-2.5" /> BYU
+              </span>
+            )}
+            {person.stage && person.stage !== "not_contacted" && (
+              <span className={`px-1.5 py-0.5 rounded text-[10px] ${STAGE_STYLES[person.stage]}`}>
+                {STAGE_LABELS[person.stage]}
+              </span>
+            )}
+            {isFormer && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-surface-container text-on-surface-variant border border-outline-variant/40">
+                Former
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-on-surface-variant truncate mt-0.5">
+            {role?.title ?? person.headline ?? ""}
+            {showLocation && locationSuffix && <span className="xl:hidden"> · {locationSuffix}</span>}
+          </p>
+        </div>
+
+        {/* Email + location column — appears from xl, vertically aligned
+            across cards via fixed clamp width (contacts-list pattern) */}
+        <div className="hidden xl:flex flex-col gap-0.5 w-[clamp(120px,12vw,200px)] shrink-0">
+          {person.email && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant min-w-0">
+              <Mail className="w-3 h-3 shrink-0" />
+              <span className="truncate">{person.email.address}</span>
             </span>
           )}
-          {person.stage && person.stage !== "not_contacted" && (
-            <span className={`px-1.5 py-0.5 rounded text-[10px] ${STAGE_STYLES[person.stage]}`}>
-              {STAGE_LABELS[person.stage]}
+          {locationSuffix && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant min-w-0">
+              <MapPin className="w-3 h-3 shrink-0" />
+              <span className="truncate">{locationSuffix}</span>
             </span>
           )}
         </div>
-        <p className="text-xs text-on-surface-variant truncate mt-0.5">
-          {role?.title ?? person.headline ?? ""}
-          {locationSuffix && <> · {locationSuffix}</>}
-        </p>
+
+        <div onClick={(e) => e.stopPropagation()}>
+          <ContactEmailAction person={person} gmailConnected={gmailConnected} onCompose={onCompose} />
+        </div>
+
+        {/* Quick-preview chevron — stops propagation so row click navigates */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          className="group p-1 rounded-full text-on-surface-variant hover:text-on-surface shrink-0 transition-colors"
+          title="Quick preview"
+        >
+          <ChevronDown
+            className={`w-4 h-4 transition-transform duration-200 ${expanded ? "rotate-0" : "-rotate-90 group-hover:rotate-0"}`}
+          />
+        </button>
       </div>
-      <ContactEmailAction person={person} gmailConnected={gmailConnected} onCompose={onCompose} />
+
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-outline-variant/30">
+          <div className="pt-2.5 space-y-2">
+            {(person.email || person.linkedin_url) && (
+              <div className="flex flex-wrap gap-1.5">
+                {person.email && (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-on-surface bg-surface-container-high/60 px-2 py-1 rounded-md">
+                    <Mail className="w-3 h-3 text-on-surface-variant" /> {person.email.address}
+                    {person.email.source === "pattern_guessed" && !person.email.bounced && (
+                      <span className="text-yellow-700 text-[10px]">·guessed</span>
+                    )}
+                    {person.email.bounced && <span className="text-error text-[10px]">·bounced</span>}
+                  </span>
+                )}
+                {person.linkedin_url && (
+                  <a
+                    href={person.linkedin_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-primary bg-surface-container-high/60 px-2 py-1 rounded-md hover:underline"
+                  >
+                    <ExternalLink className="w-3 h-3" /> LinkedIn
+                  </a>
+                )}
+              </div>
+            )}
+
+            {person.roles.length > 0 && (
+              <div className="space-y-0.5">
+                {person.roles.map((r) => (
+                  <p key={r.id} className="text-xs text-on-surface-variant">
+                    <Briefcase className="w-3 h-3 inline mr-1" />
+                    {r.title ?? "Role"}
+                    {formatRoleLocationInList(r) && <> · {formatRoleLocationInList(r)}</>}
+                    {r.workplace_type === "remote" && <> · Remote</>}
+                    {r.start_month && (
+                      <> · {r.start_month} – {r.is_current ? "Present" : r.end_month ?? ""}</>
+                    )}
+                    {r.is_current && <span className="text-primary font-medium ml-1">· Current</span>}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {person.headline && (
+              <p className="text-xs text-on-surface-variant">{person.headline}</p>
+            )}
+
+            {whySelected && (
+              <p className="text-xs text-on-surface-variant italic border-l-2 border-outline-variant/50 pl-2">
+                {whySelected}
+              </p>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <Button size="sm" variant="tonal" onClick={() => router.push(`/contacts/${person.contact_id}`)}>
+                View full profile
+              </Button>
+              {stale && <span className="text-[10px] text-on-surface-variant/70">{stale}</span>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -622,7 +761,12 @@ function BenchSection({
               key={p.contact_id}
               className="flex items-center gap-3 py-2 px-3 rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors"
             >
-              <ContactAvatar name={p.name} photoUrl={p.photo_url} className="w-8 h-8 text-xs shrink-0" />
+              <ContactAvatar
+                name={p.name}
+                photoUrl={p.photo_url}
+                className="w-8 h-8 text-xs shrink-0 grayscale opacity-75"
+                ringClassName="ring-outline ring-offset-2"
+              />
               <div className="min-w-0 flex-1">
                 <Link
                   href={`/contacts/${p.contact_id}`}
@@ -846,6 +990,11 @@ export function PipelineLayout({
   const peopleBlock = isCompanyScope ? tabs.all : officeBlock ?? tabs.all;
   const showLocationOnContacts = isCompanyScope;
 
+  const formerIds = useMemo(
+    () => new Set(peopleBlock.former.map((p) => p.contact_id)),
+    [peopleBlock],
+  );
+
   const filteredPeople = useMemo(() => {
     const all = [...peopleBlock.current, ...peopleBlock.former];
     const q = search.trim().toLowerCase();
@@ -965,6 +1114,7 @@ export function PipelineLayout({
                 <ContactRow
                   key={p.contact_id}
                   person={p}
+                  isFormer={formerIds.has(p.contact_id)}
                   showLocation={showLocationOnContacts}
                   gmailConnected={gmailConnected}
                   onCompose={onCompose}
