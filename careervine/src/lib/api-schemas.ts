@@ -271,6 +271,9 @@ export const aiFollowUpPatchSchema = z.object({
   subject: z.string().optional(),
   bodyHtml: z.string().optional(),
   sendAsReply: z.boolean().optional(),
+  /** Client-computed share of the AI draft that survived to send (CAR-58) —
+   * only the client has the original AI body to diff against. */
+  editRatio: z.number().min(0).max(1).optional(),
 });
 
 // ── Smart Suggestions ─────────────────────────────────────────────────

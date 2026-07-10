@@ -15,7 +15,6 @@ export const POST = withApiHandler({
   schema: transcriptParseSchema,
   handler: async ({ user, body, track }) => {
     const { rawText } = body;
-    track("transcript_processed", { step: "parse" });
     const model = DEFAULT_MODEL;
 
     const segmentSchema = {
@@ -99,6 +98,8 @@ export const POST = withApiHandler({
       ordinal: i,
     }));
 
+    // After the work: a failed parse must not count as processed (CAR-58).
+    track("transcript_processed", { step: "parse" });
     return { segments };
   },
 });

@@ -8,6 +8,7 @@
 import { google } from "googleapis";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getOAuth2Client, refreshTokenIfNeeded, decryptOAuthToken } from "@/lib/oauth-helpers";
+import { trackServer } from "@/lib/analytics/server";
 
 export const DEFAULT_TIMEZONE = "America/New_York";
 
@@ -228,6 +229,11 @@ export async function createCalendarEvent(
 
     const event = res.data;
     const meetLink = event.conferenceData?.entryPoints?.find(ep => ep.entryPointType === "video")?.uri;
+
+    // Emitted here (not in the API route) so every surface that creates a
+    // real calendar event — web route AND MCP create_meeting — counts
+    // (CAR-58 audit: the MCP path was invisible to meeting_created).
+    await trackServer(userId, "meeting_created", {});
 
     return {
       googleEventId: event.id!,

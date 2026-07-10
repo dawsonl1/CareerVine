@@ -46,6 +46,45 @@
 6. **Tests** — extend `src/__tests__/analytics.test.ts`: `$set` payloads on the four
    connection events, no `$set` on other events.
 
+## Scope expansion (Dawson, 2026-07-10): full analytics-accuracy audit fixes
+
+A four-agent audit of every PostHog emit site found more CAR-58-class bugs;
+all are fixed on this same PR:
+
+1. **user_signed_up identity** — now `identify(new user id)` (returned even
+   while unconfirmed) fires BEFORE the event, so signups can't land on an
+   anonymous person that later merges into the wrong account, and
+   different-device email confirmation keeps the event on the right person.
+2. **reply_received** — `ai_assisted` now populated (new `email_messages.ai_assisted`
+   column stamped at send time, read per-thread at attribution); dedupe made
+   race-proof via `ignoreDuplicates` upsert RETURNING only actually-inserted rows.
+3. **meeting_created** — pushed into `createCalendarEvent` so MCP
+   `create_meeting` counts; route-level emit removed (no double-count).
+4. **contact_imported + contacts_5** — pushed into `importPeopleChunk` with the
+   ACTUAL created count (`analyticsSource` option): covers bundle apply,
+   discovery add, bulk (previously inflated), and stops double-counting
+   idempotent re-imports. MCP `add_contact` and the manual add form now emit
+   too (manual adds hit a new `/api/analytics/milestones` route for the
+   server-side milestone check). Registry sources extended: `mcp`, `discovery`.
+5. **email_sent.is_follow_up** — live cron path now labels follow-ups via
+   `sendTrackedEmail`; dead `processFollowUps` (the only correctly-labeled but
+   uncalled emitter) deleted.
+6. **ai_draft_outcome** — carries `kind` (intro/write/follow_up); "discarded"
+   now emitted when the compose modal closes with an unsent AI draft;
+   follow-up edited outcomes carry a client-computed `edit_ratio`; unused
+   `suggestion` kind removed from the registry.
+7. **transcript_processed** — moved after the work in all 3 routes (failures
+   no longer count as processed).
+8. **api_error cron coverage** — new `withCronGuard` wraps all 5 QStash cron
+   routes; crashes emit `api_error` under `system:cron`.
+9. **mcp_tool_called** — awaited so serverless remote-MCP captures aren't
+   dropped at lambda freeze.
+10. **quick_capture_used** — fires on successful save, not modal open.
+11. **Connect CTA clicks** — sent via `sendBeacon` (`trackBeforeNavigate`) so
+    the full-page OAuth navigation can't drop them.
+
+Migration: `20260710220000_email_messages_ai_assisted.sql` (apply on merge).
+
 ## Non-goals
 
 - No change to the Activation funnel definition — it is correct going forward.

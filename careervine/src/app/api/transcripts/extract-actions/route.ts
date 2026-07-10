@@ -64,7 +64,6 @@ export const POST = withApiHandler({
   schema: transcriptExtractActionsSchema,
   handler: async ({ user, body, track }) => {
     const { transcript, attendees, meetingDate, userName } = body;
-    track("transcript_processed", { step: "extract_actions" });
 
     const model = DEFAULT_MODEL;
 
@@ -125,6 +124,9 @@ export const POST = withApiHandler({
 
     const responseText = response.output_text || "";
     if (!responseText.trim()) {
+      // Extraction ran successfully; an empty result still counts (CAR-58:
+      // the emit used to fire before the work, counting failures too).
+      track("transcript_processed", { step: "extract_actions" });
       return { suggestions: [] };
     }
 
@@ -161,6 +163,7 @@ export const POST = withApiHandler({
       };
     });
 
+    track("transcript_processed", { step: "extract_actions" });
     return {
       suggestions,
       truncated: transcript.length > maxChars,

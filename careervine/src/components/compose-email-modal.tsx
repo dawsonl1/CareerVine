@@ -59,6 +59,9 @@ export function ComposeEmailModal() {
   // Last AI-generated body in this compose session — the baseline for the
   // ai_draft_outcome acceptance metric (CAR-38). Null = human-only draft.
   const aiBodyRef = useRef<string | null>(null);
+  // Which AI surface generated the current draft — carried on the outcome
+  // event so per-kind acceptance rates are computable (CAR-58).
+  const aiKindRef = useRef<"intro" | "follow_up" | "write" | null>(null);
 
 
   const isReply = !!replyThreadId;
@@ -182,6 +185,7 @@ export function ComposeEmailModal() {
       // AI-followup drafts arrive pre-filled with AI content; anything else
       // starts as a human draft until an AI generation lands in the body.
       aiBodyRef.current = aiDraftContext && prefillBodyHtml ? prefillBodyHtml : null;
+      aiKindRef.current = aiBodyRef.current != null ? "follow_up" : null;
       track("compose_opened", {
         source: aiDraftContext ? "ai_followup" : isIntro ? "intro" : isReply ? "reply" : "blank",
       });
@@ -377,6 +381,7 @@ export function ComposeEmailModal() {
         track("ai_draft_outcome", {
           outcome: ratio === 1 ? "sent" : "edited",
           edit_ratio: ratio,
+          ...(aiKindRef.current ? { kind: aiKindRef.current } : {}),
         });
       }
 
@@ -395,7 +400,12 @@ export function ComposeEmailModal() {
         await fetch(`/api/gmail/ai-followups/${aiDraftContext.draftId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: draftStatus }),
+          body: JSON.stringify({
+            status: draftStatus,
+            // Server-side outcome event needs the ratio; only the client has
+            // the original AI body to diff against (CAR-58).
+            editRatio: editRatio(prefillBodyHtml || "", bodyHtml),
+          }),
         }).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
       }
 
@@ -462,7 +472,12 @@ export function ComposeEmailModal() {
         await fetch(`/api/gmail/ai-followups/${aiDraftContext.draftId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: draftStatus }),
+          body: JSON.stringify({
+            status: draftStatus,
+            // Server-side outcome event needs the ratio; only the client has
+            // the original AI body to diff against (CAR-58).
+            editRatio: editRatio(prefillBodyHtml || "", bodyHtml),
+          }),
         }).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
       }
 
@@ -480,8 +495,21 @@ export function ComposeEmailModal() {
     if (!sentOrScheduledRef.current && (to.trim() || subject.trim() || bodyHtml.trim())) {
       saveDraft({ to, cc, bcc, subject, bodyHtml });
     }
+    // Closing with an unsent AI draft is a discard — without this, intro/write
+    // abandonment is invisible and acceptance rates read artificially high
+    // (CAR-58). AI-followup drafts record their own outcome via the status
+    // PATCH, so they're excluded. Ref is cleared so a double close (Escape +
+    // backdrop) can't double-fire.
+    if (!sentOrScheduledRef.current && aiBodyRef.current != null && !aiDraftContext?.draftId) {
+      track("ai_draft_outcome", {
+        outcome: "discarded",
+        ...(aiKindRef.current ? { kind: aiKindRef.current } : {}),
+      });
+      aiBodyRef.current = null;
+      aiKindRef.current = null;
+    }
     closeCompose();
-  }, [to, cc, bcc, subject, bodyHtml, saveDraft, closeCompose]);
+  }, [to, cc, bcc, subject, bodyHtml, saveDraft, closeCompose, aiDraftContext]);
 
   // Close on Escape
   useEffect(() => {
@@ -728,6 +756,7 @@ export function ComposeEmailModal() {
                 onGenerated={(body, generatedSubject) => {
                   setBodyHtml(body);
                   aiBodyRef.current = body;
+                  aiKindRef.current = "write";
                   if (generatedSubject && !subject.trim()) {
                     setSubject(generatedSubject);
                   }
@@ -787,6 +816,7 @@ export function ComposeEmailModal() {
                       if (res.ok) {
                         setBodyHtml(data.bodyHtml || "");
                         aiBodyRef.current = data.bodyHtml || null;
+                        aiKindRef.current = data.bodyHtml ? "intro" : null;
                         if (data.subject) setSubject(data.subject);
                         setIntroError(null);
                         setIntroAiFailure(null);
@@ -816,6 +846,7 @@ export function ComposeEmailModal() {
                       if (res.ok) {
                         setBodyHtml(data.bodyHtml || "");
                         aiBodyRef.current = data.bodyHtml || null;
+                        aiKindRef.current = data.bodyHtml ? "intro" : null;
                         if (data.subject) setSubject(data.subject);
                         setIntroError(null);
                         setIntroAiFailure(null);

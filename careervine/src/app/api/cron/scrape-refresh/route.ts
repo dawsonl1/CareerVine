@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
+import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { selectCadenceCandidates } from "@/lib/apify/cadence";
 import { triggerBatchScrape, sweepStuckRuns } from "@/lib/apify/scrape-service";
@@ -33,6 +34,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
+  return withCronGuard("/api/cron/scrape-refresh", () => runJob());
+}
+
+async function runJob(): Promise<NextResponse> {
   const swept = await sweepStuckRuns();
 
   if (process.env.APIFY_SCRAPE_DISABLED === "true" || !isApifyConfigured()) {

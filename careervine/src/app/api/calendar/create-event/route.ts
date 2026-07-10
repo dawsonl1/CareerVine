@@ -10,7 +10,7 @@ import { createCalendarEvent } from "@/lib/calendar";
  */
 export const POST = withApiHandler({
   schema: calendarCreateEventSchema,
-  handler: async ({ user, body, track }) => {
+  handler: async ({ user, body }) => {
     const {
       summary,
       description,
@@ -71,7 +71,8 @@ export const POST = withApiHandler({
         .eq("user_id", user.id);
     }
 
-    track("meeting_created", {});
+    // meeting_created is emitted inside createCalendarEvent (shared with the
+    // MCP create_meeting path) — no route-level emit or it double-counts.
 
     return {
       success: true,

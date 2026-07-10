@@ -11,7 +11,7 @@ import type { GmailConnection } from "@/lib/types";
 import { Mail, Check, RefreshCw, Unplug, MailCheck, Calendar } from "lucide-react";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { useGmailConnection, invalidateGmailConnectionCache } from "@/hooks/use-gmail-connection";
-import { track } from "@/lib/analytics/client";
+import { trackBeforeNavigate } from "@/lib/analytics/client";
 import McpConnectCard from "@/components/settings/mcp-connect-card";
 
 export default function IntegrationsSection() {
@@ -176,7 +176,7 @@ export default function IntegrationsSection() {
               <OAuthWarning />
               <Button
                 href="/api/gmail/auth"
-                onClick={() => track("gmail_connect_clicked", { source: "settings" })}
+                onClick={() => trackBeforeNavigate("gmail_connect_clicked", { source: "settings" })}
               >
                 <Mail className="h-5 w-5 mr-2" />
                 Connect Gmail
@@ -226,7 +226,7 @@ export default function IntegrationsSection() {
               <OAuthWarning />
               <Button
                 href="/api/gmail/auth?scopes=calendar"
-                onClick={() => track("calendar_connect_clicked", { source: "settings" })}
+                onClick={() => trackBeforeNavigate("calendar_connect_clicked", { source: "settings" })}
               >
                 <Calendar className="h-5 w-5 mr-2" />
                 Connect Google Calendar

@@ -116,6 +116,16 @@ export async function trackServer<E extends AnalyticsEvent>(
 }
 
 /**
+ * api_error guardrail for the QStash cron routes (CAR-58): they run outside
+ * withApiHandler with no acting user, so route crashes were invisible to the
+ * guardrail. Events attribute to a fixed system distinct id — the count is
+ * what matters, not the person.
+ */
+export async function trackCronError(route: string): Promise<void> {
+  await trackServer("system:cron", "api_error", { route, method: "POST" });
+}
+
+/**
  * One-time milestone: inserts into user_milestones and emits
  * milestone_reached only if this call is the first to cross it. The insert
  * winning (`on conflict do nothing` semantics via error code 23505) is the

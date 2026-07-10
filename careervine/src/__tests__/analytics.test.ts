@@ -26,6 +26,7 @@ import { MIRRORED_EVENTS, MILESTONE_THRESHOLDS } from "@/lib/analytics/events";
 import { editRatio } from "@/lib/analytics/edit-ratio";
 import {
   trackServer,
+  trackCronError,
   reachMilestone,
   _resetAnalyticsForTests,
 } from "@/lib/analytics/server";
@@ -152,6 +153,18 @@ describe("connection-state person properties (CAR-58)", () => {
       expect.objectContaining({ properties: { surface: "server" } }),
     );
     expect(captureMock.mock.calls[0][0].properties).not.toHaveProperty("$set");
+  });
+});
+
+describe("trackCronError (CAR-58)", () => {
+  it("emits api_error under the system distinct id so cron crashes are visible", async () => {
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test";
+    await trackCronError("/api/cron/send-follow-ups");
+    expect(captureMock).toHaveBeenCalledWith({
+      distinctId: "system:cron",
+      event: "api_error",
+      properties: { route: "/api/cron/send-follow-ups", method: "POST", surface: "server" },
+    });
   });
 });
 

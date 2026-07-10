@@ -55,7 +55,9 @@ export const POST = withApiHandler({
       c,
       company as { name: string; linkedin_url: string | null; linkedin_company_id: string | null },
     );
-    const summary = await importPeopleChunk(service, user.id, [{ record }]);
+    const summary = await importPeopleChunk(service, user.id, [{ record }], {
+      analyticsSource: "discovery",
+    });
     const result = summary.results[0];
 
     if (result?.status === "skipped_suppressed") {

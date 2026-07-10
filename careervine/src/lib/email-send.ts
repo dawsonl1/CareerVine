@@ -53,7 +53,7 @@ export async function sendTrackedEmail(
   userId: string,
   opts: ComposeEmailOptions,
   /** Analytics context the transport layer can't infer (CAR-38). */
-  analytics?: { aiAssisted?: boolean; isScheduled?: boolean }
+  analytics?: { aiAssisted?: boolean; isScheduled?: boolean; isFollowUp?: boolean }
 ): Promise<TrackedSendResult> {
   const service = createSupabaseServiceClient();
   const toAddr = opts.to.trim().toLowerCase();
@@ -120,6 +120,7 @@ export async function sendTrackedEmail(
       is_read: true,
       direction: EmailDirection.Outbound,
       matched_contact_id: matchedContactId,
+      ai_assisted: analytics?.aiAssisted ?? false,
     },
     { onConflict: "user_id,gmail_message_id", ignoreDuplicates: false }
   );
@@ -136,7 +137,7 @@ export async function sendTrackedEmail(
   }
 
   await trackServer(userId, "email_sent", {
-    is_follow_up: false,
+    is_follow_up: analytics?.isFollowUp ?? false,
     is_scheduled: analytics?.isScheduled ?? false,
     ai_assisted: analytics?.aiAssisted ?? false,
   });

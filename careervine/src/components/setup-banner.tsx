@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
-import { track } from "@/lib/analytics/client";
+import { trackBeforeNavigate } from "@/lib/analytics/client";
 import { AlertCircle, X, Mail, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OAuthWarning } from "@/components/oauth-warning";
@@ -59,7 +59,7 @@ export default function SetupBanner() {
                 <Button
                   href="/api/gmail/auth"
                   size="sm"
-                  onClick={() => track("gmail_connect_clicked", { source: "setup_banner" })}
+                  onClick={() => trackBeforeNavigate("gmail_connect_clicked", { source: "setup_banner" })}
                 >
                   <Mail className="h-4 w-4 mr-2" />
                   Connect Gmail
@@ -70,7 +70,7 @@ export default function SetupBanner() {
                   href="/api/gmail/auth?scopes=calendar"
                   size="sm"
                   variant={needsGmail ? "outline" : "primary"}
-                  onClick={() => track("calendar_connect_clicked", { source: "setup_banner" })}
+                  onClick={() => trackBeforeNavigate("calendar_connect_clicked", { source: "setup_banner" })}
                 >
                   <Calendar className="h-4 w-4 mr-2" />
                   Connect Calendar

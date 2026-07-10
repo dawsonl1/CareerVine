@@ -16,7 +16,6 @@ import { withApiHandler } from "@/lib/api-handler";
 import { contactsBulkImportSchema } from "@/lib/api-schemas";
 import { handleOptions } from "@/lib/extension-auth";
 import { importPeopleChunk, type PersonImportInput } from "@/lib/bulk-import";
-import { checkContactMilestone } from "@/lib/analytics/server";
 
 // Bulk chunks do real work (photo downloads, per-person merges) — ask
 // Vercel for the full window.
@@ -30,11 +29,15 @@ export const POST = withApiHandler({
   schema: contactsBulkImportSchema,
   extensionAuth: true,
   cors: true,
-  handler: async ({ supabase, user, body, track }) => {
+  handler: async ({ supabase, user, body }) => {
     const { people, batch } = body as unknown as { people: PersonImportInput[]; batch?: string };
-    const result = await importPeopleChunk(supabase, user.id, people, batch);
-    track("contact_imported", { source: "bulk", count: people.length });
-    await checkContactMilestone(user.id);
+    // contact_imported + the contacts_5 check are emitted inside
+    // importPeopleChunk with the ACTUAL created count — re-sent idempotent
+    // chunks and dedupes no longer inflate the metric (CAR-58).
+    const result = await importPeopleChunk(supabase, user.id, people, {
+      batch,
+      analyticsSource: "bulk",
+    });
     return result;
   },
 });

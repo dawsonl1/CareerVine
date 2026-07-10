@@ -1,7 +1,6 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback } from "react";
-import { track } from "@/lib/analytics/client";
 import type { Meeting, ActionItemWithContacts } from "@/lib/types";
 
 /** Optional pre-fill data for new conversations (e.g. from a calendar event) */
@@ -57,7 +56,8 @@ export function QuickCaptureProvider({ children }: { children: React.ReactNode }
     setEditMeeting(null);
     setEditMeetingActions([]);
     setIsOpen(true);
-    track("quick_capture_used");
+    // quick_capture_used fires on successful save in the conversation modal,
+    // not here — opening and abandoning the modal is not a capture (CAR-58).
   }, []);
 
   const openEdit = useCallback((meeting: Meeting, actions: ActionItemWithContacts[]) => {

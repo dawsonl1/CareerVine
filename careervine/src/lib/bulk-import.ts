@@ -56,6 +56,8 @@ import {
   type MergePolicy,
 } from "./scrape-merge";
 import { addTagsToContacts, downloadAndStorePhoto, isValidImportEmail } from "./import-db-helpers";
+import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
+import type { AnalyticsEvents } from "@/lib/analytics/events";
 import { isBundlePhotoUrl, bundlePhotoOverwriteAllowed } from "./photo-urls";
 
 // ── Input / output shapes ──────────────────────────────────────────────
@@ -112,6 +114,14 @@ export interface ImportChunkOptions {
   noteLabel?: string;
   /** Skip the best-effort photo phase entirely. */
   skipPhotos?: boolean;
+  /**
+   * When set, the chunk emits contact_imported {source, count} + the
+   * contacts_5 milestone check for contacts it ACTUALLY created (CAR-58 —
+   * dedupes/updates don't count, and every import surface shares this emit
+   * instead of each route rolling its own). Omit for rescrapes/refreshes,
+   * which never represent a user importing contacts.
+   */
+  analyticsSource?: AnalyticsEvents["contact_imported"]["source"];
   /** Rescrape-only hooks (e.g. the scrape-diff capture). */
   hooks?: ImportHooks;
   /**
@@ -609,6 +619,17 @@ export async function importPeopleChunk(
       w.result.photo = "stored";
     } catch {
       w.result.photo = "skipped";
+    }
+  }
+
+  if (opts.analyticsSource) {
+    const createdCount = results.filter((r) => r.status === "created").length;
+    if (createdCount > 0) {
+      await trackServer(userId, "contact_imported", {
+        source: opts.analyticsSource,
+        count: createdCount,
+      });
+      await checkContactMilestone(userId);
     }
   }
 
