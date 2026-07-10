@@ -7,7 +7,7 @@
 
 import { google } from "googleapis";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { getOAuth2Client, refreshTokenIfNeeded } from "@/lib/oauth-helpers";
+import { getOAuth2Client, refreshTokenIfNeeded, decryptOAuthToken } from "@/lib/oauth-helpers";
 
 export const DEFAULT_TIMEZONE = "America/New_York";
 
@@ -55,8 +55,8 @@ export async function getCalendarClient(userId: string) {
 
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: conn.access_token,
-    refresh_token: conn.refresh_token,
+    access_token: decryptOAuthToken(conn.access_token),
+    refresh_token: decryptOAuthToken(conn.refresh_token),
     expiry_date: new Date(conn.token_expires_at).getTime(),
   });
 

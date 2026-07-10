@@ -47,41 +47,6 @@ export function getAuthUrl(state: string, includeCalendar: boolean = false): str
   });
 }
 
-/** Exchange an authorization code for tokens and store them. */
-export async function exchangeCodeForTokens(
-  code: string,
-  userId: string
-): Promise<{ gmailAddress: string }> {
-  const oauth2Client = getOAuth2Client();
-  const { tokens } = await oauth2Client.getToken(code);
-
-  if (!tokens.access_token || !tokens.refresh_token) {
-    throw new Error("Missing access_token or refresh_token from Google");
-  }
-
-  oauth2Client.setCredentials(tokens);
-  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-  const profile = await gmail.users.getProfile({ userId: "me" });
-  const gmailAddress = profile.data.emailAddress || "";
-
-  const supabase = createSupabaseServiceClient();
-
-  const { error } = await supabase.from("gmail_connections").upsert(
-    {
-      user_id: userId,
-      gmail_address: gmailAddress,
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      token_expires_at: new Date(tokens.expiry_date || Date.now() + 3600_000).toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
-
-  if (error) throw error;
-  return { gmailAddress };
-}
-
 /** Load tokens from DB, refresh if expired, return an authenticated Gmail client. */
 export async function getGmailClient(userId: string) {
   const supabase = createSupabaseServiceClient();
@@ -96,8 +61,8 @@ export async function getGmailClient(userId: string) {
 
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: conn.access_token,
-    refresh_token: conn.refresh_token,
+    access_token: decryptOAuthToken(conn.access_token),
+    refresh_token: decryptOAuthToken(conn.refresh_token),
     expiry_date: new Date(conn.token_expires_at).getTime(),
   });
 
@@ -130,7 +95,7 @@ export async function revokeAccess(userId: string) {
   if (conn?.access_token) {
     try {
       const oauth2Client = getOAuth2Client();
-      await oauth2Client.revokeToken(conn.access_token);
+      await oauth2Client.revokeToken(decryptOAuthToken(conn.access_token));
     } catch {
       // Token may already be invalid — continue with cleanup
     }
@@ -144,7 +109,7 @@ export async function revokeAccess(userId: string) {
 
 import { getHeader, parseEmailAddress } from '@/lib/gmail-helpers';
 import type { ParsedHeader } from '@/lib/gmail-helpers';
-import { getOAuth2Client, refreshTokenIfNeeded } from '@/lib/oauth-helpers';
+import { getOAuth2Client, refreshTokenIfNeeded, decryptOAuthToken } from '@/lib/oauth-helpers';
 // Circular with email-send.ts (which imports sendEmail/getConnection from here);
 // safe because both sides use the imports only inside function bodies.
 import { sendTrackedEmail, SendPolicyError } from '@/lib/email-send';

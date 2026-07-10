@@ -5,6 +5,7 @@
 
 import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 /** Create a Google OAuth2 client from env vars. */
 export function getOAuth2Client() {
@@ -13,6 +14,26 @@ export function getOAuth2Client() {
     process.env.GOOGLE_CLIENT_SECRET,
     process.env.GOOGLE_REDIRECT_URI
   );
+}
+
+// ── OAuth token encryption at rest (CAR-27) ──
+// Same AES-256-GCM helper + BYOK_ENCRYPTION_KEY as user_api_keys.
+
+const CIPHERTEXT_PREFIX = "v1.";
+
+/** Encrypt an OAuth token for storage in gmail_connections. */
+export function encryptOAuthToken(plaintext: string): string {
+  return encryptSecret(plaintext);
+}
+
+/**
+ * Decrypt a stored OAuth token. Legacy plaintext rows (pre-backfill, no
+ * "v1." prefix) pass through unchanged so a partially migrated table never
+ * breaks Gmail/Calendar access.
+ */
+export function decryptOAuthToken(stored: string): string {
+  if (!stored.startsWith(CIPHERTEXT_PREFIX)) return stored;
+  return decryptSecret(stored);
 }
 
 // In-memory lock to prevent concurrent token refreshes for the same user.
@@ -46,8 +67,8 @@ export async function refreshTokenIfNeeded(
       .single();
     if (fresh) {
       oauth2Client.setCredentials({
-        access_token: fresh.access_token,
-        refresh_token: fresh.refresh_token,
+        access_token: decryptOAuthToken(fresh.access_token),
+        refresh_token: decryptOAuthToken(fresh.refresh_token),
         expiry_date: new Date(fresh.token_expires_at).getTime(),
       });
     }
@@ -91,7 +112,7 @@ async function doRefresh(
     await supabase
       .from("gmail_connections")
       .update({
-        access_token: credentials.access_token,
+        access_token: encryptOAuthToken(credentials.access_token),
         token_expires_at: new Date(credentials.expiry_date || Date.now() + 3600_000).toISOString(),
         updated_at: new Date().toISOString(),
       })
