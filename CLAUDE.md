@@ -50,18 +50,22 @@ Project is managed through Linear — team **"Career Vine"**, ticket prefix **`C
 3. **Update at each meaningful step** via a comment or status update: plan written, each implementation slice landed, tests passing, committed/pushed.
 4. Mark it **Done** when complete.
 
-### Branching & PRs (risk-based split)
+### Worktree lifecycle (branching & PRs)
 
-Choose the integration path by the risk and scope of the change (see rule 19):
+Feature work happens in **worktrees off `main`**, one Linear issue per worktree, with Linear kept in sync automatically by the hooks in `.claude/hooks/` (registered in `.claude/settings.json`, powered by `$LINEAR_API_KEY`; see rules 22–23). The lifecycle:
 
-- **Direct to `main`** — small, low-risk changes: single-file or tightly scoped, **no** schema/migration, **no** new feature domain. Auto-commit and push per rule 14. `main` auto-deploys to production (rule 16).
-- **Branch + PR** — any **new feature domain**, any **DB migration**, or any **multi-file / cross-cutting** change. Branch name: `dawson/CAR-XX-slug`. Open a PR with `gh`, let review/CI run, then merge to `main`.
+1. **Open** — `git worktree add .claude/worktrees/CAR-XX-slug -b dawson/CAR-XX-slug main`. Worktree dir and branch are **both named after the ticket** — the branch name is what binds every automatic Linear update to the right issue. If no issue exists yet, create one first.
+2. **Plan** — write `.claude/plans/NN-CAR-XX-slug.md`. *(Hook: plan is posted to the issue + issue flips to In Progress.)*
+3. **Implement** — build, test, fix. Commit/push to the feature branch freely.
+4. **PR** — sync from `main` first (merge it **into** the branch), then `gh pr create`. *(Hook: issue flips to In Review + PR link recorded.)*
+5. **Merge** — on Dawson's go-ahead: `gh pr merge --merge` (merge commit; never rebase — `main` is a live Vercel deploy target). *(Hook: issue flips to Done.)*
+6. **Clean up** — when Dawson says "clean up this worktree", run the **`worktree-cleanup` skill** (`.claude/skills/worktree-cleanup/`). It gates deletion on: PR merged, tree clean, issue Done, and **all manual steps surfaced** — then removes the worktree and both branches.
 
-**Keeping a feature branch current:** merge `main` **into** the branch (`git merge main`). **Never** rebase or force-push `main` or any shared/already-pushed branch (`cursor/*`, `dawson/*` once pushed) — `main` is a live Vercel deploy target and rewriting its history breaks deployments and collaborators.
+**Risk-based exception (rule 19):** small, single-file, no-schema, no-new-domain changes may commit directly to `main` (rule 14) without a worktree.
 
-**Before opening a PR:** sync from `main` (merge it in) so conflicts surface early — while the merge-conflict tooling can engage — rather than at merge time.
+**Never** rebase or force-push `main` or any shared/already-pushed branch. Keep branches current by merging `main` in, so conflicts surface early (where the merge-conflict tooling engages).
 
-**Branch hygiene:** delete branches (local and remote) once merged. Don't let merged branches accumulate.
+**Manual steps are Linear's, not the conversation's:** anything Dawson must do by hand (env vars, `supabase db push`, secrets, redeploys) gets upserted to the issue as a `<!-- manual-steps -->` checklist the moment it's identified — conversations get deleted; Linear survives (rule 23).
 
 ### Merge conflicts → `merge-conflict-tool` plugin
 
@@ -144,3 +148,9 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 20. [PROCESS] On any git `CONFLICT` (merge/rebase/cherry-pick), the `merge-conflict-tool` plugin/skill is the required resolution process — never hand-resolve, never `git checkout --ours/--theirs` on a content conflict, never delete markers outside it. Install once via `/plugin marketplace add dawsonl1/merge-conflict-tool` + `/plugin install merge-conflict-tool@dawson-plugins` (interactive only); until then, load its `SKILL.md` from `~/Projects/claude-plugins/merge-conflict-tool` and follow it manually. See Workflows → Merge conflicts for the CareerVine calibration (verification commands, generated files, risky surfaces).
 
 21. [PROCESS] Plan files live in repo-root `.claude/plans/` and are named `NN-CAR-XX-slug.md` — a two-digit sequential prefix (highest existing number + 1) plus the Linear ticket, one file per ticket, never reusing a number. Supersedes rule 6's stale `/home/braxtong/...` path and extends rule 9's numbering to embed the ticket. See Workflows → Plan files.
+
+22. [PROCESS] Name feature worktrees and branches after their Linear ticket — worktree dir `CAR-XX-slug`, branch `dawson/CAR-XX-slug` — because the `CAR-XX` in the branch name is what the lifecycle hooks (`.claude/hooks/`) parse to sync the right Linear issue automatically (plan→In Progress, PR create→In Review, PR merge→Done). A branch without a ticket reference gets no automatic Linear sync. See Workflows → Worktree lifecycle. (CAR-33)
+
+23. [PROCESS] The moment a manual step for Dawson is identified (add an env var, run `supabase db push`, set a secret, redeploy, configure an external dashboard), record it on the Linear issue as a `<!-- manual-steps -->` checklist comment (upsert, don't duplicate) — because conversations and worktrees are disposable and get deleted; Linear is the durable record. The `worktree-cleanup` skill blocks teardown on unchecked items. Never let a manual step exist only in chat. (CAR-33)
+
+24. [PROCESS] Dawson intentionally pastes secret values into chat for Claude to handle — store them in `~/.config/claude/secrets.zsh`, wire them up, and move on. Do not treat pasted secrets as compromised, do not recommend rotation, do not add security caveats about it. (Preference set 2026-07-09; also reflected in global CLAUDE.md Secret handling.)
