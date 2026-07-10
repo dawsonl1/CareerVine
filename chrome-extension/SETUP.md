@@ -1,92 +1,37 @@
-# Chrome Extension Setup Instructions
+# Chrome Extension Setup
 
-## Quick Start
+## Quick start (local development)
 
-1. **Start CareerVine App**:
+1. **Start the CareerVine app**:
    ```bash
-   cd /Users/dawsonpitcher/Projects/Networking-Helper/careervine
+   cd careervine
    npm run dev
    ```
 
-2. **Start Supabase**:
+2. **Start Supabase** (from the repo root):
    ```bash
-   cd /Users/dawsonpitcher/Projects/Networking-Helper
    supabase start
    ```
 
-3. **Load Extension**:
-   - Open Chrome
-   - Go to `chrome://extensions/`
+3. **Load the extension**:
+   - Open Chrome → `chrome://extensions/`
    - Enable "Developer mode"
-   - Click "Load unpacked"
-   - Select `/Users/dawsonpitcher/Projects/Networking-Helper/chrome-extension`
+   - Click "Load unpacked" and select the `chrome-extension/` directory
 
-## Usage
+The extension defaults to `env/development.json` (app on `localhost:3000`, Supabase on `127.0.0.1:54321`). For a production build, run `./build-prod.sh` — see README.md.
 
-1. **Sign In**: Click the CareerVine extension icon and sign in with your CareerVine credentials
-2. **Navigate**: Go to a LinkedIn profile or company page
-3. **Import**: Click the green CareerVine ribbon on the right side
-4. **Review**: Check the extracted data and click "Import to CareerVine"
+## Using it
 
-## What's Been Built
-
-### ✅ Extension Core
-- [x] Manifest v3 configuration
-- [x] LinkedIn profile scraper
-- [x] LinkedIn company scraper  
-- [x] Floating ribbon UI
-- [x] Material Design 3 styling
-- [x] Background service worker
-- [x] Chrome storage utilities
-
-### ✅ API Integration
-- [x] `/api/contacts/import` - Import contacts with duplicate detection
-- [x] `/api/contacts/check-duplicate` - Check for potential duplicates
-- [x] Supabase authentication integration
-- [x] Student profile filtering (experience after education start)
-
-### ✅ Features
-- [x] Real-time duplicate detection (LinkedIn URL, email, name similarity)
-- [x] Automatic company/school creation and linking
-- [x] Experience filtering for student profiles
-- [x] Material Design 3 UI matching CareerVine app
-- [x] Recent imports tracking
-- [x] Error handling and validation
-
-### ✅ Development Setup
-- [x] Environment configuration (dev/prod)
-- [x] TypeScript compilation
-- [x] Build verification
-- [x] Documentation
-
-## Next Steps
-
-### Week 2: Integration & Testing
-- Test with various LinkedIn profile layouts
-- Improve scraper robustness
-- Add more error handling
-- Test duplicate detection scenarios
-
-### Week 3: Features & Polish
-- Add company page import functionality
-- Improve duplicate detection UI
-- Add import success notifications
-- Optimize performance
-
-### Week 4: Production
-- Create production PNG icons
-- Configure production environment
-- Prepare Chrome Web Store listing
-- Test production deployment
+1. **Sign in**: click the CareerVine toolbar icon and sign in with your CareerVine credentials (or create an account / reset your password via the links).
+2. **Navigate** to a LinkedIn profile page — the CareerVine button appears on the right.
+3. **Analyze**: open the panel and click "Analyze Profile" (or enable auto-analyze).
+4. **Review & save**: edit anything that needs fixing, then "Save Contact".
 
 ## Troubleshooting
 
-**Extension not loading**: Check manifest.json syntax and reload extension
-
-**Ribbon not appearing**: Verify you're on a LinkedIn profile/company page
-
-**Authentication errors**: Ensure CareerVine app is running on localhost:3000
-
-**Import failures**: Check browser DevTools Network tab for API errors
-
-**Build errors**: Run `npm run build` in careervine directory to verify API routes
+- **Extension not loading** — check `manifest.json` syntax, then reload from `chrome://extensions/`.
+- **Button not appearing** — it only shows on `linkedin.com/in/...` profile pages; refresh the tab after (re)loading the extension.
+- **Authentication errors** — ensure the CareerVine app is running on `localhost:3000` and local Supabase is up (`supabase status`).
+- **"Add your OpenAI key" in the panel** — profile parsing needs an OpenAI key; add yours in CareerVine → Settings → AI.
+- **Import failures** — check the background service worker console (`chrome://extensions/` → "Service worker" → inspect) and the app's terminal for API errors.
+- **Panel changes not showing** — rebuild the panel bundle: `cd panel-app && npm run build`, then reload the extension.

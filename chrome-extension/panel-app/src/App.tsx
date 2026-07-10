@@ -1007,8 +1007,9 @@ const App: React.FC = () => {
         setIsAuthenticated(true);
         setEmail("");
         setPassword("");
-        // Load profile after successful login
-        loadLatestProfile();
+        // Ask the content script to push current page state now that we can
+        // make authenticated calls (DB check, cache, optional auto-scrape).
+        (window as any).__cv_bus?.dispatchEvent(new CustomEvent("panel-ready"));
       } else {
         setAuthError(response?.error || "Login failed");
       }
@@ -1018,27 +1019,10 @@ const App: React.FC = () => {
     }
   };
 
-  const loadLatestProfile = async () => {
-    try {
-      const response = await chrome?.runtime?.sendMessage?.({
-        action: "getLatestProfile",
-      });
-      const profileData = enrichProfile(response?.profileData ?? null);
-      setProfile(profileData);
-      setLoading(false);
-    } catch (error) {
-      console.error("Failed to load profile", error);
-      setErrorText("Unable to load profile data. Visit a LinkedIn profile first.");
-      setLoading(false);
-    }
-  };
-
-  // Load auto-scrape setting, photo URL, and webapp base URL
+  // Load auto-scrape setting and webapp base URL
   useEffect(() => {
-    chrome?.storage?.local?.get?.(['autoScrapeEnabled', 'latestPhotoUrl'], (result: any) => {
+    chrome?.storage?.local?.get?.(['autoScrapeEnabled'], (result: any) => {
       setAutoScrape(result?.autoScrapeEnabled || false);
-      setPhotoUrl(result?.latestPhotoUrl || null);
-      setPhotoError(false);
     });
     // Get webapp URL from config (strips /api from apiBaseUrl)
     chrome?.runtime?.sendMessage?.({ action: 'getConfig' }, (response: any) => {
@@ -1061,12 +1045,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Check authentication first
-    checkAuthentication().then((authenticated) => {
-      if (authenticated) {
-        loadLatestProfile();
-      }
-    });
+    checkAuthentication();
 
     // Shared state reset — prevents copy-paste drift between handlers
     const resetState = (onProfile: boolean) => {
@@ -1085,22 +1064,16 @@ const App: React.FC = () => {
       setAiFailure(null);
     };
 
-    const handleStorageChange = (
-      changes: Record<string, chrome.storage.StorageChange>,
-      area: string
-    ) => {
-      if (area === "local" && changes.latestProfile) {
-        const newProfile = enrichProfile(changes.latestProfile.newValue);
-        if (newProfile) {
-          setProfile(newProfile);
-          setLoading(false);
-          // DB match check is handled by content.js checkProfileInDB — no duplicate call needed
-        }
+    // Scrape finished in THIS tab — content.js hands the parsed profile
+    // straight over the bus (no global storage, so no cross-tab bleed).
+    const handleProfileData = (event: CustomEvent) => {
+      const newProfile = enrichProfile(event.detail?.profileData ?? null);
+      if (newProfile) {
+        setProfile(newProfile);
+        setLoading(false);
       }
-      if (area === "local" && changes.latestPhotoUrl) {
-        setPhotoUrl(changes.latestPhotoUrl.newValue || null);
-        setPhotoError(false);
-      }
+      setPhotoUrl(event.detail?.photoUrl || null);
+      setPhotoError(false);
     };
 
     const handleAnalyzing = (event: CustomEvent) => {
@@ -1134,6 +1107,8 @@ const App: React.FC = () => {
       if (cachedProfile) {
         setProfile(cachedProfile);
         setLoading(false);
+        setPhotoUrl(event.detail?.photoUrl || null);
+        setPhotoError(false);
         // DB match check handled by content.js checkProfileInDB — no duplicate call
       } else {
         setLoading(true);
@@ -1176,7 +1151,7 @@ const App: React.FC = () => {
     };
 
     const bus = (window as any).__cv_bus;
-    chrome?.storage?.onChanged?.addListener(handleStorageChange);
+    bus?.addEventListener('profiledata', handleProfileData as EventListener);
     bus?.addEventListener('analyzing', handleAnalyzing as EventListener);
     bus?.addEventListener('progress', handleProgress as EventListener);
     bus?.addEventListener('newprofile', handleNewProfile as EventListener);
@@ -1186,8 +1161,12 @@ const App: React.FC = () => {
     bus?.addEventListener('dbnomatch', handleDBNoMatch as EventListener);
     bus?.addEventListener('parseerror', handleParseError as EventListener);
 
+    // Listeners are attached — content.js can now push the current page's
+    // state (DB check, cached profile, auto-scrape) without racing the mount.
+    bus?.dispatchEvent(new CustomEvent('panel-ready'));
+
     return () => {
-      chrome?.storage?.onChanged?.removeListener(handleStorageChange);
+      bus?.removeEventListener('profiledata', handleProfileData as EventListener);
       bus?.removeEventListener('analyzing', handleAnalyzing as EventListener);
       bus?.removeEventListener('progress', handleProgress as EventListener);
       bus?.removeEventListener('newprofile', handleNewProfile as EventListener);
@@ -1313,15 +1292,34 @@ const App: React.FC = () => {
                   {authError}
                 </div>
               )}
-              
+
+              <div className="cv-login-forgot-row">
+                <a
+                  href={`${webappBaseUrl}/auth?mode=reset`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="cv-login-link"
+                >
+                  Forgot password?
+                </a>
+              </div>
+
               <button type="submit" className="cv-login-btn">
                 Sign In
               </button>
             </form>
-            
+
             <div className="cv-login-footer">
               <p className="cv-login-footer-text">
-                New to CareerVine? <a href="#" className="cv-login-link">Create an account</a>
+                New to CareerVine?{" "}
+                <a
+                  href={`${webappBaseUrl}/auth?mode=signup`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="cv-login-link"
+                >
+                  Create an account
+                </a>
               </p>
             </div>
           </div>
@@ -1544,6 +1542,22 @@ const App: React.FC = () => {
       setIsEditing(false);
       setStatusText("Edits applied");
       setTimeout(() => setStatusText(null), 3000);
+
+      // Persist edits into the per-profile cache — otherwise navigating away
+      // and back within the cache TTL silently restores the original scrape.
+      const match = window.location.href.match(/linkedin\.com\/in\/([^/?]+)/);
+      const profileId = match?.[1];
+      if (profileId) {
+        chrome?.storage?.local?.get?.(['profileCache'], (result: any) => {
+          const cache = result?.profileCache || {};
+          cache[profileId] = {
+            data: editedProfile,
+            photoUrl: cache[profileId]?.photoUrl ?? photoUrl ?? null,
+            timestamp: Date.now(),
+          };
+          chrome?.storage?.local?.set?.({ profileCache: cache });
+        });
+      }
     }
   };
 

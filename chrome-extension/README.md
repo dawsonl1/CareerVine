@@ -1,177 +1,78 @@
 # CareerVine Chrome Extension
 
-A Chrome extension that integrates LinkedIn profile scraping with the CareerVine CRM application.
+Import LinkedIn profiles into your CareerVine CRM in one click. Open a profile, click the CareerVine button, review the AI-structured data, and save — name, experience, education, location, photo, suggested tags, and generated notes land on a contact without any copy-paste.
 
 ## Features
 
-- **LinkedIn Profile Scraping**: Extract name, headline, experience, education, and contact info
-- **LinkedIn Company Scraping**: Extract company details, industry, size, and website
-- **Smart Duplicate Detection**: Checks for existing contacts by LinkedIn URL, email, and name similarity
-- **Student Profile Filtering**: Automatically filters work experience to only include after education start date
-- **Real-time Import**: Import contacts directly to your CareerVine database
-- **Material Design 3 UI**: Clean, modern interface matching the CareerVine app
+- **One-click profile import** — a floating button on LinkedIn profile pages opens a slide-out panel with the extracted profile
+- **AI-structured data** — raw profile text is parsed server-side into clean fields (experience with dates, education, industry, student/professional status)
+- **Already-in-CareerVine detection** — the panel tells you instantly when the person is already a contact, with an exact-LinkedIn-URL or name match
+- **Review and edit before saving** — every field is editable in the panel; edits persist while you browse
+- **Profile photo import** — the contact's photo is captured and stored with the contact
+- **Auto-analyze mode** — optionally scrape each profile as you navigate to it (off by default)
+- **2-hour profile cache** — revisiting a profile loads instantly without re-scraping
 
-## Development Setup
+## Installation (development)
 
-### Prerequisites
+1. Open Chrome → `chrome://extensions/`
+2. Enable "Developer mode"
+3. Click "Load unpacked" and select this `chrome-extension/` directory
 
-1. **CareerVine App**: Make sure your CareerVine Next.js app is running on `localhost:3000`
-2. **Supabase**: Local Supabase instance should be running
-3. **Node.js**: Version 18 or higher
+The extension defaults to the development environment (`env/development.json` — localhost app + local Supabase). See SETUP.md for running the app locally.
 
-### Installation
+## Production build
 
-1. **Clone and Setup**:
-   ```bash
-   cd /Users/dawsonpitcher/Projects/Networking-Helper/chrome-extension
-   ```
+```bash
+./build-prod.sh
+```
 
-2. **Load Extension in Chrome**:
-   - Open Chrome and navigate to `chrome://extensions/`
-   - Enable "Developer mode" (toggle in top right)
-   - Click "Load unpacked"
-   - Select the `chrome-extension` directory
-
-3. **Configure Environment**:
-   - The extension uses `env/development.json` by default
-   - Make sure your CareerVine app is running on `localhost:3000`
-   - Local Supabase should be running on `localhost:54321`
-
-### Usage
-
-1. **Sign In**:
-   - Click the CareerVine extension icon
-   - Sign in with your CareerVine credentials
-   - If you don't have an account, click "Sign up on CareerVine"
-
-2. **Import from LinkedIn**:
-   - Navigate to a LinkedIn profile or company page
-   - Look for the green CareerVine ribbon on the right side
-   - Click the ribbon to expand the import panel
-   - Review the extracted data
-   - Click "Import to CareerVine"
-
-3. **View Recent Imports**:
-   - Open the extension popup
-   - Click the "Recent" tab to see recently imported contacts
+Produces `careervine-extension-v<VERSION>.zip` for the Chrome Web Store: flips `ENV` to `production` in `background.js`, strips localhost host permissions from the manifest, rebuilds the panel app, and verifies no localhost references ship. Your working tree is restored to development mode afterward.
 
 ## Architecture
 
-### Extension Structure
-
 ```
 chrome-extension/
-├── manifest.json                 # Extension configuration
+├── manifest.json                  # MV3 configuration
 ├── src/
 │   ├── content/
-│   │   ├── linkedin-profile.js   # LinkedIn profile scraper
-│   │   ├── linkedin-company.js   # LinkedIn company scraper
-│   │   └── ribbon.js             # Floating ribbon UI
-│   ├── popup/
-│   │   ├── popup.html            # Extension popup
-│   │   ├── popup.css             # M3 styling
-│   │   └── popup.js              # Popup logic
-│   ├── background/
-│   │   └── background.js         # Service worker
-│   └── utils/
-│       ├── api.js                # API client
-│       └── storage.js            # Chrome storage helpers
-├── assets/icons/                 # Extension icons
-└── env/
-    ├── development.json          # Local development config
-    └── production.json           # Production config
+│   │   ├── content.js             # Panel/FAB lifecycle, navigation detection, event bus
+│   │   ├── linkedin-scraper.js    # Profile text extraction + cleaning
+│   │   ├── identify-sections.js   # Section boundary detection (shared with tests)
+│   │   ├── panel.css              # FAB + panel container styles
+│   │   └── panel-app/panel.js     # Built React panel bundle (from panel-app/)
+│   ├── popup/                     # Toolbar popup (sign in, recent imports)
+│   ├── background/background.js   # Service worker: auth, token refresh, API calls
+│   └── utils/                     # Popup helpers (API + storage wrappers)
+├── panel-app/                     # React panel source (Vite; builds into src/content/panel-app/)
+├── assets/icons/
+└── env/                           # development.json / production.json
 ```
 
-### API Integration
+Auth and API calls live in the background service worker — tokens never leave it. The content script scrapes and talks to the panel over an in-page event bus; profile data is cached per-profile (keyed by LinkedIn slug) so multiple tabs never overwrite each other.
 
-The extension communicates with your CareerVine app through these endpoints:
+### API endpoints used
 
-- `POST /api/contacts/import` - Import contact data
-- `POST /api/contacts/check-duplicate` - Check for duplicates
+- `POST /api/extension/parse-profile` — AI parse of scraped profile text
+- `POST /api/contacts/import` — create/update the contact
+- `POST /api/contacts/check-duplicate` — "already in CareerVine" check
 
-### Data Flow
+## Rebuilding the panel
 
-1. **Scraping**: Content scripts extract data from LinkedIn pages
-2. **UI**: Floating ribbon displays extracted data and import options
-3. **Authentication**: Extension uses Supabase auth through background script
-4. **Import**: Data sent to CareerVine API for storage and duplicate detection
+The panel UI is a React app in `panel-app/`. After changing `panel-app/src/`:
 
-## Data Extraction
-
-### LinkedIn Profiles
-
-- **Basic Info**: Name, headline, location, profile image, URL
-- **Experience**: Job titles, companies, dates (filtered for students)
-- **Education**: School names, degrees, dates (most recent only)
-- **Contact**: Email addresses (if available)
-
-### LinkedIn Companies
-
-- **Basic Info**: Company name, industry, size, website
-- **Details**: Headquarters location, founded year, description
-- **Specialties**: Company specialties and focus areas
-
-## Security Considerations
-
-- **Authentication**: Uses Supabase Auth with secure token storage
-- **Permissions**: Minimal permissions required (storage, activeTab, scripting)
-- **Data Privacy**: All data processed locally, only sent to your own CareerVine instance
-- **CORS**: Extension origin whitelisted in your API
-
-## Development Notes
-
-### Testing
-
-- Test on various LinkedIn profile layouts
-- Verify duplicate detection with existing contacts
-- Test student profile filtering
-- Check error handling for network issues
-
-### Debugging
-
-- Extension popup: Right-click → Inspect
-- Content scripts: LinkedIn page → DevTools → Console
-- Background script: chrome://extensions/ → Service worker → inspect
-
-### Common Issues
-
-1. **Extension not loading**: Check manifest.json syntax
-2. **Ribbon not appearing**: Verify content script injection
-3. **Auth failures**: Check API endpoints and Supabase connection
-4. **Import errors**: Check network tab for API responses
-
-## Production Deployment
-
-### Environment Configuration
-
-Update `env/production.json` with your production URLs:
-
-```json
-{
-  "apiBaseUrl": "https://careervine.app/api",
-  "supabaseUrl": "https://your-project.supabase.co",
-  "environment": "production"
-}
+```bash
+cd panel-app && npm run build
 ```
 
-### Chrome Web Store
+This regenerates `src/content/panel-app/panel.js` — commit it together with the source change.
 
-1. **Build**: Create production build of extension
-2. **Package**: Zip the extension directory
-3. **Submit**: Upload to Chrome Web Store Developer Dashboard
-4. **Review**: Wait for Google review and approval
+## Debugging
 
-## Contributing
+- Popup: right-click the popup → Inspect
+- Content script + panel: DevTools console on the LinkedIn page
+- Background worker: `chrome://extensions/` → "Service worker" → inspect
 
-1. Follow the existing code style
-2. Test thoroughly with various LinkedIn pages
-3. Update documentation for new features
-4. Ensure Material Design 3 consistency
+## Notes
 
-## Support
-
-For issues or questions:
-1. Check Chrome DevTools for error messages
-2. Verify CareerVine app is running locally
-3. Confirm Supabase connection
-4. Review extension permissions
+- The scraper expects the LinkedIn UI in **English** (section headers like "Experience"/"Education" are matched literally).
+- Scraping runs only for signed-in CareerVine users and only on demand (or with auto-analyze explicitly enabled).
