@@ -71,16 +71,21 @@ export async function getMonthlySpendUsd(userId: string): Promise<number> {
   });
   if (sumError) throw new Error(`spend sum failed: ${sumError.message}`);
 
-  const { count, error: countError } = await service
+  const { data: pending, error: pendingError } = await service
     .from("scrape_runs")
-    .select("id", { count: "exact", head: true })
+    .select("mode, contact_ids")
     .eq("user_id", userId)
     .eq("status", ScrapeRunStatus.Pending)
     .gte("created_at", since);
-  if (countError) throw new Error(`pending count failed: ${countError.message}`);
+  if (pendingError) throw new Error(`pending fetch failed: ${pendingError.message}`);
 
-  // Reserve each in-flight run at the higher (email) unit cost.
-  const reserve = (count ?? 0) * SCRAPE_UNIT_COST_USD.email;
+  // Reserve each in-flight run at its ACTUAL size × unit cost — a pending
+  // cadence batch covers up to 25 profiles, so a flat per-run penny would
+  // under-reserve ~25× and let concurrent batches blow past the cap.
+  const reserve = ((pending as { mode: string; contact_ids: number[] }[] | null) ?? []).reduce((sum, r) => {
+    const unit = SCRAPE_UNIT_COST_USD[r.mode as keyof typeof SCRAPE_UNIT_COST_USD] ?? SCRAPE_UNIT_COST_USD.email;
+    return sum + Math.max(1, r.contact_ids?.length ?? 1) * unit;
+  }, 0);
   return Number(settled ?? 0) + reserve;
 }
 
@@ -244,14 +249,30 @@ export async function triggerBatchScrape(
  */
 export async function sweepStuckRuns(): Promise<number> {
   const service = createSupabaseServiceClient();
+  const now = new Date().toISOString();
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data } = await service
+
+  // A run pending >24h almost certainly ran and CHARGED at Apify — only its
+  // completion webhook was lost. Record an estimated cost so the monthly cap
+  // stays a real ceiling; otherwise a systematically-broken webhook would burn
+  // Apify credit daily while the ledger (which the cap sums) shows $0.
+  const { data: stuck } = await service
     .from("scrape_runs")
-    .update({ status: ScrapeRunStatus.TimedOut, error: "No webhook within 24h", finished_at: new Date().toISOString() })
+    .select("id, mode, contact_ids")
     .eq("status", ScrapeRunStatus.Pending)
-    .lt("created_at", cutoff)
-    .select("id");
-  return ((data as { id: number }[] | null) ?? []).length;
+    .lt("created_at", cutoff);
+  const rows = (stuck as { id: number; mode: string; contact_ids: number[] }[] | null) ?? [];
+
+  for (const run of rows) {
+    const unit = SCRAPE_UNIT_COST_USD[run.mode as keyof typeof SCRAPE_UNIT_COST_USD] ?? SCRAPE_UNIT_COST_USD.profile;
+    const estimated = Math.max(1, run.contact_ids?.length ?? 1) * unit;
+    await service
+      .from("scrape_runs")
+      .update({ status: ScrapeRunStatus.TimedOut, cost_usd: estimated, error: "No webhook within 24h (estimated cost)", finished_at: now })
+      .eq("id", run.id)
+      .eq("status", ScrapeRunStatus.Pending);
+  }
+  return rows.length;
 }
 
 /**
@@ -277,11 +298,20 @@ export async function triggerEnrichOnSave(userId: string, contactId: number): Pr
   }
 }
 
+/**
+ * Does the contact have a *usable* (non-bounced) email? Used consistently by
+ * enrich mode-selection, the email-mode debounce, and the company-change
+ * follow-up — a contact whose only address has bounced counts as "no email"
+ * so an email search is chosen and NOT debounced away (review fix: the three
+ * checks previously disagreed, silently blocking the follow-up for exactly
+ * the bounced-only contacts it targets).
+ */
 async function contactHasEmail(service: ServiceClient, contactId: number): Promise<boolean> {
   const { count } = await service
     .from("contact_emails")
     .select("id", { count: "exact", head: true })
-    .eq("contact_id", contactId);
+    .eq("contact_id", contactId)
+    .is("bounced_at", null);
   return (count ?? 0) > 0;
 }
 
@@ -334,11 +364,23 @@ export async function ingestScrapeRun(opts: { scrapeRunId?: number; apifyRunId: 
       onDiffCapture: (c) => captures.push(c),
     });
 
+    // Only diff contacts whose merge actually SUCCEEDED — a capture is taken
+    // before the employment writes, so a person whose merge threw would
+    // otherwise emit a change event (and an email follow-up) for data that was
+    // never persisted, re-firing every scrape thereafter.
+    const mergedUrls = new Set(
+      summary.results
+        .filter((r) => r.status === "updated" || r.status === "created")
+        .map((r) => canonicalizeLinkedinUrl(r.linkedin_url))
+        .filter(Boolean) as string[],
+    );
+    const goodCaptures = captures.filter((c) => mergedUrls.has(c.linkedinUrl));
+
     // Scrape-diff: emit change events + snapshots. Isolated — a diff failure
     // must never fail an already-merged run.
     let companyChangeContacts: number[] = [];
     try {
-      companyChangeContacts = await processDiffs(service, runRow.user_id, runRow.id, items, captures, now);
+      companyChangeContacts = await processDiffs(service, runRow.user_id, runRow.id, items, goodCaptures, now);
     } catch (err) {
       console.error(`[scrape] diff processing failed for run ${runRow.id}:`, err);
     }
@@ -418,16 +460,13 @@ async function processDiffs(
     if (url && !itemByUrl.has(url)) itemByUrl.set(url, item);
   }
 
-  // Latest prior snapshot per contact (one batched query, first-wins per contact).
+  // Latest prior snapshot per contact — via a DISTINCT ON RPC so it can't be
+  // truncated by PostgREST's 1000-row select ceiling as snapshot history grows.
   const contactIds = captures.map((c) => c.contactId);
-  const { data: snapRows } = await service
-    .from("contact_scrape_snapshots")
-    .select("contact_id, snapshot")
-    .in("contact_id", contactIds)
-    .order("scraped_at", { ascending: false });
+  const { data: snapRows } = await service.rpc("latest_contact_snapshots", { p_contact_ids: contactIds });
   const prevByContact = new Map<number, ScrapeSnapshot>();
   for (const row of (snapRows as { contact_id: number; snapshot: ScrapeSnapshot }[] | null) ?? []) {
-    if (!prevByContact.has(row.contact_id)) prevByContact.set(row.contact_id, row.snapshot);
+    prevByContact.set(row.contact_id, row.snapshot);
   }
 
   // linkedin_company_id lookup: incoming side rides on the captures; fetch the
