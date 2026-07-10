@@ -3,6 +3,7 @@ import {
   shapeAdminUser,
   keyStatusFor,
   sanitizeSearch,
+  isEffectivelyShared,
   type PublicUserRow,
 } from "@/lib/admin-users";
 
@@ -90,6 +91,27 @@ describe("shapeAdminUser", () => {
     );
     expect(shaped.firstName).toBe("");
     expect(shaped.lastName).toBe("");
+  });
+});
+
+describe("isEffectivelyShared (CAR-51)", () => {
+  const FUTURE = new Date(Date.now() + 60_000).toISOString();
+  const PAST = new Date(Date.now() - 60_000).toISOString();
+
+  it("treats a permanent grant (null expiry) as shared", () => {
+    expect(isEffectivelyShared({ shared_access: true, expires_at: null })).toBe(true);
+  });
+
+  it("treats an active trial as shared and an expired one as not", () => {
+    expect(isEffectivelyShared({ shared_access: true, expires_at: FUTURE })).toBe(true);
+    // Stale row: window closed but the lazy flip hasn't run yet.
+    expect(isEffectivelyShared({ shared_access: true, expires_at: PAST })).toBe(false);
+  });
+
+  it("treats cutoffs and missing rows as not shared", () => {
+    expect(isEffectivelyShared({ shared_access: false, expires_at: null })).toBe(false);
+    expect(isEffectivelyShared(null)).toBe(false);
+    expect(isEffectivelyShared(undefined)).toBe(false);
   });
 });
 

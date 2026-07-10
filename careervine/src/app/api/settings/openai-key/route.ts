@@ -72,6 +72,10 @@ async function validateOpenAIKey(apiKey: string): Promise<void> {
 
 /**
  * GET /api/settings/openai-key — metadata only, never the key itself.
+ *
+ * Deliberately a passive read of user_ai_access (CAR-51): opening Settings
+ * must never arm the 24h trial or run the lazy expiry flip — those side
+ * effects belong to real AI-use paths in lib/openai.ts only.
  */
 export const GET = withApiHandler({
   handler: async ({ user }) => {
@@ -85,21 +89,36 @@ export const GET = withApiHandler({
         .maybeSingle(),
       service
         .from("user_ai_access")
-        .select("shared_access")
+        .select("shared_access, expires_at, granted_by, access_requested_at")
         .eq("user_id", user.id)
         .maybeSingle(),
     ]);
 
     // sharedAccess tells the UI whether the no-key state is a hard block (must
     // BYO) or a courtesy fallback — the surfacing end of CAR-26's gating.
-    const sharedAccess = accessResult.data?.shared_access === true;
-    const { data, error } = keyResult;
+    // trialState (CAR-51) adds the trial nuance: 'active' shows the quiet
+    // "first day" note, 'expired' shows the locked state with a request-access
+    // exit. Raw shared_access can lag the expiry (lazy flip), so the effective
+    // value is recomputed here.
+    const access = accessResult.data;
+    const expiresAtMs = access?.expires_at ? new Date(access.expires_at).getTime() : null;
+    const expired = expiresAtMs !== null && expiresAtMs <= Date.now();
+    const sharedAccess = access?.shared_access === true && !expired;
+    const isTrial = access?.granted_by === "trial";
+    const trialState = isTrial ? (expired ? ("expired" as const) : ("active" as const)) : null;
+    const accessFields = {
+      sharedAccess,
+      trialState,
+      sharedAccessExpiresAt: isTrial && !expired ? access?.expires_at ?? null : null,
+      accessRequestedAt: access?.access_requested_at ?? null,
+    };
 
+    const { data, error } = keyResult;
     if (error || !data) {
-      return { hasKey: false, sharedAccess };
+      return { hasKey: false, ...accessFields };
     }
 
-    return { ...formatKeyStatus(data), sharedAccess };
+    return { ...formatKeyStatus(data), ...accessFields };
   },
 });
 

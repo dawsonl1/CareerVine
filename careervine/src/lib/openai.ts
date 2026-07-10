@@ -15,6 +15,7 @@ import OpenAI, { APIError } from "openai";
 import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, CryptoError } from "@/lib/crypto";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { trackServer } from "@/lib/analytics/server";
 import {
   AI_FAILURE_COPY,
   AI_UNAVAILABLE_STATUS,
@@ -28,6 +29,8 @@ const MAX_CACHE_ENTRIES = 500;
 const QUOTA_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const OPENAI_PROVIDER = "openai";
 const SHARED_ACCESS_CACHE_TTL_MS = 60_000;
+/** CAR-51: shared-AI trial length, clocked from the user's first AI use. */
+export const AI_TRIAL_DURATION_MS = 24 * 60 * 60 * 1000;
 
 type CacheEntry = {
   apiKey: string;
@@ -38,7 +41,14 @@ type CacheEntry = {
 
 const keyCache = new Map<string, CacheEntry>();
 
-type SharedAccessEntry = { granted: boolean; expiresAt: number };
+/**
+ * CAR-51: shared access is no longer a plain boolean — an entitlement can be
+ * an expiring trial. `trialExpired` distinguishes "your free day ended"
+ * (ai_trial_expired) from "you never had access" (ai_no_key).
+ */
+export type SharedAccessState = { granted: boolean; trialExpired: boolean };
+
+type SharedAccessEntry = { state: SharedAccessState; expiresAt: number };
 const sharedAccessCache = new Map<string, SharedAccessEntry>();
 
 /** Personal-key state relevant to picking a failure code when no key is usable. */
@@ -142,34 +152,130 @@ function isUserKeyEligible(status: string, updatedAt: string): boolean {
   return true;
 }
 
-/**
- * Whether the user is entitled to CareerVine's shared key. Cached 60s.
- * Fails CLOSED (not entitled) on any lookup error — the spend-safe default that
- * matches the default-OFF entitlement model. Only consulted when a personal key
- * is unusable, so the common BYO-active path never pays for this.
- */
-async function hasSharedAccess(userId: string): Promise<boolean> {
-  const cached = sharedAccessCache.get(userId);
-  if (cached && cached.expiresAt > Date.now()) return cached.granted;
+type AccessRow = {
+  shared_access: boolean;
+  expires_at: string | null;
+  granted_by: string | null;
+};
 
-  let granted = false;
+const ACCESS_COLUMNS = "shared_access, expires_at, granted_by";
+
+/**
+ * CAR-51: first shared-key resolution for a user with NO entitlement row arms
+ * their 24-hour trial. `ignoreDuplicates` (ON CONFLICT DO NOTHING) + an exact
+ * count makes it atomic: count 1 = this request created the row and the trial
+ * started now; count 0 = a concurrent request (or an existing row, including a
+ * cutoff) won — trials never re-arm. Count-based per rule 17: the insert's
+ * RETURNING representation can't be trusted through PostgREST filters.
+ */
+async function startTrial(
+  service: ReturnType<typeof createSupabaseServiceClient>,
+  userId: string,
+): Promise<boolean> {
+  const now = Date.now();
+  const { count, error } = await service.from("user_ai_access").upsert(
+    {
+      user_id: userId,
+      shared_access: true,
+      granted_at: new Date(now).toISOString(),
+      granted_by: "trial",
+      expires_at: new Date(now + AI_TRIAL_DURATION_MS).toISOString(),
+    },
+    { onConflict: "user_id", ignoreDuplicates: true, count: "exact" },
+  );
+  if (error) return false;
+  const started = (count ?? 0) === 1;
+  if (started) {
+    await trackServer(userId, "ai_trial_started", {});
+  }
+  return started;
+}
+
+/**
+ * Evaluate an entitlement row, lazily retiring expired grants. The flip to
+ * shared_access=false is a CAS (count-checked, rule 17): exactly one request
+ * observes the transition, and that request emits the one-time
+ * ai_trial_expired event. granted_by/expires_at survive as the trial
+ * tombstone so the UI can keep telling "trial ended" apart from "never had
+ * access".
+ */
+async function evaluateAccessRow(
+  service: ReturnType<typeof createSupabaseServiceClient>,
+  userId: string,
+  row: AccessRow,
+): Promise<SharedAccessState> {
+  const isTrial = row.granted_by === "trial";
+  const expired =
+    row.expires_at != null && new Date(row.expires_at).getTime() <= Date.now();
+
+  if (row.shared_access && !expired) return { granted: true, trialExpired: false };
+
+  if (row.shared_access && expired) {
+    const { count } = await service
+      .from("user_ai_access")
+      .update(
+        { shared_access: false, updated_at: new Date().toISOString() },
+        { count: "exact" },
+      )
+      .eq("user_id", userId)
+      .eq("shared_access", true)
+      .lte("expires_at", new Date().toISOString());
+    if ((count ?? 0) === 1 && isTrial) {
+      await trackServer(userId, "ai_trial_expired", {});
+    }
+    return { granted: false, trialExpired: isTrial };
+  }
+
+  return { granted: false, trialExpired: isTrial && expired };
+}
+
+/**
+ * Whether the user is entitled to CareerVine's shared key — and if not,
+ * whether that's because their trial expired. Cached 60s. Fails CLOSED on any
+ * lookup error — the spend-safe default. Only consulted when a personal key is
+ * unusable, so the common BYO-active path never pays for this.
+ *
+ * Side effects (CAR-51): arms the 24h trial for row-less users and lazily
+ * retires expired grants — so this must only run from real AI-use paths,
+ * never from status/read endpoints.
+ */
+async function resolveSharedAccess(userId: string): Promise<SharedAccessState> {
+  const cached = sharedAccessCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.state;
+
+  let state: SharedAccessState = { granted: false, trialExpired: false };
   try {
     const service = createSupabaseServiceClient();
-    const { data } = await service
+    let { data } = await service
       .from("user_ai_access")
-      .select("shared_access")
+      .select(ACCESS_COLUMNS)
       .eq("user_id", userId)
       .maybeSingle();
-    granted = data?.shared_access === true;
+
+    if (!data && (await startTrial(service, userId))) {
+      state = { granted: true, trialExpired: false };
+    } else {
+      if (!data) {
+        // Lost the trial-arm race (or insert failed) — re-read what won.
+        ({ data } = await service
+          .from("user_ai_access")
+          .select(ACCESS_COLUMNS)
+          .eq("user_id", userId)
+          .maybeSingle());
+      }
+      if (data) {
+        state = await evaluateAccessRow(service, userId, data as AccessRow);
+      }
+    }
   } catch {
-    granted = false;
+    state = { granted: false, trialExpired: false };
   }
 
   sharedAccessCache.set(userId, {
-    granted,
+    state,
     expiresAt: Date.now() + SHARED_ACCESS_CACHE_TTL_MS,
   });
-  return granted;
+  return state;
 }
 
 async function isCacheEntryValid(userId: string, entry: CacheEntry): Promise<boolean> {
@@ -259,13 +365,16 @@ function isQuotaError(err: unknown): boolean {
 
 /**
  * No usable personal key: return the shared client if entitled, otherwise a
- * typed failure whose code reflects why the personal key was unusable.
+ * typed failure whose code reflects why the personal key was unusable. A dead
+ * personal key keeps its key-specific code (more actionable than the trial
+ * state); only keyless users get ai_trial_expired.
  */
 async function resolveWithoutPersonalKey(
   userId: string,
   keyState: PersonalKeyState,
 ): Promise<OpenAIResolution> {
-  if (await hasSharedAccess(userId)) {
+  const access = await routing.resolveSharedAccess(userId);
+  if (access.granted) {
     try {
       return { ok: true, client: getAppOpenAIClient(), source: "app" };
     } catch {
@@ -276,6 +385,7 @@ async function resolveWithoutPersonalKey(
 
   if (keyState === "invalid") return { ok: false, code: "ai_key_invalid" };
   if (keyState === "quota_exceeded") return { ok: false, code: "ai_quota_exhausted" };
+  if (access.trialExpired) return { ok: false, code: "ai_trial_expired" };
   return { ok: false, code: "ai_no_key" };
 }
 
@@ -336,7 +446,7 @@ export async function getOpenAIForUser(userId: string): Promise<OpenAIResolution
 const routing = {
   getOpenAIForUser,
   getAppOpenAIClient,
-  hasSharedAccess,
+  resolveSharedAccess,
 };
 
 /**
@@ -348,7 +458,7 @@ async function fallbackToSharedOrFail<T>(
   fn: (client: OpenAI) => Promise<T>,
   failCode: AiFailureCode,
 ): Promise<T> {
-  if (!(await routing.hasSharedAccess(userId))) {
+  if (!(await routing.resolveSharedAccess(userId)).granted) {
     throw new AiUnavailableError(failCode);
   }
 

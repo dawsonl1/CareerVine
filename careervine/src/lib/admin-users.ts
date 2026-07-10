@@ -67,6 +67,19 @@ export interface AuthUserProjection {
 }
 
 /**
+ * Effective entitlement from a user_ai_access row (CAR-51): a grant counts
+ * only while unexpired. Trials are flipped off lazily on their next AI use,
+ * so the raw shared_access column can read true after the window closed —
+ * every admin-facing display must go through this, not the raw column.
+ */
+export function isEffectivelyShared(
+  row: { shared_access: boolean; expires_at: string | null } | null | undefined,
+): boolean {
+  if (!row?.shared_access) return false;
+  return row.expires_at === null || new Date(row.expires_at).getTime() > Date.now();
+}
+
+/**
  * Merge the sources into one detail shape. Pure — no I/O.
  * Canonical email prefers the auth record, falling back to the profile row.
  * `sharedAccess` is the user_ai_access entitlement (absent row = false).

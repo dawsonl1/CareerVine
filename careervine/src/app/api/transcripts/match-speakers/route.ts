@@ -52,6 +52,8 @@ const MATCH_SCHEMA = {
 
 export const POST = withApiHandler({
   schema: transcriptMatchSpeakersSchema,
+  // CAR-51: spend cap on shared-key AI — transcripts are the heaviest calls.
+  rateLimit: { bucket: "careervine-transcripts-speakers", limit: 20, window: "1 h" },
   handler: async ({ user, body }) => {
     const { speakerLabels, speakerSamples, contactContext, meetingTitle } = body;
 

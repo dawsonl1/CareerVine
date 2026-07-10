@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Sparkles,
   CloudOff,
+  Hourglass,
 } from "lucide-react";
 import { isRateLimited, rateLimitedCopy } from "./rate-limit-copy";
 import { AI_FAILURE_COPY, mapAiFailure, type AiFailureCode } from "./ai-failure";
@@ -1126,6 +1127,8 @@ const App: React.FC = () => {
                     <Sparkles className="cv-empty-icon cv-ai-notice-icon" />
                   ) : aiFailure === "ai_unavailable" ? (
                     <CloudOff className="cv-empty-icon cv-ai-notice-icon" />
+                  ) : aiFailure === "ai_trial_expired" ? (
+                    <Hourglass className="cv-empty-icon cv-ai-notice-icon" />
                   ) : (
                     <AlertTriangle className="cv-empty-icon cv-ai-notice-icon" />
                   )}
