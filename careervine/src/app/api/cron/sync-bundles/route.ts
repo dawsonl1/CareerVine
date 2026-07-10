@@ -17,6 +17,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
   enqueueBundleSyncJobs,
   findStaleSubscriptionIds,
+  findPendingUnsubscribeIds,
   processSubscriptionsUnderBudget,
 } from "@/lib/bundle-queue";
 
@@ -37,7 +38,12 @@ export async function POST(req: NextRequest) {
   }
 
   const service = createSupabaseServiceClient();
-  const stale = await findStaleSubscriptionIds(service);
+  // Stale syncs + unfinished unsubscribe cleanups (CAR-53) — the worker
+  // dispatches per row state, so one job type covers both.
+  const stale = [
+    ...(await findStaleSubscriptionIds(service)),
+    ...(await findPendingUnsubscribeIds(service)),
+  ];
   if (stale.length === 0) return NextResponse.json({ stale: 0 });
 
   const workerUrl = new URL("/api/queue/bundle-sync", req.url).toString();

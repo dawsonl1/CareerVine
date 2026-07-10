@@ -36,8 +36,15 @@ import {
 import {
   findOrCreateCompany,
   findOrCreateLocation,
-  ensureCompanyLocation,
+  ensureCompanyLocations,
+  prefetchCompanies,
+  prefetchLocations,
+  locationLookupKey,
+  companyFallbackName,
+  isNameOnlyCompanyInput,
+  chunkList,
   escapeIlike,
+  type CompanyInput,
   type CompanyRecord,
 } from "./company-helpers";
 import {
@@ -48,7 +55,7 @@ import {
   type IncomingEmploymentRow,
   type MergePolicy,
 } from "./scrape-merge";
-import { addTagsToContact, downloadAndStorePhoto, isValidImportEmail } from "./import-db-helpers";
+import { addTagsToContacts, downloadAndStorePhoto, isValidImportEmail } from "./import-db-helpers";
 import { isBundlePhotoUrl, bundlePhotoOverwriteAllowed } from "./photo-urls";
 
 // ── Input / output shapes ──────────────────────────────────────────────
@@ -156,6 +163,20 @@ interface WorkingEmployment {
   locationNorm: NormalizedLocation | null;
 }
 
+/** Chunk-level write sinks (CAR-47): per-person handlers collect email /
+ * education / tag rows here; importPeopleChunk flushes them in bulk before
+ * the photo phase. resolveSchool wraps the chunk's school cache. */
+interface ChunkSinks {
+  emails: Array<Record<string, unknown>>;
+  education: Array<Record<string, unknown>>;
+  /** contactId-prefixed education keys already sunk this chunk — two chunk
+   * entries resolving to one contact can't see each other's unflushed rows,
+   * and the DB unique index doesn't catch NULL start_year duplicates. */
+  educationKeys: Set<string>;
+  tags: Map<number, string[]>;
+  resolveSchool: (name: string) => Promise<{ id: number } | null>;
+}
+
 interface WorkingPerson {
   input: PersonImportInput;
   mapped: MappedPerson;
@@ -231,6 +252,23 @@ export async function importPeopleChunk(
   }
 
   // ── Resolve companies once per chunk ──
+  // Chunk-level prefetch (CAR-47): the exact-match lookups (stable id,
+  // exact name) resolve in a handful of .in() queries; only misses pay the
+  // per-company find-or-create chain.
+  const companyInputs: CompanyInput[] = [];
+  for (const w of working) {
+    if (suppressed.has(w.mapped.linkedin_url)) continue;
+    for (const emp of w.mapped.employment) {
+      companyInputs.push({
+        name: emp.company_name,
+        linkedin_company_id: emp.linkedin_company_id,
+        linkedin_url: emp.company_linkedin_url,
+        universal_name: emp.company_universal_name,
+      });
+    }
+  }
+  const companyPrefetch = await prefetchCompanies(supabase, companyInputs);
+
   const companyCache = new Map<string, CompanyRecord>();
   for (const w of working) {
     if (suppressed.has(w.mapped.linkedin_url)) continue;
@@ -241,12 +279,20 @@ export async function importPeopleChunk(
         : `name:${(emp.company_name ?? "").trim().toLowerCase()}`;
       let company = companyCache.get(cacheKey);
       if (!company) {
-        company = await findOrCreateCompany(supabase, {
+        const input: CompanyInput = {
           name: emp.company_name,
           linkedin_company_id: emp.linkedin_company_id,
           linkedin_url: emp.company_linkedin_url,
           universal_name: emp.company_universal_name,
-        });
+        };
+        const idKey = input.linkedin_company_id?.trim();
+        // Exact-name short-circuit ONLY for name-only inputs: when the input
+        // also carries a url/universal_name, findOrCreateCompany's higher-
+        // priority matchers must get first crack (CAR-47 audit).
+        const nameKey = isNameOnlyCompanyInput(input) ? companyFallbackName(input)?.toLowerCase() : undefined;
+        company =
+          (idKey ? companyPrefetch.byId.get(idKey) : nameKey ? companyPrefetch.byName.get(nameKey) : undefined) ??
+          (await findOrCreateCompany(supabase, input));
         companyCache.set(cacheKey, company);
       }
 
@@ -274,6 +320,29 @@ export async function importPeopleChunk(
   }
 
   // ── Pass 1 (rule 1): experience locations establish offices ──
+  // Location prefetch (CAR-47): every location this module resolves is
+  // city-grain (locationMatchKey gates it), so one city-keyed sweep covers
+  // pass 1 AND the profile-location resolution in the persistence pass.
+  const locationInputs: Array<{ city: string | null; state: string | null; country: string }> = [];
+  const collectLocationInput = (norm: NormalizedLocation | null | undefined) => {
+    if (!norm || !locationMatchKey(norm)) return;
+    locationInputs.push({ city: norm.city, state: norm.state, country: norm.country ?? "United States" });
+  };
+  for (const w of working) {
+    if (suppressed.has(w.mapped.linkedin_url)) continue;
+    for (const emp of w.employment) {
+      if (emp.locationNorm && emp.locationNorm.canEstablishOffice && !emp.isRemote) {
+        collectLocationInput(emp.locationNorm);
+      }
+    }
+    collectLocationInput(
+      w.mapped.profile_location
+        ? normalizeParsedLocation(w.mapped.profile_location)
+        : normalizeLocation(w.mapped.profile_location_raw),
+    );
+  }
+  const locationPrefetch = await prefetchLocations(supabase, locationInputs);
+
   const locationIdCache = new Map<string, number>(); // matchKey → locations.id
   const chunkOffices = new Map<number, Map<string, number>>(); // company → key → location
   let officesEstablished = 0;
@@ -282,15 +351,14 @@ export async function importPeopleChunk(
     const key = locationMatchKey(norm)!;
     const cached = locationIdCache.get(key);
     if (cached != null) return cached;
-    const { id } = await findOrCreateLocation(supabase, {
-      city: norm.city,
-      state: norm.state,
-      country: norm.country ?? "United States",
-    });
-    locationIdCache.set(key, id);
-    return id;
+    const input = { city: norm.city, state: norm.state, country: norm.country ?? "United States" };
+    const found =
+      locationPrefetch.get(locationLookupKey(input)) ?? (await findOrCreateLocation(supabase, input));
+    locationIdCache.set(key, found.id);
+    return found.id;
   }
 
+  const newOfficePairs: Array<{ company_id: number; location_id: number }> = [];
   for (const w of working) {
     if (suppressed.has(w.mapped.linkedin_url)) continue;
     for (const emp of w.employment) {
@@ -307,11 +375,15 @@ export async function importPeopleChunk(
       }
       if (!offices.has(key)) {
         offices.set(key, locationId);
-        await ensureCompanyLocation(supabase, emp.company.id, locationId, "scraped");
+        newOfficePairs.push({ company_id: emp.company.id, location_id: locationId });
         officesEstablished++;
       }
     }
   }
+  // One bulk ignore-duplicates upsert instead of a round trip per office
+  // (CAR-47) — the all-offices load below then sees these rows like any
+  // pre-existing office.
+  await ensureCompanyLocations(supabase, newOfficePairs, "scraped");
 
   // ── Load known offices for every company in the chunk ──
   const companyIds = [...new Set([...companyCache.values()].map((c) => c.id))];
@@ -402,6 +474,48 @@ export async function importPeopleChunk(
     targetRow = (byId as ContactCoreRow | null) ?? undefined;
   }
 
+  // ── Chunk-level sinks + school prefetch (CAR-47) ──
+  // Emails, education rows, and tags are collected during the per-person
+  // pass and flushed in bulk afterwards — still before this function
+  // returns, so callers that re-read state (bundle fingerprinting) see
+  // them. Schools resolve through one exact-name sweep; misses keep the
+  // ilike find-or-create fallback.
+  const schoolCache = new Map<string, { id: number } | null>();
+  {
+    const schoolNames = [
+      ...new Set(
+        working.flatMap((w) =>
+          suppressed.has(w.mapped.linkedin_url)
+            ? []
+            : w.mapped.education.map((e) => e.school_name.trim()).filter(Boolean),
+        ),
+      ),
+    ];
+    for (const chunk of chunkList(schoolNames)) {
+      const { data } = await supabase.from("schools").select("id, name").in("name", chunk);
+      for (const row of (data as Array<{ id: number; name: string }> | null) ?? []) {
+        const key = row.name.toLowerCase();
+        if (!schoolCache.has(key)) schoolCache.set(key, { id: row.id });
+      }
+    }
+  }
+  const sinks: ChunkSinks = {
+    emails: [],
+    education: [],
+    educationKeys: new Set(),
+    tags: new Map(),
+    resolveSchool: async (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return null;
+      const key = trimmed.toLowerCase();
+      const cached = schoolCache.get(key);
+      if (cached !== undefined) return cached;
+      const school = await findOrCreateSchool(supabase, trimmed);
+      schoolCache.set(key, school);
+      return school;
+    },
+  };
+
   // ── Per-person persistence ──
   for (const w of working) {
     const { mapped } = w;
@@ -429,14 +543,14 @@ export async function importPeopleChunk(
       }
 
       if (existing) {
-        await updateExistingPerson(supabase, w, existing, profileLocationId, now, policy, opts.hooks);
+        await updateExistingPerson(supabase, w, existing, profileLocationId, now, policy, sinks, opts.hooks);
       } else if (policy === "rescrape") {
         // A rescrape targets an existing contact; if it vanished (deleted
         // mid-run), record it rather than resurrecting it from thin data.
         w.result.status = "error";
         w.result.error = "Contact not found for rescrape";
       } else {
-        await createNewPerson(supabase, userId, w, profileLocationId, now, opts);
+        await createNewPerson(supabase, userId, w, profileLocationId, now, opts, sinks);
       }
       results.push(w.result);
     } catch (err) {
@@ -447,6 +561,21 @@ export async function importPeopleChunk(
       });
     }
   }
+
+  // ── Flush chunk-level sinks (CAR-47): bulk writes, per-row fallback ──
+  if (sinks.emails.length > 0) {
+    const { error } = await supabase.from("contact_emails").insert(sinks.emails);
+    if (error) {
+      for (const row of sinks.emails) await supabase.from("contact_emails").insert(row);
+    }
+  }
+  if (sinks.education.length > 0) {
+    const { error } = await supabase.from("contact_schools").insert(sinks.education);
+    if (error) {
+      for (const row of sinks.education) await supabase.from("contact_schools").insert(row);
+    }
+  }
+  await addTagsToContacts(supabase, userId, sinks.tags);
 
   // ── Best-effort photos within a strict budget ──
   const deadline = Date.now() + PHOTO_BUDGET_MS;
@@ -495,6 +624,7 @@ async function createNewPerson(
   profileLocationId: number | null,
   now: string,
   opts: ImportChunkOptions,
+  sinks: ChunkSinks,
 ) {
   const { mapped, input } = w;
   const noteLabel =
@@ -540,9 +670,9 @@ async function createNewPerson(
   w.result.contact_id = contactId;
   w.result.network_status = mapped.network_status;
 
-  // Email
+  // Email — collected; the chunk flush bulk-inserts it (CAR-47)
   if (mapped.email && isValidImportEmail(mapped.email.address)) {
-    await supabase.from("contact_emails").insert({
+    sinks.emails.push({
       contact_id: contactId,
       email: mapped.email.address,
       is_primary: true,
@@ -559,12 +689,16 @@ async function createNewPerson(
     w.result.employment = { inserted: w.employment.length, updated: 0, deleted: 0 };
   }
 
-  // Education (additive)
-  await upsertEducation(supabase, contactId, w);
+  // Education — a just-created contact has none, so no existing-rows check
+  await collectEducation(contactId, w, sinks, { checkExisting: false, supabase });
 
-  // Tags
+  // Tags — collected; flushed for the whole chunk in one batched pass
   if (mapped.tags.length > 0) {
-    await addTagsToContact(supabase, contactId, mapped.tags, userId);
+    // Merge, don't overwrite — two chunk entries can resolve to the same
+    // contact (url variant + public_identifier match), and the second must
+    // not clobber the first's tags (CAR-47 audit).
+    const priorTags = sinks.tags.get(contactId);
+    sinks.tags.set(contactId, priorTags ? [...priorTags, ...mapped.tags] : mapped.tags);
   }
 
   // Tracker outreach state — applies ONLY on first import (contract:
@@ -590,6 +724,7 @@ async function updateExistingPerson(
   profileLocationId: number | null,
   now: string,
   policy: MergePolicy,
+  sinks: ChunkSinks,
   hooks: ImportHooks = {},
 ) {
   const { mapped } = w;
@@ -694,37 +829,54 @@ async function updateExistingPerson(
   };
 
   // Education (additive)
-  await upsertEducation(supabase, contactId, w);
+  await collectEducation(contactId, w, sinks, { checkExisting: true, supabase });
 
-  // Tags (additive)
+  // Tags (additive) — collected; flushed for the whole chunk in one pass
   if (mapped.tags.length > 0) {
-    const { data: userRow } = await supabase.from("contacts").select("user_id").eq("id", contactId).single();
-    if (userRow) await addTagsToContact(supabase, contactId, mapped.tags, (userRow as { user_id: string }).user_id);
+    // Merge, don't overwrite — two chunk entries can resolve to the same
+    // contact (url variant + public_identifier match), and the second must
+    // not clobber the first's tags (CAR-47 audit).
+    const priorTags = sinks.tags.get(contactId);
+    sinks.tags.set(contactId, priorTags ? [...priorTags, ...mapped.tags] : mapped.tags);
   }
 }
 
 // ── Education ──────────────────────────────────────────────────────────
 
-async function upsertEducation(supabase: SupabaseClient, contactId: number, w: WorkingPerson) {
+/**
+ * Resolve a person's education rows into the chunk sink (CAR-47). Schools
+ * come from the chunk's prefetched cache (ilike find-or-create on miss);
+ * `checkExisting` is skipped for just-created contacts, which can't have
+ * education rows yet. Inserts land in the chunk flush.
+ */
+async function collectEducation(
+  contactId: number,
+  w: WorkingPerson,
+  sinks: ChunkSinks,
+  opts: { checkExisting: boolean; supabase: SupabaseClient },
+) {
   if (w.mapped.education.length === 0) return;
 
-  const { data: existingRows } = await supabase
-    .from("contact_schools")
-    .select("school_id, degree, field_of_study, start_year")
-    .eq("contact_id", contactId);
-  const existingKeys = new Set(
-    ((existingRows as Array<{ school_id: number; degree: string | null; field_of_study: string | null; start_year: number | null }> | null) ?? []).map(
-      (r) => `${r.school_id}|${(r.degree ?? "").toLowerCase()}|${(r.field_of_study ?? "").toLowerCase()}|${r.start_year ?? ""}`,
-    ),
-  );
+  const existingKeys = new Set<string>();
+  if (opts.checkExisting) {
+    const { data: existingRows } = await opts.supabase
+      .from("contact_schools")
+      .select("school_id, degree, field_of_study, start_year")
+      .eq("contact_id", contactId);
+    for (const r of (existingRows as Array<{ school_id: number; degree: string | null; field_of_study: string | null; start_year: number | null }> | null) ?? []) {
+      existingKeys.add(`${r.school_id}|${(r.degree ?? "").toLowerCase()}|${(r.field_of_study ?? "").toLowerCase()}|${r.start_year ?? ""}`);
+    }
+  }
 
   for (const edu of w.mapped.education) {
-    const school = await findOrCreateSchool(supabase, edu.school_name);
+    const school = await sinks.resolveSchool(edu.school_name);
     if (!school) continue;
     const key = `${school.id}|${(edu.degree ?? "").toLowerCase()}|${(edu.field_of_study ?? "").toLowerCase()}|${edu.start_year ?? ""}`;
-    if (existingKeys.has(key)) continue;
+    const chunkKey = `${contactId}|${key}`;
+    if (existingKeys.has(key) || sinks.educationKeys.has(chunkKey)) continue;
     existingKeys.add(key);
-    await supabase.from("contact_schools").insert({
+    sinks.educationKeys.add(chunkKey);
+    sinks.education.push({
       contact_id: contactId,
       school_id: school.id,
       degree: edu.degree,

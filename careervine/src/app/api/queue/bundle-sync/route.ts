@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { enqueueBundleSyncJobs, processSubscriptionsUnderBudget } from "@/lib/bundle-queue";
+import { SYNC_CLAIM_MS } from "@/lib/bundle-sync";
 
 export const maxDuration = 60;
 
@@ -52,11 +53,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Skipped = another driver held the claim. If that driver was a
+  // timeout-killed apply call, its claim is a zombie that only lapses with
+  // SYNC_CLAIM_MS — retry after the window instead of stranding the
+  // subscription until the daily cron (CAR-47). A healthy driver finishing
+  // in the meantime makes the retried job a no-op (synced_version current),
+  // so the chain terminates.
+  let retriedSkipped = 0;
+  if (result.skipped.length > 0) {
+    retriedSkipped = await enqueueBundleSyncJobs(result.skipped, req.url, undefined, {
+      delaySeconds: Math.ceil(SYNC_CLAIM_MS / 1000) + 60,
+    });
+  }
+
   return NextResponse.json({
     completed: result.completed.length,
     skipped: result.skipped.length,
     remaining: result.remaining.length,
     requeued,
+    retriedSkipped,
     applied: result.applied,
   });
 }

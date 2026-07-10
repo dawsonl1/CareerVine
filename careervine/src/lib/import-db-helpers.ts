@@ -5,6 +5,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { chunkList } from "@/lib/company-helpers";
 import { makePhotoThumb } from "@/lib/photo-thumb";
 import {
   userPhotoKey,
@@ -14,19 +15,27 @@ import {
   deletePhotoByUrl,
 } from "@/lib/r2";
 
-interface TagLinkRow {
-  tag_id: number;
-}
-
-/** Find-or-create the user's tags by name and link them to a contact. */
-export async function addTagsToContact(
+/**
+ * Batched additive tagging (CAR-47): find-or-create the user's tags and
+ * link them to many contacts in a fixed number of queries (one tag select,
+ * one missing-tag insert, one link select, one link insert) instead of
+ * 2–4 queries per contact. Bulk writes degrade to per-row on failure so
+ * one bad row can't sink the rest.
+ */
+export async function addTagsToContacts(
   supabase: SupabaseClient,
-  contactId: number,
-  tags: string[],
   userId: string,
+  tagsByContact: Map<number, string[]>,
 ) {
-  const normalizedTags = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))];
-  if (normalizedTags.length === 0) return;
+  const normalizedByContact = new Map<number, string[]>();
+  const allNames = new Set<string>();
+  for (const [contactId, tags] of tagsByContact) {
+    const normalized = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))];
+    if (normalized.length === 0) continue;
+    normalizedByContact.set(contactId, normalized);
+    for (const n of normalized) allNames.add(n);
+  }
+  if (normalizedByContact.size === 0) return;
 
   const { data: existingTags } = await supabase
     .from("tags")
@@ -37,32 +46,69 @@ export async function addTagsToContact(
     tagMap.set(t.name.toLowerCase(), t);
   }
 
-  for (const name of normalizedTags) {
-    if (!tagMap.has(name)) {
-      const { data: newTag } = await supabase
-        .from("tags")
-        .insert({ name, user_id: userId })
-        .select("id, name")
-        .single();
-      if (newTag) tagMap.set((newTag as { id: number; name: string }).name.toLowerCase(), newTag as { id: number; name: string });
+  const missing = [...allNames].filter((n) => !tagMap.has(n));
+  if (missing.length > 0) {
+    const { data: created, error } = await supabase
+      .from("tags")
+      .insert(missing.map((name) => ({ name, user_id: userId })))
+      .select("id, name");
+    if (!error) {
+      for (const t of (created as { id: number; name: string }[] | null) || []) {
+        tagMap.set(t.name.toLowerCase(), t);
+      }
+    } else {
+      for (const name of missing) {
+        const { data: newTag } = await supabase
+          .from("tags")
+          .insert({ name, user_id: userId })
+          .select("id, name")
+          .single();
+        if (newTag) tagMap.set((newTag as { id: number; name: string }).name.toLowerCase(), newTag as { id: number; name: string });
+      }
     }
   }
 
-  const tagIds = normalizedTags.map((n) => tagMap.get(n)?.id).filter(Boolean) as number[];
+  const contactIds = [...normalizedByContact.keys()];
+  const tagIds = [...new Set([...allNames].map((n) => tagMap.get(n)?.id).filter(Boolean))] as number[];
   if (tagIds.length === 0) return;
-  const { data: existingLinks } = await supabase
-    .from("contact_tags")
-    .select("tag_id")
-    .eq("contact_id", contactId)
-    .in("tag_id", tagIds);
-  const linkedSet = new Set(((existingLinks as TagLinkRow[] | null) || []).map((r) => r.tag_id));
 
-  const toInsert = tagIds
-    .filter((id) => !linkedSet.has(id))
-    .map((tag_id) => ({ contact_id: contactId, tag_id }));
-  if (toInsert.length > 0) {
-    await supabase.from("contact_tags").insert(toInsert);
+  const linkedSet = new Set<string>();
+  for (const idChunk of chunkList(contactIds)) {
+    const { data: existingLinks } = await supabase
+      .from("contact_tags")
+      .select("contact_id, tag_id")
+      .in("contact_id", idChunk)
+      .in("tag_id", tagIds);
+    for (const r of (existingLinks as Array<{ contact_id: number; tag_id: number }> | null) || []) {
+      linkedSet.add(`${r.contact_id}:${r.tag_id}`);
+    }
   }
+
+  const toInsert: Array<{ contact_id: number; tag_id: number }> = [];
+  for (const [contactId, names] of normalizedByContact) {
+    for (const name of names) {
+      const tag = tagMap.get(name);
+      if (tag && !linkedSet.has(`${contactId}:${tag.id}`)) {
+        toInsert.push({ contact_id: contactId, tag_id: tag.id });
+      }
+    }
+  }
+  if (toInsert.length === 0) return;
+  const { error: linkError } = await supabase.from("contact_tags").insert(toInsert);
+  if (linkError) {
+    // Same silent-per-row semantics the single-contact path always had.
+    for (const row of toInsert) await supabase.from("contact_tags").insert(row);
+  }
+}
+
+/** Find-or-create the user's tags by name and link them to a contact. */
+export async function addTagsToContact(
+  supabase: SupabaseClient,
+  contactId: number,
+  tags: string[],
+  userId: string,
+) {
+  await addTagsToContacts(supabase, userId, new Map([[contactId, tags]]));
 }
 
 /**

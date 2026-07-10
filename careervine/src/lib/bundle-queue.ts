@@ -18,6 +18,8 @@ import {
   applyBundleDelta,
   claimSubscriptionSync,
   releaseSubscriptionSync,
+  readSyncCheckpoint,
+  unsubscribeFromBundle,
   type ApplyCursor,
   type BundleCore,
   type SubscriptionCore,
@@ -48,6 +50,7 @@ export async function enqueueBundleSyncJobs(
   subscriptionIds: number[],
   workerUrl: string,
   client: Client | null = getQstashClient(),
+  opts: { delaySeconds?: number } = {},
 ): Promise<number> {
   if (!client || subscriptionIds.length === 0) return 0;
   let published = 0;
@@ -58,6 +61,7 @@ export async function enqueueBundleSyncJobs(
         url: workerUrl,
         body: { subscriptionIds: batch } satisfies BundleSyncJob,
         retries: 3,
+        ...(opts.delaySeconds ? { delay: opts.delaySeconds } : {}),
         // Cap concurrent worker invocations so a large fan-out can't
         // stampede Supabase.
         flowControl: { key: "bundle-sync", parallelism: 2 },
@@ -94,12 +98,30 @@ export async function findStaleSubscriptionIds(
     .map((r) => r.id);
 }
 
+/** Unsubscribed rows whose removal loop never finished (CAR-53) — the
+ * unsubscribe_keep_all intent stays set until cleanup completes, so the
+ * cron can sweep strays even when the backup QStash job was lost. */
+export async function findPendingUnsubscribeIds(
+  service: SupabaseClient,
+  opts: { limit?: number } = {},
+): Promise<number[]> {
+  const { data } = await service
+    .from("bundle_subscriptions")
+    .select("id, users!inner(status)")
+    .eq("status", "unsubscribed")
+    .not("unsubscribe_keep_all", "is", null)
+    .eq("users.status", "active")
+    .limit(opts.limit ?? 500);
+  return ((data as Array<{ id: number }> | null) ?? []).map((r) => r.id);
+}
+
 // ── Budgeted processing ────────────────────────────────────────────────
 
 export interface ProcessDeps {
   apply: typeof applyBundleDelta;
   claim: typeof claimSubscriptionSync;
   release: typeof releaseSubscriptionSync;
+  unsubscribe: typeof unsubscribeFromBundle;
   now: () => number;
 }
 
@@ -110,12 +132,19 @@ export interface ProcessResult {
   /** Claimed by another driver — nothing to do here. */
   skipped: number[];
   applied: number;
+  /** Contacts removed by resumed unsubscribe cleanups (CAR-53). */
+  removed: number;
 }
 
 /**
  * Process subscriptions serially under a wall-clock budget on the
  * service-role client. Every query inside applyBundleDelta is scoped by
  * the subscription's user_id — same discipline as the gmail cron.
+ *
+ * Dispatches per row state: active-and-stale rows sync (resuming from the
+ * persisted sync_cursor checkpoint when present — CAR-54); unsubscribed
+ * rows with a pending unsubscribe_keep_all intent resume their removal
+ * loop (CAR-53); everything else is already done.
  */
 export async function processSubscriptionsUnderBudget(
   service: SupabaseClient,
@@ -127,30 +156,67 @@ export async function processSubscriptionsUnderBudget(
     apply: deps.apply ?? applyBundleDelta,
     claim: deps.claim ?? claimSubscriptionSync,
     release: deps.release ?? releaseSubscriptionSync,
+    unsubscribe: deps.unsubscribe ?? unsubscribeFromBundle,
     now: deps.now ?? Date.now,
   };
   const deadline = d.now() + budgetMs;
-  const result: ProcessResult = { completed: [], remaining: [], skipped: [], applied: 0 };
+  const result: ProcessResult = { completed: [], remaining: [], skipped: [], applied: 0, removed: 0 };
   if (subscriptionIds.length === 0) return result;
 
+  type Row = SubscriptionCore & {
+    sync_cursor: unknown;
+    unsubscribe_keep_all: boolean | null;
+    data_bundles: (BundleCore & { status: string }) | null;
+  };
   const { data: rows } = await service
     .from("bundle_subscriptions")
-    .select("id, user_id, bundle_id, status, synced_version, data_bundles!inner(id, slug, name, version, status)")
-    .in("id", subscriptionIds)
-    .eq("status", "active");
-  const subs = (rows as Array<SubscriptionCore & { data_bundles: BundleCore & { status: string } }> | null) ?? [];
-  const byId = new Map(subs.map((s) => [s.id, s]));
+    .select(
+      "id, user_id, bundle_id, status, synced_version, sync_cursor, unsubscribe_keep_all, data_bundles(id, slug, name, version, status)",
+    )
+    .in("id", subscriptionIds);
+  const byId = new Map(((rows as Row[] | null) ?? []).map((s) => [s.id, s]));
 
   for (let i = 0; i < subscriptionIds.length; i++) {
     const id = subscriptionIds[i];
     const sub = byId.get(id);
-    if (!sub || sub.data_bundles.status !== "published" || sub.synced_version >= sub.data_bundles.version) {
-      result.completed.push(id); // nothing to do (unsubscribed, unpublished, or current)
-      continue;
-    }
     if (d.now() >= deadline) {
       result.remaining.push(...subscriptionIds.slice(i));
       break;
+    }
+
+    // ── Pending unsubscribe cleanup (CAR-53) ──
+    if (sub && sub.status === "unsubscribed" && sub.unsubscribe_keep_all != null) {
+      // No claim: the status flip already fences out sync drivers, and the
+      // removal loop is idempotent (deterministic decisions, delete-by-id) —
+      // matching the client-driven unsubscribe, which never claimed either.
+      let cursor: number | null = null;
+      let finished = false;
+      while (d.now() < deadline) {
+        const step = await d.unsubscribe(service, sub, { keepAll: sub.unsubscribe_keep_all, cursor });
+        result.removed += step.removed;
+        if (step.done) {
+          finished = true;
+          break;
+        }
+        cursor = step.nextCursor;
+      }
+      if (finished) result.completed.push(id);
+      else {
+        result.remaining.push(...subscriptionIds.slice(i));
+        break;
+      }
+      continue;
+    }
+
+    if (
+      !sub ||
+      sub.status !== "active" ||
+      !sub.data_bundles ||
+      sub.data_bundles.status !== "published" ||
+      sub.synced_version >= sub.data_bundles.version
+    ) {
+      result.completed.push(id); // nothing to do (finished unsubscribe, unpublished, or current)
+      continue;
     }
 
     let token = await d.claim(service, id, null);
@@ -165,8 +231,12 @@ export async function processSubscriptionsUnderBudget(
       name: sub.data_bundles.name,
       version: sub.data_bundles.version,
     };
-    const pinnedVersion = bundle.version;
-    let cursor: ApplyCursor | null = null;
+    // Resume an interrupted sync from its persisted checkpoint (CAR-54):
+    // the stored pin keeps the resumed loop on the version it started
+    // against; a later publish is picked up by the next stale-scan.
+    const checkpoint = readSyncCheckpoint(sub.sync_cursor, sub.synced_version);
+    const pinnedVersion = checkpoint?.pinnedVersion ?? bundle.version;
+    let cursor: ApplyCursor | null = checkpoint ? { phase: checkpoint.phase, afterId: checkpoint.afterId } : null;
     let finished = false;
 
     try {
@@ -186,11 +256,15 @@ export async function processSubscriptionsUnderBudget(
       await d.release(service, id, token).catch(() => {});
     }
 
-    if (finished) result.completed.push(id);
+    // A resumed pin can be behind the bundle's current version — completing
+    // it is progress, but the subscription may still be stale, so only count
+    // it done when it reached the live version.
+    if (finished && pinnedVersion >= bundle.version) result.completed.push(id);
+    else if (finished) result.remaining.push(id);
     else {
       // Ran out of budget (or lost the claim) mid-subscription: everything
-      // from here re-enqueues; synced_version only advances on completion,
-      // so resuming is idempotent.
+      // from here re-enqueues; the persisted checkpoint (CAR-54) makes the
+      // next invocation resume instead of re-scanning from chunk 0.
       result.remaining.push(...subscriptionIds.slice(i));
       break;
     }
