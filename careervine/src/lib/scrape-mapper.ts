@@ -19,6 +19,7 @@
  */
 
 import { canonicalizeLinkedinUrl, extractPublicIdentifier, extractCompanyUniversalName, isInternalLinkedinId } from "./linkedin-url";
+import { isBundlePhotoUrl } from "./photo-urls";
 
 // ── Pipeline record types (schema_version 1) ───────────────────────────
 
@@ -370,9 +371,11 @@ export function mapPeopleRecord(record: PeopleRecord, opts: MapOptions = {}): Ma
     : null;
   const profileLocationRaw = raw?.location?.linkedinText?.trim() || record.identity?.location?.trim() || null;
 
-  // Photo: only LinkedIn CDN URLs are downloadable later
+  // Photo: LinkedIn CDN URLs (downloadable by the mirror phase later) or
+  // already-mirrored shared bundle photos in R2 (written straight to the row)
   const photo = raw?.photo?.trim() || null;
-  const photoUrl = photo && photo.startsWith("https://media.licdn.com/") ? photo : null;
+  const photoUrl =
+    photo && (photo.startsWith("https://media.licdn.com/") || isBundlePhotoUrl(photo)) ? photo : null;
 
   return {
     name: record.identity.name.trim(),

@@ -85,3 +85,6 @@ supabase/.branches/
 # Vercel CLI project-link metadata
 .vercel
 .env*
+
+# Playwright MCP session artifacts (screenshots, console logs)
+.playwright-mcp/

@@ -838,13 +838,18 @@ function ContactGroupHeading({ label, count }: { label: string; count: number })
 
 function BenchSection({
   bench,
+  jobChangeIds,
   onSetTier,
 }: {
   bench: CompanyPerson[];
+  /** Bench contacts with an unactioned job-change event (plan 29 Q5 hint). */
+  jobChangeIds: Set<number>;
   onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
 }) {
   const [open, setOpen] = useState(false);
   if (bench.length === 0) return null;
+
+  const jobChangeCount = bench.filter((p) => jobChangeIds.has(p.contact_id)).length;
 
   return (
     <div className="mt-4 pt-3 border-t border-outline-variant/25">
@@ -855,6 +860,9 @@ function BenchSection({
       >
         {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
         {open ? `${bench.length} archived` : `${bench.length} archived (hidden from list)`}
+        {jobChangeCount > 0 && (
+          <span className="text-amber-600 font-medium">· {jobChangeCount} just changed jobs</span>
+        )}
       </button>
       {open && (
         <div className="space-y-1.5 mt-1.5">
@@ -880,6 +888,13 @@ function BenchSection({
                   {p.roles[0]?.title ?? p.headline ?? ""}
                 </p>
               </div>
+              {jobChangeIds.has(p.contact_id) && (
+                <Tooltip label="A recent scrape detected a job change — consider promoting to outreach">
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-700 bg-amber-100 shrink-0">
+                    Just changed jobs
+                  </span>
+                </Tooltip>
+              )}
               {p.adjacency_score != null && (
                 <span className="text-[10px] text-on-surface-variant shrink-0" title="Pipeline adjacency score">
                   adj {p.adjacency_score}
@@ -1080,6 +1095,7 @@ export function PipelineLayout({
   gmailConnected,
   onCompose,
   onSetTier,
+  jobChangeIds,
   onOfficesChanged,
 }: {
   userId: string;
@@ -1097,6 +1113,8 @@ export function PipelineLayout({
   gmailConnected: boolean;
   onCompose: (opts: { to: string; name: string; contactId: number }) => void;
   onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
+  /** Bench contacts with an unactioned job-change event (plan 29 Q5 hint). */
+  jobChangeIds: Set<number>;
   onOfficesChanged: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -1281,7 +1299,7 @@ export function PipelineLayout({
               )}
             </div>
           )}
-          <BenchSection bench={peopleBlock.bench} onSetTier={onSetTier} />
+          <BenchSection bench={peopleBlock.bench} jobChangeIds={jobChangeIds} onSetTier={onSetTier} />
         </section>
 
         <RecruitingPanel

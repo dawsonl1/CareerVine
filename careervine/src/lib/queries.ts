@@ -250,8 +250,25 @@ export async function appendContactNote(contactId: number, note: string) {
 }
 
 /**
+ * Contact ids (from the given set) with an unactioned company-change event —
+ * the plan-29 Q5 bench promote-hint: a bench contact who just moved into a
+ * target company is worth a look. RLS scopes to the current user's rows.
+ */
+export async function getFreshJobChangeContactIds(contactIds: number[]): Promise<Set<number>> {
+  if (contactIds.length === 0) return new Set();
+  const { data, error } = await supabase
+    .from("contact_change_events")
+    .select("contact_id")
+    .eq("type", "company_change")
+    .eq("status", "new")
+    .in("contact_id", contactIds);
+  if (error) throw error;
+  return new Set(((data as { contact_id: number }[] | null) ?? []).map((r) => r.contact_id));
+}
+
+/**
  * Delete a contact and all related data
- * 
+ *
  * Note: Due to foreign key constraints with ON DELETE CASCADE,
  * this will automatically delete:
  * - Contact emails
@@ -265,12 +282,21 @@ export async function appendContactNote(contactId: number, note: string) {
  * @throws Error if deletion fails
  */
 export async function deleteContact(id: number) {
-  // Delete the contact and return cleanup/tombstone fields (single round-trip)
+  // Photo cleanup goes through the photo API route (R2 credentials are
+  // server-only) and must run while the row still exists — the route
+  // verifies ownership against it. Best-effort; never blocks deletion.
+  try {
+    await fetch(`/api/contacts/${id}/photo`, { method: "DELETE" });
+  } catch (err) {
+    console.warn(`[deleteContact] Photo cleanup failed for contact ${id}:`, err);
+  }
+
+  // Delete the contact and return tombstone fields (single round-trip)
   const { data: contact, error } = await supabase
     .from("contacts")
     .delete()
     .eq("id", id)
-    .select("user_id, photo_url, linkedin_url, import_source")
+    .select("user_id, linkedin_url, import_source")
     .single();
 
   if (error) throw error;
@@ -282,75 +308,60 @@ export async function deleteContact(id: number) {
   if (contact?.import_source && contact.linkedin_url && contact.user_id) {
     const canonical = canonicalizeLinkedinUrl(contact.linkedin_url);
     if (canonical) {
-      const { error: tombstoneError } = await supabase
-        .from("suppressed_imports")
-        .upsert(
-          { user_id: contact.user_id, linkedin_url: canonical },
-          { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
-        );
-      if (tombstoneError) {
-        console.warn(`[deleteContact] Tombstone write failed for contact ${id}:`, tombstoneError);
+      // A surviving duplicate contact with the same URL still wants import
+      // refreshes — suppressing it would silently freeze that contact.
+      const { data: survivor } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("user_id", contact.user_id)
+        .eq("linkedin_url", canonical)
+        .limit(1)
+        .maybeSingle();
+      if (!survivor) {
+        const { error: tombstoneError } = await supabase
+          .from("suppressed_imports")
+          .upsert(
+            { user_id: contact.user_id, linkedin_url: canonical },
+            { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
+          );
+        if (tombstoneError) {
+          console.warn(`[deleteContact] Tombstone write failed for contact ${id}:`, tombstoneError);
+        }
       }
     }
   }
 
-  if (contact?.photo_url && contact.user_id) {
-    try {
-      // Derive the storage path directly — no URL parsing needed
-      const storagePath = `${contact.user_id}/${id}.jpg`;
-      await supabase.storage.from('contact-photos').remove([storagePath]);
-    } catch (err) {
-      // Photo cleanup failure should not block — contact is already deleted
-      console.warn(`[deleteContact] Photo cleanup failed for contact ${id}:`, err);
-    }
-  }
 }
 
 /**
- * Upload and persist a contact photo in Supabase storage, then update the
- * contact's photo_url with a cache-busted public URL.
+ * Upload a contact photo. Goes through the photo API route, which
+ * thumbnails the image and stores it in R2 (credentials are server-only).
+ * Returns the new photo URL.
  */
-export async function uploadContactPhoto(userId: string, contactId: number, file: File) {
+export async function uploadContactPhoto(_userId: string, contactId: number, file: File) {
   const validationError = validateContactPhotoFile(file);
   if (validationError) throw new Error(validationError);
 
-  const storagePath = `${userId}/${contactId}.jpg`;
-  const { error: uploadError } = await supabase.storage
-    .from("contact-photos")
-    .upload(storagePath, file, {
-      contentType: file.type,
-      upsert: true,
-    });
-  if (uploadError) throw uploadError;
-
-  const { data: publicUrlData } = supabase.storage
-    .from("contact-photos")
-    .getPublicUrl(storagePath);
-  const photoUrlWithCacheBust = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-
-  const { error: updateError } = await supabase
-    .from("contacts")
-    .update({ photo_url: photoUrlWithCacheBust })
-    .eq("id", contactId)
-    .eq("user_id", userId);
-  if (updateError) throw updateError;
-
-  return photoUrlWithCacheBust;
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`/api/contacts/${contactId}/photo`, { method: "POST", body: form });
+  const body = (await res.json().catch(() => null)) as { photoUrl?: string; error?: string } | null;
+  if (!res.ok || !body?.photoUrl) {
+    throw new Error(body?.error || "Failed to upload photo");
+  }
+  return body.photoUrl;
 }
 
 /**
- * Remove a contact photo from storage and clear the contact's photo_url.
+ * Remove a contact photo (R2 object or legacy Supabase object) and clear
+ * the contact's photo_url.
  */
-export async function removeContactPhoto(userId: string, contactId: number) {
-  const storagePath = `${userId}/${contactId}.jpg`;
-  await supabase.storage.from("contact-photos").remove([storagePath]);
-
-  const { error: updateError } = await supabase
-    .from("contacts")
-    .update({ photo_url: null })
-    .eq("id", contactId)
-    .eq("user_id", userId);
-  if (updateError) throw updateError;
+export async function removeContactPhoto(_userId: string, contactId: number) {
+  const res = await fetch(`/api/contacts/${contactId}/photo`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || "Failed to remove photo");
+  }
 }
 
 /**

@@ -469,8 +469,18 @@ export default function Home() {
       });
     }
 
-    // AI suggestions
+    // AI suggestions + persisted change events (plan 29). Change events get a
+    // dedicated priority band so an "act now" profile change (Tier 1, score 88)
+    // ranks just below overdue tasks and above reach-outs, and a touchpoint
+    // (Tier 2, score 78) ranks above recently-added — rather than the AI
+    // suggestion band (~12) which would bury them at the bottom of the feed.
     for (const s of suggestions) {
+      let priority: number;
+      if (s.changeEventId != null) {
+        priority = s.score >= 85 ? 95 : 45;
+      } else {
+        priority = 5 + s.score / 10;
+      }
       items.push({
         id: `sg-${s.id}`,
         type: "suggestion",
@@ -480,7 +490,7 @@ export default function Home() {
         primaryText: s.headline.length > 80 ? s.headline.slice(0, 77) + "…" : s.headline,
         secondaryText: s.suggestedTitle.length > 90 ? s.suggestedTitle.slice(0, 87) + "…" : s.suggestedTitle,
         lastContactedLabel: formatLastContacted(s.daysSinceContact),
-        priority: 5 + s.score / 10,
+        priority,
         daysSinceContact: s.daysSinceContact,
         suggestion: s,
       });

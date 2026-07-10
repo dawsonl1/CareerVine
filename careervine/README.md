@@ -50,6 +50,22 @@ As your target list grows, the Companies page keeps it navigable with instant se
 - Filters combine, so "applied companies in Big Tech where I have no contacts yet" is two clicks — and a live count shows how much of your list matches.
 - Every filtered view lives in the URL: share it, bookmark it, or click into a company and come back without losing your place.
 
+## A Network That Keeps Itself Fresh
+
+Contact data goes stale the moment you save it — people change jobs, get promoted, and swap email addresses. CareerVine now keeps LinkedIn-linked contacts current automatically:
+
+- **Automatic refresh drip**: every day a batch of your stalest contacts is quietly re-checked against LinkedIn, prioritizing the people you're actively working with. No tab open, no button to press.
+- **Change alerts where you plan your day**: a job change, promotion, or work anniversary lands in your Up Next feed as a ready-to-act suggestion — "Sam just started as Senior PM at Adobe, send a congrats" — at exactly the moment reaching out is most natural.
+- **One-click refresh and email finding**: on any contact, refresh their profile on demand or search LinkedIn for a verified email when you don't have one (including when the address you had starts bouncing).
+- **Fix broken links fast**: when a LinkedIn URL stops working, CareerVine notices and offers a guided search to re-link the right profile.
+- **Spend you can see and control**: enrichment runs on a hard monthly budget, with automatic refreshes pausing early so manual actions always have headroom. The Settings → Data & Scraping tab shows month-to-date spend, run health, and the last refresh sweep.
+
+New contacts saved from the browser extension are enriched automatically — photo, real work history, and a verified email in one pass — so a two-second save produces a complete profile.
+
+### Admin Spend Controls
+
+For account managers, the admin dashboard adds per-account switches for all of this: turn paid enrichment or change detection on or off for any account (or every account at once), with each account's month-to-date spend shown right next to its switch.
+
 ## Contact Profiles That Feel Personal
 
 Every contact profile now supports a dedicated profile photo upload flow, so users can keep their network visually recognizable at a glance:

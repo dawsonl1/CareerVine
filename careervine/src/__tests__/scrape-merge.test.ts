@@ -155,6 +155,19 @@ describe('computeEmploymentMerge', () => {
     const plan = computeEmploymentMerge([], [incomingRow(), incomingRow()], NOW);
     expect(plan.inserts).toHaveLength(1);
   });
+
+  it('an EMPTY payload never deletes scraped history (unobserved ≠ unemployed)', () => {
+    const existing = [
+      existingRow({ id: 1, title: 'Scraped role', start_month: 'Jan 2019' }),
+      existingRow({ id: 2, title: 'Another scraped', start_month: 'Feb 2021' }),
+    ];
+    for (const policy of ['pipeline', 'rescrape'] as const) {
+      const plan = computeEmploymentMerge(existing, [], NOW, policy);
+      expect(plan.deleteIds).toHaveLength(0);
+      expect(plan.inserts).toHaveLength(0);
+      expect(plan.updates).toHaveLength(0);
+    }
+  });
 });
 
 describe('computeEmailMerge — monotonic source lifecycle', () => {
@@ -185,6 +198,20 @@ describe('computeEmailMerge — monotonic source lifecycle', () => {
 
   it('no incoming email → no ops', () => {
     expect(computeEmailMerge(rows('manual'), null)).toEqual({ insert: null, update: null });
+  });
+
+  it('a fresh address takes primary from a bounced-only contact and demotes the dead one (plan 29 §4)', () => {
+    const bounced = [{ id: 1, email: 'dead@x.com', is_primary: true, source: 'scraped', bounced_at: '2026-07-01T00:00:00Z' }];
+    const plan = computeEmailMerge(bounced, { address: 'fresh@x.com', source: 'verified' });
+    expect(plan.insert).toEqual({ email: 'fresh@x.com', source: 'verified', is_primary: true });
+    expect(plan.demotePrimaryIds).toEqual([1]);
+  });
+
+  it('a live primary keeps primacy — new address inserts as secondary, nothing demoted', () => {
+    const live = [{ id: 1, email: 'ok@x.com', is_primary: true, source: 'manual', bounced_at: null }];
+    const plan = computeEmailMerge(live, { address: 'other@x.com', source: 'scraped' });
+    expect(plan.insert).toEqual({ email: 'other@x.com', source: 'scraped', is_primary: false });
+    expect(plan.demotePrimaryIds).toEqual([]);
   });
 });
 

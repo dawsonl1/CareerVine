@@ -17,7 +17,7 @@ import {
   type CompanyDetail,
   type CompanyPerson,
 } from "@/lib/company-queries";
-import { activateContact } from "@/lib/queries";
+import { activateContact, getFreshJobChangeContactIds } from "@/lib/queries";
 import type { ContactTier } from "@/components/companies/pipeline/pipeline-layout";
 import { ArrowLeft } from "lucide-react";
 
@@ -43,6 +43,8 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
   const [loaded, setLoaded] = useState<LoadedPipeline | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  // Bench contacts with an unactioned job-change event (plan 29 Q5 hint)
+  const [jobChangeIds, setJobChangeIds] = useState<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     if (!user || Number.isNaN(companyId)) return;
@@ -58,6 +60,10 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
       setTotalContacts(scopes.totalContacts);
       setTarget(scopes.target);
       setLoaded(pipeline);
+      // Best-effort job-change hint data — never blocks the page
+      getFreshJobChangeContactIds(scopes.tabs.all.bench.map((p) => p.contact_id))
+        .then(setJobChangeIds)
+        .catch(() => {});
     } catch {
       setNotFound(true);
     } finally {
@@ -135,6 +141,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         gmailConnected={gmailConnected}
         onCompose={openCompose}
         onSetTier={handleSetTier}
+        jobChangeIds={jobChangeIds}
         onOfficesChanged={load}
       />
     );

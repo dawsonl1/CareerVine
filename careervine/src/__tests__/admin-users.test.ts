@@ -13,6 +13,8 @@ const basePub: PublicUserRow = {
   email: "ada@profile.example",
   phone: "555-1234",
   status: "active",
+  apify_enrichment_enabled: true,
+  diff_analysis_enabled: true,
   created_at: "2026-01-01T00:00:00Z",
 };
 
@@ -43,6 +45,20 @@ describe("shapeAdminUser", () => {
   it("derives the policy from the shared-access entitlement (default cutoff)", () => {
     expect(shapeAdminUser(basePub, undefined, "none", true).aiFallbackPolicy).toBe("shared");
     expect(shapeAdminUser(basePub, undefined, "none", false).aiFallbackPolicy).toBe("cutoff");
+  });
+
+  it("carries the Apify kill switches through (plan 36)", () => {
+    const on = shapeAdminUser(basePub, undefined, "none", false);
+    expect(on.apifyEnrichmentEnabled).toBe(true);
+    expect(on.diffAnalysisEnabled).toBe(true);
+    const off = shapeAdminUser(
+      { ...basePub, apify_enrichment_enabled: false, diff_analysis_enabled: false },
+      undefined,
+      "none",
+      false,
+    );
+    expect(off.apifyEnrichmentEnabled).toBe(false);
+    expect(off.diffAnalysisEnabled).toBe(false);
   });
 
   it("carries status, phone, and key status through", () => {
