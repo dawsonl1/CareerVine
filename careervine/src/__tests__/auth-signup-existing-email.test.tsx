@@ -5,6 +5,8 @@ import { AuthProvider, useAuth } from "@/components/auth-provider";
 import AuthForm from "@/components/auth-form";
 
 const signUpMock = vi.fn();
+const resendMock = vi.fn();
+const resetPasswordMock = vi.fn();
 const trackMock = vi.fn();
 
 vi.mock("@/lib/analytics/client", () => ({
@@ -15,6 +17,8 @@ vi.mock("@/lib/supabase/browser-client", () => ({
   createSupabaseBrowserClient: () => ({
     auth: {
       signUp: (...args: unknown[]) => signUpMock(...args),
+      resend: (...args: unknown[]) => resendMock(...args),
+      resetPasswordForEmail: (...args: unknown[]) => resetPasswordMock(...args),
       getSession: () => Promise.resolve({ data: { session: null } }),
       onAuthStateChange: () => ({
         data: { subscription: { unsubscribe: () => {} } },
@@ -25,6 +29,8 @@ vi.mock("@/lib/supabase/browser-client", () => ({
 
 beforeEach(() => {
   signUpMock.mockReset();
+  resendMock.mockReset();
+  resetPasswordMock.mockReset();
   trackMock.mockReset();
 });
 
@@ -98,6 +104,76 @@ describe("AuthProvider.signUp — duplicate email detection", () => {
     expect(result!.error).toBe("Password should be at least 8 characters");
     expect(result!.existingAccount).toBeUndefined();
     expect(trackMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("AuthProvider — confirm-link auto-login wiring (CAR-52)", () => {
+  it("sends signUp with emailRedirectTo pointing at /auth/confirm", async () => {
+    signUpMock.mockResolvedValue({
+      data: { user: { id: "new", identities: [{ id: "ident-1" }] }, session: null },
+      error: null,
+    });
+    const signUp = renderProviderSignUp();
+
+    await act(async () => {
+      await signUp("new@example.com");
+    });
+
+    expect(signUpMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          emailRedirectTo: `${window.location.origin}/auth/confirm`,
+        }),
+      })
+    );
+  });
+
+  it("resendConfirmation re-sends the signup email with the confirm redirect", async () => {
+    resendMock.mockResolvedValue({ error: null });
+    let resendConfirmation!: ReturnType<typeof useAuth>["resendConfirmation"];
+    function Probe() {
+      resendConfirmation = useAuth().resendConfirmation;
+      return null;
+    }
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    );
+
+    let result: Awaited<ReturnType<typeof resendConfirmation>>;
+    await act(async () => {
+      result = await resendConfirmation("new@example.com");
+    });
+
+    expect(result!.error).toBeUndefined();
+    expect(resendMock).toHaveBeenCalledWith({
+      type: "signup",
+      email: "new@example.com",
+      options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
+    });
+  });
+
+  it("resetPassword routes recovery through /auth/confirm to land on /reset-password", async () => {
+    resetPasswordMock.mockResolvedValue({ error: null });
+    let resetPassword!: ReturnType<typeof useAuth>["resetPassword"];
+    function Probe() {
+      resetPassword = useAuth().resetPassword;
+      return null;
+    }
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    );
+
+    await act(async () => {
+      await resetPassword("someone@example.com");
+    });
+
+    expect(resetPasswordMock).toHaveBeenCalledWith("someone@example.com", {
+      redirectTo: `${window.location.origin}/auth/confirm?next=/reset-password`,
+    });
   });
 });
 
