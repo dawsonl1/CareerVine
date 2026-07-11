@@ -26,6 +26,7 @@ import { OnboardingProvider } from "@/components/onboarding/onboarding-context";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { QuickCaptureProvider } from "@/components/quick-capture-context";
 import { QuickCaptureModal } from "@/components/quick-capture-modal";
+import { SignedOutRedirect } from "@/components/signed-out-redirect";
 import { ToastProvider } from "@/components/ui/toast";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -99,10 +100,12 @@ export default function RootLayout({
               <ComposeEmailProvider>
                 <OnboardingProvider>
                   <QuickCaptureProvider>
-                    {children}
-                    <ComposeEmailModal />
-                    <QuickCaptureModal />
-                    <OnboardingFlow />
+                    <SignedOutRedirect>
+                      {children}
+                      <ComposeEmailModal />
+                      <QuickCaptureModal />
+                      <OnboardingFlow />
+                    </SignedOutRedirect>
                   </QuickCaptureProvider>
                 </OnboardingProvider>
               </ComposeEmailProvider>
