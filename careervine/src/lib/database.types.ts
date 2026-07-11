@@ -63,12 +63,13 @@ export type Database = {
           extension_onboarding_state: ExtensionOnboardingState; // Extension onboarding progress (CAR-68) — user-writable, forward-only in app
           extension_onboarding_contact_id: number | null; // First contact imported during the CAR-68 flow (redirect target)
           extension_last_seen_at: string | null; // Last Bearer-authed extension API call — stamped in api-handler (CAR-68)
+          dismissed_getting_started: string[]; // Getting-started checklist row IDs the user dismissed on Home (CAR-73) — user-writable
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "onboarding_state" | "extension_onboarding_state" | "extension_onboarding_contact_id" | "extension_last_seen_at" | "created_at" | "updated_at"
+          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "onboarding_state" | "extension_onboarding_state" | "extension_onboarding_contact_id" | "extension_last_seen_at" | "dismissed_getting_started" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
           apify_enrichment_enabled?: boolean;
@@ -78,6 +79,7 @@ export type Database = {
           extension_onboarding_state?: ExtensionOnboardingState;
           extension_onboarding_contact_id?: number | null;
           extension_last_seen_at?: string | null;
+          dismissed_getting_started?: string[];
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };

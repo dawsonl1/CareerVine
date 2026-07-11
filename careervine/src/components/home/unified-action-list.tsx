@@ -228,11 +228,17 @@ function GettingStartedList({
   onLogConversation,
   calendarConnected,
   hideExtension = false,
+  dismissedGettingStarted,
+  onDismissGettingStarted,
 }: {
   onLogConversation: () => void;
   calendarConnected: boolean;
   /** The CAR-68 onboarding to-do row already covers the extension. */
   hideExtension?: boolean;
+  /** Row IDs the user has dismissed (CAR-73); filtered out of the list. */
+  dismissedGettingStarted: string[];
+  /** Persist a dismissal for one getting-started row (CAR-73). */
+  onDismissGettingStarted: (id: string) => void;
 }) {
   // Set by CAR-40 when the extension ships on the Chrome Web Store; until
   // then the extension row stays informational rather than a dead link.
@@ -290,12 +296,23 @@ function GettingStartedList({
     },
   ];
 
+  // Drop rows the user has dismissed (CAR-73).
+  const visibleItems = items.filter((item) => !dismissedGettingStarted.includes(item.id));
+
+  if (visibleItems.length === 0) {
+    return (
+      <p className="py-8 text-center text-base text-muted-foreground">
+        You&apos;re all set. Add a contact whenever you&apos;re ready.
+      </p>
+    );
+  }
+
   return (
     <div className="divide-y divide-outline-variant/50">
-      {items.map((item) => (
+      {visibleItems.map((item) => (
         <div
           key={item.id}
-          className={`flex items-center gap-4 py-5 px-5 transition-colors ${
+          className={`group flex items-center gap-4 py-5 px-5 transition-colors ${
             item.onClick ? "cursor-pointer hover:bg-surface-container-low" : ""
           }`}
           onClick={item.onClick}
@@ -307,6 +324,18 @@ function GettingStartedList({
             <p className="text-lg font-medium text-foreground">{item.title}</p>
             <p className="text-base text-muted-foreground">{item.subtitle}</p>
           </div>
+          <button
+            type="button"
+            aria-label={`Dismiss "${item.title}"`}
+            title="Dismiss"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDismissGettingStarted(item.id);
+            }}
+            className="shrink-0 p-2 rounded-full text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-surface-container-high hover:text-foreground transition-opacity cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </button>
           <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
         </div>
       ))}
@@ -332,6 +361,10 @@ interface UnifiedActionListProps {
   isEmpty: boolean;
   onLogConversation: () => void;
   calendarConnected: boolean;
+  /** Getting-started row IDs the user dismissed (CAR-73). */
+  dismissedGettingStarted: string[];
+  /** Persist a dismissal for one getting-started row (CAR-73). */
+  onDismissGettingStarted: (id: string) => void;
 }
 
 export function UnifiedActionList({
@@ -349,6 +382,8 @@ export function UnifiedActionList({
   isEmpty,
   onLogConversation,
   calendarConnected,
+  dismissedGettingStarted,
+  onDismissGettingStarted,
 }: UnifiedActionListProps) {
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [snoozeState, setSnoozeState] = useState<SnoozeState | null>(null);
@@ -454,6 +489,8 @@ export function UnifiedActionList({
             onLogConversation={onLogConversation}
             calendarConnected={calendarConnected}
             hideExtension={items.some((i) => i.type === "onboarding")}
+            dismissedGettingStarted={dismissedGettingStarted}
+            onDismissGettingStarted={onDismissGettingStarted}
           />
         </div>
       )}

@@ -21,7 +21,12 @@ const onboardingItem: UnifiedActionItem = {
   actionItemId: 1,
 };
 
-function renderList(items: UnifiedActionItem[], isEmpty: boolean, onOpenOnboarding = vi.fn()) {
+function renderList(
+  items: UnifiedActionItem[],
+  isEmpty: boolean,
+  onOpenOnboarding = vi.fn(),
+  opts: { dismissedGettingStarted?: string[]; onDismissGettingStarted?: () => void } = {},
+) {
   render(
     <UnifiedActionList
       items={items}
@@ -38,6 +43,8 @@ function renderList(items: UnifiedActionItem[], isEmpty: boolean, onOpenOnboardi
       isEmpty={isEmpty}
       onLogConversation={vi.fn()}
       calendarConnected={true}
+      dismissedGettingStarted={opts.dismissedGettingStarted ?? []}
+      onDismissGettingStarted={opts.onDismissGettingStarted ?? vi.fn()}
     />,
   );
   return onOpenOnboarding;
@@ -79,5 +86,55 @@ describe("UnifiedActionList onboarding row (CAR-68)", () => {
   it("empty state keeps the extension card when there is no onboarding to-do", () => {
     renderList([], true);
     expect(screen.getByText("Install the Chrome extension")).toBeTruthy();
+  });
+});
+
+describe("Getting-started checklist dismissal (CAR-73)", () => {
+  it("filters out dismissed rows by id", () => {
+    renderList([], true, vi.fn(), {
+      dismissedGettingStarted: ["getting-started-bundle", "getting-started-log"],
+    });
+    expect(screen.queryByText("Add the curated target database")).toBeNull();
+    expect(screen.queryByText("Log your first conversation")).toBeNull();
+    // Untouched rows still render.
+    expect(screen.getByText("Pick a target company")).toBeTruthy();
+  });
+
+  it("dismiss button fires with the row id and does not navigate", () => {
+    const onDismiss = vi.fn();
+    const assign = vi.fn();
+    const originalLocation = window.location;
+    // window.location.assign is what the row's onClick calls; spy on it to
+    // prove the dismiss click is stopped from bubbling to the row.
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, assign },
+    });
+    try {
+      renderList([], true, vi.fn(), { onDismissGettingStarted: onDismiss });
+      fireEvent.click(screen.getByLabelText('Dismiss "Pick a target company"'));
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+      expect(onDismiss).toHaveBeenCalledWith("getting-started-company");
+      expect(assign).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
+
+  it("shows an all-set message when every row is dismissed and there is no onboarding row", () => {
+    renderList([], true, vi.fn(), {
+      dismissedGettingStarted: [
+        "getting-started-bundle",
+        "getting-started-company",
+        "getting-started-calendar",
+        "getting-started-extension",
+        "getting-started-log",
+      ],
+    });
+    expect(screen.queryByText("Add the curated target database")).toBeNull();
+    expect(screen.getByText(/You're all set/)).toBeTruthy();
   });
 });
