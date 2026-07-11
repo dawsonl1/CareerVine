@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { canAdvance, isOnboardingActive, type OnboardingState } from "@/lib/onboarding/state";
 
-const ORDER: OnboardingState[] = ["not_started", "syncing", "pick_company", "outreach", "completed"];
+const ORDER: OnboardingState[] = ["not_started", "connect", "syncing", "pick_company", "outreach", "completed"];
 
 describe("onboarding state machine", () => {
   it("allows only forward transitions along the flow", () => {
@@ -19,6 +19,18 @@ describe("onboarding state machine", () => {
     // Any live state can still be skipped.
     expect(canAdvance("not_started", "skipped")).toBe(true);
     expect(canAdvance("outreach", "skipped")).toBe(true);
+  });
+
+  it("places the connect step between the offer and the sync (CAR-82)", () => {
+    // Accept → connect → syncing, forward-only; a closed tab on connect
+    // resumes on connect, never skips ahead to the picker.
+    expect(canAdvance("not_started", "connect")).toBe(true);
+    expect(canAdvance("connect", "syncing")).toBe(true);
+    expect(canAdvance("connect", "pick_company")).toBe(true);
+    expect(canAdvance("syncing", "connect")).toBe(false);
+    expect(canAdvance("connect", "not_started")).toBe(false);
+    expect(canAdvance("connect", "skipped")).toBe(true);
+    expect(isOnboardingActive("connect")).toBe(true);
   });
 
   it("marks only pre-terminal states as active", () => {

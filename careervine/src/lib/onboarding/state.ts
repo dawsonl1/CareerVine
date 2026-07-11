@@ -17,11 +17,12 @@ export type { OnboardingState };
 // neither can be "advanced" out of.
 const STATE_RANK: Record<OnboardingState, number> = {
   not_started: 0,
-  syncing: 1,
-  pick_company: 2,
-  outreach: 3,
-  completed: 4,
-  skipped: 4,
+  connect: 1,
+  syncing: 2,
+  pick_company: 3,
+  outreach: 4,
+  completed: 5,
+  skipped: 5,
 };
 
 export function isOnboardingActive(state: OnboardingState): boolean {
