@@ -63,7 +63,9 @@ function fetchConnection(): Promise<GmailConnectionData | null> {
       return conn;
     })
     .catch(() => {
-      setState({ data: null, loading: false });
+      // Keep whatever data we already have — a failed background refresh
+      // must not make connected integrations flash as disconnected.
+      setState({ loading: false });
       fetchPromise = null;
       return null;
     });
@@ -91,9 +93,12 @@ export function useGmailConnection() {
     fetchConnection();
   }, [user, snap.data]);
 
+  // Silent background refresh: consumers keep rendering current data until
+  // the new snapshot lands. `loading` means "initial load, no data yet" —
+  // flipping it here made every consumer that hides on `loading` (e.g. the
+  // setup banner) blink on each onboarding poll.
   const refresh = useCallback(async () => {
     fetchPromise = null;
-    setState({ loading: true });
     await fetchConnection();
   }, []);
 
