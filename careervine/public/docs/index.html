@@ -44,44 +44,6 @@
     --shadow: 0 1px 2px rgba(23,32,26,.04), 0 6px 20px -12px rgba(23,32,26,.18);
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper:      #0e130e;
-      --surface:    #161d15;
-      --surface-2:  #1c251b;
-      --ink:        #eef2ec;
-      --ink-soft:   #ccd4c9;
-      --sage:       #93a294;
-      --line:       #2a342a;
-      --line-soft:  #212a20;
-      --forest:     #8fd08a;
-      --forest-2:   #b0f1a9;
-      --leaf:       #8fd08a;
-      --leaf-bg:    #1d2c1a;
-      --leaf-ink:   #bdedb2;
-      --teal:       #8ccbd3;
-      --teal-bg:    #16292c;
-      --teal-ink:   #b9e2e7;
-      --amber-bg:   #2c2510;
-      --amber-ink:  #e4cd8f;
-      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -14px rgba(0,0,0,.6);
-    }
-  }
-  :root[data-theme="light"] {
-    --paper:#fbfcfa;--surface:#fff;--surface-2:#f3f7f1;--ink:#17201a;--ink-soft:#384339;
-    --sage:#55665a;--line:#e4eae1;--line-soft:#eef2ec;--forest:#2d6a30;--forest-2:#205023;
-    --leaf:#57a04a;--leaf-bg:#e2f3da;--leaf-ink:#1f4a1c;--teal:#39656b;--teal-bg:#dcedef;
-    --teal-ink:#1b3d42;--amber-bg:#f6ecd4;--amber-ink:#6a531b;
-    --shadow:0 1px 2px rgba(23,32,26,.04),0 6px 20px -12px rgba(23,32,26,.18);
-  }
-  :root[data-theme="dark"] {
-    --paper:#0e130e;--surface:#161d15;--surface-2:#1c251b;--ink:#eef2ec;--ink-soft:#ccd4c9;
-    --sage:#93a294;--line:#2a342a;--line-soft:#212a20;--forest:#8fd08a;--forest-2:#b0f1a9;
-    --leaf:#8fd08a;--leaf-bg:#1d2c1a;--leaf-ink:#bdedb2;--teal:#8ccbd3;--teal-bg:#16292c;
-    --teal-ink:#b9e2e7;--amber-bg:#2c2510;--amber-ink:#e4cd8f;
-    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -14px rgba(0,0,0,.6);
-  }
-
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar-h) + 18px); }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
@@ -451,9 +413,6 @@
       <b>CareerVine</b><span class="docs-tag">docs</span>
     </a>
     <div class="top-right">
-      <button class="icon-btn" id="themeToggle" aria-label="Toggle light and dark theme" title="Toggle theme">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
-      </button>
       <a class="cta" href="https://careervine.app">
         <span>Open CareerVine</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -996,15 +955,7 @@
 
 <script>
   (function () {
-    var root = document.documentElement;
     var body = document.body;
-
-    /* ---------- Theme toggle ---------- */
-    document.getElementById('themeToggle').addEventListener('click', function () {
-      var cur = root.getAttribute('data-theme');
-      if (!cur) cur = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
-    });
 
     /* ---------- Mobile drawer ---------- */
     var menuBtn = document.getElementById('menuToggle');
