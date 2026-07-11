@@ -35,7 +35,54 @@ import {
   type ApplyProgress,
 } from "@/lib/bundle-apply-client";
 import { addTargetCompany } from "@/lib/company-queries";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Users, Building2, GraduationCap, Mail, Calendar, Check, Search, Sparkles } from "lucide-react";
+
+/* ── Exit-guard confirm dialog (CAR-84) ──
+ * A modal-on-modal that intercepts every path out of guided onboarding. The
+ * "stay" action is the emphasized button and clicking the scrim also stays —
+ * the whole point is to talk the user out of leaving. */
+export function ConfirmDialog({
+  title,
+  body,
+  stayLabel,
+  leaveLabel,
+  onStay,
+  onLeave,
+}: {
+  title: string;
+  body: string;
+  stayLabel: string;
+  leaveLabel: string;
+  onStay: () => void;
+  onLeave: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60" onClick={onStay} />
+      <div className="relative bg-surface-container-high rounded-3xl shadow-2xl w-full max-w-sm p-6">
+        <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{body}</p>
+        <div className="mt-6 flex flex-col gap-2.5">
+          <button
+            type="button"
+            onClick={onStay}
+            className="h-11 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors cursor-pointer shadow-sm"
+          >
+            {stayLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onLeave}
+            className="h-10 rounded-full text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-surface-container transition-colors cursor-pointer"
+          >
+            {leaveLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ── Shared shell: full-screen scrim + centered card ── */
 function StepShell({
@@ -47,6 +94,9 @@ function StepShell({
   wide?: boolean;
   onSkip?: () => void;
 }) {
+  // Intercept the skip hatch with a stay-nudge (CAR-84). One place covers
+  // every step's "Skip for now" — offer, connect, and picker.
+  const [confirmingSkip, setConfirmingSkip] = useState(false);
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" />
@@ -60,7 +110,7 @@ function StepShell({
           <div className="mt-6 text-center">
             <button
               type="button"
-              onClick={onSkip}
+              onClick={() => setConfirmingSkip(true)}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               Skip for now, I&apos;ll explore on my own
@@ -68,6 +118,19 @@ function StepShell({
           </div>
         )}
       </div>
+      {confirmingSkip && onSkip && (
+        <ConfirmDialog
+          title="Are you sure you want to cancel the onboarding?"
+          body="It only takes about 4 minutes, and it teaches you important ways to use CareerVine that you'd likely miss on your own."
+          stayLabel="Keep going"
+          leaveLabel="Cancel onboarding"
+          onStay={() => setConfirmingSkip(false)}
+          onLeave={() => {
+            setConfirmingSkip(false);
+            onSkip();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -84,6 +147,9 @@ function BundleOfferStep({
   onDecline: () => void;
   onSkip: () => void;
 }) {
+  // "No thanks" declines the recruiting database (the one exit whose warning
+  // is bundle-specific, not the generic cancel-onboarding one) — CAR-84.
+  const [confirmingDecline, setConfirmingDecline] = useState(false);
   return (
     <StepShell onSkip={onSkip}>
       <div className="text-center">
@@ -120,13 +186,26 @@ function BundleOfferStep({
           </button>
           <button
             type="button"
-            onClick={onDecline}
+            onClick={() => setConfirmingDecline(true)}
             className="h-10 rounded-full text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-surface-container transition-colors cursor-pointer"
           >
             No thanks
           </button>
         </div>
       </div>
+      {confirmingDecline && (
+        <ConfirmDialog
+          title="Skip the recruiting database?"
+          body="Only skip this if you're not planning to recruit for Product Management jobs. It's the fastest way to start with a real network of PMs, recruiters, and alumni instead of an empty CRM."
+          stayLabel="Keep the database"
+          leaveLabel="Skip it"
+          onStay={() => setConfirmingDecline(false)}
+          onLeave={() => {
+            setConfirmingDecline(false);
+            onDecline();
+          }}
+        />
+      )}
     </StepShell>
   );
 }
@@ -504,18 +583,35 @@ function CompanyPickerStep({
                   )}
                 </div>
               )}
-              <button
-                type="button"
-                disabled={syncing || selecting !== null}
-                title={syncing ? "Your import is still finishing — Select unlocks the moment it's done." : undefined}
-                onClick={async () => {
-                  setSelecting(c.id);
-                  onPicked(c);
-                }}
-                className="opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {syncing ? "Importing…" : selecting === c.id ? "Selecting…" : "Select"}
-              </button>
+              {(() => {
+                const selectBtn = (
+                  <button
+                    type="button"
+                    disabled={syncing || selecting !== null}
+                    onClick={async () => {
+                      setSelecting(c.id);
+                      onPicked(c);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {syncing ? "Importing…" : selecting === c.id ? "Selecting…" : "Select"}
+                  </button>
+                );
+                // Custom tooltip instead of native `title` (CAR-84): it triggers
+                // on the wrapper, so it shows even while the button is disabled
+                // (native title on a disabled button often won't fire).
+                return syncing ? (
+                  <Tooltip
+                    label="Select unlocks the moment your import finishes"
+                    side="top"
+                    className="shrink-0"
+                  >
+                    {selectBtn}
+                  </Tooltip>
+                ) : (
+                  selectBtn
+                );
+              })()}
             </div>
           ))
         )}

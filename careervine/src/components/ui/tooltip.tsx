@@ -15,16 +15,18 @@ interface TooltipProps {
   children: ReactNode;
   /** Which side of the trigger the label appears on. */
   side?: "top" | "bottom";
+  /** Extra classes for the wrapper span (e.g. `shrink-0` inside a flex row). */
+  className?: string;
 }
 
-export function Tooltip({ label, children, side = "bottom" }: TooltipProps) {
+export function Tooltip({ label, children, side = "bottom", className = "" }: TooltipProps) {
   const position =
     side === "bottom"
       ? "top-full mt-1.5"
       : "bottom-full mb-1.5";
 
   return (
-    <span className="relative inline-flex group/tooltip">
+    <span className={`relative inline-flex group/tooltip ${className}`}>
       {children}
       <span
         role="tooltip"
