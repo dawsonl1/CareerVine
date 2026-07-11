@@ -5,8 +5,9 @@
  * "Careervine Onboarding Flow". Modal sequence:
  *
  *   bundle offer (Yes emphasized / No → brief intro splash)
- *   → progress modal (live stats + progress bar + Gmail/Calendar connect)
- *   → company picker (ranked by BYU-alumni count)
+ *   → company picker, shown instantly (CAR-77): sync progress bar on top,
+ *     Gmail/Calendar connect compacted in, Select gated until the import
+ *     completes — then the same modal with Select enabled
  *   → [outreach leg happens on the company page]
  *   → finale (confetti + "Grow your Career Vine")
  *
@@ -26,7 +27,11 @@ import {
   getOnboardingBundleStats,
   type OnboardingBundleStats,
 } from "@/lib/onboarding/bundle-stats";
-import { getPickerCompanies, type PickerCompany } from "@/lib/onboarding/company-picker";
+import {
+  getBundlePickerCompanies,
+  getPickerCompanies,
+  type PickerCompany,
+} from "@/lib/onboarding/company-picker";
 import {
   subscribeToBundle,
   runBundleApplyLoop,
@@ -178,182 +183,25 @@ function IntroSplashStep({ onDone }: { onDone: () => void }) {
   );
 }
 
-/* ── Step 2: background sync + progress + connect-while-you-wait ── */
-function SyncProgressStep({
-  stats,
-  onComplete,
-  onSkip,
-}: {
-  stats: OnboardingBundleStats;
-  onComplete: () => void;
-  onSkip: () => void;
-}) {
-  const [progress, setProgress] = useState<ApplyProgress | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const { data: gmailConn, calendarConnected, refresh: refreshConnection } = useGmailConnection();
-  const gmailConnected = gmailConn !== null;
-  const started = useRef(false);
-  const doneRef = useRef(false);
-
-  const finish = useCallback(() => {
-    if (doneRef.current) return;
-    doneRef.current = true;
-    track("onboarding_sync_completed", { prospects: stats.prospectCount });
-    onComplete();
-  }, [onComplete, stats.prospectCount]);
-
-  // Poll the durable completion signal — covers the cases where another
-  // driver (background worker/cron) owns the sync or our loop errored over
-  // to the background job.
-  const pollUntilSynced = useCallback(async () => {
-    const supabase = createSupabaseBrowserClient();
-    for (;;) {
-      await new Promise((r) => setTimeout(r, 4000));
-      if (doneRef.current) return;
-      const [{ data: sub }, { data: bundle }] = await Promise.all([
-        supabase
-          .from("bundle_subscriptions")
-          .select("synced_version, status")
-          .eq("bundle_id", stats.bundleId)
-          .maybeSingle(),
-        supabase.from("data_bundles").select("version").eq("id", stats.bundleId).maybeSingle(),
-      ]);
-      if (sub?.status === "active" && bundle && sub.synced_version >= bundle.version) {
-        finish();
-        return;
-      }
-    }
-  }, [stats.bundleId, finish]);
-
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    (async () => {
-      try {
-        // Resume-safe: subscribing when already subscribed is handled
-        // server-side; the apply loop picks up wherever the sync left off.
-        await subscribeToBundle(stats.bundleId).catch(() => {});
-        const completed = await runBundleApplyLoop(
-          { id: stats.bundleId, prospect_count: stats.prospectCount },
-          setProgress,
-        );
-        if (completed) finish();
-        else await pollUntilSynced(); // another driver owns it
-      } catch (err) {
-        setNotice(err instanceof Error ? err.message : BACKGROUND_SYNC_MESSAGE);
-        await pollUntilSynced();
-      }
-    })();
-    // Unmount (skip, advance, navigation) must stop the poll loop and
-    // suppress a stale finish() — doneRef is the loop's exit signal.
-    return () => {
-      doneRef.current = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Light poll so the buttons flip to "connected" after the OAuth
-  // round-trip completes in its own tab.
-  useEffect(() => {
-    const t = setInterval(() => refreshConnection(), 5000);
-    return () => clearInterval(t);
-  }, [refreshConnection]);
-
-  const pct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.applied / progress.total) * 100)) : null;
-
-  return (
-    <StepShell wide onSkip={onSkip}>
-      <h2 className="text-xl font-semibold text-foreground">Building your network…</h2>
-      <p className="text-sm text-muted-foreground mt-1.5">We&apos;re adding:</p>
-      <ul className="mt-4 space-y-2.5">
-        <StatLine icon={Users} text={`${stats.prospectCount.toLocaleString()} prospects with contact information`} />
-        <StatLine
-          icon={GraduationCap}
-          text={
-            stats.alumniProductCount > 0
-              ? `${stats.alumniCount.toLocaleString()} BYU alumni (${stats.alumniProductCount.toLocaleString()} in product roles)`
-              : `${stats.alumniCount.toLocaleString()} BYU alumni`
-          }
-        />
-        <StatLine icon={Building2} text={`${stats.companyCount.toLocaleString()} companies with a history of hiring new-grad PMs`} />
-        {stats.alumniCompanyCount > 0 && (
-          // Target-scoped (CAR-61): current_company is CANON-mapped to the
-          // bundle company names, so this is a true subset of companyCount.
-          <StatLine icon={Check} text={`${stats.alumniCompanyCount.toLocaleString()} of those companies have BYU alumni there today`} />
-        )}
-      </ul>
-
-      <div className="mt-6">
-        <div className="w-full h-2 bg-surface-container-highest rounded-full overflow-hidden">
-          {pct === null ? (
-            <div className="h-full w-1/3 bg-primary rounded-full animate-pulse" />
-          ) : (
-            <div
-              className="h-full bg-primary rounded-full transition-all duration-500"
-              style={{ width: `${Math.max(pct, 3)}%` }}
-            />
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          {notice ??
-            (progress
-              ? `${progress.applied.toLocaleString()} of ${progress.total.toLocaleString()} added`
-              : "Starting sync…")}
-        </p>
-      </div>
-
-      <div className="mt-7 p-5 rounded-2xl bg-surface-container border border-outline-variant/40">
-        <p className="text-sm font-medium text-foreground">While you wait…</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Connect Gmail and Google Calendar so you&apos;re ready to send your first personalized
-          networking request to one of your new prospects.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2.5">
-          <ConnectButton
-            connected={gmailConnected}
-            icon={Mail}
-            label="Connect Gmail"
-            connectedLabel="Gmail connected"
-            href="/api/gmail/auth?returnTo=%2Fonboarding%2Fconnected"
-          />
-          <ConnectButton
-            connected={calendarConnected}
-            icon={Calendar}
-            label="Connect Calendar"
-            connectedLabel="Calendar connected"
-            href="/api/gmail/auth?scopes=calendar&returnTo=%2Fonboarding%2Fconnected"
-          />
-        </div>
-      </div>
-    </StepShell>
-  );
-}
-
-function StatLine({ icon: Icon, text }: { icon: typeof Users; text: string }) {
-  return (
-    <li className="flex items-center gap-2.5 text-sm text-foreground">
-      <Icon className="h-4 w-4 text-primary shrink-0" />
-      {text}
-    </li>
-  );
-}
-
 function ConnectButton({
   connected,
   icon: Icon,
   label,
   connectedLabel,
   href,
+  compact,
 }: {
   connected: boolean;
   icon: typeof Mail;
   label: string;
   connectedLabel: string;
   href: string;
+  compact?: boolean;
 }) {
+  const size = compact ? "h-8 px-3 text-xs" : "h-10 px-4 text-sm";
   if (connected) {
     return (
-      <span className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-primary/10 text-primary text-sm font-medium">
+      <span className={`inline-flex items-center gap-2 rounded-full bg-primary/10 text-primary font-medium ${size}`}>
         <Check className="h-4 w-4" />
         {connectedLabel}
       </span>
@@ -364,7 +212,7 @@ function ConnectButton({
       href={href}
       target="_blank"
       rel="noopener"
-      className="inline-flex items-center gap-2 h-10 px-4 rounded-full border border-outline text-sm font-medium text-foreground hover:bg-surface-container-high transition-colors"
+      className={`inline-flex items-center gap-2 rounded-full border border-outline font-medium text-foreground hover:bg-surface-container-high transition-colors ${size}`}
     >
       <Icon className="h-4 w-4" />
       {label}
@@ -372,11 +220,20 @@ function ConnectButton({
   );
 }
 
-/* ── Step 3: pick a target company ── */
+/* ── Steps 2+3: pick a target company — rendered the moment the bundle is
+   accepted (CAR-77). While the import runs, a slim progress header sits on
+   top, the Gmail/Calendar connect card is compacted in, and Select is gated;
+   sync completion flips the state and the same modal enables Select. ── */
 function CompanyPickerStep({
+  stats,
+  syncing,
+  onSyncComplete,
   onPicked,
   onSkip,
 }: {
+  stats: OnboardingBundleStats | null;
+  syncing: boolean;
+  onSyncComplete: () => void;
   onPicked: (company: PickerCompany) => void;
   onSkip: () => void;
 }) {
@@ -384,11 +241,139 @@ function CompanyPickerStep({
   const [companies, setCompanies] = useState<PickerCompany[] | null>(null);
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState<number | null>(null);
+  const [progress, setProgress] = useState<ApplyProgress | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // The bundle stats RPC is subscriber-scoped, so the first list load waits
+  // for the subscribe call; a resumed session is already subscribed.
+  const [subscribed, setSubscribed] = useState(!syncing);
+  const { data: gmailConn, calendarConnected, refresh: refreshConnection } = useGmailConnection();
+  const gmailConnected = gmailConn !== null;
+  const started = useRef(false);
+  const doneRef = useRef(false);
+  const companiesRef = useRef<PickerCompany[] | null>(null);
+  companiesRef.current = companies;
+
+  const finish = useCallback(() => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    track("onboarding_sync_completed", { prospects: stats?.prospectCount ?? 0 });
+    onSyncComplete();
+  }, [onSyncComplete, stats?.prospectCount]);
+
+  const loadCompanies = useCallback(async () => {
+    try {
+      // No resolvable bundle (unpublished after the fact) — degrade to the
+      // user's own synced contacts instead of dead-ending.
+      const list = stats
+        ? await getBundlePickerCompanies(stats.bundleId)
+        : user
+          ? await getPickerCompanies(user.id)
+          : null;
+      if (list) setCompanies(list);
+    } catch {
+      setCompanies((prev) => prev ?? []);
+    }
+  }, [stats, user]);
 
   useEffect(() => {
-    if (!user) return;
-    getPickerCompanies(user.id).then(setCompanies).catch(() => setCompanies([]));
-  }, [user]);
+    if (!subscribed) return;
+    void loadCompanies();
+  }, [subscribed, loadCompanies]);
+
+  // Sync driver — subscribe, then run the chunked apply loop. Progress is NOT
+  // read from the loop's per-call callback anymore; the poll below owns it.
+  useEffect(() => {
+    if (!syncing || !stats || started.current) return;
+    started.current = true;
+    (async () => {
+      // Resume-safe: subscribing when already subscribed is handled
+      // server-side; the apply loop picks up wherever the sync left off.
+      await subscribeToBundle(stats.bundleId).catch(() => {});
+      setSubscribed(true);
+      try {
+        const completed = await runBundleApplyLoop({
+          id: stats.bundleId,
+          prospect_count: stats.prospectCount,
+        });
+        if (completed) finish();
+        // Otherwise another driver (worker/cron) owns the sync — the poll
+        // below detects the durable completion signal.
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : BACKGROUND_SYNC_MESSAGE);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncing, stats]);
+
+  // Unmount (skip, navigation) must suppress a stale finish() from the
+  // apply loop or the poll — doneRef is their shared exit signal.
+  useEffect(() => {
+    return () => {
+      doneRef.current = true;
+    };
+  }, []);
+
+  // One poll, two jobs (CAR-77): the progress bar reads the RLS-scoped count
+  // of linked contacts (accurate no matter which driver is syncing), and
+  // completion is the durable signal synced_version >= bundle.version.
+  useEffect(() => {
+    if (!syncing || !stats) return;
+    let cancelled = false;
+    const supabase = createSupabaseBrowserClient();
+    let subscriptionId: number | null = null;
+    (async () => {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3500));
+        if (cancelled || doneRef.current) return;
+        if (subscriptionId === null) {
+          const { data: sub } = await supabase
+            .from("bundle_subscriptions")
+            .select("id")
+            .eq("bundle_id", stats.bundleId)
+            .maybeSingle();
+          subscriptionId = sub?.id ?? null;
+          if (subscriptionId === null) continue;
+        }
+        const [{ count }, { data: sub }, { data: bundle }] = await Promise.all([
+          supabase
+            .from("bundle_subscription_contacts")
+            .select("id", { count: "exact", head: true })
+            .eq("subscription_id", subscriptionId),
+          supabase
+            .from("bundle_subscriptions")
+            .select("synced_version, status")
+            .eq("bundle_id", stats.bundleId)
+            .maybeSingle(),
+          supabase.from("data_bundles").select("version").eq("id", stats.bundleId).maybeSingle(),
+        ]);
+        if (cancelled || doneRef.current) return;
+        if (typeof count === "number") {
+          setProgress({
+            applied: Math.min(count, stats.prospectCount),
+            total: stats.prospectCount,
+          });
+        }
+        // The subscribe call races the first list load — keep retrying until
+        // the subscriber-scoped RPC returns rows.
+        if (!companiesRef.current?.length) void loadCompanies();
+        if (sub?.status === "active" && bundle && sub.synced_version >= bundle.version) {
+          finish();
+          return;
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [syncing, stats, finish, loadCompanies]);
+
+  // Light poll so the buttons flip to "connected" after the OAuth
+  // round-trip completes in its own tab.
+  useEffect(() => {
+    if (!syncing) return;
+    const t = setInterval(() => refreshConnection(), 5000);
+    return () => clearInterval(t);
+  }, [syncing, refreshConnection]);
 
   const filtered = useMemo(() => {
     if (!companies) return null;
@@ -396,12 +381,65 @@ function CompanyPickerStep({
     return q ? companies.filter((c) => c.name.toLowerCase().includes(q)) : companies;
   }, [companies, query]);
 
+  const pct =
+    progress && progress.total > 0
+      ? Math.min(100, Math.round((progress.applied / progress.total) * 100))
+      : null;
+  // Distinguish "still racing the subscribe" from a genuinely empty result.
+  const listLoading = filtered === null || (syncing && companies?.length === 0 && !query.trim());
+
   return (
     <StepShell wide onSkip={onSkip}>
+      {syncing && (
+        <div className="mb-6 p-4 rounded-2xl bg-surface-container border border-outline-variant/40">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-sm font-medium text-foreground">Building your network…</p>
+            <p className="text-xs text-muted-foreground shrink-0">
+              {notice ??
+                (progress
+                  ? `${progress.applied.toLocaleString()} of ${progress.total.toLocaleString()} added`
+                  : "Starting sync…")}
+            </p>
+          </div>
+          <div className="mt-2.5 w-full h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+            {pct === null ? (
+              <div className="h-full w-1/3 bg-primary rounded-full animate-pulse" />
+            ) : (
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(pct, 3)}%` }}
+              />
+            )}
+          </div>
+          <div className="mt-3.5 flex flex-wrap items-center gap-2">
+            <p className="text-xs text-muted-foreground mr-1">
+              Get ready to send your first email:
+            </p>
+            <ConnectButton
+              compact
+              connected={gmailConnected}
+              icon={Mail}
+              label="Connect Gmail"
+              connectedLabel="Gmail connected"
+              href="/api/gmail/auth?returnTo=%2Fonboarding%2Fconnected"
+            />
+            <ConnectButton
+              compact
+              connected={calendarConnected}
+              icon={Calendar}
+              label="Connect Calendar"
+              connectedLabel="Calendar connected"
+              href="/api/gmail/auth?scopes=calendar&returnTo=%2Fonboarding%2Fconnected"
+            />
+          </div>
+        </div>
+      )}
+
       <h2 className="text-xl font-semibold text-foreground">Pick your first target company</h2>
       <p className="text-sm text-muted-foreground mt-1.5">
-        Companies with BYU alumni are at the top: alumni are the warmest door in. You can add
-        more targets anytime.
+        {syncing
+          ? "Browse while your import finishes — companies with BYU alumni are at the top. Selecting unlocks the moment every prospect is in."
+          : "Companies with BYU alumni are at the top: alumni are the warmest door in. You can add more targets anytime."}
       </p>
 
       <div className="mt-4 flex items-center gap-2 h-10 px-3.5 rounded-full border border-outline-variant bg-surface-container-low">
@@ -416,7 +454,7 @@ function CompanyPickerStep({
       </div>
 
       <div className="mt-4 max-h-[46vh] overflow-y-auto space-y-1.5 pr-1">
-        {filtered === null ? (
+        {listLoading ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Loading companies…</p>
         ) : filtered.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">No companies match.</p>
@@ -437,7 +475,8 @@ function CompanyPickerStep({
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">{c.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {c.contactCount} contact{c.contactCount === 1 ? "" : "s"}
+                  {c.contactCount} {syncing ? "prospect" : "contact"}
+                  {c.contactCount === 1 ? "" : "s"}
                 </p>
               </div>
               {c.alumniCount > 0 && (
@@ -457,14 +496,19 @@ function CompanyPickerStep({
               )}
               <button
                 type="button"
-                disabled={selecting !== null}
-                onClick={async () => {
+                disabled={syncing || selecting !== null}
+                title={syncing ? "Finishing your import…" : undefined}
+                onClick={() => {
                   setSelecting(c.id);
                   onPicked(c);
                 }}
-                className="opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40"
+                className={
+                  syncing
+                    ? "opacity-0 group-hover:opacity-100 h-9 px-4 rounded-full bg-surface-container-highest text-muted-foreground text-xs font-semibold shrink-0 cursor-not-allowed transition-all"
+                    : "opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40"
+                }
               >
-                {selecting === c.id ? "Selecting…" : "Select"}
+                {syncing ? "Finishing import…" : selecting === c.id ? "Selecting…" : "Select"}
               </button>
             </div>
           ))
@@ -598,21 +642,22 @@ export function OnboardingFlow() {
     );
   }
 
-  if (state === "syncing") {
-    // Stats still loading on a resumed session — hold the scrim without content.
-    if (!stats) return null;
-    return (
-      <SyncProgressStep
-        stats={stats}
-        onComplete={() => advance("pick_company")}
-        onSkip={() => skip("syncing")}
-      />
-    );
-  }
-
-  if (state === "pick_company") {
+  if (state === "syncing" || state === "pick_company") {
+    // Stats still loading on a resumed session — hold the scrim without
+    // content until they resolve, so the picker binds to the right source.
+    // (A resolved-but-null stats only reaches here in pick_company — the
+    // syncing case fell back to the intro splash above — and the picker then
+    // degrades to the user's own contacts.)
+    if (!statsResolved || (state === "syncing" && !stats)) return null;
+    const syncing = state === "syncing";
+    // One branch for both states on purpose: the component stays mounted
+    // across the syncing → pick_company flip, so the loaded list, search
+    // text, and scroll position survive — only Select flips on.
     return (
       <CompanyPickerStep
+        stats={stats}
+        syncing={syncing}
+        onSyncComplete={() => advance("pick_company")}
         onPicked={async (company) => {
           try {
             await addTargetCompany(user.id, company.id);
@@ -623,7 +668,7 @@ export function OnboardingFlow() {
           advance("outreach");
           router.push(`/companies/${company.id}`);
         }}
-        onSkip={() => skip("pick_company")}
+        onSkip={() => skip(syncing ? "syncing" : "pick_company")}
       />
     );
   }
