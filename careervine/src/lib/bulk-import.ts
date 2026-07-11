@@ -123,6 +123,10 @@ export interface ImportChunkOptions {
    * which never represent a user importing contacts.
    */
   analyticsSource?: AnalyticsEvents["contact_imported"]["source"];
+  /** Hand the analyticsSource emit + milestone check off instead of awaiting
+   * them inline — the bundle apply route wires this to the api-handler's
+   * post-response flush so analytics stay off the sync path (CAR-78). */
+  deferAnalytics?: (p: Promise<unknown>) => void;
   /** Rescrape-only hooks (e.g. the scrape-diff capture). */
   hooks?: ImportHooks;
   /**
@@ -714,11 +718,15 @@ export async function importPeopleChunk(
   if (opts.analyticsSource) {
     const createdCount = results.filter((r) => r.status === "created").length;
     if (createdCount > 0) {
-      await trackServer(userId, "contact_imported", {
+      const analytics = trackServer(userId, "contact_imported", {
         source: opts.analyticsSource,
         count: createdCount,
-      });
-      await checkContactMilestone(userId);
+        // Path instrumentation (CAR-78): bundle imports through the merge
+        // engine are the slow path; the fast path stamps fast: true itself.
+        ...(opts.analyticsSource === "bundle" ? { fast: false } : {}),
+      }).then(() => checkContactMilestone(userId));
+      if (opts.deferAnalytics) opts.deferAnalytics(analytics);
+      else await analytics;
     }
   }
 
