@@ -68,7 +68,7 @@ function OutreachFlow() {
   // ── Queue ──
   useEffect(() => {
     if (!user) return;
-    getCompanies(user.id, { targetsOnly: true, sort: "priority" })
+    getCompanies(user.id, { scope: "targets", sort: "priority" })
       .then((summaries) => {
         const { queue: q, skippedCount: skipped } = buildOutreachQueue(summaries, new Date().toISOString());
         setQueue(q);

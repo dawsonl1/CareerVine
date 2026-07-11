@@ -30,7 +30,7 @@ export const STATUS_STYLES: Record<string, string> = {
 };
 
 interface CompanyFilterBarProps {
-  view: "targets" | "all";
+  view: "in_play" | "all";
   /** Live search box value (undebounced echo of filters.q). */
   searchInput: string;
   onSearchChange: (value: string) => void;
@@ -82,8 +82,8 @@ export default function CompanyFilterBar({
         )}
       </div>
 
-      {/* Facets — target metadata only exists in the targets view */}
-      {view === "targets" && (
+      {/* Facets — target metadata (status/tier/traction) only matters on the primary view */}
+      {view === "in_play" && (
         <div className="flex flex-wrap items-center gap-2">
           {TARGET_STATUSES.map((s) => {
             const on = filters.statuses.includes(s);
