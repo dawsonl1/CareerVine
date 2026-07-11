@@ -29,7 +29,7 @@ export type OnboardingState =
   | "skipped";
 
 // Extension onboarding flow progress (CAR-68). Mirrors the CHECK constraint in
-// 20260711130000_extension_onboarding.sql; states are the flow's resume points.
+// 20260711140000_extension_onboarding.sql; states are the flow's resume points.
 // 'done' and 'completed_no_apollo' are both terminal.
 export type ExtensionOnboardingState =
   | "not_started"
