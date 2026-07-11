@@ -9,7 +9,7 @@ import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  getContacts, getContactsStreamed, createContact, findOrCreateSchool, addSchoolToContact,
+  getContactsStreamed, createContact, findOrCreateSchool, addSchoolToContact,
   findOrCreateCompany, addCompanyToContact,
   addEmailToContact, addPhoneToContact,
   getTags, createTag, addTagToContact, findOrCreateLocation,
@@ -95,23 +95,31 @@ export default function ContactsPage() {
   const loadContacts = useCallback(async () => {
     if (!user) return;
     try {
-      // Fast first paint: stream the active network in pages. The first small
-      // page unblocks the list immediately; the remaining active contacts fill
-      // in behind it (rendering off-screen, below the fold) instead of the user
-      // staring at a spinner until every row is fetched.
-      const active: Contact[] = [];
-      await getContactsStreamed(user.id, ["active"], (rows) => {
-        active.push(...(rows as Contact[]));
-        setContacts([...active]);
-        setLoading(false);
-      });
+      // Stream every tier in parallel. getContactsStreamed pulls a small first
+      // page (50) then large pages, in name order, so each tier paints its
+      // first ~50 rows fast and backfills the rest in the background. Running
+      // the tiers as independent streams (rather than one all-tiers superset)
+      // means: the active network — the default view — paints from its own
+      // first page without waiting on the prospect/bench archive, no tier
+      // blocks another, and active is never fetched twice. Prospect/bench still
+      // load fully so their toggles stay in-memory once switched on.
+      const byId = new Map<number, Contact>();
+      const flush = () =>
+        setContacts(Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name)));
 
-      // Prefetch prospects + bench in the background so switching to
-      // "+ Prospects" / "Everyone" filters in memory instead of refetching.
-      // The full superset is refetched name-sorted across all tiers so the
-      // combined view stays globally alphabetical.
-      const everyone = await getContacts(user.id, { networkStatuses: ["active", "prospect", "bench"] });
-      setContacts(everyone as Contact[]);
+      const TIERS = ["active", "prospect", "bench"] as const;
+      await Promise.all(
+        TIERS.map((tier) =>
+          getContactsStreamed(user.id, [tier], (rows) => {
+            for (const r of rows as Contact[]) byId.set(r.id, r);
+            flush();
+            // First paint on the active tier's first page (the default view).
+            if (tier === "active") setLoading(false);
+          }),
+        ),
+      );
+      // Guard: an account with no active contacts never hit the branch above.
+      setLoading(false);
       setAllTiersLoaded(true);
     } catch (error) {
       // Postgrest errors are plain objects that log as "{}" — pull the fields out
