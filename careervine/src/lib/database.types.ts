@@ -22,6 +22,7 @@
 // in 20260711003000_user_onboarding_state.sql; states are the flow's resume points.
 export type OnboardingState =
   | "not_started"
+  | "connect"
   | "syncing"
   | "pick_company"
   | "outreach"

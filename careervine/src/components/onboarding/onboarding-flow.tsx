@@ -194,7 +194,7 @@ function ConnectButton({
 }) {
   if (connected) {
     return (
-      <span className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-primary/10 text-primary text-sm font-medium">
+      <span className="flex w-full items-center justify-center gap-2 h-11 px-4 rounded-full bg-primary/10 text-primary text-sm font-medium">
         <Check className="h-4 w-4" />
         {connectedLabel}
       </span>
@@ -205,11 +205,68 @@ function ConnectButton({
       href={href}
       target="_blank"
       rel="noopener"
-      className="inline-flex items-center gap-2 h-9 px-4 rounded-full border border-outline text-sm font-medium text-foreground hover:bg-surface-container-high transition-colors"
+      className="flex w-full items-center justify-center gap-2 h-11 px-4 rounded-full border border-outline text-sm font-medium text-foreground hover:bg-surface-container-high transition-colors"
     >
       <Icon className="h-4 w-4" />
       {label}
     </a>
+  );
+}
+
+/* ── Connect step (CAR-82): a deliberate stop to connect Gmail + Calendar
+ * before the company picker. Onboarding ends by sending a real email (needs
+ * Gmail), so this replaces the connect prompt that used to live in the sync
+ * header and vanish the moment the import finished — leaving users past it,
+ * unconnected. Skippable, but a step the user passes through on purpose. */
+function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }) {
+  const { data: gmailConn, calendarConnected, refresh: refreshConnection } = useGmailConnection();
+  const gmailConnected = gmailConn !== null;
+
+  // Flip the buttons to "connected" once the OAuth round-trip finishes in its
+  // own tab (returnTo=/onboarding/connected).
+  useEffect(() => {
+    const t = setInterval(() => refreshConnection(), 3000);
+    return () => clearInterval(t);
+  }, [refreshConnection]);
+
+  return (
+    <StepShell onSkip={onSkip}>
+      <div className="text-center">
+        <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-5">
+          <Mail className="h-7 w-7 text-primary" />
+        </div>
+        <h2 className="text-2xl font-semibold text-foreground">Connect Gmail and Calendar</h2>
+        <p className="text-base text-muted-foreground mt-3 leading-relaxed">
+          You&apos;ll finish setup by sending your first networking email. Connect Gmail to send it
+          and auto-cancel follow-ups when people reply, and Calendar to drop your open times into any
+          message in one click.
+        </p>
+      </div>
+
+      <div className="mt-7 flex flex-col gap-2.5">
+        <ConnectButton
+          connected={gmailConnected}
+          icon={Mail}
+          label="Connect Gmail"
+          connectedLabel="Gmail connected"
+          href="/api/gmail/auth?returnTo=%2Fonboarding%2Fconnected"
+        />
+        <ConnectButton
+          connected={calendarConnected}
+          icon={Calendar}
+          label="Connect Google Calendar"
+          connectedLabel="Calendar connected"
+          href="/api/gmail/auth?scopes=calendar&returnTo=%2Fonboarding%2Fconnected"
+        />
+        <button
+          type="button"
+          onClick={onContinue}
+          className="mt-4 h-12 rounded-full bg-primary text-primary-foreground text-base font-semibold hover:bg-primary/90 transition-colors cursor-pointer shadow-md"
+        >
+          {gmailConnected ? "Continue" : "Continue without connecting"}
+        </button>
+      </div>
+    </StepShell>
   );
 }
 
@@ -240,8 +297,6 @@ function CompanyPickerStep({
   const [loopProgress, setLoopProgress] = useState<ApplyProgress | null>(null);
   const [dbApplied, setDbApplied] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
-  const { data: gmailConn, calendarConnected, refresh: refreshConnection } = useGmailConnection();
-  const gmailConnected = gmailConn !== null;
   const started = useRef(false);
   const doneRef = useRef(false);
   const startedAtRef = useRef(0);
@@ -353,14 +408,6 @@ function CompanyPickerStep({
     getPickerCompanies(stats.bundleId).then(setCompanies).catch(() => setCompanies([]));
   }, [subscribed, stats.bundleId]);
 
-  // Light poll so the connect chips flip after the OAuth round-trip
-  // completes in its own tab.
-  useEffect(() => {
-    if (!syncing) return;
-    const t = setInterval(() => refreshConnection(), 5000);
-    return () => clearInterval(t);
-  }, [syncing, refreshConnection]);
-
   const filtered = useMemo(() => {
     if (!companies) return null;
     const q = query.trim().toLowerCase();
@@ -400,25 +447,9 @@ function CompanyPickerStep({
             )}
           </div>
           {notice && <p className="text-xs text-muted-foreground mt-2">{notice}</p>}
-          <div className="mt-3 flex flex-wrap items-center gap-2.5">
-            <p className="text-xs text-muted-foreground">
-              Browse below — you can select as soon as your import finishes. While you wait:
-            </p>
-            <ConnectButton
-              connected={gmailConnected}
-              icon={Mail}
-              label="Connect Gmail"
-              connectedLabel="Gmail connected"
-              href="/api/gmail/auth?returnTo=%2Fonboarding%2Fconnected"
-            />
-            <ConnectButton
-              connected={calendarConnected}
-              icon={Calendar}
-              label="Connect Calendar"
-              connectedLabel="Calendar connected"
-              href="/api/gmail/auth?scopes=calendar&returnTo=%2Fonboarding%2Fconnected"
-            />
-          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Browse the list now, then pick your first target the moment your import finishes.
+          </p>
         </div>
       )}
 
@@ -568,7 +599,11 @@ export function OnboardingFlow() {
   const [declinedSplash, setDeclinedSplash] = useState(false);
   const statsLoaded = useRef(false);
 
-  const active = state === "not_started" || state === "syncing" || state === "pick_company";
+  const active =
+    state === "not_started" ||
+    state === "connect" ||
+    state === "syncing" ||
+    state === "pick_company";
 
   useEffect(() => {
     if (!active || statsLoaded.current) return;
@@ -578,9 +613,10 @@ export function OnboardingFlow() {
       .finally(() => setStatsResolved(true));
   }, [active]);
 
-  // The OAuth-return tab lands on /onboarding/connected while state is
-  // 'syncing' — without this guard the full sync modal would remount there,
-  // cover the "Connected!" message, and start a duplicate apply loop.
+  // The OAuth-return tab lands on /onboarding/connected (connects are launched
+  // from the connect step, and the picker still runs the sync) — without this
+  // guard an onboarding modal would remount there, cover the "Connected!"
+  // message, and could start a duplicate apply loop.
   if (pathname === "/onboarding/connected") return null;
 
   if (!user || state === null) return null;
@@ -605,7 +641,7 @@ export function OnboardingFlow() {
         onAccept={() => {
           if (!stats) return; // still resolving — button is effectively inert
           track("onboarding_bundle_accepted", {});
-          advance("syncing");
+          advance("connect");
         }}
         onDecline={() => {
           track("onboarding_bundle_declined", {});
@@ -615,6 +651,18 @@ export function OnboardingFlow() {
           setDeclinedSplash(true);
         }}
         onSkip={() => skip("bundle_offer")}
+      />
+    );
+  }
+
+  if (state === "connect") {
+    return (
+      <ConnectStep
+        onContinue={() => {
+          track("onboarding_connect_advanced", {});
+          advance("syncing");
+        }}
+        onSkip={() => skip("connect")}
       />
     );
   }
