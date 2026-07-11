@@ -9,13 +9,19 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 payload=$(cat 2>/dev/null || echo '{}')
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
-printf '%s' "$cmd" | grep -q 'gh pr create' || exit 0
+_ln_cmd_invokes "$cmd" 'gh pr create' || exit 0
 
 out=$(printf '%s' "$payload" | jq -r '((.tool_response.stdout // "") + "\n" + (.tool_response.stderr // ""))' 2>/dev/null)
 url=$(printf '%s' "$out" | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+' | head -1)
 [ -n "$url" ] || exit 0
 
-ref=$(linear_issue_ref); [ -n "$ref" ] || exit 0
+# Ref resolution, most authoritative first: branch of the command's cd-target / hook cwd,
+# then the fresh PR's own head branch, then CAR-XX anywhere in the command (title
+# convention). Only a miss on all of these is a legit non-ticket PR → silent skip (CAR-79).
+ref=$(linear_ref_for_cmd "$cmd")
+[ -n "$ref" ] || ref=$(_ln_parse_ref "$(gh pr view "$url" --json headRefName -q .headRefName 2>/dev/null)")
+[ -n "$ref" ] || ref=$(_ln_parse_ref "$cmd")
+[ -n "$ref" ] || exit 0
 synced=1
 linear_set_state "$ref" "In Review" || synced=0
 linear_upsert_comment "$ref" "pr-link" "$(printf '<!-- pr-link -->\n🔀 **PR:** %s' "$url")" || synced=0
