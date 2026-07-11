@@ -5,9 +5,9 @@
  * A publish is a staged run under a lock:
  *   beginPublish        claims data_bundles.staging_version (= version + 1)
  *   publishProspectsChunk / publishCompaniesChunk   stage content (≤50/call)
- *   finalizePublish     soft-removes unseen prospects, recomputes counts,
- *                       commits the version bump (or skips it when nothing
- *                       changed), clears the lock
+ *   finalizePublish     soft-removes unseen prospects, prunes unseen company
+ *                       memberships, recomputes counts, commits the version
+ *                       bump (or skips it when nothing changed), clears the lock
  *   abortPublish        clears the lock without committing
  *
  * Correctness invariants:
@@ -289,11 +289,13 @@ export async function publishCompaniesChunk(
       universal_name: entry.universal_name ?? null,
     });
 
+    // Merge (not ignoreDuplicates): existing memberships must get their
+    // version_last_seen stamped, or finalize would prune them as unseen.
     const { error } = await service
       .from("bundle_companies")
       .upsert(
-        { bundle_id: bundle.id, company_id: company.id },
-        { onConflict: "bundle_id,company_id", ignoreDuplicates: true },
+        { bundle_id: bundle.id, company_id: company.id, version_last_seen: stagingVersion },
+        { onConflict: "bundle_id,company_id" },
       );
     if (error) throw new BundlePublishError(`bundle_companies upsert failed: ${error.message}`, 500);
     result.companies++;
@@ -321,6 +323,7 @@ export interface FinalizePublishResult {
   prospectCount: number;
   companyCount: number;
   removed: number;
+  companiesPruned: number;
 }
 
 export async function finalizePublish(
@@ -343,6 +346,19 @@ export async function finalizePublish(
     .lt("version_last_seen", stagingVersion)
     .is("removed_in_version", null);
   const removed = removedCount ?? 0;
+
+  // Company memberships not stamped by this run's chunks are stale — the
+  // company dropped out of (or was renamed in) the source list. Hard delete:
+  // memberships are pure display/provenance links (nothing user-owned
+  // references them), so they don't need the prospects' soft-removal
+  // machinery. NULL version_last_seen (rows predating CAR-63) prunes too —
+  // a publish is a full snapshot, same as prospects.
+  const { count: prunedCount } = await service
+    .from("bundle_companies")
+    .delete({ count: "exact" })
+    .eq("bundle_id", bundle.id)
+    .or(`version_last_seen.is.null,version_last_seen.lt.${stagingVersion}`);
+  const companiesPruned = prunedCount ?? 0;
 
   // Anything to commit? Changed/added payloads or removals this run.
   const { count: changedCount } = await service
@@ -389,5 +405,6 @@ export async function finalizePublish(
     prospectCount: liveCount ?? 0,
     companyCount: companyCount ?? 0,
     removed,
+    companiesPruned,
   };
 }

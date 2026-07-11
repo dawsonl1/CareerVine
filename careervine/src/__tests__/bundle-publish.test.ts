@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   beginPublish,
   publishProspectsChunk,
+  publishCompaniesChunk,
   finalizePublish,
   hashPayload,
   stableStringify,
@@ -23,7 +24,7 @@ vi.mock('@/lib/company-helpers', () => ({
 
 interface QueryState {
   table: string;
-  op: 'select' | 'insert' | 'update' | 'upsert';
+  op: 'select' | 'insert' | 'update' | 'upsert' | 'delete';
   payload?: unknown;
   filters: Array<{ method: string; args: unknown[] }>;
   count?: boolean;
@@ -56,6 +57,7 @@ function createMockService(respond: Responder) {
       insert(payload: unknown) { state.op = 'insert'; state.payload = payload; return builder; },
       update(payload: unknown) { state.op = 'update'; state.payload = payload; return builder; },
       upsert(payload: unknown, opts?: unknown) { state.op = 'upsert'; state.payload = payload; state.filters.push({ method: 'upsertOpts', args: [opts] }); return builder; },
+      delete(opts?: { count?: string }) { state.op = 'delete'; if (opts?.count) state.count = true; return builder; },
       eq: chain('eq'), or: chain('or'), in: chain('in'), is: chain('is'), lt: chain('lt'),
       async single() { return resolve(); },
       async maybeSingle() { return resolve(); },
@@ -196,9 +198,31 @@ describe('publishProspectsChunk', () => {
   });
 });
 
+// ── publishCompaniesChunk ──────────────────────────────────────────────
+
+describe('publishCompaniesChunk', () => {
+  it('stamps version_last_seen on the membership upsert (merge, not ignoreDuplicates)', async () => {
+    const { client, calls } = createMockService((state) => {
+      if (state.table === 'data_bundles') return { data: { id: 9, version: 3, staging_version: 4 } };
+      return {};
+    });
+    const result = await publishCompaniesChunk(client, 'ib-banks', 4, [
+      { name: 'Goldman Sachs', offices: [] },
+    ]);
+    expect(result).toMatchObject({ companies: 1, offices: 0 });
+    const upsert = calls.find((c) => c.table === 'bundle_companies' && c.op === 'upsert');
+    expect(upsert?.payload).toMatchObject({ bundle_id: 9, company_id: 500, version_last_seen: 4 });
+    // Existing memberships must be re-stamped, or finalize prunes them as
+    // unseen — ignoreDuplicates would skip the conflict update entirely.
+    const opts = filterArg(upsert!, 'upsertOpts')?.[0] as Record<string, unknown>;
+    expect(opts.onConflict).toBe('bundle_id,company_id');
+    expect(opts.ignoreDuplicates).toBeUndefined();
+  });
+});
+
 // ── finalizePublish ────────────────────────────────────────────────────
 
-function finalizeResponder(opts: { removedIds: number[]; changedCount: number; liveCount: number; companyCount: number }) {
+function finalizeResponder(opts: { removedIds: number[]; changedCount: number; liveCount: number; companyCount: number; companiesPruned?: number }) {
   return (state: QueryState) => {
     if (state.table === 'data_bundles' && state.op === 'select')
       return { data: { id: 9, version: 3, staging_version: 4 } };
@@ -210,6 +234,7 @@ function finalizeResponder(opts: { removedIds: number[]; changedCount: number; l
       const isChangedQuery = state.filters.some((f) => f.method === 'eq' && f.args[0] === 'version_updated');
       return { count: isChangedQuery ? opts.changedCount : opts.liveCount };
     }
+    if (state.table === 'bundle_companies' && state.op === 'delete') return { count: opts.companiesPruned ?? 0 };
     if (state.table === 'bundle_companies' && state.count) return { count: opts.companyCount };
     return {};
   };
@@ -246,6 +271,30 @@ describe('finalizePublish', () => {
     expect((removal?.payload as Record<string, unknown>).removed_in_version).toBe(4);
     expect(filterArg(removal!, 'lt')).toEqual(['version_last_seen', 4]);
     expect(filterArg(removal!, 'is')).toEqual(['removed_in_version', null]);
+  });
+
+  it('hard-deletes company memberships not stamped this run (stale or pre-CAR-63 NULL)', async () => {
+    const { client, calls } = createMockService(
+      finalizeResponder({ removedIds: [], changedCount: 0, liveCount: 40, companyCount: 99, companiesPruned: 5 }),
+    );
+    const result = await finalizePublish(client, 'ib-banks', 4);
+    expect(result.companiesPruned).toBe(5);
+    // company_count reflects the post-prune membership count.
+    expect(result.companyCount).toBe(99);
+    const prune = calls.find((c) => c.table === 'bundle_companies' && c.op === 'delete');
+    expect(filterArg(prune!, 'eq')).toEqual(['bundle_id', 9]);
+    expect(filterArg(prune!, 'or')?.[0]).toBe('version_last_seen.is.null,version_last_seen.lt.4');
+  });
+
+  it('a company-only prune does not bump the version (no prospect fan-out)', async () => {
+    const { client, calls } = createMockService(
+      finalizeResponder({ removedIds: [], changedCount: 0, liveCount: 40, companyCount: 99, companiesPruned: 5 }),
+    );
+    const result = await finalizePublish(client, 'ib-banks', 4);
+    expect(result).toMatchObject({ published: false, version: 3, companiesPruned: 5 });
+    const patch = calls.filter((c) => c.table === 'data_bundles' && c.op === 'update').pop();
+    expect(patch?.payload).not.toHaveProperty('version');
+    expect(patch?.payload).toMatchObject({ company_count: 99 });
   });
 });
 

@@ -188,11 +188,11 @@ try {
   const result = await call({ mode: "finalize", slug, stagingVersion });
   if (result.published) {
     console.log(
-      `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed. Subscribers will sync shortly.`,
+      `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed, ${result.companiesPruned} company memberships pruned. Subscribers will sync shortly.`,
     );
   } else {
     console.log(
-      `No changes vs v${result.version} — version not bumped, no subscriber fan-out. Counts refreshed (${result.prospectCount} prospects, ${result.companyCount} companies).`,
+      `No changes vs v${result.version} — version not bumped, no subscriber fan-out. Counts refreshed (${result.prospectCount} prospects, ${result.companyCount} companies; ${result.companiesPruned} stale company memberships pruned).`,
     );
   }
 } catch (err) {
