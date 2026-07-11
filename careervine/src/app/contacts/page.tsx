@@ -17,7 +17,7 @@ import {
 } from "@/lib/queries";
 import { promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
 import { track } from "@/lib/analytics/client";
-import type { Contact, TagRow } from "@/lib/types";
+import type { ContactListItem, TagRow } from "@/lib/types";
 import {
   Plus, Users, Search, ChevronDown, Mail, Phone,
   Tag, ExternalLink, Briefcase, GraduationCap, Check, Trash2, X, UserPlus,
@@ -45,7 +45,7 @@ export default function ContactsPage() {
   const { user } = useAuth();
   const router = useRouter();
   const { success: toastSuccess, error: toastError } = useToast();
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contacts, setContacts] = useState<ContactListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTagFilter, setSelectedTagFilter] = useState<number | null>(null);
@@ -103,7 +103,7 @@ export default function ContactsPage() {
       // first page without waiting on the prospect/bench archive, no tier
       // blocks another, and active is never fetched twice. Prospect/bench still
       // load fully so their toggles stay in-memory once switched on.
-      const byId = new Map<number, Contact>();
+      const byId = new Map<number, ContactListItem>();
       const flush = () =>
         setContacts(Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name)));
 
@@ -111,7 +111,7 @@ export default function ContactsPage() {
       await Promise.all(
         TIERS.map((tier) =>
           getContactsStreamed(user.id, [tier], (rows) => {
-            for (const r of rows as Contact[]) byId.set(r.id, r);
+            for (const r of rows as ContactListItem[]) byId.set(r.id, r);
             flush();
             // First paint on the active tier's first page (the default view).
             if (tier === "active") setLoading(false);
@@ -188,13 +188,13 @@ export default function ContactsPage() {
   const { nameSuggestions, tagSuggestions } = useMemo(() => {
     if (!searchQuery.trim()) return { nameSuggestions: [], tagSuggestions: [] };
     const q = searchQuery.toLowerCase();
-    const nameHit = (c: Contact) =>
+    const nameHit = (c: ContactListItem) =>
       c.name.toLowerCase().includes(q) ||
       c.contact_emails.some((e) => e.email?.toLowerCase().includes(q)) ||
       c.contact_companies.some((cc) => cc.companies.name.toLowerCase().includes(q) || cc.title?.toLowerCase().includes(q)) ||
       c.contact_schools.some((cs) => cs.schools.name.toLowerCase().includes(q)) ||
       c.industry?.toLowerCase().includes(q);
-    const tagHit = (c: Contact) => c.contact_tags.some((ct) => ct.tags.name.toLowerCase().includes(q));
+    const tagHit = (c: ContactListItem) => c.contact_tags.some((ct) => ct.tags.name.toLowerCase().includes(q));
     const nameSuggestions = visibleContacts.filter(nameHit).slice(0, 5);
     const nameIds = new Set(nameSuggestions.map(c => c.id));
     const tagSuggestions = visibleContacts.filter(c => !nameIds.has(c.id) && tagHit(c)).slice(0, 5);
@@ -220,7 +220,7 @@ export default function ContactsPage() {
     return result;
   }, [visibleContacts, searchQuery, selectedTagFilter]);
 
-  const handleActivate = async (contact: Contact) => {
+  const handleActivate = async (contact: ContactListItem) => {
     try {
       await activateContact(contact.id);
       setContacts((prev) =>
@@ -232,7 +232,7 @@ export default function ContactsPage() {
     }
   };
 
-  const handleSetTier = async (contact: Contact, tier: "prospect" | "bench") => {
+  const handleSetTier = async (contact: ContactListItem, tier: "prospect" | "bench") => {
     try {
       if (tier === "prospect") await promoteContactToProspect(contact.id);
       else await demoteContactToBench(contact.id);
