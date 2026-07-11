@@ -21,12 +21,13 @@ create table if not exists public.internal_analytics_emails (
 );
 alter table public.internal_analytics_emails enable row level security;
 
--- 2. Seed the allowlist from CAR-60's known internal accounts, identified by the UUIDs
---    already committed in chrome-extension/env/production.json. Emails are pulled from
---    auth.users at apply time, so no plaintext personal email is committed to source.
---    Already-deleted accounts (e.g. dae9cb35) simply contribute no row.
+-- 2. Seed the allowlist from the internal accounts known at migration time, identified by
+--    UUID (CAR-60's set — already committed in chrome-extension/env/production.json — plus
+--    maijamorr@gmail.com). Emails are pulled from auth.users at apply time, so no plaintext
+--    personal email is committed to source. Already-deleted accounts (e.g. dae9cb35) simply
+--    contribute no row.
 insert into public.internal_analytics_emails (email, note)
-select lower(u.email), 'seeded from CAR-60 internal account ' || u.id::text
+select lower(u.email), 'seeded by CAR-80 from account ' || u.id::text
 from auth.users u
 where u.id in (
   '63198da1-446a-43e0-b845-7ce708819cbe',
@@ -34,7 +35,8 @@ where u.id in (
   '296266b9-641d-4e7a-ae3c-d27de3b49fe0',
   'b376e8af-7a9c-4540-836e-f83ffd7e25eb',
   'dae9cb35-e06b-4615-a7a2-6dfbaced0c5d',
-  'c82baf35-4123-4018-a504-313efcd6c4d1'
+  'c82baf35-4123-4018-a504-313efcd6c4d1',
+  'b5b20c21-7632-48ce-ac9d-9bcdb14a1fff'
 )
 and u.email is not null
 on conflict (email) do nothing;
