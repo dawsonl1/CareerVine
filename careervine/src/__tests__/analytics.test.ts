@@ -5,11 +5,13 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// service-client is imported by analytics/server — mock before importing it.
+// service-client is imported by analytics/server and analytics/internal — mock before
+// importing them. `rpc` backs the CAR-80 user_is_internal() lookup.
 const insertMock = vi.fn();
 const fromMock = vi.fn(() => ({ insert: insertMock }));
+const rpcMock = vi.fn();
 vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({ from: fromMock }),
+  createSupabaseServiceClient: () => ({ from: fromMock, rpc: rpcMock }),
 }));
 
 // posthog-node — capture $set assertions (CAR-58 person-state properties).
@@ -37,15 +39,15 @@ beforeEach(() => {
   _resetInternalUsersForTests();
   insertMock.mockReset().mockResolvedValue({ error: null });
   fromMock.mockClear();
+  // Default: nobody is internal. Individual tests override per uid.
+  rpcMock.mockReset().mockResolvedValue({ data: false, error: null });
   captureMock.mockClear();
   flushMock.mockClear();
   delete process.env.NEXT_PUBLIC_POSTHOG_KEY;
-  delete process.env.NEXT_PUBLIC_ANALYTICS_INTERNAL_USER_IDS;
 });
 
 afterEach(() => {
   delete process.env.NEXT_PUBLIC_POSTHOG_KEY;
-  delete process.env.NEXT_PUBLIC_ANALYTICS_INTERNAL_USER_IDS;
 });
 
 describe("event registry", () => {
@@ -160,28 +162,47 @@ describe("connection-state person properties (CAR-58)", () => {
   });
 });
 
-describe("internal-account exclusion (CAR-60)", () => {
-  it("parses the comma-separated env var and matches only listed ids", () => {
-    process.env.NEXT_PUBLIC_ANALYTICS_INTERNAL_USER_IDS = " user-a , user-b,";
-    expect(isInternalUser("user-a")).toBe(true);
-    expect(isInternalUser("user-b")).toBe(true);
-    expect(isInternalUser("user-c")).toBe(false);
-    expect(isInternalUser(null)).toBe(false);
+describe("internal-account exclusion (CAR-80)", () => {
+  const INTERNAL = "11111111-1111-1111-1111-111111111111";
+  const REAL = "22222222-2222-2222-2222-222222222222";
+
+  it("resolves internal status by user id via user_is_internal(), then caches it", async () => {
+    rpcMock.mockResolvedValue({ data: true, error: null });
+    expect(await isInternalUser(INTERNAL)).toBe(true);
+    expect(rpcMock).toHaveBeenCalledWith("user_is_internal", { uid: INTERNAL });
+    // Second call is served from cache — no extra rpc round trip.
+    expect(await isInternalUser(INTERNAL)).toBe(true);
+    expect(rpcMock).toHaveBeenCalledTimes(1);
   });
 
-  it("treats an unset env var as no internal users", () => {
-    expect(isInternalUser("anyone")).toBe(false);
+  it("returns false for non-uuid distinct ids without touching the database", async () => {
+    expect(await isInternalUser("system:cron")).toBe(false);
+    expect(await isInternalUser(null)).toBe(false);
+    expect(await isInternalUser(undefined)).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("treats an rpc error as not-internal and does not cache the failure", async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: { message: "boom" } });
+    expect(await isInternalUser(REAL)).toBe(false);
+    // Failure wasn't cached, so a later successful lookup can still flip it.
+    rpcMock.mockResolvedValueOnce({ data: true, error: null });
+    expect(await isInternalUser(REAL)).toBe(true);
   });
 
   it("drops all trackServer work for internal users — no capture, no mirror", async () => {
     process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test";
-    process.env.NEXT_PUBLIC_ANALYTICS_INTERNAL_USER_IDS = "internal-1";
-    await trackServer("internal-1", "email_sent", {});
+    rpcMock.mockImplementation((_fn, args) =>
+      Promise.resolve({ data: args.uid === INTERNAL, error: null }),
+    );
+
+    await trackServer(INTERNAL, "email_sent", { is_follow_up: false });
     expect(captureMock).not.toHaveBeenCalled();
     expect(fromMock).not.toHaveBeenCalled();
 
-    await trackServer("real-user", "email_sent", {});
+    await trackServer(REAL, "email_sent", { is_follow_up: false });
     expect(captureMock).toHaveBeenCalledTimes(1);
+    expect(fromMock).toHaveBeenCalledWith("analytics_events");
   });
 });
 

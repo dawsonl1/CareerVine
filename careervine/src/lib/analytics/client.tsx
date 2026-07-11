@@ -16,7 +16,6 @@ import { useEffect } from "react";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
 import { useAuth } from "@/components/auth-provider";
-import { isInternalUser } from "./internal";
 import type { AnalyticsEvent, AnalyticsEvents } from "./events";
 
 const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
@@ -101,9 +100,11 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     if (user) {
       // Internal accounts (Dawson/test users) produce no analytics at all —
       // opt-out kills curated events, autocapture, pageviews, and session
-      // replay in one switch (CAR-60). Re-opt-in when a real user signs in
-      // on the same device, since opt-out persists in browser storage.
-      if (isInternalUser(user.id)) {
+      // replay in one switch (CAR-60/CAR-80). The is_internal flag is an
+      // email-derived JWT claim (app_metadata) set at signup, so it survives
+      // account delete/recreate. Re-opt-in when a real user signs in on the
+      // same device, since opt-out persists in browser storage.
+      if (user.app_metadata?.is_internal === true) {
         posthog.opt_out_capturing();
         return;
       }
