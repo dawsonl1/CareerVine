@@ -7,7 +7,9 @@
  * contact forever), contacts already covered by an in-flight run, contacts in
  * failure backoff, contacts scraped more recently than CADENCE_MIN_AGE_DAYS
  * (a small fleet must not burn the cap on daily re-scrapes of fresh data),
- * and profiles past the re-link threshold (paying to re-fail a dead URL).
+ * profiles past the re-link threshold (paying to re-fail a dead URL), and
+ * bundle-imported contacts (CAR-76: bundle data refreshes centrally via
+ * bundle re-publish — per-user spend must never re-scrape it).
  */
 
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
@@ -76,6 +78,8 @@ export async function selectCadenceCandidates(
       .eq("user_id", userId)
       .in("network_status", statuses)
       .not("linkedin_url", "is", null)
+      // NULL-safe bundle exclusion: NOT LIKE alone drops NULL import_source rows.
+      .or("import_source.is.null,import_source.not.like.bundle:*")
       .or(`last_scraped_at.is.null,last_scraped_at.lt.${minAgeCutoffIso}`)
       .or(`scrape_failed_at.is.null,scrape_failed_at.lt.${backoffCutoffIso}`)
       .lt("scrape_failure_count", SCRAPE_FAILURES_BEFORE_RELINK)

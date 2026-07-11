@@ -25,11 +25,12 @@ const SYNC_THROTTLE_MS = 6 * 60 * 60 * 1000;
 const lastSyncByUser = new Map<string, number>();
 
 /**
- * Detect this month's work anniversaries for a user's active/prospect contacts
+ * Detect this month's work anniversaries for a user's active-network contacts
  * and upsert them as change events. Idempotent: ON CONFLICT (user_id,
  * dedupe_key) DO NOTHING, so re-running never revives a dismissed/actioned
- * event nor duplicates a still-new one. Bench contacts are excluded
- * (plan-24 containment). Returns the number of candidate events considered.
+ * event nor duplicates a still-new one. Prospect and bench contacts are
+ * excluded (CAR-76: anniversary nudges are for the real network only).
+ * Returns the number of candidate events considered.
  */
 export async function syncAnniversaryEvents(
   userId: string,
@@ -56,7 +57,7 @@ export async function syncAnniversaryEvents(
       .from("contacts")
       .select("id, name, photo_url, industry, contact_companies(company_id, start_month, is_current, companies(name))")
       .eq("user_id", userId)
-      .in("network_status", ["active", "prospect"])
+      .eq("network_status", "active")
       .order("id")
       .range(from, from + CONTACT_PAGE - 1);
     if (error) {
@@ -128,10 +129,11 @@ export async function fetchChangeEventSuggestions(userId: string): Promise<Sugge
     .eq("user_id", userId)
     .eq("status", ChangeEventStatus.New)
     .in("tier", [ChangeEventTier.ActNow, ChangeEventTier.Touchpoint])
-    // Never surface a contact who has since moved to bench (plan-24 containment).
-    // The producer only creates events for active/prospect, but a contact can be
-    // benched after an event is created.
-    .in("contacts.network_status", ["active", "prospect"])
+    // Active network only (CAR-76): scrape-diff events on prospects are still
+    // recorded — they power company-page badges — but Up Next never surfaces a
+    // contact the user hasn't added to their network, and a contact demoted
+    // after an event is created drops out here.
+    .eq("contacts.network_status", "active")
     .order("tier", { ascending: true })
     .order("detected_at", { ascending: false });
 
