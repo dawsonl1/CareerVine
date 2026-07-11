@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Client } from '@upstash/qstash';
 import {
   enqueueBundleSyncJobs,
+  enqueueResolveDrain,
   findStaleSubscriptionIds,
   findPendingUnsubscribeIds,
   processSubscriptionsUnderBudget,
@@ -63,6 +64,35 @@ describe('enqueueBundleSyncJobs', () => {
     const publishJSON = vi.fn(async () => ({}));
     expect(await enqueueBundleSyncJobs([], 'https://x', { publishJSON } as unknown as Client)).toBe(0);
     expect(publishJSON).not.toHaveBeenCalled();
+  });
+});
+
+// ── enqueueResolveDrain (CAR-81) ───────────────────────────────────────
+
+describe('enqueueResolveDrain', () => {
+  it('publishes a delayed self-drain to the cron url with single-parallelism flow control', async () => {
+    const publishJSON = vi.fn<(msg: Record<string, unknown>) => Promise<unknown>>(async () => ({}));
+    const ok = await enqueueResolveDrain('https://x/api/cron/sync-bundles', { publishJSON } as unknown as Client, {
+      delaySeconds: 3,
+    });
+    expect(ok).toBe(true);
+    expect(publishJSON.mock.calls[0][0]).toMatchObject({
+      url: 'https://x/api/cron/sync-bundles',
+      body: {},
+      delay: 3,
+      flowControl: { key: 'sync-bundles-drain', parallelism: 1 },
+    });
+  });
+
+  it('is a no-op (false) when QStash is unconfigured', async () => {
+    expect(await enqueueResolveDrain('https://x', null)).toBe(false);
+  });
+
+  it('returns false and swallows a publish failure', async () => {
+    const publishJSON = vi.fn(async () => {
+      throw new Error('qstash down');
+    });
+    expect(await enqueueResolveDrain('https://x', { publishJSON } as unknown as Client)).toBe(false);
   });
 });
 

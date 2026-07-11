@@ -47,6 +47,13 @@ interface HandlerContext<TBody = unknown, TQuery = unknown> {
    * serverless freeze without the handler blocking on them.
    */
   track: <E extends AnalyticsEvent>(event: E, props: AnalyticsEvents[E]) => void;
+  /**
+   * Defer arbitrary non-critical async work (already-started promise) past
+   * the response (CAR-78). Same flush guarantee as track: the wrapper awaits
+   * it in finally, so it completes before the lambda freezes but never
+   * blocks the handler. Rejections are swallowed.
+   */
+  defer: (p: Promise<unknown>) => void;
 }
 
 interface RouteConfig<TBody = unknown, TQuery = unknown> {
@@ -249,6 +256,9 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         params,
         track: (event, props) => {
           pendingTracks.push(trackServer(trackUserId, event, props));
+        },
+        defer: (p) => {
+          pendingTracks.push(p.then(() => undefined, () => undefined));
         },
       });
 

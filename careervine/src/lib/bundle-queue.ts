@@ -74,6 +74,35 @@ export async function enqueueBundleSyncJobs(
   return published;
 }
 
+/**
+ * Chain another sync-bundles cron run (CAR-81). The resolver self-heal only
+ * resolves what fits in one invocation's budget; when a freshly-published
+ * bundle has a big backlog, re-enqueueing the cron drains it in minutes
+ * instead of one chunk per daily run. Callers gate this on forward progress
+ * so a genuinely stuck bundle can't loop forever. parallelism:1 keeps drain
+ * runs from stacking. Returns false (no-op) when QStash isn't configured.
+ */
+export async function enqueueResolveDrain(
+  cronUrl: string,
+  client: Client | null = getQstashClient(),
+  opts: { delaySeconds?: number } = {},
+): Promise<boolean> {
+  if (!client) return false;
+  try {
+    await client.publishJSON({
+      url: cronUrl,
+      body: {},
+      retries: 1,
+      ...(opts.delaySeconds ? { delay: opts.delaySeconds } : {}),
+      flowControl: { key: "sync-bundles-drain", parallelism: 1 },
+    });
+    return true;
+  } catch (err) {
+    console.error("[bundle-queue] resolve-drain re-enqueue failed:", err);
+    return false;
+  }
+}
+
 /** Active subscriptions of a bundle that are behind its committed version. */
 export async function findStaleSubscriptionIds(
   service: SupabaseClient,

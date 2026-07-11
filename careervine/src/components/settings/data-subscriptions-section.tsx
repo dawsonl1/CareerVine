@@ -83,7 +83,7 @@ export default function DataSubscriptionsSection() {
     return { bundles: nextBundles, subs: nextSubs };
   }, [user, supabase]);
 
-  /** Chunked apply loop; returns true when the sync fully completed. */
+  /** Chunked apply loop; resolves completed: true when the sync finished. */
   const runApplyLoop = useCallback(
     async (bundle: BundleRow, opts: { silent: boolean }) => {
       try {
@@ -109,7 +109,7 @@ export default function DataSubscriptionsSection() {
       await subscribeToBundle(bundle.id);
       setProgress((p) => new Map(p).set(bundle.id, { applied: 0, total: bundle.prospect_count }));
       await load();
-      const completed = await runApplyLoop(bundle, { silent: false });
+      const { completed } = await runApplyLoop(bundle, { silent: false });
       if (completed) success(`Subscribed to ${bundle.name}: ${bundle.prospect_count} prospects added to your contacts`);
       await load();
     } catch (err) {
