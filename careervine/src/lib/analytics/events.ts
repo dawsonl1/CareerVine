@@ -45,6 +45,9 @@ export type AnalyticsEvents = {
   contact_imported: {
     source: "extension" | "bulk" | "manual" | "bundle" | "mcp" | "discovery";
     count?: number;
+    /** Bundle syncs only (CAR-78): true when the CAR-62 fast path did the
+     * import. Absent on non-bundle sources. */
+    fast?: boolean;
   };
   // (contact/page views come free from $pageview + autocapture — no
   // curated event needed.)
@@ -112,7 +115,13 @@ export type AnalyticsEvents = {
   onboarding_started: Record<string, never>;
   onboarding_bundle_accepted: Record<string, never>;
   onboarding_bundle_declined: Record<string, never>;
-  onboarding_sync_completed: { prospects?: number };
+  onboarding_sync_completed: {
+    prospects?: number;
+    /** Which server path applied the sync (CAR-78 instrumentation). Absent
+     * when a background driver finished it and the client never saw a step. */
+    path?: "fast" | "merge";
+    duration_ms?: number;
+  };
   onboarding_company_picked: { alumni_count?: number };
   /** Activation: the guided flow's first outreach email went out. */
   onboarding_email_sent: Record<string, never>;

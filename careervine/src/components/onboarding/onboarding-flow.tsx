@@ -250,15 +250,25 @@ function CompanyPickerStep({
   const gmailConnected = gmailConn !== null;
   const started = useRef(false);
   const doneRef = useRef(false);
+  const startedAtRef = useRef(0);
   const companiesRef = useRef<PickerCompany[] | null>(null);
   companiesRef.current = companies;
 
-  const finish = useCallback(() => {
-    if (doneRef.current) return;
-    doneRef.current = true;
-    track("onboarding_sync_completed", { prospects: stats?.prospectCount ?? 0 });
-    onSyncComplete();
-  }, [onSyncComplete, stats?.prospectCount]);
+  // path is absent when a background driver finished the sync and this tab
+  // never saw an apply response (CAR-78 instrumentation).
+  const finish = useCallback(
+    (path?: "fast" | "merge") => {
+      if (doneRef.current) return;
+      doneRef.current = true;
+      track("onboarding_sync_completed", {
+        prospects: stats?.prospectCount ?? 0,
+        path,
+        duration_ms: startedAtRef.current ? Date.now() - startedAtRef.current : undefined,
+      });
+      onSyncComplete();
+    },
+    [onSyncComplete, stats?.prospectCount],
+  );
 
   const loadCompanies = useCallback(async () => {
     try {
@@ -285,17 +295,18 @@ function CompanyPickerStep({
   useEffect(() => {
     if (!syncing || !stats || started.current) return;
     started.current = true;
+    startedAtRef.current = Date.now();
     (async () => {
       // Resume-safe: subscribing when already subscribed is handled
       // server-side; the apply loop picks up wherever the sync left off.
       await subscribeToBundle(stats.bundleId).catch(() => {});
       setSubscribed(true);
       try {
-        const completed = await runBundleApplyLoop({
+        const { completed, path } = await runBundleApplyLoop({
           id: stats.bundleId,
           prospect_count: stats.prospectCount,
         });
-        if (completed) finish();
+        if (completed) finish(path);
         // Otherwise another driver (worker/cron) owns the sync — the poll
         // below detects the durable completion signal.
       } catch (err) {

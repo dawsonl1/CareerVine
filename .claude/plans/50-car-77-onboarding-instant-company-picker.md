@@ -6,7 +6,7 @@ The guided onboarding (CAR-50) blocks the user on a full-screen sync progress mo
 
 ## Design
 
-### 1. Migration — `supabase/migrations/20260711160000_bundle_company_stats.sql`
+### 1. Migration — `supabase/migrations/20260711170000_bundle_company_stats.sql` (renumbered from 160000 after CAR-78 landed a same-version migration on main)
 
 New SQL function `bundle_company_stats(p_bundle_id int)` returning per-company rows for a subscribed bundle:
 

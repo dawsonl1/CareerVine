@@ -16,6 +16,16 @@ export type ApplyStep = {
   pinnedVersion: number;
   applied: number;
   claimToken?: string;
+  /** Which server path applied this call's work (CAR-78 instrumentation). */
+  path?: "fast" | "merge";
+};
+
+export type ApplyLoopOutcome = {
+  /** True when this driver finished the sync; false when another driver
+   * (worker/cron) owns it. */
+  completed: boolean;
+  /** Path reported by the final apply response, for analytics. */
+  path?: "fast" | "merge";
 };
 
 export const BACKGROUND_SYNC_MESSAGE =
@@ -62,18 +72,19 @@ export async function subscribeToBundle(bundleId: number): Promise<void> {
 }
 
 /**
- * Run the chunked apply loop until the sync completes. Returns true when this
- * driver finished the sync, false when another driver (worker/cron) owns it.
- * Throws BACKGROUND_SYNC_MESSAGE when the server errored but a background
- * job will finish the work.
+ * Run the chunked apply loop until the sync completes. Resolves with
+ * completed: true when this driver finished the sync, false when another
+ * driver (worker/cron) owns it. Throws BACKGROUND_SYNC_MESSAGE when the
+ * server errored but a background job will finish the work.
  */
 export async function runBundleApplyLoop(
   bundle: { id: number; prospect_count: number },
   onProgress?: (progress: ApplyProgress) => void,
-): Promise<boolean> {
+): Promise<ApplyLoopOutcome> {
   let cursor: ApplyStep["nextCursor"] = null;
   let pinnedVersion: number | undefined;
   let claimToken: string | undefined;
+  let path: ApplyLoopOutcome["path"];
   let applied = 0;
   onProgress?.({ applied: 0, total: bundle.prospect_count });
   for (;;) {
@@ -98,15 +109,16 @@ export async function runBundleApplyLoop(
         // claim — surface the background handoff instead of silence.
         if (retried) throw new Error(BACKGROUND_SYNC_MESSAGE);
         // Otherwise another driver (worker/cron) is already syncing — fine.
-        return false;
+        return { completed: false };
       }
       throw new Error(step.error ?? "Sync failed");
     }
     applied += step.applied;
     pinnedVersion = step.pinnedVersion;
     claimToken = step.claimToken ?? claimToken;
+    path = step.path ?? path;
     onProgress?.({ applied, total: bundle.prospect_count });
-    if (step.done) return true;
+    if (step.done) return { completed: true, path };
     cursor = step.nextCursor;
   }
 }
