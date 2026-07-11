@@ -159,13 +159,14 @@ export const DELETE = withApiHandler({
 
     const email = authData.user.email ?? null;
 
-    // Storage objects don't cascade with the DB rows — clear the user's
-    // folders in both tracked buckets first, best-effort (the daily
-    // storage-sweep cron self-heals anything missed here).
-    await removeUserStorageObjects(service, id);
-
     const { error } = await service.auth.admin.deleteUser(id);
     if (error) throw new ApiError(`Delete failed: ${error.message}`, 400);
+
+    // Storage objects don't cascade with the DB rows — clear the user's
+    // folders in both tracked buckets, best-effort (the daily storage-sweep
+    // cron self-heals anything missed here). Done AFTER the account is deleted
+    // so a failed deleteUser never strands live files whose rows still exist.
+    await removeUserStorageObjects(service, id);
 
     await writeAudit(service, {
       adminId: admin.id,

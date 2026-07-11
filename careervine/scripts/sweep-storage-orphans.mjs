@@ -57,7 +57,8 @@ async function listAllObjects(bucket) {
 async function fetchPaths(table, columns, extract, filter) {
   const paths = new Set();
   for (let from = 0; ; from += 1000) {
-    let q = supabase.from(table).select(columns).range(from, from + 999);
+    // Stable total order so LIMIT/OFFSET pages can't skip live rows.
+    let q = supabase.from(table).select(columns).order("id").range(from, from + 999);
     if (filter) q = filter(q);
     const { data, error } = await q;
     if (error) throw new Error(`${table} query: ${error.message}`);
@@ -86,7 +87,9 @@ for (const [bucket, fetchLive] of Object.entries(BUCKETS)) {
   let skippedRecent = 0;
   for (const obj of objects) {
     if (live.has(obj.path)) continue;
-    if (obj.createdAt !== null && new Date(obj.createdAt).getTime() > cutoff) {
+    // Fail safe: unknown/unparseable age (NaN) is treated as too-recent to delete.
+    const ageTs = obj.createdAt ? new Date(obj.createdAt).getTime() : NaN;
+    if (Number.isNaN(ageTs) || ageTs > cutoff) {
       skippedRecent++;
       continue;
     }

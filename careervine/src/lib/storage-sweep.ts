@@ -10,11 +10,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * remove storage inline for immediacy.
  *
  * Safety properties:
- * - Storage is listed BEFORE the DB snapshot is taken, so an object uploaded
- *   mid-sweep either isn't seen or its row is already visible in the snapshot.
- * - Objects younger than `minAgeMs` (default 24h) are never touched —
+ * - Objects younger than `minAgeMs` (default 24h) are never deleted. This is
+ *   the PRIMARY protection against the upload-before-insert race:
  *   uploadAttachment writes storage first and inserts the row after, so a
- *   fresh upload can briefly look orphaned.
+ *   just-uploaded object can transiently have no matching row. An object whose
+ *   age is unknown (null/unparseable timestamp) is treated as too-recent and
+ *   also skipped — the guard fails safe. Do NOT lower minAgeMs toward 0.
+ * - Listing storage BEFORE the DB snapshot narrows the race window further,
+ *   but is not sufficient on its own (a slow insert can land after the
+ *   snapshot); the min-age guard is what makes it safe.
+ * - The DB live-path set must be COMPLETE — any live path missed is a live
+ *   object deleted — so the paginated reads use a stable `.order("id")` and a
+ *   DB read error aborts the whole bucket rather than sweeping a partial set.
  * - Exact-path matching only: object names embed raw user filenames, so
  *   prefix parsing is never safe.
  */
@@ -80,6 +87,9 @@ async function fetchAttachmentPaths(
       .from("attachments")
       .select("object_path")
       .eq("bucket", bucket)
+      // Stable total order so LIMIT/OFFSET pages can't skip rows across
+      // requests (an incomplete live-path set would delete live objects).
+      .order("id")
       .range(from, from + DB_PAGE_SIZE - 1);
     if (error) throw new Error(`attachments query: ${error.message}`);
     for (const row of (data as { object_path: string }[] | null) ?? []) {
@@ -99,6 +109,7 @@ async function fetchApplicationFilePaths(
     const { data, error } = await service
       .from("pipeline_applications")
       .select("resume_path, cover_letter_path")
+      .order("id")
       .range(from, from + DB_PAGE_SIZE - 1);
     if (error) throw new Error(`pipeline_applications query: ${error.message}`);
     const rows =
@@ -161,7 +172,13 @@ export async function sweepStorageOrphans(opts: SweepOptions): Promise<SweepResu
     for (const obj of objects) {
       if (livePaths.has(obj.path)) {
         bucketResult.live++;
-      } else if (obj.createdAt !== null && new Date(obj.createdAt).getTime() > cutoff) {
+        continue;
+      }
+      // Fail safe: an unknown or unparseable age (NaN) is treated as too-recent
+      // to delete, never as old enough — the guard must never fail open on a
+      // destructive path.
+      const ageTs = obj.createdAt ? new Date(obj.createdAt).getTime() : NaN;
+      if (Number.isNaN(ageTs) || ageTs > cutoff) {
         bucketResult.skippedRecent++;
       } else {
         orphans.push(obj.path);
@@ -196,6 +213,10 @@ export async function removeUserStorageObjects(
   service: SupabaseClient,
   userId: string,
 ): Promise<void> {
+  // Guard against a falsy userId — an empty prefix would list and delete every
+  // object in the bucket for all users. This function is an unconditional,
+  // un-aged, cross-user delete primitive; never let it run bucket-wide.
+  if (!userId) throw new Error("removeUserStorageObjects: userId is required");
   for (const bucket of SWEPT_BUCKETS) {
     try {
       const userPaths = (await listAllObjects(service, bucket, userId)).map((o) => o.path);

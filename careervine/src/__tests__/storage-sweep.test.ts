@@ -59,6 +59,7 @@ function mockService(cfg: MockConfig) {
     Object.assign(builder, {
       select: () => builder,
       eq: () => builder,
+      order: () => builder,
       range: (f: number, t: number) => {
         from = f;
         to = t;
@@ -120,6 +121,28 @@ describe("sweepStorageOrphans", () => {
     const result = await sweepStorageOrphans({ service, now: () => NOW });
 
     expect(result.attachments.skippedRecent).toBe(1);
+    expect(result.attachments.removed).toEqual([]);
+    expect(removeCalls).toEqual([]);
+  });
+
+  it("fails safe: skips orphans with a null or unparseable created_at", async () => {
+    const { service, removeCalls } = mockService({
+      storage: {
+        attachments: {
+          "": [folder("userA")],
+          userA: [
+            { name: "no-timestamp.pdf", id: "id-x", created_at: undefined },
+            { name: "bad-timestamp.pdf", id: "id-y", created_at: "not-a-date" },
+          ],
+        },
+        "application-files": EMPTY_APP_BUCKET,
+      },
+      attachmentPaths: [],
+    });
+
+    const result = await sweepStorageOrphans({ service, now: () => NOW });
+
+    expect(result.attachments.skippedRecent).toBe(2);
     expect(result.attachments.removed).toEqual([]);
     expect(removeCalls).toEqual([]);
   });
@@ -228,6 +251,14 @@ describe("removeUserStorageObjects", () => {
       { bucket: "attachments", paths: ["userA/a.pdf", "userA/b.pdf"] },
       { bucket: "application-files", paths: ["userA/resume.pdf"] },
     ]);
+  });
+
+  it("throws on a falsy userId rather than wiping the whole bucket", async () => {
+    const { service, removeCalls } = mockService({
+      storage: { attachments: { "": [file("a.pdf")] }, "application-files": {} },
+    });
+    await expect(removeUserStorageObjects(service, "")).rejects.toThrow(/userId is required/);
+    expect(removeCalls).toEqual([]);
   });
 
   it("swallows storage errors (sweep self-heals)", async () => {
