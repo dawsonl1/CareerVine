@@ -250,6 +250,12 @@ export async function publishProspectsChunk(
         version_updated: stagingVersion,
         version_last_seen: stagingVersion,
         removed_in_version: null,
+        // The old resolution snapshot is keyed to the previous payload hash —
+        // drop it so this row reads as unresolved (CAR-81). This is what makes
+        // `resolved IS NULL` an exact "needs resolution" predicate for the
+        // resolver's DB filter; without it a changed row keeps a stale snapshot
+        // that the null-filter would skip forever.
+        resolved: null,
         updated_at: nowIso,
       })
       .eq("id", existing.id);

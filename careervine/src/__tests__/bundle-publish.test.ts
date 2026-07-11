@@ -163,9 +163,12 @@ describe('publishProspectsChunk', () => {
     const update = calls.find((c) => c.table === 'bundle_prospects' && c.op === 'update');
     expect((update?.payload as Record<string, unknown>).version_updated).toBe(4);
     expect((update?.payload as Record<string, unknown>).removed_in_version).toBeNull();
+    // The old resolution snapshot is keyed to the previous hash — clearing it
+    // makes `resolved IS NULL` an exact "needs resolution" predicate (CAR-81).
+    expect((update?.payload as Record<string, unknown>).resolved).toBeNull();
   });
 
-  it('touches only version_last_seen when unchanged (no subscriber delta)', async () => {
+  it('touches only version_last_seen when unchanged (no subscriber delta, keeps resolved)', async () => {
     const { client, calls } = createMockService(
       prospectsResponder([{ id: 1, linkedin_url: PAYLOAD.linkedin_url, payload_hash: hashPayload(PAYLOAD), version_added: 1 }]),
     );
@@ -174,6 +177,8 @@ describe('publishProspectsChunk', () => {
     const update = calls.find((c) => c.table === 'bundle_prospects' && c.op === 'update');
     expect(update?.payload).not.toHaveProperty('version_updated');
     expect((update?.payload as Record<string, unknown>).version_last_seen).toBe(4);
+    // Unchanged payload keeps its valid snapshot — must NOT be invalidated.
+    expect(update?.payload).not.toHaveProperty('resolved');
   });
 
   it('counts a re-added prospect (version_added = staging) as readded', async () => {
