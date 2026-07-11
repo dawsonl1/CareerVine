@@ -54,7 +54,7 @@ export function registerOutreachTools(server: McpServer): void {
       annotations: { readOnlyHint: true },
     },
     handler(async ({ limit, offset }) => {
-      const summaries = await getCompanies(uid(), { targetsOnly: true });
+      const summaries = await getCompanies(uid(), { scope: "targets" });
       const { queue, skippedCount } = buildOutreachQueue(summaries, new Date().toISOString());
       const today = new Date().toISOString().slice(0, 10);
       const start = offset ?? 0;
@@ -91,7 +91,7 @@ export function registerOutreachTools(server: McpServer): void {
       annotations: { readOnlyHint: true },
     },
     handler(async ({ targets_only, search, limit }) => {
-      const summaries = await getCompanies(uid(), { targetsOnly: targets_only ?? true, search });
+      const summaries = await getCompanies(uid(), { scope: (targets_only ?? true) ? "targets" : "all", search });
       const page = summaries.slice(0, limit ?? 50);
       return {
         summary: `${summaries.length} companies${page.length < summaries.length ? `; showing first ${page.length} (narrow with search or raise limit)` : ""}`,

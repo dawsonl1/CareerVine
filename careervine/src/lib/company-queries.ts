@@ -295,6 +295,43 @@ export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
 
 export type CompanySort = "priority" | "traction" | "next_app_date" | "name";
 
+/**
+ * Which companies the dashboard returns:
+ * - `targets`  — only companies the user explicitly targets (outreach queue, MCP).
+ * - `in_play`  — targets + companies where the user has a CURRENT non-bench
+ *                contact (active or prospect). The primary /companies view.
+ * - `all`      — every company with contacts (full network-history search).
+ */
+export type CompanyScope = "targets" | "in_play" | "all";
+
+/**
+ * Pick which company ids a scope surfaces, given the user's targets and the
+ * per-company current/former contact aggregate. Pure so the view semantics
+ * are unit-testable without a database.
+ *
+ * - `targets`  — exactly the targeted companies.
+ * - `in_play`  — targets ∪ companies with a CURRENT contact (active or
+ *                prospect). Current only, so a contact's past employers don't
+ *                flood the list; bench is already excluded from `current`.
+ * - `all`      — targets ∪ companies with ≥ `minContacts` current-or-former
+ *                contacts.
+ */
+export function selectCompanyIds<A extends { current: { size: number }; former: { size: number } }>(
+  scope: CompanyScope,
+  targetCompanyIds: Iterable<number>,
+  aggByCompany: Map<number, A>,
+  minContacts = 1,
+): number[] {
+  if (scope === "targets") return [...new Set(targetCompanyIds)];
+  const ids = new Set<number>(targetCompanyIds);
+  for (const [id, agg] of aggByCompany) {
+    const qualifies =
+      scope === "in_play" ? agg.current.size >= 1 : agg.current.size + agg.former.size >= minContacts;
+    if (qualifies) ids.add(id);
+  }
+  return [...ids];
+}
+
 interface EmploymentAggRow {
   company_id: number;
   contact_id: number;
@@ -321,10 +358,10 @@ async function fetchUserEmploymentRows(userId: string): Promise<EmploymentAggRow
 
 export async function getCompanies(
   userId: string,
-  opts: { targetsOnly?: boolean; search?: string; minContacts?: number; sort?: CompanySort } = {},
+  opts: { scope?: CompanyScope; search?: string; minContacts?: number; sort?: CompanySort } = {},
 ): Promise<CompanySummary[]> {
-  const targetsOnly = opts.targetsOnly ?? true;
-  const sort = opts.sort ?? (targetsOnly ? "priority" : "name");
+  const scope = opts.scope ?? "targets";
+  const sort = opts.sort ?? (scope === "all" ? "name" : "priority");
 
   const [employment, targetsRes] = await Promise.all([
     fetchUserEmploymentRows(userId),
@@ -386,16 +423,7 @@ export async function getCompanies(
   }
 
   // Which companies to show
-  let companyIds: number[];
-  if (targetsOnly) {
-    companyIds = [...targetByCompany.keys()];
-  } else {
-    const minContacts = opts.minContacts ?? 1;
-    companyIds = [...aggByCompany.entries()]
-      .filter(([, agg]) => agg.current.size + agg.former.size >= minContacts)
-      .map(([id]) => id);
-    for (const id of targetByCompany.keys()) if (!companyIds.includes(id)) companyIds.push(id);
-  }
+  const companyIds = selectCompanyIds(scope, targetByCompany.keys(), aggByCompany, opts.minContacts ?? 1);
   if (companyIds.length === 0) return [];
 
   // Company rows (chunked)
@@ -412,9 +440,10 @@ export async function getCompanies(
     return data ?? [];
   });
 
-  // Traction: max derived stage per company — targets view only (bounded)
+  // Traction: max derived stage per company. Skipped only for the "all" view,
+  // whose company set is unbounded; targets/in_play are bounded and safe.
   const traction = new Map<number, OutreachStage>();
-  if (targetsOnly) {
+  if (scope !== "all") {
     const uniqueContacts = new Map<number, { id: number; stage_override: string | null }>();
     for (const id of companyIds) {
       for (const c of aggByCompany.get(id)?.contactRows ?? []) uniqueContacts.set(c.id, c);
@@ -535,6 +564,12 @@ export interface CompanyPerson {
     location_country: string | null;
     workplace_type: string | null;
   }>;
+  /**
+   * The contact's current employer (their `contact_companies` row where `is_current`),
+   * which may be a different company than the one whose page this is — mirrors the
+   * contacts-list card. Null when no current company is on file.
+   */
+  current_position: { title: string | null; company_id: number; company_name: string } | null;
 }
 
 export interface LocationFacet {
@@ -649,8 +684,8 @@ export async function getCompanyDetail(
   const rows = ((empRows as unknown as EmpRow[] | null) ?? []);
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
 
-  // Emails, alum badge, stages, latest logged interaction
-  const [emailRows, schoolRows, interactionRows] = await Promise.all([
+  // Emails, alum badge, stages, latest logged interaction, current employer
+  const [emailRows, schoolRows, interactionRows, currentPositionRows] = await Promise.all([
     chunked(contactIds, async (chunk) => {
       const { data } = await db()
         .from("contact_emails")
@@ -671,6 +706,14 @@ export async function getCompanyDetail(
         .select("contact_id, interaction_type, interaction_date")
         .in("contact_id", chunk)
         .order("interaction_date", { ascending: false });
+      return data ?? [];
+    }),
+    chunked(contactIds, async (chunk) => {
+      const { data } = await db()
+        .from("contact_companies")
+        .select("contact_id, title, companies(id, name)")
+        .eq("is_current", true)
+        .in("contact_id", chunk);
       return data ?? [];
     }),
   ]);
@@ -694,6 +737,14 @@ export async function getCompanyDetail(
     if (!lastInteractionByContact.has(i.contact_id)) {
       lastInteractionByContact.set(i.contact_id, { type: i.interaction_type, date: i.interaction_date });
     }
+  }
+
+  // Current employer per contact (contact_companies.is_current); a contact could
+  // theoretically have more than one flagged current — keep the first seen.
+  const currentPositionByContact = new Map<number, { title: string | null; company_id: number; company_name: string }>();
+  for (const p of currentPositionRows as unknown as Array<{ contact_id: number; title: string | null; companies: { id: number; name: string } | null }>) {
+    if (!p.companies || currentPositionByContact.has(p.contact_id)) continue;
+    currentPositionByContact.set(p.contact_id, { title: p.title, company_id: p.companies.id, company_name: p.companies.name });
   }
 
   const nonBench = new Map<number, { id: number; stage_override: string | null }>();
@@ -733,6 +784,7 @@ export async function getCompanyDetail(
         last_interaction: lastInteractionByContact.get(r.contact_id) ?? null,
         adjacency_score: Number.isNaN(adjacency) ? null : adjacency,
         roles: [],
+        current_position: currentPositionByContact.get(r.contact_id) ?? null,
       };
       peopleById.set(r.contact_id, person);
     }

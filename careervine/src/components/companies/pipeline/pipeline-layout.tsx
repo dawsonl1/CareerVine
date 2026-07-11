@@ -724,13 +724,13 @@ function ContactRow({
             )}
           </div>
           <p className="text-xs text-on-surface-variant truncate mt-0.5">
-            {role?.title ?? person.headline ?? ""}
+            {person.current_position?.title ?? role?.title ?? person.headline ?? ""}
             {showLocation && locationSuffix && <span className="xl:hidden"> · {locationSuffix}</span>}
           </p>
         </div>
 
-        {/* Email + location column — appears from xl, vertically aligned
-            across cards via fixed clamp width (contacts-list pattern) */}
+        {/* Email + location + current company column — appears from xl,
+            vertically aligned across cards via fixed clamp width (contacts-list pattern) */}
         <div className="hidden xl:flex flex-col gap-0.5 w-[clamp(120px,12vw,200px)] shrink-0">
           {person.email && (
             <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant min-w-0">
@@ -743,6 +743,20 @@ function ContactRow({
               <MapPin className="w-3 h-3 shrink-0" />
               <span className="truncate">{locationSuffix}</span>
             </span>
+          )}
+          {person.current_position && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(`/companies/${person.current_position!.company_id}`);
+              }}
+              className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant hover:text-primary hover:underline min-w-0 cursor-pointer text-left"
+              title={`View ${person.current_position.company_name}`}
+            >
+              <Briefcase className="w-3 h-3 shrink-0" />
+              <span className="truncate">{person.current_position.company_name}</span>
+            </button>
           )}
         </div>
 
@@ -901,8 +915,18 @@ function BenchSection({
                   {p.name}
                 </Link>
                 <p className="text-xs text-on-surface-variant truncate">
-                  {p.roles[0]?.title ?? p.headline ?? ""}
+                  {p.current_position?.title ?? p.roles[0]?.title ?? p.headline ?? ""}
                 </p>
+                {p.current_position && (
+                  <Link
+                    href={`/companies/${p.current_position.company_id}`}
+                    className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant hover:text-primary hover:underline min-w-0 max-w-full mt-0.5"
+                    title={`View ${p.current_position.company_name}`}
+                  >
+                    <Briefcase className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{p.current_position.company_name}</span>
+                  </Link>
+                )}
               </div>
               {jobChangeIds.has(p.contact_id) && (
                 <Tooltip label="A recent scrape detected a job change; consider promoting to outreach">
