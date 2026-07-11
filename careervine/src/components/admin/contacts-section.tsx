@@ -24,19 +24,33 @@ interface AdminContact {
   networkStatus: string;
   createdAt: string;
   email: string | null;
+  title: string | null;
+  company: string | null;
 }
 
 const UNDO_MS = 5000;
+const PAGE_SIZE = 100;
 
 type OpenModal = null | "add" | "bundle";
+type StatusFilter = "all" | "active" | "prospect" | "bench";
+
+const STATUS_FILTERS: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "prospect", label: "Prospects" },
+  { value: "bench", label: "Bench" },
+];
 
 export default function ContactsSection({ userId }: { userId: string }) {
   const { toast, dismiss, success, error: toastError } = useToast();
 
   const [contacts, setContacts] = useState<AdminContact[] | null>(null);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [open, setOpen] = useState<OpenModal>(null);
   const [busy, setBusy] = useState(false);
 
@@ -54,25 +68,37 @@ export default function ContactsSection({ userId }: { userId: string }) {
     new Map<number, { timeout: ReturnType<typeof setTimeout>; fire: () => void }>(),
   );
 
-  const load = useCallback(async () => {
-    try {
-      const url = q.trim()
-        ? `/api/admin/users/${userId}/contacts?q=${encodeURIComponent(q.trim())}`
-        : `/api/admin/users/${userId}/contacts`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Request failed (${res.status})`);
+  const load = useCallback(
+    async (offset = 0) => {
+      if (offset > 0) setLoadingMore(true);
+      try {
+        const search = new URLSearchParams();
+        if (q.trim()) search.set("q", q.trim());
+        if (status !== "all") search.set("status", status);
+        if (offset > 0) search.set("offset", String(offset));
+        const qs = search.toString();
+        const res = await fetch(
+          `/api/admin/users/${userId}/contacts${qs ? `?${qs}` : ""}`,
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `Request failed (${res.status})`);
+        }
+        const body = (await res.json()) as { contacts: AdminContact[]; total: number };
+        setContacts((prev) =>
+          offset > 0 ? [...(prev ?? []), ...body.contacts] : body.contacts,
+        );
+        setTotal(body.total);
+        setError(null);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
       }
-      const body = (await res.json()) as { contacts: AdminContact[] };
-      setContacts(body.contacts);
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [userId, q]);
+    },
+    [userId, q, status],
+  );
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 250);
@@ -174,6 +200,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
   /** Plan-08 pattern: hide now, delete after the undo window closes. */
   const removeContact = (contact: AdminContact) => {
     setContacts((prev) => (prev ?? []).filter((c) => c.id !== contact.id));
+    setTotal((t) => Math.max(0, t - 1));
 
     const fire = async () => {
       pendingDeletes.current.delete(contact.id);
@@ -238,15 +265,37 @@ export default function ContactsSection({ userId }: { userId: string }) {
         </div>
       </div>
 
-      <div className="relative mt-4 mb-3">
+      <div className="relative mt-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search their contacts…"
+          placeholder="Search by name or company…"
           className="w-full rounded-full border border-outline-variant bg-surface py-2 pl-10 pr-4 text-sm text-on-surface placeholder:text-muted-foreground focus:border-primary focus:outline-none"
         />
+      </div>
+
+      <div className="mt-3 mb-3 flex flex-wrap items-center gap-1.5">
+        {STATUS_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            type="button"
+            onClick={() => setStatus(f.value)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
+              status === f.value
+                ? "border-primary bg-primary-container text-on-primary-container"
+                : "border-outline-variant text-muted-foreground hover:bg-surface-container"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+        {!loading && !error && contacts && (
+          <span className="ml-auto text-xs text-muted-foreground">
+            Showing {contacts.length} of {total}
+          </span>
+        )}
       </div>
 
       {loading && (
@@ -264,7 +313,9 @@ export default function ContactsSection({ userId }: { userId: string }) {
         <div className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
           <UsersIcon className="h-7 w-7 opacity-50" />
           <p className="text-sm">
-            {q.trim() ? `No contacts match “${q.trim()}”.` : "This account has no contacts yet."}
+            {q.trim() || status !== "all"
+              ? "No contacts match the current search/filter."
+              : "This account has no contacts yet."}
           </p>
         </div>
       )}
@@ -276,7 +327,14 @@ export default function ContactsSection({ userId }: { userId: string }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-on-surface">{c.name}</p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {c.email ?? c.linkedinUrl ?? "—"}
+                  {[
+                    c.title && c.company
+                      ? `${c.title} @ ${c.company}`
+                      : c.company ?? c.title,
+                    c.email ?? c.linkedinUrl,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "—"}
                   {c.networkStatus !== "active" && ` · ${c.networkStatus}`}
                 </p>
               </div>
@@ -291,6 +349,19 @@ export default function ContactsSection({ userId }: { userId: string }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {!loading && !error && contacts && contacts.length < total && (
+        <div className="mt-3 flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            loading={loadingMore}
+            onClick={() => void load(contacts.length)}
+          >
+            Load more ({total - contacts.length} remaining)
+          </Button>
+        </div>
       )}
 
       {/* Add-contact modal */}
