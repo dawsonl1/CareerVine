@@ -5,8 +5,9 @@
  * "Careervine Onboarding Flow". Modal sequence:
  *
  *   bundle offer (Yes emphasized / No → brief intro splash)
- *   → progress modal (live stats + progress bar + Gmail/Calendar connect)
- *   → company picker (ranked by BYU-alumni count)
+ *   → company picker, shown INSTANTLY from bundle-level stats (CAR-77) with
+ *     the sync progress bar on top + Gmail/Calendar connect while it streams;
+ *     Select stays gated until the sync completes
  *   → [outreach leg happens on the company page]
  *   → finale (confetti + "Grow your Career Vine")
  *
@@ -178,177 +179,6 @@ function IntroSplashStep({ onDone }: { onDone: () => void }) {
   );
 }
 
-/* ── Step 2: background sync + progress + connect-while-you-wait ── */
-function SyncProgressStep({
-  stats,
-  onComplete,
-  onSkip,
-}: {
-  stats: OnboardingBundleStats;
-  onComplete: () => void;
-  onSkip: () => void;
-}) {
-  const [progress, setProgress] = useState<ApplyProgress | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const { data: gmailConn, calendarConnected, refresh: refreshConnection } = useGmailConnection();
-  const gmailConnected = gmailConn !== null;
-  const started = useRef(false);
-  const doneRef = useRef(false);
-  const startedAtRef = useRef(0);
-
-  // path is absent when a background driver finished the sync and this tab
-  // never saw an apply response (CAR-78 instrumentation).
-  const finish = useCallback(
-    (path?: "fast" | "merge") => {
-      if (doneRef.current) return;
-      doneRef.current = true;
-      track("onboarding_sync_completed", {
-        prospects: stats.prospectCount,
-        path,
-        duration_ms: startedAtRef.current ? Date.now() - startedAtRef.current : undefined,
-      });
-      onComplete();
-    },
-    [onComplete, stats.prospectCount],
-  );
-
-  // Poll the durable completion signal — covers the cases where another
-  // driver (background worker/cron) owns the sync or our loop errored over
-  // to the background job.
-  const pollUntilSynced = useCallback(async () => {
-    const supabase = createSupabaseBrowserClient();
-    for (;;) {
-      await new Promise((r) => setTimeout(r, 4000));
-      if (doneRef.current) return;
-      const [{ data: sub }, { data: bundle }] = await Promise.all([
-        supabase
-          .from("bundle_subscriptions")
-          .select("synced_version, status")
-          .eq("bundle_id", stats.bundleId)
-          .maybeSingle(),
-        supabase.from("data_bundles").select("version").eq("id", stats.bundleId).maybeSingle(),
-      ]);
-      if (sub?.status === "active" && bundle && sub.synced_version >= bundle.version) {
-        finish();
-        return;
-      }
-    }
-  }, [stats.bundleId, finish]);
-
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    startedAtRef.current = Date.now();
-    (async () => {
-      try {
-        // Resume-safe: subscribing when already subscribed is handled
-        // server-side; the apply loop picks up wherever the sync left off.
-        await subscribeToBundle(stats.bundleId).catch(() => {});
-        const { completed, path } = await runBundleApplyLoop(
-          { id: stats.bundleId, prospect_count: stats.prospectCount },
-          setProgress,
-        );
-        if (completed) finish(path);
-        else await pollUntilSynced(); // another driver owns it
-      } catch (err) {
-        setNotice(err instanceof Error ? err.message : BACKGROUND_SYNC_MESSAGE);
-        await pollUntilSynced();
-      }
-    })();
-    // Unmount (skip, advance, navigation) must stop the poll loop and
-    // suppress a stale finish() — doneRef is the loop's exit signal.
-    return () => {
-      doneRef.current = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Light poll so the buttons flip to "connected" after the OAuth
-  // round-trip completes in its own tab.
-  useEffect(() => {
-    const t = setInterval(() => refreshConnection(), 5000);
-    return () => clearInterval(t);
-  }, [refreshConnection]);
-
-  const pct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.applied / progress.total) * 100)) : null;
-
-  return (
-    <StepShell wide onSkip={onSkip}>
-      <h2 className="text-xl font-semibold text-foreground">Building your network…</h2>
-      <p className="text-sm text-muted-foreground mt-1.5">We&apos;re adding:</p>
-      <ul className="mt-4 space-y-2.5">
-        <StatLine icon={Users} text={`${stats.prospectCount.toLocaleString()} prospects with contact information`} />
-        <StatLine
-          icon={GraduationCap}
-          text={
-            stats.alumniProductCount > 0
-              ? `${stats.alumniCount.toLocaleString()} BYU alumni (${stats.alumniProductCount.toLocaleString()} in product roles)`
-              : `${stats.alumniCount.toLocaleString()} BYU alumni`
-          }
-        />
-        <StatLine icon={Building2} text={`${stats.companyCount.toLocaleString()} companies with a history of hiring new-grad PMs`} />
-        {stats.alumniCompanyCount > 0 && (
-          // Target-scoped (CAR-61): current_company is CANON-mapped to the
-          // bundle company names, so this is a true subset of companyCount.
-          <StatLine icon={Check} text={`${stats.alumniCompanyCount.toLocaleString()} of those companies have BYU alumni there today`} />
-        )}
-      </ul>
-
-      <div className="mt-6">
-        <div className="w-full h-2 bg-surface-container-highest rounded-full overflow-hidden">
-          {pct === null ? (
-            <div className="h-full w-1/3 bg-primary rounded-full animate-pulse" />
-          ) : (
-            <div
-              className="h-full bg-primary rounded-full transition-all duration-500"
-              style={{ width: `${Math.max(pct, 3)}%` }}
-            />
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          {notice ??
-            (progress
-              ? `${progress.applied.toLocaleString()} of ${progress.total.toLocaleString()} added`
-              : "Starting sync…")}
-        </p>
-      </div>
-
-      <div className="mt-7 p-5 rounded-2xl bg-surface-container border border-outline-variant/40">
-        <p className="text-sm font-medium text-foreground">While you wait…</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Connect Gmail and Google Calendar so you&apos;re ready to send your first personalized
-          networking request to one of your new prospects.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2.5">
-          <ConnectButton
-            connected={gmailConnected}
-            icon={Mail}
-            label="Connect Gmail"
-            connectedLabel="Gmail connected"
-            href="/api/gmail/auth?returnTo=%2Fonboarding%2Fconnected"
-          />
-          <ConnectButton
-            connected={calendarConnected}
-            icon={Calendar}
-            label="Connect Calendar"
-            connectedLabel="Calendar connected"
-            href="/api/gmail/auth?scopes=calendar&returnTo=%2Fonboarding%2Fconnected"
-          />
-        </div>
-      </div>
-    </StepShell>
-  );
-}
-
-function StatLine({ icon: Icon, text }: { icon: typeof Users; text: string }) {
-  return (
-    <li className="flex items-center gap-2.5 text-sm text-foreground">
-      <Icon className="h-4 w-4 text-primary shrink-0" />
-      {text}
-    </li>
-  );
-}
-
 function ConnectButton({
   connected,
   icon: Icon,
@@ -364,7 +194,7 @@ function ConnectButton({
 }) {
   if (connected) {
     return (
-      <span className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-primary/10 text-primary text-sm font-medium">
+      <span className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-primary/10 text-primary text-sm font-medium">
         <Check className="h-4 w-4" />
         {connectedLabel}
       </span>
@@ -375,7 +205,7 @@ function ConnectButton({
       href={href}
       target="_blank"
       rel="noopener"
-      className="inline-flex items-center gap-2 h-10 px-4 rounded-full border border-outline text-sm font-medium text-foreground hover:bg-surface-container-high transition-colors"
+      className="inline-flex items-center gap-2 h-9 px-4 rounded-full border border-outline text-sm font-medium text-foreground hover:bg-surface-container-high transition-colors"
     >
       <Icon className="h-4 w-4" />
       {label}
@@ -383,29 +213,165 @@ function ConnectButton({
   );
 }
 
-/* ── Step 3: pick a target company ── */
+/* ── Steps 2+3 merged (CAR-77): instant company picker with sync on top ──
+ *
+ * The list renders from bundle-level stats (bundle_company_stats RPC,
+ * subscriber-scoped) the moment the subscription exists — no waiting on the
+ * contact copy. While the sync streams, a progress header sits on top and
+ * Select is disabled; completion advances the flow state, which re-renders
+ * this same mounted component with syncing=false and unlocks Select.
+ */
 function CompanyPickerStep({
+  stats,
+  syncing,
+  onSyncComplete,
   onPicked,
   onSkip,
 }: {
+  stats: OnboardingBundleStats;
+  syncing: boolean;
+  onSyncComplete: () => void;
   onPicked: (company: PickerCompany) => void;
   onSkip: () => void;
 }) {
-  const { user } = useAuth();
   const [companies, setCompanies] = useState<PickerCompany[] | null>(null);
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState<number | null>(null);
+  const [loopProgress, setLoopProgress] = useState<ApplyProgress | null>(null);
+  const [dbApplied, setDbApplied] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  const { data: gmailConn, calendarConnected, refresh: refreshConnection } = useGmailConnection();
+  const gmailConnected = gmailConn !== null;
+  const started = useRef(false);
+  const doneRef = useRef(false);
+  const startedAtRef = useRef(0);
+  const companiesRequested = useRef(false);
+  // Resumed pick_company sessions are already subscribed; a fresh accept
+  // must wait for the subscribe call before the RPC can see bundle rows.
+  const [subscribed, setSubscribed] = useState(!syncing);
 
+  // path is absent when a background driver finished the sync and this tab
+  // never saw an apply response (CAR-78 instrumentation).
+  const finish = useCallback(
+    (path?: "fast" | "merge") => {
+      if (doneRef.current) return;
+      doneRef.current = true;
+      track("onboarding_sync_completed", {
+        prospects: stats.prospectCount,
+        path,
+        duration_ms: startedAtRef.current ? Date.now() - startedAtRef.current : undefined,
+      });
+      onSyncComplete();
+    },
+    [onSyncComplete, stats.prospectCount],
+  );
+
+  // Drive the sync (subscribe + apply loop) exactly once.
   useEffect(() => {
-    if (!user) return;
-    getPickerCompanies(user.id).then(setCompanies).catch(() => setCompanies([]));
-  }, [user]);
+    if (!syncing || started.current) return;
+    started.current = true;
+    startedAtRef.current = Date.now();
+    (async () => {
+      try {
+        // Resume-safe: subscribing when already subscribed is handled
+        // server-side; the apply loop picks up wherever the sync left off.
+        await subscribeToBundle(stats.bundleId).catch(() => {});
+        setSubscribed(true);
+        const { completed, path } = await runBundleApplyLoop(
+          { id: stats.bundleId, prospect_count: stats.prospectCount },
+          setLoopProgress,
+        );
+        if (completed) finish(path);
+        // Not completed → another driver (worker/cron) owns the sync; the
+        // durable-signal poll below detects it finishing.
+      } catch (err) {
+        // Background job will finish the work; the poll owns completion.
+        setNotice(err instanceof Error ? err.message : BACKGROUND_SYNC_MESSAGE);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncing]);
+
+  // Unmount (skip, navigation) must suppress a stale finish() and stop polls.
+  useEffect(
+    () => () => {
+      doneRef.current = true;
+    },
+    [],
+  );
+
+  // Progress + durable completion poll (CAR-77): counting the subscription's
+  // linkage rows keeps the bar moving no matter which driver runs the sync
+  // (client loop, QStash worker, cron), and synced_version >= version is the
+  // same completion signal the old sync modal polled.
+  useEffect(() => {
+    if (!syncing) return;
+    const supabase = createSupabaseBrowserClient();
+    let subscriptionId: number | null = null;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled || doneRef.current) return;
+      if (subscriptionId === null) {
+        const { data: sub } = await supabase
+          .from("bundle_subscriptions")
+          .select("id")
+          .eq("bundle_id", stats.bundleId)
+          .maybeSingle();
+        subscriptionId = (sub as { id: number } | null)?.id ?? null;
+        if (subscriptionId === null) return; // subscribe hasn't landed yet
+      }
+      const [{ count }, { data: subRow }, { data: bundle }] = await Promise.all([
+        supabase
+          .from("bundle_subscription_contacts")
+          .select("id", { count: "exact", head: true })
+          .eq("subscription_id", subscriptionId),
+        supabase
+          .from("bundle_subscriptions")
+          .select("synced_version, status")
+          .eq("id", subscriptionId)
+          .maybeSingle(),
+        supabase.from("data_bundles").select("version").eq("id", stats.bundleId).maybeSingle(),
+      ]);
+      if (cancelled || doneRef.current) return;
+      if (typeof count === "number") setDbApplied(count);
+      const s = subRow as { synced_version: number; status: string } | null;
+      const v = (bundle as { version: number } | null)?.version;
+      if (s?.status === "active" && v != null && s.synced_version >= v) finish();
+    };
+    const t = setInterval(tick, 2500);
+    void tick();
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [syncing, stats.bundleId, finish]);
+
+  // Company list from bundle-level stats — available as soon as subscribed.
+  useEffect(() => {
+    if (!subscribed || companiesRequested.current) return;
+    companiesRequested.current = true;
+    getPickerCompanies(stats.bundleId).then(setCompanies).catch(() => setCompanies([]));
+  }, [subscribed, stats.bundleId]);
+
+  // Light poll so the connect chips flip after the OAuth round-trip
+  // completes in its own tab.
+  useEffect(() => {
+    if (!syncing) return;
+    const t = setInterval(() => refreshConnection(), 5000);
+    return () => clearInterval(t);
+  }, [syncing, refreshConnection]);
 
   const filtered = useMemo(() => {
     if (!companies) return null;
     const q = query.trim().toLowerCase();
     return q ? companies.filter((c) => c.name.toLowerCase().includes(q)) : companies;
   }, [companies, query]);
+
+  // Best signal wins: the DB count survives page reloads and background
+  // drivers; the loop's applied total updates between polls.
+  const applied = Math.max(loopProgress?.applied ?? 0, dbApplied);
+  const total = stats.prospectCount;
+  const pct = total > 0 ? Math.min(100, Math.round((applied / total) * 100)) : null;
 
   return (
     <StepShell wide onSkip={onSkip}>
@@ -414,6 +380,47 @@ function CompanyPickerStep({
         Companies with BYU alumni are at the top: alumni are the warmest door in. You can add
         more targets anytime.
       </p>
+
+      {syncing && (
+        <div className="mt-4 p-4 rounded-2xl bg-surface-container border border-outline-variant/40">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-sm font-medium text-foreground">Building your network…</p>
+            <p className="text-xs text-muted-foreground shrink-0">
+              {applied > 0 ? `${applied.toLocaleString()} of ${total.toLocaleString()} added` : "Starting sync…"}
+            </p>
+          </div>
+          <div className="mt-2 w-full h-2 bg-surface-container-highest rounded-full overflow-hidden">
+            {applied === 0 ? (
+              <div className="h-full w-1/3 bg-primary rounded-full animate-pulse" />
+            ) : (
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(pct ?? 0, 3)}%` }}
+              />
+            )}
+          </div>
+          {notice && <p className="text-xs text-muted-foreground mt-2">{notice}</p>}
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
+            <p className="text-xs text-muted-foreground">
+              Browse below — you can select as soon as your import finishes. While you wait:
+            </p>
+            <ConnectButton
+              connected={gmailConnected}
+              icon={Mail}
+              label="Connect Gmail"
+              connectedLabel="Gmail connected"
+              href="/api/gmail/auth?returnTo=%2Fonboarding%2Fconnected"
+            />
+            <ConnectButton
+              connected={calendarConnected}
+              icon={Calendar}
+              label="Connect Calendar"
+              connectedLabel="Calendar connected"
+              href="/api/gmail/auth?scopes=calendar&returnTo=%2Fonboarding%2Fconnected"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 flex items-center gap-2 h-10 px-3.5 rounded-full border border-outline-variant bg-surface-container-low">
         <Search className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -468,14 +475,15 @@ function CompanyPickerStep({
               )}
               <button
                 type="button"
-                disabled={selecting !== null}
+                disabled={syncing || selecting !== null}
+                title={syncing ? "Your import is still finishing — Select unlocks the moment it's done." : undefined}
                 onClick={async () => {
                   setSelecting(c.id);
                   onPicked(c);
                 }}
-                className="opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40"
+                className="opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {selecting === c.id ? "Selecting…" : "Select"}
+                {syncing ? "Importing…" : selecting === c.id ? "Selecting…" : "Select"}
               </button>
             </div>
           ))
@@ -583,8 +591,10 @@ export function OnboardingFlow() {
     return <IntroSplashStep onDone={() => setDeclinedSplash(false)} />;
   }
 
-  // No published bundle to offer — fall back to the brief intro.
-  if (statsResolved && !stats && (state === "not_started" || state === "syncing")) {
+  // No published bundle — fall back to the brief intro. pick_company is
+  // included since CAR-77: the picker reads bundle-level stats, so without a
+  // bundle there is nothing to pick from.
+  if (statsResolved && !stats && active) {
     return <IntroSplashStep onDone={() => advance("completed")} />;
   }
 
@@ -609,21 +619,14 @@ export function OnboardingFlow() {
     );
   }
 
-  if (state === "syncing") {
+  if (state === "syncing" || state === "pick_company") {
     // Stats still loading on a resumed session — hold the scrim without content.
     if (!stats) return null;
     return (
-      <SyncProgressStep
-        stats={stats}
-        onComplete={() => advance("pick_company")}
-        onSkip={() => skip("syncing")}
-      />
-    );
-  }
-
-  if (state === "pick_company") {
-    return (
       <CompanyPickerStep
+        stats={stats}
+        syncing={state === "syncing"}
+        onSyncComplete={() => advance("pick_company")}
         onPicked={async (company) => {
           try {
             await addTargetCompany(user.id, company.id);
@@ -634,7 +637,7 @@ export function OnboardingFlow() {
           advance("outreach");
           router.push(`/companies/${company.id}`);
         }}
-        onSkip={() => skip("pick_company")}
+        onSkip={() => skip(state)}
       />
     );
   }
