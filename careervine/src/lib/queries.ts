@@ -118,6 +118,27 @@ export async function getContactEmailLookup(userId: string) {
  * @returns Promise<Contact[]> - Array of contacts with all related data
  * @throws Error if query fails
  */
+// The joined column set every contact-list query pulls. Extracted so the
+// atomic and streaming fetchers stay in lockstep (identical row shape).
+const CONTACTS_SELECT = `
+  *,
+  locations(*),
+  contact_emails(*),
+  contact_phones(*),
+  contact_companies(
+    *,
+    companies(*)
+  ),
+  contact_schools(
+    *,
+    schools(*)
+  ),
+  contact_tags(
+    *,
+    tags(*)
+  )
+`;
+
 export async function getContacts(
   userId: string,
   opts: { networkStatuses?: Array<"active" | "prospect" | "bench"> } = {},
@@ -133,24 +154,7 @@ export async function getContacts(
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from("contacts")
-      .select(`
-        *,
-        locations(*),
-        contact_emails(*),
-        contact_phones(*),
-        contact_companies(
-          *,
-          companies(*)
-        ),
-        contact_schools(
-          *,
-          schools(*)
-        ),
-        contact_tags(
-          *,
-          tags(*)
-        )
-      `)
+      .select(CONTACTS_SELECT)
       .eq("user_id", userId)
       .in("network_status", statuses)
       .order("name")
@@ -159,6 +163,50 @@ export async function getContacts(
     if (error) throw error;
     all.push(...(data ?? []));
     if (!data || data.length < PAGE) break;
+  }
+  return all;
+}
+
+/**
+ * Streaming variant of {@link getContacts}: fetches contacts in ascending
+ * name order and invokes `onPage` with each page as it arrives, so the caller
+ * can paint the first rows without waiting for the full result set.
+ *
+ * The first page is deliberately small (`FIRST_PAGE`) for a fast first paint;
+ * subsequent pages are large to minimise round-trips on big networks. Pages
+ * are contiguous ranges over a stable `order("name")`, so appending them in
+ * call order yields the same name-sorted list `getContacts` returns.
+ *
+ * @returns the full accumulated array (same shape as getContacts).
+ */
+export async function getContactsStreamed(
+  userId: string,
+  statuses: Array<"active" | "prospect" | "bench">,
+  onPage: (rows: unknown[]) => void,
+) {
+  const FIRST_PAGE = 50;
+  const REST_PAGE = 1000;
+  const all: unknown[] = [];
+  let from = 0;
+  let size = FIRST_PAGE;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .select(CONTACTS_SELECT)
+      .eq("user_id", userId)
+      .in("network_status", statuses)
+      .order("name")
+      .range(from, from + size - 1);
+
+    if (error) throw error;
+    const rows = data ?? [];
+    if (rows.length) {
+      all.push(...rows);
+      onPage(rows);
+    }
+    if (rows.length < size) break;
+    from += size;
+    size = REST_PAGE;
   }
   return all;
 }

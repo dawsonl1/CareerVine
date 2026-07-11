@@ -9,7 +9,7 @@ import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  getContacts, createContact, findOrCreateSchool, addSchoolToContact,
+  getContacts, getContactsStreamed, createContact, findOrCreateSchool, addSchoolToContact,
   findOrCreateCompany, addCompanyToContact,
   addEmailToContact, addPhoneToContact,
   getTags, createTag, addTagToContact, findOrCreateLocation,
@@ -95,13 +95,21 @@ export default function ContactsPage() {
   const loadContacts = useCallback(async () => {
     if (!user) return;
     try {
-      // Fast first paint: the active network only
-      const active = await getContacts(user.id, { networkStatuses: ["active"] });
-      setContacts(active as Contact[]);
-      setLoading(false);
+      // Fast first paint: stream the active network in pages. The first small
+      // page unblocks the list immediately; the remaining active contacts fill
+      // in behind it (rendering off-screen, below the fold) instead of the user
+      // staring at a spinner until every row is fetched.
+      const active: Contact[] = [];
+      await getContactsStreamed(user.id, ["active"], (rows) => {
+        active.push(...(rows as Contact[]));
+        setContacts([...active]);
+        setLoading(false);
+      });
 
       // Prefetch prospects + bench in the background so switching to
-      // "+ Prospects" / "Everyone" filters in memory instead of refetching
+      // "+ Prospects" / "Everyone" filters in memory instead of refetching.
+      // The full superset is refetched name-sorted across all tiers so the
+      // combined view stays globally alphabetical.
       const everyone = await getContacts(user.id, { networkStatuses: ["active", "prospect", "bench"] });
       setContacts(everyone as Contact[]);
       setAllTiersLoaded(true);
