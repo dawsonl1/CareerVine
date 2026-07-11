@@ -216,6 +216,15 @@ describe("resolveBundleChunk", () => {
     expect(result.done).toBe(false);
     expect(result.nextAfterId).toBe(5);
   });
+
+  it("scans only unresolved rows (is resolved null) so it never re-scans done rows (CAR-81)", async () => {
+    const { client, calls } = createMockClient(resolverResponder([janeRow()]));
+    await resolveBundleChunk(client, BUNDLE, { afterId: 0 });
+    const scan = byTable(calls, "bundle_prospects", "select")[0];
+    // The DB filter is what makes each cron run resolve NEW rows instead of
+    // skip-scanning the resolved prefix (the old O(n²) daily drip).
+    expect(scan.filters).toContainEqual({ method: "is", args: ["resolved", null] });
+  });
 });
 
 // ── markBundleResolved ─────────────────────────────────────────────────
