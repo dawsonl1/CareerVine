@@ -198,7 +198,7 @@ export default function AuthForm({ initialMode = "signin", initialError, onBack 
                   <span className="text-primary">Your network is waiting.</span>
                 </h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  Pick up right where you left off — your conversations,
+                  Pick up right where you left off. Your conversations,
                   action items, and follow-ups are all here.
                 </p>
               </>
@@ -230,7 +230,7 @@ export default function AuthForm({ initialMode = "signin", initialError, onBack 
                       <p className="text-sm text-muted-foreground leading-relaxed">
                         We sent a confirmation link to{" "}
                         <span className="font-medium text-foreground">{formData.email}</span>.
-                        Click it and you'll be signed in automatically — no need to
+                        Click it and you'll be signed in automatically, with no need to
                         come back to this page.
                       </p>
                       <div className="space-y-2">

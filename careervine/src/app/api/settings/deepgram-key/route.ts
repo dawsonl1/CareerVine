@@ -53,7 +53,7 @@ async function validateDeepgramKey(apiKey: string): Promise<void> {
       headers: { Authorization: `Token ${apiKey}` },
     });
   } catch {
-    throw new ApiError("Couldn't reach Deepgram to verify — try again.", 502);
+    throw new ApiError("Couldn't reach Deepgram to verify. Try again.", 502);
   }
 
   if (res.ok) return;
@@ -70,7 +70,7 @@ async function validateDeepgramKey(apiKey: string): Promise<void> {
       400,
     );
   }
-  throw new ApiError("Couldn't verify the key with Deepgram — try again.", 502);
+  throw new ApiError("Couldn't verify the key with Deepgram. Try again.", 502);
 }
 
 /**

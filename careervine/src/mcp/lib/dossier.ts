@@ -104,7 +104,7 @@ export function buildDossier(
     c.network_status === "active" ? "in my network" : c.network_status === "prospect" ? "prospect" : "archived";
 
   const summaryParts = [
-    `${c.name}${roleLine ? ` — ${roleLine}` : ""} (${tierLabel}${stage ? `, stage: ${stage}` : ""}).`,
+    `${c.name}${roleLine ? `, ${roleLine}` : ""} (${tierLabel}${stage ? `, stage: ${stage}` : ""}).`,
     lastTouchDays != null ? `Last touch ${lastTouchDays} day${lastTouchDays === 1 ? "" : "s"} ago.` : "Never contacted.",
     isAlum ? "BYU alum." : null,
     bundle.openActionItems.length > 0 ? `${bundle.openActionItems.length} open action item(s).` : null,

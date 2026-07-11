@@ -29,7 +29,7 @@ const OPTIONS: Array<{
     value: "cutoff",
     label: "Cut AI off (default)",
     description:
-      "No shared fallback — AI features show a graceful “unavailable” state until they add a working key.",
+      "No shared fallback: AI features show a graceful “unavailable” state until they add a working key.",
   },
 ];
 

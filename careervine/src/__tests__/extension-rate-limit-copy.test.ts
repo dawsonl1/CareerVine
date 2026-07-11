@@ -30,24 +30,24 @@ describe('rateLimitedCopy', () => {
 
   it('computes minutes until reset, rounded up', () => {
     expect(rateLimitedCopy(now + 25 * 60_000, now)).toBe(
-      "You've hit the hourly import limit — try again in 25 minutes.",
+      "You've hit the hourly import limit. Try again in 25 minutes.",
     );
     expect(rateLimitedCopy(now + 24.2 * 60_000, now)).toBe(
-      "You've hit the hourly import limit — try again in 25 minutes.",
+      "You've hit the hourly import limit. Try again in 25 minutes.",
     );
   });
 
   it('never says fewer than 1 minute and singularizes it', () => {
     expect(rateLimitedCopy(now + 10_000, now)).toBe(
-      "You've hit the hourly import limit — try again in 1 minute.",
+      "You've hit the hourly import limit. Try again in 1 minute.",
     );
     expect(rateLimitedCopy(now - 5_000, now)).toBe(
-      "You've hit the hourly import limit — try again in 1 minute.",
+      "You've hit the hourly import limit. Try again in 1 minute.",
     );
   });
 
   it('falls back to generic wording when resetAt is missing or invalid', () => {
-    const generic = "You've hit the hourly import limit — try again in a bit.";
+    const generic = "You've hit the hourly import limit. Try again in a bit.";
     expect(rateLimitedCopy(null, now)).toBe(generic);
     expect(rateLimitedCopy(undefined, now)).toBe(generic);
     expect(rateLimitedCopy('soon', now)).toBe(generic);

@@ -298,7 +298,7 @@ export default function MeetingsPage() {
                 Record coffee chats, calls, and casual interactions to build a history with your contacts.
               </p>
               <p className="text-sm text-muted-foreground mb-7">
-                Meetings support notes, transcripts, and action items. Interactions are lighter — just a date and summary.
+                Meetings support notes, transcripts, and action items. Interactions are lighter: just a date and summary.
               </p>
               <div className="flex justify-center gap-2.5">
                 <Button onClick={() => openConversationModal()}>

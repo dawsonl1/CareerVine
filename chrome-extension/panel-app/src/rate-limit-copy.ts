@@ -15,8 +15,8 @@ export function isRateLimited(status: unknown, code: unknown): boolean {
  */
 export function rateLimitedCopy(resetAt: unknown, now: number = Date.now()): string {
   if (typeof resetAt !== "number" || !Number.isFinite(resetAt)) {
-    return "You've hit the hourly import limit — try again in a bit.";
+    return "You've hit the hourly import limit. Try again in a bit.";
   }
   const minutes = Math.max(1, Math.ceil((resetAt - now) / 60_000));
-  return `You've hit the hourly import limit — try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+  return `You've hit the hourly import limit. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`;
 }

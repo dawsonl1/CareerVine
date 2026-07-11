@@ -113,7 +113,7 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-[28px] leading-9 font-normal text-foreground">
-            Interactions{contactName ? ` — ${contactName}` : ""}
+            Interactions{contactName ? `: ${contactName}` : ""}
           </h1>
           <p className="text-base text-muted-foreground mt-1">
             Track all your touchpoints with this contact

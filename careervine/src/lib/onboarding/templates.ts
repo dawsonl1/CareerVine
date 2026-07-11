@@ -68,7 +68,7 @@ export function renderOnboardingIntro(
 
   if (ctx.isAlum) {
     return {
-      subject: `BYU student — would love to hear about your path to ${f.subject_company}`,
+      subject: `BYU student who would love to hear about your path to ${f.subject_company}`,
       bodyHtml:
         paragraphs(
           `Hi ${f.first_name},`,
@@ -107,7 +107,7 @@ export function renderOnboardingFollowUps(ctx: MergeContext): RenderedFollowUp[]
       bodyHtml:
         paragraphs(
           `Hi ${f.first_name},`,
-          `Just floating this back to the top of your inbox — I know things get busy. I'd still love 15 minutes to hear about your work at ${f.company} whenever it's convenient.`,
+          `Just floating this back to the top of your inbox. I know things get busy, and I'd still love 15 minutes to hear about your work at ${f.company} whenever it's convenient.`,
         ) + signOff(f.sender_first_name),
     },
     {
@@ -116,7 +116,7 @@ export function renderOnboardingFollowUps(ctx: MergeContext): RenderedFollowUp[]
       bodyHtml:
         paragraphs(
           `Hi ${f.first_name},`,
-          `Wanted to try once more — I completely understand if now isn't a good time. If it's easier, I'd also be happy to send over two or three questions by email instead of finding a meeting slot.`,
+          `Wanted to try once more. I completely understand if now isn't a good time. If it's easier, I'd also be happy to send over two or three questions by email instead of finding a meeting slot.`,
         ) + signOff(f.sender_first_name),
     },
     {
@@ -125,7 +125,7 @@ export function renderOnboardingFollowUps(ctx: MergeContext): RenderedFollowUp[]
       bodyHtml:
         paragraphs(
           `Hi ${f.first_name},`,
-          `I'll stop cluttering your inbox after this one. If a chat ever sounds doable, I'd genuinely love to hear from you — and either way, thanks for the example your path provides to those of us just getting started.`,
+          `I'll stop cluttering your inbox after this one. If a chat ever sounds doable, I'd genuinely love to hear from you, and either way, thanks for the example your path provides to those of us just getting started.`,
         ) + (f.sender_first_name ? `<p>Best,<br/>${f.sender_first_name}</p>` : `<p>Best!</p>`),
     },
   ];

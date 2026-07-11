@@ -641,7 +641,7 @@ export default function ActionItemsPage() {
                 No pending action items. Create one to track a follow-up, introduction, or commitment.
               </p>
               <p className="text-sm text-muted-foreground mb-7">
-                Action items can also be created from meetings — they&apos;ll automatically link back.
+                Action items can also be created from meetings, and they&apos;ll automatically link back.
               </p>
               <Button onClick={() => setShowCreate(true)} variant="tonal">
                 <Plus className="h-[18px] w-[18px]" /> Create action item

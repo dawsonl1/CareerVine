@@ -76,7 +76,7 @@ export default function AccountSection({
       success(
         suspended
           ? `Reactivated ${email}`
-          : `Suspended ${email} — sessions revoked, queued work held`,
+          : `Suspended ${email}: sessions revoked, queued work held`,
       );
       close();
       onChanged();
@@ -234,7 +234,7 @@ export default function AccountSection({
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
             This permanently deletes{" "}
-            <span className="font-medium text-on-surface">{email}</span> — their
+            <span className="font-medium text-on-surface">{email}</span>: their
             contacts, meetings, emails, and settings. This cannot be undone.
           </p>
           <div>

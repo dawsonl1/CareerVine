@@ -89,7 +89,7 @@ export default function ProfileSection({
               className={inputClasses}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Changing this updates the login email immediately — no confirmation
+              Changing this updates the login email immediately. No confirmation
               email is sent.
             </p>
           </div>

@@ -152,7 +152,7 @@ export function computeDiff(input: DiffInput): DiffEvent[] {
             headline: `${contactName} is now ${emp.title} at ${companyName}`,
             evidence: `Was ${prevRole.title} · New role started ${emp.start_month}`,
             suggestedTitle: `Congratulate ${contactName} on the new role`,
-            suggestedDescription: `${contactName} moved from ${prevRole.title} to ${emp.title} at ${companyName} — a natural moment for a congrats note.`,
+            suggestedDescription: `${contactName} moved from ${prevRole.title} to ${emp.title} at ${companyName}, a natural moment for a congrats note.`,
             oldValue: { title: prevRole.title, start_month: prevRole.start_month },
             newValue: { title: emp.title, start_month: emp.start_month },
           });
@@ -183,7 +183,7 @@ export function computeDiff(input: DiffInput): DiffEvent[] {
           : `${contactName} just joined ${companyName}${emp.title ? ` as ${emp.title}` : ""}`,
         evidence: `${emp.title ?? "New role"}${emp.start_month ? ` · Started ${emp.start_month}` : ""}`,
         suggestedTitle: `Congratulate ${contactName} on joining ${companyName}`,
-        suggestedDescription: `${contactName} started ${emp.title ? `as ${emp.title} ` : ""}at ${companyName} — congrats notes land best early in a new role.`,
+        suggestedDescription: `${contactName} started ${emp.title ? `as ${emp.title} ` : ""}at ${companyName}. Congrats notes land best early in a new role.`,
         oldValue: null,
         newValue: { company: companyName, title: emp.title, start_month: emp.start_month },
       });
@@ -204,7 +204,7 @@ export function computeDiff(input: DiffInput): DiffEvent[] {
         headline: `${contactName} is now open to work`,
         evidence: "LinkedIn OpenToWork flag turned on",
         suggestedTitle: `Check in with ${contactName} about their search`,
-        suggestedDescription: `${contactName} flagged themselves open to work — a supportive check-in or intro offer lands well right now.`,
+        suggestedDescription: `${contactName} flagged themselves open to work. A supportive check-in or intro offer lands well right now.`,
         oldValue: { open_to_work: false },
         newValue: { open_to_work: true },
       });
@@ -218,7 +218,7 @@ export function computeDiff(input: DiffInput): DiffEvent[] {
         headline: `${contactName} is hiring`,
         evidence: "LinkedIn Hiring flag turned on",
         suggestedTitle: `Ask ${contactName} about their open roles`,
-        suggestedDescription: `${contactName} turned on the Hiring badge — a direct opening to ask what they're hiring for.`,
+        suggestedDescription: `${contactName} turned on the Hiring badge, a direct opening to ask what they're hiring for.`,
         oldValue: { hiring: false },
         newValue: { hiring: true },
       });
@@ -237,7 +237,7 @@ export function computeDiff(input: DiffInput): DiffEvent[] {
         headline: `${contactName} moved to ${next.location_text}`,
         evidence: `Was ${prev.location_text}`,
         suggestedTitle: `Ask ${contactName} about the move`,
-        suggestedDescription: `${contactName}'s profile location changed from ${prev.location_text} to ${next.location_text} — an easy personal touchpoint.`,
+        suggestedDescription: `${contactName}'s profile location changed from ${prev.location_text} to ${next.location_text}, an easy personal touchpoint.`,
         oldValue: { location: prev.location_text },
         newValue: { location: next.location_text },
       });
@@ -256,7 +256,7 @@ export function computeDiff(input: DiffInput): DiffEvent[] {
         headline: `${contactName} earned a certification: ${cert}`,
         evidence: "New on their LinkedIn profile",
         suggestedTitle: `Congratulate ${contactName} on the certification`,
-        suggestedDescription: `${contactName} added "${cert}" to their profile — a small win worth acknowledging.`,
+        suggestedDescription: `${contactName} added "${cert}" to their profile, a small win worth acknowledging.`,
         oldValue: null,
         newValue: { certification: cert },
       });

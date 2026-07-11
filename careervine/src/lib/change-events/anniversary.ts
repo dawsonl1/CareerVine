@@ -131,7 +131,7 @@ export function computeAnniversaryEventsForContact(
       headline: `${contact.name} hits ${years} year${years === 1 ? "" : "s"} at ${companyName} this month`,
       evidence: `Started ${emp.start_month} · ${ordinal(years)} work anniversary`,
       suggestedTitle: `Congratulate ${contact.name} on ${years} year${years === 1 ? "" : "s"} at ${companyName}`,
-      suggestedDescription: `${contact.name} reaches ${years} year${years === 1 ? "" : "s"} at ${companyName} this month — a natural, low-pressure reason to reconnect.`,
+      suggestedDescription: `${contact.name} reaches ${years} year${years === 1 ? "" : "s"} at ${companyName} this month, a natural, low-pressure reason to reconnect.`,
     });
   }
 

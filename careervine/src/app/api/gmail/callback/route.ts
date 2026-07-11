@@ -95,7 +95,7 @@ export const GET = withApiHandler({
       return NextResponse.redirect(`${baseUrl}${returnTo ?? "/settings?gmail=connected"}`);
     } catch (err) {
       console.error("Gmail callback error:", err);
-      return errorRedirect("Connection failed — please try again");
+      return errorRedirect("Connection failed. Please try again");
     }
   },
 });

@@ -39,7 +39,7 @@ export function registerUpkeepTools(server: McpServer): void {
       if (Number.isNaN(when.getTime())) throw new Error(`Invalid date: ${date}`);
       const result = await logInteraction(contact.id, type, when.toISOString(), summary ?? null);
       return {
-        summary: `Logged ${type} with ${contact.name}${result.activated ? " — graduated into the active network" : ""}`,
+        summary: `Logged ${type} with ${contact.name}${result.activated ? ". Graduated into the active network" : ""}`,
         interaction_id: result.interactionId,
       };
     }),
@@ -136,7 +136,7 @@ export function registerUpkeepTools(server: McpServer): void {
     },
     handler(async ({ action_item_id, complete, snooze_until, due_at, title, description }) => {
       await updateActionItem(action_item_id, { complete, snooze_until, due_at, title, description });
-      return { summary: `Action item ${action_item_id} updated${complete ? " — completed" : ""}` };
+      return { summary: `Action item ${action_item_id} updated${complete ? " (completed)" : ""}` };
     }),
   );
 

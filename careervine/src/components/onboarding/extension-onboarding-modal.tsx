@@ -322,7 +322,7 @@ export function ExtensionOnboardingModal() {
             </h2>
             <p className="mt-3 text-center text-sm text-muted-foreground">
               The CareerVine Chrome extension adds anyone on LinkedIn to your network in one
-              click — name, role, company, education, all filled in for you. This guided setup
+              click: name, role, company, education, all filled in for you. This guided setup
               walks you through installing it and importing your first contact.
             </p>
             {!chromeOk && (
@@ -357,7 +357,7 @@ export function ExtensionOnboardingModal() {
             <p className="mt-3 text-center text-sm text-muted-foreground">
               Filling in someone&apos;s name, company, role, and education by hand is tedious and
               boring. The extension reads the LinkedIn profile you&apos;re looking at and does all
-              of it for you — one click, full contact.
+              of it for you: one click, full contact.
             </p>
             <div className="mt-6">
               <PrimaryButton
@@ -399,7 +399,7 @@ export function ExtensionOnboardingModal() {
               Now it&apos;s time to go to LinkedIn
             </h2>
             <p className="mt-3 text-center text-sm text-muted-foreground">
-              Navigate to the profile of someone you&apos;d like in your network — someone you
+              Navigate to the profile of someone you&apos;d like in your network, someone you
               already know and don&apos;t want to lose touch with, or someone you want to get to
               know. Then click the CareerVine tab on the side of the page and hit{" "}
               <span className="font-medium text-foreground">Save Contact</span>.
@@ -425,7 +425,7 @@ export function ExtensionOnboardingModal() {
           <div>
             <ConfettiBurst className="rounded-[28px]" />
             <h2 className="mt-2 text-center text-2xl font-semibold text-foreground">
-              🎉 Congratulations — you&apos;ve added your first contact
+              🎉 Congratulations, you&apos;ve added your first contact
             </h2>
             <p className="mt-3 text-center text-sm text-muted-foreground">
               Your career vine has grown a little bigger.
@@ -484,7 +484,7 @@ export function ExtensionOnboardingModal() {
               Install the Apollo Chrome extension
             </h2>
             <p className="mt-3 text-center text-sm text-muted-foreground">
-              Apollo works the same way CareerVine does — a panel right on the LinkedIn profile
+              Apollo works the same way CareerVine does: a panel right on the LinkedIn profile
               you&apos;re viewing. Install it, then create a free Apollo account when it asks.
             </p>
             <div className="mt-6 space-y-3">
@@ -533,7 +533,7 @@ export function ExtensionOnboardingModal() {
             </h2>
             <p className="mt-3 text-center text-sm text-muted-foreground">
               With both panels open on a LinkedIn profile: reveal the email in Apollo, paste it
-              into the CareerVine panel&apos;s email field, and save. Try it now — add another
+              into the CareerVine panel&apos;s email field, and save. Try it now: add another
               contact, this time with their email.
             </p>
             <VideoLoop
@@ -555,7 +555,7 @@ export function ExtensionOnboardingModal() {
               🎉 You&apos;re a networking machine
             </h2>
             <p className="mt-3 text-center text-sm text-muted-foreground">
-              You now know how to find and save almost anyone on LinkedIn — with an email you can
+              You now know how to find and save almost anyone on LinkedIn, with an email you can
               actually reach them at.
             </p>
             <div

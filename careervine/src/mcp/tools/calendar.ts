@@ -155,11 +155,11 @@ export function registerCalendarTools(server: McpServer): void {
         activated = await activateContactIfDormant(contact.id);
       } catch (cacheErr) {
         warnings.push(
-          `Meeting was created on Google Calendar but local sync failed (${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}). Do not recreate it — it will appear after the next calendar sync.`,
+          `Meeting was created on Google Calendar but local sync failed (${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}). Do not recreate it. It will appear after the next calendar sync.`,
         );
       }
       return {
-        summary: `Meeting "${title}" created with ${contact.name}${attendeeEmails.length ? " (invite sent)" : ""}${activated ? " — graduated into the active network" : ""}`,
+        summary: `Meeting "${title}" created with ${contact.name}${attendeeEmails.length ? " (invite sent)" : ""}${activated ? ". Graduated into the active network" : ""}`,
         google_event_id: result.googleEventId,
         meet_link: result.meetLink,
         warnings,

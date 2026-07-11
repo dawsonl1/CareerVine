@@ -42,10 +42,10 @@ export function resolveRecipient(
       );
     }
     if (match?.source === "pattern_guessed") {
-      warnings.push(`${match.email} is pattern-guessed and unverified — it may bounce.`);
+      warnings.push(`${match.email} is pattern-guessed and unverified, so it may bounce.`);
     }
     if (!match) {
-      warnings.push(`${target} is not one of ${contactName}'s saved addresses — using it as given.`);
+      warnings.push(`${target} is not one of ${contactName}'s saved addresses, using it as given.`);
     }
     return { email: target, source: match?.source ?? "override", warnings };
   }
@@ -61,7 +61,7 @@ export function resolveRecipient(
     throw new Error(`${contactName} has no email address on file.`);
   }
   if (pick.source === "pattern_guessed") {
-    warnings.push(`${pick.email} is pattern-guessed and unverified — it may bounce.`);
+    warnings.push(`${pick.email} is pattern-guessed and unverified, so it may bounce.`);
   }
   return { email: pick.email.toLowerCase(), source: pick.source, warnings };
 }

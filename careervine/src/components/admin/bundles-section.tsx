@@ -17,7 +17,7 @@ export default function BundlesSection({ userId }: { userId: string }) {
       <h2 className="text-lg font-medium text-on-surface">Data bundles</h2>
       <p className="mt-0.5 text-sm text-muted-foreground">
         Control which bundles this account can see. Granting lets them subscribe
-        from Settings — it doesn&apos;t add contacts for them.
+        from Settings, but it doesn&apos;t add contacts for them.
       </p>
       <BundleAccessList userId={userId} />
     </section>

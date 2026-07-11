@@ -45,7 +45,7 @@ const SETTINGS_AI_HREF = "/settings?tab=ai";
 export const AI_FAILURE_COPY: Record<AiFailureCode, AiFailureCopy> = {
   ai_no_key: {
     title: "Add your OpenAI key to use AI",
-    body: "CareerVine's AI features need an OpenAI key. Add yours in Settings — with OpenAI's free daily tokens, most people pay nothing.",
+    body: "CareerVine's AI features need an OpenAI key. Add yours in Settings. With OpenAI's free daily tokens, most people pay nothing.",
     ctaLabel: "Add your key",
     ctaHref: SETTINGS_AI_HREF,
     retryable: false,
@@ -69,7 +69,7 @@ export const AI_FAILURE_COPY: Record<AiFailureCode, AiFailureCopy> = {
   },
   ai_trial_expired: {
     title: "Your free AI day has ended",
-    body: "Your 24-hour AI trial is over. Add your own OpenAI key to keep using AI — or request continued access and we'll follow up by email.",
+    body: "Your 24-hour AI trial is over. Add your own OpenAI key to keep using AI, or request continued access and we'll follow up by email.",
     ctaLabel: "Add your key",
     ctaHref: SETTINGS_AI_HREF,
     retryable: false,
@@ -77,7 +77,7 @@ export const AI_FAILURE_COPY: Record<AiFailureCode, AiFailureCopy> = {
   },
   ai_unavailable: {
     title: "AI is temporarily unavailable",
-    body: "We couldn't reach AI right now. Try again in a moment — or add your own OpenAI key so this never blocks you.",
+    body: "We couldn't reach AI right now. Try again in a moment, or add your own OpenAI key so this never blocks you.",
     ctaLabel: "Add your key",
     ctaHref: SETTINGS_AI_HREF,
     retryable: true,

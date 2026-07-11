@@ -46,7 +46,7 @@ const geistMono = Geist_Mono({
 
 // Metadata for SEO, social sharing, and AI crawlers
 export const metadata: Metadata = {
-  title: "CareerVine — Personal CRM for Professional Networking",
+  title: "CareerVine: Personal CRM for Professional Networking",
   description:
     "Track conversations, follow up on promises, and keep your professional relationships warm. A personal CRM that helps you remember every coffee chat, action item, and intro you said you'd make.",
   icons: {
@@ -55,7 +55,7 @@ export const metadata: Metadata = {
   },
   metadataBase: new URL("https://careervine.app"),
   openGraph: {
-    title: "CareerVine — Personal CRM for Professional Networking",
+    title: "CareerVine: Personal CRM for Professional Networking",
     description:
       "Track conversations, follow up on promises, and keep your professional relationships warm.",
     url: "https://careervine.app",
@@ -65,7 +65,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary",
-    title: "CareerVine — Personal CRM for Professional Networking",
+    title: "CareerVine: Personal CRM for Professional Networking",
     description:
       "Track conversations, follow up on promises, and keep your professional relationships warm.",
   },

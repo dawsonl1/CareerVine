@@ -90,7 +90,7 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
                   {isCancelledReply && (
                     <div className="flex items-center gap-1.5 text-primary font-medium">
                       <Check className="h-3.5 w-3.5" />
-                      They replied — cancelled
+                      They replied, so we cancelled
                     </div>
                   )}
                   {seq.status === "completed" && (

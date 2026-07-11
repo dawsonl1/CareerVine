@@ -62,7 +62,7 @@ function StepShell({
               onClick={onSkip}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
-              Skip for now — I&apos;ll explore on my own
+              Skip for now, I&apos;ll explore on my own
             </button>
           </div>
         )}
@@ -93,7 +93,7 @@ function BundleOfferStep({
           Start with a network, not an empty page
         </h2>
         <p className="text-base text-muted-foreground mt-3 leading-relaxed">
-          Get our curated <span className="font-medium text-foreground">{stats?.name ?? "APM recruiting"}</span> database —{" "}
+          Get our curated <span className="font-medium text-foreground">{stats?.name ?? "APM recruiting"}</span> database:{" "}
           {stats && stats.alumniCount > 0 ? (
             <>
               <span className="font-medium text-foreground">
@@ -115,7 +115,7 @@ function BundleOfferStep({
             onClick={onAccept}
             className="h-12 rounded-full bg-primary text-primary-foreground text-base font-semibold hover:bg-primary/90 transition-colors cursor-pointer shadow-md"
           >
-            Yes — add it to my account
+            Yes, add it to my account
           </button>
           <button
             type="button"
@@ -271,7 +271,7 @@ function SyncProgressStep({
           icon={GraduationCap}
           text={
             stats.alumniProductCount > 0
-              ? `${stats.alumniCount.toLocaleString()} BYU alumni — ${stats.alumniProductCount.toLocaleString()} in product roles`
+              ? `${stats.alumniCount.toLocaleString()} BYU alumni (${stats.alumniProductCount.toLocaleString()} in product roles)`
               : `${stats.alumniCount.toLocaleString()} BYU alumni`
           }
         />
@@ -400,7 +400,7 @@ function CompanyPickerStep({
     <StepShell wide onSkip={onSkip}>
       <h2 className="text-xl font-semibold text-foreground">Pick your first target company</h2>
       <p className="text-sm text-muted-foreground mt-1.5">
-        Companies with BYU alumni are at the top — alumni are the warmest door in. You can add
+        Companies with BYU alumni are at the top: alumni are the warmest door in. You can add
         more targets anytime.
       </p>
 
@@ -500,28 +500,28 @@ function FinaleStep({ onDone }: { onDone: () => void }) {
         className={`mt-7 transition-opacity duration-700 ${showMore ? "opacity-100" : "opacity-0"}`}
       >
         <p className="text-sm font-medium text-foreground">
-          There&apos;s a lot more CareerVine can do for your networking — during the job hunt and
+          There&apos;s a lot more CareerVine can do for your networking, during the job hunt and
           after:
         </p>
         <ul className="mt-4 space-y-3">
           <li className="flex gap-3 text-sm text-muted-foreground">
             <Sparkles className="h-4.5 w-4.5 text-primary shrink-0 mt-0.5" />
             <span>
-              <span className="font-medium text-foreground">Chrome extension</span> — add anyone
+              <span className="font-medium text-foreground">Chrome extension</span>: add anyone
               from LinkedIn to your network in one click.
             </span>
           </li>
           <li className="flex gap-3 text-sm text-muted-foreground">
             <Users className="h-4.5 w-4.5 text-primary shrink-0 mt-0.5" />
             <span>
-              <span className="font-medium text-foreground">Personalized suggestions</span> — who
+              <span className="font-medium text-foreground">Personalized suggestions</span>: who
               to reach out to next, and when, based on your real activity.
             </span>
           </li>
           <li className="flex gap-3 text-sm text-muted-foreground">
             <Calendar className="h-4.5 w-4.5 text-primary shrink-0 mt-0.5" />
             <span>
-              <span className="font-medium text-foreground">Availability in one click</span> —
+              <span className="font-medium text-foreground">Availability in one click</span>:
               drop your calendar&apos;s open slots straight into any email.
             </span>
           </li>

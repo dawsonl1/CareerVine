@@ -609,7 +609,7 @@ export function ComposeEmailModal() {
                   <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-primary-container/30 border border-primary/10">
                     <Sparkles className="h-4 w-4 text-primary shrink-0" />
                     <span className="text-sm text-foreground font-medium flex-1 truncate">
-                      AI draft — {aiDraftContext.extractedTopic}
+                      AI draft: {aiDraftContext.extractedTopic}
                     </span>
                     <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${showAiContext ? "rotate-180" : ""}`} />
                   </div>
@@ -717,7 +717,7 @@ export function ComposeEmailModal() {
               <div className="flex items-center gap-2 px-5 py-2 bg-error-container/60 text-on-error-container text-xs border-b border-outline-variant/50">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 <span>
-                  This address bounced on {new Date(emailMeta.bounced_at).toLocaleDateString()} — messages likely won&apos;t be delivered.
+                  This address bounced on {new Date(emailMeta.bounced_at).toLocaleDateString()}. Messages likely won&apos;t be delivered.
                 </span>
               </div>
             )}
@@ -969,7 +969,7 @@ export function ComposeEmailModal() {
 
                 <FollowUpPlanSection
                   followUps={followUps}
-                  badgeLabel={templateFollowUps?.length ? "Pre-written — edit freely" : undefined}
+                  badgeLabel={templateFollowUps?.length ? "Pre-written, edit freely" : undefined}
                   enabled={followUpsEnabled}
                   loading={introPhase === "generating-followups"}
                   error={followUpAiFailure ? null : followUpError}

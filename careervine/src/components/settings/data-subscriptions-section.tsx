@@ -110,7 +110,7 @@ export default function DataSubscriptionsSection() {
       setProgress((p) => new Map(p).set(bundle.id, { applied: 0, total: bundle.prospect_count }));
       await load();
       const completed = await runApplyLoop(bundle, { silent: false });
-      if (completed) success(`Subscribed to ${bundle.name} — ${bundle.prospect_count} prospects added to your contacts`);
+      if (completed) success(`Subscribed to ${bundle.name}: ${bundle.prospect_count} prospects added to your contacts`);
       await load();
     } catch (err) {
       toastError(err instanceof Error ? err.message : "Subscribe failed");
@@ -140,8 +140,8 @@ export default function DataSubscriptionsSection() {
           // background promise would be a lie, so ask for a retry instead.
           throw new Error(
             cursor !== undefined
-              ? `Unsubscribed from ${bundle.name}, but the cleanup hit a server error — it will finish in the background.`
-              : "Unsubscribe hit a server error before it could start — please try again.",
+              ? `Unsubscribed from ${bundle.name}, but the cleanup hit a server error. It will finish in the background.`
+              : "Unsubscribe hit a server error before it could start. Please try again.",
           );
         }
         const { res, step } = outcome;
@@ -153,8 +153,8 @@ export default function DataSubscriptionsSection() {
       }
       success(
         unsubscribeChoice === "keep"
-          ? `Unsubscribed from ${bundle.name} — all contacts kept`
-          : `Unsubscribed from ${bundle.name} — ${removed} removed, ${kept} kept`,
+          ? `Unsubscribed from ${bundle.name}: all contacts kept`
+          : `Unsubscribed from ${bundle.name}: ${removed} removed, ${kept} kept`,
       );
       setUnsubscribeTarget(null);
       await load();
@@ -178,7 +178,7 @@ export default function DataSubscriptionsSection() {
           try {
             await runApplyLoop(bundle, { silent: true });
           } catch {
-            toastError(`Background sync of ${bundle.name} failed — it will retry automatically`);
+            toastError(`Background sync of ${bundle.name} failed. It will retry automatically`);
           }
         }
       }
@@ -199,7 +199,7 @@ export default function DataSubscriptionsSection() {
           </div>
           <p className="text-base text-muted-foreground mb-6">
             Curated prospect lists and company databases. Subscribing adds the prospects to your
-            contacts and keeps them updated automatically — your own edits are never overwritten.
+            contacts and keeps them updated automatically. Your own edits are never overwritten.
           </p>
 
           {loading ? (
