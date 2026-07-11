@@ -33,30 +33,28 @@ class LinkedInScraper {
     // Wait for LinkedIn to finish rendering profile sections into the DOM
     await this.waitForSections();
 
-    // Scroll progressively through the page to trigger LinkedIn's
-    // lazy-loading for each section (Experience, Education, etc.).
-    // A single jump to scrollHeight misses sections that haven't
-    // entered the viewport yet.
-    const scrollStep = window.innerHeight * 0.7;
+    // Progressively scroll through the page to trigger LinkedIn's lazy-loading
+    // for each section (Experience, Education, etc.). Use instant jumps, not
+    // smooth: smooth scrolling lags behind the loop, so the loop can reach
+    // scrollHeight and exit before the animation actually renders the lower
+    // sections — which left later experiences and the education section out of
+    // the captured text on profiles with a long activity feed (CAR-95).
+    const scrollStep = Math.max(400, Math.floor(window.innerHeight * 0.6));
     let currentPos = 0;
-    let lastHeight = document.body.scrollHeight;
+    const MAX_STEPS = 80; // safety cap so an ever-growing feed can't hang the scrape
 
-    while (currentPos < document.body.scrollHeight) {
+    for (let step = 0; step < MAX_STEPS; step++) {
+      window.scrollTo({ top: currentPos, behavior: 'instant' });
+      await new Promise(r => setTimeout(r, 350));
+      if (currentPos >= document.body.scrollHeight) break; // reached the bottom
       currentPos += scrollStep;
-      window.scrollTo({ top: currentPos, behavior: 'smooth' });
-      await new Promise(r => setTimeout(r, 400));
-
-      // If the page grew (new content loaded), keep going
-      if (document.body.scrollHeight > lastHeight) {
-        lastHeight = document.body.scrollHeight;
-      }
     }
 
-    // Brief pause at the bottom for any final lazy-loaded content
-    await new Promise(r => setTimeout(r, 600));
-
-    // Scroll back to top
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Settle at the very bottom for any final lazy-loaded content, then return
+    // to the top so nothing downstream depends on scroll position.
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+    await new Promise(r => setTimeout(r, 800));
+    window.scrollTo({ top: 0, behavior: 'instant' });
     await new Promise(r => setTimeout(r, 300));
 
     // Extract all text from main content area
@@ -196,39 +194,56 @@ class LinkedInScraper {
 
   /**
    * Extract the viewed profile's photo URL from the DOM.
-   * Returns a 400x400 LinkedIn CDN URL, or null if no real photo found.
+   *
+   * A profile page contains many profile-photo <img>s — the person's hero
+   * avatar, but also "People you may know", "More profiles for you", and their
+   * own reshared-post avatars. The old code grabbed the first CDN match of two
+   * hardcoded sizes anywhere in <main>, so it could lock onto someone else's
+   * avatar, and it missed hero photos served at other sizes (e.g. 200x200),
+   * returning null (CAR-95). This scopes to the intro card first, then falls
+   * back to an alt-text identity match, and accepts any size (normalized to
+   * 400x400). Returns a LinkedIn CDN URL, or null if no real photo is found.
    */
   extractProfilePhotoUrl() {
     const main = document.querySelector('main') || document.body;
 
-    // Strategy 1: 400x400 image (best quality, already correct size)
-    const img400 = main.querySelector('img[src*="profile-displayphoto-shrink_400_400"]')
-      || main.querySelector('img[src*="profile-displayphoto-scale_400_400"]');
-    if (img400) {
-      const src = img400.getAttribute('src');
-      if (src && src.includes('media.licdn.com/dms/image')) return src;
+    const isProfilePhoto = (img) => {
+      const src = img.getAttribute('src') || '';
+      return src.includes('profile-displayphoto') && src.includes('media.licdn.com/dms/image');
+    };
+    // LinkedIn's signed CDN URLs are keyed on the media id, not the rendered
+    // size, so upsizing the size token to 400x400 keeps the signature valid.
+    const to400 = (src) =>
+      src.replace(/profile-displayphoto-(?:shrink|scale)_\d+_\d+/g, 'profile-displayphoto-shrink_400_400');
+
+    // 1. Scope to the intro/top card — the <section> that contains the name
+    //    heading. Its photo is unambiguously the viewed person's.
+    const nameEl = main.querySelector('h1');
+    const topCard = nameEl ? nameEl.closest('section') : null;
+    if (topCard) {
+      const heroImg = Array.from(topCard.querySelectorAll('img')).find(isProfilePhoto);
+      if (heroImg) return to400(heroImg.getAttribute('src'));
     }
 
-    // Strategy 2: 100x100 shrink — rewrite to 400x400
-    const imgShrink100 = main.querySelector('img[src*="profile-displayphoto-shrink_100_100"]');
-    if (imgShrink100) {
-      const src = imgShrink100.getAttribute('src');
-      if (src && src.includes('media.licdn.com/dms/image')) {
-        return src.replace(/profile-displayphoto-shrink_100_100/g, 'profile-displayphoto-shrink_400_400');
-      }
+    // 2. Fallback: among every profile photo on the page, pick the one whose
+    //    alt text matches the viewed person (LinkedIn sets the hero avatar's
+    //    alt to their full name) — avoids other people's suggested avatars.
+    const photos = Array.from(main.querySelectorAll('img')).filter(isProfilePhoto);
+    const personName = (nameEl?.innerText || '').trim().toLowerCase();
+    if (personName) {
+      const match = photos.find((img) => {
+        const alt = (img.getAttribute('alt') || '').trim().toLowerCase();
+        return alt && (alt.includes(personName) || personName.includes(alt));
+      });
+      if (match) return to400(match.getAttribute('src'));
+      // Name known but no photo matched them → treat as no photo rather than
+      // risk returning a stranger's avatar.
+      return null;
     }
 
-    // Strategy 3: 100x100 scale — rewrite to 400x400
-    const imgScale100 = main.querySelector('img[src*="profile-displayphoto-scale_100_100"]');
-    if (imgScale100) {
-      const src = imgScale100.getAttribute('src');
-      if (src && src.includes('media.licdn.com/dms/image')) {
-        return src.replace(/profile-displayphoto-scale_100_100/g, 'profile-displayphoto-scale_400_400');
-      }
-    }
-
-    // No real photo found (ghost avatar or no photo element)
-    return null;
+    // 3. No name to match on: best-effort first profile photo in DOM order
+    //    (the top card renders first).
+    return photos.length ? to400(photos[0].getAttribute('src')) : null;
   }
 }
 
