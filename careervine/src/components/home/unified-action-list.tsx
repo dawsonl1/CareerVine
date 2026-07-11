@@ -108,7 +108,7 @@ function ActionLink({
 
 // ── Types ──
 
-export type ActionItemType = "action_item" | "reach_out" | "suggestion" | "recently_added";
+export type ActionItemType = "action_item" | "reach_out" | "suggestion" | "recently_added" | "onboarding";
 
 export interface UnifiedActionItem {
   id: string;
@@ -219,6 +219,7 @@ const typeLabels: Record<ActionItemType, { badgeBg: string; badgeText: string; l
   reach_out: { badgeBg: "bg-[#fee2e2]", badgeText: "text-[#991b1b]", label: "REACH OUT" },
   suggestion: { badgeBg: "bg-[#bcebf1]", badgeText: "text-[#001f23]", label: "SUGGESTION" },
   recently_added: { badgeBg: "bg-[#e8e0ff]", badgeText: "text-[#3b1f7a]", label: "RECENTLY ADDED" },
+  onboarding: { badgeBg: "bg-[#d8e8da]", badgeText: "text-[#1e3a21]", label: "GET STARTED" },
 };
 
 // ── Getting-started checklist shown while the action list is empty ──
@@ -226,9 +227,12 @@ const typeLabels: Record<ActionItemType, { badgeBg: string; badgeText: string; l
 function GettingStartedList({
   onLogConversation,
   calendarConnected,
+  hideExtension = false,
 }: {
   onLogConversation: () => void;
   calendarConnected: boolean;
+  /** The CAR-68 onboarding to-do row already covers the extension. */
+  hideExtension?: boolean;
 }) {
   // Set by CAR-40 when the extension ships on the Chrome Web Store; until
   // then the extension row stays informational rather than a dead link.
@@ -266,15 +270,17 @@ function GettingStartedList({
           onClick: () => window.location.assign("/settings?tab=integrations"),
         }]
       : []),
-    {
-      id: "getting-started-extension",
-      icon: <Chrome className="h-6 w-6 text-[#39656b]" />,
-      title: "Install the Chrome extension",
-      subtitle: "Add contacts from LinkedIn in one click",
-      ...(extensionUrl
-        ? { onClick: () => window.open(extensionUrl, "_blank", "noopener") }
-        : {}),
-    },
+    ...(!hideExtension
+      ? [{
+          id: "getting-started-extension",
+          icon: <Chrome className="h-6 w-6 text-[#39656b]" />,
+          title: "Install the Chrome extension",
+          subtitle: "Add contacts from LinkedIn in one click",
+          ...(extensionUrl
+            ? { onClick: () => window.open(extensionUrl, "_blank", "noopener") }
+            : {}),
+        }]
+      : []),
     {
       id: "getting-started-log",
       icon: <Plus className="h-6 w-6 text-primary" />,
@@ -321,6 +327,8 @@ interface UnifiedActionListProps {
   onDraftEmail: (contactId: number) => void;
   onNote: (contactId: number, note: string) => Promise<void>;
   onIntro: (contactId: number) => void;
+  /** Opens the CAR-68 extension-onboarding flow for an "onboarding" item. */
+  onOpenOnboarding?: (item: UnifiedActionItem) => void;
   isEmpty: boolean;
   onLogConversation: () => void;
   calendarConnected: boolean;
@@ -337,6 +345,7 @@ export function UnifiedActionList({
   onDraftEmail,
   onNote,
   onIntro,
+  onOpenOnboarding,
   isEmpty,
   onLogConversation,
   calendarConnected,
@@ -359,7 +368,7 @@ export function UnifiedActionList({
     return () => document.removeEventListener("mousedown", handler);
   }, [snoozeState?.showMenu]);
   const counts = useMemo(() => {
-    const c = { action_item: 0, reach_out: 0, suggestion: 0, recently_added: 0 };
+    const c = { action_item: 0, reach_out: 0, suggestion: 0, recently_added: 0, onboarding: 0 };
     for (const item of items) c[item.type]++;
     return c;
   }, [items]);
@@ -431,10 +440,21 @@ export function UnifiedActionList({
         </div>
       )}
 
-      {/* Empty state */}
+      {/* Empty state — the seeded CAR-68 onboarding to-do (if any) renders as
+          a real row above the getting-started checklist, which drops its
+          now-redundant extension card. */}
       {!loading && isEmpty && (
         <div className="rounded-xl border border-outline-variant overflow-hidden">
-          <GettingStartedList onLogConversation={onLogConversation} calendarConnected={calendarConnected} />
+          {items
+            .filter((i) => i.type === "onboarding")
+            .map((item) => (
+              <OnboardingListItem key={item.id} item={item} onOpen={onOpenOnboarding} />
+            ))}
+          <GettingStartedList
+            onLogConversation={onLogConversation}
+            calendarConnected={calendarConnected}
+            hideExtension={items.some((i) => i.type === "onboarding")}
+          />
         </div>
       )}
 
@@ -447,7 +467,9 @@ export function UnifiedActionList({
                 No items in this category
               </div>
             ) : (
-              paginatedItems.map((item) => (
+              paginatedItems.map((item) => item.type === "onboarding" ? (
+                <OnboardingListItem key={item.id} item={item} onOpen={onOpenOnboarding} />
+              ) : (
                 <ActionListItem
                   key={item.id}
                   item={item}
@@ -497,6 +519,43 @@ export function UnifiedActionList({
         </>
       )}
     </div>
+  );
+}
+
+// ── Onboarding to-do row (CAR-68) ──
+// Mirrors ActionListItem's anatomy (avatar / title / subtitle / badge / arrow)
+// so the seeded setup task reads as a real to-do, but the whole row opens the
+// guided flow instead of navigating to a contact. Delete lives inside the
+// flow's intro step per the FigJam, so no inline actions here.
+
+function OnboardingListItem({
+  item,
+  onOpen,
+}: {
+  item: UnifiedActionItem;
+  onOpen?: (item: UnifiedActionItem) => void;
+}) {
+  const labels = typeLabels.onboarding;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen?.(item)}
+      className="flex w-full items-center gap-5 py-5 px-6 text-left group hover:bg-surface-container-low transition-colors cursor-pointer"
+    >
+      <div className="w-[60px] h-[60px] shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
+        <Chrome className="h-7 w-7 text-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xl font-medium text-foreground truncate">{item.contactName}</p>
+        <p className="text-lg text-muted-foreground mt-0.5 line-clamp-2">{item.primaryText}</p>
+        <span
+          className={`inline-block mt-1 px-3 py-1 rounded text-sm font-medium uppercase tracking-wide ${labels.badgeBg} ${labels.badgeText}`}
+        >
+          {labels.label}
+        </span>
+      </div>
+      <ArrowRight className="h-6 w-6 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
+    </button>
   );
 }
 

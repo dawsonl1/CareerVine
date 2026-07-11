@@ -28,6 +28,22 @@ export type OnboardingState =
   | "completed"
   | "skipped";
 
+// Extension onboarding flow progress (CAR-68). Mirrors the CHECK constraint in
+// 20260711140000_extension_onboarding.sql; states are the flow's resume points.
+// 'done' and 'completed_no_apollo' are both terminal.
+export type ExtensionOnboardingState =
+  | "not_started"
+  | "started"
+  | "awaiting_connect"
+  | "awaiting_first_contact"
+  | "email_offer"
+  | "apollo_intro"
+  | "apollo_install"
+  | "apollo_howto"
+  | "awaiting_email_contact"
+  | "done"
+  | "completed_no_apollo";
+
 export type Database = {
   public: {
     Tables: {
@@ -44,18 +60,24 @@ export type Database = {
           diff_analysis_enabled: boolean;    // Admin kill switch: change-event production (service-role writable only)
           discovery_enabled: boolean;        // Admin switch: weekly discovery feed, default off (service-role writable only)
           onboarding_state: OnboardingState; // Guided first-run progress (CAR-50) — user-writable, forward-only in app
+          extension_onboarding_state: ExtensionOnboardingState; // Extension onboarding progress (CAR-68) — user-writable, forward-only in app
+          extension_onboarding_contact_id: number | null; // First contact imported during the CAR-68 flow (redirect target)
+          extension_last_seen_at: string | null; // Last Bearer-authed extension API call — stamped in api-handler (CAR-68)
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "onboarding_state" | "created_at" | "updated_at"
+          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "onboarding_state" | "extension_onboarding_state" | "extension_onboarding_contact_id" | "extension_last_seen_at" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
           apify_enrichment_enabled?: boolean;
           diff_analysis_enabled?: boolean;
           discovery_enabled?: boolean;
           onboarding_state?: OnboardingState;
+          extension_onboarding_state?: ExtensionOnboardingState;
+          extension_onboarding_contact_id?: number | null;
+          extension_last_seen_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };

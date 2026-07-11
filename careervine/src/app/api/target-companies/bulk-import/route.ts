@@ -32,6 +32,7 @@ export async function OPTIONS() {
 export const POST = withApiHandler({
   schema: targetCompaniesBulkImportSchema,
   extensionAuth: true,
+  stampExtensionSeen: false, // ops-script/web-driven — a bulk run is not an "extension connected" signal (CAR-68)
   cors: true,
   handler: async ({ supabase, user, body, track }) => {
     const { companies } = body as { companies: TargetCompanyInput[] };

@@ -296,6 +296,12 @@ async function handleAuthentication(credentials, sendResponse) {
 
     await chrome.storage.local.set({ session: storedSession });
 
+    // Announce the connection so the web app's extension-onboarding step
+    // (CAR-68) advances immediately. Fire-and-forget — login must not fail
+    // or slow down because the ping did. Forced past the throttle: a fresh
+    // login is exactly the signal the onboarding connect step waits on.
+    pingCareerVine(true);
+
     // Return session without refresh_token to the popup
     sendResponse({
       success: true,
@@ -320,12 +326,31 @@ async function checkAuthentication(sendResponse) {
       return;
     }
 
+    // Already-logged-in users (who never re-auth) still stamp last-seen for
+    // the CAR-68 onboarding connect step. Throttled; never blocks the check.
+    pingCareerVine();
+
     // Token is valid (checked locally + refreshed if needed)
     sendResponse({ authenticated: true, user: session.user });
 
   } catch (error) {
     console.error('Auth check error:', error);
     sendResponse({ authenticated: false });
+  }
+}
+
+// CAR-68: liveness ping → stamps users.extension_last_seen_at server-side.
+// Throttled so popup-open auth checks don't spam the API.
+const PING_THROTTLE_MS = 5 * 60 * 1000;
+async function pingCareerVine(force = false) {
+  try {
+    const { lastPingAt } = await chrome.storage.local.get(['lastPingAt']);
+    if (!force && lastPingAt && Date.now() - lastPingAt < PING_THROTTLE_MS) return;
+    await chrome.storage.local.set({ lastPingAt: Date.now() });
+    await authenticatedPost('/extension/ping', {});
+  } catch (error) {
+    // Best-effort by design; the API also stamps last-seen on any real call.
+    console.warn('CareerVine ping failed:', error.message);
   }
 }
 

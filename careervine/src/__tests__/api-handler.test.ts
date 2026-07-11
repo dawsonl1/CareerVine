@@ -496,3 +496,125 @@ describe('withApiHandler', () => {
     });
   });
 });
+
+// ── CAR-68: extension last-seen stamp ──────────────────────────────────
+
+import { getExtensionAuth } from '@/lib/extension-auth';
+
+describe('extension last-seen stamp (CAR-68)', () => {
+  function mockExtensionSupabase() {
+    const eq = vi.fn().mockResolvedValue({ error: null });
+    const update = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ update });
+    vi.mocked(getExtensionAuth).mockResolvedValueOnce({
+      user: { id: 'user-123', email: 'test@example.com' },
+      supabase: { from, auth: { getUser: vi.fn() } },
+    } as any);
+    return { from, update, eq };
+  }
+
+  it('stamps users.extension_last_seen_at on Bearer-authenticated calls', async () => {
+    const { from, update, eq } = mockExtensionSupabase();
+    const handler = withApiHandler({
+      extensionAuth: true,
+      handler: async () => ({ ok: true }),
+    });
+
+    const request = makeRequest('GET');
+    request.headers.set('Authorization', 'Bearer some-jwt');
+    const { status } = await callHandler(handler, request);
+
+    expect(status).toBe(200);
+    expect(from).toHaveBeenCalledWith('users');
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ extension_last_seen_at: expect.any(String) }),
+    );
+    expect(eq).toHaveBeenCalledWith('id', 'user-123');
+  });
+
+  it('does not stamp cookie-authenticated extensionAuth calls (web bulk importer)', async () => {
+    const { from } = mockExtensionSupabase();
+    const handler = withApiHandler({
+      extensionAuth: true,
+      handler: async () => ({ ok: true }),
+    });
+
+    const { status } = await callHandler(handler, makeRequest('GET'));
+
+    expect(status).toBe(200);
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('never fails the request when the stamp write rejects', async () => {
+    const eq = vi.fn().mockRejectedValue(new Error('db down'));
+    const update = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ update });
+    vi.mocked(getExtensionAuth).mockResolvedValueOnce({
+      user: { id: 'user-123', email: 'test@example.com' },
+      supabase: { from, auth: { getUser: vi.fn() } },
+    } as any);
+
+    const handler = withApiHandler({
+      extensionAuth: true,
+      handler: async () => ({ ok: true }),
+    });
+
+    const request = makeRequest('GET');
+    request.headers.set('Authorization', 'Bearer some-jwt');
+    const { status, data } = await callHandler(handler, request);
+
+    expect(status).toBe(200);
+    expect(data.ok).toBe(true);
+  });
+
+  it('awaits the stamp write even on validation-failure early returns (finally path)', async () => {
+    // The stamp write resolves on a delayed timer and records when it
+    // settles — if the 400 early return skipped the finally flush, the
+    // response would come back before the write completed.
+    let stampSettled = false;
+    const eq = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            stampSettled = true;
+            resolve({ error: null });
+          }, 10);
+        }),
+    );
+    const update = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ update });
+    vi.mocked(getExtensionAuth).mockResolvedValueOnce({
+      user: { id: 'user-123', email: 'test@example.com' },
+      supabase: { from, auth: { getUser: vi.fn() } },
+    } as any);
+
+    const handler = withApiHandler({
+      extensionAuth: true,
+      schema: z.object({ mustHave: z.string() }),
+      handler: async () => ({ ok: true }),
+    });
+
+    const request = makeRequest('POST', { wrong: 'shape' });
+    request.headers.set('Authorization', 'Bearer some-jwt');
+    const { status } = await callHandler(handler, request);
+
+    expect(status).toBe(400);
+    expect(stampSettled).toBe(true);
+  });
+
+  it('does not stamp routes that opt out via stampExtensionSeen: false', async () => {
+    const { from } = mockExtensionSupabase();
+    const handler = withApiHandler({
+      extensionAuth: true,
+      stampExtensionSeen: false,
+      handler: async () => ({ ok: true }),
+    });
+
+    const request = makeRequest('GET');
+    request.headers.set('Authorization', 'Bearer some-jwt');
+    const { status } = await callHandler(handler, request);
+
+    expect(status).toBe(200);
+    expect(from).not.toHaveBeenCalled();
+  });
+});

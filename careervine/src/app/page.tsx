@@ -32,6 +32,7 @@ import {
 } from "@/lib/queries";
 import type { Database } from "@/lib/database.types";
 import { useQuickCapture } from "@/components/quick-capture-context";
+import { useExtensionOnboarding } from "@/components/onboarding/extension-onboarding-context";
 import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
 import { useSuggestions } from "@/hooks/use-suggestions";
@@ -45,7 +46,8 @@ import { type NewContact } from "@/components/home/new-contacts";
 import { NetworkingStats } from "@/components/home/networking-stats";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
-  contacts: Database["public"]["Tables"]["contacts"]["Row"];
+  // Null for contactless rows, e.g. the seeded CAR-68 onboarding to-do.
+  contacts: Database["public"]["Tables"]["contacts"]["Row"] | null;
 };
 
 type FollowUpContact = {
@@ -71,6 +73,7 @@ function formatLastContacted(daysSince: number | null): string {
 export default function Home() {
   const { user, loading } = useAuth();
   const { open: openQuickCapture } = useQuickCapture();
+  const { open: openExtensionOnboarding } = useExtensionOnboarding();
   const { openCompose } = useCompose();
   const { toast } = useToast();
   const { calendarConnected, loading: gmailLoading } = useGmailConnection();
@@ -342,9 +345,12 @@ export default function Home() {
     };
     window.addEventListener("careervine:conversation-logged", handler);
     window.addEventListener("careervine:email-sent", handler);
+    // Fired by the CAR-68 flow when it deletes or completes the seeded to-do.
+    window.addEventListener("careervine:onboarding-todo-changed", handler);
     return () => {
       window.removeEventListener("careervine:conversation-logged", handler);
       window.removeEventListener("careervine:email-sent", handler);
+      window.removeEventListener("careervine:onboarding-todo-changed", handler);
     };
   }, [loadCoreData, loadBand3]);
 
@@ -412,6 +418,24 @@ export default function Home() {
     const today = new Date().toISOString().split("T")[0];
     for (const ai of actionItems) {
       if (ai.direction === "waiting_on") continue;
+
+      // Seeded extension-onboarding to-do (CAR-68): renders as its own row
+      // type — clicking opens the guided flow, not a contact page.
+      if (ai.source === "onboarding") {
+        items.push({
+          id: `ob-${ai.id}`,
+          type: "onboarding",
+          contactId: 0,
+          contactName: "Getting started",
+          contactPhotoUrl: null,
+          primaryText: ai.title,
+          secondaryText: ai.description || "",
+          lastContactedLabel: "",
+          priority: 90, // Below overdue tasks (100) and act-now change events (95), above the rest
+          actionItemId: ai.id,
+        });
+        continue;
+      }
       const isOverdue = ai.due_at ? ai.due_at.split("T")[0] < today : false;
       const dueLabel = ai.due_at
         ? isOverdue
@@ -690,8 +714,12 @@ export default function Home() {
 
   if (!user) return <LandingPage />;
 
+  // The seeded onboarding to-do (CAR-68) doesn't count toward "has real
+  // items": a brand-new account still gets the getting-started checklist,
+  // with the onboarding row rendered above it.
   const isNewUser = dataLoaded && contactHealth.length === 0;
-  const isEmpty = isNewUser && actionItems.length === 0 && followUps.length === 0 && suggestions.length === 0;
+  const realActionItems = actionItems.filter((ai) => ai.source !== "onboarding");
+  const isEmpty = isNewUser && realActionItems.length === 0 && followUps.length === 0 && suggestions.length === 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -715,6 +743,7 @@ export default function Home() {
               onDraftEmail={handleDraftEmail}
               onNote={handleNewContactNote}
               onIntro={handleNewContactIntro}
+              onOpenOnboarding={(item) => openExtensionOnboarding(item.actionItemId)}
               isEmpty={isEmpty}
               onLogConversation={() => openQuickCapture()}
               calendarConnected={calendarConnected}

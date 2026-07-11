@@ -62,6 +62,7 @@ async function loadOfficeMaps(
 
 export const POST = withApiHandler({
   extensionAuth: true,
+  stampExtensionSeen: false, // ops-script/web-driven — a bulk run is not an "extension connected" signal (CAR-68)
   cors: true,
   handler: async ({ supabase, user }) => {
     // ── Pass 1: rule-2 backfill ──
