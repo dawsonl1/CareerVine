@@ -295,6 +295,43 @@ export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
 
 export type CompanySort = "priority" | "traction" | "next_app_date" | "name";
 
+/**
+ * Which companies the dashboard returns:
+ * - `targets`  — only companies the user explicitly targets (outreach queue, MCP).
+ * - `in_play`  — targets + companies where the user has a CURRENT non-bench
+ *                contact (active or prospect). The primary /companies view.
+ * - `all`      — every company with contacts (full network-history search).
+ */
+export type CompanyScope = "targets" | "in_play" | "all";
+
+/**
+ * Pick which company ids a scope surfaces, given the user's targets and the
+ * per-company current/former contact aggregate. Pure so the view semantics
+ * are unit-testable without a database.
+ *
+ * - `targets`  — exactly the targeted companies.
+ * - `in_play`  — targets ∪ companies with a CURRENT contact (active or
+ *                prospect). Current only, so a contact's past employers don't
+ *                flood the list; bench is already excluded from `current`.
+ * - `all`      — targets ∪ companies with ≥ `minContacts` current-or-former
+ *                contacts.
+ */
+export function selectCompanyIds<A extends { current: { size: number }; former: { size: number } }>(
+  scope: CompanyScope,
+  targetCompanyIds: Iterable<number>,
+  aggByCompany: Map<number, A>,
+  minContacts = 1,
+): number[] {
+  if (scope === "targets") return [...new Set(targetCompanyIds)];
+  const ids = new Set<number>(targetCompanyIds);
+  for (const [id, agg] of aggByCompany) {
+    const qualifies =
+      scope === "in_play" ? agg.current.size >= 1 : agg.current.size + agg.former.size >= minContacts;
+    if (qualifies) ids.add(id);
+  }
+  return [...ids];
+}
+
 interface EmploymentAggRow {
   company_id: number;
   contact_id: number;
@@ -321,10 +358,10 @@ async function fetchUserEmploymentRows(userId: string): Promise<EmploymentAggRow
 
 export async function getCompanies(
   userId: string,
-  opts: { targetsOnly?: boolean; search?: string; minContacts?: number; sort?: CompanySort } = {},
+  opts: { scope?: CompanyScope; search?: string; minContacts?: number; sort?: CompanySort } = {},
 ): Promise<CompanySummary[]> {
-  const targetsOnly = opts.targetsOnly ?? true;
-  const sort = opts.sort ?? (targetsOnly ? "priority" : "name");
+  const scope = opts.scope ?? "targets";
+  const sort = opts.sort ?? (scope === "all" ? "name" : "priority");
 
   const [employment, targetsRes] = await Promise.all([
     fetchUserEmploymentRows(userId),
@@ -386,16 +423,7 @@ export async function getCompanies(
   }
 
   // Which companies to show
-  let companyIds: number[];
-  if (targetsOnly) {
-    companyIds = [...targetByCompany.keys()];
-  } else {
-    const minContacts = opts.minContacts ?? 1;
-    companyIds = [...aggByCompany.entries()]
-      .filter(([, agg]) => agg.current.size + agg.former.size >= minContacts)
-      .map(([id]) => id);
-    for (const id of targetByCompany.keys()) if (!companyIds.includes(id)) companyIds.push(id);
-  }
+  const companyIds = selectCompanyIds(scope, targetByCompany.keys(), aggByCompany, opts.minContacts ?? 1);
   if (companyIds.length === 0) return [];
 
   // Company rows (chunked)
@@ -412,9 +440,10 @@ export async function getCompanies(
     return data ?? [];
   });
 
-  // Traction: max derived stage per company — targets view only (bounded)
+  // Traction: max derived stage per company. Skipped only for the "all" view,
+  // whose company set is unbounded; targets/in_play are bounded and safe.
   const traction = new Map<number, OutreachStage>();
-  if (targetsOnly) {
+  if (scope !== "all") {
     const uniqueContacts = new Map<number, { id: number; stage_override: string | null }>();
     for (const id of companyIds) {
       for (const c of aggByCompany.get(id)?.contactRows ?? []) uniqueContacts.set(c.id, c);

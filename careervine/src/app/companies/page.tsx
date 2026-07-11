@@ -46,7 +46,7 @@ function CompaniesPage() {
 
   // URL is the source of truth for view/sort/search so state survives
   // back-navigation from a company detail page and links are shareable.
-  const view: "targets" | "all" = searchParams.get("view") === "all" ? "all" : "targets";
+  const view: "in_play" | "all" = searchParams.get("view") === "all" ? "all" : "in_play";
   const rawSort = searchParams.get("sort") as CompanySort | null;
   const sort: CompanySort = rawSort && VALID_SORTS.includes(rawSort) ? rawSort : "priority";
   const urlFilters = useMemo(() => parseCompanyFilters(searchParams), [searchParams]);
@@ -88,7 +88,7 @@ function CompaniesPage() {
     return () => clearTimeout(t);
   }, [searchInput, urlFilters, searchParams, replaceParams]);
 
-  const setView = (v: "targets" | "all") => {
+  const setView = (v: "in_play" | "all") => {
     const p = new URLSearchParams(searchParams.toString());
     if (v === "all") p.set("view", "all");
     else p.delete("view");
@@ -121,7 +121,7 @@ function CompaniesPage() {
   // memory, so filtering is a pure pass — no refetch per keystroke.
   const deferredQ = useDeferredValue(searchInput);
   const visible = useMemo(
-    () => (view === "targets" ? filterCompanies(companies, { ...urlFilters, q: deferredQ }) : companies),
+    () => (view === "in_play" ? filterCompanies(companies, { ...urlFilters, q: deferredQ }) : companies),
     [view, companies, urlFilters, deferredQ],
   );
   const tierOptions = useMemo(() => distinctTiers(companies), [companies]);
@@ -137,7 +137,7 @@ function CompaniesPage() {
     setLoading(true);
     try {
       const data = await getCompanies(user.id, {
-        targetsOnly: view === "targets",
+        scope: view === "all" ? "all" : "in_play",
         sort,
         search: serverSearch,
         minContacts: 1,
@@ -163,7 +163,7 @@ function CompaniesPage() {
               <Building2 className="w-6 h-6 text-primary" /> Companies
             </h1>
             <p className="text-sm text-on-surface-variant mt-1">
-              {view === "targets" ? "Your target companies and the people you know inside them" : "Every company in your network history"}
+              {view === "in_play" ? "Companies where you know people, plus the ones you're targeting" : "Every company in your network history"}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -175,9 +175,9 @@ function CompaniesPage() {
                 <Send className="w-4 h-4 mr-1.5" /> Start outreach flow
               </Button>
             </Link>
-            {/* Targets / All toggle */}
+            {/* My companies / All toggle */}
             <div className="flex rounded-full bg-surface-container-high p-1">
-              {(["targets", "all"] as const).map((v) => (
+              {(["in_play", "all"] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -185,11 +185,11 @@ function CompaniesPage() {
                     view === v ? "bg-primary text-on-primary" : "text-on-surface-variant hover:text-on-surface"
                   }`}
                 >
-                  {v === "targets" ? "Targets" : "All"}
+                  {v === "in_play" ? "My companies" : "All"}
                 </button>
               ))}
             </div>
-            {view === "targets" && (
+            {view === "in_play" && (
               <Select
                 value={sort}
                 onChange={(v) => setSort(v as CompanySort)}
@@ -217,7 +217,7 @@ function CompaniesPage() {
         />
 
         {/* Result count — only when filtering, so the default view stays quiet */}
-        {!loading && view === "targets" && filtersActive && companies.length > 0 && (
+        {!loading && view === "in_play" && filtersActive && companies.length > 0 && (
           <p className="text-xs text-on-surface-variant mb-3">
             {visible.length} of {companies.length} companies
           </p>
@@ -229,16 +229,16 @@ function CompaniesPage() {
         ) : visible.length === 0 ? (
           <Card>
             <CardContent className="py-16 text-center text-on-surface-variant text-sm">
-              {view === "targets" && companies.length > 0 ? (
+              {view === "in_play" && companies.length > 0 ? (
                 <span className="inline-flex items-center gap-3">
                   No companies match these filters.
                   <button onClick={() => setFilters(EMPTY_COMPANY_FILTERS)} className="text-primary font-medium hover:underline">
                     Clear filters
                   </button>
                 </span>
-              ) : view === "targets" ? (
+              ) : view === "in_play" ? (
                 <span className="inline-flex items-center gap-3">
-                  No target companies yet.
+                  No companies yet.
                   <button onClick={() => setShowAddCompany(true)} className="text-primary font-medium hover:underline">
                     Add a company
                   </button>
