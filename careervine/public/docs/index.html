@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A complete guide to every feature in CareerVine — the web app, intelligence engine, Chrome extension, MCP server, and platform layer.">
+<meta property="og:title" content="CareerVine — Feature Guide">
+<meta property="og:description" content="Every feature across the CareerVine web app, Chrome extension, MCP server, and platform.">
+<meta name="theme-color" content="#2d6a30">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='%232d6a30'%3E%3Cpath%20d='M20%204C10%204%204%2010%204%2020c8%20.5%2016-4%2016-16Z'/%3E%3C/svg%3E">
+<title>CareerVine — Complete Feature Guide</title>
+<style>
+  :root {
+    /* Palette — grounded in CareerVine's real Material Design 3 green theme */
+    --paper:      #fbfcfa;
+    --surface:    #ffffff;
+    --surface-2:  #f3f7f1;
+    --ink:        #17201a;
+    --ink-soft:   #384339;
+    --sage:       #55665a;
+    --line:       #e4eae1;
+    --line-soft:  #eef2ec;
+    --forest:     #2d6a30;
+    --forest-2:   #205023;
+    --leaf:       #57a04a;
+    --leaf-bg:    #e2f3da;
+    --leaf-ink:   #1f4a1c;
+    --teal:       #39656b;
+    --teal-bg:    #dcedef;
+    --teal-ink:   #1b3d42;
+    --amber-bg:   #f6ecd4;
+    --amber-ink:  #6a531b;
+
+    --serif: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
+
+    --maxw: 1180px;
+    --r: 10px;
+    --shadow: 0 1px 2px rgba(23,32,26,.04), 0 6px 20px -12px rgba(23,32,26,.18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:      #0e130e;
+      --surface:    #161d15;
+      --surface-2:  #1c251b;
+      --ink:        #eef2ec;
+      --ink-soft:   #ccd4c9;
+      --sage:       #93a294;
+      --line:       #2a342a;
+      --line-soft:  #212a20;
+      --forest:     #8fd08a;
+      --forest-2:   #b0f1a9;
+      --leaf:       #8fd08a;
+      --leaf-bg:    #1d2c1a;
+      --leaf-ink:   #bdedb2;
+      --teal:       #8ccbd3;
+      --teal-bg:    #16292c;
+      --teal-ink:   #b9e2e7;
+      --amber-bg:   #2c2510;
+      --amber-ink:  #e4cd8f;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper:#fbfcfa;--surface:#fff;--surface-2:#f3f7f1;--ink:#17201a;--ink-soft:#384339;
+    --sage:#55665a;--line:#e4eae1;--line-soft:#eef2ec;--forest:#2d6a30;--forest-2:#205023;
+    --leaf:#57a04a;--leaf-bg:#e2f3da;--leaf-ink:#1f4a1c;--teal:#39656b;--teal-bg:#dcedef;
+    --teal-ink:#1b3d42;--amber-bg:#f6ecd4;--amber-ink:#6a531b;
+    --shadow:0 1px 2px rgba(23,32,26,.04),0 6px 20px -12px rgba(23,32,26,.18);
+  }
+  :root[data-theme="dark"] {
+    --paper:#0e130e;--surface:#161d15;--surface-2:#1c251b;--ink:#eef2ec;--ink-soft:#ccd4c9;
+    --sage:#93a294;--line:#2a342a;--line-soft:#212a20;--forest:#8fd08a;--forest-2:#b0f1a9;
+    --leaf:#8fd08a;--leaf-bg:#1d2c1a;--leaf-ink:#bdedb2;--teal:#8ccbd3;--teal-bg:#16292c;
+    --teal-ink:#b9e2e7;--amber-bg:#2c2510;--amber-ink:#e4cd8f;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 clamp(18px, 4vw, 40px); }
+
+  /* ---------- Top bar / nav ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    max-width: var(--maxw); margin: 0 auto;
+    padding: 10px clamp(18px,4vw,40px);
+    display: flex; align-items: center; gap: 18px;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.01em; }
+  .brand .mark { width: 20px; height: 20px; flex: none; color: var(--forest); }
+  .brand b { font-size: 15px; }
+  .navlinks { margin-left: auto; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  .navlinks::-webkit-scrollbar { display: none; }
+  .navlinks a {
+    font-size: 12.5px; color: var(--sage); text-decoration: none;
+    padding: 6px 10px; border-radius: 7px; white-space: nowrap; font-weight: 500;
+    transition: background .15s, color .15s;
+  }
+  .navlinks a:hover { color: var(--ink); background: var(--surface-2); }
+  .navlinks a.active { color: var(--forest); background: var(--leaf-bg); }
+  .theme-btn {
+    flex: none; border: 1px solid var(--line); background: var(--surface);
+    color: var(--ink-soft); width: 34px; height: 30px; border-radius: 8px; cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .theme-btn:hover { border-color: var(--forest); color: var(--forest); }
+  .theme-btn svg { width: 16px; height: 16px; }
+
+  /* ---------- Hero ---------- */
+  .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
+  .hero-vine { position: absolute; top: -20px; right: -40px; width: min(46vw, 520px); height: 100%;
+    color: var(--forest); opacity: .12; pointer-events: none; }
+  @media (prefers-color-scheme: dark) { .hero-vine { opacity: .18; } }
+  :root[data-theme="dark"] .hero-vine { opacity: .18; }
+  :root[data-theme="light"] .hero-vine { opacity: .12; }
+  .hero-inner { position: relative; padding: clamp(48px, 8vw, 96px) 0 clamp(40px, 6vw, 64px); max-width: 760px; }
+  .eyebrow {
+    font-size: 11.5px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--forest); font-weight: 600; margin: 0 0 18px;
+    display: inline-flex; align-items: center; gap: 9px;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 1px; background: currentColor; opacity: .6; }
+  h1 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: clamp(40px, 7.5vw, 76px); line-height: .98; letter-spacing: -.02em;
+    margin: 0; text-wrap: balance; color: var(--ink);
+  }
+  h1 em { font-style: italic; color: var(--forest); }
+  .lede {
+    font-family: var(--serif); font-size: clamp(18px, 2.4vw, 23px); line-height: 1.45;
+    color: var(--ink-soft); margin: 22px 0 0; max-width: 60ch; text-wrap: pretty;
+  }
+  .sub { font-size: 15px; color: var(--sage); margin: 16px 0 0; max-width: 62ch; }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 34px; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 13px 18px; min-width: 118px;
+  }
+  .stat .n { font-family: var(--serif); font-size: 27px; line-height: 1; color: var(--forest); font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--sage); margin-top: 7px; }
+
+  /* ---------- Section ---------- */
+  section { padding: clamp(46px, 7vw, 84px) 0 8px; scroll-margin-top: 70px; }
+  .sec-head { max-width: 760px; margin-bottom: 30px; }
+  .sec-tax {
+    font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600;
+    color: var(--teal); display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+  }
+  .sec-tax .count {
+    color: var(--sage); font-weight: 500; letter-spacing: .04em;
+    border-left: 1px solid var(--line); padding-left: 10px;
+  }
+  .sec-head h2 {
+    font-family: var(--serif); font-weight: 400; font-size: clamp(28px, 4.4vw, 42px);
+    line-height: 1.04; letter-spacing: -.015em; margin: 0; text-wrap: balance;
+  }
+  .sec-head p { color: var(--ink-soft); font-size: 15.5px; margin: 14px 0 0; max-width: 66ch; }
+
+  /* ---------- Sub-group ---------- */
+  .group { margin-top: 34px; }
+  .group:first-of-type { margin-top: 8px; }
+  .grp-head {
+    display: flex; align-items: baseline; gap: 12px; margin-bottom: 15px;
+    padding-bottom: 9px; border-bottom: 1px solid var(--line);
+  }
+  .grp-head h3 {
+    font-family: var(--sans); font-weight: 650; font-size: 13px; letter-spacing: .02em;
+    text-transform: uppercase; margin: 0; color: var(--ink);
+  }
+  .grp-head .leaf-mark { width: 13px; height: 13px; color: var(--leaf); flex: none; align-self: center; }
+  .grp-head .grp-note { margin-left: auto; font-size: 12.5px; color: var(--sage); font-style: italic; }
+
+  /* ---------- Feature grid ---------- */
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); }
+  .feat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 15px 16px 14px; box-shadow: var(--shadow);
+    transition: border-color .16s, transform .16s;
+  }
+  .feat:hover { border-color: color-mix(in srgb, var(--forest) 45%, var(--line)); transform: translateY(-2px); }
+  .feat h4 {
+    font-family: var(--serif); font-weight: 400; font-size: 18px; line-height: 1.15;
+    margin: 0 0 7px; letter-spacing: -.005em; color: var(--ink);
+  }
+  .feat p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); }
+  .feat .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 11px; }
+  .tag {
+    font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; font-weight: 600;
+    padding: 2.5px 7px; border-radius: 5px; background: var(--surface-2); color: var(--sage);
+    border: 1px solid var(--line-soft);
+  }
+  .tag.ai { background: var(--leaf-bg); color: var(--leaf-ink); border-color: transparent; }
+  .tag.auto { background: var(--teal-bg); color: var(--teal-ink); border-color: transparent; }
+  .tag.guard { background: var(--amber-bg); color: var(--amber-ink); border-color: transparent; }
+  .feat.mono h4 { font-family: var(--mono); font-size: 14.5px; font-weight: 600; color: var(--forest); }
+
+  /* wide card for emphasis rows */
+  .grid.tri { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+
+  /* numbered steps (onboarding, stage stepper) — numbering used only where order is real */
+  .steps { display: grid; gap: 10px; margin-top: 8px; }
+  .step {
+    display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px;
+  }
+  .step .idx {
+    font-family: var(--serif); font-size: 19px; color: var(--forest);
+    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--leaf-bg); font-variant-numeric: tabular-nums;
+  }
+  .step h4 { margin: 0 0 4px; font-family: var(--serif); font-weight: 400; font-size: 17px; }
+  .step p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+
+  /* callout */
+  .note {
+    display: flex; gap: 12px; margin-top: 24px; padding: 15px 17px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r);
+    border-left: 3px solid var(--forest);
+  }
+  .note svg { width: 18px; height: 18px; color: var(--forest); flex: none; margin-top: 1px; }
+  .note p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .note b { color: var(--ink); }
+
+  /* footer */
+  footer { margin-top: 70px; border-top: 1px solid var(--line); padding: 34px 0 60px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px 40px; align-items: baseline; }
+  footer .f-title { font-family: var(--serif); font-size: 19px; }
+  footer p { margin: 6px 0 0; color: var(--sage); font-size: 13px; max-width: 54ch; }
+  footer a { color: var(--forest); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; border-radius: 4px; }
+
+  @media (max-width: 560px) {
+    .stat { flex: 1 1 40%; min-width: 0; }
+    .grp-head .grp-note { display: none; }
+  }
+</style>
+</head>
+<body>
+
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <span class="brand">
+      <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 21c0-5 0-9 0-13"/><path d="M12 12c-3.6 0-6-1.6-6-5 3.6 0 6 1.6 6 5Z"/><path d="M12 9c3.2 0 5.4-1.4 5.4-4.5C14.2 4.5 12 5.9 12 9Z"/>
+      </svg>
+      <b>CareerVine</b>
+    </span>
+    <nav class="navlinks" aria-label="Sections">
+      <a href="#app">Web App</a>
+      <a href="#intelligence">Intelligence</a>
+      <a href="#extension">Extension</a>
+      <a href="#mcp">MCP Server</a>
+      <a href="#platform">Platform &amp; Data</a>
+    </nav>
+    <button class="theme-btn" id="themeToggle" aria-label="Toggle light and dark theme" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+    </button>
+  </div>
+</div>
+
+<header class="hero">
+  <svg class="hero-vine" viewBox="0 0 400 700" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+    <path d="M330 -10 C 250 120, 360 220, 250 320 S 130 480, 220 620 S 180 720, 150 760"/>
+    <path d="M300 90 C 250 70, 230 100, 250 140 C 290 130, 320 120, 300 90Z" stroke-width="1.6"/>
+    <path d="M300 250 C 355 235, 380 265, 360 305 C 315 300, 285 285, 300 250Z" stroke-width="1.6"/>
+    <path d="M205 400 C 150 388, 128 418, 148 458 C 193 450, 222 435, 205 400Z" stroke-width="1.6"/>
+    <path d="M232 560 C 285 548, 308 578, 288 616 C 244 610, 216 595, 232 560Z" stroke-width="1.6"/>
+  </svg>
+  <div class="wrap hero-inner">
+    <p class="eyebrow">A field guide to the product</p>
+    <h1>Every feature in <em>CareerVine</em>.</h1>
+    <p class="lede">A personal networking CRM built on one insight — a conversation, not a contact, is the atomic unit of a relationship. Everything below grows from that.</p>
+    <p class="sub">This guide catalogs the complete surface area across five specimens: the web app, the intelligence &amp; automation engine that powers it, the Chrome extension, the AI-operator MCP server, and the platform &amp; data layer underneath.</p>
+    <div class="stats">
+      <div class="stat"><div class="n">5</div><div class="l">Product surfaces</div></div>
+      <div class="stat"><div class="n">14</div><div class="l">App pages</div></div>
+      <div class="stat"><div class="n">27</div><div class="l">MCP tools</div></div>
+      <div class="stat"><div class="n">5</div><div class="l">Scheduled automations</div></div>
+      <div class="stat"><div class="n">BYO</div><div class="l">AI key model</div></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ SURFACE I — WEB APP ============ -->
+  <section id="app">
+    <div class="sec-head">
+      <p class="sec-tax">Surface I — The Web App <span class="count">the CRM you live in</span></p>
+      <h2>A workspace where relationships stay warm</h2>
+      <p>Fourteen pages built around logging conversations, working an outreach queue, and never dropping a follow-up. Material Design 3, deeply wired into Gmail and Google Calendar.</p>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Guided first run</h3><span class="grp-note">ends with a real email sent, no AI key required</span></div>
+      <div class="steps">
+        <div class="step"><span class="idx">1</span><div><h4>Start with a network, not an empty page</h4><p>New accounts are offered a curated recruiting database — real PMs, recruiters, and BYU alumni at companies that hire new grads — instead of a blank CRM.</p></div></div>
+        <div class="step"><span class="idx">2</span><div><h4>Import while you connect</h4><p>Prospects and companies stream in on a live progress bar while you connect Gmail and Calendar in a side tab that lands on a confirmation page.</p></div></div>
+        <div class="step"><span class="idx">3</span><div><h4>Pick a target company</h4><p>Companies are ranked by how many alumni you'd know there, with alumni and product-role sub-counts, so the first target is the warmest one.</p></div></div>
+        <div class="step"><span class="idx">4</span><div><h4>Send a personalized intro</h4><p>A pre-written, editable intro email — with an automatic alumni-to-alumni variant — sends with follow-ups already scheduled that cancel themselves on a reply.</p></div></div>
+        <div class="step"><span class="idx">5</span><div><h4>Confetti finale</h4><p>"Your first networking email is on its way," plus a recap of what's next: the extension, personalized suggestions, one-click availability. Every step is skippable and resumable across sessions.</p></div></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Home / Dashboard</h3><span class="grp-note">a three-band relationship hub</span></div>
+      <div class="grid">
+        <article class="feat"><h4>"Up Next" unified action list</h4><p>One prioritized feed blending four item types — your action items, contacts overdue for a reach-out, AI/rule suggestions, and recently added people — each with a colored badge, filter chips with counts, and pagination.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Inline item actions</h4><p>Per row: Done, Snooze (1 day to next follow-up), Profile, Log interaction, Email/Intro, Save or Dismiss a suggestion, and a quick-note popover — with animated hover labels.</p></article>
+        <article class="feat"><h4>Getting-started checklist</h4><p>The new-user empty state: add the target database, pick a company, connect Gmail/Calendar, install the extension, log your first conversation.</p></article>
+        <article class="feat"><h4>Today's schedule</h4><p>A time-grid of today's Google Calendar events with a live "now" line, event popovers (Meet link, attendees with RSVP flags, resolved contact context), and drag-to-create.</p><div class="tags"><span class="tag">Google Calendar</span></div></article>
+        <article class="feat"><h4>Discovery digest</h4><p>"New PMs at your target companies" — one line per company ("3 new PMs just joined Qualtrics"), hidden when the weekly search found nobody.</p><div class="tags"><span class="tag auto">Weekly</span></div></article>
+        <article class="feat"><h4>Networking stats &amp; streak</h4><p>Meetings, relationships-on-track %, and contacts-added counters with 7-day trend and a day-streak flame.</p></article>
+        <article class="feat"><h4>Activity heatmap</h4><p>A GitHub-style calendar of daily activity — conversations, actions taken, contacts added — with hover detail and a Less→More legend.</p></article>
+        <article class="feat"><h4>Network health donut</h4><p>Healthy / Due soon / Overdue / Never contacted / No cadence, with interactive segment tooltips, beside a "Needs attention" photo grid of neglected contacts.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Contacts</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Tiered network</h4><p>Contacts live in three tiers — My network, Prospects, Archive — as independent toggle chips with counts, so 70 scraped profiles never bury the five you plan to contact.</p></article>
+        <article class="feat"><h4>Smart search</h4><p>Search across name, email, company, title, school, industry, and tags, with a live dropdown that separates people-matches from by-tag matches.</p></article>
+        <article class="feat"><h4>Rich contact creation</h4><p>Multiple work experiences, education with degree autocomplete, several emails and phones (with a preferred flag), tags, LinkedIn URL, and custom follow-up cadence.</p></article>
+        <article class="feat"><h4>Contact profile</h4><p>Two-column layout: photo upload, inline-editable email and cadence, LinkedIn re-link prompts, freshness stamp, and quick actions to log or compose.</p></article>
+        <article class="feat"><h4>Timeline tab</h4><p>A merged reverse-chronological feed of meetings, interactions, inbound/outbound emails, and completed actions for that person.</p></article>
+        <article class="feat"><h4>Actions tab</h4><p>Pending items split into your commitments vs. "Waiting on {them}" with days-waiting, inline editing, priority dots, and undo on complete/delete.</p></article>
+        <article class="feat"><h4>Emails tab</h4><p>Threaded Gmail history per contact — read sanitized bodies, reply, schedule a follow-up sequence, and see queued sends with cancel.</p><div class="tags"><span class="tag">Gmail</span></div></article>
+        <article class="feat"><h4>Attachments tab</h4><p>Upload, download, and delete files attached to a contact.</p></article>
+        <article class="feat"><h4>Inline editing everywhere</h4><p>Email and follow-up cadence edit directly on the card — hover to reveal, click to edit, blur to save. No edit mode for the two most common actions.</p></article>
+        <article class="feat"><h4>Add to network</h4><p>A one-click button on the list and profile promotes a prospect into the active network; the first real touch graduates anyone automatically.</p></article>
+        <article class="feat"><h4>Relationship health as a ratio</h4><p>Color reflects days-since-contact ÷ your cadence, not a raw date — a 30-day cadence at 10 days reads green; a 7-day cadence at 10 days reads red.</p></article>
+        <article class="feat"><h4>Extension preview page</h4><p>A landing page for a LinkedIn profile captured by the extension: full experience/education, suggested tags, and Save-to-Contacts with duplicate detection.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Companies — the recruiting command center</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Targets &amp; all-companies views</h4><p>Toggle between tracked employers and every company in your network history, sorted by priority, next-app date, traction, or name.</p></article>
+        <article class="feat"><h4>URL-synced filter bar</h4><p>Stackable status chips (Researching → Closed), traction, tier, and contacts filters — all shareable/bookmarkable via the URL with a live result count.</p></article>
+        <article class="feat"><h4>Add a company early</h4><p>Chase a company before you know anyone there: add name, LinkedIn URL, and office in seconds, deduped against every company already in your network.</p></article>
+        <article class="feat"><h4>Per-office pipelines</h4><p>A location scope selector makes each office ("Google San Diego") its own targetable pipeline with its own status and notes.</p></article>
+        <article class="feat"><h4>Contact roster by persona</h4><p>Current and former employees grouped into your network vs. prospects, with persona badges (Alum·Product, Recruiter), BYU-alum flags, outreach stage, and email status.</p></article>
+        <article class="feat"><h4>Stage stepper</h4><p>Researching → Active outreach → Applied → Interviewing → Closed, each stage an expandable editor with a collapsed summary and autosave.</p></article>
+        <article class="feat"><h4>Applications &amp; documents</h4><p>Track multiple applications per company with role, location, date, and resume + cover-letter PDF uploads.</p></article>
+        <article class="feat"><h4>Interview rounds &amp; cycles</h4><p>Log interview rounds (date, interviewer, questions); "prepare for next cycle" starts a fresh application cycle that keeps each season separate.</p></article>
+        <article class="feat"><h4>Recruiting-intel log</h4><p>A timestamped notes log for application windows, referral programs, and team info — everything you learn on a call lands somewhere you'll find it again.</p></article>
+        <article class="feat"><h4>New-hires discovery card</h4><p>Weekly-discovered PMs at this company, each with add-as-prospect (auto-enriched) or dismiss.</p><div class="tags"><span class="tag auto">Weekly</span></div></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Outreach flow</h3><span class="grp-note">work one company at a time</span></div>
+      <div class="grid">
+        <article class="feat"><h4>Company-at-a-time queue</h4><p>Prev/next (with ←/→ keys) through target companies ordered by application deadline then priority, showing "Company X of N".</p></article>
+        <article class="feat"><h4>Context strip</h4><p>Logo, priority, program, next-app window, latest intel note, and links to the full company page and bench.</p></article>
+        <article class="feat"><h4>People cards</h4><p>Current and (collapsible) former employees with persona, alum, and stage badges, an adjacency score, and a "why they were kept" review note.</p></article>
+        <article class="feat"><h4>Person modal</h4><p>The full picture of a contact — roles here and elsewhere, education, email provenance — with Write email, Open profile, and Mark contacted for off-platform outreach.</p></article>
+        <article class="feat"><h4>Bench-aware skipping</h4><p>Companies with only bench or no contactable people are skipped, with a count and a link so nothing hides silently.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Activity, meetings &amp; transcripts</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>One modal for everything</h4><p>The unified conversation modal logs a past meeting (notes, transcript, AI action items) or schedules a future one (private reminders, Calendar invite, Meet link) — eight types, multi-contact, reachable from anywhere.</p></article>
+        <article class="feat"><h4>Unified activity timeline</h4><p>Meetings and interactions in one newest-first feed, searchable across titles, notes, private notes, attendee names, and summaries.</p></article>
+        <article class="feat"><h4>Meeting cards</h4><p>Attendee chips with RSVP status, an "On calendar" badge, private reminders, notes, a transcript viewer, and file attachments.</p></article>
+        <article class="feat"><h4>Transcript upload</h4><p>Paste VTT/SRT/plain text (auto-detected) or upload audio (MP3/WAV/M4A) for speaker-diarized transcription.</p><div class="tags"><span class="tag">Deepgram</span></div></article>
+        <article class="feat"><h4>AI speaker matching</h4><p>Maps anonymous "Speaker 0" labels to your known contacts using names, roles, and content, with confidence scores and one-click confirmation.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Action items from transcript</h4><p>Pulls concrete commitments, splitting your tasks from what the other person owes you, each with an evidence quote and resolved due date.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Action items</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Grouped task list</h4><p>Overdue, Due this week, Due later, and No due date, each card showing priority dot, contact, linked meeting, and due status.</p></article>
+        <article class="feat"><h4>"Suggested for you"</h4><p>An AI/rule suggestion banner with "I already did this", "Save for later", and "Not interested".</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Waiting-on-others tracking</h4><p>The AI captures what the other person committed to; after 7 days the app nudges a gentle follow-up so you never forget to cash in on an offer.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Detail modal</h4><p>Full description, dates, and the linked meeting with its notes and transcript in context.</p></article>
+        <article class="feat"><h4>Optimistic complete with undo</h4><p>Completing or deleting is instant, with an undo countdown and an offered "Log conversation" follow-up.</p></article>
+        <article class="feat"><h4>Completed archive</h4><p>A collapsible completed section with restore, edit, and delete.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Calendar &amp; Inbox</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Week &amp; list calendar views</h4><p>A week grid with hour lines, all-day row, current-time line, private-as-"Busy" events, and recurrence/video markers — plus a date-stamped list view.</p><div class="tags"><span class="tag">Google Calendar</span></div></article>
+        <article class="feat"><h4>Drag-to-create meetings</h4><p>Drag on the grid to open a pre-filled meeting form that writes to Google Calendar with a Meet toggle and invite selection.</p></article>
+        <article class="feat"><h4>Contact-filtered calendar</h4><p>Filter events by All / With contacts / No contacts, with silent background auto-sync.</p></article>
+        <article class="feat"><h4>Full Gmail inbox</h4><p>Inbox, Sent, Scheduled, Follow-ups, Drafts, Trash, and Hidden tabs scoped to your networking, with a live unread badge in the nav.</p><div class="tags"><span class="tag">Gmail</span></div></article>
+        <article class="feat"><h4>Thread triage</h4><p>Reply, move to a Gmail label, hide (keep in Gmail, hide from app), or trash/restore — with follow-up-count and linked-calendar badges.</p></article>
+        <article class="feat"><h4>Inbox filter panel</h4><p>Filter by contact, direction, recency, thread type, and follow-up presence.</p></article>
+        <article class="feat"><h4>Follow-up sequence builder</h4><p>Build or edit a multi-step sequence — per-step delay, send time, subject, rich body, AI-generate — that auto-cancels when the recipient replies.</p><div class="tags"><span class="tag ai">AI</span><span class="tag auto">Auto-cancel</span></div></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Compose &amp; global surfaces</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Compose email modal</h4><p>To/Cc/Bcc, rich-text body, contact autocomplete, provenance warnings, schedule-send, and auto-saved drafts — used from every surface.</p></article>
+        <article class="feat"><h4>Write with AI</h4><p>Pick a built-in preset (Introduction, Follow-up, Thank you), a custom template, or your own prompt, optionally feeding prior meeting notes for personalization.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Guided intro flow</h4><p>For first-touch emails: a "how you met / your goal" form → AI intro → editable draft → an AI follow-up plan that auto-schedules reply-aware follow-ups.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Availability insertion</h4><p>Insert real open calendar slots (standard/priority/custom profiles) straight into the email body.</p></article>
+        <article class="feat"><h4>Adaptive top navigation</h4><p>Home, Activity, Contacts, Companies, Actions, plus an unread-aware Inbox icon, Calendar, admin shield, and a back-trail that knows where to return you.</p></article>
+        <article class="feat"><h4>Setup banner</h4><p>An app-wide prompt to connect Gmail and Calendar, with an expandable "why does Google show a warning?" explainer, dismissible per session.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SURFACE II — INTELLIGENCE ============ -->
+  <section id="intelligence">
+    <div class="sec-head">
+      <p class="sec-tax">Surface II — Intelligence &amp; Automation <span class="count">the engine under the app</span></p>
+      <h2>The systems that keep the network alive</h2>
+      <p>Beneath the UI: AI drafting and extraction, reply-aware send automation, budget-capped LinkedIn enrichment, career-change detection, and a weekly discovery engine — every one guarded by rate limits, spend caps, and graceful failure.</p>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>AI drafting &amp; suggestions</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Draft intro email</h4><p>Subject + HTML body for a first outreach, tone-adjusted for cold vs. warm and grounded in how you met, your goal, and past interactions.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Draft follow-up sequence</h4><p>Exactly three reply-in-thread follow-ups, progressively shorter and spaced ~7/14/21 days: check-in → add-value → gentle final bump.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>General AI composer</h4><p>Free-form "write me an email about X" pulling in contact context and selected meeting notes, with an auto-generated subject line.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>"Up Next" suggestion engine</h4><p>Blends rule-based generators (graduation proximity, cadence miss, relationship decay, waiting-on reminders) with an LLM pass that mines history for a specific, timely reason to reach out.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Article-share pipeline</h4><p>An agentic chain: extract a contact's interests → search the web (Serper) → loop an LLM evaluator ("would a real person forward this?") → write a warm reconnection email referencing the find.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>Grounded, human-sounding drafts</h4><p>A 32KB context budget keeps quality high; the prompt blocks generic phrases like "I stumbled upon" so emails sound like you wrote them.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Send automation &amp; deliverability</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Follow-up cron</h4><p>Every 15 minutes: sends due follow-up steps, checks each thread for a reply and cancels the whole sequence if found, sends at most one step per tick, and respects the daily cap.</p><div class="tags"><span class="tag auto">15 min</span></div></article>
+        <article class="feat"><h4>Scheduled-email cron</h4><p>Every 15 minutes: sends due scheduled emails across all users, isolating per-user failures and reporting throughput/delay telemetry.</p><div class="tags"><span class="tag auto">15 min</span></div></article>
+        <article class="feat"><h4>Daily send cap</h4><p>A 100/day Gmail send limit protects deliverability; the guard is re-checked on every send path, app and MCP alike.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
+        <article class="feat"><h4>Bounce detection &amp; refusal</h4><p>Gmail delivery failures (NDRs) are parsed to flag bounced addresses, cancel their pending sequences, and refuse them everywhere — draft, send, schedule, sequence.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
+        <article class="feat"><h4>Reply-aware graduation</h4><p>When a prospect or archived contact replies, they graduate into the active network and their follow-up clock resets.</p></article>
+        <article class="feat"><h4>Contact-email sync</h4><p>A resumable, time-budgeted pass pulls 90 days of Gmail history per contact and thread-matches inbound replies to fire the reply-received signal.</p><div class="tags"><span class="tag">Gmail</span></div></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>LinkedIn enrichment &amp; change detection</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>On-demand enrichment</h4><p>Re-scrape one contact's LinkedIn profile or find their email via Apify — idempotent, debounced, and monthly-cap-gated, completing async via webhook.</p><div class="tags"><span class="tag">Apify</span></div></article>
+        <article class="feat"><h4>Daily cadence refresh</h4><p>Each day, per user, the ~80 stalest contacts are batch-scraped within spend caps so profile data stays current on its own.</p><div class="tags"><span class="tag auto">Daily</span></div></article>
+        <article class="feat"><h4>Monthly spend caps &amp; kill switches</h4><p>A hard monthly USD cap, a softer cadence cap, and per-account enrichment/diff/discovery switches keep paid scraping bounded and controllable.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
+        <article class="feat"><h4>Change-event diff engine</h4><p>Compares before/after snapshots into tiered events: promotion, company change, boomerang, open-to-work and hiring flips, location change, new certification — with false-positive guards.</p></article>
+        <article class="feat"><h4>Work-anniversary events</h4><p>Detects whole-year anniversaries this month and surfaces a "congratulate them" touchpoint, throttled and bench-excluded.</p></article>
+        <article class="feat"><h4>Change-event feed &amp; dismiss</h4><p>Surfaceable events flow into "Up Next" (Tier 1 outranks Tier 2); dismissals are permanent via stable dedupe keys.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Discovery &amp; analytics</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Weekly discovery engine</h4><p>For opted-in users, searches the stalest high-priority target companies for PMs who joined in the last 90 days — the warmest cold outreach there is.</p><div class="tags"><span class="tag auto">Weekly</span></div></article>
+        <article class="feat"><h4>Candidate dedupe &amp; ingest</h4><p>New profiles are deduped against existing contacts, tombstones, and known candidates before surfacing; people you already know never appear.</p></article>
+        <article class="feat"><h4>Add or dismiss candidates</h4><p>One click adds a candidate as an auto-enriched prospect at the right company; one click dismisses them forever.</p></article>
+        <article class="feat"><h4>Cross-surface event registry</h4><p>One typed vocabulary shared by web, server, MCP, and extension, keyed to a north-star metric: replies received.</p></article>
+        <article class="feat"><h4>Outcome analytics with first-party mirror</h4><p>Every AI draft records whether it was sent as-is, edited (and how much), or discarded; sends, replies, and meetings mirror into CareerVine's own database so data outlives any vendor.</p></article>
+        <article class="feat"><h4>Activation milestones</h4><p>Fires once per user at contacts-5 and companies-emailed-5, with internal-user activity filtered out of product metrics.</p></article>
+      </div>
+    </div>
+
+    <div class="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      <p><b>Cross-cutting guardrails.</b> Every route is wrapped with auth, schema validation, per-route hourly rate limits, and awaited analytics. AI features route through a "bring-your-own-key or shared-key" runner with a 24-hour trial and graceful degradation — when a key is out of quota, rejected, or missing, the feature says exactly what's wrong with a one-click path to fix it, never a spinner that never resolves.</p>
+    </div>
+  </section>
+
+  <!-- ============ SURFACE III — EXTENSION ============ -->
+  <section id="extension">
+    <div class="sec-head">
+      <p class="sec-tax">Surface III — Chrome Extension <span class="count">LinkedIn → CRM in one click</span></p>
+      <h2>Import anyone without copy-paste</h2>
+      <p>A Manifest V3 extension that scrapes a LinkedIn profile, has AI structure it into clean fields, lets you review and edit in a side panel, and saves it as a CareerVine contact — all inside a closed Shadow DOM that can't fight the host page.</p>
+    </div>
+    <div class="group">
+      <div class="grid">
+        <article class="feat"><h4>Floating action button</h4><p>A CareerVine vine icon appears only on LinkedIn profile pages; one click toggles the side panel open.</p></article>
+        <article class="feat"><h4>Shadow-DOM side panel</h4><p>The full React panel app renders in a closed Shadow DOM with <code>all: initial</code> isolation, so LinkedIn's CSS can't leak in and the extension can't break LinkedIn.</p></article>
+        <article class="feat"><h4>Profile scraping &amp; cleaning</h4><p>Waits for lazy-loaded sections, then aggressively strips pronouns, follower counts, activity, and UI junk down to Header, About, Experience, Education — so the AI parse is accurate and cheap.</p></article>
+        <article class="feat"><h4>Profile photo capture</h4><p>Grabs a real 400×400 photo with a three-tier fallback (rewrite from 100×100, graceful null for ghost avatars) so the saved contact is recognizable.</p></article>
+        <article class="feat"><h4>AI-structured parsing</h4><p>Cleaned text returns as structured fields — name, location, industry, dated experience, education, status, suggested tags, and generated notes.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+        <article class="feat"><h4>"Already in CareerVine" check</h4><p>Every profile is checked by LinkedIn URL before scraping; a match shows the existing contact and offers "Refresh from LinkedIn" instead of a blind re-import.</p></article>
+        <article class="feat"><h4>Review &amp; edit before saving</h4><p>Every field is editable — status toggle, follow-up cadence, add/remove experience and education rows with month/year pickers — and edits persist in the per-profile cache.</p></article>
+        <article class="feat"><h4>Save to CareerVine</h4><p>One click creates or updates the contact with photo; the header switches to a deep link into the web app.</p></article>
+        <article class="feat"><h4>Auto-analyze mode</h4><p>An opt-in toggle that scrapes and parses each profile automatically as you browse, for power users batching profiles.</p></article>
+        <article class="feat"><h4>Two-hour per-profile cache</h4><p>Parsed profiles, photos, and edits cache per LinkedIn slug so revisits load instantly with no redundant AI cost or cross-tab collisions.</p></article>
+        <article class="feat"><h4>SPA navigation tracking</h4><p>Detects LinkedIn's client-side route changes and re-checks the DB, cache, and auto-analyze state as you click around without full reloads.</p></article>
+        <article class="feat"><h4>Progress UI &amp; cooldown</h4><p>Staged progress ("Reading profile…", "Enriching…") with a 30-second scrape cooldown that protects LinkedIn and the backend.</p></article>
+        <article class="feat"><h4>Toolbar popup</h4><p>A home base with sign-in, an Import tab (live "is this a profile?" indicator + quick-start), and a Recent tab listing your last imports with relative timestamps.</p></article>
+        <article class="feat"><h4>Secure session handling</h4><p>Auth tokens live only in the background service worker, auto-refresh with a single-flight guard, and never touch the content script or page — XSS-resistant.</p><div class="tags"><span class="tag guard">Security</span></div></article>
+        <article class="feat"><h4>Graceful failure states</h4><p>Specific, friendly panels for no/invalid/quota-exhausted AI key and hourly import limits, mirroring the web app's copy with a one-click fix path.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SURFACE IV — MCP ============ -->
+  <section id="mcp">
+    <div class="sec-head">
+      <p class="sec-tax">Surface IV — MCP Server <span class="count">27 tools · an AI operator for your network</span></p>
+      <h2>Hand your whole network to Claude</h2>
+      <p>An OAuth-protected Model Context Protocol server lets an AI assistant research contacts, write and send grounded Gmail, work the outreach queue, and manage meetings — under the exact same guardrails as the app. The same tools run locally over stdio for development. By design it exposes data and actions only; Claude is the generator, so there are no AI-generation tools.</p>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Contacts &amp; research</h3></div>
+      <div class="grid">
+        <article class="feat mono"><h4>search_contacts</h4><p>Search the network by name, email, company, title, school, industry, or tag; filter by tier, returns compact rows with stage and last-touch.</p></article>
+        <article class="feat mono"><h4>get_contact_dossier</h4><p>Everything known about one person in one document — the grounding Claude reads before writing an email, including email provenance and history.</p></article>
+        <article class="feat mono"><h4>add_contact</h4><p>Create a contact with emails, phones, company, title, school, and location, find-or-creating entities to avoid duplicates.</p></article>
+        <article class="feat mono"><h4>add_contact_note</h4><p>Append a timestamped note straight from conversation.</p></article>
+        <article class="feat mono"><h4>tag_contact</h4><p>Apply one or more tags, creating any that are missing.</p></article>
+        <article class="feat mono"><h4>set_network_status</h4><p>Manually move a contact between active, prospect, and bench tiers.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Email</h3><span class="grp-note">drafts by default · sends are confirm-gated</span></div>
+      <div class="grid">
+        <article class="feat mono"><h4>create_email_draft</h4><p>The default path — a real Gmail draft (markdown→HTML, thread-aware) for human review; refuses bounced addresses.</p></article>
+        <article class="feat mono"><h4>send_email</h4><p>Sends immediately, but requires <code>confirm: true</code>, enforces the daily cap and bounce refusal, and logs an interaction.</p><div class="tags"><span class="tag guard">Confirm-gated</span></div></article>
+        <article class="feat mono"><h4>schedule_email</h4><p>Queue an email for a future ISO timestamp, delivered by the app's cron.</p></article>
+        <article class="feat mono"><h4>create_follow_up_sequence</h4><p>Attach timed follow-ups to a sent thread that auto-cancel the moment the contact replies.</p></article>
+        <article class="feat mono"><h4>list_scheduled</h4><p>List pending scheduled emails and active sequences with next send times.</p></article>
+        <article class="feat mono"><h4>cancel_scheduled</h4><p>Cancel a pending scheduled email or an entire follow-up sequence.</p></article>
+        <article class="feat mono"><h4>search_email_history</h4><p>Full-text search over cached Gmail, optionally scoped to one contact.</p></article>
+        <article class="feat mono"><h4>get_email_thread</h4><p>Live-fetch full message bodies for a thread for reply context.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Outreach engine</h3></div>
+      <div class="grid">
+        <article class="feat mono"><h4>list_outreach_queue</h4><p>The company-by-company queue, ordered by deadline then priority, with a "why" reason per entry.</p></article>
+        <article class="feat mono"><h4>list_companies</h4><p>Companies in the network with people counts, target status, priority, and traction.</p></article>
+        <article class="feat mono"><h4>get_company</h4><p>The full company picture — roster, offices, target status, and the recruiting-intel log.</p></article>
+        <article class="feat mono"><h4>add_company_intel</h4><p>Append a timestamped recruiting note, auto-promoting the company to a target.</p></article>
+        <article class="feat mono"><h4>set_stage_override</h4><p>Manually set a contact's outreach stage for off-platform activity like a LinkedIn DM.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Relationship upkeep</h3></div>
+      <div class="grid">
+        <article class="feat mono"><h4>log_interaction</h4><p>Record a touchpoint that graduates prospects and resets the follow-up clock.</p></article>
+        <article class="feat mono"><h4>create_action_item</h4><p>Create a to-do or a "waiting-on" item linked to one or more contacts.</p></article>
+        <article class="feat mono"><h4>list_action_items</h4><p>Open items filtered by due window, direction, or contact, with age for waiting-on items.</p></article>
+        <article class="feat mono"><h4>update_action_item</h4><p>Complete, snooze, reschedule, or edit an item.</p></article>
+        <article class="feat mono"><h4>list_due_followups</h4><p>The "who should I reach out to today" list, most-overdue first.</p></article>
+        <article class="feat mono"><h4>get_network_health</h4><p>The "how am I doing?" dashboard — streak, on-track ratio, most-neglected contacts, per-tier counts, 30-day activity.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Calendar</h3></div>
+      <div class="grid">
+        <article class="feat mono"><h4>list_meetings</h4><p>Upcoming events from the synced calendar with attendees matched to contacts and Meet/Zoom links.</p></article>
+        <article class="feat mono"><h4>create_meeting</h4><p>Create a Google Calendar event with an invite and optional Meet link; linking it graduates a prospect.</p></article>
+      </div>
+    </div>
+
+    <div class="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <p><b>Two shells, one implementation.</b> The hosted server at <code>/api/mcp</code> is an OAuth 2.0 protected resource verifying Supabase-issued JWTs, scoped per request and rate-limited to 100 calls/hour/user. The local <code>careervine-mcp/</code> package runs the identical 27 tools over stdio for development. A dedicated OAuth consent screen shows the requesting client and exact scopes before any access is granted — and there are no delete tools anywhere.</p>
+    </div>
+  </section>
+
+  <!-- ============ SURFACE V — PLATFORM ============ -->
+  <section id="platform">
+    <div class="sec-head">
+      <p class="sec-tax">Surface V — Platform &amp; Data <span class="count">accounts, keys, bundles, admin</span></p>
+      <h2>The layer that makes it a product</h2>
+      <p>Authentication, a bring-your-own-key cost model, living data subscriptions, an admin control plane, and the content pipeline that seeds new users with a real network instead of an empty page.</p>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Data subscriptions</h3><span class="grp-note">free, living bundles — never a paywall</span></div>
+      <div class="grid">
+        <article class="feat"><h4>Subscribe to curated lists</h4><p>Import admin-published bundles — say, every IB analyst at the NYC boutiques plus the banks and their offices — straight into contacts as ready-to-work prospects.</p></article>
+        <article class="feat"><h4>Living updates</h4><p>When a bundle is re-published with new people or corrected emails, subscribers receive the changes automatically within minutes.</p><div class="tags"><span class="tag auto">Auto-sync</span></div></article>
+        <article class="feat"><h4>Fill-empty merge</h4><p>The merge only ever fills in blanks — nothing you've edited, tagged, or annotated is overwritten.</p></article>
+        <article class="feat"><h4>Respectful unsubscribe</h4><p>Keep everything, or remove only the contacts you never touched; anyone you've emailed or edited always stays.</p></article>
+        <article class="feat"><h4>Resilient apply loop</h4><p>A chunked, cursor-driven copy with a live progress bar, backed by a QStash worker and daily cron sweep in case the tab closes mid-import.</p><div class="tags"><span class="tag auto">Daily safety net</span></div></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Accounts, keys &amp; settings</h3></div>
+      <div class="grid">
+        <article class="feat"><h4>Bring your own AI keys</h4><p>Add an OpenAI key for text features and/or a Deepgram key for transcription so usage bills to you — each encrypted at rest, never returned to the browser, and live-validated before saving.</p><div class="tags"><span class="tag guard">Encrypted</span></div></article>
+        <article class="feat"><h4>First-day free AI trial</h4><p>New accounts get shared-key AI "on us" for a day, then are guided to add their own key or request continued access.</p></article>
+        <article class="feat"><h4>Supabase auth flows</h4><p>Email/password sign-up, sign-in, forgot-password, resend-confirmation with cooldown, and a confirm link that signs you in immediately even on a fresh device.</p></article>
+        <article class="feat"><h4>Availability profiles</h4><p>Standard and Priority working-hour presets per weekday with buffers, plus a "count as busy" calendar selection and timezone detection.</p></article>
+        <article class="feat"><h4>AI templates</h4><p>Create, edit, and delete custom "Write with AI" prompt templates that appear alongside built-in presets.</p></article>
+        <article class="feat"><h4>Connect-an-AI-client card</h4><p>Copy the hosted MCP URL with per-client setup steps for Claude, Claude Code CLI, ChatGPT, Codex, and Cursor.</p></article>
+        <article class="feat"><h4>Data &amp; scraping dashboard</h4><p>A read-only view of month-to-date Apify spend vs. cap, run health, last refresh time, and discovery spend.</p></article>
+        <article class="feat"><h4>Privacy policy &amp; Limited Use</h4><p>A full policy page documenting data handling, Google Limited-Use disclosure, RLS security, and the extension's on-LinkedIn-only scope.</p></article>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Admin control plane &amp; content pipeline</h3><span class="grp-note">operator-only</span></div>
+      <div class="grid">
+        <article class="feat"><h4>User management</h4><p>Search users; set role, status (suspend/reactivate freezes queued work), and password; manage a user's contacts and inject bundles.</p></article>
+        <article class="feat"><h4>Per-account toggles</h4><p>Inline reversible switches for shared-AI fallback, Apify enrichment, change detection, discovery feed, and per-bundle visibility.</p></article>
+        <article class="feat"><h4>Tenant-wide bulk controls</h4><p>Flip enrichment, change detection, and discovery for every account at once, with an audit log.</p></article>
+        <article class="feat"><h4>Bundle publishing</h4><p>A token-authenticated publish flow (begin → chunk → finalize → resolve) that fans changes out to subscribers, with a zero-change no-op.</p></article>
+        <article class="feat"><h4>IB recruiting pipeline</h4><p>A staged Apify + agent-reviewed data pipeline that produces a curated dataset of BYU-family alumni and per-office bankers across 30 banks and 228 offices to seed a bundle — spend hard-capped per run.</p><div class="tags"><span class="tag">Apify</span></div></article>
+        <article class="feat"><h4>Durable photo mirroring</h4><p>Bundle publishing mirrors LinkedIn photo URLs to Cloudflare R2 so avatars stay durable after LinkedIn's temporary URLs expire.</p></article>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div class="f-title">CareerVine</div>
+      <p>A personal networking CRM. Live at <a href="https://careervine.app">careervine.app</a>. Built with Next.js 16, Supabase, and a custom Material Design 3 component library.</p>
+    </div>
+    <p style="margin-left:auto">Feature guide generated from the live codebase — web app, intelligence engine, Chrome extension, MCP server, and platform layer.</p>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    // Theme toggle (respects OS default until the user overrides)
+    var root = document.documentElement;
+    var btn = document.getElementById('themeToggle');
+    btn.addEventListener('click', function () {
+      var cur = root.getAttribute('data-theme');
+      if (!cur) {
+        cur = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+    });
+
+    // Active-section highlighting in the nav
+    var links = Array.prototype.slice.call(document.querySelectorAll('.navlinks a'));
+    var map = {};
+    links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+    var sections = Array.prototype.slice.call(document.querySelectorAll('main section'));
+    if ('IntersectionObserver' in window) {
+      var obs = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            links.forEach(function (l) { l.classList.remove('active'); });
+            var active = map[e.target.id];
+            if (active) active.classList.add('active');
+          }
+        });
+      }, { rootMargin: '-45% 0px -50% 0px' });
+      sections.forEach(function (s) { obs.observe(s); });
+    }
+  })();
+</script>
+
+</body>
+</html>
