@@ -131,11 +131,17 @@ export async function resolveBundleChunk(
   const afterId = opts.afterId ?? 0;
   const result: ResolveChunkResult = { done: false, nextAfterId: null, scanned: 0, resolved: 0, skipped: [] };
 
+  // Only unresolved rows (CAR-81). Publish nulls `resolved` on payload change,
+  // so `resolved IS NULL` is an exact "needs resolution" predicate — this keeps
+  // every budget-second on NEW rows instead of re-scanning already-resolved ones
+  // (the old scan restarted at afterId=0 each cron run and skip-scanned the
+  // whole resolved prefix, making recovery O(n²) and ~1 chunk/day).
   const { data: rows } = await service
     .from("bundle_prospects")
     .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
     .eq("bundle_id", bundle.id)
     .is("removed_in_version", null)
+    .is("resolved", null)
     .gt("id", afterId)
     .order("id", { ascending: true })
     .limit(chunkSize);
