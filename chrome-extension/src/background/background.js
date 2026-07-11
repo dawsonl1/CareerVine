@@ -49,10 +49,12 @@ async function trackEvent(event, properties = {}, distinctIdOverride = null) {
   try {
     await ensureConfig();
     if (!config.posthogKey) return;
+    // Internal accounts (Dawson/test users) are excluded from analytics (CAR-80).
+    // "internal" is an email-derived app_metadata claim on the Supabase session,
+    // captured into storage at login/refresh — survives account delete/recreate.
+    const { session } = await chrome.storage.local.get(['session']);
+    if (session?.user?.is_internal) return;
     const distinctId = distinctIdOverride || (await analyticsDistinctId());
-    // Internal accounts (Dawson/test users) are excluded from analytics
-    // (CAR-60) — same id list the web app ships in its env config.
-    if ((config.internalUserIds || []).includes(distinctId)) return;
     await fetch(`${config.posthogHost}/capture/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -78,7 +80,11 @@ function buildStoredSession(raw) {
     expires_at: raw.expires_at,
     user: {
       id: raw.user?.id,
-      email: raw.user?.email
+      email: raw.user?.email,
+      // CAR-80: email-derived analytics-exclusion flag, carried on the JWT as an
+      // app_metadata claim. Captured here so trackEvent can drop internal accounts;
+      // refreshed with the token, so it survives account delete/recreate.
+      is_internal: raw.user?.app_metadata?.is_internal === true
     }
   };
 }
@@ -286,6 +292,11 @@ async function handleAuthentication(credentials, sendResponse) {
     const fullSession = await response.json();
     const storedSession = buildStoredSession(fullSession);
 
+    // Persist the session first so trackEvent can see the is_internal claim
+    // (CAR-80) and drop analytics for internal accounts, including these two
+    // login events.
+    await chrome.storage.local.set({ session: storedSession });
+
     // Merge the anonymous install identity into the real user, then record
     // the login (CAR-38 onboarding funnel).
     const { anonId } = await chrome.storage.local.get(['anonId']);
@@ -293,8 +304,6 @@ async function handleAuthentication(credentials, sendResponse) {
       await trackEvent('$create_alias', { distinct_id: storedSession.user.id, alias: anonId }, storedSession.user.id);
     }
     await trackEvent('extension_logged_in', {}, storedSession.user?.id);
-
-    await chrome.storage.local.set({ session: storedSession });
 
     // Announce the connection so the web app's extension-onboarding step
     // (CAR-68) advances immediately. Fire-and-forget — login must not fail

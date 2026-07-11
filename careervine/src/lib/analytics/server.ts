@@ -84,9 +84,10 @@ export async function trackServer<E extends AnalyticsEvent>(
 ): Promise<void> {
   if (!userId) return;
   // Internal accounts produce no analytics — covers every server surface
-  // (API routes, cron sends, both MCP processes) in one place (CAR-60).
+  // (API routes, cron sends, both MCP processes) in one place (CAR-60/CAR-80).
+  // Email-derived flag, resolved by user id and cached per process.
   // Milestones still record to user_milestones; only the events are dropped.
-  if (isInternalUser(userId)) return;
+  if (await isInternalUser(userId)) return;
   const stateProps = PERSON_STATE_PROPS[event];
   const properties = {
     ...props,

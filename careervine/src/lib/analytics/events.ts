@@ -115,6 +115,8 @@ export type AnalyticsEvents = {
   onboarding_started: Record<string, never>;
   onboarding_bundle_accepted: Record<string, never>;
   onboarding_bundle_declined: Record<string, never>;
+  /** Left the dedicated connect step toward the company picker (CAR-82). */
+  onboarding_connect_advanced: Record<string, never>;
   onboarding_sync_completed: {
     prospects?: number;
     /** Which server path applied the sync (CAR-78 instrumentation). Absent

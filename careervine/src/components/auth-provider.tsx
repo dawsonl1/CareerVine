@@ -117,10 +117,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    // Identify first so the signup lands on the real (still-unconfirmed) user
-    // rather than the anonymous device id — see identifyNewUser for why.
-    if (data.user) identifyNewUser(data.user.id, email);
-    track("user_signed_up");
+    // Internal accounts (CAR-80): the signup trigger has already stamped the
+    // is_internal app_metadata claim, so skip identifying them and recording
+    // the signup — they must stay out of analytics entirely.
+    if (data.user?.app_metadata?.is_internal !== true) {
+      // Identify first so the signup lands on the real (still-unconfirmed) user
+      // rather than the anonymous device id — see identifyNewUser for why.
+      if (data.user) identifyNewUser(data.user.id, email);
+      track("user_signed_up");
+    }
     return {};
   };
 
