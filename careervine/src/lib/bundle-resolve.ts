@@ -85,6 +85,10 @@ export function readProspectResolution(
   for (const e of r.experiences) {
     if (!e || typeof (e as ResolvedExperience).company_id !== "number") return null;
   }
+  for (const e of r.education) {
+    const schoolId = (e as ResolvedEducation | null)?.school_id;
+    if (!e || (schoolId !== null && typeof schoolId !== "number")) return null;
+  }
   return {
     payload_hash: r.payload_hash,
     profile_location_id: typeof r.profile_location_id === "number" ? r.profile_location_id : null,

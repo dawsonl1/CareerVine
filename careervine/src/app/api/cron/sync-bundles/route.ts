@@ -26,37 +26,52 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const maxDuration = 60;
 
-/** Time slice for the resolver self-heal — the sync work below still needs
- * most of the 60s window. Normally a no-op (the publish script resolves);
- * a bundle it can't finish stays unresolved and simply keeps taking the
- * merge path until tomorrow's run continues from where the hashes left off. */
-const RESOLVE_BUDGET_MS = 25_000;
+/** Time slice for the resolver self-heal. Kept well under half the 60s
+ * window so the no-queue fallback still has room for a full sync budget
+ * (RESOLVE_BUDGET_MS + SYNC_BUDGET_MS must stay < maxDuration). Normally a
+ * no-op (the publish script resolves); a bundle it can't finish stays
+ * unresolved and keeps taking the merge path until tomorrow's run continues
+ * from where the hashes left off. */
+const RESOLVE_BUDGET_MS = 12_000;
+
+/** Total wall-clock we allow the job before Vercel's 60s hard-kill — a few
+ * seconds of headroom for the response. resolve + direct-sync share it. */
+const MAX_JOB_MS = 55_000;
 
 /** Self-heal (CAR-62): any published bundle whose committed version was never
  * snapshot-resolved (crashed publish script, manual finalize) gets resolved
- * here, before the stale scan, so today's fan-out already benefits. */
+ * here, before the stale scan, so today's fan-out already benefits. Returns
+ * the elapsed time so the caller can shrink the downstream sync budget. */
 async function resolveStaleBundles(service: SupabaseClient): Promise<number> {
   const deadline = Date.now() + RESOLVE_BUDGET_MS;
   const { data } = await service
     .from("data_bundles")
     .select("id, slug, version, resolved_version")
     .eq("status", "published")
-    .gt("version", 0);
+    .gt("version", 0)
+    .order("id", { ascending: true }); // deterministic forward progress across runs
   const bundles = ((data as Array<{ id: number; slug: string; version: number; resolved_version: number }> | null) ?? [])
     .filter((b) => b.resolved_version < b.version);
 
   let resolved = 0;
   for (const bundle of bundles) {
-    let afterId = 0;
-    for (;;) {
-      if (Date.now() >= deadline) return resolved;
-      const step = await resolveBundleChunk(service, bundle, { afterId });
-      resolved += step.resolved;
-      if (step.done) {
-        await markBundleResolved(service, bundle);
-        break;
+    // Per-bundle isolation: a DB/RPC throw on one bundle must not abandon the
+    // rest of the list (which would silently stall their resolution every run,
+    // since the set is re-scanned in the same order). Log and move on.
+    try {
+      let afterId = 0;
+      for (;;) {
+        if (Date.now() >= deadline) return resolved;
+        const step = await resolveBundleChunk(service, bundle, { afterId });
+        resolved += step.resolved;
+        if (step.done) {
+          await markBundleResolved(service, bundle);
+          break;
+        }
+        afterId = step.nextAfterId ?? 0;
       }
-      afterId = step.nextAfterId ?? 0;
+    } catch (err) {
+      console.error(`[sync-bundles] resolve failed for bundle ${bundle.slug} (#${bundle.id}):`, err);
     }
   }
   return resolved;
@@ -81,6 +96,7 @@ export async function POST(req: NextRequest) {
 
 async function runJob(req: NextRequest): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
+  const jobStart = Date.now();
 
   // Resolution self-heal first: never throws the job — sync must still run.
   let resolvedProspects = 0;
@@ -104,8 +120,12 @@ async function runJob(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ stale: stale.length, enqueued, resolvedProspects });
   }
 
-  // No queue available: process what fits in this invocation's budget.
-  const result = await processSubscriptionsUnderBudget(service, stale);
+  // No queue available: process what fits in the time LEFT after the resolve
+  // self-heal, so the two phases together can't blow past maxDuration (a
+  // Vercel hard-kill would strand held claims until their TTL). Floor keeps at
+  // least one useful chunk's worth of budget.
+  const remainingMs = Math.max(10_000, MAX_JOB_MS - (Date.now() - jobStart));
+  const result = await processSubscriptionsUnderBudget(service, stale, remainingMs);
   return NextResponse.json({
     stale: stale.length,
     processedDirectly: result.completed.length,

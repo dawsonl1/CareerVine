@@ -123,17 +123,27 @@ export async function POST(req: NextRequest) {
         if (!bundleRow) throw new BundlePublishError(`Bundle "${input.slug}" not found`, 404);
         const bundle = bundleRow as { id: number; slug: string; version: number };
 
-        const step = await resolveBundleChunk(service, bundle, { afterId: input.afterId ?? 0 });
+        // Pin the version on the loop's first call and thread it back on every
+        // subsequent call. markBundleResolved then guards on the version the
+        // loop STARTED against — if a concurrent publish bumps the committed
+        // version mid-loop, the .eq() misses, resolved_version stays behind,
+        // and the cron re-resolves (rather than stamping over stale rows and
+        // letting the fast path silently drop them). Reuses the same pinning
+        // discipline the subscriber apply loop uses (bundleApplySchema).
+        const pinnedVersion = input.pinnedVersion ?? bundle.version;
+        const pinnedBundle = { id: bundle.id, slug: bundle.slug, version: pinnedVersion };
+
+        const step = await resolveBundleChunk(service, pinnedBundle, { afterId: input.afterId ?? 0 });
         let fanout = 0;
         if (step.done) {
-          await markBundleResolved(service, bundle);
+          await markBundleResolved(service, pinnedBundle);
           // Snapshot complete → NOW wake the stale subscribers; they'll all
           // ride the resolved ids (and blank ones the fast path).
           const stale = await findStaleSubscriptionIds(service, { bundleId: bundle.id });
           const workerUrl = new URL("/api/queue/bundle-sync", req.url).toString();
           fanout = await enqueueBundleSyncJobs(stale, workerUrl);
         }
-        return NextResponse.json({ ...step, fanout });
+        return NextResponse.json({ ...step, pinnedVersion, fanout });
       }
       case "abort": {
         await abortPublish(service, input.slug, input.stagingVersion);

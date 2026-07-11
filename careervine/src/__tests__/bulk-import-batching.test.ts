@@ -249,6 +249,33 @@ describe("importPeopleChunk batching (CAR-47)", () => {
     expect(byTable(calls, "companies", "insert")).toHaveLength(1);
   });
 
+  it("keeps two same-school degrees when start_year is NULL (NULLS-distinct index)", async () => {
+    const nullYear = mappedFromPayload({
+      name: "Dee Major",
+      linkedin_url: "https://www.linkedin.com/in/deemajor-nullyear",
+      network_status: "prospect",
+      education: [
+        { school_name: "BYU", degree: "BS", field_of_study: "IS" },
+        { school_name: "BYU", degree: "MISM", field_of_study: "IS" },
+      ],
+    });
+    const { respond } = happyPathResponder();
+    const { client, calls } = createMockClient(respond);
+
+    await importPeopleChunk(client, "user-1", [{ mapped: nullYear }], {
+      mergePolicy: "bundle",
+      skipPhotos: true,
+    });
+
+    // Both persist — NULL start_year rows don't collide in the DB, so the
+    // in-code key must not collapse them on school alone (CAR-62 review).
+    const eduUpserts = byTable(calls, "contact_schools", "upsert");
+    expect(eduUpserts).toHaveLength(1);
+    const rows = eduUpserts[0].payload as Array<{ degree: string | null }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.degree).sort()).toEqual(["BS", "MISM"]);
+  });
+
   it("dedupes same-school same-start-year education to the DB unique key (double major)", async () => {
     const doubleMajor = mappedFromPayload({
       name: "Dee Major",

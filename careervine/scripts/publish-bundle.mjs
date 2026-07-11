@@ -168,6 +168,11 @@ console.log(`Publishing "${slug}" to ${baseUrl} (${people.length} prospects, ${c
 const { bundleId, stagingVersion } = await call({ mode: "begin", slug, name, description });
 console.log(`Claimed publish lock: bundle #${bundleId}, staging v${stagingVersion}`);
 
+// Once finalize commits, the staging lock is already released and the version
+// is live — a failure in the post-finalize resolve loop must NOT trigger an
+// abort (it would be a confusing no-op; the bundle is published, just
+// unresolved, and the daily cron self-heals it).
+let finalized = false;
 try {
   let done = 0;
   for (const chunk of chunks(people)) {
@@ -186,6 +191,7 @@ try {
   }
 
   const result = await call({ mode: "finalize", slug, stagingVersion });
+  finalized = true;
   if (result.published) {
     console.log(
       `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed.`,
@@ -204,8 +210,13 @@ try {
   // still self-heal an interrupted earlier resolve.
   let afterId = 0;
   let resolvedTotal = 0;
+  // pinnedVersion is captured from the first response and threaded back, so
+  // the whole loop resolves against one committed version even if a second
+  // publish lands mid-loop (the final stamp then guards on the pinned value).
+  let pinnedVersion;
   for (;;) {
-    const step = await call({ mode: "resolve", slug, afterId });
+    const step = await call({ mode: "resolve", slug, afterId, pinnedVersion });
+    pinnedVersion ??= step.pinnedVersion;
     resolvedTotal += step.resolved;
     if (step.skipped?.length) {
       for (const s of step.skipped) console.warn(`  resolve skipped: ${s}`);
@@ -219,7 +230,11 @@ try {
   }
 } catch (err) {
   console.error(String(err?.message ?? err));
-  console.error("Aborting publish (releasing lock)…");
-  await call({ mode: "abort", slug, stagingVersion }).catch(() => {});
+  if (finalized) {
+    console.error("Publish already committed; resolve loop failed. The daily cron will finish resolution. Not aborting.");
+  } else {
+    console.error("Aborting publish (releasing lock)…");
+    await call({ mode: "abort", slug, stagingVersion }).catch(() => {});
+  }
   process.exit(1);
 }

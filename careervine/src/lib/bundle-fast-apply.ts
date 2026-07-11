@@ -33,7 +33,7 @@ import type {
 import { computeContactFingerprint, normalizeTagNames } from "./bundle-fingerprint";
 import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payload";
 import { readProspectResolution } from "./bundle-resolve";
-import { buildContactInsertRow, type ImportChunkOptions } from "./bulk-import";
+import { buildContactInsertRow, educationDedupeKey, type ImportChunkOptions } from "./bulk-import";
 import { addTagsToContacts, isValidImportEmail } from "./import-db-helpers";
 import { chunkList } from "./company-helpers";
 import { normalizeLocation } from "./location-normalizer";
@@ -50,8 +50,18 @@ const INSERT_BATCH = 500;
 /**
  * The fast path applies ONLY when nothing can possibly need merging:
  * first sync of the subscription, a snapshot covering the pinned version,
- * and a subscriber with no contacts and no suppression tombstones.
- * Everyone else takes the merge path — same result, just slower.
+ * and a subscriber with no contacts, no suppression tombstones, and no
+ * pre-existing tags. Everyone else takes the merge path — same result,
+ * just slower.
+ *
+ * The zero-tags requirement guards a fingerprint-parity trap: the fast path
+ * seeds bundle_contact_state from the LOWERCASED payload tag names, but
+ * addTagsToContacts links to an already-existing tag under its stored casing
+ * without rewriting it. A user owning a mixed-case tag ("APM") that collides
+ * with a bundle tag ("apm") would get a baseline a later re-read can't
+ * reproduce → the contact reads as user-touched forever. The merge path is
+ * immune (it re-reads the created contact's real tag names), so those users
+ * take it.
  */
 export async function checkFastApplyEligibility(
   client: SupabaseClient,
@@ -62,14 +72,15 @@ export async function checkFastApplyEligibility(
   if (subscription.synced_version !== 0) return false;
   if (bundle.resolved_version !== bundle.version || bundle.version !== pinnedVersion) return false;
 
-  const [{ count: contactCount }, { count: suppressedCount }] = await Promise.all([
+  const [{ count: contactCount }, { count: suppressedCount }, { count: tagCount }] = await Promise.all([
     client.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", subscription.user_id),
     client
       .from("suppressed_imports")
       .select("*", { count: "exact", head: true })
       .eq("user_id", subscription.user_id),
+    client.from("tags").select("*", { count: "exact", head: true }).eq("user_id", subscription.user_id),
   ]);
-  return (contactCount ?? 0) === 0 && (suppressedCount ?? 0) === 0;
+  return (contactCount ?? 0) === 0 && (suppressedCount ?? 0) === 0 && (tagCount ?? 0) === 0;
 }
 
 interface FastProspectRow {
@@ -222,8 +233,9 @@ export async function runFastApplyStep(
     const eduKeys = new Set<string>();
     for (const edu of p.mapped.education) {
       if (edu.resolved_school_id == null) continue;
-      // Same key as the DB unique index (contact_id, school_id, start_year).
-      const key = `${edu.resolved_school_id}|${edu.start_year ?? ""}`;
+      // Shared dedupe key (NULL-start_year-aware) — same rule the merge path
+      // uses, so the two paths never disagree on what counts as a duplicate.
+      const key = educationDedupeKey(edu.resolved_school_id, edu.start_year, edu.degree, edu.field_of_study);
       if (eduKeys.has(key)) continue;
       eduKeys.add(key);
       educationRows.push({

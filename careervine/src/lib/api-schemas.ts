@@ -426,11 +426,16 @@ export const bundlePublishSchema = z.discriminatedUnion("mode", [
   }),
   /** Post-finalize snapshot resolution (CAR-62): cursor-driven; runs against
    * the committed version, so no stagingVersion/lock. The final call stamps
-   * resolved_version and performs the subscriber fan-out. */
+   * resolved_version and performs the subscriber fan-out. pinnedVersion is
+   * captured on the first call and threaded back so the whole loop stays on
+   * one committed version — a concurrent publish mid-loop then makes the
+   * resolved_version guard miss (leaving the bundle unresolved for the cron
+   * to heal) instead of stamping over a stale snapshot. */
   z.object({
     mode: z.literal("resolve"),
     slug: z.string().min(1),
     afterId: z.number().int().nonnegative().nullable().optional(),
+    pinnedVersion: z.number().int().positive().optional(),
   }),
 ]);
 

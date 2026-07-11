@@ -1090,20 +1090,22 @@ async function collectEducation(
 ) {
   if (w.mapped.education.length === 0) return;
 
-  // Dedupe key mirrors the DB unique index (contact_id, school_id, start_year)
-  // EXACTLY — the old key also included degree/field_of_study, so same-school/
-  // same-year pairs (double majors) passed the in-code dedupe, collided in the
-  // DB, and poisoned every chunk's bulk education insert into the per-row
-  // fallback (~61s/sync, CAR-62). First entry wins; the index can only hold
-  // one row per key anyway.
+  // Dedupe key: for a real start_year it mirrors the DB unique index
+  // (contact_id, school_id, start_year) so double majors at the same
+  // school+year collapse to one row (the index can only hold one anyway) —
+  // this is what stopped the batch-poisoning per-row fallback (~61s/sync,
+  // CAR-62). But that index is NULLS-DISTINCT, so two rows with a NULL
+  // start_year do NOT collide in the DB; collapsing them on school alone
+  // would silently drop a legitimately-distinct degree, so when start_year
+  // is null the key falls back to including degree/field (CAR-62 review).
   const existingKeys = new Set<string>();
   if (opts.checkExisting) {
     const { data: existingRows } = await opts.supabase
       .from("contact_schools")
-      .select("school_id, start_year")
+      .select("school_id, degree, field_of_study, start_year")
       .eq("contact_id", contactId);
-    for (const r of (existingRows as Array<{ school_id: number; start_year: number | null }> | null) ?? []) {
-      existingKeys.add(`${r.school_id}|${r.start_year ?? ""}`);
+    for (const r of (existingRows as Array<{ school_id: number; degree: string | null; field_of_study: string | null; start_year: number | null }> | null) ?? []) {
+      existingKeys.add(educationDedupeKey(r.school_id, r.start_year, r.degree, r.field_of_study));
     }
   }
 
@@ -1111,7 +1113,7 @@ async function collectEducation(
     const school =
       edu.resolved_school_id != null ? { id: edu.resolved_school_id } : await sinks.resolveSchool(edu.school_name);
     if (!school) continue;
-    const key = `${school.id}|${edu.start_year ?? ""}`;
+    const key = educationDedupeKey(school.id, edu.start_year, edu.degree, edu.field_of_study);
     const chunkKey = `${contactId}|${key}`;
     if (existingKeys.has(key) || sinks.educationKeys.has(chunkKey)) continue;
     existingKeys.add(key);
@@ -1125,6 +1127,22 @@ async function collectEducation(
       end_year: edu.end_year,
     });
   }
+}
+
+/** In-code dedupe key for a contact's education rows (CAR-62). A real
+ * start_year keys on (school_id, start_year) to match the DB unique index;
+ * a NULL start_year falls back to including degree/field because the index
+ * is NULLS-DISTINCT and would keep both distinct-degree rows. Shared with the
+ * bundle fast-apply path so both dedupe identically. */
+export function educationDedupeKey(
+  schoolId: number,
+  startYear: number | null | undefined,
+  degree: string | null | undefined,
+  field: string | null | undefined,
+): string {
+  return startYear != null
+    ? `${schoolId}|${startYear}`
+    : `${schoolId}||${(degree ?? "").toLowerCase()}|${(field ?? "").toLowerCase()}`;
 }
 
 export async function findOrCreateSchool(supabase: SupabaseClient, name: string): Promise<{ id: number } | null> {

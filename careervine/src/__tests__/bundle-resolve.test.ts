@@ -136,6 +136,16 @@ describe("readProspectResolution", () => {
     expect(
       readProspectResolution({ ...valid, experiences: [{ company_id: "not-a-number" }] }, "h1"),
     ).toBeNull();
+    // Education element shape is validated too (CAR-62 review): a bad school_id
+    // type must not slip through where a later positional read would trust it.
+    expect(
+      readProspectResolution({ ...valid, education: [{ school_id: "nope" }] }, "h1"),
+    ).toBeNull();
+    // ...but null school_id (unresolvable name) is legitimate.
+    expect(readProspectResolution({ ...valid, education: [{ school_id: null }] }, "h1")).toEqual({
+      ...valid,
+      education: [{ school_id: null }],
+    });
   });
 });
 

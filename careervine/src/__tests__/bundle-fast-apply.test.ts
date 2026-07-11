@@ -165,6 +165,14 @@ describe("checkFastApplyEligibility", () => {
     expect(await checkFastApplyEligibility(client, SUB, BUNDLE, 3)).toBe(false);
   });
 
+  it("rejects a subscriber that owns any pre-existing tags", async () => {
+    // A pre-existing mixed-case tag colliding with a bundle tag would poison
+    // the fast path's precomputed fingerprint (CAR-62 review) — take the merge
+    // path, which re-reads the stored casing.
+    const { client } = createMockClient((state) => (state.table === "tags" ? { count: 1 } : { count: 0 }));
+    expect(await checkFastApplyEligibility(client, SUB, BUNDLE, 3)).toBe(false);
+  });
+
   it("accepts a blank subscriber of a fully resolved bundle", async () => {
     const { client } = createMockClient(() => ({ count: 0 }));
     expect(await checkFastApplyEligibility(client, SUB, BUNDLE, 3)).toBe(true);
@@ -261,6 +269,41 @@ describe("runFastApplyStep", () => {
     expect(stateRow.applied_fingerprint).toBe(reRead);
     expect(stateRow.user_touched).toBe(false);
     expect(stateRow.apply_started_at).toBeNull();
+  });
+
+  it("keeps two same-school degrees when start_year is NULL (index is NULLS-distinct)", async () => {
+    const payload = {
+      name: "Dee Major",
+      linkedin_url: "https://www.linkedin.com/in/dee-major",
+      network_status: "prospect",
+      emails: [],
+      experiences: [],
+      education: [
+        { school_name: "BYU", degree: "BS", field_of_study: "IS" },
+        { school_name: "BYU", degree: "MISM", field_of_study: "IS" },
+      ],
+      tags: [],
+    };
+    const payload_hash = hashPayload(payload as never);
+    const row = {
+      id: 401,
+      linkedin_url: payload.linkedin_url,
+      payload,
+      payload_schema_version: 1,
+      payload_hash,
+      resolved: {
+        payload_hash,
+        profile_location_id: null,
+        experiences: [],
+        education: [{ school_id: 30 }, { school_id: 30 }],
+      },
+    };
+    const { client, calls } = createMockClient(fastResponder([row]));
+    await runFastApplyStep(client, SUB, BUNDLE, { afterId: 0, pinnedVersion: 3 });
+
+    const eduRows = byTable(calls, "contact_schools", "upsert")[0].payload as Array<Record<string, unknown>>;
+    expect(eduRows).toHaveLength(2); // both degrees kept — NULL years don't collide
+    expect(eduRows.map((r) => r.degree).sort()).toEqual(["BS", "MISM"]);
   });
 
   it("reports rows without a hash-current resolution as skipped instead of applying them", async () => {
