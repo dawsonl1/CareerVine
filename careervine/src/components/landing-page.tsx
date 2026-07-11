@@ -380,6 +380,9 @@ export default function LandingPage() {
       <footer className="border-t border-outline-variant px-6 py-4 flex items-center justify-between text-xs text-muted-foreground">
         <span>&copy; {new Date().getFullYear()} CareerVine</span>
         <div className="flex items-center gap-4">
+          <a href="https://docs.careervine.app" className="hover:underline">
+            Docs
+          </a>
           <a href="mailto:dawson@careervine.app" className="hover:underline">
             dawson@careervine.app
           </a>

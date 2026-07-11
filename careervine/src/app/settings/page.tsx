@@ -23,7 +23,9 @@ import AiKeySection from "@/components/settings/ai-key-section";
 import TemplatesSection from "@/components/settings/templates-section";
 import DataSubscriptionsSection from "@/components/settings/data-subscriptions-section";
 import DataScrapingSection from "@/components/settings/data-scraping-section";
-import { User, Plug, Calendar, Bot, Sparkles, Database, RefreshCw } from "lucide-react";
+import { User, Plug, Calendar, Bot, Sparkles, Database, RefreshCw, BookOpen, ExternalLink } from "lucide-react";
+
+const DOCS_URL = "https://docs.careervine.app";
 
 const tabs = [
   { id: "account", label: "Account", icon: User },
@@ -89,6 +91,16 @@ function SettingsPage() {
                   </button>
                 );
               })}
+              <a
+                href={DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-surface-container-low"
+              >
+                <BookOpen className="h-4 w-4" />
+                Feature guide
+                <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+              </a>
             </div>
 
             {/* Desktop: vertical sidebar */}
@@ -112,6 +124,17 @@ function SettingsPage() {
                   </button>
                 );
               })}
+              <div className="my-1.5 border-t border-outline-variant" />
+              <a
+                href={DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl text-base font-medium transition-colors text-left cursor-pointer text-muted-foreground hover:text-foreground hover:bg-surface-container-low"
+              >
+                <BookOpen className="h-5 w-5" />
+                <span className="flex-1">Feature guide</span>
+                <ExternalLink className="h-4 w-4 opacity-60" />
+              </a>
             </div>
           </nav>
 
