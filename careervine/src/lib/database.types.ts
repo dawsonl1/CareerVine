@@ -1048,9 +1048,11 @@ export type Database = {
           id: number;                    // Auto-incrementing primary key
           bundle_id: number;             // Foreign key to data_bundles
           company_id: number;            // Foreign key to companies (shared/global)
+          version_last_seen: number | null; // Staging version of the last publish run that included this company; unstamped rows are pruned at finalize (CAR-63)
           created_at: string;            // Auto-generated timestamp
         };
-        Insert: Omit<Database["public"]["Tables"]["bundle_companies"]["Row"], "id" | "created_at"> & {
+        Insert: Omit<Database["public"]["Tables"]["bundle_companies"]["Row"], "id" | "version_last_seen" | "created_at"> & {
+          version_last_seen?: number | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["bundle_companies"]["Insert"]>;
