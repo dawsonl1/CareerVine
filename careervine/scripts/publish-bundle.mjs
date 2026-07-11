@@ -194,11 +194,11 @@ try {
   finalized = true;
   if (result.published) {
     console.log(
-      `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed.`,
+      `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed, ${result.companiesPruned} company memberships pruned.`,
     );
   } else {
     console.log(
-      `No changes vs v${result.version} — version not bumped, no subscriber fan-out. Counts refreshed (${result.prospectCount} prospects, ${result.companyCount} companies).`,
+      `No changes vs v${result.version} — version not bumped, no subscriber fan-out. Counts refreshed (${result.prospectCount} prospects, ${result.companyCount} companies; ${result.companiesPruned} stale company memberships pruned).`,
     );
   }
 
