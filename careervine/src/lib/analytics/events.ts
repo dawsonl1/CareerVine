@@ -119,6 +119,16 @@ export type AnalyticsEvents = {
   onboarding_completed: Record<string, never>;
   onboarding_skipped: { at_step: string };
 
+  // ── Extension onboarding funnel (CAR-68) ─────────────────────────
+  /** "Start (est. 3 min)" clicked on the seeded home-page to-do. */
+  extension_onboarding_started: Record<string, never>;
+  /** A flow step advanced client-side; state is the step just entered. */
+  extension_onboarding_step: { state: string };
+  /** The seeded to-do was deleted from the flow's intro step. */
+  extension_onboarding_deleted: Record<string, never>;
+  /** Terminal state reached; apollo=false is the "see my contact" exit. */
+  extension_onboarding_completed: { apollo: boolean };
+
   // ── Settings ──────────────────────────────────────────────────────
   api_key_saved: { provider: "openai" | "deepgram" };
 

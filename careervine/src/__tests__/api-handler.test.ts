@@ -496,3 +496,74 @@ describe('withApiHandler', () => {
     });
   });
 });
+
+// ── CAR-68: extension last-seen stamp ──────────────────────────────────
+
+import { getExtensionAuth } from '@/lib/extension-auth';
+
+describe('extension last-seen stamp (CAR-68)', () => {
+  function mockExtensionSupabase() {
+    const eq = vi.fn().mockResolvedValue({ error: null });
+    const update = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ update });
+    vi.mocked(getExtensionAuth).mockResolvedValueOnce({
+      user: { id: 'user-123', email: 'test@example.com' },
+      supabase: { from, auth: { getUser: vi.fn() } },
+    } as any);
+    return { from, update, eq };
+  }
+
+  it('stamps users.extension_last_seen_at on Bearer-authenticated calls', async () => {
+    const { from, update, eq } = mockExtensionSupabase();
+    const handler = withApiHandler({
+      extensionAuth: true,
+      handler: async () => ({ ok: true }),
+    });
+
+    const request = makeRequest('GET');
+    request.headers.set('Authorization', 'Bearer some-jwt');
+    const { status } = await callHandler(handler, request);
+
+    expect(status).toBe(200);
+    expect(from).toHaveBeenCalledWith('users');
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ extension_last_seen_at: expect.any(String) }),
+    );
+    expect(eq).toHaveBeenCalledWith('id', 'user-123');
+  });
+
+  it('does not stamp cookie-authenticated extensionAuth calls (web bulk importer)', async () => {
+    const { from } = mockExtensionSupabase();
+    const handler = withApiHandler({
+      extensionAuth: true,
+      handler: async () => ({ ok: true }),
+    });
+
+    const { status } = await callHandler(handler, makeRequest('GET'));
+
+    expect(status).toBe(200);
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('never fails the request when the stamp write rejects', async () => {
+    const eq = vi.fn().mockRejectedValue(new Error('db down'));
+    const update = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ update });
+    vi.mocked(getExtensionAuth).mockResolvedValueOnce({
+      user: { id: 'user-123', email: 'test@example.com' },
+      supabase: { from, auth: { getUser: vi.fn() } },
+    } as any);
+
+    const handler = withApiHandler({
+      extensionAuth: true,
+      handler: async () => ({ ok: true }),
+    });
+
+    const request = makeRequest('GET');
+    request.headers.set('Authorization', 'Bearer some-jwt');
+    const { status, data } = await callHandler(handler, request);
+
+    expect(status).toBe(200);
+    expect(data.ok).toBe(true);
+  });
+});

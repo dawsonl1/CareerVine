@@ -24,6 +24,8 @@ import { ComposeEmailProvider } from "@/components/compose-email-context";
 import { ComposeEmailModal } from "@/components/compose-email-modal";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-context";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
+import { ExtensionOnboardingProvider } from "@/components/onboarding/extension-onboarding-context";
+import { ExtensionOnboardingModal } from "@/components/onboarding/extension-onboarding-modal";
 import { QuickCaptureProvider } from "@/components/quick-capture-context";
 import { QuickCaptureModal } from "@/components/quick-capture-modal";
 import { SignedOutRedirect } from "@/components/signed-out-redirect";
@@ -99,14 +101,17 @@ export default function RootLayout({
             <ToastProvider>
               <ComposeEmailProvider>
                 <OnboardingProvider>
-                  <QuickCaptureProvider>
-                    <SignedOutRedirect>
-                      {children}
-                      <ComposeEmailModal />
-                      <QuickCaptureModal />
-                      <OnboardingFlow />
-                    </SignedOutRedirect>
-                  </QuickCaptureProvider>
+                  <ExtensionOnboardingProvider>
+                    <QuickCaptureProvider>
+                      <SignedOutRedirect>
+                        {children}
+                        <ComposeEmailModal />
+                        <QuickCaptureModal />
+                        <OnboardingFlow />
+                        <ExtensionOnboardingModal />
+                      </SignedOutRedirect>
+                    </QuickCaptureProvider>
+                  </ExtensionOnboardingProvider>
                 </OnboardingProvider>
               </ComposeEmailProvider>
             </ToastProvider>

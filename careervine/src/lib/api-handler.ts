@@ -120,6 +120,20 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         if (auth.error) return auth.error;
         user = auth.user;
         supabase = auth.supabase;
+        // CAR-68: Bearer-authed calls come from the Chrome extension (cookie
+        // fallback is the web app's bulk importer). Stamp last-seen so the
+        // onboarding "log in to the extension" step can detect the connection.
+        // Fire-and-forget: a failed stamp must never affect the request.
+        if (request.headers.get("Authorization")?.startsWith("Bearer ")) {
+          pendingTracks.push(
+            Promise.resolve(
+              supabase
+                .from("users")
+                .update({ extension_last_seen_at: new Date().toISOString() })
+                .eq("id", user.id),
+            ).then(() => undefined, () => undefined),
+          );
+        }
       } else {
         supabase = await createSupabaseServerClient();
         const {

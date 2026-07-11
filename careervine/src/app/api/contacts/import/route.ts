@@ -1,6 +1,7 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { contactsImportSchema } from "@/lib/api-schemas";
 import { checkContactMilestone } from "@/lib/analytics/server";
+import { advanceExtensionOnboarding } from "@/lib/onboarding/extension-server";
 import { sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
@@ -119,6 +120,10 @@ export const POST = withApiHandler({
       track("contact_imported", { source: "extension" });
       await checkContactMilestone(user.id);
     }
+
+    // CAR-68: advance the extension-onboarding flow when its waited-on import
+    // arrives. Best-effort — a failed advance must never fail the import.
+    await advanceExtensionOnboarding(supabase, user.id, contact.id, !!profileData.contactInfo?.email);
 
     // Auto-enrich (plan 29): kick off an Apify scrape that fills photo, real
     // employment history, and a verified email. Async — the run completes via

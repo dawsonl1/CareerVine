@@ -21,6 +21,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { track } from "@/lib/analytics/client";
 import { useOnboarding } from "./onboarding-context";
+import { ConfettiBurst } from "./confetti-burst";
 import {
   getOnboardingBundleStats,
   type OnboardingBundleStats,
@@ -474,21 +475,8 @@ function CompanyPickerStep({
 }
 
 /* ── Finale: confetti + what's next ── */
-const CONFETTI_COLORS = ["#4f6f52", "#e8a13c", "#7ca5b8", "#c96f4a", "#8f5aa5"];
-
 function FinaleStep({ onDone }: { onDone: () => void }) {
   const [showMore, setShowMore] = useState(false);
-  const pieces = useMemo(
-    () =>
-      Array.from({ length: 48 }, (_, i) => ({
-        left: Math.random() * 100,
-        delay: Math.random() * 0.8,
-        duration: 2.2 + Math.random() * 1.6,
-        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-        rotate: Math.random() * 360,
-      })),
-    [],
-  );
 
   useEffect(() => {
     const t = setTimeout(() => setShowMore(true), 4000);
@@ -497,26 +485,7 @@ function FinaleStep({ onDone }: { onDone: () => void }) {
 
   return (
     <StepShell wide>
-      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[28px]">
-        {pieces.map((p, i) => (
-          <span
-            key={i}
-            className="absolute top-[-12px] w-2 h-3 rounded-[2px]"
-            style={{
-              left: `${p.left}%`,
-              backgroundColor: p.color,
-              transform: `rotate(${p.rotate}deg)`,
-              animation: `cv-confetti-fall ${p.duration}s ease-in ${p.delay}s forwards`,
-            }}
-          />
-        ))}
-        <style>{`
-          @keyframes cv-confetti-fall {
-            0% { transform: translateY(0) rotate(0deg); opacity: 1; }
-            100% { transform: translateY(85vh) rotate(540deg); opacity: 0; }
-          }
-        `}</style>
-      </div>
+      <ConfettiBurst className="rounded-[28px]" />
 
       <div className="text-center">
         <h2 className="text-2xl font-semibold text-foreground">
