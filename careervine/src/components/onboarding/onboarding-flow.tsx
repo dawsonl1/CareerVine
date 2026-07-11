@@ -35,6 +35,7 @@ import {
   type ApplyProgress,
 } from "@/lib/bundle-apply-client";
 import { addTargetCompany } from "@/lib/company-queries";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Users, Building2, GraduationCap, Mail, Calendar, Check, Search, Sparkles } from "lucide-react";
 
 /* ── Exit-guard confirm dialog (CAR-84) ──
@@ -582,18 +583,35 @@ function CompanyPickerStep({
                   )}
                 </div>
               )}
-              <button
-                type="button"
-                disabled={syncing || selecting !== null}
-                title={syncing ? "Your import is still finishing — Select unlocks the moment it's done." : undefined}
-                onClick={async () => {
-                  setSelecting(c.id);
-                  onPicked(c);
-                }}
-                className="opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {syncing ? "Importing…" : selecting === c.id ? "Selecting…" : "Select"}
-              </button>
+              {(() => {
+                const selectBtn = (
+                  <button
+                    type="button"
+                    disabled={syncing || selecting !== null}
+                    onClick={async () => {
+                      setSelecting(c.id);
+                      onPicked(c);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {syncing ? "Importing…" : selecting === c.id ? "Selecting…" : "Select"}
+                  </button>
+                );
+                // Custom tooltip instead of native `title` (CAR-84): it triggers
+                // on the wrapper, so it shows even while the button is disabled
+                // (native title on a disabled button often won't fire).
+                return syncing ? (
+                  <Tooltip
+                    label="Select unlocks the moment your import finishes"
+                    side="top"
+                    className="shrink-0"
+                  >
+                    {selectBtn}
+                  </Tooltip>
+                ) : (
+                  selectBtn
+                );
+              })()}
             </div>
           ))
         )}
