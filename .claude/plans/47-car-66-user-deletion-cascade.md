@@ -20,7 +20,10 @@ edges, never the user-facing ones. Every table added *after* init already cascad
 
 ## Fix — one migration, no app-code change
 
-Re-create the 20 offending FKs (drop + add) with the correct action. Final actions:
+Re-create the 17 offending FKs (drop + add) with the correct action. (init.sql also created
+three `post_meeting_action_items` FKs, but that table was dropped in
+`20260214092500_drop_post_meeting_action_items.sql` — verified absent in production, so
+they need no fix and must not be referenced.) Final actions:
 
 | Constraint | Parent | Action | Why |
 |---|---|---|---|
@@ -31,13 +34,10 @@ Re-create the 20 offending FKs (drop + add) with the correct action. Final actio
 | user_companies_user_fk | users | CASCADE | user-owned |
 | user_schools_user_fk | users | CASCADE | user-owned |
 | referrals_user_fk | users | CASCADE | user-owned |
-| post_meeting_action_items_user_fk | users | CASCADE | user-owned |
 | follow_up_action_items_user_fk | users | CASCADE | user-owned |
 | meeting_contacts_meeting_fk | meetings | CASCADE | join row |
 | meeting_attachments_meeting_fk | meetings | CASCADE | join row |
-| post_meeting_action_items_meeting_fk | meetings | CASCADE | meeting_id NOT NULL |
 | referrals_meeting_fk | meetings | SET NULL | referral_meeting_id nullable — keep referral |
-| post_meeting_action_items_contact_fk | contacts | SET NULL | contact_id nullable — matches follow_up_action_items precedent |
 | contact_tags_tag_fk | tags | CASCADE | join row |
 | contact_attachments_attachment_fk | attachments | CASCADE | join row |
 | meeting_attachments_attachment_fk | attachments | CASCADE | join row |

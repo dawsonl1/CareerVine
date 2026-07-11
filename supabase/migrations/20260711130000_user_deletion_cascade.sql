@@ -43,10 +43,6 @@ ALTER TABLE referrals DROP CONSTRAINT IF EXISTS referrals_user_fk;
 ALTER TABLE referrals ADD CONSTRAINT referrals_user_fk
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
-ALTER TABLE post_meeting_action_items DROP CONSTRAINT IF EXISTS post_meeting_action_items_user_fk;
-ALTER TABLE post_meeting_action_items ADD CONSTRAINT post_meeting_action_items_user_fk
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-
 ALTER TABLE follow_up_action_items DROP CONSTRAINT IF EXISTS follow_up_action_items_user_fk;
 ALTER TABLE follow_up_action_items ADD CONSTRAINT follow_up_action_items_user_fk
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
@@ -60,20 +56,14 @@ ALTER TABLE meeting_attachments DROP CONSTRAINT IF EXISTS meeting_attachments_me
 ALTER TABLE meeting_attachments ADD CONSTRAINT meeting_attachments_meeting_fk
   FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE;
 
-ALTER TABLE post_meeting_action_items DROP CONSTRAINT IF EXISTS post_meeting_action_items_meeting_fk;
-ALTER TABLE post_meeting_action_items ADD CONSTRAINT post_meeting_action_items_meeting_fk
-  FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE;
-
 -- referral_meeting_id is nullable — drop the link, keep the referral.
 ALTER TABLE referrals DROP CONSTRAINT IF EXISTS referrals_meeting_fk;
 ALTER TABLE referrals ADD CONSTRAINT referrals_meeting_fk
   FOREIGN KEY (referral_meeting_id) REFERENCES meetings(id) ON DELETE SET NULL;
 
--- contact_id is nullable — keep the meeting-scoped action item, matching the
--- SET NULL choice already made for follow_up_action_items in 20260215050000.
-ALTER TABLE post_meeting_action_items DROP CONSTRAINT IF EXISTS post_meeting_action_items_contact_fk;
-ALTER TABLE post_meeting_action_items ADD CONSTRAINT post_meeting_action_items_contact_fk
-  FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE SET NULL;
+-- NOTE: init.sql's post_meeting_action_items FKs are intentionally absent here —
+-- that table was dropped in 20260214092500_drop_post_meeting_action_items.sql,
+-- so its constraints no longer exist anywhere (verified against production).
 
 -- ── Tag / attachment / interaction join rows → CASCADE ──────────────────────
 ALTER TABLE contact_tags DROP CONSTRAINT IF EXISTS contact_tags_tag_fk;
