@@ -30,12 +30,21 @@
  * linkage row, orphaning the contact into the user's normal contacts.
  */
 
-import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payload";
 import { chunkList } from "./company-helpers";
 import { importPeopleChunk, type PersonImportResult } from "./bulk-import";
-import { stableStringify } from "./bundle-publish";
+import {
+  computeContactFingerprint,
+  normalizeTagNames,
+  type ContactFingerprintInput,
+} from "./bundle-fingerprint";
+import { checkFastApplyEligibility, runFastApplyStep } from "./bundle-fast-apply";
+import { readProspectResolution } from "./bundle-resolve";
+
+// Re-exported so the many existing importers (routes, tests) keep working
+// after the CAR-62 split into bundle-fingerprint.ts.
+export { computeContactFingerprint, normalizeTagNames, type ContactFingerprintInput };
 
 export const SYNC_CLAIM_MS = 2 * 60 * 1000;
 /** Prospects per apply chunk. Raised 50 → 150 (CAR-57): with the create
@@ -49,6 +58,10 @@ export interface BundleCore {
   slug: string;
   name: string;
   version: number;
+  /** Committed version whose live prospects all carry a hash-current
+   * resolution snapshot (CAR-62). resolved_version === version gates the
+   * fast-apply path; anything else takes the merge path. */
+  resolved_version: number;
 }
 
 export interface SubscriptionCore {
@@ -60,7 +73,7 @@ export interface SubscriptionCore {
 }
 
 export interface ApplyCursor {
-  phase: "apply" | "remove";
+  phase: "apply" | "remove" | "fast";
   afterId: number;
 }
 
@@ -91,7 +104,11 @@ export function readSyncCheckpoint(
 ): SyncCheckpoint | null {
   if (!raw || typeof raw !== "object") return null;
   const c = raw as Partial<SyncCheckpoint>;
-  if ((c.phase !== "apply" && c.phase !== "remove") || typeof c.afterId !== "number" || typeof c.pinnedVersion !== "number") {
+  if (
+    (c.phase !== "apply" && c.phase !== "remove" && c.phase !== "fast") ||
+    typeof c.afterId !== "number" ||
+    typeof c.pinnedVersion !== "number"
+  ) {
     return null;
   }
   if (c.pinnedVersion <= syncedVersion) return null;
@@ -151,41 +168,7 @@ export async function releaseSubscriptionSync(
     .eq("sync_claimed_until", token);
 }
 
-// ── Fingerprints & touched detection (pure) ────────────────────────────
-
-/** The user-editable surface the fingerprint covers. EXCLUDES everything
- * the importer writes outside the fingerprint-refresh window (photo_url,
- * last_scraped_at, provenance, scraped-source child rows) — those changing
- * must never read as user edits. */
-export interface ContactFingerprintInput {
-  name: string | null;
-  headline: string | null;
-  notes: string | null;
-  persona: string | null;
-  network_status: string | null;
-  stage_override: string | null;
-  /** employmentKey()s of contact_companies rows with source='manual'. */
-  manual_employment_keys: string[];
-  /** Addresses of contact_emails rows with source='manual'. */
-  manual_emails: string[];
-  /** All tag names on the contact. */
-  tags: string[];
-}
-
-export function computeContactFingerprint(input: ContactFingerprintInput): string {
-  const canonical = {
-    name: input.name ?? null,
-    headline: input.headline ?? null,
-    notes: input.notes ?? null,
-    persona: input.persona ?? null,
-    network_status: input.network_status ?? null,
-    stage_override: input.stage_override ?? null,
-    manual_employment_keys: [...input.manual_employment_keys].sort(),
-    manual_emails: [...input.manual_emails].map((e) => e.toLowerCase()).sort(),
-    tags: [...input.tags].sort(),
-  };
-  return createHash("sha256").update(stableStringify(canonical)).digest("hex");
-}
+// ── Touched detection (pure) ───────────────────────────────────────────
 
 export interface ContactStateRow {
   contact_id: number;
@@ -333,7 +316,10 @@ export async function findSiblingLinkedContacts(
 /** Compute the post-apply fingerprint for an UPDATED contact without
  * re-reading the DB: pre-snapshot + the patch the importer applied + the
  * additive tag merge. Bundle policy never touches notes/persona/stage
- * on merge and never creates manual rows. */
+ * on merge and never creates manual rows. Payload tags are normalized the
+ * way addTagsToContacts stores them — the baseline must match what a later
+ * re-read of stored names produces, or a cased payload tag ("APM" vs "apm")
+ * reads as permanent drift and falsely flips user_touched (CAR-62). */
 export function postApplyFingerprint(
   pre: ContactFingerprintInput,
   appliedPatch: Record<string, unknown>,
@@ -344,7 +330,7 @@ export function postApplyFingerprint(
     name: (appliedPatch.name as string | undefined) ?? pre.name,
     headline: (appliedPatch.headline as string | undefined) ?? pre.headline,
     network_status: (appliedPatch.network_status as string | undefined) ?? pre.network_status,
-    tags: [...new Set([...pre.tags, ...payloadTags])],
+    tags: [...new Set([...pre.tags, ...normalizeTagNames(payloadTags)])],
   });
 }
 
@@ -355,6 +341,8 @@ interface ProspectRow {
   linkedin_url: string;
   payload: unknown;
   payload_schema_version: number;
+  payload_hash: string;
+  resolved: unknown;
 }
 
 export async function applyBundleDelta(
@@ -365,6 +353,22 @@ export async function applyBundleDelta(
 ): Promise<ApplyStepResult> {
   const pinnedVersion = opts.pinnedVersion ?? bundle.version;
   const chunkSize = opts.chunkSize ?? SYNC_CHUNK_SIZE;
+
+  // ── Fast path (CAR-62): a fully-resolved bundle applied to a blank
+  // subscriber skips the merge engine entirely — pure bulk inserts from the
+  // publish-time snapshot. Dispatching here (not in the callers) gives all
+  // four sync drivers the fast path, and an interrupted fast sync resumed by
+  // the worker/cron continues via the persisted phase:"fast" checkpoint.
+  if (opts.cursor?.phase === "fast") {
+    return runFastApplyStep(client, subscription, bundle, {
+      afterId: opts.cursor.afterId,
+      pinnedVersion,
+    });
+  }
+  if (!opts.cursor && (await checkFastApplyEligibility(client, subscription, bundle, pinnedVersion))) {
+    return runFastApplyStep(client, subscription, bundle, { afterId: 0, pinnedVersion });
+  }
+
   const cursor: ApplyCursor = opts.cursor ?? { phase: "apply", afterId: 0 };
   const nowIso = new Date().toISOString();
   const result: ApplyStepResult = {
@@ -380,7 +384,7 @@ export async function applyBundleDelta(
   if (cursor.phase === "apply") {
     const { data: rows } = await client
       .from("bundle_prospects")
-      .select("id, linkedin_url, payload, payload_schema_version")
+      .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
       .eq("bundle_id", bundle.id)
       .gt("version_updated", subscription.synced_version)
       .lte("version_updated", pinnedVersion)
@@ -401,11 +405,19 @@ export async function applyBundleDelta(
         }
         parsed.push({
           row,
-          mapped: payloadToMappedPerson(p.payload, {
-            bundleId: bundle.id,
-            bundleSlug: bundle.slug,
-            bundleVersion: pinnedVersion,
-          }),
+          mapped: payloadToMappedPerson(
+            p.payload,
+            {
+              bundleId: bundle.id,
+              bundleSlug: bundle.slug,
+              bundleVersion: pinnedVersion,
+            },
+            // Publish-time resolution (CAR-62): stamps resolved company/
+            // location/school ids so importPeopleChunk skips its per-chunk
+            // find-or-create chains. Null when absent or hash-stale — the
+            // importer then resolves the old way.
+            readProspectResolution(row.resolved, row.payload_hash),
+          ),
         });
       }
 

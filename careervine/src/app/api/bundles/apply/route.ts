@@ -31,11 +31,17 @@ export const POST = withApiHandler({
 
     const { data: bundleRow } = await supabase
       .from("data_bundles")
-      .select("id, slug, name, version")
+      .select("id, slug, name, version, resolved_version")
       .eq("id", input.bundleId)
       .maybeSingle();
     if (!bundleRow) throw new ApiError("Bundle not found", 404);
-    const bundle = bundleRow as { id: number; slug: string; name: string; version: number };
+    const bundle = bundleRow as {
+      id: number;
+      slug: string;
+      name: string;
+      version: number;
+      resolved_version: number;
+    };
 
     const { data: subRow } = await supabase
       .from("bundle_subscriptions")

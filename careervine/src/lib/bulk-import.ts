@@ -44,6 +44,7 @@ import {
   isNameOnlyCompanyInput,
   chunkList,
   escapeIlike,
+  COMPANY_COLS,
   type CompanyInput,
   type CompanyRecord,
 } from "./company-helpers";
@@ -171,6 +172,9 @@ interface WorkingEmployment {
   incoming: IncomingEmploymentRow;
   isRemote: boolean;
   locationNorm: NormalizedLocation | null;
+  /** Location decision came from the publish-time snapshot (CAR-62) —
+   * passes 1–2 must not establish offices or claim one for this row. */
+  resolvedLocation?: boolean;
 }
 
 /** Chunk-level write sinks (CAR-47): per-person handlers collect email /
@@ -290,11 +294,18 @@ export async function importPeopleChunk(
   // ── Resolve companies once per chunk ──
   // Chunk-level prefetch (CAR-47): the exact-match lookups (stable id,
   // exact name) resolve in a handful of .in() queries; only misses pay the
-  // per-company find-or-create chain.
+  // per-company find-or-create chain. Employment rows carrying a publish-time
+  // resolution (CAR-62) skip the chain entirely: their CompanyRecords come
+  // from one bulk fetch by id, and their location decision is used verbatim.
+  const resolvedCompanyIds = new Set<number>();
   const companyInputs: CompanyInput[] = [];
   for (const w of working) {
     if (suppressed.has(w.mapped.linkedin_url)) continue;
     for (const emp of w.mapped.employment) {
+      if (emp.resolved_company_id != null) {
+        resolvedCompanyIds.add(emp.resolved_company_id);
+        continue;
+      }
       companyInputs.push({
         name: emp.company_name,
         linkedin_company_id: emp.linkedin_company_id,
@@ -303,6 +314,11 @@ export async function importPeopleChunk(
       });
     }
   }
+  const resolvedCompanies = new Map<number, CompanyRecord>();
+  for (const idChunk of chunkList([...resolvedCompanyIds])) {
+    const { data } = await supabase.from("companies").select(COMPANY_COLS).in("id", idChunk);
+    for (const row of (data as CompanyRecord[] | null) ?? []) resolvedCompanies.set(row.id, row);
+  }
   const companyPrefetch = await prefetchCompanies(supabase, companyInputs);
 
   const companyCache = new Map<string, CompanyRecord>();
@@ -310,6 +326,41 @@ export async function importPeopleChunk(
     if (suppressed.has(w.mapped.linkedin_url)) continue;
     for (let i = 0; i < w.mapped.employment.length; i++) {
       const emp = w.mapped.employment[i];
+
+      // Publish-time resolution short-circuit: company and location decision
+      // are snapshot values; passes 1–2 below skip these rows (offices were
+      // established at publish). A resolved id whose company row has since
+      // vanished (merge/delete) falls through to the normal chain.
+      const resolvedCompany =
+        emp.resolved_company_id != null ? resolvedCompanies.get(emp.resolved_company_id) : undefined;
+      if (resolvedCompany) {
+        // Same remote normalization as the unresolved branch below — the
+        // snapshot stores the location decision, not the workplace flag.
+        const isRemote =
+          emp.workplace_type === "remote" ||
+          Boolean((emp.location_raw ? normalizeLocation(emp.location_raw) : null)?.isRemote);
+        w.employment.push({
+          mappedIndex: i,
+          company: resolvedCompany,
+          isRemote,
+          locationNorm: null,
+          resolvedLocation: true,
+          incoming: {
+            company_id: resolvedCompany.id,
+            title: emp.title,
+            start_month: emp.start_month,
+            end_month: emp.end_month,
+            is_current: emp.is_current,
+            location_id: emp.resolved_location_id ?? null,
+            location_source: emp.resolved_location_id != null ? (emp.resolved_location_source ?? null) : null,
+            location_raw: emp.location_raw,
+            workplace_type: isRemote ? "remote" : emp.workplace_type,
+            employment_type: emp.employment_type,
+          },
+        });
+        continue;
+      }
+
       const cacheKey = emp.linkedin_company_id
         ? `id:${emp.linkedin_company_id}`
         : `name:${(emp.company_name ?? "").trim().toLowerCase()}`;
@@ -371,6 +422,8 @@ export async function importPeopleChunk(
         collectLocationInput(emp.locationNorm);
       }
     }
+    // A snapshot-resolved profile location needs no lookup (CAR-62).
+    if (w.mapped.resolved_profile_location_id !== undefined) continue;
     collectLocationInput(
       w.mapped.profile_location
         ? normalizeParsedLocation(w.mapped.profile_location)
@@ -454,6 +507,7 @@ export async function importPeopleChunk(
     const profileKey = locationMatchKey(profile);
     if (!profileKey) continue;
     for (const emp of w.employment) {
+      if (emp.resolvedLocation) continue; // snapshot decision is final (CAR-62)
       if (!emp.incoming.is_current || emp.incoming.location_id != null || emp.isRemote) continue;
       const officeLocation = chunkOffices.get(emp.company.id)?.get(profileKey);
       if (officeLocation != null) {
@@ -566,12 +620,18 @@ export async function importPeopleChunk(
 
       // Profile location row (only created when it will actually be used)
       let profileLocationId: number | null = null;
-      const profileNorm = mapped.profile_location
-        ? normalizeParsedLocation(mapped.profile_location)
-        : normalizeLocation(mapped.profile_location_raw);
       const needsProfileLocation = !existing || existing.location_id == null;
-      if (needsProfileLocation && locationMatchKey(profileNorm)) {
-        profileLocationId = await resolveLocationId(profileNorm);
+      if (needsProfileLocation) {
+        if (mapped.resolved_profile_location_id !== undefined) {
+          profileLocationId = mapped.resolved_profile_location_id; // snapshot (CAR-62)
+        } else {
+          const profileNorm = mapped.profile_location
+            ? normalizeParsedLocation(mapped.profile_location)
+            : normalizeLocation(mapped.profile_location_raw);
+          if (locationMatchKey(profileNorm)) {
+            profileLocationId = await resolveLocationId(profileNorm);
+          }
+        }
       }
 
       if (existing) {
@@ -582,7 +642,7 @@ export async function importPeopleChunk(
         w.result.status = "error";
         w.result.error = "Contact not found for rescrape";
       } else {
-        pendingCreates.push({ w, row: buildContactInsertRow(userId, w, profileLocationId, now, opts), profileLocationId });
+        pendingCreates.push({ w, row: buildContactInsertRow(userId, w.mapped, profileLocationId, now, opts), profileLocationId });
       }
       results.push(w.result);
     } catch (err) {
@@ -605,7 +665,11 @@ export async function importPeopleChunk(
     }
   }
   if (sinks.education.length > 0) {
-    const { error } = await supabase.from("contact_schools").insert(sinks.education);
+    // Ignore-duplicates upsert on the unique index: residual collisions
+    // (concurrent writers) can't poison the batch into per-row work (CAR-62).
+    const { error } = await supabase
+      .from("contact_schools")
+      .upsert(sinks.education, { onConflict: "contact_id,school_id,start_year", ignoreDuplicates: true });
     if (error) {
       for (const row of sinks.education) await supabase.from("contact_schools").insert(row);
     }
@@ -663,14 +727,13 @@ export async function importPeopleChunk(
 
 // ── Create path (bulk per chunk, CAR-57) ──────────────────────────────
 
-function buildContactInsertRow(
+export function buildContactInsertRow(
   userId: string,
-  w: WorkingPerson,
+  mapped: MappedPerson,
   profileLocationId: number | null,
   now: string,
   opts: ImportChunkOptions,
 ): Record<string, unknown> {
-  const { mapped } = w;
   const noteLabel =
     opts.noteLabel ?? `Imported from PM recruiting pipeline${opts.batch ? ` (${opts.batch})` : ""}`;
   const initialNotes = [
@@ -1027,6 +1090,14 @@ async function collectEducation(
 ) {
   if (w.mapped.education.length === 0) return;
 
+  // Dedupe key: for a real start_year it mirrors the DB unique index
+  // (contact_id, school_id, start_year) so double majors at the same
+  // school+year collapse to one row (the index can only hold one anyway) —
+  // this is what stopped the batch-poisoning per-row fallback (~61s/sync,
+  // CAR-62). But that index is NULLS-DISTINCT, so two rows with a NULL
+  // start_year do NOT collide in the DB; collapsing them on school alone
+  // would silently drop a legitimately-distinct degree, so when start_year
+  // is null the key falls back to including degree/field (CAR-62 review).
   const existingKeys = new Set<string>();
   if (opts.checkExisting) {
     const { data: existingRows } = await opts.supabase
@@ -1034,14 +1105,15 @@ async function collectEducation(
       .select("school_id, degree, field_of_study, start_year")
       .eq("contact_id", contactId);
     for (const r of (existingRows as Array<{ school_id: number; degree: string | null; field_of_study: string | null; start_year: number | null }> | null) ?? []) {
-      existingKeys.add(`${r.school_id}|${(r.degree ?? "").toLowerCase()}|${(r.field_of_study ?? "").toLowerCase()}|${r.start_year ?? ""}`);
+      existingKeys.add(educationDedupeKey(r.school_id, r.start_year, r.degree, r.field_of_study));
     }
   }
 
   for (const edu of w.mapped.education) {
-    const school = await sinks.resolveSchool(edu.school_name);
+    const school =
+      edu.resolved_school_id != null ? { id: edu.resolved_school_id } : await sinks.resolveSchool(edu.school_name);
     if (!school) continue;
-    const key = `${school.id}|${(edu.degree ?? "").toLowerCase()}|${(edu.field_of_study ?? "").toLowerCase()}|${edu.start_year ?? ""}`;
+    const key = educationDedupeKey(school.id, edu.start_year, edu.degree, edu.field_of_study);
     const chunkKey = `${contactId}|${key}`;
     if (existingKeys.has(key) || sinks.educationKeys.has(chunkKey)) continue;
     existingKeys.add(key);
@@ -1057,7 +1129,23 @@ async function collectEducation(
   }
 }
 
-async function findOrCreateSchool(supabase: SupabaseClient, name: string): Promise<{ id: number } | null> {
+/** In-code dedupe key for a contact's education rows (CAR-62). A real
+ * start_year keys on (school_id, start_year) to match the DB unique index;
+ * a NULL start_year falls back to including degree/field because the index
+ * is NULLS-DISTINCT and would keep both distinct-degree rows. Shared with the
+ * bundle fast-apply path so both dedupe identically. */
+export function educationDedupeKey(
+  schoolId: number,
+  startYear: number | null | undefined,
+  degree: string | null | undefined,
+  field: string | null | undefined,
+): string {
+  return startYear != null
+    ? `${schoolId}|${startYear}`
+    : `${schoolId}||${(degree ?? "").toLowerCase()}|${(field ?? "").toLowerCase()}`;
+}
+
+export async function findOrCreateSchool(supabase: SupabaseClient, name: string): Promise<{ id: number } | null> {
   const trimmed = name.trim();
   if (!trimmed) return null;
   const { data: found } = await supabase

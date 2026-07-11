@@ -18,7 +18,7 @@ function snapshot(overrides: Partial<ContactFingerprintInput> = {}): ContactFing
     stage_override: null,
     manual_employment_keys: [],
     manual_emails: [],
-    tags: ['GS'],
+    tags: ['gs'],
     ...overrides,
   };
 }
@@ -50,7 +50,7 @@ describe('computeContactFingerprint', () => {
     expect(computeContactFingerprint(snapshot({ stage_override: 'responded' }))).not.toBe(base);
     expect(computeContactFingerprint(snapshot({ manual_emails: ['new@x.com'] }))).not.toBe(base);
     expect(computeContactFingerprint(snapshot({ manual_employment_keys: ['10|vp|jan 2026'] }))).not.toBe(base);
-    expect(computeContactFingerprint(snapshot({ tags: ['GS', 'warm'] }))).not.toBe(base);
+    expect(computeContactFingerprint(snapshot({ tags: ['gs', 'warm'] }))).not.toBe(base);
   });
 });
 
@@ -62,13 +62,15 @@ describe('postApplyFingerprint', () => {
   });
 
   it('reflects a headline fill and additive tags exactly as the merge applied them', () => {
-    const pre = snapshot({ headline: null, tags: ['GS'] });
+    const pre = snapshot({ headline: null, tags: ['gs'] });
     const fp = postApplyFingerprint(pre, { headline: 'IB Analyst' }, ['GS', 'NYC']);
-    expect(fp).toBe(computeContactFingerprint(snapshot({ headline: 'IB Analyst', tags: ['GS', 'NYC'] })));
+    // Payload tags land in the baseline as addTagsToContacts STORES them
+    // (lowercase) — a later re-read of stored names must reproduce this hash.
+    expect(fp).toBe(computeContactFingerprint(snapshot({ headline: 'IB Analyst', tags: ['gs', 'nyc'] })));
   });
 
-  it('never double-counts tags the contact already has', () => {
-    const pre = snapshot({ tags: ['GS', 'NYC'] });
+  it('never double-counts tags the contact already has, regardless of payload casing', () => {
+    const pre = snapshot({ tags: ['gs', 'nyc'] });
     expect(postApplyFingerprint(pre, {}, ['NYC'])).toBe(computeContactFingerprint(pre));
   });
 });

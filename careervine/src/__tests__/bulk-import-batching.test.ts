@@ -199,11 +199,16 @@ describe("importPeopleChunk batching (CAR-47)", () => {
     expect(byTable(calls, "schools", "select")).toHaveLength(1);
     expect(byTable(calls, "schools", "insert")).toHaveLength(0);
 
-    // Education: created contacts skip the existing-rows select; one bulk insert.
+    // Education: created contacts skip the existing-rows select; one bulk
+    // ignore-duplicates upsert on the DB unique index (CAR-62).
     expect(byTable(calls, "contact_schools", "select")).toHaveLength(0);
-    const eduInserts = byTable(calls, "contact_schools", "insert");
-    expect(eduInserts).toHaveLength(1);
-    expect((eduInserts[0].payload as unknown[]).length).toBe(2);
+    const eduUpserts = byTable(calls, "contact_schools", "upsert");
+    expect(eduUpserts).toHaveLength(1);
+    expect((eduUpserts[0].payload as unknown[]).length).toBe(2);
+    expect(eduUpserts[0].filters.find((f) => f.method === "upsertOpts")?.args[0]).toEqual({
+      onConflict: "contact_id,school_id,start_year",
+      ignoreDuplicates: true,
+    });
 
     // Emails: one bulk insert (only Jane has one).
     const emailInserts = byTable(calls, "contact_emails", "insert");
@@ -244,13 +249,67 @@ describe("importPeopleChunk batching (CAR-47)", () => {
     expect(byTable(calls, "companies", "insert")).toHaveLength(1);
   });
 
+  it("keeps two same-school degrees when start_year is NULL (NULLS-distinct index)", async () => {
+    const nullYear = mappedFromPayload({
+      name: "Dee Major",
+      linkedin_url: "https://www.linkedin.com/in/deemajor-nullyear",
+      network_status: "prospect",
+      education: [
+        { school_name: "BYU", degree: "BS", field_of_study: "IS" },
+        { school_name: "BYU", degree: "MISM", field_of_study: "IS" },
+      ],
+    });
+    const { respond } = happyPathResponder();
+    const { client, calls } = createMockClient(respond);
+
+    await importPeopleChunk(client, "user-1", [{ mapped: nullYear }], {
+      mergePolicy: "bundle",
+      skipPhotos: true,
+    });
+
+    // Both persist — NULL start_year rows don't collide in the DB, so the
+    // in-code key must not collapse them on school alone (CAR-62 review).
+    const eduUpserts = byTable(calls, "contact_schools", "upsert");
+    expect(eduUpserts).toHaveLength(1);
+    const rows = eduUpserts[0].payload as Array<{ degree: string | null }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.degree).sort()).toEqual(["BS", "MISM"]);
+  });
+
+  it("dedupes same-school same-start-year education to the DB unique key (double major)", async () => {
+    const doubleMajor = mappedFromPayload({
+      name: "Dee Major",
+      linkedin_url: "https://www.linkedin.com/in/deemajor",
+      network_status: "prospect",
+      education: [
+        { school_name: "BYU", degree: "BS", field_of_study: "IS", start_year: 2022 },
+        { school_name: "BYU", degree: "Minor", field_of_study: "CS", start_year: 2022 },
+        { school_name: "BYU", degree: "MISM", field_of_study: "IS", start_year: 2026 },
+      ],
+    });
+    const { respond } = happyPathResponder();
+    const { client, calls } = createMockClient(respond);
+
+    await importPeopleChunk(client, "user-1", [{ mapped: doubleMajor }], {
+      mergePolicy: "bundle",
+      skipPhotos: true,
+    });
+
+    // Two distinct (school_id, start_year) keys → two rows, not three; the
+    // old degree-inclusive key let the Minor through and poisoned the bulk
+    // insert against the DB unique index (CAR-62).
+    const eduUpserts = byTable(calls, "contact_schools", "upsert");
+    expect(eduUpserts).toHaveLength(1);
+    const rows = eduUpserts[0].payload as Array<{ school_id: number; start_year: number | null; degree: string | null }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.start_year).sort()).toEqual([2022, 2026]);
+  });
+
   it("degrades bulk education/email inserts to per-row on failure", async () => {
     const { respond } = happyPathResponder();
     const { client, calls } = createMockClient((state) => {
-      if (state.table === "contact_schools" && state.op === "insert") {
-        return Array.isArray(state.payload)
-          ? { error: { message: "bulk failed" } }
-          : { data: null };
+      if (state.table === "contact_schools" && state.op === "upsert") {
+        return { error: { message: "bulk failed" } };
       }
       return respond(state);
     });
@@ -261,10 +320,11 @@ describe("importPeopleChunk batching (CAR-47)", () => {
     });
 
     expect(summary.results.map((r) => r.status)).toEqual(["created", "created"]);
+    // 1 failed bulk upsert + 2 per-row insert fallbacks
+    expect(byTable(calls, "contact_schools", "upsert")).toHaveLength(1);
     const eduInserts = byTable(calls, "contact_schools", "insert");
-    // 1 failed bulk + 2 per-row fallbacks
-    expect(eduInserts).toHaveLength(3);
-    expect(eduInserts.slice(1).every((c) => !Array.isArray(c.payload))).toBe(true);
+    expect(eduInserts).toHaveLength(2);
+    expect(eduInserts.every((c) => !Array.isArray(c.payload))).toBe(true);
   });
 
   it("merges tags when two chunk entries resolve to the same contact", async () => {
@@ -465,9 +525,9 @@ describe("bulk create path (CAR-57)", () => {
     // 1 failed bulk + 2 per-person fallbacks
     expect(byTable(calls, "contact_companies", "insert")).toHaveLength(3);
     // Education skipped for the errored person — only Jane's row flushes.
-    const eduInserts = byTable(calls, "contact_schools", "insert");
-    expect(eduInserts).toHaveLength(1);
-    expect((eduInserts[0].payload as unknown[]).length).toBe(1);
+    const eduUpserts = byTable(calls, "contact_schools", "upsert");
+    expect(eduUpserts).toHaveLength(1);
+    expect((eduUpserts[0].payload as unknown[]).length).toBe(1);
   });
 });
 

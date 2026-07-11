@@ -168,6 +168,11 @@ console.log(`Publishing "${slug}" to ${baseUrl} (${people.length} prospects, ${c
 const { bundleId, stagingVersion } = await call({ mode: "begin", slug, name, description });
 console.log(`Claimed publish lock: bundle #${bundleId}, staging v${stagingVersion}`);
 
+// Once finalize commits, the staging lock is already released and the version
+// is live — a failure in the post-finalize resolve loop must NOT trigger an
+// abort (it would be a confusing no-op; the bundle is published, just
+// unresolved, and the daily cron self-heals it).
+let finalized = false;
 try {
   let done = 0;
   for (const chunk of chunks(people)) {
@@ -186,18 +191,50 @@ try {
   }
 
   const result = await call({ mode: "finalize", slug, stagingVersion });
+  finalized = true;
   if (result.published) {
     console.log(
-      `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed, ${result.companiesPruned} company memberships pruned. Subscribers will sync shortly.`,
+      `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed, ${result.companiesPruned} company memberships pruned.`,
     );
   } else {
     console.log(
       `No changes vs v${result.version} — version not bumped, no subscriber fan-out. Counts refreshed (${result.prospectCount} prospects, ${result.companyCount} companies; ${result.companiesPruned} stale company memberships pruned).`,
     );
   }
+
+  // Snapshot resolution (CAR-62): resolve entity ids once for the committed
+  // version. The final call stamps resolved_version and fans out subscriber
+  // syncs — fan-out no longer happens at finalize, so a publish is not
+  // "live" for subscribers until this loop completes. Runs on every publish
+  // (idempotent: hash-current rows are skipped), so zero-change republishes
+  // still self-heal an interrupted earlier resolve.
+  let afterId = 0;
+  let resolvedTotal = 0;
+  // pinnedVersion is captured from the first response and threaded back, so
+  // the whole loop resolves against one committed version even if a second
+  // publish lands mid-loop (the final stamp then guards on the pinned value).
+  let pinnedVersion;
+  for (;;) {
+    const step = await call({ mode: "resolve", slug, afterId, pinnedVersion });
+    pinnedVersion ??= step.pinnedVersion;
+    resolvedTotal += step.resolved;
+    if (step.skipped?.length) {
+      for (const s of step.skipped) console.warn(`  resolve skipped: ${s}`);
+    }
+    if (step.done) {
+      console.log(`Resolved ${resolvedTotal} prospects; fan-out enqueued ${step.fanout} subscriber sync jobs.`);
+      break;
+    }
+    afterId = step.nextAfterId;
+    console.log(`  resolving… ${resolvedTotal} written (cursor ${afterId})`);
+  }
 } catch (err) {
   console.error(String(err?.message ?? err));
-  console.error("Aborting publish (releasing lock)…");
-  await call({ mode: "abort", slug, stagingVersion }).catch(() => {});
+  if (finalized) {
+    console.error("Publish already committed; resolve loop failed. The daily cron will finish resolution. Not aborting.");
+  } else {
+    console.error("Aborting publish (releasing lock)…");
+    await call({ mode: "abort", slug, stagingVersion }).catch(() => {});
+  }
   process.exit(1);
 }

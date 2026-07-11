@@ -24,6 +24,7 @@ import {
   isInternalLinkedinId,
 } from "./linkedin-url";
 import type { MappedPerson, MappedEmployment, MappedEducation } from "./scrape-mapper";
+import type { BundleProspectResolution } from "./bundle-resolve";
 
 export const BUNDLE_PAYLOAD_SCHEMA_VERSION = 1;
 
@@ -242,32 +243,50 @@ export function mappedPersonToBundlePayload(mapped: MappedPerson): BundleProspec
 export function payloadToMappedPerson(
   payload: BundleProspectPayloadV1,
   ctx: BundleImportContext,
+  // Publish-time snapshot resolution (CAR-62), positionally aligned with the
+  // payload's experiences/education arrays. Null/absent → the import engine
+  // resolves companies/locations/schools itself, as before.
+  resolution?: BundleProspectResolution | null,
 ): MappedPerson {
   const canonicalUrl = payload.linkedin_url; // canonicalized by the schema transform
   const slug = canonicalUrl.slice(canonicalUrl.lastIndexOf("/") + 1);
 
-  const employment: MappedEmployment[] = payload.experiences.map((exp) => ({
-    title: exp.title,
-    company_name: exp.company.name,
-    linkedin_company_id: exp.company.linkedin_company_id ?? null,
-    company_linkedin_url: exp.company.linkedin_url ?? null,
-    company_universal_name:
-      exp.company.universal_name ?? extractCompanyUniversalName(exp.company.linkedin_url ?? null),
-    start_month: exp.start_month ?? null,
-    end_month: exp.is_current ? "Present" : (exp.end_month ?? null),
-    is_current: exp.is_current,
-    workplace_type: exp.workplace_type ?? null,
-    employment_type: exp.employment_type ?? null,
-    location_raw: exp.location_raw ?? null,
-  }));
+  const employment: MappedEmployment[] = payload.experiences.map((exp, i) => {
+    const resolvedExp = resolution?.experiences[i];
+    return {
+      title: exp.title,
+      company_name: exp.company.name,
+      linkedin_company_id: exp.company.linkedin_company_id ?? null,
+      company_linkedin_url: exp.company.linkedin_url ?? null,
+      company_universal_name:
+        exp.company.universal_name ?? extractCompanyUniversalName(exp.company.linkedin_url ?? null),
+      start_month: exp.start_month ?? null,
+      end_month: exp.is_current ? "Present" : (exp.end_month ?? null),
+      is_current: exp.is_current,
+      workplace_type: exp.workplace_type ?? null,
+      employment_type: exp.employment_type ?? null,
+      location_raw: exp.location_raw ?? null,
+      ...(resolvedExp
+        ? {
+            resolved_company_id: resolvedExp.company_id,
+            resolved_location_id: resolvedExp.location_id,
+            resolved_location_source: resolvedExp.location_source,
+          }
+        : {}),
+    };
+  });
 
-  const education: MappedEducation[] = payload.education.map((edu) => ({
-    school_name: edu.school_name,
-    degree: edu.degree ?? null,
-    field_of_study: edu.field_of_study ?? null,
-    start_year: edu.start_year ?? null,
-    end_year: edu.end_year ?? null,
-  }));
+  const education: MappedEducation[] = payload.education.map((edu, i) => {
+    const resolvedEdu = resolution?.education[i];
+    return {
+      school_name: edu.school_name,
+      degree: edu.degree ?? null,
+      field_of_study: edu.field_of_study ?? null,
+      start_year: edu.start_year ?? null,
+      end_year: edu.end_year ?? null,
+      ...(resolvedEdu?.school_id != null ? { resolved_school_id: resolvedEdu.school_id } : {}),
+    };
+  });
 
   return {
     name: payload.name,
@@ -296,5 +315,6 @@ export function payloadToMappedPerson(
     employment,
     education,
     warnings: [],
+    ...(resolution ? { resolved_profile_location_id: resolution.profile_location_id } : {}),
   };
 }

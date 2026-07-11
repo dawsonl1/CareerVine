@@ -8,11 +8,27 @@ import {
   type SubscriptionCore,
 } from '@/lib/bundle-sync';
 import { importPeopleChunk } from '@/lib/bulk-import';
+import { checkFastApplyEligibility, runFastApplyStep } from '@/lib/bundle-fast-apply';
 
 vi.mock('@/lib/bulk-import', () => ({
   importPeopleChunk: vi.fn(async () => ({ results: [], offices_established: 0 })),
 }));
 const importMock = vi.mocked(importPeopleChunk);
+
+vi.mock('@/lib/bundle-fast-apply', () => ({
+  checkFastApplyEligibility: vi.fn(async () => false),
+  runFastApplyStep: vi.fn(async () => ({
+    done: true,
+    nextCursor: null,
+    pinnedVersion: 4,
+    applied: 42,
+    removedContacts: 0,
+    orphanedLinks: 0,
+    skipped: [],
+  })),
+}));
+const eligibilityMock = vi.mocked(checkFastApplyEligibility);
+const fastStepMock = vi.mocked(runFastApplyStep);
 
 // ── Programmable chained-builder mock (records every query) ───────────
 
@@ -61,7 +77,7 @@ const filterArgs = (state: QueryState, method: string) => state.filters.filter((
 const hasFilter = (state: QueryState, method: string, args: unknown[]) =>
   filterArgs(state, method).some((a) => JSON.stringify(a) === JSON.stringify(args));
 
-const BUNDLE: BundleCore = { id: 9, slug: 'ib-banks', name: 'IB Banks', version: 4 };
+const BUNDLE: BundleCore = { id: 9, slug: 'ib-banks', name: 'IB Banks', version: 4, resolved_version: 0 };
 const SUB: SubscriptionCore = { id: 77, user_id: 'user-1', bundle_id: 9, status: 'active', synced_version: 2 };
 
 const PROSPECT_ROW = {
@@ -118,6 +134,46 @@ function responder(data: {
 beforeEach(() => {
   importMock.mockClear();
   importMock.mockResolvedValue({ results: [], offices_established: 0 });
+  eligibilityMock.mockClear();
+  eligibilityMock.mockResolvedValue(false);
+  fastStepMock.mockClear();
+});
+
+// ── Fast-path dispatch (CAR-62) ────────────────────────────────────────
+
+describe('applyBundleDelta — fast-path dispatch', () => {
+  it('routes an eligible first sync to the fast path with afterId 0', async () => {
+    eligibilityMock.mockResolvedValue(true);
+    const { client } = createMockClient(responder({}));
+    const sub = { ...SUB, synced_version: 0 };
+    const result = await applyBundleDelta(client, sub, BUNDLE, {});
+    expect(fastStepMock).toHaveBeenCalledWith(client, sub, BUNDLE, { afterId: 0, pinnedVersion: 4 });
+    expect(result.applied).toBe(42);
+    expect(importMock).not.toHaveBeenCalled();
+  });
+
+  it('continues a phase:"fast" cursor without re-checking eligibility', async () => {
+    const { client } = createMockClient(responder({}));
+    await applyBundleDelta(client, SUB, BUNDLE, { cursor: { phase: 'fast', afterId: 900 }, pinnedVersion: 4 });
+    expect(eligibilityMock).not.toHaveBeenCalled();
+    expect(fastStepMock).toHaveBeenCalledWith(client, SUB, BUNDLE, { afterId: 900, pinnedVersion: 4 });
+  });
+
+  it('takes the merge path when ineligible', async () => {
+    const { client, calls } = createMockClient(responder({ prospects: [] }));
+    const result = await applyBundleDelta(client, SUB, BUNDLE, {});
+    expect(fastStepMock).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.table === 'bundle_prospects')).toBe(true);
+    expect(result.done).toBe(true);
+  });
+
+  it('never dispatches fast from an apply/remove cursor (resumed merge sync stays merged)', async () => {
+    eligibilityMock.mockResolvedValue(true);
+    const { client } = createMockClient(responder({ prospects: [] }));
+    await applyBundleDelta(client, SUB, BUNDLE, { cursor: { phase: 'apply', afterId: 5 }, pinnedVersion: 4 });
+    expect(eligibilityMock).not.toHaveBeenCalled();
+    expect(fastStepMock).not.toHaveBeenCalled();
+  });
 });
 
 // ── Apply phase ────────────────────────────────────────────────────────

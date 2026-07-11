@@ -12,7 +12,7 @@ export type ApplyProgress = {
 
 export type ApplyStep = {
   done: boolean;
-  nextCursor: { phase: "apply" | "remove"; afterId: number } | null;
+  nextCursor: { phase: "apply" | "remove" | "fast"; afterId: number } | null;
   pinnedVersion: number;
   applied: number;
   claimToken?: string;

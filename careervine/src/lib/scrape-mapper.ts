@@ -115,6 +115,13 @@ export interface MappedEmployment {
   workplace_type: "on_site" | "hybrid" | "remote" | null;
   employment_type: string | null;
   location_raw: string | null;
+  /** Publish-time bundle resolution (CAR-62). When resolved_company_id is
+   * present the importer skips its find-or-create chain and location passes
+   * for this row and uses these values verbatim (location null = resolved to
+   * "no location"). Absent for pipeline/extension/rescrape callers. */
+  resolved_company_id?: number;
+  resolved_location_id?: number | null;
+  resolved_location_source?: string | null;
 }
 
 export interface MappedEducation {
@@ -123,6 +130,8 @@ export interface MappedEducation {
   field_of_study: string | null;
   start_year: number | null;
   end_year: number | null;
+  /** Publish-time bundle resolution (CAR-62); skips resolveSchool. */
+  resolved_school_id?: number;
 }
 
 export interface MappedPerson {
@@ -151,6 +160,9 @@ export interface MappedPerson {
   employment: MappedEmployment[];
   education: MappedEducation[];
   warnings: string[];
+  /** Publish-time bundle resolution of the profile location (CAR-62).
+   * undefined = unresolved (resolve normally); null = resolved to none. */
+  resolved_profile_location_id?: number | null;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────
