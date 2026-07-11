@@ -31,11 +31,38 @@ _ln_fail_visible() {
 # Exposed (underscore-prefixed) so tests can exercise it without a repo/API.
 _ln_parse_ref() { printf '%s' "$1" | grep -oiE 'car-[0-9]+' | head -1 | tr '[:lower:]' '[:upper:]'; }
 
-# CAR-XX from the current git branch.
+# CAR-XX from the git branch of $1 (a directory), or of the current cwd when omitted.
 linear_issue_ref() {
-  local branch
-  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || return 0
+  local dir="${1-}" branch
+  branch=$(git ${dir:+-C "$dir"} rev-parse --abbrev-ref HEAD 2>/dev/null) || return 0
   _ln_parse_ref "$branch"
+}
+
+# Target dir of a leading `cd <dir>` in a compound command (bare, "..." or '...' quoted).
+# Empty when the command doesn't start with cd. A `cd <worktree> && gh ...` call operates
+# on a different checkout than the hook cwd — the cd target is where the branch that binds
+# the Linear issue actually lives (CAR-79).
+_ln_cmd_cd_dir() {
+  printf '%s' "$1" | sed -nE \
+    's/^[[:space:]]*cd[[:space:]]+("([^"]*)"|'\''([^'\'']*)'\''|([^&;|[:space:]]+)).*/\2\3\4/p'
+}
+
+# Resolve CAR-XX for a Bash tool command: the branch of the dir a leading cd targeted wins
+# (that's the checkout the command operated on), then the hook cwd's branch. Empty if none.
+linear_ref_for_cmd() {
+  local dir ref=""
+  dir=$(_ln_cmd_cd_dir "$1")
+  [ -n "$dir" ] && [ -d "$dir" ] && ref=$(linear_issue_ref "$dir")
+  [ -n "$ref" ] || ref=$(linear_issue_ref)
+  printf '%s' "$ref"
+}
+
+# PR selector (number or URL) from the args after `gh pr merge`, bounded at the next shell
+# operator. Never scan the whole command — a worktree path like .claude/worktrees/CAR-78-x
+# earlier in a compound command yields a bogus "78".
+_ln_merge_selector() {
+  printf '%s' "$1" | sed -nE 's/.*gh pr merge//p' | sed -E 's/[&|;].*//' \
+    | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+|[0-9]+' | head -1
 }
 
 # Forward-only rank for downgrade protection. Unknown/terminal (Canceled/Duplicate) => -1.
