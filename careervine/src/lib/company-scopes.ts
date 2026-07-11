@@ -68,6 +68,24 @@ function isOfficeFacetKey(key: string): boolean {
 }
 
 /**
+ * Whether a person belongs to a location facet: true iff any of their employment
+ * rows at the company matches the facet key. This mirrors exactly the predicate
+ * getCompanyDetail applies server-side to build `scopedIds`
+ * (company-queries.ts). Slicing `base.current/former/bench` with this lets us
+ * derive every facet block from the single base fetch instead of re-running the
+ * full getCompanyDetail query set once per facet (CAR-93).
+ */
+export function personInFacet(person: CompanyPerson, key: string): boolean {
+  return person.roles.some((role) =>
+    key === "remote"
+      ? role.workplace_type === "remote"
+      : key === "unknown"
+        ? role.workplace_type !== "remote" && role.location_id == null
+        : String(role.location_id) === key,
+  );
+}
+
+/**
  * Registry offices (company_locations) that no contact facet covered —
  * manually added or freshly scraped offices with zero contacts. They must
  * still be scopes so "add the office, target it, log research before you
@@ -147,17 +165,14 @@ export async function fetchCompanyScopes(
 
   const allNotes = base.target?.notes ?? [];
 
-  const facetDetails = await Promise.all(
-    base.facets.map((facet) => getCompanyDetail(userId, companyId, { locationKey: facet.key })),
-  );
-
   const offices: LocationBlock[] = [];
   const unassigned: LocationBlock[] = [];
 
-  base.facets.forEach((facet, index) => {
-    const scoped = facetDetails[index];
-    if (!scoped) return;
-
+  // Each facet block is the base roster sliced by location — no per-facet refetch
+  // (CAR-93). Filtering preserves base's sort order (alum-then-persona for
+  // current/former, adjacency for bench), and current/former/bench bucketing is
+  // location-independent, so this exactly matches the old per-facet scoping.
+  base.facets.forEach((facet) => {
     const isOffice = isOfficeFacetKey(facet.key);
     const scopeRow = isOffice ? officeScopes.get(facet.key) : undefined;
 
@@ -172,9 +187,9 @@ export async function fetchCompanyScopes(
       next_app_date: scopeRow?.next_app_date ?? null,
       app_window_text: scopeRow?.app_window_text ?? null,
       notes: notesForLocation(allNotes, facet),
-      current: scoped.current,
-      former: scoped.former,
-      bench: scoped.bench,
+      current: base.current.filter((p) => personInFacet(p, facet.key)),
+      former: base.former.filter((p) => personInFacet(p, facet.key)),
+      bench: base.bench.filter((p) => personInFacet(p, facet.key)),
     };
 
     if (isOffice) offices.push(block);

@@ -585,7 +585,6 @@ function locationLabel(loc: { city: string | null; state: string | null; country
 export async function getCompanyDetail(
   userId: string,
   companyId: number,
-  opts: { locationKey?: string } = {},
 ): Promise<CompanyDetail | null> {
   const [companyRes, officesRes, targetRes] = await Promise.all([
     db()
@@ -811,29 +810,12 @@ export async function getCompanyDetail(
       return special(a.key) - special(b.key) || b.count - a.count || a.label.localeCompare(b.label);
     });
 
-  // Location scoping
-  let scopedIds: Set<number> | null = null;
-  if (opts.locationKey) {
-    scopedIds = new Set<number>();
-    for (const r of rows) {
-      const matches =
-        opts.locationKey === "remote"
-          ? r.workplace_type === "remote"
-          : opts.locationKey === "unknown"
-            ? r.workplace_type !== "remote" && r.location_id == null
-            : String(r.location_id) === opts.locationKey;
-      if (matches) scopedIds.add(r.contact_id);
-    }
-  }
-
   const isCurrent = new Set(rows.filter((r) => r.is_current).map((r) => r.contact_id));
-  const inScope = (id: number) => !scopedIds || scopedIds.has(id);
 
   const current: CompanyPerson[] = [];
   const former: CompanyPerson[] = [];
   const bench: CompanyPerson[] = [];
   for (const person of peopleById.values()) {
-    if (!inScope(person.contact_id)) continue;
     if (person.network_status === "bench") {
       bench.push(person);
     } else if (isCurrent.has(person.contact_id)) {
@@ -863,7 +845,6 @@ export async function getCompanyDetail(
       location_id: number | null;
       locations: { city: string | null; state: string | null; country: string } | null;
     }> | null) ?? [])
-      .filter((n) => !opts.locationKey || opts.locationKey === "remote" || opts.locationKey === "unknown" || n.location_id == null || String(n.location_id) === opts.locationKey)
       .map((n) => ({
         id: n.id,
         note: n.note,
