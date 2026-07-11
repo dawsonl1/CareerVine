@@ -55,6 +55,16 @@ err=$( ( _ln_fail_visible "CAR-1 needs X" ) 2>&1 ); rc=$?
 [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -q 'repair via Linear MCP: CAR-1 needs X' \
   && ok "fail-visible exits 2 with repair hint" || bad "fail-visible" "rc=$rc err=$err"
 
+# _ln_cmd_invokes: command must INVOKE the verb, not merely mention it in quoted text —
+# a gh pr create whose --body documented `gh pr merge` flipped CAR-79 to Done live.
+inv() { _ln_cmd_invokes "$1" "$2" && echo yes || echo no; }
+eq "invoke at start"          "$(inv 'gh pr merge 46 --merge' 'gh pr merge')"            "yes"
+eq "invoke after cd &&"       "$(inv 'cd /wt && gh pr merge 46' 'gh pr merge')"          "yes"
+eq "invoke after ;"           "$(inv 'cd /wt; gh pr create -t x' 'gh pr create')"        "yes"
+eq "invoke inside \$( )"      "$(inv 'url=$(gh pr create -t x)' 'gh pr create')"         "yes"
+eq "quoted mention no match"  "$(inv 'gh pr create --title x --body "bounds the args after gh pr merge at operators"' 'gh pr merge')" "no"
+eq "longer verb no match"     "$(inv 'gh pr merger 4' 'gh pr merge')"                    "no"
+
 # _ln_cmd_cd_dir: cd-target of a compound command (CAR-79)
 eq "cd-dir bare path"     "$(_ln_cmd_cd_dir 'cd /a/b/wt && gh pr create --title x')" "/a/b/wt"
 eq "cd-dir double-quoted" "$(_ln_cmd_cd_dir 'cd "/a b/wt" && gh pr create')"         "/a b/wt"
@@ -93,6 +103,36 @@ err=$(cd "$tmp/main-co" && printf '%s' "$payload" \
 [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -q 'CAR-78' \
   && ok "pr-create resolves ref through compound cd (exit 2, not silent 0)" \
   || bad "pr-create compound-cd regression" "rc=$rc err=$err"
+# Regression (CAR-79 live): a `gh pr create` whose --body mentions "gh pr merge" must NOT
+# trigger the merge hook, even from a ticket-branch cwd (it flipped CAR-79 to Done).
+payload=$(jq -n \
+  '{tool_name:"Bash",tool_input:{command:"gh pr create --title \"x (CAR-78)\" --body \"parses the args after gh pr merge only\""},tool_response:{stdout:"https://github.com/o/r/pull/45\n",stderr:""}}')
+err=$(cd "$tmp/wt" && printf '%s' "$payload" \
+  | env -u LINEAR_API_KEY CLAUDE_SECRETS_FILE=/nonexistent bash "$DIR/on-pr-merge.sh" 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ -z "$err" ] \
+  && ok "merge hook ignores quoted 'gh pr merge' in a create's body" \
+  || bad "merge-hook quoted-text regression" "rc=$rc err=$err"
+
+# A real merge invocation whose output does NOT confirm the merge (failed / --auto queued)
+# must not flip Done either.
+payload=$(jq -n \
+  '{tool_name:"Bash",tool_input:{command:"gh pr merge 45 --auto --merge"},tool_response:{stdout:"",stderr:"! Pull request #45 will be automatically merged when all requirements are met\n"}}')
+err=$(cd "$tmp/wt" && printf '%s' "$payload" \
+  | env -u LINEAR_API_KEY CLAUDE_SECRETS_FILE=/nonexistent bash "$DIR/on-pr-merge.sh" 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ -z "$err" ] \
+  && ok "merge hook requires 'Merged pull request' in output" \
+  || bad "merge-hook output-guard" "rc=$rc err=$err"
+
+# ...and a confirmed merge through a compound cd still resolves the ref and syncs
+# (exit 2 loudly here, since the API key is withheld).
+payload=$(jq -n --arg cmd "cd $tmp/wt && gh pr merge 45 --merge" \
+  '{tool_name:"Bash",tool_input:{command:$cmd},tool_response:{stdout:"",stderr:"✓ Merged pull request #45 (Speedups)\n"}}')
+err=$(cd "$tmp/main-co" && printf '%s' "$payload" \
+  | env -u LINEAR_API_KEY CLAUDE_SECRETS_FILE=/nonexistent bash "$DIR/on-pr-merge.sh" 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -q 'CAR-78' \
+  && ok "merge hook resolves ref through compound cd on a confirmed merge" \
+  || bad "merge-hook compound-cd" "rc=$rc err=$err"
+
 git -C "$tmp/main-co" worktree remove --force "$tmp/wt" 2>/dev/null; rm -rf "$tmp"
 
 [ "$fail" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "FAILURES"; exit 1; }

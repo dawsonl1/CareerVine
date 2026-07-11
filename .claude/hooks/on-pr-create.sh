@@ -9,7 +9,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 payload=$(cat 2>/dev/null || echo '{}')
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
-printf '%s' "$cmd" | grep -q 'gh pr create' || exit 0
+_ln_cmd_invokes "$cmd" 'gh pr create' || exit 0
 
 out=$(printf '%s' "$payload" | jq -r '((.tool_response.stdout // "") + "\n" + (.tool_response.stderr // ""))' 2>/dev/null)
 url=$(printf '%s' "$out" | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+' | head -1)

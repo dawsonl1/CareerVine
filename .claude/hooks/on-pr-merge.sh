@@ -10,7 +10,13 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 payload=$(cat 2>/dev/null || echo '{}')
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
-printf '%s' "$cmd" | grep -q 'gh pr merge' || exit 0
+_ln_cmd_invokes "$cmd" 'gh pr merge' || exit 0
+
+# Only a merge that actually happened moves the issue — gh prints "Merged pull request
+# #N" on success (a queued --auto merge prints "will be automatically merged" and must
+# NOT flip Done yet; neither should a failed merge or a quoted mention in other text).
+out=$(printf '%s' "$payload" | jq -r '((.tool_response.stdout // "") + "\n" + (.tool_response.stderr // ""))' 2>/dev/null)
+printf '%s' "$out" | grep -qi 'merged pull request' || exit 0
 
 ref=$(linear_ref_for_cmd "$cmd")
 if [ -z "$ref" ]; then

@@ -57,6 +57,15 @@ linear_ref_for_cmd() {
   printf '%s' "$ref"
 }
 
+# True when the command string actually INVOKES the given gh subcommand ($2, e.g.
+# "gh pr merge") — at line start or right after a shell operator. A bare substring grep
+# matched the phrase inside a quoted --body and flipped CAR-79 to Done off a `gh pr
+# create` whose body merely documented `gh pr merge`.
+_ln_cmd_invokes() {
+  local verb="${2// /[[:space:]]+}"
+  printf '%s' "$1" | grep -qE "(^|&&|\|\|?|;|\\\$\()[[:space:]]*${verb}([[:space:]]|\$)"
+}
+
 # PR selector (number or URL) from the args after `gh pr merge`, bounded at the next shell
 # operator. Never scan the whole command — a worktree path like .claude/worktrees/CAR-78-x
 # earlier in a compound command yields a bogus "78".
