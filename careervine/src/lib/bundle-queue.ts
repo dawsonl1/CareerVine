@@ -171,7 +171,7 @@ export async function processSubscriptionsUnderBudget(
   const { data: rows } = await service
     .from("bundle_subscriptions")
     .select(
-      "id, user_id, bundle_id, status, synced_version, sync_cursor, unsubscribe_keep_all, data_bundles(id, slug, name, version, status)",
+      "id, user_id, bundle_id, status, synced_version, sync_cursor, unsubscribe_keep_all, data_bundles(id, slug, name, version, resolved_version, status)",
     )
     .in("id", subscriptionIds);
   const byId = new Map(((rows as Row[] | null) ?? []).map((s) => [s.id, s]));
@@ -230,6 +230,7 @@ export async function processSubscriptionsUnderBudget(
       slug: sub.data_bundles.slug,
       name: sub.data_bundles.name,
       version: sub.data_bundles.version,
+      resolved_version: sub.data_bundles.resolved_version,
     };
     // Resume an interrupted sync from its persisted checkpoint (CAR-54):
     // the stored pin keeps the resumed loop on the version it started

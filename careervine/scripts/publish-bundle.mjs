@@ -188,12 +188,34 @@ try {
   const result = await call({ mode: "finalize", slug, stagingVersion });
   if (result.published) {
     console.log(
-      `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed. Subscribers will sync shortly.`,
+      `Published v${result.version}: ${result.prospectCount} prospects, ${result.companyCount} companies, ${result.removed} removed.`,
     );
   } else {
     console.log(
       `No changes vs v${result.version} — version not bumped, no subscriber fan-out. Counts refreshed (${result.prospectCount} prospects, ${result.companyCount} companies).`,
     );
+  }
+
+  // Snapshot resolution (CAR-62): resolve entity ids once for the committed
+  // version. The final call stamps resolved_version and fans out subscriber
+  // syncs — fan-out no longer happens at finalize, so a publish is not
+  // "live" for subscribers until this loop completes. Runs on every publish
+  // (idempotent: hash-current rows are skipped), so zero-change republishes
+  // still self-heal an interrupted earlier resolve.
+  let afterId = 0;
+  let resolvedTotal = 0;
+  for (;;) {
+    const step = await call({ mode: "resolve", slug, afterId });
+    resolvedTotal += step.resolved;
+    if (step.skipped?.length) {
+      for (const s of step.skipped) console.warn(`  resolve skipped: ${s}`);
+    }
+    if (step.done) {
+      console.log(`Resolved ${resolvedTotal} prospects; fan-out enqueued ${step.fanout} subscriber sync jobs.`);
+      break;
+    }
+    afterId = step.nextAfterId;
+    console.log(`  resolving… ${resolvedTotal} written (cursor ${afterId})`);
   }
 } catch (err) {
   console.error(String(err?.message ?? err));

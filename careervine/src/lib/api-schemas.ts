@@ -424,6 +424,14 @@ export const bundlePublishSchema = z.discriminatedUnion("mode", [
     slug: z.string().min(1),
     stagingVersion: z.number().int().positive(),
   }),
+  /** Post-finalize snapshot resolution (CAR-62): cursor-driven; runs against
+   * the committed version, so no stagingVersion/lock. The final call stamps
+   * resolved_version and performs the subscriber fan-out. */
+  z.object({
+    mode: z.literal("resolve"),
+    slug: z.string().min(1),
+    afterId: z.number().int().nonnegative().nullable().optional(),
+  }),
 ]);
 
 /** Admin grant/revoke of shared-token access (CAR-26) — secret-token route.
@@ -447,7 +455,7 @@ export const bundleApplySchema = z.object({
   bundleId: z.number().int().positive(),
   cursor: z
     .object({
-      phase: z.enum(["apply", "remove"]),
+      phase: z.enum(["apply", "remove", "fast"]),
       afterId: z.number().int().nonnegative(),
     })
     .nullable()

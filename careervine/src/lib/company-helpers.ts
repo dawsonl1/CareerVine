@@ -71,7 +71,7 @@ export interface CompanyResolveResult extends CompanyRecord {
 
 // NOTE: companies.domain was dropped in prod (20260709135000, CAR-6 branch) —
 // selecting it 500s every company-resolution path. Do not re-add.
-const COMPANY_COLS = "id, name, linkedin_company_id, linkedin_url, universal_name, logo_url";
+export const COMPANY_COLS = "id, name, linkedin_company_id, linkedin_url, universal_name, logo_url";
 
 function normalizeCompanyLinkedinUrl(url: string | null | undefined): string | null {
   if (!url) return null;

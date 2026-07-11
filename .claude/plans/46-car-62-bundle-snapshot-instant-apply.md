@@ -100,12 +100,20 @@ serialization that four drivers rely on, for less gain than the above).
 ### Drivers
 
 - **Publish route** (`/api/admin/bundles/publish`): new mode `resolve`
-  (same `BUNDLE_ADMIN_TOKEN` bearer, service client, cursor in/out).
+  (same `BUNDLE_ADMIN_TOKEN` bearer, service client, cursor in/out). It runs
+  against the **committed** version (post-finalize; no staging lock needed).
   `scripts/publish-bundle.mjs` drives it in a loop after `finalize`.
-- **Safety net**: the daily `/api/cron/sync-bundles` runs the resolver to
-  completion for any published bundle with `resolved_version < version`
-  **before** fanning out subscription syncs — any publish path that forgets to
-  resolve self-heals within a day, and the fan-out then benefits from Part D.
+- **Fan-out moves from `finalize` to `resolve` completion** (audit finding: the
+  route's finalize case enqueues subscriber QStash jobs synchronously, which
+  would race the resolver and apply unresolved rows). Finalize now only commits;
+  when the resolve loop reports done it stamps `resolved_version` and performs
+  the `findStaleSubscriptionIds` + `enqueueBundleSyncJobs` fan-out. A finalize
+  that never resolves is caught by the cron within a day.
+- **Safety net**: the daily `/api/cron/sync-bundles` runs the resolver for any
+  published bundle with `resolved_version < version` **before** its stale scan —
+  under a bounded time budget (the route has `maxDuration = 60` and a 45s sync
+  budget; the resolver gets a slice and simply leaves the bundle unresolved if
+  it runs out — unresolved bundles just keep taking the merge path).
 
 ## Part C — fast-path apply (`careervine/src/lib/bundle-fast-apply.ts`)
 
@@ -127,6 +135,23 @@ worker, daily cron, Settings self-sync) get the fast path for free:
   opaquely; `bundleApplySchema` + `SyncCheckpoint`/`readSyncCheckpoint` learn the
   third phase so worker/cron resume works).
 - Otherwise → existing apply/remove phases, untouched.
+
+Audit-verified type touch-points for the `"fast"` phase (all hard-restrict today
+and would reject/drop it): `bundleApplySchema` cursor enum (api-schemas.ts),
+`ApplyStep.nextCursor` in bundle-apply-client.ts, `ApplyCursor`/`SyncCheckpoint`
++ the `readSyncCheckpoint` phase guard in bundle-sync.ts. `BundleCore` gains
+`resolved_version`, so both constructors (apply route select, bundle-queue's
+embedded select) add the column. To avoid a runtime import cycle
+(bundle-sync → bundle-fast-apply → bundle-sync), `computeContactFingerprint` /
+`ContactFingerprintInput` move to a new `bundle-fingerprint.ts` with re-exports
+from bundle-sync for existing importers; the fast path imports bundle-sync
+types as `import type` only. The fast path's commit clears `sync_cursor`
+(same contract as the merge-path commit) and its notes string is built once and
+used for both the insert row and the fingerprint — never reconstructed later
+(`toLocaleDateString` is locale/TZ-dependent across processes, an
+audit-confirmed hazard). `buildContactInsertRow` is refactored to take a
+`MappedPerson` directly and exported; `findOrCreateSchool` is exported for the
+resolver.
 
 ### Per call (`FAST_BATCH = 1000` prospects, well inside `maxDuration = 60`)
 

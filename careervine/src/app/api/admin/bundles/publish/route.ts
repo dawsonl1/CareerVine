@@ -24,6 +24,7 @@ import {
   abortPublish,
   BundlePublishError,
 } from "@/lib/bundle-publish";
+import { resolveBundleChunk, markBundleResolved } from "@/lib/bundle-resolve";
 import { enqueueBundleSyncJobs, findStaleSubscriptionIds } from "@/lib/bundle-queue";
 
 export const maxDuration = 60;
@@ -105,25 +106,34 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(result);
       }
       case "finalize": {
+        // Fan-out deliberately does NOT happen here anymore (CAR-62): the
+        // driver runs the resolve loop next, and enqueueing subscribers
+        // before the snapshot exists would race it — they'd apply through
+        // the merge path with live entity resolution. The final resolve call
+        // fans out; the daily cron self-heals a finalize that never resolved.
         const result = await finalizePublish(service, input.slug, input.stagingVersion);
-        // Fan out to stale subscribers so updates land within minutes; the
-        // daily cron covers the gap when QStash isn't configured.
+        return NextResponse.json(result);
+      }
+      case "resolve": {
+        const { data: bundleRow } = await service
+          .from("data_bundles")
+          .select("id, slug, version")
+          .eq("slug", input.slug)
+          .maybeSingle();
+        if (!bundleRow) throw new BundlePublishError(`Bundle "${input.slug}" not found`, 404);
+        const bundle = bundleRow as { id: number; slug: string; version: number };
+
+        const step = await resolveBundleChunk(service, bundle, { afterId: input.afterId ?? 0 });
         let fanout = 0;
-        if (result.published) {
-          const { data: bundleRow } = await service
-            .from("data_bundles")
-            .select("id")
-            .eq("slug", input.slug)
-            .single();
-          if (bundleRow) {
-            const stale = await findStaleSubscriptionIds(service, {
-              bundleId: (bundleRow as { id: number }).id,
-            });
-            const workerUrl = new URL("/api/queue/bundle-sync", req.url).toString();
-            fanout = await enqueueBundleSyncJobs(stale, workerUrl);
-          }
+        if (step.done) {
+          await markBundleResolved(service, bundle);
+          // Snapshot complete → NOW wake the stale subscribers; they'll all
+          // ride the resolved ids (and blank ones the fast path).
+          const stale = await findStaleSubscriptionIds(service, { bundleId: bundle.id });
+          const workerUrl = new URL("/api/queue/bundle-sync", req.url).toString();
+          fanout = await enqueueBundleSyncJobs(stale, workerUrl);
         }
-        return NextResponse.json({ ...result, fanout });
+        return NextResponse.json({ ...step, fanout });
       }
       case "abort": {
         await abortPublish(service, input.slug, input.stagingVersion);
