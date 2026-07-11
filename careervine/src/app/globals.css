@@ -251,6 +251,38 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   50% { box-shadow: 0 0 0 8px rgba(76, 175, 80, 0.1); }
 }
 
+/*
+ * Onboarding outreach cue (CAR-88): a slow, tasteful glow that draws the eye
+ * from the instructions banner to the email buttons that act on it. Both
+ * surfaces share this one keyframe + duration so they pulse in sync. The glow
+ * follows each element's own border-radius (soft ring + outer bloom). Primary-
+ * tinted and theme-aware via color-mix; a static ring stands in when the user
+ * prefers reduced motion.
+ */
+@keyframes onboarding-cue-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--md-primary) 0%, transparent),
+      0 0 5px 0 color-mix(in srgb, var(--md-primary) 18%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--md-primary) 22%, transparent),
+      0 0 18px 4px color-mix(in srgb, var(--md-primary) 45%, transparent);
+  }
+}
+
+.onboarding-cue {
+  animation: onboarding-cue-pulse 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-cue {
+    animation: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--md-primary) 30%, transparent);
+  }
+}
+
 @keyframes range-end-prompt {
   0%, 100% {
     border-color: color-mix(in srgb, var(--md-primary) 30%, var(--md-outline-variant));

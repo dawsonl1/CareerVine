@@ -30,9 +30,51 @@ interface BundleCompanyStatsRow {
   product_alumni_count: number | string;
 }
 
-/** Map + rank raw RPC rows. Exported for tests. */
+/** User-selectable ordering for the picker's "Order by" dropdown. */
+export type CompanySortKey = "alumni" | "productAlumni" | "contacts" | "alphabetical";
+
+/** Options for the "Order by" dropdown, in display order. */
+export const COMPANY_SORT_OPTIONS: { value: CompanySortKey; label: string }[] = [
+  { value: "alumni", label: "Most BYU alumni" },
+  { value: "productAlumni", label: "Most alumni in product roles" },
+  { value: "contacts", label: "Most contacts" },
+  { value: "alphabetical", label: "Alphabetical" },
+];
+
+const byName = (a: PickerCompany, b: PickerCompany) => a.name.localeCompare(b.name);
+
+// Each key leads with its headline metric, then falls through the other
+// signals so ties still surface the warmest doors before an alpha tiebreak.
+const COMPARATORS: Record<CompanySortKey, (a: PickerCompany, b: PickerCompany) => number> = {
+  alumni: (a, b) =>
+    b.alumniCount - a.alumniCount ||
+    b.productAlumniCount - a.productAlumniCount ||
+    b.contactCount - a.contactCount ||
+    byName(a, b),
+  productAlumni: (a, b) =>
+    b.productAlumniCount - a.productAlumniCount ||
+    b.alumniCount - a.alumniCount ||
+    b.contactCount - a.contactCount ||
+    byName(a, b),
+  contacts: (a, b) =>
+    b.contactCount - a.contactCount ||
+    b.alumniCount - a.alumniCount ||
+    b.productAlumniCount - a.productAlumniCount ||
+    byName(a, b),
+  alphabetical: byName,
+};
+
+/** Re-order an already-mapped picker list without mutating the input. */
+export function sortPickerCompanies(companies: PickerCompany[], key: CompanySortKey): PickerCompany[] {
+  return [...companies].sort(COMPARATORS[key]);
+}
+
+/**
+ * Map + rank raw RPC rows. Exported for tests. Defaults to the "alumni"
+ * ordering (warmest doors first); the picker lets the user re-sort in place.
+ */
 export function toPickerCompanies(rows: BundleCompanyStatsRow[] | null): PickerCompany[] {
-  return (rows ?? [])
+  const mapped = (rows ?? [])
     .map((row) => ({
       id: row.company_id,
       name: row.name,
@@ -41,14 +83,8 @@ export function toPickerCompanies(rows: BundleCompanyStatsRow[] | null): PickerC
       alumniCount: Number(row.alumni_count) || 0,
       productAlumniCount: Number(row.product_alumni_count) || 0,
     }))
-    .filter((c) => c.contactCount > 0)
-    .sort(
-      (a, b) =>
-        b.alumniCount - a.alumniCount ||
-        b.productAlumniCount - a.productAlumniCount ||
-        b.contactCount - a.contactCount ||
-        a.name.localeCompare(b.name),
-    );
+    .filter((c) => c.contactCount > 0);
+  return sortPickerCompanies(mapped, "alumni");
 }
 
 export async function getPickerCompanies(bundleId: number): Promise<PickerCompany[]> {
