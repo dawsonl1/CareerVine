@@ -566,4 +566,55 @@ describe('extension last-seen stamp (CAR-68)', () => {
     expect(status).toBe(200);
     expect(data.ok).toBe(true);
   });
+
+  it('awaits the stamp write even on validation-failure early returns (finally path)', async () => {
+    // The stamp write resolves on a delayed timer and records when it
+    // settles — if the 400 early return skipped the finally flush, the
+    // response would come back before the write completed.
+    let stampSettled = false;
+    const eq = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            stampSettled = true;
+            resolve({ error: null });
+          }, 10);
+        }),
+    );
+    const update = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ update });
+    vi.mocked(getExtensionAuth).mockResolvedValueOnce({
+      user: { id: 'user-123', email: 'test@example.com' },
+      supabase: { from, auth: { getUser: vi.fn() } },
+    } as any);
+
+    const handler = withApiHandler({
+      extensionAuth: true,
+      schema: z.object({ mustHave: z.string() }),
+      handler: async () => ({ ok: true }),
+    });
+
+    const request = makeRequest('POST', { wrong: 'shape' });
+    request.headers.set('Authorization', 'Bearer some-jwt');
+    const { status } = await callHandler(handler, request);
+
+    expect(status).toBe(400);
+    expect(stampSettled).toBe(true);
+  });
+
+  it('does not stamp routes that opt out via stampExtensionSeen: false', async () => {
+    const { from } = mockExtensionSupabase();
+    const handler = withApiHandler({
+      extensionAuth: true,
+      stampExtensionSeen: false,
+      handler: async () => ({ ok: true }),
+    });
+
+    const request = makeRequest('GET');
+    request.headers.set('Authorization', 'Bearer some-jwt');
+    const { status } = await callHandler(handler, request);
+
+    expect(status).toBe(200);
+    expect(from).not.toHaveBeenCalled();
+  });
 });

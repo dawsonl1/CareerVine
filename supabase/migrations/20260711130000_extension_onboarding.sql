@@ -23,7 +23,8 @@ ALTER TABLE users ADD COLUMN extension_onboarding_state text NOT NULL DEFAULT 'n
   ));
 
 -- First contact imported during the flow — target of the end-of-flow redirect.
-ALTER TABLE users ADD COLUMN extension_onboarding_contact_id bigint
+-- int to match contacts.id (int4) like every other contact FK in the schema.
+ALTER TABLE users ADD COLUMN extension_onboarding_contact_id int
   REFERENCES contacts(id) ON DELETE SET NULL;
 
 -- Stamped by the API layer on every Bearer-authenticated extension call; the
@@ -81,6 +82,8 @@ END;
 $$;
 
 -- 3. Cleanup: the 2026-03-26 floating-card onboarding design was abandoned
---    before any UI shipped; nothing references its table or flag column.
+--    before any UI shipped. Belt-and-braces: 20260708000000 already dropped
+--    the table. NOTE: email_messages.is_simulated is deliberately NOT dropped
+--    — plan-24 features depend on it (daily send cap, stage derivation,
+--    company traction); see 20260708000000_drop_onboarding.sql's keep note.
 DROP TABLE IF EXISTS user_onboarding;
-ALTER TABLE email_messages DROP COLUMN IF EXISTS is_simulated;

@@ -24,10 +24,9 @@ import { ConfettiBurst } from "./confetti-burst";
 import {
   advanceExtensionOnboardingState,
   getExtensionOnboardingSnapshot,
-  isExtensionOnboardingDone,
   type ExtensionOnboardingState,
 } from "@/lib/onboarding/extension-state";
-import { deleteActionItem, updateActionItem } from "@/lib/queries";
+import { deleteActionItem, getOnboardingActionItemId, updateActionItem } from "@/lib/queries";
 import { isChromeLike } from "@/lib/browser-detect";
 import { track } from "@/lib/analytics/client";
 
@@ -129,28 +128,44 @@ export function ExtensionOnboardingModal() {
   // actually looking (FigJam: "auto advance when focus is back on the tab").
   const pendingRef = useRef<{ state: ExtensionOnboardingState; contactId: number | null } | null>(null);
 
-  const applySnapshot = useCallback(
-    (next: ExtensionOnboardingState, nextContactId: number | null, lastSeenAt: string | null) => {
-      setConnected(!!lastSeenAt);
+  // Mirror of `state` so callbacks can read the current step without going
+  // through a setState updater (updaters must stay pure — the deep-review
+  // flagged a pendingRef write inside one).
+  const stateRef = useRef<ExtensionOnboardingState | null>(null);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Apply a server-observed state, deferring to pendingRef while the tab is
+  // hidden. Fires the step analytics event only when a transition is actually
+  // shown (server-driven advances were previously invisible to the funnel).
+  const applyRemoteState = useCallback(
+    (next: ExtensionOnboardingState, nextContactId: number | null) => {
       setContactId((prev) => nextContactId ?? prev);
-      setState((prev) => {
-        if (prev === next) return prev;
-        if (document.hidden && prev !== null) {
-          pendingRef.current = { state: next, contactId: nextContactId };
-          return prev;
-        }
-        return next;
-      });
+      const prev = stateRef.current;
+      if (prev === next) return;
+      if (document.hidden && prev !== null) {
+        pendingRef.current = { state: next, contactId: nextContactId };
+        return;
+      }
+      setState(next);
+      track("extension_onboarding_step", { state: next });
     },
     [],
   );
 
-  // Load current state when the modal opens.
+  // Load current state when the modal opens. A failed read closes the modal
+  // (the to-do row remains, so the user just clicks again) — it must NOT
+  // fabricate a state; a fabricated "done" here falsely completed the flow.
   useEffect(() => {
     if (!isOpen || !user) return;
     let cancelled = false;
     getExtensionOnboardingSnapshot(user.id).then((snap) => {
       if (cancelled) return;
+      if (!snap) {
+        close();
+        return;
+      }
       setConnected(!!snap.extensionLastSeenAt);
       setContactId(snap.contactId);
       setState(snap.state);
@@ -158,7 +173,7 @@ export function ExtensionOnboardingModal() {
     return () => {
       cancelled = true;
     };
-  }, [isOpen, user]);
+  }, [isOpen, user, close]);
 
   // Poll while a waiting step is on screen.
   const waiting =
@@ -167,17 +182,21 @@ export function ExtensionOnboardingModal() {
     if (!isOpen || !user || !waiting) return;
     const id = setInterval(async () => {
       const snap = await getExtensionOnboardingSnapshot(user.id);
+      // Transient read failure — keep the current step and retry next tick.
+      if (!snap) return;
       // The connect step is client-advanced: any extension sighting counts
-      // (Dawson: already-connected users skip install/login entirely).
-      if (state === "awaiting_connect" && snap.extensionLastSeenAt) {
+      // (Dawson: already-connected users skip install/login entirely). Skip
+      // once an advance is already held for refocus, so a backgrounded tab
+      // doesn't re-issue the same write every tick.
+      if (state === "awaiting_connect" && snap.extensionLastSeenAt && !pendingRef.current) {
         const next = await advanceExtensionOnboardingState(user.id, "awaiting_first_contact");
-        applySnapshot(next, snap.contactId, snap.extensionLastSeenAt);
+        if (next !== null) applyRemoteState(next, snap.contactId);
         return;
       }
-      applySnapshot(snap.state, snap.contactId, snap.extensionLastSeenAt);
+      applyRemoteState(snap.state, snap.contactId);
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [isOpen, user, waiting, state, applySnapshot]);
+  }, [isOpen, user, waiting, state, applyRemoteState]);
 
   // Apply a held advance when the tab becomes visible again.
   useEffect(() => {
@@ -187,6 +206,7 @@ export function ExtensionOnboardingModal() {
       pendingRef.current = null;
       setContactId((prev) => pending.contactId ?? prev);
       setState(pending.state);
+      track("extension_onboarding_step", { state: pending.state });
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
@@ -204,11 +224,13 @@ export function ExtensionOnboardingModal() {
     return () => clearTimeout(t);
   }, [state]);
 
-  // Terminal states retire the seeded to-do.
+  // Terminal states retire the seeded to-do. Falls back to looking the row
+  // up by source when the modal was opened without an explicit id.
   const completeTodo = useCallback(async () => {
-    if (!actionItemId) return;
     try {
-      await updateActionItem(actionItemId, {
+      const id = actionItemId ?? (user ? await getOnboardingActionItemId(user.id) : null);
+      if (!id) return;
+      await updateActionItem(id, {
         is_completed: true,
         completed_at: new Date().toISOString(),
       });
@@ -216,7 +238,7 @@ export function ExtensionOnboardingModal() {
     } catch {
       // The row staying open is harmless; the flow state is already terminal.
     }
-  }, [actionItemId]);
+  }, [actionItemId, user]);
   useEffect(() => {
     if (state === "done") {
       completeTodo();
@@ -227,7 +249,11 @@ export function ExtensionOnboardingModal() {
   const advance = useCallback(
     async (next: ExtensionOnboardingState) => {
       if (!user) return;
+      const prev = stateRef.current;
       const persisted = await advanceExtensionOnboardingState(user.id, next);
+      // null = state couldn't be read; nothing was written — stay put so the
+      // user can retry, rather than fabricating a step.
+      if (persisted === null || persisted === prev) return;
       setState(persisted);
       track("extension_onboarding_step", { state: persisted });
     },
@@ -243,16 +269,17 @@ export function ExtensionOnboardingModal() {
 
   const handleDeleteTask = useCallback(async () => {
     track("extension_onboarding_deleted", {});
-    if (actionItemId) {
-      try {
-        await deleteActionItem(actionItemId);
+    try {
+      const id = actionItemId ?? (user ? await getOnboardingActionItemId(user.id) : null);
+      if (id) {
+        await deleteActionItem(id);
         window.dispatchEvent(new CustomEvent("careervine:onboarding-todo-changed"));
-      } catch {
-        // Leave the row; the user can delete it again from the list.
       }
+    } catch {
+      // Leave the row; the user can delete it again from the list.
     }
     close();
-  }, [actionItemId, close]);
+  }, [actionItemId, user, close]);
 
   const handleDeclineApollo = useCallback(async () => {
     if (!user) return;
@@ -264,8 +291,11 @@ export function ExtensionOnboardingModal() {
   }, [user, completeTodo, close, contactId, router]);
 
   if (!isOpen || !user || state === null) return null;
-  // A finished flow has nothing to show — the to-do row is completed/deleted.
-  if (isExtensionOnboardingDone(state)) return null;
+  // completed_no_apollo has nothing to show — its handler already closed the
+  // modal and redirected to the new contact. A real "done" MUST fall through:
+  // its celebration screen below is the flow's finale (the deep-review found
+  // an isExtensionOnboardingDone() guard here made that screen dead code).
+  if (state === "completed_no_apollo") return null;
 
   const chromeOk = isChromeLike();
 

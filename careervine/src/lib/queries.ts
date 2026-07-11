@@ -1069,6 +1069,23 @@ export async function deleteActionItem(id: number) {
 }
 
 /**
+ * Find the user's open seeded extension-onboarding to-do (CAR-68). Fallback
+ * for retiring/deleting the row when the flow modal was opened without an
+ * explicit action-item id.
+ */
+export async function getOnboardingActionItemId(userId: string): Promise<number | null> {
+  const { data } = await supabase
+    .from("follow_up_action_items")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("source", "onboarding")
+    .eq("is_completed", false)
+    .limit(1)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
+/**
  * Update an existing action item
  * 
  * @param id - The action item's ID

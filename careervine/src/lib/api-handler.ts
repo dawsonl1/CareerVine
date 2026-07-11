@@ -56,6 +56,14 @@ interface RouteConfig<TBody = unknown, TQuery = unknown> {
   querySchema?: ZodSchema<TQuery>;
   /** Use Chrome-extension auth (Bearer token or cookie). */
   extensionAuth?: boolean;
+  /**
+   * When false, Bearer-authed calls to this route do NOT stamp
+   * users.extension_last_seen_at (CAR-68). Set on extensionAuth routes that
+   * are really driven by ops scripts/the web app rather than the extension,
+   * so a bulk-import run can't fake an "extension connected" signal.
+   * Defaults to true.
+   */
+  stampExtensionSeen?: boolean;
   /** Include CORS headers on the response. */
   cors?: boolean;
   /** When true, auth is attempted but handler runs even if user is null. Handler receives user as User | null. */
@@ -124,7 +132,10 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         // fallback is the web app's bulk importer). Stamp last-seen so the
         // onboarding "log in to the extension" step can detect the connection.
         // Fire-and-forget: a failed stamp must never affect the request.
-        if (request.headers.get("Authorization")?.startsWith("Bearer ")) {
+        if (
+          config.stampExtensionSeen !== false &&
+          request.headers.get("Authorization")?.startsWith("Bearer ")
+        ) {
           pendingTracks.push(
             Promise.resolve(
               supabase
@@ -241,8 +252,6 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         },
       });
 
-      await Promise.allSettled(pendingTracks);
-
       // Allow handlers to return a NextResponse directly (e.g. redirects)
       if (data instanceof NextResponse) return data;
 
@@ -250,7 +259,6 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
     } catch (error) {
       // Known API errors thrown intentionally
       if (error instanceof ApiError) {
-        await Promise.allSettled(pendingTracks);
         return jsonResponse(
           error.code
             ? { error: error.message, code: error.code }
@@ -269,12 +277,17 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
           method: request.method,
         }),
       );
-      await Promise.allSettled(pendingTracks);
       return jsonResponse(
         { error: "An unexpected error occurred" },
         500,
         headers,
       );
+    } finally {
+      // Flush analytics + the CAR-68 last-seen stamp on EVERY exit path,
+      // including the early returns (auth, admin, rate-limit, validation).
+      // finally awaits before the returned response resolves, so nothing is
+      // cut off by the serverless freeze.
+      await Promise.allSettled(pendingTracks);
     }
   };
 }

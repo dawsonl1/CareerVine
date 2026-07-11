@@ -431,7 +431,7 @@ export default function Home() {
           primaryText: ai.title,
           secondaryText: ai.description || "",
           lastContactedLabel: "",
-          priority: 90, // Below overdue tasks, above everything else
+          priority: 90, // Below overdue tasks (100) and act-now change events (95), above the rest
           actionItemId: ai.id,
         });
         continue;
