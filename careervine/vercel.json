@@ -1,11 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["pdx1"],
-  "rewrites": [
-    {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "docs.careervine.app" }],
-      "destination": "/docs/index.html"
-    }
-  ]
+  "regions": ["pdx1"]
 }
