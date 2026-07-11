@@ -240,8 +240,37 @@ describe("runFastApplyStep", () => {
     expect(vi.mocked(trackServer)).toHaveBeenCalledWith("user-1", "contact_imported", {
       source: "bundle",
       count: 1,
+      fast: true,
     });
     expect(vi.mocked(checkContactMilestone)).toHaveBeenCalledWith("user-1");
+  });
+
+  it("stamps path: 'fast' on every step result", async () => {
+    const { client } = createMockClient(fastResponder([janeRow()]));
+    const result = await runFastApplyStep(client, SUB, BUNDLE, { afterId: 0, pinnedVersion: 3 });
+    expect(result.path).toBe("fast");
+  });
+
+  it("hands analytics to deferAnalytics instead of awaiting when provided", async () => {
+    const deferred: Promise<unknown>[] = [];
+    let captureSettled = false;
+    vi.mocked(trackServer).mockReturnValueOnce(
+      new Promise((resolve) => setTimeout(() => { captureSettled = true; resolve(); }, 5)),
+    );
+    const { client } = createMockClient(fastResponder([janeRow()]));
+    const result = await runFastApplyStep(client, SUB, BUNDLE, {
+      afterId: 0,
+      pinnedVersion: 3,
+      deferAnalytics: (p) => deferred.push(p),
+    });
+
+    // The step returned without waiting for the slow capture…
+    expect(result.done).toBe(true);
+    expect(captureSettled).toBe(false);
+    // …but handed both the capture and the milestone check to the sink.
+    expect(deferred).toHaveLength(2);
+    await Promise.all(deferred);
+    expect(captureSettled).toBe(true);
   });
 
   it("seeds bundle_contact_state with a fingerprint a re-read reproduces (parity invariant)", async () => {

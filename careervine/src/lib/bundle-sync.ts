@@ -123,6 +123,9 @@ export interface ApplyStepResult {
   removedContacts: number;
   orphanedLinks: number;
   skipped: string[];
+  /** Which apply implementation produced this step (CAR-78 instrumentation):
+   * the CAR-62 bulk fast path or the merge engine. */
+  path: "fast" | "merge";
 }
 
 // ── Serialization claim (CAS via claim tokens) ─────────────────────────
@@ -349,7 +352,16 @@ export async function applyBundleDelta(
   client: SupabaseClient,
   subscription: SubscriptionCore,
   bundle: BundleCore,
-  opts: { cursor?: ApplyCursor | null; pinnedVersion?: number; chunkSize?: number } = {},
+  opts: {
+    cursor?: ApplyCursor | null;
+    pinnedVersion?: number;
+    chunkSize?: number;
+    /** When provided, analytics work (PostHog capture, milestone check) is
+     * handed off instead of awaited inline — the apply route wires this to
+     * the api-handler's post-response flush so it stays off the sync's
+     * critical path (CAR-78). Background drivers omit it and keep awaiting. */
+    deferAnalytics?: (p: Promise<unknown>) => void;
+  } = {},
 ): Promise<ApplyStepResult> {
   const pinnedVersion = opts.pinnedVersion ?? bundle.version;
   const chunkSize = opts.chunkSize ?? SYNC_CHUNK_SIZE;
@@ -363,10 +375,15 @@ export async function applyBundleDelta(
     return runFastApplyStep(client, subscription, bundle, {
       afterId: opts.cursor.afterId,
       pinnedVersion,
+      deferAnalytics: opts.deferAnalytics,
     });
   }
   if (!opts.cursor && (await checkFastApplyEligibility(client, subscription, bundle, pinnedVersion))) {
-    return runFastApplyStep(client, subscription, bundle, { afterId: 0, pinnedVersion });
+    return runFastApplyStep(client, subscription, bundle, {
+      afterId: 0,
+      pinnedVersion,
+      deferAnalytics: opts.deferAnalytics,
+    });
   }
 
   const cursor: ApplyCursor = opts.cursor ?? { phase: "apply", afterId: 0 };
@@ -379,6 +396,7 @@ export async function applyBundleDelta(
     removedContacts: 0,
     orphanedLinks: 0,
     skipped: [],
+    path: "merge",
   };
 
   if (cursor.phase === "apply") {
@@ -467,6 +485,7 @@ export async function applyBundleDelta(
           skipPhotos: true,
           noteLabel: `Imported from data bundle "${bundle.name}"`,
           analyticsSource: "bundle",
+          deferAnalytics: opts.deferAnalytics,
         },
       );
 

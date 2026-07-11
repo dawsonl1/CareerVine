@@ -194,13 +194,23 @@ function SyncProgressStep({
   const gmailConnected = gmailConn !== null;
   const started = useRef(false);
   const doneRef = useRef(false);
+  const startedAtRef = useRef(0);
 
-  const finish = useCallback(() => {
-    if (doneRef.current) return;
-    doneRef.current = true;
-    track("onboarding_sync_completed", { prospects: stats.prospectCount });
-    onComplete();
-  }, [onComplete, stats.prospectCount]);
+  // path is absent when a background driver finished the sync and this tab
+  // never saw an apply response (CAR-78 instrumentation).
+  const finish = useCallback(
+    (path?: "fast" | "merge") => {
+      if (doneRef.current) return;
+      doneRef.current = true;
+      track("onboarding_sync_completed", {
+        prospects: stats.prospectCount,
+        path,
+        duration_ms: startedAtRef.current ? Date.now() - startedAtRef.current : undefined,
+      });
+      onComplete();
+    },
+    [onComplete, stats.prospectCount],
+  );
 
   // Poll the durable completion signal — covers the cases where another
   // driver (background worker/cron) owns the sync or our loop errored over
@@ -228,16 +238,17 @@ function SyncProgressStep({
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+    startedAtRef.current = Date.now();
     (async () => {
       try {
         // Resume-safe: subscribing when already subscribed is handled
         // server-side; the apply loop picks up wherever the sync left off.
         await subscribeToBundle(stats.bundleId).catch(() => {});
-        const completed = await runBundleApplyLoop(
+        const { completed, path } = await runBundleApplyLoop(
           { id: stats.bundleId, prospect_count: stats.prospectCount },
           setProgress,
         );
-        if (completed) finish();
+        if (completed) finish(path);
         else await pollUntilSynced(); // another driver owns it
       } catch (err) {
         setNotice(err instanceof Error ? err.message : BACKGROUND_SYNC_MESSAGE);
