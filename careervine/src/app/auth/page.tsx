@@ -34,7 +34,7 @@ function AuthPage() {
   // /auth/confirm bounces invalid or expired email links here with context.
   const initialError =
     searchParams.get("error") === "confirm-expired"
-      ? "That confirmation link is invalid or has expired. If you've already confirmed your email, just sign in — otherwise sign in to get a fresh link."
+      ? "That confirmation link is invalid or has expired. If you've already confirmed your email, just sign in. Otherwise sign in to get a fresh link."
       : undefined;
 
   useEffect(() => {

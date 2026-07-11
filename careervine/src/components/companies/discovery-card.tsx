@@ -66,7 +66,7 @@ export function DiscoveryCard({ companyId }: { companyId: number }) {
         if (action === "add") {
           toastSuccess(
             data?.enrich === "started"
-              ? `${candidate.name} added — enriching profile…`
+              ? `${candidate.name} added, enriching profile…`
               : `${candidate.name} added`,
           );
         } else {
@@ -94,7 +94,7 @@ export function DiscoveryCard({ companyId }: { companyId: number }) {
         <span className="text-xs text-on-surface-variant tabular-nums">{candidates.length}</span>
       </div>
       <p className="text-xs text-on-surface-variant mt-0.5 mb-3">
-        Recently joined — found by your weekly discovery search.
+        Recently joined, found by your weekly discovery search.
       </p>
       <div className="space-y-2">
         {candidates.map((c) => {
@@ -133,7 +133,7 @@ export function DiscoveryCard({ companyId }: { companyId: number }) {
                   <UserPlus className="w-4 h-4" />
                 </button>
               </Tooltip>
-              <Tooltip label="Dismiss — won't be suggested again">
+              <Tooltip label="Dismiss: won't be suggested again">
                 <button
                   type="button"
                   disabled={busy}

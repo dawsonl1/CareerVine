@@ -193,7 +193,7 @@ export function PersonModal({ person, companyId, companyName, userId, onClose, o
           </div>
         ) : (
           <p className="text-sm text-on-surface-variant flex items-center gap-2">
-            <Mail className="w-4 h-4" /> No email on file — reach out on LinkedIn.
+            <Mail className="w-4 h-4" /> No email on file. Reach out on LinkedIn.
           </p>
         )}
 

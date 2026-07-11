@@ -303,7 +303,7 @@ function appKeyFailure(err: unknown, userKeyWasBad = false, userQuota = false): 
     return new ApiError(
       userKeyWasBad && userQuota
         ? "Your Deepgram key is out of credit, and CareerVine's shared transcription is also over capacity. Add credit to your key or remove it in Settings → AI, or try again shortly."
-        : "Transcription is temporarily unavailable — the service is over capacity or out of credit. Please try again shortly.",
+        : "Transcription is temporarily unavailable: the service is over capacity or out of credit. Please try again shortly.",
       503,
       "deepgram_no_credit",
     );

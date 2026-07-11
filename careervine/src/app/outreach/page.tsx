@@ -180,7 +180,7 @@ function OutreachFlow() {
         ) : queue.length === 0 ? (
           <Card>
             <CardContent className="py-16 text-center text-sm text-on-surface-variant">
-              No target companies with contactable people yet — run the pipeline import, then come back.
+              No target companies with contactable people yet. Run the pipeline import, then come back.
             </CardContent>
           </Card>
         ) : company ? (
@@ -274,7 +274,7 @@ function OutreachFlow() {
 
             {skippedCount > 0 && (
               <p className="text-xs text-on-surface-variant mt-8 text-center">
-                {skippedCount} more target {skippedCount === 1 ? "company has" : "companies have"} only bench people or nobody —{" "}
+                {skippedCount} more target {skippedCount === 1 ? "company has" : "companies have"} only bench people or nobody:{" "}
                 <Link href="/companies" className="underline underline-offset-2 hover:text-on-surface">review them on Companies</Link>.
               </p>
             )}

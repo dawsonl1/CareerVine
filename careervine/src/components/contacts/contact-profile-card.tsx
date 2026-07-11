@@ -371,7 +371,7 @@ export function ContactProfileCard({
               <button
                 onClick={() => setResolveOpen(true)}
                 className="flex items-center gap-1 text-xs text-amber-600 hover:underline cursor-pointer"
-                title="Recent refreshes failed — the profile may have moved"
+                title="Recent refreshes failed; the profile may have moved"
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
                 Re-link

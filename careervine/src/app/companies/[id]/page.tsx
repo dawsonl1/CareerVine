@@ -172,7 +172,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
                     Pick a prospect and hit their email button
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Your intro is pre-written — BYU alumni get the alumni version. Edit anything,
+                    Your intro is pre-written, and BYU alumni get the alumni version. Edit anything,
                     then send or schedule. Follow-ups come ready too.
                   </p>
                 </>
@@ -184,7 +184,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
                     Connect Gmail to send your first pre-written intro
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Your intro and follow-ups are ready — one connection away. You&apos;ll come
+                    Your intro and follow-ups are ready, just one connection away. You&apos;ll come
                     right back to this page.
                   </p>
                   <a

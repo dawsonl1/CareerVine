@@ -478,7 +478,7 @@ export default function ContactsPage() {
         {/* Nothing toggled on */}
         {!viewLoading && tiersExist && enabledTiers.size === 0 && (
           <p className="text-base text-muted-foreground py-8 text-center">
-            No groups selected — toggle a group above to see people.
+            No groups selected. Toggle a group above to see people.
           </p>
         )}
 
@@ -490,7 +490,7 @@ export default function ContactsPage() {
               <Users className="mx-auto h-14 w-14 text-muted-foreground/40 mb-5" />
               <p className="text-lg text-foreground mb-1">Your network starts here</p>
               <p className="text-base text-muted-foreground mb-2.5">
-                Add people you meet — colleagues, mentors, classmates, or anyone worth staying in touch with.
+                Add people you meet: colleagues, mentors, classmates, or anyone worth staying in touch with.
               </p>
               <p className="text-sm text-muted-foreground mb-6">
                 You can also import contacts from LinkedIn using the Chrome extension.

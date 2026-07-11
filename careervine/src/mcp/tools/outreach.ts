@@ -61,7 +61,7 @@ export function registerOutreachTools(server: McpServer): void {
       const page = queue.slice(start, start + (limit ?? 25));
       const range = page.length > 0 ? ` showing ${start + 1}–${start + page.length}` : " none on this page";
       return {
-        summary: `${queue.length} companies in the queue (${skippedCount} targets skipped — nobody contactable);${range}`,
+        summary: `${queue.length} companies in the queue (${skippedCount} targets skipped: nobody contactable);${range}`,
         boost_window_days: APP_DATE_BOOST_DAYS,
         queue: page.map((c, i) => ({
           position: start + i + 1,
@@ -94,7 +94,7 @@ export function registerOutreachTools(server: McpServer): void {
       const summaries = await getCompanies(uid(), { targetsOnly: targets_only ?? true, search });
       const page = summaries.slice(0, limit ?? 50);
       return {
-        summary: `${summaries.length} companies${page.length < summaries.length ? `; showing first ${page.length} — narrow with search or raise limit` : ""}`,
+        summary: `${summaries.length} companies${page.length < summaries.length ? `; showing first ${page.length} (narrow with search or raise limit)` : ""}`,
         companies: page.map(compactCompany),
       };
     }),
@@ -140,7 +140,7 @@ export function registerOutreachTools(server: McpServer): void {
       return {
         summary:
           `${detail.company.name}: ${detail.current.length} current, ${detail.former.length} former, ${detail.bench.length} archived` +
-          (truncated.length ? ` — lists truncated: ${truncated.join(", ")}` : ""),
+          (truncated.length ? `. Lists truncated: ${truncated.join(", ")}` : ""),
         company: detail.company,
         target: detail.target,
         offices: detail.offices.map((o) => o.label),
@@ -196,7 +196,7 @@ export function registerOutreachTools(server: McpServer): void {
       const contact = await resolveContact({ contact_id, name });
       if (clear) {
         await setStageOverride(contact.id, null);
-        return { summary: `Cleared stage override for ${contact.name} — back to derived stage` };
+        return { summary: `Cleared stage override for ${contact.name}, back to derived stage` };
       }
       if (!stage) throw new Error("Provide stage, or clear:true to remove the override");
       await setStageOverride(contact.id, stage);

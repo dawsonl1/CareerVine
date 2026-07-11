@@ -41,7 +41,7 @@ export function AddCompanyModal({ userId, onClose }: AddCompanyModalProps) {
       const result = await addCompanyManually(userId, { name, linkedin_url: linkedinUrl, city, state, country });
       toastSuccess(
         result.alreadyTargeted
-          ? `${result.companyName} is already in your companies — opening it`
+          ? `${result.companyName} is already in your companies, opening it`
           : `Added ${result.companyName}`,
       );
       router.push(`/companies/${result.companyId}`);

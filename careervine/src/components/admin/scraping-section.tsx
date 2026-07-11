@@ -39,7 +39,7 @@ const CONTROLS: Array<{
     field: "discoveryEnabled",
     label: "Discovery feed",
     description:
-      "Weekly search for new PM hires at this account's target companies (~$0.10 per company page). Default off — new spend, opt in per account.",
+      "Weekly search for new PM hires at this account's target companies (~$0.10 per company page). Default off: new spend, opt in per account.",
   },
 ];
 
@@ -113,7 +113,7 @@ export default function ScrapingSection({
       </div>
 
       <p className="mt-3 text-xs text-muted-foreground">
-        Takes effect on the next scrape or refresh — runs already in flight still finish.
+        Takes effect on the next scrape or refresh. Runs already in flight still finish.
       </p>
     </section>
   );

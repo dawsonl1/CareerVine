@@ -419,7 +419,7 @@ export function ContactActionsTab({
                       { value: "", label: "No linked meeting" },
                       ...meetings.map((m) => ({
                         value: String(m.id),
-                        label: `${m.meeting_type.charAt(0).toUpperCase() + m.meeting_type.slice(1)} — ${new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+                        label: `${m.meeting_type.charAt(0).toUpperCase() + m.meeting_type.slice(1)} · ${new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
                       })),
                     ]}
                   />

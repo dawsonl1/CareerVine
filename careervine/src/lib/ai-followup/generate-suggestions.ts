@@ -136,7 +136,7 @@ export function generateGraduationSuggestions(
         : `Reach out to ${c.name} about upcoming graduation`,
       suggestedDescription: isPast
         ? "Congratulate them and ask about their next steps or job search."
-        : "Check in about their plans after graduation — job search, grad school, etc.",
+        : "Check in about their plans after graduation: job search, grad school, etc.",
       daysSinceContact: c.days_since_touch,
     });
   }
@@ -296,7 +296,7 @@ export function generateWaitingOnNudgeSuggestions(
       reasonType: SuggestionReasonType.WaitingOnNudge,
       score: 70,
       suggestedTitle: `Send ${contactName} a friendly check-in`,
-      suggestedDescription: `They offered ${daysWaiting} days ago — a brief, polite follow-up goes a long way.`,
+      suggestedDescription: `They offered ${daysWaiting} days ago, so a brief, polite follow-up goes a long way.`,
       daysSinceContact: daysWaiting,
     });
   }

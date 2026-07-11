@@ -64,7 +64,7 @@ export function RequestAiAccessButton({
     return (
       <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <MailCheck className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-        Request sent — you&apos;ll get an email when it&apos;s enabled.
+        Request sent. You&apos;ll get an email when it&apos;s enabled.
       </span>
     );
   }
@@ -81,7 +81,7 @@ export function RequestAiAccessButton({
         {state === "sending" ? "Sending…" : "Request AI access"}
       </Button>
       {state === "error" && (
-        <span className="text-xs text-destructive">Couldn&apos;t send — try again.</span>
+        <span className="text-xs text-destructive">Couldn&apos;t send. Try again.</span>
       )}
     </>
   );

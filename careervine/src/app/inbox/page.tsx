@@ -845,7 +845,7 @@ export default function InboxPage() {
                         <CalendarIcon className="h-2.5 w-2.5" />
                       </span>
                     )}
-                    <span className="text-sm text-muted-foreground truncate hidden sm:inline">— {latest.snippet || ""}</span>
+                    <span className="text-sm text-muted-foreground truncate hidden sm:inline">{latest.snippet || ""}</span>
                   </div>
                   <span className={`text-sm shrink-0 ${isUnread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
                     {thread.latestDate ? formatDate(thread.latestDate) : ""}
@@ -1328,7 +1328,7 @@ export default function InboxPage() {
                     style={{ left: arrowPosRef.current.x + 14, top: arrowPosRef.current.y - 44 }}
                   >
                     <p className="text-sm text-foreground whitespace-nowrap">
-                      {hoveredArrow === "outbound" ? "Outgoing — you sent this" : "Incoming — sent to you"}
+                      {hoveredArrow === "outbound" ? "Outgoing: you sent this" : "Incoming: sent to you"}
                     </p>
                   </div>,
                   document.body

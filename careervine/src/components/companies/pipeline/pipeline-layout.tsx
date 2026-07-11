@@ -77,7 +77,7 @@ const SAVE_STATUS_LABELS: Record<PipelineSaveStatus, string | null> = {
   idle: null,
   saving: "Saving…",
   saved: "Saved",
-  error: "Save failed — check your connection",
+  error: "Save failed. Check your connection",
 };
 
 function stageIndex(stage: PipelineStage): number {
@@ -559,12 +559,12 @@ function ContactEmailAction({
   return (
     <div className="flex items-center gap-1.5 shrink-0">
       {email.source === "pattern_guessed" && !email.bounced && (
-        <Tooltip label="Pattern-guessed address — verify before heavy outreach">
+        <Tooltip label="Pattern-guessed address: verify before heavy outreach">
           <AlertTriangle className="w-4 h-4 text-yellow-600" />
         </Tooltip>
       )}
       {email.bounced ? (
-        <Tooltip label="This address bounced — sending is disabled">
+        <Tooltip label="This address bounced, so sending is disabled">
           <span className="text-[11px] text-error font-medium">bounced</span>
         </Tooltip>
       ) : gmailConnected ? (
@@ -890,7 +890,7 @@ function BenchSection({
                 </p>
               </div>
               {jobChangeIds.has(p.contact_id) && (
-                <Tooltip label="A recent scrape detected a job change — consider promoting to outreach">
+                <Tooltip label="A recent scrape detected a job change; consider promoting to outreach">
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-700 bg-amber-100 shrink-0">
                     Just changed jobs
                   </span>
@@ -1026,7 +1026,7 @@ function RecruitingPanel({
                 />
               </FieldRow>
               <p className="text-[11px] text-on-surface-variant/70">
-                Research is saved even without targeting — it carries into the pipeline if you
+                Research is saved even without targeting, and it carries into the pipeline if you
                 target {isCompanyScope ? "this company" : scopeLabel} later.
               </p>
             </div>

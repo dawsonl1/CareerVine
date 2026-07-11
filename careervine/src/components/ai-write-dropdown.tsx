@@ -365,7 +365,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                 {recipientName && (
                   <p className="text-xs text-muted-foreground mt-1">
                     Writing to <span className="font-medium text-foreground">{recipientName}</span>
-                    {contactId && " — contact info will be used for personalization"}
+                    {contactId && " (contact info will be used for personalization)"}
                   </p>
                 )}
               </div>

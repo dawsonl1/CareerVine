@@ -314,7 +314,7 @@ export default function ContactPreviewPage() {
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5">
                             {(exp.start_month || exp.end_month) && (
                               <p className="text-sm text-muted-foreground">
-                                {exp.start_month || "?"} — {exp.end_month || "Present"}
+                                {exp.start_month || "?"} to {exp.end_month || "Present"}
                               </p>
                             )}
                             {exp.location && (
@@ -346,12 +346,12 @@ export default function ContactPreviewPage() {
                         <p className="font-medium text-lg text-foreground leading-snug">{edu.school}</p>
                         {(edu.degree || edu.field_of_study) && (
                           <p className="text-base text-muted-foreground">
-                            {edu.degree}{edu.degree && edu.field_of_study ? " — " : ""}{edu.field_of_study}
+                            {edu.degree}{edu.degree && edu.field_of_study ? ", " : ""}{edu.field_of_study}
                           </p>
                         )}
                         {(edu.start_year || edu.end_year) && (
                           <p className="text-sm text-muted-foreground mt-1.5">
-                            {edu.start_year || "?"} — {edu.end_year || "Present"}
+                            {edu.start_year || "?"} to {edu.end_year || "Present"}
                           </p>
                         )}
                       </div>

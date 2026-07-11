@@ -85,7 +85,7 @@ export default function SecuritySection({
         mode: "set",
         password: newPassword,
       });
-      success(`Password set for ${email} — their sessions were signed out`);
+      success(`Password set for ${email}. Their sessions were signed out`);
       close();
     } catch (err) {
       toastError((err as Error).message);
@@ -103,7 +103,7 @@ export default function SecuritySection({
       success(
         user.isAdmin
           ? `Revoked admin from ${email}`
-          : `${email} is now an admin — takes effect on their next sign-in`,
+          : `${email} is now an admin. Takes effect on their next sign-in`,
       );
       close();
       onChanged();
@@ -188,7 +188,7 @@ export default function SecuritySection({
             <p className="text-sm text-muted-foreground">
               Generate a single-use password reset link for{" "}
               <span className="font-medium text-on-surface">{email}</span>. The
-              link is shown once, only to you — you deliver it to them yourself.
+              link is shown once, only to you. You deliver it to them yourself.
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="text" onClick={close}>
@@ -202,7 +202,7 @@ export default function SecuritySection({
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Copy this link now — it won&apos;t be shown again, expires, and can
+              Copy this link now: it won&apos;t be shown again, expires, and can
               only be used once.
             </p>
             <div className="flex items-center gap-2 rounded-xl border border-outline-variant bg-surface-container p-3">

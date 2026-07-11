@@ -21,7 +21,7 @@ const AI_FAILURE_CODES: AiFailureCode[] = [
 export const AI_FAILURE_COPY: Record<AiFailureCode, { title: string; body: string; ctaLabel: string; retryable: boolean }> = {
   ai_no_key: {
     title: "Add your OpenAI key to use AI",
-    body: "CareerVine's AI features need an OpenAI key. Add yours in Settings — with OpenAI's free daily tokens, most people pay nothing.",
+    body: "CareerVine's AI features need an OpenAI key. Add yours in Settings. With OpenAI's free daily tokens, most people pay nothing.",
     ctaLabel: "Add your key",
     retryable: false,
   },
@@ -41,13 +41,13 @@ export const AI_FAILURE_COPY: Record<AiFailureCode, { title: string; body: strin
     // The request-access button lives on the web app's Settings → AI page —
     // the CTA sends the user there rather than duplicating the flow here.
     title: "Your free AI day has ended",
-    body: "Your 24-hour AI trial is over. Add your own OpenAI key in Settings — or request continued access from the AI settings page.",
+    body: "Your 24-hour AI trial is over. Add your own OpenAI key in Settings, or request continued access from the AI settings page.",
     ctaLabel: "Open AI settings",
     retryable: false,
   },
   ai_unavailable: {
     title: "AI is temporarily unavailable",
-    body: "We couldn't reach AI right now. Try again in a moment — or add your own OpenAI key so this never blocks you.",
+    body: "We couldn't reach AI right now. Try again in a moment, or add your own OpenAI key so this never blocks you.",
     ctaLabel: "Add your key",
     retryable: true,
   },

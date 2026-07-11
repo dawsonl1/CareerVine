@@ -72,7 +72,7 @@ export async function sendTrackedEmail(
   if ((sentToday ?? 0) >= DAILY_SEND_CAP) {
     await trackServer(userId, "send_cap_hit", {});
     throw new SendPolicyError(
-      `Daily send limit reached (${DAILY_SEND_CAP}). Sending more today risks Gmail deliverability — try again tomorrow.`,
+      `Daily send limit reached (${DAILY_SEND_CAP}). Sending more today risks Gmail deliverability. Try again tomorrow.`,
       429,
     );
   }
@@ -89,13 +89,13 @@ export async function sendTrackedEmail(
     | undefined;
   if ((emailRows ?? []).some((r: { bounced_at: string | null }) => r.bounced_at != null)) {
     throw new SendPolicyError(
-      `${toAddr} has bounced before — sending again would hurt deliverability. Verify or update the address first.`,
+      `${toAddr} has bounced before, so sending again would hurt deliverability. Verify or update the address first.`,
       422,
     );
   }
   if (matchedRow?.source === "pattern_guessed") {
     warnings.push(
-      `${toAddr} is a pattern-guessed address that has never been verified — it may bounce.`,
+      `${toAddr} is a pattern-guessed address that has never been verified, so it may bounce.`,
     );
   }
   const matchedContactId = matchedRow?.contact_id ?? null;

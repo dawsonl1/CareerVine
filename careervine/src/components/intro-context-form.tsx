@@ -217,7 +217,7 @@ export function IntroContextForm({
             onClick={onSkip}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
-            Skip — draft without context
+            Skip and draft without context
           </button>
           <button
             type="button"

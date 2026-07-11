@@ -82,7 +82,7 @@ export function ResolveLinkedinModal({ contactId, contactName, onClose, onLinked
         const enrich = (data as { enrich?: string }).enrich;
         toastSuccess(
           enrich === "started" || enrich === "pending"
-            ? "LinkedIn profile linked — enriching from LinkedIn…"
+            ? "LinkedIn profile linked, enriching from LinkedIn…"
             : "LinkedIn profile linked",
         );
         onLinked();
@@ -97,7 +97,7 @@ export function ResolveLinkedinModal({ contactId, contactName, onClose, onLinked
   );
 
   return (
-    <Modal isOpen onClose={onClose} title={`Link LinkedIn profile — ${contactName}`} size="md">
+    <Modal isOpen onClose={onClose} title={`Link LinkedIn profile: ${contactName}`} size="md">
       <div className="space-y-4">
         {phase === "searching" && (
           <div className="flex items-center gap-3 py-8 justify-center text-muted-foreground">
@@ -108,7 +108,7 @@ export function ResolveLinkedinModal({ contactId, contactName, onClose, onLinked
 
         {phase === "cap_reached" && (
           <p className="text-sm text-muted-foreground py-4">
-            Monthly scrape budget reached — searching is paused until next month. You can still paste a profile URL below.
+            Monthly scrape budget reached, so searching is paused until next month. You can still paste a profile URL below.
           </p>
         )}
         {phase === "disabled" && (

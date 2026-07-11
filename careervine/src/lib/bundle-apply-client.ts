@@ -19,7 +19,7 @@ export type ApplyStep = {
 };
 
 export const BACKGROUND_SYNC_MESSAGE =
-  "The sync hit a server error. It will keep running in the background — your contacts will appear shortly.";
+  "The sync hit a server error. It will keep running in the background, and your contacts will appear shortly.";
 
 /**
  * POST one cursor-loop step. A 5xx (e.g. a function timeout's 504, whose

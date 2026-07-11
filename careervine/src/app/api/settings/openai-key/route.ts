@@ -66,7 +66,7 @@ async function validateOpenAIKey(apiKey: string): Promise<void> {
         );
       }
     }
-    throw new ApiError("Couldn't reach OpenAI to verify — try again.", 502);
+    throw new ApiError("Couldn't reach OpenAI to verify. Try again.", 502);
   }
 }
 

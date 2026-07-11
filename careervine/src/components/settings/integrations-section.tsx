@@ -65,7 +65,7 @@ export default function IntegrationsSection() {
       const result = await runFullGmailSync();
       setSyncResult(
         result.failedContacts > 0
-          ? `Synced ${result.totalSynced} emails — ${result.failedContacts} contact${result.failedContacts === 1 ? "" : "s"} failed`
+          ? `Synced ${result.totalSynced} emails, ${result.failedContacts} contact${result.failedContacts === 1 ? "" : "s"} failed`
           : `Synced ${result.totalSynced} emails`
       );
       loadGmailStatus();

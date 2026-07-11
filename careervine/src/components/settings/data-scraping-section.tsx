@@ -76,7 +76,7 @@ export default function DataScrapingSection() {
             <p className="text-sm text-foreground">
               {status.killSwitch
                 ? "Scraping is paused by the kill switch (APIFY_SCRAPE_DISABLED)."
-                : "Scraping isn’t configured — set APIFY_API_TOKEN, APIFY_WEBHOOK_SECRET, and APP_BASE_URL."}
+                : "Scraping isn’t configured: set APIFY_API_TOKEN, APIFY_WEBHOOK_SECRET, and APP_BASE_URL."}
             </p>
           </CardContent>
         </Card>

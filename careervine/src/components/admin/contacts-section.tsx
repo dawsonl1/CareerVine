@@ -159,8 +159,8 @@ export default function ContactsSection({ userId }: { userId: string }) {
       if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
       success(
         json.completed
-          ? `Injected “${pickedBundle.name}” — ${json.applied ?? 0} contacts applied`
-          : `Injecting “${pickedBundle.name}” — ${json.applied ?? 0} applied so far, the rest will finish in the background`,
+          ? `Injected “${pickedBundle.name}”: ${json.applied ?? 0} contacts applied`
+          : `Injecting “${pickedBundle.name}”: ${json.applied ?? 0} applied so far, the rest will finish in the background`,
       );
       close();
       void load();
@@ -365,7 +365,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
                 >
                   <span className="block text-sm font-medium text-on-surface">
                     {b.name}
-                    {b.subscribed && " — already subscribed"}
+                    {b.subscribed && " (already subscribed)"}
                   </span>
                   <span className="block text-xs text-muted-foreground">
                     {b.prospectCount} prospects

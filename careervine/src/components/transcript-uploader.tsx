@@ -59,7 +59,7 @@ export default function TranscriptUploader({
     if (text.length > 50) {
       const result = parseTranscript(text);
       if (result.segments.length > 0 && result.confidence >= 0.3) {
-        setParseStatus(`Detected ${result.format} format — ${result.segments.length} segments, ${new Set(result.segments.map(s => s.speaker_label)).size} speakers`);
+        setParseStatus(`Detected ${result.format} format: ${result.segments.length} segments, ${new Set(result.segments.map(s => s.speaker_label)).size} speakers`);
         onSegmentsParsed?.(result.segments, "paste");
       } else {
         setParseStatus(null);

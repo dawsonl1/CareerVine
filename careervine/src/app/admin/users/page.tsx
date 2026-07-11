@@ -339,7 +339,7 @@ export default function AdminUsersPage() {
                       label={
                         u.aiFallbackPolicy === "shared"
                           ? "Falls back to CareerVine's shared key when their own key can't be used"
-                          : "No shared fallback — AI is unavailable until they add a working key"
+                          : "No shared fallback: AI is unavailable until they add a working key"
                       }
                     >
                       <span className="flex items-center gap-1.5 rounded-full border border-outline-variant px-3 py-1.5">
@@ -358,7 +358,7 @@ export default function AdminUsersPage() {
                       label={
                         u.apifyEnrichmentEnabled
                           ? "Paid LinkedIn enrichment is on: auto-enrich, daily refresh drip, manual refresh, find-email, profile search"
-                          : "All paid LinkedIn enrichment is off for this account — no new Apify spend"
+                          : "All paid LinkedIn enrichment is off for this account: no new Apify spend"
                       }
                     >
                       <span className="flex items-center gap-1.5 rounded-full border border-outline-variant px-3 py-1.5">
@@ -379,7 +379,7 @@ export default function AdminUsersPage() {
                       label={
                         u.diffAnalysisEnabled
                           ? "Job-change and anniversary alerts flow into their Up Next feed"
-                          : "No change alerts — refreshed data still lands, but nothing is surfaced"
+                          : "No change alerts: refreshed data still lands, but nothing is surfaced"
                       }
                     >
                       <span className="flex items-center gap-1.5 rounded-full border border-outline-variant px-3 py-1.5">
@@ -400,7 +400,7 @@ export default function AdminUsersPage() {
                       label={
                         u.discoveryEnabled
                           ? "Weekly search for new PM hires at their target companies (~$0.10 per company page)"
-                          : "Discovery feed off — no weekly new-hire searches for this account"
+                          : "Discovery feed off: no weekly new-hire searches for this account"
                       }
                     >
                       <span className="flex items-center gap-1.5 rounded-full border border-outline-variant px-3 py-1.5">

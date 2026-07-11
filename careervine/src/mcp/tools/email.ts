@@ -120,7 +120,7 @@ export function registerEmailTools(server: McpServer): void {
         references: reply.references,
       });
       return {
-        summary: `Draft created for ${contact.name} <${recipient.email}> — review it in Gmail before sending`,
+        summary: `Draft created for ${contact.name} <${recipient.email}>. Review it in Gmail before sending`,
         draft_id: draft.draftId,
         gmail_url: draft.webUrl,
         warnings: recipient.warnings,
@@ -216,7 +216,7 @@ export function registerEmailTools(server: McpServer): void {
       }
       const warnings: string[] = [];
       if (!known) {
-        warnings.push(`${recipientEmail} is not one of ${contact.name}'s saved addresses — double-check the thread`);
+        warnings.push(`${recipientEmail} is not one of ${contact.name}'s saved addresses, so double-check the thread`);
       }
 
       const sentAt = original.date ?? new Date().toISOString();
