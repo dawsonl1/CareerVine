@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
@@ -27,7 +28,13 @@ import {
   getOnboardingBundleStats,
   type OnboardingBundleStats,
 } from "@/lib/onboarding/bundle-stats";
-import { getPickerCompanies, type PickerCompany } from "@/lib/onboarding/company-picker";
+import {
+  getPickerCompanies,
+  sortPickerCompanies,
+  COMPANY_SORT_OPTIONS,
+  type PickerCompany,
+  type CompanySortKey,
+} from "@/lib/onboarding/company-picker";
 import {
   subscribeToBundle,
   runBundleApplyLoop,
@@ -36,7 +43,7 @@ import {
 } from "@/lib/bundle-apply-client";
 import { addTargetCompany } from "@/lib/company-queries";
 import { Tooltip } from "@/components/ui/tooltip";
-import { Users, Building2, GraduationCap, Mail, Calendar, Check, Search, Sparkles } from "lucide-react";
+import { Users, Building2, GraduationCap, Mail, Calendar, Check, Search, Sparkles, ChevronDown, ArrowUpDown } from "lucide-react";
 
 /* ── Exit-guard confirm dialog (CAR-84) ──
  * A modal-on-modal that intercepts every path out of guided onboarding. The
@@ -357,6 +364,109 @@ function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: (
  * Select is disabled; completion advances the flow state, which re-renders
  * this same mounted component with syncing=false and unlocks Select.
  */
+/**
+ * Compact "Order by" control that sits to the right of the search bar.
+ * Purpose-built (not the h-14 form `Select`) so it matches the search
+ * bar's pill height; the menu portals to <body> with a z above the
+ * onboarding modal so it never clips inside the scroll container.
+ */
+function SortDropdown({
+  value,
+  onChange,
+}: {
+  value: CompanySortKey;
+  onChange: (v: CompanySortKey) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const MENU_WIDTH = 232;
+
+  const updatePos = useCallback(() => {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) setPos({ top: rect.bottom + 4, left: rect.right - MENU_WIDTH, width: MENU_WIDTH });
+  }, []);
+
+  useEffect(() => {
+    // Position is set in the click handler before opening; here we only
+    // keep it in sync with scroll/resize while the menu is open.
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (
+        btnRef.current && !btnRef.current.contains(e.target as Node) &&
+        menuRef.current && !menuRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [open, updatePos]);
+
+  const current = COMPANY_SORT_OPTIONS.find((o) => o.value === value);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => {
+          if (!open) updatePos();
+          setOpen((o) => !o);
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Order companies by"
+        className="shrink-0 h-10 pl-3.5 pr-3 rounded-full border border-outline-variant bg-surface-container-low text-sm text-foreground flex items-center gap-2 cursor-pointer hover:bg-surface-container focus:outline-none focus:border-primary transition-colors"
+      >
+        <ArrowUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="hidden sm:inline text-muted-foreground">Order by</span>
+        <span className="font-medium truncate max-w-[9rem]">{current?.label}</span>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width }}
+            className="z-[200] bg-surface-container-highest rounded-2xl border border-outline-variant shadow-xl py-1"
+          >
+            {COMPANY_SORT_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="option"
+                aria-selected={o.value === value}
+                onClick={() => {
+                  onChange(o.value);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                  o.value === value
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "text-foreground hover:bg-surface-container"
+                }`}
+              >
+                <span>{o.label}</span>
+                {o.value === value && <Check className="h-4 w-4 text-primary shrink-0" />}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function CompanyPickerStep({
   stats,
   syncing,
@@ -372,6 +482,7 @@ function CompanyPickerStep({
 }) {
   const [companies, setCompanies] = useState<PickerCompany[] | null>(null);
   const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<CompanySortKey>("alumni");
   const [selecting, setSelecting] = useState<number | null>(null);
   const [loopProgress, setLoopProgress] = useState<ApplyProgress | null>(null);
   const [dbApplied, setDbApplied] = useState(0);
@@ -490,8 +601,9 @@ function CompanyPickerStep({
   const filtered = useMemo(() => {
     if (!companies) return null;
     const q = query.trim().toLowerCase();
-    return q ? companies.filter((c) => c.name.toLowerCase().includes(q)) : companies;
-  }, [companies, query]);
+    const matched = q ? companies.filter((c) => c.name.toLowerCase().includes(q)) : companies;
+    return sortPickerCompanies(matched, sortKey);
+  }, [companies, query, sortKey]);
 
   // Best signal wins: the DB count survives page reloads and background
   // drivers; the loop's applied total updates between polls.
@@ -532,15 +644,18 @@ function CompanyPickerStep({
         </div>
       )}
 
-      <div className="mt-4 flex items-center gap-2 h-10 px-3.5 rounded-full border border-outline-variant bg-surface-container-low">
-        <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search companies…"
-          className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-        />
+      <div className="mt-4 flex items-center gap-2">
+        <div className="flex-1 flex items-center gap-2 h-10 px-3.5 rounded-full border border-outline-variant bg-surface-container-low">
+          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search companies…"
+            className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+          />
+        </div>
+        <SortDropdown value={sortKey} onChange={setSortKey} />
       </div>
 
       <div className="mt-4 max-h-[46vh] overflow-y-auto space-y-1.5 pr-1">
