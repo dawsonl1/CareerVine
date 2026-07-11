@@ -1,11 +1,15 @@
 /**
- * POST /api/bundles/apply — apply one cursor chunk of a bundle delta to
- * the caller's own subscription (RLS user client).
+ * POST /api/bundles/apply — apply a bundle delta to the caller's own
+ * subscription (RLS user client).
  *
- * The client loops until done, threading cursor + pinnedVersion +
- * claimToken through each call: the pin keeps the whole loop on one
- * committed bundle version even if a publish lands mid-loop, and the
- * claim keeps the background sync drivers from interleaving with it.
+ * Since CAR-78 one call loops applyBundleDelta steps in-process under a
+ * wall-clock budget instead of doing exactly one chunk, so a typical sync
+ * finishes in 1–2 round trips instead of ~14. The request/response contract
+ * is unchanged: the client still threads cursor + pinnedVersion + claimToken
+ * through calls (the pin keeps the whole sync on one committed bundle version
+ * even if a publish lands mid-loop, and the claim keeps the background sync
+ * drivers from interleaving), and a budget-exhausted response hands back the
+ * cursor exactly like a single-chunk response used to.
  */
 
 import { withApiHandler, ApiError } from "@/lib/api-handler";
@@ -19,9 +23,16 @@ import {
 
 export const maxDuration = 60;
 
+/** Stop starting new steps after this much wall clock (CAR-78). The margin to
+ * maxDuration must absorb one worst-case step — the budget gates STARTING a
+ * step, never interrupts one — so a step beginning at the budget edge still
+ * has ~25s before the platform kills the function. */
+const APPLY_LOOP_BUDGET_MS = 35_000;
+
 export const POST = withApiHandler({
   schema: bundleApplySchema,
-  handler: async ({ supabase, user, body }) => {
+  handler: async ({ supabase, user, body, defer }) => {
+    const startedAt = Date.now();
     const input = body as {
       bundleId: number;
       cursor?: ApplyCursor | null;
@@ -64,19 +75,47 @@ export const POST = withApiHandler({
       return { done: true, applied: 0, removedContacts: 0, orphanedLinks: 0, skipped: [], pinnedVersion };
     }
 
-    const claimToken = await claimSubscriptionSync(supabase, subscription.id, input.claimToken);
+    let claimToken = await claimSubscriptionSync(supabase, subscription.id, input.claimToken);
     if (!claimToken) throw new ApiError("A sync is already running for this subscription", 409);
 
+    // Sums across the in-process steps, so the client's progress totals keep
+    // meaning "applied by this call" like they did when a call was one chunk.
+    const totals = { applied: 0, removedContacts: 0, orphanedLinks: 0, skipped: [] as string[] };
+    let cursor: ApplyCursor | null = input.cursor ?? null;
+
     try {
-      const step = await applyBundleDelta(supabase, subscription, bundle, {
-        cursor: input.cursor ?? null,
-        pinnedVersion,
-      });
-      if (step.done) {
-        await releaseSubscriptionSync(supabase, subscription.id, claimToken);
-        return step;
+      for (;;) {
+        const step = await applyBundleDelta(supabase, subscription, bundle, {
+          cursor,
+          pinnedVersion,
+          // Analytics ride the api-handler's post-response flush instead of
+          // blocking the sync (CAR-78).
+          deferAnalytics: defer,
+        });
+        totals.applied += step.applied;
+        totals.removedContacts += step.removedContacts;
+        totals.orphanedLinks += step.orphanedLinks;
+        totals.skipped.push(...step.skipped);
+
+        if (step.done) {
+          await releaseSubscriptionSync(supabase, subscription.id, claimToken);
+          return { ...step, ...totals };
+        }
+        cursor = step.nextCursor;
+
+        if (Date.now() - startedAt >= APPLY_LOOP_BUDGET_MS) {
+          return { ...step, ...totals, claimToken };
+        }
+        // CAS-renew so the claim horizon stays a full window ahead of the
+        // loop. A failed renewal means the token was released/stolen — stop
+        // looping and let the next call sort it out rather than risk
+        // interleaving with whoever holds it now.
+        const renewed = await claimSubscriptionSync(supabase, subscription.id, claimToken);
+        if (!renewed) {
+          return { ...step, ...totals, claimToken };
+        }
+        claimToken = renewed;
       }
-      return { ...step, claimToken };
     } catch (err) {
       // Free the slot so the crash doesn't block the cron/fan-out drivers
       // for the full claim window.

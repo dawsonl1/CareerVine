@@ -244,33 +244,44 @@ function CompanyPickerStep({
   const gmailConnected = gmailConn !== null;
   const started = useRef(false);
   const doneRef = useRef(false);
+  const startedAtRef = useRef(0);
   const companiesRequested = useRef(false);
   // Resumed pick_company sessions are already subscribed; a fresh accept
   // must wait for the subscribe call before the RPC can see bundle rows.
   const [subscribed, setSubscribed] = useState(!syncing);
 
-  const finish = useCallback(() => {
-    if (doneRef.current) return;
-    doneRef.current = true;
-    track("onboarding_sync_completed", { prospects: stats.prospectCount });
-    onSyncComplete();
-  }, [onSyncComplete, stats.prospectCount]);
+  // path is absent when a background driver finished the sync and this tab
+  // never saw an apply response (CAR-78 instrumentation).
+  const finish = useCallback(
+    (path?: "fast" | "merge") => {
+      if (doneRef.current) return;
+      doneRef.current = true;
+      track("onboarding_sync_completed", {
+        prospects: stats.prospectCount,
+        path,
+        duration_ms: startedAtRef.current ? Date.now() - startedAtRef.current : undefined,
+      });
+      onSyncComplete();
+    },
+    [onSyncComplete, stats.prospectCount],
+  );
 
   // Drive the sync (subscribe + apply loop) exactly once.
   useEffect(() => {
     if (!syncing || started.current) return;
     started.current = true;
+    startedAtRef.current = Date.now();
     (async () => {
       try {
         // Resume-safe: subscribing when already subscribed is handled
         // server-side; the apply loop picks up wherever the sync left off.
         await subscribeToBundle(stats.bundleId).catch(() => {});
         setSubscribed(true);
-        const completed = await runBundleApplyLoop(
+        const { completed, path } = await runBundleApplyLoop(
           { id: stats.bundleId, prospect_count: stats.prospectCount },
           setLoopProgress,
         );
-        if (completed) finish();
+        if (completed) finish(path);
         // Not completed → another driver (worker/cron) owns the sync; the
         // durable-signal poll below detects it finishing.
       } catch (err) {

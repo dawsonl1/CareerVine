@@ -106,7 +106,13 @@ export async function runFastApplyStep(
   client: SupabaseClient,
   subscription: SubscriptionCore,
   bundle: BundleCore,
-  opts: { afterId: number; pinnedVersion: number },
+  opts: {
+    afterId: number;
+    pinnedVersion: number;
+    /** Hand analytics work off instead of awaiting it inline — see
+     * applyBundleDelta (CAR-78). Absent → awaited, as before. */
+    deferAnalytics?: (p: Promise<unknown>) => void;
+  },
 ): Promise<ApplyStepResult> {
   const { afterId, pinnedVersion } = opts;
   const now = new Date().toISOString();
@@ -118,6 +124,7 @@ export async function runFastApplyStep(
     removedContacts: 0,
     orphanedLinks: 0,
     skipped: [],
+    path: "fast",
   };
 
   // Same delta bounds as the merge path with synced_version = 0.
@@ -177,25 +184,29 @@ export async function runFastApplyStep(
   }
 
   // ── Contacts: bulk insert, ids mapped back from RETURNING ──
-  for (const batch of chunkList(pending, INSERT_BATCH)) {
-    const { data: created, error } = await client
-      .from("contacts")
-      .insert(batch.map((p) => p.contactRow))
-      .select("id, linkedin_url");
-    const createdRows = (created as Array<{ id: number; linkedin_url: string | null }> | null) ?? [];
-    if (error || createdRows.length !== batch.length) {
-      throw new Error(`Fast apply contact insert failed: ${error?.message ?? "short RETURNING"}`);
-    }
-    // RETURNING preserves VALUES order in Postgres; the URL cross-check
-    // guards the assumption (URLs are unique within a bundle).
-    const positional = createdRows.every((r, i) => r.linkedin_url === batch[i].mapped.linkedin_url);
-    const byUrl = positional ? null : new Map(createdRows.map((r) => [r.linkedin_url, r.id]));
-    for (let i = 0; i < batch.length; i++) {
-      const id = positional ? createdRows[i].id : byUrl!.get(batch[i].mapped.linkedin_url);
-      if (id == null) throw new Error("Fast apply contact insert failed: unmatched RETURNING row");
-      batch[i].contactId = id;
-    }
-  }
+  // Batches are independent (each maps its own RETURNING rows), so they run
+  // concurrently (CAR-78) — a failure in any batch still throws.
+  await Promise.all(
+    chunkList(pending, INSERT_BATCH).map(async (batch) => {
+      const { data: created, error } = await client
+        .from("contacts")
+        .insert(batch.map((p) => p.contactRow))
+        .select("id, linkedin_url");
+      const createdRows = (created as Array<{ id: number; linkedin_url: string | null }> | null) ?? [];
+      if (error || createdRows.length !== batch.length) {
+        throw new Error(`Fast apply contact insert failed: ${error?.message ?? "short RETURNING"}`);
+      }
+      // RETURNING preserves VALUES order in Postgres; the URL cross-check
+      // guards the assumption (URLs are unique within a bundle).
+      const positional = createdRows.every((r, i) => r.linkedin_url === batch[i].mapped.linkedin_url);
+      const byUrl = positional ? null : new Map(createdRows.map((r) => [r.linkedin_url, r.id]));
+      for (let i = 0; i < batch.length; i++) {
+        const id = positional ? createdRows[i].id : byUrl!.get(batch[i].mapped.linkedin_url);
+        if (id == null) throw new Error("Fast apply contact insert failed: unmatched RETURNING row");
+        batch[i].contactId = id;
+      }
+    }),
+  );
 
   // ── Children, linkage, and state — pure row-building, then bulk writes ──
   const employmentRows: Record<string, unknown>[] = [];
@@ -320,10 +331,13 @@ export async function runFastApplyStep(
 
   result.applied = pending.length;
   if (result.applied > 0) {
-    await trackServer(subscription.user_id, "contact_imported", {
+    const capture = trackServer(subscription.user_id, "contact_imported", {
       source: "bundle",
       count: result.applied,
+      fast: true,
     });
+    if (opts.deferAnalytics) opts.deferAnalytics(capture);
+    else await capture;
   }
 
   if (prospects.length === FAST_APPLY_BATCH) {
@@ -338,7 +352,9 @@ export async function runFastApplyStep(
     .from("bundle_subscriptions")
     .update({ synced_version: pinnedVersion, last_synced_at: now, sync_cursor: null, updated_at: now })
     .eq("id", subscription.id);
-  await checkContactMilestone(subscription.user_id);
+  const milestone = checkContactMilestone(subscription.user_id);
+  if (opts.deferAnalytics) opts.deferAnalytics(milestone);
+  else await milestone;
   result.done = true;
   return result;
 }
