@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="What CareerVine does for you, organized by the job you are trying to get done: build a network, know who to contact, write outreach, follow up, remember conversations, and run your job search like a pipeline.">
-<meta property="og:title" content="CareerVine: A guide to what it does for you">
+<meta property="og:title" content="CareerVine docs: what it does, by the job you are doing">
 <meta property="og:description" content="A personal networking CRM, explained by the jobs it helps you do rather than a list of features.">
 <meta name="theme-color" content="#2d6a30">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='%232d6a30'%3E%3Cpath%20d='M20%204C10%204%204%2010%204%2020c8%20.5%2016-4%2016-16Z'/%3E%3C/svg%3E">
-<title>CareerVine: A guide to what it does for you</title>
+<title>CareerVine docs: what it does, by the job you are doing</title>
 <style>
   :root {
     /* Palette - grounded in CareerVine's real Material Design 3 green theme */
@@ -35,7 +35,11 @@
     --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, sans-serif;
     --mono: ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
 
-    --maxw: 1180px;
+    --topbar-h: 57px;
+    --sidebar-w: 272px;
+    --toc-w: 232px;
+    --shell-max: 1440px;
+    --content-max: 748px;
     --r: 10px;
     --shadow: 0 1px 2px rgba(23,32,26,.04), 0 6px 20px -12px rgba(23,32,26,.18);
   }
@@ -79,7 +83,7 @@
   }
 
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  html { scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar-h) + 18px); }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   body {
     margin: 0;
@@ -90,538 +94,898 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
+  a { color: var(--forest); }
 
-  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 clamp(18px, 4vw, 40px); }
-
-  /* ---------- Top bar / nav ---------- */
+  /* ============ Top bar ============ */
   .topbar {
-    position: sticky; top: 0; z-index: 50;
-    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    position: sticky; top: 0; z-index: 60; height: var(--topbar-h);
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
     backdrop-filter: saturate(1.4) blur(10px);
     border-bottom: 1px solid var(--line);
   }
   .topbar-inner {
-    max-width: var(--maxw); margin: 0 auto;
-    padding: 10px clamp(18px,4vw,40px);
-    display: flex; align-items: center; gap: 18px;
+    max-width: var(--shell-max); margin: 0 auto; height: 100%;
+    padding: 0 clamp(16px, 3vw, 28px);
+    display: flex; align-items: center; gap: 16px;
   }
-  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.01em; }
-  .brand .mark { width: 20px; height: 20px; flex: none; color: var(--forest); }
-  .brand b { font-size: 15px; }
-  .navlinks { margin-left: auto; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
-  .navlinks::-webkit-scrollbar { display: none; }
-  .navlinks a {
-    font-size: 12.5px; color: var(--sage); text-decoration: none;
-    padding: 6px 10px; border-radius: 7px; white-space: nowrap; font-weight: 500;
-    transition: background .15s, color .15s;
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.01em; text-decoration: none; color: var(--ink); }
+  .brand .mark { width: 21px; height: 21px; flex: none; color: var(--forest); }
+  .brand b { font-size: 15.5px; }
+  .brand .docs-tag {
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: 15px; color: var(--sage); margin-left: -2px;
   }
-  .navlinks a:hover { color: var(--ink); background: var(--surface-2); }
-  .navlinks a.active { color: var(--forest); background: var(--leaf-bg); }
-  .theme-btn {
+  .top-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .cta {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 600; text-decoration: none;
+    background: var(--forest); color: #fff; padding: 7px 13px; border-radius: 8px;
+    transition: background .15s, transform .15s;
+  }
+  .cta:hover { background: var(--forest-2); transform: translateY(-1px); }
+  .cta svg { width: 13px; height: 13px; }
+  .icon-btn {
     flex: none; border: 1px solid var(--line); background: var(--surface);
-    color: var(--ink-soft); width: 34px; height: 30px; border-radius: 8px; cursor: pointer;
+    color: var(--ink-soft); width: 34px; height: 32px; border-radius: 8px; cursor: pointer;
     display: grid; place-items: center;
   }
-  .theme-btn:hover { border-color: var(--forest); color: var(--forest); }
-  .theme-btn svg { width: 16px; height: 16px; }
+  .icon-btn:hover { border-color: var(--forest); color: var(--forest); }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .menu-btn { display: none; }
 
-  /* ---------- Hero ---------- */
-  .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
-  .hero-vine { position: absolute; top: -20px; right: -40px; width: min(46vw, 520px); height: 100%;
-    color: var(--forest); opacity: .12; pointer-events: none; }
-  @media (prefers-color-scheme: dark) { .hero-vine { opacity: .18; } }
-  :root[data-theme="dark"] .hero-vine { opacity: .18; }
-  :root[data-theme="light"] .hero-vine { opacity: .12; }
-  .hero-inner { position: relative; padding: clamp(48px, 8vw, 96px) 0 clamp(40px, 6vw, 64px); max-width: 760px; }
+  /* ============ Shell (three columns) ============ */
+  .shell {
+    max-width: var(--shell-max); margin: 0 auto;
+    display: grid;
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--toc-w);
+    align-items: start;
+  }
+
+  /* ---- Left sidebar ---- */
+  .sidebar {
+    position: sticky; top: var(--topbar-h);
+    height: calc(100vh - var(--topbar-h));
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 26px 14px 60px 0;
+    border-right: 1px solid var(--line);
+    scrollbar-width: thin;
+  }
+  .side-scroll { padding-left: clamp(16px, 3vw, 28px); }
+  .nav-group { margin-bottom: 22px; }
+  .nav-group > .nav-title {
+    font-size: 11px; letter-spacing: .11em; text-transform: uppercase; font-weight: 700;
+    color: var(--sage); padding: 0 10px; margin: 0 0 8px;
+  }
+  .nav-group ul { list-style: none; margin: 0; padding: 0; }
+  .nav-group li { margin: 1px 0; }
+  .nav-group a {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 13.5px; color: var(--ink-soft); text-decoration: none;
+    padding: 6px 10px; border-radius: 8px; font-weight: 500; line-height: 1.3;
+    transition: background .13s, color .13s;
+  }
+  .nav-group a .jn {
+    font-family: var(--mono); font-size: 10.5px; color: var(--sage);
+    flex: none; font-variant-numeric: tabular-nums;
+  }
+  .nav-group a:hover { background: var(--surface-2); color: var(--ink); }
+  .nav-group a.active { background: var(--leaf-bg); color: var(--forest); font-weight: 650; }
+  .nav-group a.active .jn { color: var(--forest); }
+
+  /* ---- Center content ---- */
+  .content {
+    min-width: 0;
+    padding: 40px clamp(24px, 5vw, 64px) 90px;
+  }
+  .content-inner { max-width: var(--content-max); margin: 0 auto; }
+
+  /* ---- Right TOC ---- */
+  .toc {
+    position: sticky; top: var(--topbar-h);
+    height: calc(100vh - var(--topbar-h));
+    overflow-y: auto; padding: 30px 24px 60px 8px;
+  }
+  .toc-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700;
+    color: var(--sage); margin: 0 0 12px;
+  }
+  .toc-title svg { width: 14px; height: 14px; }
+  .toc ul { list-style: none; margin: 0; padding: 0; }
+  .toc li { margin: 0; }
+  .toc a {
+    display: block; font-size: 12.5px; line-height: 1.35; color: var(--sage);
+    text-decoration: none; padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--line); transition: color .13s, border-color .13s;
+  }
+  .toc a:hover { color: var(--ink); }
+  .toc a.active { color: var(--forest); border-left-color: var(--forest); font-weight: 600; }
+
+  /* ============ Content typography ============ */
   .eyebrow {
-    font-size: 11.5px; letter-spacing: .18em; text-transform: uppercase;
-    color: var(--forest); font-weight: 600; margin: 0 0 18px;
+    font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--forest); font-weight: 700; margin: 0 0 12px;
     display: inline-flex; align-items: center; gap: 9px;
   }
-  .eyebrow::before { content: ""; width: 26px; height: 1px; background: currentColor; opacity: .6; }
   h1 {
     font-family: var(--serif); font-weight: 400;
-    font-size: clamp(40px, 7.5vw, 76px); line-height: .98; letter-spacing: -.02em;
+    font-size: clamp(34px, 5vw, 50px); line-height: 1.03; letter-spacing: -.018em;
     margin: 0; text-wrap: balance; color: var(--ink);
   }
   h1 em { font-style: italic; color: var(--forest); }
   .lede {
-    font-family: var(--serif); font-size: clamp(18px, 2.4vw, 23px); line-height: 1.45;
-    color: var(--ink-soft); margin: 22px 0 0; max-width: 60ch; text-wrap: pretty;
+    font-size: clamp(16px, 2vw, 19px); line-height: 1.55;
+    color: var(--ink-soft); margin: 20px 0 0; max-width: 62ch; text-wrap: pretty;
   }
-  .sub { font-size: 15px; color: var(--sage); margin: 16px 0 0; max-width: 62ch; }
+  .sub { font-size: 14.5px; color: var(--sage); margin: 14px 0 0; max-width: 64ch; }
 
-  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 34px; }
-  .stat {
-    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
-    padding: 13px 18px; min-width: 118px;
-  }
-  .stat .n { font-family: var(--serif); font-size: 27px; line-height: 1; color: var(--forest); font-variant-numeric: tabular-nums; }
-  .stat .l { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--sage); margin-top: 7px; }
-
-  /* ---------- Section ---------- */
-  section { padding: clamp(46px, 7vw, 84px) 0 8px; scroll-margin-top: 70px; }
-  .sec-head { max-width: 760px; margin-bottom: 30px; }
+  /* section (a "job") */
+  section.job { padding-top: 30px; scroll-margin-top: calc(var(--topbar-h) + 14px); }
+  .sec-head { margin-bottom: 26px; }
   .sec-tax {
-    font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600;
-    color: var(--teal); display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    font-size: 11.5px; letter-spacing: .15em; text-transform: uppercase; font-weight: 700;
+    color: var(--teal); display: flex; align-items: center; gap: 10px; margin-bottom: 13px;
   }
   .sec-tax .count {
     color: var(--sage); font-weight: 500; letter-spacing: .04em;
     border-left: 1px solid var(--line); padding-left: 10px;
   }
-  .sec-head h2 {
-    font-family: var(--serif); font-weight: 400; font-size: clamp(28px, 4.4vw, 42px);
-    line-height: 1.04; letter-spacing: -.015em; margin: 0; text-wrap: balance;
+  h2 {
+    font-family: var(--serif); font-weight: 400; font-size: clamp(25px, 3.6vw, 34px);
+    line-height: 1.08; letter-spacing: -.015em; margin: 0; text-wrap: balance;
+    scroll-margin-top: calc(var(--topbar-h) + 14px);
   }
-  .sec-head p { color: var(--ink-soft); font-size: 15.5px; margin: 14px 0 0; max-width: 66ch; }
+  h2 .anchor, .grp-head .anchor {
+    opacity: 0; margin-left: 8px; color: var(--sage); text-decoration: none;
+    font-family: var(--sans); font-weight: 400; transition: opacity .13s, color .13s;
+  }
+  h2:hover .anchor, .grp-head:hover .anchor { opacity: 1; }
+  h2 .anchor:hover, .grp-head .anchor:hover { color: var(--forest); }
+  .sec-head p.intro { color: var(--ink-soft); font-size: 15px; margin: 14px 0 0; max-width: 66ch; }
 
-  /* ---------- Sub-group ---------- */
-  .group { margin-top: 34px; }
-  .group:first-of-type { margin-top: 8px; }
+  /* stats */
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 12px 16px; min-width: 104px;
+  }
+  .stat .n { font-family: var(--serif); font-size: 25px; line-height: 1; color: var(--forest); font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--sage); margin-top: 6px; }
+
+  /* sub-group */
+  .group { margin-top: 30px; scroll-margin-top: calc(var(--topbar-h) + 14px); }
+  .group:first-of-type { margin-top: 22px; }
   .grp-head {
-    display: flex; align-items: baseline; gap: 12px; margin-bottom: 15px;
-    padding-bottom: 9px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--line);
   }
   .grp-head h3 {
-    font-family: var(--sans); font-weight: 650; font-size: 13px; letter-spacing: .02em;
+    font-family: var(--sans); font-weight: 700; font-size: 12.5px; letter-spacing: .03em;
     text-transform: uppercase; margin: 0; color: var(--ink);
   }
-  .grp-head .leaf-mark { width: 13px; height: 13px; color: var(--leaf); flex: none; align-self: center; }
-  .grp-head .grp-note { margin-left: auto; font-size: 12.5px; color: var(--sage); font-style: italic; }
+  .grp-head .leaf-mark { width: 12px; height: 12px; color: var(--leaf); flex: none; align-self: center; }
+  .grp-head .grp-note { margin-left: auto; font-size: 12px; color: var(--sage); font-style: italic; }
 
-  /* ---------- Feature grid ---------- */
-  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); }
+  /* card grid */
+  .grid { display: grid; gap: 11px; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); }
   .feat {
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
-    padding: 15px 16px 14px; box-shadow: var(--shadow);
+    padding: 14px 15px 13px; box-shadow: var(--shadow);
     transition: border-color .16s, transform .16s;
   }
   .feat:hover { border-color: color-mix(in srgb, var(--forest) 45%, var(--line)); transform: translateY(-2px); }
   .feat h4 {
-    font-family: var(--serif); font-weight: 400; font-size: 18px; line-height: 1.15;
-    margin: 0 0 7px; letter-spacing: -.005em; color: var(--ink);
+    font-family: var(--serif); font-weight: 400; font-size: 17px; line-height: 1.15;
+    margin: 0 0 6px; letter-spacing: -.005em; color: var(--ink);
   }
-  .feat p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); }
-  .feat .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 11px; }
+  .feat p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink-soft); }
+  .feat p code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+  .feat .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
   .tag {
-    font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; font-weight: 600;
+    font-size: 10px; letter-spacing: .04em; text-transform: uppercase; font-weight: 700;
     padding: 2.5px 7px; border-radius: 5px; background: var(--surface-2); color: var(--sage);
     border: 1px solid var(--line-soft);
   }
   .tag.ai { background: var(--leaf-bg); color: var(--leaf-ink); border-color: transparent; }
   .tag.auto { background: var(--teal-bg); color: var(--teal-ink); border-color: transparent; }
   .tag.guard { background: var(--amber-bg); color: var(--amber-ink); border-color: transparent; }
-  .feat.mono h4 { font-family: var(--mono); font-size: 14.5px; font-weight: 600; color: var(--forest); }
+  .feat.mono h4 { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--forest); }
 
-  /* wide card for emphasis rows */
-  .grid.tri { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-
-  /* numbered steps (onboarding, stage stepper) - numbering used only where order is real */
-  .steps { display: grid; gap: 10px; margin-top: 8px; }
+  /* numbered steps */
+  .steps { display: grid; gap: 10px; margin-top: 4px; }
   .step {
-    display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start;
-    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px;
+    display: grid; grid-template-columns: 32px 1fr; gap: 13px; align-items: start;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 13px 15px;
   }
   .step .idx {
-    font-family: var(--serif); font-size: 19px; color: var(--forest);
-    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    font-family: var(--serif); font-size: 18px; color: var(--forest);
+    width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
     background: var(--leaf-bg); font-variant-numeric: tabular-nums;
   }
-  .step h4 { margin: 0 0 4px; font-family: var(--serif); font-weight: 400; font-size: 17px; }
-  .step p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .step h4 { margin: 0 0 4px; font-family: var(--serif); font-weight: 400; font-size: 16px; }
+  .step p { margin: 0; font-size: 13px; color: var(--ink-soft); }
 
   /* callout */
   .note {
-    display: flex; gap: 12px; margin-top: 24px; padding: 15px 17px;
+    display: flex; gap: 12px; margin-top: 22px; padding: 14px 16px;
     background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r);
     border-left: 3px solid var(--forest);
   }
   .note svg { width: 18px; height: 18px; color: var(--forest); flex: none; margin-top: 1px; }
-  .note p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .note p { margin: 0; font-size: 13px; color: var(--ink-soft); }
   .note b { color: var(--ink); }
 
+  /* ---- Overview: tabs (where it runs) ---- */
+  .tabs { margin-top: 22px; }
+  .tab-bar { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 0; }
+  .tab-btn {
+    appearance: none; border: 0; background: none; cursor: pointer;
+    font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--sage);
+    padding: 9px 12px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    transition: color .13s, border-color .13s;
+  }
+  .tab-btn:hover { color: var(--ink); }
+  .tab-btn.active { color: var(--forest); border-bottom-color: var(--forest); }
+  .tab-panel {
+    display: none; padding: 16px 2px 2px; font-size: 14px; color: var(--ink-soft); line-height: 1.55;
+  }
+  .tab-panel.active { display: block; }
+  .tab-panel b { color: var(--ink); }
+  .tab-panel .where {
+    display: inline-block; margin-top: 10px; font-size: 11px; font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase; color: var(--sage);
+  }
+
+  /* ---- Overview: accordion (what it does) ---- */
+  .accordion { margin-top: 20px; display: grid; gap: 8px; }
+  details.acc {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+    overflow: hidden; transition: border-color .15s;
+  }
+  details.acc[open] { border-color: color-mix(in srgb, var(--forest) 40%, var(--line)); }
+  details.acc summary {
+    list-style: none; cursor: pointer; padding: 13px 15px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  details.acc summary::-webkit-details-marker { display: none; }
+  details.acc summary .jn {
+    font-family: var(--mono); font-size: 11px; color: var(--forest); flex: none;
+    width: 30px; font-variant-numeric: tabular-nums;
+  }
+  details.acc summary .st { font-family: var(--serif); font-size: 17px; color: var(--ink); flex: 1; }
+  details.acc summary .chev { width: 15px; height: 15px; color: var(--sage); flex: none; transition: transform .18s; }
+  details.acc[open] summary .chev { transform: rotate(90deg); }
+  details.acc .acc-body { padding: 0 15px 15px 57px; }
+  details.acc .acc-body p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-soft); line-height: 1.55; }
+  details.acc .acc-body a.jump {
+    font-size: 12.5px; font-weight: 600; text-decoration: none; color: var(--forest);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  details.acc .acc-body a.jump:hover { text-decoration: underline; }
+
+  /* ---- Overview: "I want to" table ---- */
+  .want-wrap { margin-top: 20px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); }
+  table.want { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 460px; }
+  table.want th, table.want td { text-align: left; padding: 11px 15px; border-bottom: 1px solid var(--line-soft); }
+  table.want thead th {
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--sage);
+    background: var(--surface-2); font-weight: 700;
+  }
+  table.want tbody tr:last-child td { border-bottom: 0; }
+  table.want td:first-child { color: var(--ink-soft); }
+  table.want td a { font-weight: 600; text-decoration: none; }
+  table.want td a:hover { text-decoration: underline; }
+  table.want tbody tr:hover { background: var(--surface-2); }
+
+  /* ---- Next steps ---- */
+  .nextsteps { display: grid; gap: 9px; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); margin-top: 18px; }
+  a.next-card {
+    display: block; text-decoration: none; background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--r); padding: 13px 15px;
+    transition: border-color .15s, transform .15s;
+  }
+  a.next-card:hover { border-color: color-mix(in srgb, var(--forest) 45%, var(--line)); transform: translateY(-2px); }
+  a.next-card .nt { font-weight: 700; font-size: 13.5px; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+  a.next-card .nt svg { width: 13px; height: 13px; color: var(--forest); }
+  a.next-card .nd { font-size: 12.5px; color: var(--sage); margin-top: 5px; line-height: 1.45; }
+
+  h2.block-title {
+    font-family: var(--serif); font-weight: 400; font-size: clamp(21px, 2.6vw, 26px);
+    margin: 46px 0 0; letter-spacing: -.01em;
+  }
+  .block-sub { font-size: 14px; color: var(--sage); margin: 8px 0 0; max-width: 60ch; }
+
+  hr.divider { border: 0; border-top: 1px solid var(--line); margin: 54px 0 0; }
+
   /* footer */
-  footer { margin-top: 70px; border-top: 1px solid var(--line); padding: 34px 0 60px; }
-  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px 40px; align-items: baseline; }
-  footer .f-title { font-family: var(--serif); font-size: 19px; }
-  footer p { margin: 6px 0 0; color: var(--sage); font-size: 13px; max-width: 54ch; }
+  footer { border-top: 1px solid var(--line); padding: 30px clamp(24px,5vw,64px) 70px; }
+  footer .foot-inner { max-width: var(--content-max); margin: 0 auto; display: flex; flex-wrap: wrap; gap: 12px 40px; align-items: baseline; }
+  footer .f-title { font-family: var(--serif); font-size: 18px; }
+  footer p { margin: 6px 0 0; color: var(--sage); font-size: 12.5px; max-width: 54ch; }
   footer a { color: var(--forest); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
 
-  a:focus-visible, button:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; border-radius: 4px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; border-radius: 4px; }
 
+  /* backdrop for mobile drawer */
+  .backdrop { display: none; position: fixed; inset: var(--topbar-h) 0 0 0; background: rgba(10,15,10,.4); z-index: 40; }
+
+  /* ============ Responsive ============ */
+  @media (max-width: 1200px) {
+    .shell { grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
+    .toc { display: none; }
+  }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    .menu-btn { display: grid; }
+    .sidebar {
+      position: fixed; top: var(--topbar-h); left: 0; z-index: 50;
+      width: min(84vw, 320px); height: calc(100vh - var(--topbar-h));
+      background: var(--paper); border-right: 1px solid var(--line);
+      transform: translateX(-102%); transition: transform .22s ease; padding-top: 20px;
+    }
+    body.nav-open .sidebar { transform: translateX(0); box-shadow: 0 12px 40px -10px rgba(0,0,0,.4); }
+    body.nav-open .backdrop { display: block; }
+    .content { padding: 30px clamp(18px, 5vw, 32px) 70px; }
+    .brand .docs-tag { display: none; }
+  }
   @media (max-width: 560px) {
     .stat { flex: 1 1 40%; min-width: 0; }
     .grp-head .grp-note { display: none; }
+    .cta span { display: none; }
+    .cta { padding: 7px 9px; }
   }
 </style>
 </head>
 <body>
 
-
 <div class="topbar">
   <div class="topbar-inner">
-    <span class="brand">
+    <button class="icon-btn menu-btn" id="menuToggle" aria-label="Open navigation" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <a class="brand" href="#overview">
       <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 21c0-5 0-9 0-13"/><path d="M12 12c-3.6 0-6-1.6-6-5 3.6 0 6 1.6 6 5Z"/><path d="M12 9c3.2 0 5.4-1.4 5.4-4.5C14.2 4.5 12 5.9 12 9Z"/>
       </svg>
-      <b>CareerVine</b>
-    </span>
-    <nav class="navlinks" aria-label="Sections">
-      <a href="#start">Get started</a>
-      <a href="#next">Who to contact</a>
-      <a href="#write">Write outreach</a>
-      <a href="#followup">Follow up</a>
-      <a href="#remember">Conversations</a>
-      <a href="#pipeline">Job pipeline</a>
-      <a href="#assistant">AI assistant</a>
-      <a href="#trust">Your data</a>
-    </nav>
-    <button class="theme-btn" id="themeToggle" aria-label="Toggle light and dark theme" title="Toggle theme">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
-    </button>
+      <b>CareerVine</b><span class="docs-tag">docs</span>
+    </a>
+    <div class="top-right">
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle light and dark theme" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      </button>
+      <a class="cta" href="https://careervine.app">
+        <span>Open CareerVine</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
   </div>
 </div>
 
-<header class="hero">
-  <svg class="hero-vine" viewBox="0 0 400 700" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-    <path d="M330 -10 C 250 120, 360 220, 250 320 S 130 480, 220 620 S 180 720, 150 760"/>
-    <path d="M300 90 C 250 70, 230 100, 250 140 C 290 130, 320 120, 300 90Z" stroke-width="1.6"/>
-    <path d="M300 250 C 355 235, 380 265, 360 305 C 315 300, 285 285, 300 250Z" stroke-width="1.6"/>
-    <path d="M205 400 C 150 388, 128 418, 148 458 C 193 450, 222 435, 205 400Z" stroke-width="1.6"/>
-    <path d="M232 560 C 285 548, 308 578, 288 616 C 244 610, 216 595, 232 560Z" stroke-width="1.6"/>
-  </svg>
-  <div class="wrap hero-inner">
-    <p class="eyebrow">A guide by what you are doing</p>
-    <h1>Everything CareerVine does, by the <em>job you are doing</em>.</h1>
-    <p class="lede">A personal networking CRM built on one insight: a conversation, not a contact, is the atomic unit of a relationship. Here is the whole product, grouped not by where a button lives but by what you are trying to get done.</p>
-    <p class="sub">Eight jobs, from the empty first day to a job search you run like a pipeline. Each one names the capabilities that deliver it, and where they live: the web app, the automation engine, the Chrome extension, or the AI-assistant server.</p>
-    <div class="stats">
-      <div class="stat"><div class="n">8</div><div class="l">Jobs, start to finish</div></div>
-      <div class="stat"><div class="n">27</div><div class="l">AI-assistant tools</div></div>
-      <div class="stat"><div class="n">24h</div><div class="l">Free AI trial</div></div>
-      <div class="stat"><div class="n">100</div><div class="l">Daily send guard</div></div>
-      <div class="stat"><div class="n">BYO</div><div class="l">Your own AI keys</div></div>
+<div class="backdrop" id="backdrop"></div>
+
+<div class="shell">
+
+  <!-- ============ LEFT SIDEBAR ============ -->
+  <aside class="sidebar" id="sidebar" aria-label="Documentation navigation">
+    <div class="side-scroll">
+      <nav class="nav-group">
+        <p class="nav-title">Getting started</p>
+        <ul>
+          <li><a href="#overview" data-sec="overview">Overview</a></li>
+          <li><a href="#start" data-sec="start"><span class="jn">01</span>Start with a network</a></li>
+        </ul>
+      </nav>
+      <nav class="nav-group">
+        <p class="nav-title">Work your network</p>
+        <ul>
+          <li><a href="#next" data-sec="next"><span class="jn">02</span>Know who to contact next</a></li>
+          <li><a href="#write" data-sec="write"><span class="jn">03</span>Write outreach</a></li>
+          <li><a href="#followup" data-sec="followup"><span class="jn">04</span>Follow up automatically</a></li>
+          <li><a href="#remember" data-sec="remember"><span class="jn">05</span>Remember conversations</a></li>
+        </ul>
+      </nav>
+      <nav class="nav-group">
+        <p class="nav-title">Run your search</p>
+        <ul>
+          <li><a href="#pipeline" data-sec="pipeline"><span class="jn">06</span>Job-search pipeline</a></li>
+        </ul>
+      </nav>
+      <nav class="nav-group">
+        <p class="nav-title">Power &amp; trust</p>
+        <ul>
+          <li><a href="#assistant" data-sec="assistant"><span class="jn">07</span>Hand it to an AI assistant</a></li>
+          <li><a href="#trust" data-sec="trust"><span class="jn">08</span>Your data and your keys</a></li>
+        </ul>
+      </nav>
     </div>
-  </div>
-</header>
+  </aside>
 
-<main class="wrap">
+  <!-- ============ CENTER CONTENT ============ -->
+  <main class="content">
+    <div class="content-inner">
 
-  <!-- ============ JOB 01 - START WITH A NETWORK ============ -->
-  <section id="start">
-    <div class="sec-head">
-      <p class="sec-tax">Job 01 <span class="count">day one, not month one</span></p>
-      <h2>Start with a network, not a blank page</h2>
-      <p>The hardest part of networking is the empty CRM. CareerVine hands you a real, working network the day you sign up, three ways: a guided first run that ends with a sent email, curated contact lists that keep themselves current, and one-click capture of anyone on LinkedIn.</p>
-    </div>
+      <!-- ===== OVERVIEW ===== -->
+      <section class="job" id="overview" data-toc="custom">
+        <p class="eyebrow">Getting started</p>
+        <h1>CareerVine, by the <em>job you are doing</em></h1>
+        <p class="lede">CareerVine is a personal networking CRM built on one insight: a conversation, not a contact, is the atomic unit of a relationship. This guide is organized not by where a button lives, but by what you are trying to get done.</p>
+        <p class="sub">Eight jobs, from the empty first day to a job search you run like a pipeline. Each names the capabilities that deliver it and where they live: the web app, the automation engine, the Chrome extension, or the AI-assistant server.</p>
+        <div class="stats">
+          <div class="stat"><div class="n">8</div><div class="l">Jobs, start to finish</div></div>
+          <div class="stat"><div class="n">27</div><div class="l">AI-assistant tools</div></div>
+          <div class="stat"><div class="n">24h</div><div class="l">Free AI trial</div></div>
+          <div class="stat"><div class="n">100</div><div class="l">Daily send guard</div></div>
+          <div class="stat"><div class="n">BYO</div><div class="l">Your own AI keys</div></div>
+        </div>
 
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Your first sitting, guided</h3><span class="grp-note">ends with a real intro sent, no AI key required</span></div>
-      <div class="steps">
-        <div class="step"><span class="idx">1</span><div><h4>Begin with a network, not an empty page</h4><p>New accounts are offered a curated recruiting database (real PMs, recruiters, and BYU alumni at companies that hire new grads) instead of a blank CRM.</p></div></div>
-        <div class="step"><span class="idx">2</span><div><h4>Connect Gmail and Calendar</h4><p>A dedicated step to link Gmail, so your first email can send and its follow-ups cancel themselves on a reply, and Google Calendar, so you can drop your open times into any message. Skippable, but a deliberate stop so you are set up before you start reaching out.</p></div></div>
-        <div class="step"><span class="idx">3</span><div><h4>Browse companies while the import streams</h4><p>The company list opens instantly, ranked by how many alumni you would know there with alumni and product-role sub-counts. A progress bar at the top tracks the import running in the background.</p></div></div>
-        <div class="step"><span class="idx">4</span><div><h4>Pick a target company</h4><p>Selecting unlocks the moment the import finishes, so the company page you land on is fully populated. Your first target is the warmest one.</p></div></div>
-        <div class="step"><span class="idx">5</span><div><h4>Send a personalized intro</h4><p>A pre-written, editable intro email (with an automatic alumni-to-alumni variant, built from templates so no AI key is needed) sends with follow-ups already scheduled that cancel themselves on a reply.</p></div></div>
-        <div class="step"><span class="idx">6</span><div><h4>A finale that points forward</h4><p>"Your first networking email is on its way," plus a recap of what is next: the extension, personalized suggestions, one-click availability. Every step is skippable and resumes across sessions.</p></div></div>
+        <h2 class="block-title" id="ov-where">Where CareerVine runs</h2>
+        <p class="block-sub">One product, four surfaces. Each does part of the job, and they share the same data and the same guardrails.</p>
+        <div class="tabs" id="surfaceTabs">
+          <div class="tab-bar" role="tablist" aria-label="CareerVine surfaces">
+            <button class="tab-btn active" role="tab" aria-selected="true" data-tab="t-web">Web app</button>
+            <button class="tab-btn" role="tab" aria-selected="false" data-tab="t-engine">Automation engine</button>
+            <button class="tab-btn" role="tab" aria-selected="false" data-tab="t-ext">Chrome extension</button>
+            <button class="tab-btn" role="tab" aria-selected="false" data-tab="t-mcp">AI assistant</button>
+          </div>
+          <div class="tab-panel active" id="t-web" role="tabpanel">
+            The home base. A prioritized "Up Next" feed, contacts and companies, the conversation log, outreach composer, and your job-search pipeline all live here. <b>This is where you do the work you can see.</b>
+            <span class="where">Lives in: your browser at careervine.app</span>
+          </div>
+          <div class="tab-panel" id="t-engine" role="tabpanel">
+            The part that works while you sleep. Background workers send scheduled follow-ups, cancel sequences the moment someone replies, surface fresh reasons to reach out, and keep your curated lists current. <b>Persistence without you lifting a finger.</b>
+            <span class="where">Lives in: scheduled cron workers</span>
+          </div>
+          <div class="tab-panel" id="t-ext" role="tabpanel">
+            One click on any LinkedIn profile turns the person you are viewing into a structured contact, cleaned and parsed by AI, deduped, and editable before you save. <b>Capture your network as you browse.</b>
+            <span class="where">Lives in: a Manifest V3 Chrome extension</span>
+          </div>
+          <div class="tab-panel" id="t-mcp" role="tabpanel">
+            Connect CareerVine to Claude, the Claude Code CLI, ChatGPT, Codex, or Cursor over a secure server. Your assistant researches contacts, drafts and sends grounded Gmail, and works the outreach queue, under the same guardrails as the app. <b>Your whole network, handed to an AI.</b>
+            <span class="where">Lives in: a hosted, OAuth-protected MCP server</span>
+          </div>
+        </div>
+
+        <h2 class="block-title" id="ov-does">What CareerVine does</h2>
+        <p class="block-sub">The eight jobs, in the order a job-seeker hits them. Expand any one, or jump straight to it.</p>
+        <div class="accordion">
+          <details class="acc">
+            <summary><span class="jn">01</span><span class="st">Start with a network, not a blank page</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+            <div class="acc-body">
+              <p>The hardest part of networking is the empty CRM. CareerVine hands you a real, working network the day you sign up: a guided first run that ends with a sent email, curated contact lists that keep themselves current, and one-click capture of anyone on LinkedIn.</p>
+              <a class="jump" href="#start">Read the job <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
+          </details>
+          <details class="acc">
+            <summary><span class="jn">02</span><span class="st">Always know who to reach out to next</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+            <div class="acc-body">
+              <p>You never stare at your network wondering who needs attention. One prioritized feed tells you exactly who to contact and why, the engine underneath keeps surfacing fresh reasons to reach out, and a health view shows how the whole network is holding up.</p>
+              <a class="jump" href="#next">Read the job <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
+          </details>
+          <details class="acc">
+            <summary><span class="jn">03</span><span class="st">Write outreach that sounds like you</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+            <div class="acc-body">
+              <p>Every draft is grounded in what you actually know about the person, tuned to how warm the relationship is, and free of the tells that make an email read as machine-written. You edit, you send, and the follow-up plan is already attached.</p>
+              <a class="jump" href="#write">Read the job <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
+          </details>
+          <details class="acc">
+            <summary><span class="jn">04</span><span class="st">Follow up relentlessly, without lifting a finger</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+            <div class="acc-body">
+              <p>Most opportunities die in the follow-up. CareerVine sends your sequences on schedule, stops the moment someone replies, and guards your sender reputation so you never look like a spammer.</p>
+              <a class="jump" href="#followup">Read the job <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
+          </details>
+          <details class="acc">
+            <summary><span class="jn">05</span><span class="st">Remember every conversation, and every promise in it</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+            <div class="acc-body">
+              <p>A relationship is the sum of your conversations. Log them in one place, let AI pull the commitments out of a transcript, and never forget who owes whom what.</p>
+              <a class="jump" href="#remember">Read the job <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
+          </details>
+          <details class="acc">
+            <summary><span class="jn">06</span><span class="st">Run your job search like a pipeline</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+            <div class="acc-body">
+              <p>A target company is more than a logo. Track each employer, and each office, as its own recruiting pipeline: who you know there, what stage you are at, your applications, your interviews, and everything you have learned along the way.</p>
+              <a class="jump" href="#pipeline">Read the job <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
+          </details>
+          <details class="acc">
+            <summary><span class="jn">07</span><span class="st">Hand your whole network to an AI assistant</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+            <div class="acc-body">
+              <p>Connect CareerVine to Claude, ChatGPT, Codex, or Cursor over a secure server. Your assistant can research a contact, draft and send grounded Gmail, work the outreach queue, and manage meetings, all under the exact same guardrails as the app.</p>
+              <a class="jump" href="#assistant">Read the job <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
+          </details>
+          <details class="acc">
+            <summary><span class="jn">08</span><span class="st">Your data, and your costs, stay yours</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+            <div class="acc-body">
+              <p>CareerVine runs on your own AI keys, caps every dollar of paid scraping, and keeps your data yours. The curated lists are free and always will be, and every feature tells you plainly when something is wrong instead of spinning forever.</p>
+              <a class="jump" href="#trust">Read the job <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
+          </details>
+        </div>
+
+        <h2 class="block-title" id="ov-want">I want to...</h2>
+        <p class="block-sub">Jump straight to the job behind a common intent.</p>
+        <div class="want-wrap">
+          <table class="want">
+            <thead><tr><th>I want to...</th><th>Go to</th></tr></thead>
+            <tbody>
+              <tr><td>Get a working network on day one</td><td><a href="#start">Start with a network</a></td></tr>
+              <tr><td>Figure out who to message today</td><td><a href="#next">Know who to contact next</a></td></tr>
+              <tr><td>Draft a personal email in seconds</td><td><a href="#write">Write outreach</a></td></tr>
+              <tr><td>Chase a thread until it gets a reply</td><td><a href="#followup">Follow up automatically</a></td></tr>
+              <tr><td>Turn a call recording into action items</td><td><a href="#remember">Remember conversations</a></td></tr>
+              <tr><td>Track my applications and interviews</td><td><a href="#pipeline">Job-search pipeline</a></td></tr>
+              <tr><td>Let Claude or ChatGPT run my outreach</td><td><a href="#assistant">Hand it to an AI assistant</a></td></tr>
+              <tr><td>Use my own API keys and cap my spend</td><td><a href="#trust">Your data and your keys</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr class="divider">
+
+      <!-- ===== JOB 01 ===== -->
+      <section class="job" id="start">
+        <div class="sec-head">
+          <p class="sec-tax">Job 01 <span class="count">day one, not month one</span></p>
+          <h2>Start with a network, not a blank page<a class="anchor" href="#start" aria-label="Link to this section">#</a></h2>
+          <p class="intro">The hardest part of networking is the empty CRM. CareerVine hands you a real, working network the day you sign up, three ways: a guided first run that ends with a sent email, curated contact lists that keep themselves current, and one-click capture of anyone on LinkedIn.</p>
+        </div>
+
+        <div class="group" id="g-start-first">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Your first sitting, guided</h3><span class="grp-note">ends with a real intro sent, no AI key required</span><a class="anchor" href="#g-start-first" aria-label="Link">#</a></div>
+          <div class="steps">
+            <div class="step"><span class="idx">1</span><div><h4>Begin with a network, not an empty page</h4><p>New accounts are offered a curated recruiting database (real PMs, recruiters, and BYU alumni at companies that hire new grads) instead of a blank CRM.</p></div></div>
+            <div class="step"><span class="idx">2</span><div><h4>Connect Gmail and Calendar</h4><p>A dedicated step to link Gmail, so your first email can send and its follow-ups cancel themselves on a reply, and Google Calendar, so you can drop your open times into any message. Skippable, but a deliberate stop so you are set up before you start reaching out.</p></div></div>
+            <div class="step"><span class="idx">3</span><div><h4>Browse companies while the import streams</h4><p>The company list opens instantly, ranked by how many alumni you would know there with alumni and product-role sub-counts. A progress bar at the top tracks the import running in the background.</p></div></div>
+            <div class="step"><span class="idx">4</span><div><h4>Pick a target company</h4><p>Selecting unlocks the moment the import finishes, so the company page you land on is fully populated. Your first target is the warmest one.</p></div></div>
+            <div class="step"><span class="idx">5</span><div><h4>Send a personalized intro</h4><p>A pre-written, editable intro email (with an automatic alumni-to-alumni variant, built from templates so no AI key is needed) sends with follow-ups already scheduled that cancel themselves on a reply.</p></div></div>
+            <div class="step"><span class="idx">6</span><div><h4>A finale that points forward</h4><p>"Your first networking email is on its way," plus a recap of what is next: the extension, personalized suggestions, one-click availability. Every step is skippable and resumes across sessions.</p></div></div>
+          </div>
+          <div class="note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <p>Not into the curated list? Declining opens a lighter three-item start instead: add one contact, target one company, connect Gmail. You reach the same place, your own way.</p>
+          </div>
+        </div>
+
+        <div class="group" id="g-start-lists">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Curated lists that stay current</h3><span class="grp-note">free, living, never a paywall</span><a class="anchor" href="#g-start-lists" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>Subscribe to a curated list</h4><p>Import a published bundle (say, every IB analyst at the NYC boutiques plus the banks and their offices) straight into contacts as ready-to-work prospects.</p><div class="tags"><span class="tag">Free</span></div></article>
+            <article class="feat"><h4>It stays alive</h4><p>When a list is re-published with new people or corrected emails, you receive the changes automatically within minutes. No re-import, no stale data.</p><div class="tags"><span class="tag auto">Auto-sync</span></div></article>
+            <article class="feat"><h4>Your edits are safe</h4><p>The merge only ever fills in blanks. Nothing you have edited, tagged, or annotated is overwritten by an update.</p></article>
+            <article class="feat"><h4>Leave on your terms</h4><p>Unsubscribe and keep everything, or remove only the contacts you never touched. Anyone you have emailed or edited always stays.</p></article>
+            <article class="feat"><h4>Import that survives a closed tab</h4><p>A chunked, cursor-driven copy with a live progress bar, backed by a background worker and a daily safety-net sweep so a mid-import tab close never loses your place.</p><div class="tags"><span class="tag auto">Safety net</span></div></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-start-capture">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Capture anyone from LinkedIn</h3><span class="grp-note">Manifest V3 Chrome extension</span><a class="anchor" href="#g-start-capture" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>One click on a profile</h4><p>A CareerVine vine icon appears only on LinkedIn profile pages; one click opens a side panel that turns the person you are viewing into a contact.</p><div class="tags"><span class="tag">Extension</span></div></article>
+            <article class="feat"><h4>Clean scrape, structured by AI</h4><p>It strips pronouns, follower counts, and UI junk down to the real profile, then hands the cleaned text to CareerVine's parser, which returns structured fields, suggested tags, and generated notes.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+            <article class="feat"><h4>No accidental duplicates</h4><p>Every profile is checked by LinkedIn URL before scraping. A match shows the existing contact and offers "Refresh from LinkedIn" instead of a blind re-import.</p></article>
+            <article class="feat"><h4>Review and edit before saving</h4><p>Every field is editable (status, follow-up cadence, experience and education rows with month/year pickers) and your edits persist in a per-profile cache.</p></article>
+            <article class="feat"><h4>Auto-analyze as you browse</h4><p>A side-panel toggle scrapes and parses each profile automatically as you move between profiles, for power users batching a list.</p></article>
+            <article class="feat"><h4>Isolated and secure by design</h4><p>The panel renders in a closed Shadow DOM so LinkedIn's CSS cannot leak in and it cannot break LinkedIn; auth tokens live only in the background worker, never in the page.</p><div class="tags"><span class="tag guard">Security</span></div></article>
+          </div>
+        </div>
+      </section>
+
+      <hr class="divider">
+
+      <!-- ===== JOB 02 ===== -->
+      <section class="job" id="next">
+        <div class="sec-head">
+          <p class="sec-tax">Job 02 <span class="count">open the app, see the work</span></p>
+          <h2>Always know who to reach out to next<a class="anchor" href="#next" aria-label="Link to this section">#</a></h2>
+          <p class="intro">You never stare at your network wondering who needs attention. One prioritized feed tells you exactly who to contact and why, the engine underneath keeps surfacing fresh and timely reasons to reach out, and a health view tells you how the whole network is holding up.</p>
+        </div>
+
+        <div class="group" id="g-next-feed">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>The one feed you work from</h3><a class="anchor" href="#g-next-feed" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>"Up Next" unified action list</h4><p>One prioritized feed blends your action items, contacts overdue for a reach-out, AI and rule suggestions, and recently added people, each with a colored badge, filter chips with counts, and pagination.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+            <article class="feat"><h4>Act without leaving the row</h4><p>Per item: Done, Snooze, Profile, Log interaction, Email or Intro, Save or Dismiss a suggestion, and a quick-note popover, all inline.</p></article>
+            <article class="feat"><h4>Getting-started checklist</h4><p>The new-user empty state guides the first moves: add the target database, pick a company, connect Gmail and Calendar, install the extension, log your first conversation.</p></article>
+            <article class="feat"><h4>Today's schedule</h4><p>A time-grid of today's Google Calendar events with a live "now" line, event popovers (Meet link, attendees with RSVP flags, resolved contact context), and drag-to-create.</p><div class="tags"><span class="tag">Google Calendar</span></div></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-next-reasons">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Reasons to reach out, found for you</h3><a class="anchor" href="#g-next-reasons" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>A specific reason, not a nag</h4><p>The suggestion engine blends rule-based triggers (graduation proximity, cadence miss, relationship decay, waiting-on reminders) with an LLM pass that mines your history for a real, timely reason to reach out.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+            <article class="feat"><h4>Job changes and promotions</h4><p>When someone in your active network is promoted, changes company, goes open-to-work, or flips to hiring, that becomes a touchpoint in "Up Next" with a stable dedupe key so a dismissal sticks.</p></article>
+            <article class="feat"><h4>Work anniversaries</h4><p>Whole-year anniversaries at a current employer surface a "congratulate them" touchpoint, throttled and limited to your active network.</p></article>
+            <article class="feat"><h4>New people at your targets</h4><p>For opted-in accounts, a weekly search finds people who recently joined your highest-priority target companies: the warmest cold outreach there is.</p><div class="tags"><span class="tag auto">Weekly</span><span class="tag">Opt-in</span></div></article>
+            <article class="feat"><h4>A genuine reconnection hook</h4><p>An agentic chain extracts a contact's interests, searches the web, loops an evaluator asking "would a real person forward this?", and drafts a warm reconnection email around the find.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-next-health">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>How the whole network is holding up</h3><a class="anchor" href="#g-next-health" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>Health as a ratio, not a date</h4><p>Color reflects days-since-contact divided by your chosen cadence. A 30-day cadence at 10 days reads green; a 7-day cadence at the same 10 days reads red.</p></article>
+            <article class="feat"><h4>Network health donut</h4><p>Healthy, Due soon, Overdue, Never contacted, and No cadence, with interactive segment tooltips beside a "Needs attention" photo grid of neglected contacts.</p></article>
+            <article class="feat"><h4>Stats and streak</h4><p>Meetings, relationships-on-track percentage, and contacts-added counters with a 7-day trend and a day-streak flame.</p></article>
+            <article class="feat"><h4>Activity heatmap</h4><p>A calendar of daily activity (conversations, actions taken, contacts added) with hover detail and a Less-to-More legend.</p></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-next-organized">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>A network that never gets buried</h3><a class="anchor" href="#g-next-organized" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>Tiered so priorities stay visible</h4><p>Contacts live in three tiers (My network, Prospects, Archive) as independent toggle chips with counts, so 70 scraped profiles never bury the five you plan to contact.</p></article>
+            <article class="feat"><h4>Search that knows your people</h4><p>Search across name, email, company, title, school, industry, and tags, with a live dropdown that separates people-matches from by-tag matches.</p></article>
+            <article class="feat"><h4>Promote a prospect in one click</h4><p>A single button on the list or profile moves a prospect into your active network, and the first real touch graduates anyone automatically.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <hr class="divider">
+
+      <!-- ===== JOB 03 ===== -->
+      <section class="job" id="write">
+        <div class="sec-head">
+          <p class="sec-tax">Job 03 <span class="count">personal, fast, grounded</span></p>
+          <h2>Write outreach that sounds like you, in seconds<a class="anchor" href="#write" aria-label="Link to this section">#</a></h2>
+          <p class="intro">Every draft is grounded in what you actually know about the person, tuned to how warm the relationship is, and free of the tells that make an email read as machine-written. You edit, you send, and the follow-up plan is already attached.</p>
+        </div>
+
+        <div class="group">
+          <div class="grid">
+            <article class="feat"><h4>Write with AI</h4><p>Pick a built-in preset (Introduction, Follow-up after meeting, Thank you), a custom template of your own, or a free-form prompt, optionally feeding prior meeting notes for personalization.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+            <article class="feat"><h4>Guided intro flow</h4><p>For a first touch: a short "how you met and your goal" form produces an AI intro, then an editable draft, then an AI follow-up plan that auto-schedules reply-aware follow-ups.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+            <article class="feat"><h4>Drafts that sound human</h4><p>A generous context budget keeps quality high, and the prompt blocks generic tells like "I stumbled upon" so the email reads like you wrote it, not a template.</p></article>
+            <article class="feat"><h4>Insert real availability</h4><p>Drop genuine open calendar slots (standard, priority, or custom profiles) straight into the email body, computed against your busy calendars.</p></article>
+            <article class="feat"><h4>Compose from anywhere</h4><p>A single compose modal (To, Cc, Bcc, rich text, contact autocomplete, provenance warnings, schedule-send, auto-saved drafts) is reachable from every surface.</p></article>
+            <article class="feat"><h4>Custom AI templates</h4><p>Create, edit, and delete your own "Write with AI" prompt templates so they appear alongside the built-in presets.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <hr class="divider">
+
+      <!-- ===== JOB 04 ===== -->
+      <section class="job" id="followup">
+        <div class="sec-head">
+          <p class="sec-tax">Job 04 <span class="count">persistence on autopilot</span></p>
+          <h2>Follow up relentlessly, without lifting a finger<a class="anchor" href="#followup" aria-label="Link to this section">#</a></h2>
+          <p class="intro">Most opportunities die in the follow-up. CareerVine sends your sequences on schedule, stops the moment someone replies, and guards your sender reputation so you never look like a spammer.</p>
+        </div>
+
+        <div class="group">
+          <div class="grid">
+            <article class="feat"><h4>Follow-up sequence builder</h4><p>Build or edit a multi-step sequence with per-step delay, send time, subject, and rich body; the AI default is three reply-in-thread nudges spaced about 7, 14, and 21 days, each shorter than the last.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+            <article class="feat"><h4>Stops the moment they reply</h4><p>Each tick checks the thread for a reply and cancels the whole sequence if it finds one. A reply also graduates a prospect into your active network and resets their clock.</p><div class="tags"><span class="tag auto">Auto-cancel</span></div></article>
+            <article class="feat"><h4>Scheduled sends</h4><p>Queue any email for a future time and let the system deliver it, across both the app and the AI assistant.</p><div class="tags"><span class="tag auto">Scheduled</span></div></article>
+            <article class="feat"><h4>It runs on its own</h4><p>A worker fires every 15 minutes to send due follow-up steps and scheduled emails, one step per sequence per tick, isolating any single failure so it never blocks the rest.</p><div class="tags"><span class="tag auto">Every 15 min</span></div></article>
+            <article class="feat"><h4>Daily send cap</h4><p>A 100-per-day Gmail send limit protects your deliverability, re-checked on every send path including cron follow-ups, scheduled sends, and the AI assistant.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
+            <article class="feat"><h4>Bounce detection and refusal</h4><p>Gmail delivery failures are parsed to flag bounced addresses, cancel their pending sequences, and refuse them everywhere: draft, send, schedule, and sequence.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
+          </div>
+        </div>
+      </section>
+
+      <hr class="divider">
+
+      <!-- ===== JOB 05 ===== -->
+      <section class="job" id="remember">
+        <div class="sec-head">
+          <p class="sec-tax">Job 05 <span class="count">a memory for your relationships</span></p>
+          <h2>Remember every conversation, and every promise in it<a class="anchor" href="#remember" aria-label="Link to this section">#</a></h2>
+          <p class="intro">A relationship is the sum of your conversations. Log them in one place, let AI pull the commitments out of a transcript, and never forget who owes whom what.</p>
+        </div>
+
+        <div class="group" id="g-remember-log">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Log what happened, or plan what is next</h3><a class="anchor" href="#g-remember-log" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>One modal for everything</h4><p>A single conversation modal logs a past meeting (notes, transcript, AI action items) or schedules a future one (private reminders, Calendar invite, Meet link): eight types, multi-contact, reachable from anywhere.</p></article>
+            <article class="feat"><h4>Unified activity timeline</h4><p>Meetings and interactions in one newest-first feed, searchable across titles, notes, private notes, attendee names, and summaries.</p></article>
+            <article class="feat"><h4>Meeting cards</h4><p>Attendee chips with RSVP status, an "On calendar" badge, private reminders, notes, a transcript viewer, and file attachments.</p></article>
+            <article class="feat"><h4>Per-contact history</h4><p>On any contact, a merged reverse-chronological feed of meetings, interactions, inbound and outbound emails, and completed actions.</p></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-remember-transcribe">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Turn a recording into structured memory</h3><a class="anchor" href="#g-remember-transcribe" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>Upload a transcript or recording</h4><p>Paste or upload text (VTT, SRT, plain), or upload audio and video (mp3, wav, m4a, ogg, flac, mp4, webm, mov up to 500 MB) for speaker-diarized transcription, with an LLM fallback when text parsing is ambiguous.</p><div class="tags"><span class="tag">Deepgram</span></div></article>
+            <article class="feat"><h4>AI speaker matching</h4><p>Maps anonymous "Speaker 0" labels to your known contacts using names, roles, and content, with confidence scores and one-click confirmation.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+            <article class="feat"><h4>Action items from a transcript</h4><p>Pulls concrete commitments out of the conversation, splitting your tasks from what the other person owes you, each with an evidence quote and a resolved due date.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-remember-commit">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Never drop a commitment</h3><a class="anchor" href="#g-remember-commit" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>Grouped task list</h4><p>Overdue, Due this week, Due later, and No due date, each card showing a priority dot, the contact, the linked meeting, and due status.</p></article>
+            <article class="feat"><h4>Yours versus waiting on them</h4><p>The AI captures what the other person committed to, and after 7 days the app nudges a gentle follow-up so you never forget to cash in on an offer.</p><div class="tags"><span class="tag ai">AI</span></div></article>
+            <article class="feat"><h4>Complete with undo</h4><p>Completing or deleting is instant, with an undo countdown and an offered "Log conversation" follow-up.</p></article>
+            <article class="feat"><h4>Suggested for you</h4><p>An AI and rule suggestion banner with "I already did this", "Save for later", and "Not interested".</p><div class="tags"><span class="tag ai">AI</span></div></article>
+          </div>
+        </div>
+      </section>
+
+      <hr class="divider">
+
+      <!-- ===== JOB 06 ===== -->
+      <section class="job" id="pipeline">
+        <div class="sec-head">
+          <p class="sec-tax">Job 06 <span class="count">every employer, its own pipeline</span></p>
+          <h2>Run your job search like a pipeline<a class="anchor" href="#pipeline" aria-label="Link to this section">#</a></h2>
+          <p class="intro">A target company is more than a logo. Track each employer, and each office, as its own recruiting pipeline: who you know there, what stage you are at, your applications, your interviews, and everything you have learned along the way.</p>
+        </div>
+
+        <div class="group" id="g-pipeline-command">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>The command center for a company</h3><a class="anchor" href="#g-pipeline-command" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>Targets and all-companies views</h4><p>Toggle between tracked employers and every company in your network history, sorted by priority, next-app date, traction, or name.</p></article>
+            <article class="feat"><h4>Shareable, filtered views</h4><p>Stackable status, traction, tier, and contacts filters live in the URL, so any view is bookmarkable and shareable with a live result count.</p></article>
+            <article class="feat"><h4>Chase a company early</h4><p>Add a company before you know anyone there (name, LinkedIn URL, office in seconds), deduped against every company already in your network.</p></article>
+            <article class="feat"><h4>Per-office pipelines</h4><p>A location scope makes each office ("Google San Diego") its own targetable pipeline with its own status and notes.</p></article>
+            <article class="feat"><h4>Roster by persona</h4><p>Current and former employees grouped into your network versus prospects, with persona badges (Alum, Product, Recruiter), BYU-alum flags, outreach stage, and email status.</p></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-pipeline-stages">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Track the hunt, stage by stage</h3><a class="anchor" href="#g-pipeline-stages" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>Stage stepper</h4><p>Researching, Active outreach, Applied, Interviewing, Closed. Each stage is an expandable editor with a collapsed summary and autosave.</p></article>
+            <article class="feat"><h4>Applications and documents</h4><p>Track multiple applications per company with role, location, date, and resume plus cover-letter PDF uploads.</p></article>
+            <article class="feat"><h4>Interview rounds and cycles</h4><p>Log interview rounds (date, interviewer, questions); "prepare for next cycle" starts a fresh application cycle that keeps each season separate.</p></article>
+            <article class="feat"><h4>Recruiting-intel log</h4><p>A timestamped notes log for application windows, referral programs, and team info, so everything you learn on a call lands somewhere you will find it again.</p></article>
+            <article class="feat"><h4>Per-person outreach stage</h4><p>Separate from the company pipeline, each contact carries a derived outreach stage (not contacted, contacted, replied, call scheduled, referral) reflecting where that one relationship stands.</p></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-pipeline-queue">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Work targets one at a time</h3><span class="grp-note">a focused outreach queue</span><a class="anchor" href="#g-pipeline-queue" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat"><h4>Company-at-a-time queue</h4><p>Step through target companies with the arrow keys (ordered by application deadline then priority), showing "Company X of N" so you never lose your place.</p></article>
+            <article class="feat"><h4>Context at a glance</h4><p>Logo, priority, program, next-app window, latest intel note, and links to the full company page and bench.</p></article>
+            <article class="feat"><h4>People cards</h4><p>Current and collapsible former employees with persona, alum, and stage badges, an adjacency score, and a "why they were kept" review note.</p></article>
+            <article class="feat"><h4>The full picture in a modal</h4><p>Every role, education, and email source for a contact, with Write email, Open profile, and a "Mark contacted" for off-platform outreach.</p></article>
+            <article class="feat"><h4>Nothing hides silently</h4><p>Companies with only bench or no contactable people are skipped, but with a visible count and a link so you can always look.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <hr class="divider">
+
+      <!-- ===== JOB 07 ===== -->
+      <section class="job" id="assistant">
+        <div class="sec-head">
+          <p class="sec-tax">Job 07 <span class="count">27 tools for Claude, ChatGPT, Cursor and more</span></p>
+          <h2>Hand your whole network to an AI assistant<a class="anchor" href="#assistant" aria-label="Link to this section">#</a></h2>
+          <p class="intro">Connect CareerVine to Claude, the Claude Code CLI, ChatGPT, Codex, or Cursor over a secure server. Your assistant can research a contact, draft and send grounded Gmail, work the outreach queue, and manage meetings, all under the exact same guardrails as the app. By design it never generates on its own: your assistant is the writer, so there are no AI tools, and there are no delete tools anywhere.</p>
+        </div>
+
+        <div class="group" id="g-assistant-contacts">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Contacts and research</h3><a class="anchor" href="#g-assistant-contacts" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat mono"><h4>search_contacts</h4><p>Search the network by name, email, company, title, school, industry, or tag; filter by tier, returns compact rows with stage and last-touch.</p></article>
+            <article class="feat mono"><h4>get_contact_dossier</h4><p>Everything known about one person in one document: the grounding your assistant reads before writing an email, including email provenance and history.</p></article>
+            <article class="feat mono"><h4>add_contact</h4><p>Create a contact with emails, phones, company, title, school, and location, find-or-creating entities to avoid duplicates.</p></article>
+            <article class="feat mono"><h4>add_contact_note</h4><p>Append a timestamped note straight from conversation.</p></article>
+            <article class="feat mono"><h4>tag_contact</h4><p>Apply one or more tags, creating any that are missing.</p></article>
+            <article class="feat mono"><h4>set_network_status</h4><p>Manually move a contact between active, prospect, and bench tiers.</p></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-assistant-email">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Email</h3><span class="grp-note">drafts by default, sends are confirm-gated</span><a class="anchor" href="#g-assistant-email" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat mono"><h4>create_email_draft</h4><p>The default path: a real Gmail draft (markdown to HTML, thread-aware) for your review; refuses bounced addresses.</p></article>
+            <article class="feat mono"><h4>send_email</h4><p>Sends immediately, but requires <code>confirm: true</code>, enforces the daily cap and bounce refusal, and logs an interaction.</p><div class="tags"><span class="tag guard">Confirm-gated</span></div></article>
+            <article class="feat mono"><h4>schedule_email</h4><p>Queue an email for a future timestamp, delivered by the app's worker.</p></article>
+            <article class="feat mono"><h4>create_follow_up_sequence</h4><p>Attach timed follow-ups to a sent thread that auto-cancel the moment the contact replies.</p></article>
+            <article class="feat mono"><h4>list_scheduled</h4><p>List pending scheduled emails and active sequences with next send times.</p></article>
+            <article class="feat mono"><h4>cancel_scheduled</h4><p>Cancel a pending scheduled email or an entire follow-up sequence.</p></article>
+            <article class="feat mono"><h4>search_email_history</h4><p>Full-text search over cached Gmail, optionally scoped to one contact.</p></article>
+            <article class="feat mono"><h4>get_email_thread</h4><p>Live-fetch full message bodies for a thread for reply context.</p></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-assistant-outreach">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Outreach engine</h3><a class="anchor" href="#g-assistant-outreach" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat mono"><h4>list_outreach_queue</h4><p>The company-by-company queue, ordered by deadline then priority, with a "why" reason per entry.</p></article>
+            <article class="feat mono"><h4>list_companies</h4><p>Companies in the network with people counts, target status, priority, and traction.</p></article>
+            <article class="feat mono"><h4>get_company</h4><p>The full company picture: roster, offices, target status, and the recruiting-intel log.</p></article>
+            <article class="feat mono"><h4>add_company_intel</h4><p>Append a timestamped recruiting note, auto-promoting the company to a target.</p></article>
+            <article class="feat mono"><h4>set_stage_override</h4><p>Manually set a contact's outreach stage for off-platform activity like a LinkedIn DM.</p></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-assistant-upkeep">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Relationship upkeep</h3><a class="anchor" href="#g-assistant-upkeep" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat mono"><h4>log_interaction</h4><p>Record a touchpoint that graduates prospects and resets the follow-up clock.</p></article>
+            <article class="feat mono"><h4>create_action_item</h4><p>Create a to-do or a "waiting-on" item linked to one or more contacts.</p></article>
+            <article class="feat mono"><h4>list_action_items</h4><p>Open items filtered by due window, direction, or contact, with age for waiting-on items.</p></article>
+            <article class="feat mono"><h4>update_action_item</h4><p>Complete, snooze, reschedule, or edit an item.</p></article>
+            <article class="feat mono"><h4>list_due_followups</h4><p>The "who should I reach out to today" list, most-overdue first.</p></article>
+            <article class="feat mono"><h4>get_network_health</h4><p>The "how am I doing" dashboard: streak, on-track ratio, most-neglected contacts, per-tier counts, 30-day activity.</p></article>
+          </div>
+        </div>
+
+        <div class="group" id="g-assistant-calendar">
+          <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Calendar</h3><a class="anchor" href="#g-assistant-calendar" aria-label="Link">#</a></div>
+          <div class="grid">
+            <article class="feat mono"><h4>list_meetings</h4><p>Upcoming events from the synced calendar with attendees matched to contacts and Meet or Zoom links.</p></article>
+            <article class="feat mono"><h4>create_meeting</h4><p>Create a Google Calendar event with an invite and optional Meet link; linking it graduates a prospect.</p></article>
+          </div>
+        </div>
+
+        <div class="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <p><b>Locked down like the rest of the app.</b> The hosted server is an OAuth 2.0 protected resource verifying Supabase-issued tokens, scoped per request and rate-limited to 100 calls per hour per user. A consent screen shows the requesting client and exact scopes before any access is granted, the same 27 tools also run locally over stdio for development, and there are no delete tools anywhere.</p>
+        </div>
+      </section>
+
+      <hr class="divider">
+
+      <!-- ===== JOB 08 ===== -->
+      <section class="job" id="trust">
+        <div class="sec-head">
+          <p class="sec-tax">Job 08 <span class="count">bring your own keys, keep your data</span></p>
+          <h2>Your data, and your costs, stay yours<a class="anchor" href="#trust" aria-label="Link to this section">#</a></h2>
+          <p class="intro">CareerVine runs on your own AI keys, caps every dollar of paid scraping, and keeps your data yours. The curated lists are free and always will be, and every feature tells you plainly when something is wrong instead of spinning forever.</p>
+        </div>
+
+        <div class="group">
+          <div class="grid">
+            <article class="feat"><h4>Bring your own AI keys</h4><p>Add an OpenAI key for text features and a Deepgram key for transcription so usage bills to you, each encrypted at rest, never returned to the browser, and live-validated before saving.</p><div class="tags"><span class="tag guard">Encrypted</span></div></article>
+            <article class="feat"><h4>First-day free AI trial</h4><p>New accounts get shared-key AI on us for 24 hours from first use, then are guided to add their own key or request continued access.</p></article>
+            <article class="feat"><h4>Free living data bundles</h4><p>Curated contact lists are free and never a paywall; they stay current on their own for as long as you are subscribed.</p><div class="tags"><span class="tag">Free</span></div></article>
+            <article class="feat"><h4>Spend caps and kill switches</h4><p>A hard monthly USD cap, a softer cadence cap, and per-account switches keep paid LinkedIn scraping bounded; every spend check fails closed, so an error never spends your money.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
+            <article class="feat"><h4>Guardrails on every route</h4><p>Every request is wrapped with auth, schema validation, and per-route rate limits. When an AI key is out of quota, rejected, or missing, the feature says exactly what is wrong with a one-click path to fix it.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
+            <article class="feat"><h4>See your scraping spend</h4><p>A read-only dashboard shows month-to-date scraping spend against the cap, run health, last refresh time, and discovery spend.</p></article>
+            <article class="feat"><h4>Privacy and Google Limited Use</h4><p>A full policy documents data handling, the Google Limited-Use disclosure, row-level security, and the extension's on-LinkedIn-only scope.</p></article>
+            <article class="feat"><h4>Connect an AI client</h4><p>Copy the hosted server URL with per-client setup steps for Claude, the Claude Code CLI, ChatGPT, Codex, and Cursor.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <h2 class="block-title" id="ov-next">Next steps</h2>
+      <p class="block-sub">Where to go from here.</p>
+      <div class="nextsteps">
+        <a class="next-card" href="https://careervine.app">
+          <span class="nt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Open CareerVine</span>
+          <span class="nd">Sign in or create an account and start with a real network on day one.</span>
+        </a>
+        <a class="next-card" href="#start">
+          <span class="nt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Take the guided first run</span>
+          <span class="nd">Six steps that end with your first personalized intro email on its way.</span>
+        </a>
+        <a class="next-card" href="#assistant">
+          <span class="nt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Connect an AI assistant</span>
+          <span class="nd">Wire CareerVine into Claude, ChatGPT, Codex, or Cursor with 27 guarded tools.</span>
+        </a>
+        <a class="next-card" href="#trust">
+          <span class="nt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Bring your own keys</span>
+          <span class="nd">Add your OpenAI and Deepgram keys so all AI usage bills to you, not us.</span>
+        </a>
       </div>
-      <div class="note">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        <p>Not into the curated list? Declining opens a lighter three-item start instead: add one contact, target one company, connect Gmail. You reach the same place, your own way.</p>
-      </div>
-    </div>
 
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Curated lists that stay current</h3><span class="grp-note">free, living, never a paywall</span></div>
-      <div class="grid">
-        <article class="feat"><h4>Subscribe to a curated list</h4><p>Import a published bundle (say, every IB analyst at the NYC boutiques plus the banks and their offices) straight into contacts as ready-to-work prospects.</p><div class="tags"><span class="tag">Free</span></div></article>
-        <article class="feat"><h4>It stays alive</h4><p>When a list is re-published with new people or corrected emails, you receive the changes automatically within minutes. No re-import, no stale data.</p><div class="tags"><span class="tag auto">Auto-sync</span></div></article>
-        <article class="feat"><h4>Your edits are safe</h4><p>The merge only ever fills in blanks. Nothing you have edited, tagged, or annotated is overwritten by an update.</p></article>
-        <article class="feat"><h4>Leave on your terms</h4><p>Unsubscribe and keep everything, or remove only the contacts you never touched. Anyone you have emailed or edited always stays.</p></article>
-        <article class="feat"><h4>Import that survives a closed tab</h4><p>A chunked, cursor-driven copy with a live progress bar, backed by a background worker and a daily safety-net sweep so a mid-import tab close never loses your place.</p><div class="tags"><span class="tag auto">Safety net</span></div></article>
-      </div>
     </div>
+  </main>
 
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Capture anyone from LinkedIn</h3><span class="grp-note">Manifest V3 Chrome extension</span></div>
-      <div class="grid">
-        <article class="feat"><h4>One click on a profile</h4><p>A CareerVine vine icon appears only on LinkedIn profile pages; one click opens a side panel that turns the person you are viewing into a contact.</p><div class="tags"><span class="tag">Extension</span></div></article>
-        <article class="feat"><h4>Clean scrape, structured by AI</h4><p>It strips pronouns, follower counts, and UI junk down to the real profile, then hands the cleaned text to CareerVine's parser, which returns structured fields, suggested tags, and generated notes.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-        <article class="feat"><h4>No accidental duplicates</h4><p>Every profile is checked by LinkedIn URL before scraping. A match shows the existing contact and offers "Refresh from LinkedIn" instead of a blind re-import.</p></article>
-        <article class="feat"><h4>Review and edit before saving</h4><p>Every field is editable (status, follow-up cadence, experience and education rows with month/year pickers) and your edits persist in a per-profile cache.</p></article>
-        <article class="feat"><h4>Auto-analyze as you browse</h4><p>A side-panel toggle scrapes and parses each profile automatically as you move between profiles, for power users batching a list.</p></article>
-        <article class="feat"><h4>Isolated and secure by design</h4><p>The panel renders in a closed Shadow DOM so LinkedIn's CSS cannot leak in and it cannot break LinkedIn; auth tokens live only in the background worker, never in the page.</p><div class="tags"><span class="tag guard">Security</span></div></article>
-      </div>
-    </div>
-  </section>
+  <!-- ============ RIGHT TOC ============ -->
+  <aside class="toc" aria-label="On this page">
+    <p class="toc-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h13"/></svg>On this page</p>
+    <ul id="tocList"></ul>
+  </aside>
 
-  <!-- ============ JOB 02 - WHO TO CONTACT ============ -->
-  <section id="next">
-    <div class="sec-head">
-      <p class="sec-tax">Job 02 <span class="count">open the app, see the work</span></p>
-      <h2>Always know who to reach out to next</h2>
-      <p>You never stare at your network wondering who needs attention. One prioritized feed tells you exactly who to contact and why, the engine underneath keeps surfacing fresh and timely reasons to reach out, and a health view tells you how the whole network is holding up.</p>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>The one feed you work from</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>"Up Next" unified action list</h4><p>One prioritized feed blends your action items, contacts overdue for a reach-out, AI and rule suggestions, and recently added people, each with a colored badge, filter chips with counts, and pagination.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-        <article class="feat"><h4>Act without leaving the row</h4><p>Per item: Done, Snooze, Profile, Log interaction, Email or Intro, Save or Dismiss a suggestion, and a quick-note popover, all inline.</p></article>
-        <article class="feat"><h4>Getting-started checklist</h4><p>The new-user empty state guides the first moves: add the target database, pick a company, connect Gmail and Calendar, install the extension, log your first conversation.</p></article>
-        <article class="feat"><h4>Today's schedule</h4><p>A time-grid of today's Google Calendar events with a live "now" line, event popovers (Meet link, attendees with RSVP flags, resolved contact context), and drag-to-create.</p><div class="tags"><span class="tag">Google Calendar</span></div></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Reasons to reach out, found for you</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>A specific reason, not a nag</h4><p>The suggestion engine blends rule-based triggers (graduation proximity, cadence miss, relationship decay, waiting-on reminders) with an LLM pass that mines your history for a real, timely reason to reach out.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-        <article class="feat"><h4>Job changes and promotions</h4><p>When someone in your active network is promoted, changes company, goes open-to-work, or flips to hiring, that becomes a touchpoint in "Up Next" with a stable dedupe key so a dismissal sticks.</p></article>
-        <article class="feat"><h4>Work anniversaries</h4><p>Whole-year anniversaries at a current employer surface a "congratulate them" touchpoint, throttled and limited to your active network.</p></article>
-        <article class="feat"><h4>New people at your targets</h4><p>For opted-in accounts, a weekly search finds people who recently joined your highest-priority target companies: the warmest cold outreach there is.</p><div class="tags"><span class="tag auto">Weekly</span><span class="tag">Opt-in</span></div></article>
-        <article class="feat"><h4>A genuine reconnection hook</h4><p>An agentic chain extracts a contact's interests, searches the web, loops an evaluator asking "would a real person forward this?", and drafts a warm reconnection email around the find.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>How the whole network is holding up</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>Health as a ratio, not a date</h4><p>Color reflects days-since-contact divided by your chosen cadence. A 30-day cadence at 10 days reads green; a 7-day cadence at the same 10 days reads red.</p></article>
-        <article class="feat"><h4>Network health donut</h4><p>Healthy, Due soon, Overdue, Never contacted, and No cadence, with interactive segment tooltips beside a "Needs attention" photo grid of neglected contacts.</p></article>
-        <article class="feat"><h4>Stats and streak</h4><p>Meetings, relationships-on-track percentage, and contacts-added counters with a 7-day trend and a day-streak flame.</p></article>
-        <article class="feat"><h4>Activity heatmap</h4><p>A calendar of daily activity (conversations, actions taken, contacts added) with hover detail and a Less-to-More legend.</p></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>A network that never gets buried</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>Tiered so priorities stay visible</h4><p>Contacts live in three tiers (My network, Prospects, Archive) as independent toggle chips with counts, so 70 scraped profiles never bury the five you plan to contact.</p></article>
-        <article class="feat"><h4>Search that knows your people</h4><p>Search across name, email, company, title, school, industry, and tags, with a live dropdown that separates people-matches from by-tag matches.</p></article>
-        <article class="feat"><h4>Promote a prospect in one click</h4><p>A single button on the list or profile moves a prospect into your active network, and the first real touch graduates anyone automatically.</p></article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ JOB 03 - WRITE OUTREACH ============ -->
-  <section id="write">
-    <div class="sec-head">
-      <p class="sec-tax">Job 03 <span class="count">personal, fast, grounded</span></p>
-      <h2>Write outreach that sounds like you, in seconds</h2>
-      <p>Every draft is grounded in what you actually know about the person, tuned to how warm the relationship is, and free of the tells that make an email read as machine-written. You edit, you send, and the follow-up plan is already attached.</p>
-    </div>
-
-    <div class="group">
-      <div class="grid">
-        <article class="feat"><h4>Write with AI</h4><p>Pick a built-in preset (Introduction, Follow-up after meeting, Thank you), a custom template of your own, or a free-form prompt, optionally feeding prior meeting notes for personalization.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-        <article class="feat"><h4>Guided intro flow</h4><p>For a first touch: a short "how you met and your goal" form produces an AI intro, then an editable draft, then an AI follow-up plan that auto-schedules reply-aware follow-ups.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-        <article class="feat"><h4>Drafts that sound human</h4><p>A generous context budget keeps quality high, and the prompt blocks generic tells like "I stumbled upon" so the email reads like you wrote it, not a template.</p></article>
-        <article class="feat"><h4>Insert real availability</h4><p>Drop genuine open calendar slots (standard, priority, or custom profiles) straight into the email body, computed against your busy calendars.</p></article>
-        <article class="feat"><h4>Compose from anywhere</h4><p>A single compose modal (To, Cc, Bcc, rich text, contact autocomplete, provenance warnings, schedule-send, auto-saved drafts) is reachable from every surface.</p></article>
-        <article class="feat"><h4>Custom AI templates</h4><p>Create, edit, and delete your own "Write with AI" prompt templates so they appear alongside the built-in presets.</p></article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ JOB 04 - FOLLOW UP ============ -->
-  <section id="followup">
-    <div class="sec-head">
-      <p class="sec-tax">Job 04 <span class="count">persistence on autopilot</span></p>
-      <h2>Follow up relentlessly, without lifting a finger</h2>
-      <p>Most opportunities die in the follow-up. CareerVine sends your sequences on schedule, stops the moment someone replies, and guards your sender reputation so you never look like a spammer.</p>
-    </div>
-
-    <div class="group">
-      <div class="grid">
-        <article class="feat"><h4>Follow-up sequence builder</h4><p>Build or edit a multi-step sequence with per-step delay, send time, subject, and rich body; the AI default is three reply-in-thread nudges spaced about 7, 14, and 21 days, each shorter than the last.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-        <article class="feat"><h4>Stops the moment they reply</h4><p>Each tick checks the thread for a reply and cancels the whole sequence if it finds one. A reply also graduates a prospect into your active network and resets their clock.</p><div class="tags"><span class="tag auto">Auto-cancel</span></div></article>
-        <article class="feat"><h4>Scheduled sends</h4><p>Queue any email for a future time and let the system deliver it, across both the app and the AI assistant.</p><div class="tags"><span class="tag auto">Scheduled</span></div></article>
-        <article class="feat"><h4>It runs on its own</h4><p>A worker fires every 15 minutes to send due follow-up steps and scheduled emails, one step per sequence per tick, isolating any single failure so it never blocks the rest.</p><div class="tags"><span class="tag auto">Every 15 min</span></div></article>
-        <article class="feat"><h4>Daily send cap</h4><p>A 100-per-day Gmail send limit protects your deliverability, re-checked on every send path including cron follow-ups, scheduled sends, and the AI assistant.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
-        <article class="feat"><h4>Bounce detection and refusal</h4><p>Gmail delivery failures are parsed to flag bounced addresses, cancel their pending sequences, and refuse them everywhere: draft, send, schedule, and sequence.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ JOB 05 - REMEMBER CONVERSATIONS ============ -->
-  <section id="remember">
-    <div class="sec-head">
-      <p class="sec-tax">Job 05 <span class="count">a memory for your relationships</span></p>
-      <h2>Remember every conversation, and every promise in it</h2>
-      <p>A relationship is the sum of your conversations. Log them in one place, let AI pull the commitments out of a transcript, and never forget who owes whom what.</p>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Log what happened, or plan what is next</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>One modal for everything</h4><p>A single conversation modal logs a past meeting (notes, transcript, AI action items) or schedules a future one (private reminders, Calendar invite, Meet link): eight types, multi-contact, reachable from anywhere.</p></article>
-        <article class="feat"><h4>Unified activity timeline</h4><p>Meetings and interactions in one newest-first feed, searchable across titles, notes, private notes, attendee names, and summaries.</p></article>
-        <article class="feat"><h4>Meeting cards</h4><p>Attendee chips with RSVP status, an "On calendar" badge, private reminders, notes, a transcript viewer, and file attachments.</p></article>
-        <article class="feat"><h4>Per-contact history</h4><p>On any contact, a merged reverse-chronological feed of meetings, interactions, inbound and outbound emails, and completed actions.</p></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Turn a recording into structured memory</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>Upload a transcript or recording</h4><p>Paste or upload text (VTT, SRT, plain), or upload audio and video (mp3, wav, m4a, ogg, flac, mp4, webm, mov up to 500 MB) for speaker-diarized transcription, with an LLM fallback when text parsing is ambiguous.</p><div class="tags"><span class="tag">Deepgram</span></div></article>
-        <article class="feat"><h4>AI speaker matching</h4><p>Maps anonymous "Speaker 0" labels to your known contacts using names, roles, and content, with confidence scores and one-click confirmation.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-        <article class="feat"><h4>Action items from a transcript</h4><p>Pulls concrete commitments out of the conversation, splitting your tasks from what the other person owes you, each with an evidence quote and a resolved due date.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Never drop a commitment</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>Grouped task list</h4><p>Overdue, Due this week, Due later, and No due date, each card showing a priority dot, the contact, the linked meeting, and due status.</p></article>
-        <article class="feat"><h4>Yours versus waiting on them</h4><p>The AI captures what the other person committed to, and after 7 days the app nudges a gentle follow-up so you never forget to cash in on an offer.</p><div class="tags"><span class="tag ai">AI</span></div></article>
-        <article class="feat"><h4>Complete with undo</h4><p>Completing or deleting is instant, with an undo countdown and an offered "Log conversation" follow-up.</p></article>
-        <article class="feat"><h4>Suggested for you</h4><p>An AI and rule suggestion banner with "I already did this", "Save for later", and "Not interested".</p><div class="tags"><span class="tag ai">AI</span></div></article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ JOB 06 - JOB PIPELINE ============ -->
-  <section id="pipeline">
-    <div class="sec-head">
-      <p class="sec-tax">Job 06 <span class="count">every employer, its own pipeline</span></p>
-      <h2>Run your job search like a pipeline</h2>
-      <p>A target company is more than a logo. Track each employer, and each office, as its own recruiting pipeline: who you know there, what stage you are at, your applications, your interviews, and everything you have learned along the way.</p>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>The command center for a company</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>Targets and all-companies views</h4><p>Toggle between tracked employers and every company in your network history, sorted by priority, next-app date, traction, or name.</p></article>
-        <article class="feat"><h4>Shareable, filtered views</h4><p>Stackable status, traction, tier, and contacts filters live in the URL, so any view is bookmarkable and shareable with a live result count.</p></article>
-        <article class="feat"><h4>Chase a company early</h4><p>Add a company before you know anyone there (name, LinkedIn URL, office in seconds), deduped against every company already in your network.</p></article>
-        <article class="feat"><h4>Per-office pipelines</h4><p>A location scope makes each office ("Google San Diego") its own targetable pipeline with its own status and notes.</p></article>
-        <article class="feat"><h4>Roster by persona</h4><p>Current and former employees grouped into your network versus prospects, with persona badges (Alum, Product, Recruiter), BYU-alum flags, outreach stage, and email status.</p></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Track the hunt, stage by stage</h3></div>
-      <div class="grid">
-        <article class="feat"><h4>Stage stepper</h4><p>Researching, Active outreach, Applied, Interviewing, Closed. Each stage is an expandable editor with a collapsed summary and autosave.</p></article>
-        <article class="feat"><h4>Applications and documents</h4><p>Track multiple applications per company with role, location, date, and resume plus cover-letter PDF uploads.</p></article>
-        <article class="feat"><h4>Interview rounds and cycles</h4><p>Log interview rounds (date, interviewer, questions); "prepare for next cycle" starts a fresh application cycle that keeps each season separate.</p></article>
-        <article class="feat"><h4>Recruiting-intel log</h4><p>A timestamped notes log for application windows, referral programs, and team info, so everything you learn on a call lands somewhere you will find it again.</p></article>
-        <article class="feat"><h4>Per-person outreach stage</h4><p>Separate from the company pipeline, each contact carries a derived outreach stage (not contacted, contacted, replied, call scheduled, referral) reflecting where that one relationship stands.</p></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Work targets one at a time</h3><span class="grp-note">a focused outreach queue</span></div>
-      <div class="grid">
-        <article class="feat"><h4>Company-at-a-time queue</h4><p>Step through target companies with the arrow keys (ordered by application deadline then priority), showing "Company X of N" so you never lose your place.</p></article>
-        <article class="feat"><h4>Context at a glance</h4><p>Logo, priority, program, next-app window, latest intel note, and links to the full company page and bench.</p></article>
-        <article class="feat"><h4>People cards</h4><p>Current and collapsible former employees with persona, alum, and stage badges, an adjacency score, and a "why they were kept" review note.</p></article>
-        <article class="feat"><h4>The full picture in a modal</h4><p>Every role, education, and email source for a contact, with Write email, Open profile, and a "Mark contacted" for off-platform outreach.</p></article>
-        <article class="feat"><h4>Nothing hides silently</h4><p>Companies with only bench or no contactable people are skipped, but with a visible count and a link so you can always look.</p></article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ JOB 07 - AI ASSISTANT ============ -->
-  <section id="assistant">
-    <div class="sec-head">
-      <p class="sec-tax">Job 07 <span class="count">27 tools for Claude, ChatGPT, Cursor and more</span></p>
-      <h2>Hand your whole network to an AI assistant</h2>
-      <p>Connect CareerVine to Claude, the Claude Code CLI, ChatGPT, Codex, or Cursor over a secure server. Your assistant can research a contact, draft and send grounded Gmail, work the outreach queue, and manage meetings, all under the exact same guardrails as the app. By design it never generates on its own: your assistant is the writer, so there are no AI tools, and there are no delete tools anywhere.</p>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Contacts and research</h3></div>
-      <div class="grid">
-        <article class="feat mono"><h4>search_contacts</h4><p>Search the network by name, email, company, title, school, industry, or tag; filter by tier, returns compact rows with stage and last-touch.</p></article>
-        <article class="feat mono"><h4>get_contact_dossier</h4><p>Everything known about one person in one document: the grounding your assistant reads before writing an email, including email provenance and history.</p></article>
-        <article class="feat mono"><h4>add_contact</h4><p>Create a contact with emails, phones, company, title, school, and location, find-or-creating entities to avoid duplicates.</p></article>
-        <article class="feat mono"><h4>add_contact_note</h4><p>Append a timestamped note straight from conversation.</p></article>
-        <article class="feat mono"><h4>tag_contact</h4><p>Apply one or more tags, creating any that are missing.</p></article>
-        <article class="feat mono"><h4>set_network_status</h4><p>Manually move a contact between active, prospect, and bench tiers.</p></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Email</h3><span class="grp-note">drafts by default, sends are confirm-gated</span></div>
-      <div class="grid">
-        <article class="feat mono"><h4>create_email_draft</h4><p>The default path: a real Gmail draft (markdown to HTML, thread-aware) for your review; refuses bounced addresses.</p></article>
-        <article class="feat mono"><h4>send_email</h4><p>Sends immediately, but requires <code>confirm: true</code>, enforces the daily cap and bounce refusal, and logs an interaction.</p><div class="tags"><span class="tag guard">Confirm-gated</span></div></article>
-        <article class="feat mono"><h4>schedule_email</h4><p>Queue an email for a future timestamp, delivered by the app's worker.</p></article>
-        <article class="feat mono"><h4>create_follow_up_sequence</h4><p>Attach timed follow-ups to a sent thread that auto-cancel the moment the contact replies.</p></article>
-        <article class="feat mono"><h4>list_scheduled</h4><p>List pending scheduled emails and active sequences with next send times.</p></article>
-        <article class="feat mono"><h4>cancel_scheduled</h4><p>Cancel a pending scheduled email or an entire follow-up sequence.</p></article>
-        <article class="feat mono"><h4>search_email_history</h4><p>Full-text search over cached Gmail, optionally scoped to one contact.</p></article>
-        <article class="feat mono"><h4>get_email_thread</h4><p>Live-fetch full message bodies for a thread for reply context.</p></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Outreach engine</h3></div>
-      <div class="grid">
-        <article class="feat mono"><h4>list_outreach_queue</h4><p>The company-by-company queue, ordered by deadline then priority, with a "why" reason per entry.</p></article>
-        <article class="feat mono"><h4>list_companies</h4><p>Companies in the network with people counts, target status, priority, and traction.</p></article>
-        <article class="feat mono"><h4>get_company</h4><p>The full company picture: roster, offices, target status, and the recruiting-intel log.</p></article>
-        <article class="feat mono"><h4>add_company_intel</h4><p>Append a timestamped recruiting note, auto-promoting the company to a target.</p></article>
-        <article class="feat mono"><h4>set_stage_override</h4><p>Manually set a contact's outreach stage for off-platform activity like a LinkedIn DM.</p></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Relationship upkeep</h3></div>
-      <div class="grid">
-        <article class="feat mono"><h4>log_interaction</h4><p>Record a touchpoint that graduates prospects and resets the follow-up clock.</p></article>
-        <article class="feat mono"><h4>create_action_item</h4><p>Create a to-do or a "waiting-on" item linked to one or more contacts.</p></article>
-        <article class="feat mono"><h4>list_action_items</h4><p>Open items filtered by due window, direction, or contact, with age for waiting-on items.</p></article>
-        <article class="feat mono"><h4>update_action_item</h4><p>Complete, snooze, reschedule, or edit an item.</p></article>
-        <article class="feat mono"><h4>list_due_followups</h4><p>The "who should I reach out to today" list, most-overdue first.</p></article>
-        <article class="feat mono"><h4>get_network_health</h4><p>The "how am I doing" dashboard: streak, on-track ratio, most-neglected contacts, per-tier counts, 30-day activity.</p></article>
-      </div>
-    </div>
-
-    <div class="group">
-      <div class="grp-head"><svg class="leaf-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4C10 4 4 10 4 20c8 .5 16-4 16-16Z"/></svg><h3>Calendar</h3></div>
-      <div class="grid">
-        <article class="feat mono"><h4>list_meetings</h4><p>Upcoming events from the synced calendar with attendees matched to contacts and Meet or Zoom links.</p></article>
-        <article class="feat mono"><h4>create_meeting</h4><p>Create a Google Calendar event with an invite and optional Meet link; linking it graduates a prospect.</p></article>
-      </div>
-    </div>
-
-    <div class="note">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-      <p><b>Locked down like the rest of the app.</b> The hosted server is an OAuth 2.0 protected resource verifying Supabase-issued tokens, scoped per request and rate-limited to 100 calls per hour per user. A consent screen shows the requesting client and exact scopes before any access is granted, the same 27 tools also run locally over stdio for development, and there are no delete tools anywhere.</p>
-    </div>
-  </section>
-
-  <!-- ============ JOB 08 - YOUR DATA ============ -->
-  <section id="trust">
-    <div class="sec-head">
-      <p class="sec-tax">Job 08 <span class="count">bring your own keys, keep your data</span></p>
-      <h2>Your data, and your costs, stay yours</h2>
-      <p>CareerVine runs on your own AI keys, caps every dollar of paid scraping, and keeps your data yours. The curated lists are free and always will be, and every feature tells you plainly when something is wrong instead of spinning forever.</p>
-    </div>
-
-    <div class="group">
-      <div class="grid">
-        <article class="feat"><h4>Bring your own AI keys</h4><p>Add an OpenAI key for text features and a Deepgram key for transcription so usage bills to you, each encrypted at rest, never returned to the browser, and live-validated before saving.</p><div class="tags"><span class="tag guard">Encrypted</span></div></article>
-        <article class="feat"><h4>First-day free AI trial</h4><p>New accounts get shared-key AI on us for 24 hours from first use, then are guided to add their own key or request continued access.</p></article>
-        <article class="feat"><h4>Free living data bundles</h4><p>Curated contact lists are free and never a paywall; they stay current on their own for as long as you are subscribed.</p><div class="tags"><span class="tag">Free</span></div></article>
-        <article class="feat"><h4>Spend caps and kill switches</h4><p>A hard monthly USD cap, a softer cadence cap, and per-account switches keep paid LinkedIn scraping bounded; every spend check fails closed, so an error never spends your money.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
-        <article class="feat"><h4>Guardrails on every route</h4><p>Every request is wrapped with auth, schema validation, and per-route rate limits. When an AI key is out of quota, rejected, or missing, the feature says exactly what is wrong with a one-click path to fix it.</p><div class="tags"><span class="tag guard">Guardrail</span></div></article>
-        <article class="feat"><h4>See your scraping spend</h4><p>A read-only dashboard shows month-to-date scraping spend against the cap, run health, last refresh time, and discovery spend.</p></article>
-        <article class="feat"><h4>Privacy and Google Limited Use</h4><p>A full policy documents data handling, the Google Limited-Use disclosure, row-level security, and the extension's on-LinkedIn-only scope.</p></article>
-        <article class="feat"><h4>Connect an AI client</h4><p>Copy the hosted server URL with per-client setup steps for Claude, the Claude Code CLI, ChatGPT, Codex, and Cursor.</p></article>
-      </div>
-    </div>
-  </section>
-</main>
+</div>
 
 <footer>
-  <div class="wrap">
+  <div class="foot-inner">
     <div>
       <div class="f-title">CareerVine</div>
       <p>A personal networking CRM. Live at <a href="https://careervine.app">careervine.app</a>. Built with Next.js 16, Supabase, and a custom Material Design 3 component library.</p>
@@ -632,34 +996,138 @@
 
 <script>
   (function () {
-    // Theme toggle (respects OS default until the user overrides)
     var root = document.documentElement;
-    var btn = document.getElementById('themeToggle');
-    btn.addEventListener('click', function () {
+    var body = document.body;
+
+    /* ---------- Theme toggle ---------- */
+    document.getElementById('themeToggle').addEventListener('click', function () {
       var cur = root.getAttribute('data-theme');
-      if (!cur) {
-        cur = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      }
+      if (!cur) cur = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
     });
 
-    // Active-section highlighting in the nav
-    var links = Array.prototype.slice.call(document.querySelectorAll('.navlinks a'));
-    var map = {};
-    links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
-    var sections = Array.prototype.slice.call(document.querySelectorAll('main section'));
-    if ('IntersectionObserver' in window) {
-      var obs = new IntersectionObserver(function (entries) {
-        entries.forEach(function (e) {
-          if (e.isIntersecting) {
-            links.forEach(function (l) { l.classList.remove('active'); });
-            var active = map[e.target.id];
-            if (active) active.classList.add('active');
-          }
+    /* ---------- Mobile drawer ---------- */
+    var menuBtn = document.getElementById('menuToggle');
+    var backdrop = document.getElementById('backdrop');
+    function closeNav() { body.classList.remove('nav-open'); menuBtn.setAttribute('aria-expanded', 'false'); }
+    menuBtn.addEventListener('click', function () {
+      var open = body.classList.toggle('nav-open');
+      menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    backdrop.addEventListener('click', closeNav);
+    document.getElementById('sidebar').addEventListener('click', function (e) {
+      if (e.target.closest('a')) closeNav();
+    });
+
+    /* ---------- Tabs (overview: where it runs) ---------- */
+    var tabWrap = document.getElementById('surfaceTabs');
+    if (tabWrap) {
+      tabWrap.querySelectorAll('.tab-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          tabWrap.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+          tabWrap.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
+          btn.classList.add('active'); btn.setAttribute('aria-selected', 'true');
+          var panel = document.getElementById(btn.getAttribute('data-tab'));
+          if (panel) panel.classList.add('active');
         });
-      }, { rootMargin: '-45% 0px -50% 0px' });
-      sections.forEach(function (s) { obs.observe(s); });
+      });
     }
+
+    /* ---------- Left sidebar active-section sync ---------- */
+    var sideLinks = Array.prototype.slice.call(document.querySelectorAll('.nav-group a[data-sec]'));
+    var sideMap = {};
+    sideLinks.forEach(function (a) { sideMap[a.getAttribute('data-sec')] = a; });
+    var sections = Array.prototype.slice.call(document.querySelectorAll('main section.job'));
+
+    /* ---------- Build the right-hand TOC for a given section ---------- */
+    var tocList = document.getElementById('tocList');
+    var tocLinks = [];
+    var subTargets = [];
+
+    // Custom TOC entries for the overview section (its block headings)
+    var overviewToc = [
+      { id: 'ov-where', label: 'Where CareerVine runs' },
+      { id: 'ov-does',  label: 'What CareerVine does' },
+      { id: 'ov-want',  label: 'I want to...' },
+      { id: 'ov-next',  label: 'Next steps' }
+    ];
+
+    function buildToc(section) {
+      tocList.innerHTML = '';
+      tocLinks = [];
+      subTargets = [];
+      var entries = [];
+
+      if (section.id === 'overview') {
+        overviewToc.forEach(function (o) {
+          var el = document.getElementById(o.id);
+          if (el) entries.push({ el: el, label: o.label });
+        });
+      } else {
+        var groups = section.querySelectorAll('.group[id]');
+        groups.forEach(function (g) {
+          var h3 = g.querySelector('.grp-head h3');
+          if (h3) entries.push({ el: g, label: h3.textContent.trim() });
+        });
+        // Jobs with no sub-groups: show the section title itself
+        if (!entries.length) {
+          var h2 = section.querySelector('h2');
+          entries.push({ el: section, label: h2 ? h2.childNodes[0].textContent.trim() : section.id });
+        }
+      }
+
+      entries.forEach(function (e) {
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.href = '#' + e.el.id;
+        a.textContent = e.label;
+        a.setAttribute('data-target', e.el.id);
+        li.appendChild(a);
+        tocList.appendChild(li);
+        tocLinks.push(a);
+        subTargets.push(e.el);
+      });
+    }
+
+    function setTocActive() {
+      if (!subTargets.length) return;
+      var top = (document.querySelector('.topbar').offsetHeight || 57) + 24;
+      var current = subTargets[0];
+      subTargets.forEach(function (t) {
+        if (t.getBoundingClientRect().top <= top) current = t;
+      });
+      tocLinks.forEach(function (a) {
+        a.classList.toggle('active', a.getAttribute('data-target') === current.id);
+      });
+    }
+
+    /* ---------- Determine active job section on scroll ---------- */
+    var activeSectionId = null;
+    function updateActiveSection() {
+      var top = (document.querySelector('.topbar').offsetHeight || 57) + 40;
+      var current = sections[0];
+      sections.forEach(function (s) {
+        if (s.getBoundingClientRect().top <= top) current = s;
+      });
+      if (current.id !== activeSectionId) {
+        activeSectionId = current.id;
+        sideLinks.forEach(function (l) { l.classList.remove('active'); });
+        if (sideMap[activeSectionId]) sideMap[activeSectionId].classList.add('active');
+        buildToc(current);
+      }
+      setTocActive();
+    }
+
+    var ticking = false;
+    function onScroll() {
+      if (!ticking) {
+        window.requestAnimationFrame(function () { updateActiveSection(); ticking = false; });
+        ticking = true;
+      }
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    updateActiveSection();
   })();
 </script>
 
