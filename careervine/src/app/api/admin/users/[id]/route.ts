@@ -2,6 +2,7 @@ import { z } from "zod";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { writeAudit } from "@/lib/admin";
+import { removeUserStorageObjects } from "@/lib/storage-sweep";
 import {
   shapeAdminUser,
   keyStatusFor,
@@ -157,6 +158,11 @@ export const DELETE = withApiHandler({
     }
 
     const email = authData.user.email ?? null;
+
+    // Storage objects don't cascade with the DB rows — clear the user's
+    // folders in both tracked buckets first, best-effort (the daily
+    // storage-sweep cron self-heals anything missed here).
+    await removeUserStorageObjects(service, id);
 
     const { error } = await service.auth.admin.deleteUser(id);
     if (error) throw new ApiError(`Delete failed: ${error.message}`, 400);

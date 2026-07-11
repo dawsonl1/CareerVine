@@ -1,0 +1,214 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * Storage orphan reconciliation (CAR-69).
+ *
+ * Cascade deletes (user deletion, contact/meeting deletion) remove DB rows but
+ * never touch Supabase Storage, so objects orphan. This sweep lists each
+ * tracked bucket, diffs against the table that owns it, and removes objects
+ * with no matching row. It is the safety net; explicit delete paths also
+ * remove storage inline for immediacy.
+ *
+ * Safety properties:
+ * - Storage is listed BEFORE the DB snapshot is taken, so an object uploaded
+ *   mid-sweep either isn't seen or its row is already visible in the snapshot.
+ * - Objects younger than `minAgeMs` (default 24h) are never touched —
+ *   uploadAttachment writes storage first and inserts the row after, so a
+ *   fresh upload can briefly look orphaned.
+ * - Exact-path matching only: object names embed raw user filenames, so
+ *   prefix parsing is never safe.
+ */
+
+const LIST_PAGE_SIZE = 100;
+const DB_PAGE_SIZE = 1000;
+const REMOVE_BATCH_SIZE = 100;
+export const DEFAULT_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+export const SWEPT_BUCKETS = ["attachments", "application-files"] as const;
+export type SweptBucket = (typeof SWEPT_BUCKETS)[number];
+
+export interface BucketSweepResult {
+  scanned: number;
+  live: number;
+  skippedRecent: number;
+  removed: string[];
+  errors: string[];
+}
+
+export type SweepResult = Record<SweptBucket, BucketSweepResult>;
+
+interface StorageObject {
+  path: string;
+  createdAt: string | null;
+}
+
+/** Recursively list every object under a prefix (keys are `{userId}/{name}`). */
+async function listAllObjects(
+  service: SupabaseClient,
+  bucket: string,
+  rootPrefix = "",
+): Promise<StorageObject[]> {
+  const objects: StorageObject[] = [];
+  const prefixes = [rootPrefix];
+  while (prefixes.length > 0) {
+    const prefix = prefixes.shift()!;
+    for (let offset = 0; ; offset += LIST_PAGE_SIZE) {
+      const { data, error } = await service.storage
+        .from(bucket)
+        .list(prefix, { limit: LIST_PAGE_SIZE, offset });
+      if (error) throw new Error(`list ${bucket}/${prefix}: ${error.message}`);
+      for (const item of data ?? []) {
+        const path = prefix ? `${prefix}/${item.name}` : item.name;
+        // Folders come back as entries with a null id.
+        if (item.id === null) prefixes.push(path);
+        else objects.push({ path, createdAt: item.created_at ?? null });
+      }
+      if (!data || data.length < LIST_PAGE_SIZE) break;
+    }
+  }
+  return objects;
+}
+
+/** All object_paths tracked in the attachments table for the given bucket. */
+async function fetchAttachmentPaths(
+  service: SupabaseClient,
+  bucket: string,
+): Promise<Set<string>> {
+  const paths = new Set<string>();
+  for (let from = 0; ; from += DB_PAGE_SIZE) {
+    const { data, error } = await service
+      .from("attachments")
+      .select("object_path")
+      .eq("bucket", bucket)
+      .range(from, from + DB_PAGE_SIZE - 1);
+    if (error) throw new Error(`attachments query: ${error.message}`);
+    for (const row of (data as { object_path: string }[] | null) ?? []) {
+      paths.add(row.object_path);
+    }
+    if (!data || data.length < DB_PAGE_SIZE) break;
+  }
+  return paths;
+}
+
+/** All resume/cover-letter paths tracked by pipeline_applications. */
+async function fetchApplicationFilePaths(
+  service: SupabaseClient,
+): Promise<Set<string>> {
+  const paths = new Set<string>();
+  for (let from = 0; ; from += DB_PAGE_SIZE) {
+    const { data, error } = await service
+      .from("pipeline_applications")
+      .select("resume_path, cover_letter_path")
+      .range(from, from + DB_PAGE_SIZE - 1);
+    if (error) throw new Error(`pipeline_applications query: ${error.message}`);
+    const rows =
+      (data as { resume_path: string | null; cover_letter_path: string | null }[] | null) ?? [];
+    for (const row of rows) {
+      if (row.resume_path) paths.add(row.resume_path);
+      if (row.cover_letter_path) paths.add(row.cover_letter_path);
+    }
+    if (!data || data.length < DB_PAGE_SIZE) break;
+  }
+  return paths;
+}
+
+const LIVE_PATH_FETCHERS: Record<
+  SweptBucket,
+  (service: SupabaseClient) => Promise<Set<string>>
+> = {
+  attachments: (service) => fetchAttachmentPaths(service, "attachments"),
+  "application-files": fetchApplicationFilePaths,
+};
+
+export interface SweepOptions {
+  service: SupabaseClient;
+  /** Report orphans without deleting anything. */
+  dryRun?: boolean;
+  /** Objects newer than this are never deleted. */
+  minAgeMs?: number;
+  /** Injectable clock for tests. */
+  now?: () => number;
+}
+
+export async function sweepStorageOrphans(opts: SweepOptions): Promise<SweepResult> {
+  const { service, dryRun = false, minAgeMs = DEFAULT_MIN_AGE_MS, now = Date.now } = opts;
+  const result = {} as SweepResult;
+
+  for (const bucket of SWEPT_BUCKETS) {
+    const bucketResult: BucketSweepResult = {
+      scanned: 0,
+      live: 0,
+      skippedRecent: 0,
+      removed: [],
+      errors: [],
+    };
+    result[bucket] = bucketResult;
+
+    let objects: StorageObject[];
+    let livePaths: Set<string>;
+    try {
+      // Storage first, DB second — see safety notes at top of file.
+      objects = await listAllObjects(service, bucket);
+      livePaths = await LIVE_PATH_FETCHERS[bucket](service);
+    } catch (err) {
+      bucketResult.errors.push(err instanceof Error ? err.message : String(err));
+      continue;
+    }
+
+    bucketResult.scanned = objects.length;
+    const cutoff = now() - minAgeMs;
+    const orphans: string[] = [];
+    for (const obj of objects) {
+      if (livePaths.has(obj.path)) {
+        bucketResult.live++;
+      } else if (obj.createdAt !== null && new Date(obj.createdAt).getTime() > cutoff) {
+        bucketResult.skippedRecent++;
+      } else {
+        orphans.push(obj.path);
+      }
+    }
+
+    for (let i = 0; i < orphans.length; i += REMOVE_BATCH_SIZE) {
+      const batch = orphans.slice(i, i + REMOVE_BATCH_SIZE);
+      if (!dryRun) {
+        const { error } = await service.storage.from(bucket).remove(batch);
+        if (error) {
+          bucketResult.errors.push(`remove batch: ${error.message}`);
+          continue;
+        }
+      }
+      for (const path of batch) {
+        console.log(`[storage-sweep] ${dryRun ? "orphan (dry-run)" : "removed"} ${bucket}/${path}`);
+      }
+      bucketResult.removed.push(...batch);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Best-effort inline cleanup of one user's storage before their account is
+ * deleted (auth.admin.deleteUser cascades the DB rows but not storage).
+ * Errors are swallowed — the daily sweep self-heals anything missed here.
+ */
+export async function removeUserStorageObjects(
+  service: SupabaseClient,
+  userId: string,
+): Promise<void> {
+  for (const bucket of SWEPT_BUCKETS) {
+    try {
+      const userPaths = (await listAllObjects(service, bucket, userId)).map((o) => o.path);
+      for (let i = 0; i < userPaths.length; i += REMOVE_BATCH_SIZE) {
+        const batch = userPaths.slice(i, i + REMOVE_BATCH_SIZE);
+        const { error } = await service.storage.from(bucket).remove(batch);
+        if (error) throw new Error(error.message);
+        for (const path of batch) {
+          console.log(`[user-delete] removed ${bucket}/${path}`);
+        }
+      }
+    } catch (err) {
+      console.error(`[user-delete] storage cleanup failed for ${bucket}:`, err);
+    }
+  }
+}
