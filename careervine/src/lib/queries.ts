@@ -1480,6 +1480,34 @@ export async function updateUserProfile(
   return data;
 }
 
+/**
+ * Read the set of getting-started checklist row IDs the user has dismissed on
+ * the Home page (CAR-73). Returns [] when the column is empty/absent.
+ */
+export async function getDismissedGettingStarted(userId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("users")
+    .select("dismissed_getting_started")
+    .eq("id", userId)
+    .single();
+  if (error) throw error;
+  return data?.dismissed_getting_started ?? [];
+}
+
+/**
+ * Persist the full set of dismissed getting-started row IDs. The client owns
+ * the set (it already knows the current dismissals plus the new one), so we
+ * write the whole array rather than array_append — no RPC, no read-modify-write
+ * race between rapid dismissals.
+ */
+export async function setDismissedGettingStarted(userId: string, ids: string[]): Promise<void> {
+  const { error } = await supabase
+    .from("users")
+    .update({ dismissed_getting_started: ids })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
 // ═══════════════════════════════════════════════════════════
 // Attachments
 // ═══════════════════════════════════════════════════════════

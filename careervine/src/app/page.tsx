@@ -29,6 +29,8 @@ import {
   snoozeContact,
   skipContactFirstOutreach,
   setSuggestionCooldown,
+  getDismissedGettingStarted,
+  setDismissedGettingStarted,
 } from "@/lib/queries";
 import type { Database } from "@/lib/database.types";
 import { useQuickCapture } from "@/components/quick-capture-context";
@@ -113,6 +115,8 @@ export default function Home() {
   const [band3Loading, setBand3Loading] = useState(true);
   const [relationshipsOnTrack, setRelationshipsOnTrack] = useState<Awaited<ReturnType<typeof getRelationshipsOnTrack>> | null>(null);
   const [streak, setStreak] = useState(0);
+  // Getting-started checklist rows the user has dismissed (CAR-73).
+  const [dismissedGettingStarted, setDismissedGettingStartedState] = useState<string[]>([]);
 
   // Calendar height prediction from fast count query
   // >= 3 items: assume 5 visible rows (suggestions will fill gaps). Never resize.
@@ -332,6 +336,23 @@ export default function Home() {
     }
   }, [user, loadCounts, loadCoreData, loadBand3]);
 
+  // Load which getting-started checklist rows the user has dismissed (CAR-73).
+  // Only surfaces for brand-new accounts, but the read is cheap and harmless.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    getDismissedGettingStarted(user.id)
+      .then((ids) => {
+        if (!cancelled) setDismissedGettingStartedState(ids);
+      })
+      .catch(() => {
+        // Non-fatal: fall back to showing the full checklist.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   // Load schedule after core data so lastTouchLookup is available for contact matching
   useEffect(() => {
     if (dataLoaded) loadSchedule();
@@ -382,6 +403,22 @@ export default function Home() {
       }
     },
     [toast]
+  );
+
+  const dismissGettingStarted = useCallback(
+    (id: string) => {
+      if (!user) return;
+      // Optimistic: hide the row now, persist the new full set, revert on failure.
+      const prev = dismissedGettingStarted;
+      if (prev.includes(id)) return;
+      const next = [...prev, id];
+      setDismissedGettingStartedState(next);
+      setDismissedGettingStarted(user.id, next).catch(() => {
+        setDismissedGettingStartedState(prev);
+        toast("Couldn't dismiss that item", { variant: "error" });
+      });
+    },
+    [user, dismissedGettingStarted, toast]
   );
 
   const saveSuggestion = useCallback(
@@ -747,6 +784,8 @@ export default function Home() {
               isEmpty={isEmpty}
               onLogConversation={() => openQuickCapture()}
               calendarConnected={calendarConnected}
+              dismissedGettingStarted={dismissedGettingStarted}
+              onDismissGettingStarted={dismissGettingStarted}
             />
           </div>
 
