@@ -535,6 +535,12 @@ export interface CompanyPerson {
     location_country: string | null;
     workplace_type: string | null;
   }>;
+  /**
+   * The contact's current employer (their `contact_companies` row where `is_current`),
+   * which may be a different company than the one whose page this is — mirrors the
+   * contacts-list card. Null when no current company is on file.
+   */
+  current_position: { title: string | null; company_id: number; company_name: string } | null;
 }
 
 export interface LocationFacet {
@@ -650,8 +656,8 @@ export async function getCompanyDetail(
   const rows = ((empRows as unknown as EmpRow[] | null) ?? []);
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
 
-  // Emails, alum badge, stages, latest logged interaction
-  const [emailRows, schoolRows, interactionRows] = await Promise.all([
+  // Emails, alum badge, stages, latest logged interaction, current employer
+  const [emailRows, schoolRows, interactionRows, currentPositionRows] = await Promise.all([
     chunked(contactIds, async (chunk) => {
       const { data } = await db()
         .from("contact_emails")
@@ -672,6 +678,14 @@ export async function getCompanyDetail(
         .select("contact_id, interaction_type, interaction_date")
         .in("contact_id", chunk)
         .order("interaction_date", { ascending: false });
+      return data ?? [];
+    }),
+    chunked(contactIds, async (chunk) => {
+      const { data } = await db()
+        .from("contact_companies")
+        .select("contact_id, title, companies(id, name)")
+        .eq("is_current", true)
+        .in("contact_id", chunk);
       return data ?? [];
     }),
   ]);
@@ -695,6 +709,14 @@ export async function getCompanyDetail(
     if (!lastInteractionByContact.has(i.contact_id)) {
       lastInteractionByContact.set(i.contact_id, { type: i.interaction_type, date: i.interaction_date });
     }
+  }
+
+  // Current employer per contact (contact_companies.is_current); a contact could
+  // theoretically have more than one flagged current — keep the first seen.
+  const currentPositionByContact = new Map<number, { title: string | null; company_id: number; company_name: string }>();
+  for (const p of currentPositionRows as unknown as Array<{ contact_id: number; title: string | null; companies: { id: number; name: string } | null }>) {
+    if (!p.companies || currentPositionByContact.has(p.contact_id)) continue;
+    currentPositionByContact.set(p.contact_id, { title: p.title, company_id: p.companies.id, company_name: p.companies.name });
   }
 
   const nonBench = new Map<number, { id: number; stage_override: string | null }>();
@@ -734,6 +756,7 @@ export async function getCompanyDetail(
         last_interaction: lastInteractionByContact.get(r.contact_id) ?? null,
         adjacency_score: Number.isNaN(adjacency) ? null : adjacency,
         roles: [],
+        current_position: currentPositionByContact.get(r.contact_id) ?? null,
       };
       peopleById.set(r.contact_id, person);
     }
