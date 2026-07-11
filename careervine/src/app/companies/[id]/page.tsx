@@ -163,7 +163,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
     return (
       <>
         {onboardingOutreach && (
-          <div className="mb-5 flex items-start gap-3 p-4 rounded-2xl bg-primary/8 border border-primary/25 shadow-sm">
+          <div className="onboarding-cue mb-5 flex items-start gap-3 p-4 rounded-2xl bg-primary/8 border border-primary/25">
             <Mail className="h-5 w-5 text-primary shrink-0 mt-0.5" />
             <div className="flex-1">
               {gmailConnected ? (
@@ -214,6 +214,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         onScopeChange={setScope}
         gmailConnected={gmailConnected}
         onCompose={composeForOnboarding}
+        highlightEmail={onboardingOutreach && gmailConnected}
         onSetTier={handleSetTier}
         jobChangeIds={jobChangeIds}
         onOfficesChanged={load}

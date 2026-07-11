@@ -548,10 +548,14 @@ function ContactEmailAction({
   person,
   gmailConnected,
   onCompose,
+  highlight,
 }: {
   person: CompanyPerson;
   gmailConnected: boolean;
   onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+  /** Onboarding outreach cue (CAR-88): pulse-glow this button in sync with
+   *  the instructions banner so the next click is unmistakable. */
+  highlight?: boolean;
 }) {
   const email = person.email;
   if (!email) return null;
@@ -572,7 +576,11 @@ function ContactEmailAction({
           <button
             type="button"
             onClick={() => onCompose({ to: email.address, name: person.name, contactId: person.contact_id })}
-            className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high cursor-pointer transition-colors"
+            className={
+              highlight
+                ? "onboarding-cue p-1.5 rounded-lg bg-primary/10 text-primary ring-1 ring-primary/30 cursor-pointer transition-colors"
+                : "p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high cursor-pointer transition-colors"
+            }
           >
             <Mail className="w-4 h-4" />
           </button>
@@ -659,6 +667,7 @@ function ContactRow({
   showLocation,
   gmailConnected,
   onCompose,
+  highlightEmail,
   onSetTier,
 }: {
   person: CompanyPerson;
@@ -666,6 +675,7 @@ function ContactRow({
   showLocation?: boolean;
   gmailConnected: boolean;
   onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+  highlightEmail?: boolean;
   onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
 }) {
   const router = useRouter();
@@ -737,7 +747,12 @@ function ContactRow({
         </div>
 
         <div onClick={(e) => e.stopPropagation()}>
-          <ContactEmailAction person={person} gmailConnected={gmailConnected} onCompose={onCompose} />
+          <ContactEmailAction
+            person={person}
+            gmailConnected={gmailConnected}
+            onCompose={onCompose}
+            highlight={highlightEmail}
+          />
         </div>
 
         <TierMoves person={person} onSetTier={onSetTier} />
@@ -1095,6 +1110,7 @@ export function PipelineLayout({
   onScopeChange,
   gmailConnected,
   onCompose,
+  highlightEmail,
   onSetTier,
   jobChangeIds,
   onOfficesChanged,
@@ -1113,6 +1129,8 @@ export function PipelineLayout({
   onScopeChange: (scopeKey: string) => void;
   gmailConnected: boolean;
   onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+  /** Onboarding outreach cue (CAR-88): pulse-glow active email buttons. */
+  highlightEmail?: boolean;
   onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
   /** Bench contacts with an unactioned job-change event (plan 29 Q5 hint). */
   jobChangeIds: Set<number>;
@@ -1295,6 +1313,7 @@ export function PipelineLayout({
                           showLocation={showLocationOnContacts}
                           gmailConnected={gmailConnected}
                           onCompose={onCompose}
+                          highlightEmail={highlightEmail}
                           onSetTier={onSetTier}
                         />
                       ))}
