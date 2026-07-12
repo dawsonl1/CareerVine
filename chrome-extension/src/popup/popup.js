@@ -1,312 +1,275 @@
 /**
  * CareerVine Extension Popup Logic
- * Handles authentication and user interface
+ * Auth + a focused, context-aware signed-in view.
  */
+
+const WEBAPP_BASE = 'https://www.careervine.app';
+
+const ICON_PROFILE =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>';
+const ICON_SEARCH =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
 
 class PopupManager {
   constructor() {
     this.api = new CareerVineAPI();
     this.storage = new StorageHelper();
-
     this.init();
   }
 
   async init() {
-    // Set up event listeners
     this.setupEventListeners();
 
-    // Show the installed version (single source of truth: the manifest)
     const versionEl = document.querySelector('.app-version');
-    if (versionEl) {
-      versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
-    }
+    if (versionEl) versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
 
-    // Check authentication status
     await this.checkAuthStatus();
-
-    // Load recent contacts
-    await this.loadRecentContacts();
-
-    // Get current tab info
-    await this.getCurrentTabInfo();
   }
 
   setupEventListeners() {
-    // Authentication form
-    const authForm = document.getElementById('authForm');
-    if (authForm) {
-      authForm.addEventListener('submit', (e) => this.handleSignIn(e));
-    }
+    document.getElementById('authForm')?.addEventListener('submit', (e) => this.handleSignIn(e));
 
-    // Clear status message when user starts typing
-    const emailInput = document.getElementById('email');
-    const passwordInput = document.getElementById('password');
-    if (emailInput) {
-      emailInput.addEventListener('input', () => this.clearAuthStatus());
-    }
-    if (passwordInput) {
-      passwordInput.addEventListener('input', () => this.clearAuthStatus());
-    }
+    // Clear the error as soon as the user edits either field.
+    document.getElementById('email')?.addEventListener('input', () => this.clearError());
+    document.getElementById('password')?.addEventListener('input', () => this.clearError());
 
-    // Sign up link
-    const signupLink = document.getElementById('signupLink');
-    if (signupLink) {
-      signupLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        chrome.tabs.create({ url: 'https://www.careervine.app/auth?mode=signup' });
-      });
-    }
+    document.getElementById('togglePassword')?.addEventListener('click', () => this.togglePassword());
 
-    // Forgot password link
-    const forgotLink = document.getElementById('forgotLink');
-    if (forgotLink) {
-      forgotLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        chrome.tabs.create({ url: 'https://www.careervine.app/auth?mode=reset' });
-      });
-    }
-
-    // Sign out button
-    const signOutBtn = document.getElementById('signOutBtn');
-    if (signOutBtn) {
-      signOutBtn.addEventListener('click', () => this.handleSignOut());
-    }
-
-    // Tab navigation
-    const tabBtns = document.querySelectorAll('.nav-tab');
-    tabBtns.forEach(btn => {
-      btn.addEventListener('click', () => this.switchTab(btn.dataset.tab));
+    document.getElementById('signupLink')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: `${WEBAPP_BASE}/auth?mode=signup` });
     });
+    document.getElementById('forgotLink')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: `${WEBAPP_BASE}/auth?mode=reset` });
+    });
+
+    document.getElementById('openAppBtn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: WEBAPP_BASE });
+    });
+
+    document.getElementById('importBtn')?.addEventListener('click', () => this.importCurrentProfile());
+    document.getElementById('signOutBtn')?.addEventListener('click', () => this.handleSignOut());
+  }
+
+  // ----- View switching -----
+
+  show(view) {
+    document.getElementById('authSection').style.display = view === 'auth' ? 'flex' : 'none';
+    document.getElementById('mainSection').style.display = view === 'main' ? 'flex' : 'none';
+    document.getElementById('loadingSection').style.display = view === 'loading' ? 'flex' : 'none';
   }
 
   async checkAuthStatus() {
+    this.show('loading');
     try {
-      const authStatus = await this.api.checkAuth();
-      
-      if (authStatus.authenticated) {
-        this.showMainSection(authStatus.user);
+      const { authenticated, user } = await this.api.checkAuth();
+      if (authenticated) {
+        this.showMain(user);
       } else {
-        this.showAuthSection();
+        this.show('auth');
       }
     } catch (error) {
       console.error('Auth check failed:', error);
-      this.showAuthSection();
+      this.show('auth');
     }
   }
 
-  showAuthSection() {
-    document.getElementById('authSection').style.display = 'block';
-    document.getElementById('mainSection').style.display = 'none';
-    document.getElementById('loadingSection').style.display = 'none';
-    document.getElementById('signOutBtn').style.display = 'none';
+  async showMain(user) {
+    this.show('main');
+
+    const email = user?.email || '';
+    const initial = email ? email[0].toUpperCase() : '?';
+    const avatar = document.getElementById('userAvatar');
+    document.getElementById('avatarInitial').textContent = initial;
+    if (avatar && email) avatar.title = email;
+
+    await Promise.all([this.renderPageCard(), this.loadRecentContacts()]);
   }
 
-  showMainSection(user) {
-    document.getElementById('authSection').style.display = 'none';
-    document.getElementById('mainSection').style.display = 'block';
-    document.getElementById('loadingSection').style.display = 'none';
-    document.getElementById('signOutBtn').style.display = 'block';
-    
-    if (user) {
-      const emailEl = document.getElementById('userEmail');
-      if (emailEl) emailEl.textContent = user.email || 'Signed in';
-    }
-  }
+  // ----- Sign in -----
 
   async handleSignIn(e) {
     e.preventDefault();
-    
-    const email = document.getElementById('email').value;
+    const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
-    const signInBtn = document.getElementById('signInBtn');
-    
-    // Show loading state
-    signInBtn.disabled = true;
-    signInBtn.textContent = 'Signing in...';
-    
+    const btn = document.getElementById('signInBtn');
+
+    if (!email || !password) return;
+
+    this.setLoading(btn, true, 'Signing in…');
+    this.clearError();
     try {
-      const session = await this.api.authenticate(email, password);
-      this.showStatusMessage('Signed in successfully!', 'success');
-      
-      // Switch to main section after a short delay
-      setTimeout(async () => {
-        await this.checkAuthStatus();
-      }, 1000);
-      
+      await this.api.authenticate(email, password);
+      await this.checkAuthStatus();
     } catch (error) {
-      this.showStatusMessage(`Sign in failed: ${error.message}`, 'error');
-    } finally {
-      signInBtn.disabled = false;
-      signInBtn.textContent = 'Sign In';
+      this.showError(this.friendlyAuthError(error.message));
+      this.setLoading(btn, false, 'Sign in');
     }
+  }
+
+  friendlyAuthError(message) {
+    const m = (message || '').toLowerCase();
+    if (m.includes('invalid') || m.includes('credentials')) {
+      return 'That email or password is incorrect. Please try again.';
+    }
+    if (m.includes('network') || m.includes('failed to fetch')) {
+      return 'Could not reach CareerVine. Check your connection and try again.';
+    }
+    return message || 'Sign in failed. Please try again.';
+  }
+
+  togglePassword() {
+    const input = document.getElementById('password');
+    const btn = document.getElementById('togglePassword');
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    btn.querySelector('.icon-eye').style.display = show ? 'none' : 'block';
+    btn.querySelector('.icon-eye-off').style.display = show ? 'block' : 'none';
   }
 
   async handleSignOut() {
     try {
       await this.api.logout();
-      this.showAuthSection();
-      this.clearForm();
     } catch (error) {
       console.error('Sign out failed:', error);
-      this.showStatusMessage('Sign out failed', 'error');
     }
-  }
-
-  clearForm() {
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
-    this.clearAuthStatus();
+    this.clearError();
+    this.show('auth');
   }
 
-  clearAuthStatus() {
-    const authStatus = document.getElementById('authStatus');
-    if (authStatus) {
-      authStatus.style.display = 'none';
+  // ----- Signed-in: current page -----
+
+  async renderPageCard() {
+    const card = document.getElementById('pageCard');
+    const iconEl = document.getElementById('pageCardIcon');
+    const titleEl = document.getElementById('pageCardTitle');
+    const subEl = document.getElementById('pageCardSub');
+    const importBtn = document.getElementById('importBtn');
+
+    let onProfile = false;
+    let name = '';
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      this._activeTabId = tab?.id ?? null;
+      onProfile = !!tab?.url && /linkedin\.com\/in\//.test(tab.url);
+      name = this.profileNameFromTitle(tab?.title);
+    } catch (error) {
+      console.error('Failed to read current tab:', error);
+    }
+
+    if (onProfile) {
+      card.classList.add('is-active');
+      iconEl.innerHTML = ICON_PROFILE;
+      titleEl.textContent = name || 'LinkedIn profile';
+      subEl.textContent = 'Ready to import into CareerVine';
+      importBtn.style.display = '';
+    } else {
+      card.classList.remove('is-active');
+      iconEl.innerHTML = ICON_SEARCH;
+      titleEl.textContent = 'Import from LinkedIn';
+      subEl.textContent = 'Open any profile, then import them here';
+      importBtn.style.display = 'none';
     }
   }
 
-  switchTab(tabName) {
-    // Update tab buttons
-    document.querySelectorAll('.nav-tab').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.tab === tabName);
-    });
-    
-    // Update tab content
-    document.querySelectorAll('.tab-content').forEach(content => {
-      content.classList.toggle('active', content.id === `${tabName}Tab`);
-    });
-    
+  profileNameFromTitle(title) {
+    if (!title) return '';
+    // LinkedIn profile titles look like "(3) Jane Doe | LinkedIn".
+    const cleaned = title.replace(/^\(\d+\)\s*/, '').split('|')[0].trim();
+    return cleaned && !/^linkedin$/i.test(cleaned) ? cleaned : '';
   }
 
-  async loadRecentContacts() {
+  importCurrentProfile() {
+    if (this._activeTabId == null) return;
+    // The panel lives in the LinkedIn tab's content script; ask it to open.
+    // Fire-and-forget: if the content script isn't ready we simply close.
     try {
-      const recentContacts = await this.storage.getRecentContacts();
-      const container = document.getElementById('recentContacts');
-      
-      if (recentContacts.length === 0) {
-        container.innerHTML = '<p class="empty-state">No contacts imported yet</p>';
-        return;
-      }
-      
-      container.innerHTML = '';
-      recentContacts.forEach(contact => {
-        const item = document.createElement('div');
-        item.className = 'contact-item';
+      chrome.tabs.sendMessage(this._activeTabId, { action: 'openPanel' }, () => void chrome.runtime.lastError);
+    } catch (error) {
+      console.error('Failed to open panel:', error);
+    }
+    window.close();
+  }
 
-        const name = document.createElement('div');
-        name.className = 'contact-name';
-        name.textContent = contact.name || 'Unknown';
-        item.appendChild(name);
+  // ----- Signed-in: recent imports -----
 
-        const details = document.createElement('div');
-        details.className = 'contact-details';
-        [contact.headline, contact.company, contact.school].filter(Boolean).forEach(text => {
-          const div = document.createElement('div');
-          div.textContent = text;
-          details.appendChild(div);
-        });
-        item.appendChild(details);
-
-        const meta = document.createElement('div');
-        meta.className = 'contact-meta';
-        const src = document.createElement('span');
-        src.textContent = 'Imported from LinkedIn';
-        const date = document.createElement('span');
-        date.textContent = this.formatDate(contact.importedAt);
-        meta.appendChild(src);
-        meta.appendChild(date);
-        item.appendChild(meta);
-
-        container.appendChild(item);
-      });
-      
+  async loadRecentContacts() {
+    const container = document.getElementById('recentContacts');
+    let recent = [];
+    try {
+      recent = await this.storage.getRecentContacts();
     } catch (error) {
       console.error('Failed to load recent contacts:', error);
     }
-  }
 
-  async getCurrentTabInfo() {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const pageInfo = document.getElementById('currentPageInfo');
-      
-      if (tab.url?.includes('linkedin.com/in/')) {
-        pageInfo.textContent = 'LinkedIn Profile Page';
-        pageInfo.style.color = '#2d6a30';
-      } else {
-        pageInfo.textContent = 'Not a LinkedIn profile';
-        pageInfo.style.color = '#666';
+    if (!recent.length) return; // keep the static empty state already in the DOM
+
+    container.innerHTML = '';
+    recent.forEach((contact) => {
+      const item = document.createElement('div');
+      item.className = 'contact-item';
+
+      const name = document.createElement('div');
+      name.className = 'contact-name';
+      name.textContent = contact.name || 'Unknown';
+      item.appendChild(name);
+
+      const subText = [contact.headline, contact.company].filter(Boolean).join(' · ');
+      if (subText) {
+        const sub = document.createElement('div');
+        sub.className = 'contact-sub';
+        sub.textContent = subText;
+        item.appendChild(sub);
       }
-      
-    } catch (error) {
-      console.error('Failed to get current tab info:', error);
-    }
+
+      const time = document.createElement('div');
+      time.className = 'contact-time';
+      time.textContent = this.formatDate(contact.importedAt);
+      item.appendChild(time);
+
+      container.appendChild(item);
+    });
   }
 
   formatDate(dateString) {
-    if (!dateString) return '';
-    
+    if (!dateString) return 'Imported from LinkedIn';
     const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    
-    if (diffHours < 1) {
-      return 'Just now';
-    } else if (diffHours < 24) {
-      return `${diffHours}h ago`;
-    } else {
-      const diffDays = Math.floor(diffHours / 24);
-      if (diffDays < 7) {
-        return `${diffDays}d ago`;
-      } else {
-        return date.toLocaleDateString();
-      }
-    }
+    const diffHours = Math.floor((Date.now() - date.getTime()) / 3600000);
+    if (diffHours < 1) return 'Imported just now';
+    if (diffHours < 24) return `Imported ${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `Imported ${diffDays}d ago`;
+    return `Imported ${date.toLocaleDateString()}`;
   }
 
-  showStatusMessage(message, type = 'info') {
-    // Use the dedicated auth status container if we're in auth section
-    const authStatus = document.getElementById('authStatus');
-    const authSection = document.getElementById('authSection');
-    
-    if (authStatus && authSection.style.display !== 'none') {
-      // Show auth-specific status message
-      authStatus.className = `status-message ${type}`;
-      authStatus.querySelector('.status-text').textContent = message;
-      authStatus.style.display = 'block';
-      
-      // Auto-hide after 5 seconds
-      setTimeout(() => {
-        authStatus.style.display = 'none';
-      }, 5000);
-    } else {
-      // For other sections, create dynamic status message
-      const existing = document.querySelector('.status-message:not(#authStatus)');
-      if (existing) {
-        existing.remove();
-      }
-      
-      const statusDiv = document.createElement('div');
-      statusDiv.className = `status-message ${type}`;
-      statusDiv.textContent = message;
-      
-      const currentSection = document.querySelector('.popup-content > section[style*="block"], .popup-content > section:not([style*="none"])');
-      if (currentSection) {
-        currentSection.insertBefore(statusDiv, currentSection.firstChild);
-      }
-      
-      setTimeout(() => {
-        if (statusDiv.parentNode) {
-          statusDiv.remove();
-        }
-      }, 5000);
-    }
+  // ----- Helpers -----
+
+  setLoading(btn, loading, label) {
+    if (!btn) return;
+    btn.classList.toggle('is-loading', loading);
+    btn.disabled = loading;
+    const labelEl = btn.querySelector('.btn-label');
+    if (labelEl && label) labelEl.textContent = label;
+  }
+
+  showError(message) {
+    const el = document.getElementById('authError');
+    if (!el) return;
+    el.textContent = message;
+    el.style.display = 'block';
+  }
+
+  clearError() {
+    const el = document.getElementById('authError');
+    if (el) el.style.display = 'none';
   }
 }
 
-// Initialize popup when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
   window.popupManager = new PopupManager();
 });
-

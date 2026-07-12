@@ -10,6 +10,11 @@ import {
   User,
   ExternalLink,
   Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Sprout,
+  X,
   Pencil,
   AlertTriangle,
   Sparkles,
@@ -28,6 +33,18 @@ import {
 } from "./lib/profile-format";
 
 declare const chrome: any;
+
+/** Turn a raw auth error into something a user can act on. */
+function friendlyAuthError(message?: string): string {
+  const m = (message || "").toLowerCase();
+  if (m.includes("invalid") || m.includes("credentials")) {
+    return "That email or password is incorrect. Please try again.";
+  }
+  if (m.includes("network") || m.includes("failed to fetch")) {
+    return "Could not reach CareerVine. Check your connection and try again.";
+  }
+  return message || "Sign in failed. Please try again.";
+}
 
 type Location = {
   city: string | null;
@@ -677,6 +694,8 @@ const App: React.FC = () => {
   const [editedProfile, setEditedProfile] = useState<ProfileData | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [autoScrape, setAutoScrape] = useState(false);
@@ -708,27 +727,31 @@ const App: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (authLoading) return;
     setAuthError(null);
-    
+    setAuthLoading(true);
+
     try {
       const response = await chrome?.runtime?.sendMessage?.({
         action: "authenticate",
         credentials: { email, password }
       });
-      
+
       if (response?.success) {
-        setIsAuthenticated(true);
         setEmail("");
         setPassword("");
+        setIsAuthenticated(true);
         // Ask the content script to push current page state now that we can
         // make authenticated calls (DB check, cache, optional auto-scrape).
         (window as any).__cv_bus?.dispatchEvent(new CustomEvent("panel-ready"));
       } else {
-        setAuthError(response?.error || "Login failed");
+        setAuthError(friendlyAuthError(response?.error));
+        setAuthLoading(false);
       }
     } catch (error) {
       console.error("Login error", error);
-      setAuthError("Login failed. Please try again.");
+      setAuthError("Could not reach CareerVine. Check your connection and try again.");
+      setAuthLoading(false);
     }
   };
 
@@ -955,8 +978,8 @@ const App: React.FC = () => {
     return (
       <div className="cv-panel">
         <div className="cv-loading">
-          <div className="cv-loading-spinner"></div>
-          <p>Checking authentication...</p>
+          <Loader2 className="cv-spinner" />
+          <p>Loading…</p>
         </div>
       </div>
     );
@@ -965,79 +988,87 @@ const App: React.FC = () => {
   if (!isAuthenticated) {
     return (
       <div className="cv-panel">
-        <header className="cv-header">
-          <h2 className="cv-header-title">Sign In</h2>
-        </header>
-        
-        <main className="cv-main">
-          <div className="cv-login-container">
-            <div className="cv-login-logo">
-              <h1 className="cv-login-title">CareerVine</h1>
-              <p className="cv-login-subtitle">Sign in to manage your professional network</p>
+        <main className="cv-auth">
+          <button className="cv-auth-close" onClick={handleClosePanel} aria-label="Close">
+            <X size={18} />
+          </button>
+
+          <div className="cv-auth-inner">
+            <div className="cv-brand-block">
+              <div className="cv-brand-badge">
+                <Sprout size={30} />
+              </div>
+              <h1 className="cv-auth-title">Welcome back</h1>
+              <p className="cv-auth-subtitle">Sign in to CareerVine</p>
             </div>
-            
-            <form onSubmit={handleLogin} className="cv-login-form">
-              <div className="cv-form-group">
-                <label htmlFor="email" className="cv-form-label">Email</label>
-                <input
-                  id="email"
-                  type="email"
-                  className="cv-form-input"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  required
-                />
-              </div>
-              
-              <div className="cv-form-group">
-                <label htmlFor="password" className="cv-form-label">Password</label>
-                <input
-                  id="password"
-                  type="password"
-                  className="cv-form-input"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="•••••••••"
-                  required
-                />
-              </div>
-              
-              {authError && (
-                <div className="cv-error-message">
-                  {authError}
+
+            <div className="cv-card">
+              <form onSubmit={handleLogin} className="cv-auth-form">
+                <div className="cv-field">
+                  <Mail className="cv-field-icon" size={18} />
+                  <input
+                    type="email"
+                    className="cv-field-input"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Email"
+                    autoComplete="email"
+                    required
+                  />
                 </div>
-              )}
 
-              <div className="cv-login-forgot-row">
-                <a
-                  href={`${webappBaseUrl}/auth?mode=reset`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="cv-login-link"
-                >
-                  Forgot password?
-                </a>
-              </div>
+                <div className="cv-field">
+                  <Lock className="cv-field-icon" size={18} />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    className="cv-field-input cv-field-input--trailing"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password"
+                    autoComplete="current-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="cv-field-trailing"
+                    onClick={() => setShowPassword((s) => !s)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
 
-              <button type="submit" className="cv-login-btn">
-                Sign In
-              </button>
-            </form>
+                <div className="cv-forgot-row">
+                  <a
+                    href={`${webappBaseUrl}/auth?mode=reset`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="cv-link"
+                  >
+                    Forgot password?
+                  </a>
+                </div>
 
-            <div className="cv-login-footer">
-              <p className="cv-login-footer-text">
-                New to CareerVine?{" "}
-                <a
-                  href={`${webappBaseUrl}/auth?mode=signup`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="cv-login-link"
-                >
-                  Create an account
-                </a>
-              </p>
+                {authError && <div className="cv-error-banner">{authError}</div>}
+
+                <button type="submit" className="cv-btn-primary" disabled={authLoading}>
+                  {authLoading && <Loader2 className="cv-btn-spinner" size={18} />}
+                  <span>{authLoading ? "Signing in…" : "Sign in"}</span>
+                </button>
+              </form>
             </div>
+
+            <p className="cv-auth-footer">
+              New to CareerVine?{" "}
+              <a
+                href={`${webappBaseUrl}/auth?mode=signup`}
+                target="_blank"
+                rel="noreferrer"
+                className="cv-link cv-link--strong"
+              >
+                Create an account
+              </a>
+            </p>
           </div>
         </main>
       </div>

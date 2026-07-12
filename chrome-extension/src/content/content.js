@@ -93,6 +93,12 @@ function togglePanel() {
   isPanelOpen ? closePanel() : openPanel();
 }
 
+// Let the toolbar popup open the panel on the current profile ("Import this
+// profile"). Fire-and-forget from the popup's side; we just open the panel.
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.action === 'openPanel') openPanel();
+});
+
 // ---- Profile cache ----
 
 async function getCachedProfile(profileId) {

@@ -11,15 +11,17 @@ class LinkedInScraper {
    * Without this wait, the scraper may scroll before sections exist.
    */
   async waitForSections() {
-    const MAX_WAIT = 5000;   // Give up after 5 seconds
+    const MAX_WAIT = 6000;   // Give up after 6 seconds
     const POLL_INTERVAL = 200;
     let elapsed = 0;
 
     while (elapsed < MAX_WAIT) {
       const mainText = (document.querySelector('main') || document.body).innerText || '';
-      // Check if at least Experience OR Education section header is present
-      if (mainText.includes('Experience') || mainText.includes('Education')) {
-        // Found a section — give LinkedIn a brief moment to finish injecting siblings
+      // The top card + About render first; Experience/Education only load once
+      // scrolled into view (newer layout), so wait for substantial content
+      // rather than a specific section header (CAR-95).
+      if (mainText.trim().length > 300) {
+        // Give LinkedIn a brief moment to finish the initial render
         await new Promise(r => setTimeout(r, 300));
         return;
       }
@@ -29,35 +31,87 @@ class LinkedInScraper {
     // Timed out — proceed anyway with whatever content is available
   }
 
+  /**
+   * The element that actually scrolls the profile. LinkedIn's newer layout
+   * puts the page in an inner scroll container (the <main> element, with
+   * body overflow:hidden) rather than scrolling the window; older layouts
+   * scroll the window. Detect whichever applies so lazy content loads (CAR-95).
+   */
+  getScroller() {
+    const main = document.querySelector('main');
+    if (main && main.scrollHeight > main.clientHeight + 200) return main;
+    return document.scrollingElement || document.documentElement;
+  }
+
+  /**
+   * Load every profile section with the least possible visible disruption.
+   *
+   * LinkedIn doesn't put Experience/Education in the page until they're
+   * scrolled into view, and there's no way to fetch them without a scroll
+   * (verified: not in the DOM, not loaded on idle). But we don't have to dwell
+   * at each section — flashing it past the viewport for a couple of frames is
+   * enough to trigger its fetch, which then completes on its own. So we do one
+   * fast pass (~0.3s of visible scroll), immediately snap back to where the
+   * user was, and let the fetched content finish populating in the background.
+   * No cover, no slow creep (CAR-95).
+   */
+  async scrollToLoad() {
+    const scroller = this.getScroller();
+    const usesWindow =
+      scroller === document.scrollingElement ||
+      scroller === document.documentElement ||
+      scroller === document.body;
+    const jumpTo = (top) =>
+      usesWindow
+        ? window.scrollTo({ top, behavior: 'instant' })
+        : scroller.scrollTo({ top, behavior: 'instant' });
+    const startTop = usesWindow ? (window.scrollY || 0) : scroller.scrollTop;
+
+    // Fast pass: big steps, ~4 frames of dwell each — just enough to trip each
+    // section's on-scroll fetch.
+    const viewport = scroller.clientHeight || window.innerHeight || 800;
+    const scrollStep = Math.max(500, Math.floor(viewport * 0.85));
+    const MAX_STEPS = 60; // safety cap so an ever-growing feed can't hang the scrape
+
+    let pos = 0;
+    for (let step = 0; step < MAX_STEPS; step++) {
+      jumpTo(pos);
+      await new Promise(r => setTimeout(r, 60));
+      if (pos >= scroller.scrollHeight) break;
+      pos += scrollStep;
+    }
+    jumpTo(scroller.scrollHeight);
+    await new Promise(r => setTimeout(r, 60));
+    jumpTo(startTop); // snap back to where the user was — the flick is over
+
+    // Then wait (invisibly, at the restored position) for the triggered
+    // fetches to finish populating. Poll until the text stops growing rather
+    // than for a specific section, so profiles without an Education section
+    // don't stall the full timeout.
+    const main = document.querySelector('main') || document.body;
+    let waited = 0;
+    let lastLen = -1;
+    let stable = 0;
+    while (waited < 2500) {
+      const len = (main.innerText || '').length;
+      if (len === lastLen) {
+        if (++stable >= 2) break; // length steady for ~300ms → loading settled
+      } else {
+        stable = 0;
+        lastLen = len;
+      }
+      await new Promise(r => setTimeout(r, 150));
+      waited += 150;
+    }
+  }
+
   async scrapeAndClean() {
-    // Wait for LinkedIn to finish rendering profile sections into the DOM
+    // Wait for LinkedIn to finish the initial render
     await this.waitForSections();
 
-    // Scroll progressively through the page to trigger LinkedIn's
-    // lazy-loading for each section (Experience, Education, etc.).
-    // A single jump to scrollHeight misses sections that haven't
-    // entered the viewport yet.
-    const scrollStep = window.innerHeight * 0.7;
-    let currentPos = 0;
-    let lastHeight = document.body.scrollHeight;
-
-    while (currentPos < document.body.scrollHeight) {
-      currentPos += scrollStep;
-      window.scrollTo({ top: currentPos, behavior: 'smooth' });
-      await new Promise(r => setTimeout(r, 400));
-
-      // If the page grew (new content loaded), keep going
-      if (document.body.scrollHeight > lastHeight) {
-        lastHeight = document.body.scrollHeight;
-      }
-    }
-
-    // Brief pause at the bottom for any final lazy-loaded content
-    await new Promise(r => setTimeout(r, 600));
-
-    // Scroll back to top
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    await new Promise(r => setTimeout(r, 300));
+    // Scroll the profile (via its real scroll container) to lazy-load every
+    // section before reading the text.
+    await this.scrollToLoad();
 
     // Extract all text from main content area
     const main = document.querySelector('main') || document.body;
@@ -196,39 +250,40 @@ class LinkedInScraper {
 
   /**
    * Extract the viewed profile's photo URL from the DOM.
-   * Returns a 400x400 LinkedIn CDN URL, or null if no real photo found.
+   *
+   * A profile page contains many profile-photo <img>s: the person's hero
+   * avatar, but also "People you may know", "More profiles for you", and their
+   * own reshared-post avatars. The old code grabbed the first CDN match of two
+   * hardcoded sizes anywhere in <main>, so it could lock onto someone else's
+   * avatar, and it missed hero photos served at other sizes — returning the
+   * wrong photo or none (CAR-95).
+   *
+   * The hero avatar renders far larger (~120-160px) than the feed/suggestion
+   * avatars (~48px), so we pick the largest-rendered profile photo. This is
+   * layout-agnostic (works on both the old and the newer inner-scroll layout,
+   * neither of which reliably has an <h1> or alt text to key off). Returns the
+   * photo's own CDN URL unchanged (it's a valid signed URL; upsizing the size
+   * token yields a broken URL), or null if there's no real photo (ghost).
    */
   extractProfilePhotoUrl() {
-    const main = document.querySelector('main') || document.body;
+    const photos = Array.from(document.querySelectorAll('img')).filter((img) => {
+      const src = img.getAttribute('src') || '';
+      return src.includes('profile-displayphoto') && src.includes('licdn');
+    });
 
-    // Strategy 1: 400x400 image (best quality, already correct size)
-    const img400 = main.querySelector('img[src*="profile-displayphoto-shrink_400_400"]')
-      || main.querySelector('img[src*="profile-displayphoto-scale_400_400"]');
-    if (img400) {
-      const src = img400.getAttribute('src');
-      if (src && src.includes('media.licdn.com/dms/image')) return src;
-    }
-
-    // Strategy 2: 100x100 shrink — rewrite to 400x400
-    const imgShrink100 = main.querySelector('img[src*="profile-displayphoto-shrink_100_100"]');
-    if (imgShrink100) {
-      const src = imgShrink100.getAttribute('src');
-      if (src && src.includes('media.licdn.com/dms/image')) {
-        return src.replace(/profile-displayphoto-shrink_100_100/g, 'profile-displayphoto-shrink_400_400');
+    let hero = null;
+    let maxWidth = 0;
+    for (const img of photos) {
+      const width = img.getBoundingClientRect().width || img.naturalWidth || 0;
+      if (width > maxWidth) {
+        maxWidth = width;
+        hero = img;
       }
     }
 
-    // Strategy 3: 100x100 scale — rewrite to 400x400
-    const imgScale100 = main.querySelector('img[src*="profile-displayphoto-scale_100_100"]');
-    if (imgScale100) {
-      const src = imgScale100.getAttribute('src');
-      if (src && src.includes('media.licdn.com/dms/image')) {
-        return src.replace(/profile-displayphoto-scale_100_100/g, 'profile-displayphoto-scale_400_400');
-      }
-    }
-
-    // No real photo found (ghost avatar or no photo element)
-    return null;
+    // Even the biggest is avatar-sized → the person has no photo (ghost avatar).
+    if (!hero || maxWidth < 64) return null;
+    return hero.getAttribute('src');
   }
 }
 

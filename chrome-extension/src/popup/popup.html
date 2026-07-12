@@ -8,163 +8,157 @@
   </head>
   <body>
     <div class="popup-container">
-      <!-- Top App Bar -->
-      <header class="top-app-bar">
-        <div class="top-app-bar-left">
-          <div class="brand">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              class="brand-icon"
-            >
-              <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z" />
-            </svg>
-            <span class="brand-text">CareerVine</span>
-          </div>
-        </div>
-        <div class="top-app-bar-right">
-          <div class="user-avatar" id="userAvatar" style="display: none">
-            <div class="avatar-circle">
-              <span id="avatarInitial">?</span>
+      <!-- ============================ SIGN IN ============================ -->
+      <section id="authSection" class="auth-view" style="display: none">
+        <div class="auth-inner">
+          <div class="brand-block">
+            <div class="brand-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 20h10" />
+                <path d="M10 20c5.5-2.5.8-6.4 3-10" />
+                <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
+                <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
+              </svg>
             </div>
+            <h1 class="auth-title">Welcome back</h1>
+            <p class="auth-subtitle">Sign in to CareerVine</p>
           </div>
-        </div>
-      </header>
 
-      <!-- Main Content -->
-      <main class="popup-content">
-        <!-- Authentication Section -->
-        <section id="authSection" class="auth-section">
-          <div class="auth-card">
-            <div class="auth-header">
-              <h2 class="auth-title">Welcome back</h2>
-              <p class="auth-subtitle">Sign in to CareerVine to continue</p>
-            </div>
-            <form id="authForm" class="auth-form">
-              <div class="text-field">
-                <label for="email" class="text-field-label">Email</label>
-                <input 
-                  type="email" 
-                  id="email" 
-                  name="email" 
-                  class="text-field-input"
-                  placeholder="Enter your email"
-                  required 
-                />
+          <div class="card">
+            <form id="authForm" class="auth-form" novalidate>
+              <div class="field">
+                <span class="field-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="20" height="16" x="2" y="4" rx="2" />
+                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                  </svg>
+                </span>
+                <input type="email" id="email" name="email" class="field-input" placeholder="Email" autocomplete="email" required />
               </div>
-              <div class="text-field">
-                <label for="password" class="text-field-label">Password</label>
-                <input 
-                  type="password" 
-                  id="password" 
-                  name="password" 
-                  class="text-field-input"
-                  placeholder="Enter your password"
-                  required 
-                />
+
+              <div class="field">
+                <span class="field-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </span>
+                <input type="password" id="password" name="password" class="field-input has-trailing" placeholder="Password" autocomplete="current-password" required />
+                <button type="button" id="togglePassword" class="field-trailing" aria-label="Show password">
+                  <svg class="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  <svg class="icon-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none">
+                    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+                    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+                    <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+                    <line x1="2" x2="22" y1="2" y2="22" />
+                  </svg>
+                </button>
               </div>
-              <div class="forgot-password-row">
-                <a href="#" id="forgotLink" class="auth-footer-link">Forgot password?</a>
+
+              <div class="forgot-row">
+                <a href="#" id="forgotLink" class="link">Forgot password?</a>
               </div>
-              <button type="submit" class="btn btn-filled" id="signInBtn">
-                <span>Sign In</span>
+
+              <div id="authError" class="error-banner" style="display: none"></div>
+
+              <button type="submit" class="btn btn-primary" id="signInBtn">
+                <span class="btn-spinner" aria-hidden="true"></span>
+                <span class="btn-label">Sign in</span>
               </button>
             </form>
-            <div id="authStatus" class="status-message" style="display: none;">
-              <span class="status-text"></span>
-            </div>
-            <div class="auth-footer">
-              <p class="auth-footer-text">New to CareerVine?</p>
-              <a href="#" id="signupLink" class="auth-footer-link">Create an account</a>
-            </div>
           </div>
-        </section>
 
-        <!-- Main App Section -->
-        <section id="mainSection" class="main-section" style="display: none">
-          <!-- Navigation Tabs -->
-          <div class="nav-tabs">
-            <button class="nav-tab active" data-tab="import">
-              <span>Import</span>
+          <p class="auth-footer">
+            New to CareerVine?
+            <a href="#" id="signupLink" class="link link-strong">Create an account</a>
+          </p>
+        </div>
+      </section>
+
+      <!-- ============================ SIGNED IN ============================ -->
+      <section id="mainSection" class="app-view" style="display: none">
+        <header class="app-bar">
+          <div class="brand-lockup">
+            <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M7 20h10" />
+              <path d="M10 20c5.5-2.5.8-6.4 3-10" />
+              <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
+              <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
+            </svg>
+            <span class="brand-word">CareerVine</span>
+          </div>
+          <div class="avatar" id="userAvatar"><span id="avatarInitial">?</span></div>
+        </header>
+
+        <main class="app-main">
+          <!-- Context-aware current-page card -->
+          <div class="page-card" id="pageCard">
+            <div class="page-card-icon" id="pageCardIcon"></div>
+            <div class="page-card-body">
+              <p class="page-card-title" id="pageCardTitle">Checking this page…</p>
+              <p class="page-card-sub" id="pageCardSub"></p>
+            </div>
+            <button class="btn btn-primary btn-block" id="importBtn" style="display: none">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2 21a8 8 0 0 1 13.292-6" />
+                <circle cx="10" cy="8" r="5" />
+                <path d="M19 16v6" />
+                <path d="M22 19h-6" />
+              </svg>
+              <span>Import this profile</span>
             </button>
-            <button class="nav-tab" data-tab="recent">
-              <span>Recent</span>
-            </button>
           </div>
 
-          <!-- Import Tab -->
-          <div id="importTab" class="tab-content active">
-            <div class="instruction-card">
-              <div class="instruction-header">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/>
-                  <path d="M12 6v6l4 2"/>
-                </svg>
-                <h3>Quick Import Guide</h3>
-              </div>
-              <ol class="instruction-steps">
-                <li>Navigate to a LinkedIn profile</li>
-                <li>Click the CareerVine ribbon</li>
-                <li>Review extracted data</li>
-                <li>Import to CareerVine</li>
-              </ol>
-            </div>
-            
-            <div class="page-status-card" id="pageStatusCard">
-              <div class="status-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="11" cy="11" r="8"/>
-                  <path d="m21 21-4.35-4.35"/>
-                </svg>
-              </div>
-              <div class="status-content">
-                <p class="status-label">Current page</p>
-                <p id="currentPageInfo" class="status-value">Not a LinkedIn profile</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Recent Tab -->
-          <div id="recentTab" class="tab-content">
-            <div class="recent-header">
-              <h3>Recent Imports</h3>
-            </div>
+          <!-- Recent imports -->
+          <section class="recent">
+            <h2 class="section-label">Recent imports</h2>
             <div id="recentContacts" class="recent-list">
               <div class="empty-state">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-                  <circle cx="9" cy="7" r="4"/>
-                  <path d="m22 21-3-3"/>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                 </svg>
-                <p>No contacts imported yet</p>
+                <p>No imports yet</p>
+                <span>Profiles you save from LinkedIn show up here.</span>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <!-- Loading Section -->
-        <section id="loadingSection" class="loading-section" style="display: none">
-          <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <p class="loading-text">Loading...</p>
-          </div>
-        </section>
-      </main>
+          <a href="#" id="openAppBtn" class="btn btn-outline btn-block">
+            <span>Open CareerVine</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M15 3h6v6" />
+              <path d="M10 14 21 3" />
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+            </svg>
+          </a>
+        </main>
 
-      <!-- Bottom Bar -->
-      <footer class="bottom-bar">
-        <button id="signOutBtn" class="btn btn-text" style="display: none">
-          <span>Sign Out</span>
-        </button>
-        <div class="app-version"></div>
-      </footer>
+        <footer class="app-footer">
+          <button id="signOutBtn" class="btn btn-text btn-sm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" x2="9" y1="12" y2="12" />
+            </svg>
+            <span>Sign out</span>
+          </button>
+          <span class="app-version"></span>
+        </footer>
+      </section>
+
+      <!-- ============================ LOADING ============================ -->
+      <section id="loadingSection" class="loading-view">
+        <div class="spinner"></div>
+        <p>Loading…</p>
+      </section>
     </div>
 
-    <!-- Scripts -->
     <script src="../utils/api.js"></script>
     <script src="../utils/storage.js"></script>
     <script src="popup.js"></script>
