@@ -7,8 +7,8 @@
  * When QStash publishing isn't configured, processes a bounded batch
  * directly so correctness never depends on the queue.
  *
- * Ops: create the schedule in the Upstash console pointing at this route
- * (same as the 15-minute send-follow-ups one); daily cadence.
+ * Ops: schedules are declared in scripts/qstash-schedules.mjs (run it with
+ * `list` to audit, `sync` to reconcile); daily cadence.
  */
 
 import { NextRequest, NextResponse } from "next/server";

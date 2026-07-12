@@ -14,8 +14,8 @@ export const maxDuration = 60;
 
 /**
  * POST /api/cron/discovery
- * Weekly QStash schedule (managed in the Upstash console, like the other
- * crons). The discovery feed (plan 41 / CAR-29): per opted-in user, search
+ * Weekly QStash schedule (source of truth: scripts/qstash-schedules.mjs). The
+ * discovery feed (plan 41 / CAR-29): per opted-in user, search
  * the stalest high-priority target companies for PMs who joined in the last
  * 90 days. Trigger-only — runs complete asynchronously via the Apify
  * webhook, so this stays well inside maxDuration. A QStash retry can't

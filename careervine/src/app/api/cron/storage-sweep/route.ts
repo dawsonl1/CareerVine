@@ -13,8 +13,8 @@ export const maxDuration = 60;
 
 /**
  * POST /api/cron/storage-sweep
- * Daily QStash schedule (managed in the Upstash console, like the other
- * crons). Reconciles Supabase Storage against the DB (CAR-69): objects in the
+ * Daily QStash schedule (source of truth: scripts/qstash-schedules.mjs).
+ * Reconciles Supabase Storage against the DB (CAR-69): objects in the
  * attachments / application-files buckets with no matching row are orphans
  * left behind by cascade deletes, and get removed. Idempotent; objects
  * younger than 24h are never touched (upload-before-insert race).
