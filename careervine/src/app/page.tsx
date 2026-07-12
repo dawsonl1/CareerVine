@@ -147,12 +147,22 @@ export default function Home() {
     triggerOnce: triggerSuggestions,
   } = useSuggestions();
 
-  // Last-touch lookup — must be above loadSchedule which depends on it
+  // Last-touch lookup, used to label today's meetings with "last contacted".
   const lastTouchLookup = useMemo(() => {
     const map = new Map<number, number | null>();
     for (const c of contactHealth) map.set(c.id, c.days_since_touch);
     return map;
   }, [contactHealth]);
+  // Mirror it into a ref so loadSchedule can read current last-touch data
+  // WITHOUT depending on lastTouchLookup's identity (CAR-106). Every core-data
+  // refresh rebuilds contactHealth → a new Map → new loadSchedule identity →
+  // its effect re-fires a full POST /api/calendar/sync + GET /api/calendar/events,
+  // on a 5-min loop, even on hidden tabs. Reading through the ref breaks that
+  // cascade; meeting labels just refresh on the next genuine calendar load.
+  const lastTouchLookupRef = useRef(lastTouchLookup);
+  useEffect(() => {
+    lastTouchLookupRef.current = lastTouchLookup;
+  }, [lastTouchLookup]);
 
   // ── Data loading ──
 
@@ -222,7 +232,7 @@ export default function Home() {
               if (!a.email) continue;
               const match = emailLookup.get(a.email.toLowerCase());
               if (match) {
-                const daysSince = lastTouchLookup.get(match.id);
+                const daysSince = lastTouchLookupRef.current.get(match.id);
                 contact = {
                   id: match.id,
                   name: match.name,
@@ -237,7 +247,7 @@ export default function Home() {
               // Build a by-ID lookup from the email lookup values
               for (const entry of emailLookup.values()) {
                 if (entry.id === e.contact_id) {
-                  const daysSince = lastTouchLookup.get(entry.id);
+                  const daysSince = lastTouchLookupRef.current.get(entry.id);
                   contact = {
                     id: entry.id,
                     name: entry.name,
@@ -268,7 +278,9 @@ export default function Home() {
     } finally {
       setScheduleLoading(false);
     }
-  }, [user, calendarConnected, gmailLoading, lastTouchLookup]);
+    // lastTouchLookup intentionally omitted — read via ref so a core-data
+    // refresh doesn't re-fire the calendar sync (CAR-106).
+  }, [user, calendarConnected, gmailLoading]);
 
   const loadBand3 = useCallback(async () => {
     if (!user) return;
@@ -375,14 +387,31 @@ export default function Home() {
     };
   }, [loadCoreData, loadBand3]);
 
-  // Background refresh every 5 minutes (runs even when tab is hidden)
+  // Background refresh every 5 minutes — only while the tab is visible (CAR-106).
+  // A hidden/backgrounded tab polling forever burns Fluid CPU (core data + a
+  // calendar sync) for data no one is looking at. When the tab is refocused
+  // after being away longer than the cache window, refresh once immediately.
   useEffect(() => {
     if (!user) return;
-    const interval = setInterval(() => {
+    let lastRefresh = Date.now();
+    const refresh = () => {
+      lastRefresh = Date.now();
       loadCoreData();
       loadBand3();
+    };
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
     }, CACHE_MAX_AGE_MS);
-    return () => clearInterval(interval);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastRefresh >= CACHE_MAX_AGE_MS) {
+        refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [user, loadCoreData, loadBand3]);
 
   // Load suggestions once after data loads
@@ -481,7 +510,7 @@ export default function Home() {
         : "No due date";
       const contactName = ai.contacts?.name || "Unknown";
       const contactId = ai.contacts?.id || 0;
-      const daysSince = lastTouchLookup.get(contactId) ?? null;
+      const daysSince = lastTouchLookupRef.current.get(contactId) ?? null;
 
       items.push({
         id: `ai-${ai.id}`,

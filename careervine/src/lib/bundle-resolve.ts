@@ -125,11 +125,18 @@ export interface ResolveChunkResult {
 export async function resolveBundleChunk(
   service: SupabaseClient,
   bundle: { id: number; slug: string; version: number },
-  opts: { afterId?: number; chunkSize?: number } = {},
+  opts: { afterId?: number; chunkSize?: number; deadline?: number } = {},
 ): Promise<ResolveChunkResult> {
   const chunkSize = opts.chunkSize ?? RESOLVE_CHUNK_SIZE;
   const afterId = opts.afterId ?? 0;
+  // Optional wall-clock bound (CAR-106): the per-prospect find-or-create chains
+  // below dominate cost, and on a cold cache one 200-row chunk can exceed the
+  // route's maxDuration. When set, Pass 1 stops before starting a new prospect
+  // once the deadline passes (always doing ≥1 for forward progress).
+  const deadline = opts.deadline ?? null;
   const result: ResolveChunkResult = { done: false, nextAfterId: null, scanned: 0, resolved: 0, skipped: [] };
+  // Set when the deadline halts Pass 1 mid-chunk: resume after this id, done=false.
+  let resumeAfterId: number | null = null;
 
   // Only unresolved rows (CAR-81). Publish nulls `resolved` on payload change,
   // so `resolved IS NULL` is an exact "needs resolution" predicate — this keeps
@@ -257,7 +264,12 @@ export async function resolveBundleChunk(
     const workingByProspect: WorkingExp[][] = [];
     const chunkOffices = new Map<number, Map<string, number>>(); // company → matchKey → location
     const newOfficePairs: Array<{ company_id: number; location_id: number }> = [];
+    let processedCount = 0;
     for (const p of pending) {
+      // Deadline bound (CAR-106): once out of budget, stop before starting
+      // another prospect so a cold-cache chunk can't overrun maxDuration and
+      // get killed mid-write. Always process ≥1 so the resume cursor advances.
+      if (deadline != null && processedCount > 0 && Date.now() >= deadline) break;
       const exps: WorkingExp[] = [];
       for (const emp of p.mapped.employment) {
         const company = await resolveCompany({
@@ -287,7 +299,11 @@ export async function resolveBundleChunk(
         exps.push({ companyId: company.id, locationId, locationSource, isRemote, isCurrent: emp.is_current });
       }
       workingByProspect.push(exps);
+      processedCount++;
     }
+    // Rows past processedCount were left for the next invocation. The deadline
+    // is Pass 1's only break, so a short count means we halted early on it.
+    if (processedCount < pending.length) resumeAfterId = pending[processedCount - 1].row.id;
     await ensureCompanyLocations(service, newOfficePairs, "scraped");
 
     // Load already-known offices for every company touched, so pass 2 sees
@@ -316,8 +332,10 @@ export async function resolveBundleChunk(
     }
 
     // ── Pass 2 + profile location + schools → build resolutions ──
+    // Bounded by workingByProspect (== processedCount), so a deadline stop in
+    // Pass 1 only writes resolutions for the prospects it actually finished.
     const rpcRows: Array<{ id: number; resolved: BundleProspectResolution }> = [];
-    for (let pi = 0; pi < pending.length; pi++) {
+    for (let pi = 0; pi < workingByProspect.length; pi++) {
       const p = pending[pi];
       const exps = workingByProspect[pi];
       const profileNorm = profileNormOf(p.mapped);
@@ -361,6 +379,12 @@ export async function resolveBundleChunk(
     }
   }
 
+  // Deadline halted us mid-chunk: resume after the last prospect we finished
+  // (done stays false so resolveStaleBundles re-enqueues the drain — CAR-106).
+  if (resumeAfterId != null) {
+    result.nextAfterId = resumeAfterId;
+    return result;
+  }
   if (prospects.length === chunkSize) {
     result.nextAfterId = prospects[prospects.length - 1].id;
     return result;

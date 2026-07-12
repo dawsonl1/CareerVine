@@ -72,7 +72,9 @@ async function resolveStaleBundles(
           stillBehind = true;
           return { resolved, stillBehind };
         }
-        const step = await resolveBundleChunk(service, bundle, { afterId });
+        // Pass the resolve deadline so a single cold-cache chunk can't overrun
+        // maxDuration (CAR-106): the chunk yields mid-way and we drain the rest.
+        const step = await resolveBundleChunk(service, bundle, { afterId, deadline });
         resolved += step.resolved;
         if (step.done) {
           await markBundleResolved(service, bundle);
