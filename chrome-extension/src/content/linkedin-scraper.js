@@ -44,56 +44,16 @@ class LinkedInScraper {
   }
 
   /**
-   * A cover placed over the profile content while it's being scrolled, so the
-   * user's viewport doesn't visibly jump around during the scrape. The
-   * lazy-loading still fires — it keys off each section's layout position
-   * relative to the viewport, which the cover doesn't change — so the content
-   * loads behind a calm "Analyzing profile…" panel instead (CAR-95).
-   */
-  buildScrapeCover(scroller) {
-    const r = scroller.getBoundingClientRect();
-    const cover = document.createElement('div');
-    cover.setAttribute('data-cv-scrape-cover', '');
-    cover.style.cssText = [
-      'position:fixed',
-      `left:${Math.max(0, r.left)}px`,
-      `top:${Math.max(0, r.top)}px`,
-      `width:${r.width}px`,
-      `height:${r.height}px`,
-      'z-index:2147483000',            // below the CareerVine panel, above the page
-      'background:#0d1f17',
-      'display:flex',
-      'align-items:center',
-      'justify-content:center',
-    ].join(';');
-
-    const box = document.createElement('div');
-    box.style.cssText =
-      'display:flex;flex-direction:column;align-items:center;gap:12px;' +
-      'color:#e8f5ee;font:500 15px -apple-system,BlinkMacSystemFont,system-ui,sans-serif';
-    const spinner = document.createElement('div');
-    spinner.style.cssText =
-      'width:26px;height:26px;border:3px solid rgba(255,255,255,.22);' +
-      'border-top-color:#4ade80;border-radius:50%';
-    spinner.animate(
-      [{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }],
-      { duration: 800, iterations: Infinity },
-    );
-    const label = document.createElement('div');
-    label.textContent = 'Analyzing profile…';
-    box.appendChild(spinner);
-    box.appendChild(label);
-    cover.appendChild(box);
-    return cover;
-  }
-
-  /**
-   * Progressively scroll the profile to trigger LinkedIn's lazy-loading of
-   * every section. Uses instant jumps (smooth scrolling lags the loop and
-   * exits before content renders) and scrolls the detected container, which
-   * is what makes Experience/Education actually load in the newer layout. The
-   * whole scroll happens behind a cover so it isn't visible, and the user's
-   * original scroll position is restored afterward.
+   * Load every profile section with the least possible visible disruption.
+   *
+   * LinkedIn doesn't put Experience/Education in the page until they're
+   * scrolled into view, and there's no way to fetch them without a scroll
+   * (verified: not in the DOM, not loaded on idle). But we don't have to dwell
+   * at each section — flashing it past the viewport for a couple of frames is
+   * enough to trigger its fetch, which then completes on its own. So we do one
+   * fast pass (~0.3s of visible scroll), immediately snap back to where the
+   * user was, and let the fetched content finish populating in the background.
+   * No cover, no slow creep (CAR-95).
    */
   async scrollToLoad() {
     const scroller = this.getScroller();
@@ -107,30 +67,41 @@ class LinkedInScraper {
         : scroller.scrollTo({ top, behavior: 'instant' });
     const startTop = usesWindow ? (window.scrollY || 0) : scroller.scrollTop;
 
-    const cover = this.buildScrapeCover(scroller);
-    document.documentElement.appendChild(cover);
+    // Fast pass: big steps, ~4 frames of dwell each — just enough to trip each
+    // section's on-scroll fetch.
+    const viewport = scroller.clientHeight || window.innerHeight || 800;
+    const scrollStep = Math.max(500, Math.floor(viewport * 0.85));
+    const MAX_STEPS = 60; // safety cap so an ever-growing feed can't hang the scrape
 
-    try {
-      const viewport = scroller.clientHeight || window.innerHeight || 800;
-      const scrollStep = Math.max(400, Math.floor(viewport * 0.6));
-      const MAX_STEPS = 80; // safety cap so an ever-growing feed can't hang the scrape
+    let pos = 0;
+    for (let step = 0; step < MAX_STEPS; step++) {
+      jumpTo(pos);
+      await new Promise(r => setTimeout(r, 60));
+      if (pos >= scroller.scrollHeight) break;
+      pos += scrollStep;
+    }
+    jumpTo(scroller.scrollHeight);
+    await new Promise(r => setTimeout(r, 60));
+    jumpTo(startTop); // snap back to where the user was — the flick is over
 
-      let pos = 0;
-      for (let step = 0; step < MAX_STEPS; step++) {
-        jumpTo(pos);
-        await new Promise(r => setTimeout(r, 350));
-        if (pos >= scroller.scrollHeight) break; // reached the bottom
-        pos += scrollStep;
+    // Then wait (invisibly, at the restored position) for the triggered
+    // fetches to finish populating. Poll until the text stops growing rather
+    // than for a specific section, so profiles without an Education section
+    // don't stall the full timeout.
+    const main = document.querySelector('main') || document.body;
+    let waited = 0;
+    let lastLen = -1;
+    let stable = 0;
+    while (waited < 2500) {
+      const len = (main.innerText || '').length;
+      if (len === lastLen) {
+        if (++stable >= 2) break; // length steady for ~300ms → loading settled
+      } else {
+        stable = 0;
+        lastLen = len;
       }
-
-      // Settle at the bottom for any final lazy-loaded content, then restore
-      // the user's original scroll position.
-      jumpTo(scroller.scrollHeight);
-      await new Promise(r => setTimeout(r, 800));
-      jumpTo(startTop);
       await new Promise(r => setTimeout(r, 150));
-    } finally {
-      cover.remove();
+      waited += 150;
     }
   }
 
