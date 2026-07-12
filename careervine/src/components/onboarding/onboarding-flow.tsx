@@ -247,9 +247,9 @@ function IntroSplashStep({ onDone }: { onDone: () => void }) {
         <li className="flex gap-3">
           <Mail className="h-5 w-5 text-primary shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-foreground">Connect Gmail</p>
+            <p className="text-sm font-medium text-foreground">Connect Gmail and Calendar</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Send outreach, schedule sends, and keep follow-ups going until they reply.
+              Send outreach and keep follow-ups going until they reply, and share your open times in a click.
             </p>
           </div>
         </li>
@@ -306,7 +306,9 @@ function ConnectButton({
  * unconnected. Skippable, but a step the user passes through on purpose. */
 function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }) {
   const { data: gmailConn, calendarConnected, refresh: refreshConnection } = useGmailConnection();
-  const gmailConnected = gmailConn !== null;
+  // CAR-100: connected == Gmail send scope granted, not just a row existing (the
+  // shared row could be Calendar-only if Gmail was unchecked on the consent screen).
+  const gmailConnected = Boolean(gmailConn?.send_scope_granted);
 
   // Flip the buttons to "connected" once the OAuth round-trip finishes in its
   // own tab (returnTo=/onboarding/connected).
@@ -330,19 +332,16 @@ function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: (
       </div>
 
       <div className="mt-7 flex flex-col gap-2.5">
+        {/* CAR-100: one consent screen grants both, so one button connects
+            both. It flips to "connected" only once Gmail AND Calendar are
+            granted; a partial grant (a scope unchecked on Google's screen)
+            keeps the button so the user can grant the rest. */}
         <ConnectButton
-          connected={gmailConnected}
+          connected={gmailConnected && calendarConnected}
           icon={Mail}
-          label="Connect Gmail"
-          connectedLabel="Gmail connected"
+          label="Connect Gmail & Calendar"
+          connectedLabel="Gmail & Calendar connected"
           href="/api/gmail/auth?returnTo=%2Fonboarding%2Fconnected"
-        />
-        <ConnectButton
-          connected={calendarConnected}
-          icon={Calendar}
-          label="Connect Google Calendar"
-          connectedLabel="Calendar connected"
-          href="/api/gmail/auth?scopes=calendar&returnTo=%2Fonboarding%2Fconnected"
         />
         <button
           type="button"

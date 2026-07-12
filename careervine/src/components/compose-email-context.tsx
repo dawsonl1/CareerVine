@@ -207,7 +207,10 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         isIntro,
         contactId,
         templateFollowUps,
-        gmailConnected: !!gmailConn,
+        // CAR-100: connected == the Gmail send scope was actually granted, not
+        // just that a connection row exists (the row is shared with Calendar, so
+        // a Calendar-only grant would otherwise read as "Gmail connected").
+        gmailConnected: !!gmailConn && gmailConn.send_scope_granted,
         gmailLoading,
         gmailAddress: gmailConn?.gmail_address || "",
         unreadCount,

@@ -474,13 +474,16 @@ export type Database = {
           last_gmail_sync_at: string | null;
           created_at: string | null;
           updated_at: string | null;
+          // CAR-100: whether gmail.send was actually granted (browser-readable
+          // UX flag; granular consent can grant Calendar but not Gmail).
+          send_scope_granted: boolean;
           // CAR-103 entitlement flags (service-role-only; hidden from the browser client by CAR-27 column grants)
           automatic_features_enabled: boolean;
           modify_scope_granted: boolean;
           // CAR-102 premium master switch (service-role-only; same CAR-27 column-grant exclusion)
           premium_enabled: boolean;
         };
-        Insert: Omit<Database["public"]["Tables"]["gmail_connections"]["Row"], "id" | "created_at" | "updated_at" | "automatic_features_enabled" | "modify_scope_granted" | "premium_enabled">;
+        Insert: Omit<Database["public"]["Tables"]["gmail_connections"]["Row"], "id" | "created_at" | "updated_at" | "send_scope_granted" | "automatic_features_enabled" | "modify_scope_granted" | "premium_enabled">;
         Update: Partial<Database["public"]["Tables"]["gmail_connections"]["Insert"]>;
       };
 

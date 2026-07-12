@@ -540,9 +540,9 @@ export function InboxShell() {
           <div className="w-18 h-18 rounded-full bg-primary-container flex items-center justify-center mx-auto mb-5">
             <Mail className="h-9 w-9 text-on-primary-container" />
           </div>
-          <h2 className="text-2xl font-medium text-foreground mb-2">Connect your Gmail</h2>
+          <h2 className="text-2xl font-medium text-foreground mb-2">Connect your Gmail and Calendar</h2>
           <p className="text-base text-muted-foreground mb-6 max-w-md mx-auto">
-            Connect your Gmail account to see your email conversations with contacts, send emails, and track follow-ups.
+            Connect Gmail to see your email conversations with contacts, send emails, and track follow-ups. Google Calendar connects on the same screen for scheduling.
           </p>
           <div className="max-w-md mx-auto mb-6 text-left">
             <OAuthWarning />
@@ -552,7 +552,7 @@ export function InboxShell() {
             onClick={() => trackBeforeNavigate("gmail_connect_clicked", { source: "inbox" })}
           >
             <Mail className="h-5 w-5 mr-2" />
-            Connect Gmail
+            Connect Gmail & Calendar
           </Button>
         </div>
       </div>
