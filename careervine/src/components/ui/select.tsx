@@ -37,9 +37,11 @@ interface SelectProps {
   placeholder?: string;
   required?: boolean;
   className?: string;
+  /** Extra classes for the trigger button (e.g. to override radius). Use `!` to win over defaults. */
+  triggerClassName?: string;
 }
 
-export function Select({ value, onChange, options, placeholder = "Select…", required, className }: SelectProps) {
+export function Select({ value, onChange, options, placeholder = "Select…", required, className, triggerClassName }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -99,7 +101,7 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
         ref={btnRef}
         type="button"
         onClick={() => { if (!open) updatePos(); setOpen(!open); }}
-        className="w-full h-14 px-4 bg-white text-left text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm flex items-center justify-between gap-2"
+        className={`w-full h-14 px-4 bg-white text-left text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm flex items-center justify-between gap-2 ${triggerClassName ?? ""}`}
       >
         <span className={selectedLabel ? "text-foreground" : "text-muted-foreground"}>
           {selectedLabel || placeholder}
