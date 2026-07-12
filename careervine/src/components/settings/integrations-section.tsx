@@ -113,7 +113,11 @@ export default function IntegrationsSection() {
 
   // Gmail + Calendar are the priority connections — keep the MCP card below
   // them until both are connected.
-  const bothConnected = !gmailLoading && !calendarLoading && Boolean(gmailConn) && calendarConnected;
+  // CAR-100: "Gmail connected" means the send scope was granted, not merely that
+  // a connection row exists — the row is shared with Calendar, so a Calendar-only
+  // grant (Gmail unchecked on the shared consent screen) must not read as Gmail.
+  const gmailConnected = Boolean(gmailConn?.send_scope_granted);
+  const bothConnected = !gmailLoading && !calendarLoading && gmailConnected && calendarConnected;
 
   return (
     <div className="space-y-7">
@@ -139,7 +143,7 @@ export default function IntegrationsSection() {
               <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
               <span className="text-base">Checking connection...</span>
             </div>
-          ) : gmailConn ? (
+          ) : gmailConn && gmailConn.send_scope_granted ? (
             <div className="space-y-5">
               <div className="flex items-center gap-4 p-4 rounded-lg bg-primary-container/30">
                 <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center">
@@ -171,7 +175,7 @@ export default function IntegrationsSection() {
           ) : (
             <div className="space-y-5">
               <p className="text-base text-muted-foreground">
-                Connect your Gmail account to view email history with your contacts, send emails, and track follow-ups.
+                Connect Gmail to view email history with your contacts, send emails, and track follow-ups. Gmail and Google Calendar connect together on one screen.
               </p>
               <OAuthWarning />
               <Button
@@ -179,7 +183,7 @@ export default function IntegrationsSection() {
                 onClick={() => trackBeforeNavigate("gmail_connect_clicked", { source: "settings" })}
               >
                 <Mail className="h-5 w-5 mr-2" />
-                Connect Gmail
+                {calendarConnected ? "Connect Gmail" : "Connect Gmail & Calendar"}
               </Button>
             </div>
           )}
@@ -223,14 +227,25 @@ export default function IntegrationsSection() {
               <p className="text-base text-muted-foreground">
                 Connect your Google Calendar to set your availability and schedule meetings with automatic Google Meet links.
               </p>
-              <OAuthWarning />
-              <Button
-                href="/api/gmail/auth?scopes=calendar"
-                onClick={() => trackBeforeNavigate("calendar_connect_clicked", { source: "settings" })}
-              >
-                <Calendar className="h-5 w-5 mr-2" />
-                Connect Google Calendar
-              </Button>
+              {gmailConnected ? (
+                <>
+                  <OAuthWarning />
+                  <Button
+                    href="/api/gmail/auth"
+                    onClick={() => trackBeforeNavigate("calendar_connect_clicked", { source: "settings" })}
+                  >
+                    <Calendar className="h-5 w-5 mr-2" />
+                    Connect Google Calendar
+                  </Button>
+                </>
+              ) : (
+                // Neither connected: a single combined CTA lives on the Gmail
+                // card above (one consent screen grants both) — don't add a
+                // second redundant button here (CAR-100).
+                <p className="text-sm text-muted-foreground/80">
+                  Google Calendar connects together with Gmail. Use the Gmail connect button above.
+                </p>
+              )}
             </div>
           )}
         </CardContent>

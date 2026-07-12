@@ -16,9 +16,10 @@ const optionalNumber = z.coerce.number().optional();
 // ── Gmail ──────────────────────────────────────────────────────────────
 
 export const gmailAuthQuerySchema = z.object({
-  scopes: optionalString,
   // Post-OAuth landing path (CAR-50 onboarding connects from a modal).
   // Same-origin relative paths only — validated in auth and callback.
+  // (Gmail + Calendar are always requested together now — CAR-100 — so there
+  // is no longer a `scopes` param selecting which services to request.)
   returnTo: optionalString,
 });
 

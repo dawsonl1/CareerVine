@@ -8,6 +8,7 @@ import { useAuth } from "@/components/auth-provider";
  * Shared across all components that need calendar/gmail status.
  */
 export type GmailConnectionData = {
+  send_scope_granted: boolean;
   calendar_scopes_granted: boolean;
   calendar_last_synced_at: string | null;
   availability_standard: unknown;

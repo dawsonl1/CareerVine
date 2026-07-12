@@ -13,8 +13,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 let authedUser: Record<string, unknown> | null = { id: "u-1" };
 const state: { conn: unknown; connError: unknown } = { conn: null, connError: null };
 const getAuthUrlSpy = vi.fn(
-  (_state: string, opts?: { includeModify?: boolean }) =>
-    `https://accounts.google.com/o/oauth2/v2/auth?modify=${opts?.includeModify ? "1" : "0"}`,
+  (_state: string, opts?: { includeModify?: boolean; includeCalendar?: boolean }) =>
+    `https://accounts.google.com/o/oauth2/v2/auth?modify=${opts?.includeModify ? "1" : "0"}&cal=${opts?.includeCalendar ? "1" : "0"}`,
 );
 
 vi.mock("@/lib/supabase/server-client", () => ({
@@ -62,6 +62,11 @@ function lastIncludeModify(): boolean | undefined {
   return calls.length ? calls[calls.length - 1][1]?.includeModify : undefined;
 }
 
+function lastIncludeCalendar(): boolean | undefined {
+  const calls = getAuthUrlSpy.mock.calls;
+  return calls.length ? calls[calls.length - 1][1]?.includeCalendar : undefined;
+}
+
 describe("GET /api/gmail/auth — modify-scope decision (CAR-102 N3)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -107,5 +112,21 @@ describe("GET /api/gmail/auth — modify-scope decision (CAR-102 N3)", () => {
     const res = await call();
     expect(getAuthUrlSpy).not.toHaveBeenCalled();
     expect(res.headers.get("location")).toContain("/settings?gmail=error");
+  });
+
+  // CAR-100: every consent screen requests Gmail + Calendar together, so the
+  // user passes through Google's consent (and the unverified-app warning) once.
+  it("free / new user -> still requests Calendar alongside Gmail", async () => {
+    state.conn = null;
+    const res = await call();
+    expect(lastIncludeCalendar()).toBe(true);
+    expect(res.headers.get("location")).toContain("cal=1");
+  });
+
+  it("premium user -> requests Calendar too (both gmail.modify and calendar)", async () => {
+    state.conn = { modify_scope_granted: true, premium_enabled: true };
+    await call();
+    expect(lastIncludeCalendar()).toBe(true);
+    expect(lastIncludeModify()).toBe(true);
   });
 });
