@@ -109,16 +109,19 @@ export default function ContactsPage() {
 
       const TIERS = ["active", "prospect", "bench"] as const;
       await Promise.all(
-        TIERS.map((tier) =>
-          getContactsStreamed(user.id, [tier], (rows) => {
+        TIERS.map(async (tier) => {
+          await getContactsStreamed(user.id, [tier], (rows) => {
             for (const r of rows as ContactListItem[]) byId.set(r.id, r);
             flush();
             // First paint on the active tier's first page (the default view).
             if (tier === "active") setLoading(false);
-          }),
-        ),
+          });
+          // Active tier settled — clear the spinner even if it had zero rows
+          // (a bundle account starts with 0 active, so the onPage above never
+          // fires and can't unblock the list). CAR-96.
+          if (tier === "active") setLoading(false);
+        }),
       );
-      // Guard: an account with no active contacts never hit the branch above.
       setLoading(false);
       setAllTiersLoaded(true);
     } catch (error) {
@@ -161,14 +164,21 @@ export default function ContactsPage() {
     return contacts.filter((c) => deferredTiers.has(c.network_status as "active" | "prospect" | "bench"));
   }, [contacts, deferredTiers, tiersExist]);
 
-  // Only possible if the user toggles a tier before the prefetch lands
-  const viewLoading = tiersExist && !allTiersLoaded && (enabledTiers.has("prospect") || enabledTiers.has("bench"));
+  // Blocking spinner for a prospect/bench view only while it has NOTHING to
+  // show yet. Once the first page of the enabled tier is in memory, render those
+  // cards and let the rest stream in behind — never hide loaded rows behind a
+  // spinner waiting for the full backfill (CAR-96).
+  const viewLoading =
+    tiersExist &&
+    !allTiersLoaded &&
+    visibleContacts.length === 0 &&
+    (enabledTiers.has("prospect") || enabledTiers.has("bench"));
 
   useEffect(() => {
     if (user) {
       loadContacts();
       // Chip counts arrive in milliseconds, well before the full payload
-      getNetworkTierCounts(user.id).then(setServerTierCounts).catch(() => {});
+      getNetworkTierCounts().then(setServerTierCounts).catch(() => {});
       getTags(user.id).then(setAllTags).catch(() => {});
     }
   }, [user, loadContacts]);
