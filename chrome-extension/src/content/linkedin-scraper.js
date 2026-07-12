@@ -11,15 +11,17 @@ class LinkedInScraper {
    * Without this wait, the scraper may scroll before sections exist.
    */
   async waitForSections() {
-    const MAX_WAIT = 5000;   // Give up after 5 seconds
+    const MAX_WAIT = 6000;   // Give up after 6 seconds
     const POLL_INTERVAL = 200;
     let elapsed = 0;
 
     while (elapsed < MAX_WAIT) {
       const mainText = (document.querySelector('main') || document.body).innerText || '';
-      // Check if at least Experience OR Education section header is present
-      if (mainText.includes('Experience') || mainText.includes('Education')) {
-        // Found a section — give LinkedIn a brief moment to finish injecting siblings
+      // The top card + About render first; Experience/Education only load once
+      // scrolled into view (newer layout), so wait for substantial content
+      // rather than a specific section header (CAR-95).
+      if (mainText.trim().length > 300) {
+        // Give LinkedIn a brief moment to finish the initial render
         await new Promise(r => setTimeout(r, 300));
         return;
       }
@@ -29,33 +31,62 @@ class LinkedInScraper {
     // Timed out — proceed anyway with whatever content is available
   }
 
-  async scrapeAndClean() {
-    // Wait for LinkedIn to finish rendering profile sections into the DOM
-    await this.waitForSections();
+  /**
+   * The element that actually scrolls the profile. LinkedIn's newer layout
+   * puts the page in an inner scroll container (the <main> element, with
+   * body overflow:hidden) rather than scrolling the window; older layouts
+   * scroll the window. Detect whichever applies so lazy content loads (CAR-95).
+   */
+  getScroller() {
+    const main = document.querySelector('main');
+    if (main && main.scrollHeight > main.clientHeight + 200) return main;
+    return document.scrollingElement || document.documentElement;
+  }
 
-    // Progressively scroll through the page to trigger LinkedIn's lazy-loading
-    // for each section (Experience, Education, etc.). Use instant jumps, not
-    // smooth: smooth scrolling lags behind the loop, so the loop can reach
-    // scrollHeight and exit before the animation actually renders the lower
-    // sections — which left later experiences and the education section out of
-    // the captured text on profiles with a long activity feed (CAR-95).
-    const scrollStep = Math.max(400, Math.floor(window.innerHeight * 0.6));
-    let currentPos = 0;
+  /**
+   * Progressively scroll the profile to trigger LinkedIn's lazy-loading of
+   * every section. Uses instant jumps (smooth scrolling lags the loop and
+   * exits before content renders) and scrolls the detected container, which
+   * is what makes Experience/Education actually load in the newer layout.
+   */
+  async scrollToLoad() {
+    const scroller = this.getScroller();
+    const usesWindow =
+      scroller === document.scrollingElement ||
+      scroller === document.documentElement ||
+      scroller === document.body;
+    const jumpTo = (top) =>
+      usesWindow
+        ? window.scrollTo({ top, behavior: 'instant' })
+        : scroller.scrollTo({ top, behavior: 'instant' });
+
+    const viewport = scroller.clientHeight || window.innerHeight || 800;
+    const scrollStep = Math.max(400, Math.floor(viewport * 0.6));
     const MAX_STEPS = 80; // safety cap so an ever-growing feed can't hang the scrape
 
+    let pos = 0;
     for (let step = 0; step < MAX_STEPS; step++) {
-      window.scrollTo({ top: currentPos, behavior: 'instant' });
+      jumpTo(pos);
       await new Promise(r => setTimeout(r, 350));
-      if (currentPos >= document.body.scrollHeight) break; // reached the bottom
-      currentPos += scrollStep;
+      if (pos >= scroller.scrollHeight) break; // reached the bottom
+      pos += scrollStep;
     }
 
     // Settle at the very bottom for any final lazy-loaded content, then return
     // to the top so nothing downstream depends on scroll position.
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+    jumpTo(scroller.scrollHeight);
     await new Promise(r => setTimeout(r, 800));
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    jumpTo(0);
     await new Promise(r => setTimeout(r, 300));
+  }
+
+  async scrapeAndClean() {
+    // Wait for LinkedIn to finish the initial render
+    await this.waitForSections();
+
+    // Scroll the profile (via its real scroll container) to lazy-load every
+    // section before reading the text.
+    await this.scrollToLoad();
 
     // Extract all text from main content area
     const main = document.querySelector('main') || document.body;
@@ -195,55 +226,39 @@ class LinkedInScraper {
   /**
    * Extract the viewed profile's photo URL from the DOM.
    *
-   * A profile page contains many profile-photo <img>s — the person's hero
+   * A profile page contains many profile-photo <img>s: the person's hero
    * avatar, but also "People you may know", "More profiles for you", and their
    * own reshared-post avatars. The old code grabbed the first CDN match of two
    * hardcoded sizes anywhere in <main>, so it could lock onto someone else's
-   * avatar, and it missed hero photos served at other sizes (e.g. 200x200),
-   * returning null (CAR-95). This scopes to the intro card first, then falls
-   * back to an alt-text identity match, and accepts any size (normalized to
-   * 400x400). Returns a LinkedIn CDN URL, or null if no real photo is found.
+   * avatar, and it missed hero photos served at other sizes — returning the
+   * wrong photo or none (CAR-95).
+   *
+   * The hero avatar renders far larger (~120-160px) than the feed/suggestion
+   * avatars (~48px), so we pick the largest-rendered profile photo. This is
+   * layout-agnostic (works on both the old and the newer inner-scroll layout,
+   * neither of which reliably has an <h1> or alt text to key off). Returns the
+   * photo's own CDN URL unchanged (it's a valid signed URL; upsizing the size
+   * token yields a broken URL), or null if there's no real photo (ghost).
    */
   extractProfilePhotoUrl() {
-    const main = document.querySelector('main') || document.body;
-
-    const isProfilePhoto = (img) => {
+    const photos = Array.from(document.querySelectorAll('img')).filter((img) => {
       const src = img.getAttribute('src') || '';
-      return src.includes('profile-displayphoto') && src.includes('media.licdn.com/dms/image');
-    };
-    // LinkedIn's signed CDN URLs are keyed on the media id, not the rendered
-    // size, so upsizing the size token to 400x400 keeps the signature valid.
-    const to400 = (src) =>
-      src.replace(/profile-displayphoto-(?:shrink|scale)_\d+_\d+/g, 'profile-displayphoto-shrink_400_400');
+      return src.includes('profile-displayphoto') && src.includes('licdn');
+    });
 
-    // 1. Scope to the intro/top card — the <section> that contains the name
-    //    heading. Its photo is unambiguously the viewed person's.
-    const nameEl = main.querySelector('h1');
-    const topCard = nameEl ? nameEl.closest('section') : null;
-    if (topCard) {
-      const heroImg = Array.from(topCard.querySelectorAll('img')).find(isProfilePhoto);
-      if (heroImg) return to400(heroImg.getAttribute('src'));
+    let hero = null;
+    let maxWidth = 0;
+    for (const img of photos) {
+      const width = img.getBoundingClientRect().width || img.naturalWidth || 0;
+      if (width > maxWidth) {
+        maxWidth = width;
+        hero = img;
+      }
     }
 
-    // 2. Fallback: among every profile photo on the page, pick the one whose
-    //    alt text matches the viewed person (LinkedIn sets the hero avatar's
-    //    alt to their full name) — avoids other people's suggested avatars.
-    const photos = Array.from(main.querySelectorAll('img')).filter(isProfilePhoto);
-    const personName = (nameEl?.innerText || '').trim().toLowerCase();
-    if (personName) {
-      const match = photos.find((img) => {
-        const alt = (img.getAttribute('alt') || '').trim().toLowerCase();
-        return alt && (alt.includes(personName) || personName.includes(alt));
-      });
-      if (match) return to400(match.getAttribute('src'));
-      // Name known but no photo matched them → treat as no photo rather than
-      // risk returning a stranger's avatar.
-      return null;
-    }
-
-    // 3. No name to match on: best-effort first profile photo in DOM order
-    //    (the top card renders first).
-    return photos.length ? to400(photos[0].getAttribute('src')) : null;
+    // Even the biggest is avatar-sized → the person has no photo (ghost avatar).
+    if (!hero || maxWidth < 64) return null;
+    return hero.getAttribute('src');
   }
 }
 
