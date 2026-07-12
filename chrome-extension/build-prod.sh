@@ -102,7 +102,8 @@ zip -r "$ZIP_NAME" \
   assets/ \
   env/production.json \
   -x "*.bak" \
-  -x "*-e"
+  -x "*-e" \
+  -x "*.DS_Store"
 
 # ── 7. Summary ──────────────────────────────────────────────
 ZIP_SIZE=$(du -h "$ZIP_NAME" | cut -f1)
