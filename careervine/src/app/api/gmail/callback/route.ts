@@ -66,9 +66,38 @@ export const GET = withApiHandler({
       }
 
       oauth2Client.setCredentials(tokens);
-      const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-      const profile = await gmail.users.getProfile({ userId: "me" });
-      const gmailAddress = profile.data.emailAddress || "";
+
+      // Derive the connected email WITHOUT a Gmail read scope: free users hold only
+      // gmail.send, so getProfile would 403. openid + email is always requested now,
+      // so the id_token carries the address; fall back to the userinfo endpoint. We
+      // never upsert an empty address — that would wipe gmail_address on reconnect.
+      let gmailAddress = "";
+      try {
+        if (tokens.id_token) {
+          const ticket = await oauth2Client.verifyIdToken({
+            idToken: tokens.id_token,
+            audience: process.env.GOOGLE_CLIENT_ID,
+          });
+          gmailAddress = ticket.getPayload()?.email?.toLowerCase() || "";
+        }
+      } catch (e) {
+        console.warn("[gmail/callback] id_token verify failed:", e);
+      }
+      if (!gmailAddress) {
+        try {
+          const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+          const info = await oauth2.userinfo.get();
+          gmailAddress = info.data.email?.toLowerCase() || "";
+        } catch (e) {
+          console.warn("[gmail/callback] userinfo fallback failed:", e);
+        }
+      }
+      if (!gmailAddress) {
+        return errorRedirect("Could not read your Google email address");
+      }
+
+      // Persist the truthful token-fact: does this connection hold gmail.modify.
+      const modifyGranted = grantedScopes.some((s) => s.includes("gmail.modify"));
 
       const serviceClient = createSupabaseServiceClient();
       const { error } = await serviceClient.from("gmail_connections").upsert(
@@ -79,6 +108,7 @@ export const GET = withApiHandler({
           refresh_token: encryptOAuthToken(tokens.refresh_token),
           token_expires_at: new Date(tokens.expiry_date || Date.now() + 3600_000).toISOString(),
           calendar_scopes_granted: calendarGranted,
+          modify_scope_granted: modifyGranted,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }

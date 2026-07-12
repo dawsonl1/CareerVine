@@ -49,9 +49,9 @@ export default function SetupBanner() {
             </p>
             <p className="text-sm text-on-tertiary-container/80 mt-1">
               {needsGmail && needsCalendar
-                ? "Connect Gmail and Google Calendar to unlock email tracking, inbox, and meeting scheduling."
+                ? "Connect Gmail and Google Calendar to unlock outreach, email tracking, and meeting scheduling."
                 : needsGmail
-                  ? "Connect Gmail to unlock email tracking, inbox, and compose features."
+                  ? "Connect Gmail to unlock outreach, scheduled sends, and follow-ups."
                   : "Connect Google Calendar to set availability and schedule meetings."}
             </p>
             <div className="flex flex-wrap items-center gap-2.5 mt-3">
