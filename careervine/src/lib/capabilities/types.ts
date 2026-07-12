@@ -16,8 +16,12 @@ export type Capability =
 
 /** The raw entitlement flags on a user's gmail_connections row — the resolver's inputs. */
 export interface EntitlementFlags {
-  /** Connection holds the gmail.modify scope. */
+  /** Connection holds the gmail.modify scope (a truthful token-fact, set by the OAuth callback). */
   modifyScopeGranted: boolean;
-  /** Admin-granted entitlement to the paid automatic features. */
+  /** Automatic follow-ups enabled (admin opt-out; default on for premium). Needs premium to grant `followups:auto`. */
   automaticFeaturesEnabled: boolean;
+  /** Admin master switch for the premium (Inbox) experience. Premium = modifyScopeGranted && premiumEnabled. */
+  premiumEnabled: boolean;
+  /** A gmail_connections row exists (connected, any tier). The positive signal that grants free users `outreach:portal`. */
+  hasConnection: boolean;
 }

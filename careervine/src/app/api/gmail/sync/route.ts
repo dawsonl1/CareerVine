@@ -15,6 +15,7 @@ export const maxDuration = 60;
  * see them).
  */
 export const POST = withApiHandler({
+  requireCapability: "mailbox:read",
   handler: async ({ user, request }) => {
     const raw = await request.json().catch(() => null);
     const cursor =

@@ -29,10 +29,34 @@ describe("resolveCapabilities — server resolver, fails closed", () => {
   });
 
   it("modify scope only -> no followups:auto", async () => {
-    mockConnection({ data: { modify_scope_granted: true, automatic_features_enabled: false }, error: null });
+    mockConnection({ data: { modify_scope_granted: true, automatic_features_enabled: false, premium_enabled: true }, error: null });
     const caps = await resolveCapabilities("user-1");
     expect(caps.has("inbox:premium")).toBe(true);
     expect(caps.has("followups:auto")).toBe(false);
+  });
+
+  it("connected free (modify false) -> outreach:portal only", async () => {
+    mockConnection({ data: { modify_scope_granted: false, automatic_features_enabled: false, premium_enabled: true }, error: null });
+    const caps = await resolveCapabilities("user-1");
+    expect(caps.has("outreach:portal")).toBe(true);
+    expect(caps.has("inbox:premium")).toBe(false);
+    expect(caps.size).toBe(1);
+  });
+
+  it("admin down-scoped (modify held, premium_enabled false) -> outreach:portal, no premium (no reconnect)", async () => {
+    mockConnection({ data: { modify_scope_granted: true, automatic_features_enabled: true, premium_enabled: false }, error: null });
+    const caps = await resolveCapabilities("user-1");
+    expect(caps.has("outreach:portal")).toBe(true);
+    expect(caps.has("inbox:premium")).toBe(false);
+    expect(caps.has("followups:auto")).toBe(false);
+    expect(caps.size).toBe(1);
+  });
+
+  it("premium_enabled missing (null) -> fails OPEN to premium (never down-tier on a null)", async () => {
+    mockConnection({ data: { modify_scope_granted: true, automatic_features_enabled: false }, error: null });
+    const caps = await resolveCapabilities("user-1");
+    expect(caps.has("inbox:premium")).toBe(true);
+    expect(caps.has("outreach:portal")).toBe(false);
   });
 
   it("no connection row -> empty set (free, fail-closed)", async () => {

@@ -46,11 +46,11 @@ export const GET = withApiHandler({
         // toggle sits beside the number it controls (plan 36). Same RPC as
         // cap enforcement; best-effort here (null on error, never blocks).
         service.rpc("sum_scrape_spend", { p_user_id: id, p_since: monthStart }),
-        // CAR-103 entitlement flags (service-role-only) — feed the automatic-
-        // features toggle. Null when the account has no Gmail connection.
+        // CAR-103/CAR-102 entitlement flags (service-role-only) — feed the premium
+        // + automatic-features toggles. Null when the account has no Gmail connection.
         service
           .from("gmail_connections")
-          .select("automatic_features_enabled, modify_scope_granted")
+          .select("automatic_features_enabled, modify_scope_granted, premium_enabled")
           .eq("user_id", id)
           .maybeSingle(),
       ]);
