@@ -706,25 +706,24 @@ export async function activateContacts(contactIds: number[]) {
 }
 
 /**
- * Fast per-tier contact counts for the network tier toggle chips —
- * head-only count queries so the numbers arrive long before the full
- * contact payload finishes loading.
+ * Fast per-tier contact counts for the network tier toggle chips, so the
+ * numbers arrive long before the full contact payload finishes loading.
+ *
+ * One `network_tier_counts` RPC (a POST) rather than three `HEAD count=exact`
+ * requests: the HEADs consistently 503 at the Supabase/Cloudflare edge on a
+ * cold page load (CAR-98), and one round trip beats three. The function is
+ * scoped to auth.uid() server-side, so no userId argument is needed.
  */
-export async function getNetworkTierCounts(userId: string) {
-  const tiers = ["active", "prospect", "bench"] as const;
-  const results = await Promise.all(
-    tiers.map((tier) =>
-      supabase
-        .from("contacts")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .eq("network_status", tier)
-    )
-  );
+export async function getNetworkTierCounts() {
+  const { data, error } = await supabase.rpc("network_tier_counts").single();
+  // network_tier_counts isn't in the generated types, so the row comes back as
+  // {}; the function returns one row of bigint counts (serialized as numbers).
+  const row = data as { active: number; prospect: number; bench: number } | null;
+  if (error || !row) return { active: 0, prospect: 0, bench: 0 };
   return {
-    active: results[0].count ?? 0,
-    prospect: results[1].count ?? 0,
-    bench: results[2].count ?? 0,
+    active: Number(row.active) || 0,
+    prospect: Number(row.prospect) || 0,
+    bench: Number(row.bench) || 0,
   };
 }
 
