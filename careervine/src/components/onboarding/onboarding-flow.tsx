@@ -249,7 +249,7 @@ function IntroSplashStep({ onDone }: { onDone: () => void }) {
           <div>
             <p className="text-sm font-medium text-foreground">Connect Gmail</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Send outreach, schedule sends, and auto-cancel follow-ups when people reply.
+              Send outreach, schedule sends, and keep follow-ups going until they reply.
             </p>
           </div>
         </li>
@@ -324,7 +324,7 @@ function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: (
         <h2 className="text-2xl font-semibold text-foreground">Connect Gmail and Calendar</h2>
         <p className="text-base text-muted-foreground mt-3 leading-relaxed">
           You&apos;ll finish setup by sending your first networking email. Connect Gmail to send it
-          and auto-cancel follow-ups when people reply, and Calendar to drop your open times into any
+          and keep your follow-ups going until they reply, and Calendar to drop your open times into any
           message in one click.
         </p>
       </div>
@@ -753,7 +753,7 @@ function FinaleStep({ onDone }: { onDone: () => void }) {
           🎉 Your first networking email is on its way
         </h2>
         <p className="text-sm text-muted-foreground mt-2">
-          Follow-ups are scheduled and will cancel themselves the moment they reply.
+          Follow-ups are scheduled to keep your thread warm until they reply.
         </p>
       </div>
 

@@ -5,9 +5,10 @@ import { moveMessageToLabel } from "@/lib/gmail";
 /**
  * POST /api/gmail/emails/[messageId]/move
  * Moves an email to a Gmail label/folder and removes it from the webapp.
- * Body: { labelId: string }
+ * Body: { labelId: string }. Live mailbox mutation — premium only (CAR-102).
  */
 export const POST = withApiHandler({
+  requireCapability: "mailbox:modify",
   schema: gmailEmailMoveSchema,
   handler: async ({ user, params, body }) => {
     const { messageId } = params;

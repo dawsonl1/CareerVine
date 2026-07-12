@@ -14,7 +14,22 @@ export const FollowUpMessageStatus = {
   Pending: "pending",
   Cancelled: "cancelled",
   Sent: "sent",
+  // CAR-102: free-tier confirm-to-send. The cron parks a due message here instead
+  // of sending; the user confirms (send) or reports a reply (cancel) from the portal.
+  AwaitingReview: "awaiting_review",
 } as const;
+
+/** Follow-up message statuses that still count as an open/scheduled step: a
+ * pending auto-send, or one awaiting the user's confirm-to-send (CAR-102). Used
+ * for "N scheduled" counts and cancel filters so awaiting_review is never dropped. */
+export const OPEN_FOLLOW_UP_MESSAGE_STATUSES = [
+  FollowUpMessageStatus.Pending,
+  FollowUpMessageStatus.AwaitingReview,
+] as const;
+
+export function isOpenFollowUpMessage(status: string | null | undefined): boolean {
+  return status === FollowUpMessageStatus.Pending || status === FollowUpMessageStatus.AwaitingReview;
+}
 
 // ── Scheduled email statuses ───────────────────────────────────────────
 

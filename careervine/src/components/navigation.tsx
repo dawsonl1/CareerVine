@@ -23,7 +23,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 export default function Navigation() {
   const { user } = useAuth();
   const pathname = usePathname();
-  const { gmailConnected, unreadCount } = useCompose();
+  const { gmailConnected, unreadCount, isFreeOutreach } = useCompose();
 
   // Record the pathname trail so detail-page Back buttons can tell
   // in-app arrivals (router.back) from direct loads (default route).
@@ -80,8 +80,8 @@ export default function Navigation() {
 
           {/* User area */}
           <div className="flex flex-1 items-center justify-end gap-2.5">
-            {/* Inbox icon — always visible, shows indicator when not connected */}
-            <Tooltip label={gmailConnected ? "Inbox" : "Connect Gmail to use Inbox"}>
+            {/* Inbox / Outreach icon — always visible, shows indicator when not connected */}
+            <Tooltip label={gmailConnected ? (isFreeOutreach ? "Outreach" : "Inbox") : "Connect Gmail to use Inbox"}>
               <Link
                 href={gmailConnected ? "/inbox" : "/settings?tab=integrations"}
                 className={`state-layer relative w-11 h-11 rounded-[10px] flex items-center justify-center transition-colors ${

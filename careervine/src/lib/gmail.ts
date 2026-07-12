@@ -25,9 +25,21 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   throw new Error("Unreachable");
 }
 
-const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.modify",
+// CAR-102: the free tier requests only SENSITIVE scopes (sign-in + gmail.send,
+// optionally calendar) so Google verification needs no CASA and lifts the 100-user
+// cap. The RESTRICTED gmail.modify scope (the live mailbox) is added ONLY for a
+// premium connect/reconnect, so the default consent screen is sensitive-only.
+const SIGN_IN_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+];
+
+const FREE_GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
+];
+
+const RESTRICTED_GMAIL_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.modify",
 ];
 
 const CALENDAR_SCOPES = [
@@ -35,10 +47,24 @@ const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
-/** Generate the Google consent URL that the user will be redirected to. */
-export function getAuthUrl(state: string, includeCalendar: boolean = false): string {
+/**
+ * Generate the Google consent URL. The default (a new or free connect) requests
+ * only sensitive scopes. Premium reconnects pass `includeModify` so the restricted
+ * gmail.modify scope is preserved — the caller (the auth route) decides this from
+ * the user's CURRENT premium state, so a premium user is never silently down-scoped
+ * by reconnecting or adding calendar (CAR-102).
+ */
+export function getAuthUrl(
+  state: string,
+  opts: { includeCalendar?: boolean; includeModify?: boolean } = {},
+): string {
   const oauth2Client = getOAuth2Client();
-  const scopes = includeCalendar ? [...GMAIL_SCOPES, ...CALENDAR_SCOPES] : GMAIL_SCOPES;
+  const scopes = [
+    ...SIGN_IN_SCOPES,
+    ...FREE_GMAIL_SCOPES,
+    ...(opts.includeModify ? RESTRICTED_GMAIL_SCOPES : []),
+    ...(opts.includeCalendar ? CALENDAR_SCOPES : []),
+  ];
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
@@ -983,7 +1009,7 @@ export async function detectBounces(
         .from("email_follow_up_messages")
         .update({ status: "cancelled" })
         .eq("follow_up_id", seq.id)
-        .eq("status", "pending");
+        .in("status", ["pending", "awaiting_review"]);
       cancelledSequences++;
     }
   }

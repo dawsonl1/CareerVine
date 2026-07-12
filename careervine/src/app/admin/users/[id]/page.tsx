@@ -13,6 +13,7 @@ import BundlesSection from "@/components/admin/bundles-section";
 import AiSection from "@/components/admin/ai-section";
 import ContactsSection from "@/components/admin/contacts-section";
 import ScrapingSection from "@/components/admin/scraping-section";
+import PremiumSection from "@/components/admin/premium-section";
 import AutomaticFeaturesSection from "@/components/admin/automatic-features-section";
 
 export default function AdminUserDetailPage() {
@@ -98,6 +99,7 @@ export default function AdminUserDetailPage() {
           />
           <AiSection user={user} onChanged={load} />
           <ScrapingSection user={user} monthSpendUsd={monthSpendUsd} onChanged={load} />
+          <PremiumSection user={user} onChanged={load} />
           <AutomaticFeaturesSection user={user} onChanged={load} />
           <BundlesSection userId={user.id} />
           <ContactsSection userId={user.id} />

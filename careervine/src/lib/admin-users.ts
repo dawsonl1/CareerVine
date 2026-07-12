@@ -42,18 +42,23 @@ export interface AdminUserListItem extends AdminUserBase {
 
 export interface AdminUserDetail extends AdminUserBase {
   phone: string | null;
-  /** CAR-103: paid automatic-features entitlement (admin-granted). */
+  /** CAR-103: automatic follow-ups toggle (default on for premium; admin opt-out). */
   automaticFeaturesEnabled: boolean;
-  /** CAR-103: whether the Gmail connection holds the gmail.modify scope. */
+  /** CAR-103: whether the Gmail connection holds the gmail.modify scope (token-fact). */
   modifyScopeGranted: boolean;
+  /** CAR-102: admin master switch for the premium (Inbox) experience. */
+  premiumEnabled: boolean;
+  /** CAR-102: effective premium tier = modifyScopeGranted && premiumEnabled. */
+  isPremium: boolean;
   /** CAR-103: whether the user has a Gmail connection at all. */
   hasGmailConnection: boolean;
 }
 
-/** The gmail_connections entitlement columns the admin surface reads (CAR-103). */
+/** The gmail_connections entitlement columns the admin surface reads (CAR-103/CAR-102). */
 export interface GmailEntitlementRow {
   automatic_features_enabled: boolean;
   modify_scope_granted: boolean;
+  premium_enabled: boolean;
 }
 
 /** The public.users columns the admin surface reads. */
@@ -120,6 +125,10 @@ export function shapeAdminUser(
     createdAt: pub.created_at,
     automaticFeaturesEnabled: gmailConnection?.automatic_features_enabled ?? false,
     modifyScopeGranted: gmailConnection?.modify_scope_granted ?? false,
+    // Premium switch fails OPEN to true (matches the column default + resolver),
+    // so a missing value never reads as "downgraded" in the admin view.
+    premiumEnabled: gmailConnection?.premium_enabled ?? true,
+    isPremium: (gmailConnection?.modify_scope_granted ?? false) && (gmailConnection?.premium_enabled ?? true),
     hasGmailConnection: !!gmailConnection,
   };
 }

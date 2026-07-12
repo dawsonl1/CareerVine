@@ -892,6 +892,38 @@ export async function createScheduledEmail(input: {
   return (data as { id: number }).id;
 }
 
+/**
+ * Insert an app-side draft (email_drafts). The free-tier fallback for
+ * create_email_draft, which cannot call Gmail's drafts.create (no gmail.modify).
+ * Mirrors POST /api/gmail/drafts. Returns the new draft id.
+ */
+export async function createAppDraft(input: {
+  to: string;
+  subject: string;
+  bodyHtml: string;
+  threadId?: string;
+  inReplyTo?: string;
+  references?: string;
+  contactName?: string;
+}): Promise<number> {
+  const { data, error } = await db()
+    .from("email_drafts")
+    .insert({
+      user_id: uid(),
+      recipient_email: input.to,
+      subject: input.subject,
+      body_html: input.bodyHtml,
+      thread_id: input.threadId ?? null,
+      in_reply_to: input.inReplyTo ?? null,
+      references_header: input.references ?? null,
+      contact_name: input.contactName ?? null,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return (data as { id: number }).id;
+}
+
 export async function listScheduled() {
   const [scheduledRes, followUpsRes] = await Promise.all([
     db()
@@ -912,7 +944,8 @@ export async function listScheduled() {
 
   const followUps = (followUpsRes.data ?? []).map((fu) => {
     const pending = (fu.email_follow_up_messages ?? [])
-      .filter((m: { status: string }) => m.status === "pending")
+      // Open steps: pending auto-send or awaiting the user's confirm (CAR-102).
+      .filter((m: { status: string }) => m.status === "pending" || m.status === "awaiting_review")
       .sort((a: { scheduled_send_at: string }, b: { scheduled_send_at: string }) =>
         a.scheduled_send_at.localeCompare(b.scheduled_send_at));
     return {
@@ -960,7 +993,7 @@ export async function cancelFollowUpSequence(followUpId: number): Promise<void> 
     .from("email_follow_up_messages")
     .update({ status: "cancelled" })
     .eq("follow_up_id", followUpId)
-    .eq("status", "pending");
+    .in("status", ["pending", "awaiting_review"]);
   if (msgError) throw msgError;
 }
 

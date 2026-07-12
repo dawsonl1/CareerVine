@@ -93,21 +93,37 @@ describe("shapeAdminUser", () => {
     expect(shaped.lastName).toBe("");
   });
 
-  it("defaults the CAR-103 entitlement fields to false without a gmail connection", () => {
+  it("defaults the entitlement fields without a gmail connection (premium fails open, not premium)", () => {
     const shaped = shapeAdminUser(basePub, undefined, "none", false);
     expect(shaped.automaticFeaturesEnabled).toBe(false);
     expect(shaped.modifyScopeGranted).toBe(false);
+    expect(shaped.premiumEnabled).toBe(true); // fail-open default (no reconnect ever down-tiers on a null)
+    expect(shaped.isPremium).toBe(false); // but no modify scope -> not actually premium
     expect(shaped.hasGmailConnection).toBe(false);
   });
 
-  it("carries the CAR-103 entitlement flags from the gmail connection", () => {
+  it("carries the entitlement flags from the gmail connection (premium = modify && premium_enabled)", () => {
     const shaped = shapeAdminUser(basePub, undefined, "none", false, {
       automatic_features_enabled: true,
       modify_scope_granted: true,
+      premium_enabled: true,
     });
     expect(shaped.automaticFeaturesEnabled).toBe(true);
     expect(shaped.modifyScopeGranted).toBe(true);
+    expect(shaped.premiumEnabled).toBe(true);
+    expect(shaped.isPremium).toBe(true);
     expect(shaped.hasGmailConnection).toBe(true);
+  });
+
+  it("admin down-scope: modify held but premium_enabled off -> not premium (no reconnect)", () => {
+    const shaped = shapeAdminUser(basePub, undefined, "none", false, {
+      automatic_features_enabled: true,
+      modify_scope_granted: true,
+      premium_enabled: false,
+    });
+    expect(shaped.modifyScopeGranted).toBe(true);
+    expect(shaped.premiumEnabled).toBe(false);
+    expect(shaped.isPremium).toBe(false);
   });
 });
 

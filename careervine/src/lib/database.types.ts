@@ -477,8 +477,10 @@ export type Database = {
           // CAR-103 entitlement flags (service-role-only; hidden from the browser client by CAR-27 column grants)
           automatic_features_enabled: boolean;
           modify_scope_granted: boolean;
+          // CAR-102 premium master switch (service-role-only; same CAR-27 column-grant exclusion)
+          premium_enabled: boolean;
         };
-        Insert: Omit<Database["public"]["Tables"]["gmail_connections"]["Row"], "id" | "created_at" | "updated_at" | "automatic_features_enabled" | "modify_scope_granted">;
+        Insert: Omit<Database["public"]["Tables"]["gmail_connections"]["Row"], "id" | "created_at" | "updated_at" | "automatic_features_enabled" | "modify_scope_granted" | "premium_enabled">;
         Update: Partial<Database["public"]["Tables"]["gmail_connections"]["Insert"]>;
       };
 

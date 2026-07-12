@@ -3,9 +3,11 @@ import { markMessageAsRead } from "@/lib/gmail";
 
 /**
  * POST /api/gmail/emails/[messageId]/read
- * Marks a message as read in both Gmail and the local cache.
+ * Marks a message as read in both Gmail and the local cache. Live mailbox
+ * mutation — premium only (CAR-102).
  */
 export const POST = withApiHandler({
+  requireCapability: "mailbox:modify",
   handler: async ({ user, params }) => {
     const { messageId } = params;
     await markMessageAsRead(user.id, messageId);

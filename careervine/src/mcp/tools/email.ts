@@ -12,11 +12,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createDraft, getFullMessage } from "@/lib/gmail";
 import { sendTrackedEmail } from "@/lib/email-send";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
+import { resolveCapabilities } from "@/lib/capabilities/resolve";
 import {
   uid,
   resolveContact,
   getContactFull,
   createScheduledEmail,
+  createAppDraft,
   listScheduled,
   cancelScheduledEmail,
   cancelFollowUpSequence,
@@ -111,10 +113,33 @@ export function registerEmailTools(server: McpServer): void {
     handler(async ({ contact_id, name, subject, body, thread_id, to_email }) => {
       const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
       const reply = await resolveReplyHeaders(thread_id);
+      const bodyHtml = markdownToHtml(body);
+
+      // Free tier holds no gmail.modify scope, so a real Gmail draft (drafts.create)
+      // would 403. Fall back to an app-side draft (email_drafts), which the user
+      // finishes and sends from the app (CAR-102).
+      const caps = await resolveCapabilities(uid());
+      if (!caps.has("drafts:gmail")) {
+        const draftId = await createAppDraft({
+          to: recipient.email,
+          subject,
+          bodyHtml,
+          threadId: thread_id,
+          inReplyTo: reply.inReplyTo,
+          references: reply.references,
+          contactName: contact.name,
+        });
+        return {
+          summary: `Draft saved for ${contact.name} <${recipient.email}>. Open it in the app to review and send`,
+          draft_id: draftId,
+          warnings: recipient.warnings,
+        };
+      }
+
       const draft = await createDraft(uid(), {
         to: recipient.email,
         subject,
-        bodyHtml: markdownToHtml(body),
+        bodyHtml,
         threadId: thread_id,
         inReplyTo: reply.inReplyTo,
         references: reply.references,
@@ -326,6 +351,28 @@ export function registerEmailTools(server: McpServer): void {
         throw new Error(`No cached messages for thread ${thread_id} — check the id or sync Gmail first`);
       }
       const recent = cached.slice(-10);
+
+      // Free tier holds no mailbox-read scope, so the live getFullMessage hydration
+      // below would 403. Serve the cached snippets instead (no full bodies) — CAR-102.
+      const caps = await resolveCapabilities(uid());
+      if (!caps.has("mailbox:read")) {
+        return {
+          thread_id,
+          total_cached: cached.length,
+          preview_only: true,
+          messages: recent.map((m) => ({
+            gmail_message_id: m.gmail_message_id,
+            direction: m.direction,
+            from: m.from_address,
+            to: (m.to_addresses ?? []).join(", "),
+            date: m.date,
+            subject: m.subject,
+            body: m.snippet ?? null,
+            note: "preview only (upgrade for full message bodies)",
+          })),
+        };
+      }
+
       const messages = await Promise.all(
         recent.map(async (m) => {
           try {

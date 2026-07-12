@@ -2,11 +2,17 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailEmailsQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getConnection, syncEmailsForContact, backfillEmailsForContact } from "@/lib/gmail";
+import { resolveCapabilities } from "@/lib/capabilities/resolve";
 
 /**
  * GET /api/gmail/emails?contactId=xxx
  * Returns cached email metadata for a contact. Triggers a background
  * re-sync if the last sync was more than 15 minutes ago.
+ *
+ * Intentionally NOT gated by requireCapability (CAR-102): the response is a
+ * DB read of the user's own cached history that the free Outreach per-contact
+ * view depends on. Only the live re-sync below is premium — that is skipped
+ * in-handler for users without mailbox:read.
  */
 export const GET = withApiHandler({
   querySchema: gmailEmailsQuerySchema,
@@ -43,14 +49,20 @@ export const GET = withApiHandler({
         .catch((err) => console.error("Email backfill error:", err));
 
       if (isStale) {
-        // Sync in the background — don't block the response
-        syncEmailsForContact(
-          user.id,
-          parseInt(contactId),
-          emails,
-          conn.gmail_address,
-          90
-        ).catch((err) => console.error("Background sync error:", err));
+        // Live re-sync is premium only (CAR-102) — it needs the gmail.modify
+        // read scope. Free users get their cached history from the DB read
+        // below; skip the background sync (it would 403 anyway).
+        const caps = await resolveCapabilities(user.id);
+        if (caps.has("mailbox:read")) {
+          // Sync in the background — don't block the response
+          syncEmailsForContact(
+            user.id,
+            parseInt(contactId),
+            emails,
+            conn.gmail_address,
+            90
+          ).catch((err) => console.error("Background sync error:", err));
+        }
       }
     }
 

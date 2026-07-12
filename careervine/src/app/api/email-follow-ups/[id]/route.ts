@@ -22,12 +22,13 @@ export const DELETE = withApiHandler({
       throw new ApiError("Follow-up sequence not found", 404);
     }
 
-    // Cancel all pending messages (safe — ownership verified above)
+    // Cancel all open messages — pending AND awaiting_review, so a parked
+    // confirm-to-send step is never orphaned (CAR-102). Ownership verified above.
     await service
       .from("email_follow_up_messages")
       .update({ status: "cancelled" })
       .eq("follow_up_id", id)
-      .eq("status", "pending");
+      .in("status", ["pending", "awaiting_review"]);
 
     // Cancel the sequence
     await service
