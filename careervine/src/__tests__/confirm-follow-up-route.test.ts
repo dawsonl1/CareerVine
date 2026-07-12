@@ -9,10 +9,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 let authedUser: Record<string, unknown> | null = { id: "u-1" };
 const state: {
   msgData: unknown;
-  claimed: unknown;
-  count: number;
-  singleCall: number;
-} = { msgData: null, claimed: { id: 5 }, count: 0, singleCall: 0 };
+  /** rows matched by the atomic claim update (1 = won, 0 = already taken). */
+  claimCount: number;
+  /** rows still open when the completion-count query runs (0 = parent completes). */
+  completionCount: number;
+} = { msgData: null, claimCount: 1, completionCount: 1 };
 
 const recordThreadReplySpy = vi.fn(async () => ({ ok: true, alreadyMarked: false }));
 const sendTrackedEmailSpy = vi.fn(async () => {});
@@ -41,16 +42,21 @@ vi.mock("@/lib/email-send", () => ({
 vi.mock("@/lib/supabase/service-client", () => ({
   createSupabaseServiceClient: vi.fn(() => ({
     from: () => {
+      // The claim is now a count-based update (rule 17), so it and the
+      // completion-count SELECT both resolve via then() but need different
+      // counts — distinguish by whether update() was called on this builder.
+      let isUpdate = false;
       const b: Record<string, unknown> = {
         select: () => b,
-        update: () => b,
+        update: () => {
+          isUpdate = true;
+          return b;
+        },
         eq: () => b,
         in: () => b,
-        maybeSingle: async () => {
-          state.singleCall += 1;
-          return state.singleCall === 1 ? { data: state.msgData } : { data: state.claimed };
-        },
-        then: (resolve: (v: unknown) => void) => resolve({ count: state.count, error: null }),
+        maybeSingle: async () => ({ data: state.msgData }),
+        then: (resolve: (v: unknown) => void) =>
+          resolve({ count: isUpdate ? state.claimCount : state.completionCount, error: null }),
       };
       return b;
     },
@@ -94,9 +100,8 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     vi.clearAllMocks();
     authedUser = { id: "u-1" };
     state.msgData = awaitingMsg;
-    state.claimed = { id: 5 };
-    state.count = 0;
-    state.singleCall = 0;
+    state.claimCount = 1;
+    state.completionCount = 1;
   });
 
   it("404s an unknown or foreign message", async () => {
@@ -137,8 +142,16 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     expect(recordThreadReplySpy).not.toHaveBeenCalled();
   });
 
+  it("accepts an EXPIRED message and sends it (CAR-105 keeps expired one-click sendable)", async () => {
+    state.msgData = { ...awaitingMsg, status: "expired" };
+    const { status, data } = await call({ messageId: 5, replied: false });
+    expect(status).toBe(200);
+    expect(data.sent).toBe(true);
+    expect(sendTrackedEmailSpy).toHaveBeenCalled();
+  });
+
   it("409s when the message can no longer be claimed (already processed)", async () => {
-    state.claimed = null;
+    state.claimCount = 0;
     const { status } = await call({ messageId: 5, replied: false });
     expect(status).toBe(409);
     expect(sendTrackedEmailSpy).not.toHaveBeenCalled();

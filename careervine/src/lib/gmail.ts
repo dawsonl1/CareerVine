@@ -8,6 +8,7 @@
 
 import { google } from "googleapis";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 /** Retry a function with exponential backoff on rate-limit (429) or server errors (5xx). */
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
@@ -1009,7 +1010,7 @@ export async function detectBounces(
         .from("email_follow_up_messages")
         .update({ status: "cancelled" })
         .eq("follow_up_id", seq.id)
-        .in("status", ["pending", "awaiting_review"]);
+        .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
       cancelledSequences++;
     }
   }

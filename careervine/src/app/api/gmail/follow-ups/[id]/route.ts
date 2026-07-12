@@ -2,7 +2,12 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailFollowUpUpdateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
-import { FollowUpStatus, FollowUpMessageStatus, OPEN_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import {
+  FollowUpStatus,
+  FollowUpMessageStatus,
+  OPEN_FOLLOW_UP_MESSAGE_STATUSES,
+  UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
+} from "@/lib/constants";
 
 /**
  * PUT /api/gmail/follow-ups/[id]
@@ -106,12 +111,13 @@ export const DELETE = withApiHandler({
 
     const now = new Date().toISOString();
 
-    // Cancel all open messages (pending + awaiting_review — no orphaned confirm step).
+    // Cancel every unresolved message (pending + awaiting_review + expired) so no
+    // confirm step or still-sendable expired one is orphaned (CAR-102/CAR-105).
     await service
       .from("email_follow_up_messages")
       .update({ status: FollowUpMessageStatus.Cancelled })
       .eq("follow_up_id", followUpId)
-      .in("status", [...OPEN_FOLLOW_UP_MESSAGE_STATUSES]);
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
 
     // Update the sequence status
     await service

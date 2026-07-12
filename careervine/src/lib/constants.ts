@@ -47,6 +47,21 @@ export const UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES = [
   FollowUpMessageStatus.Expired,
 ] as const;
 
+/** Follow-up message statuses the user can still ACT on from the portal or a
+ * contact page (confirm-send or mark-replied): freshly parked (awaiting_review)
+ * or softly retired but still one-click sendable (expired). Drives the free-tier
+ * nav badge, the confirm route's guard/claim, and the Send now / They replied
+ * buttons. DISTINCT from OPEN (adds pending auto-sends the user never manually
+ * actions) and UNRESOLVED (adds pending, for teardown). CAR-105. */
+export const ACTIONABLE_FOLLOW_UP_MESSAGE_STATUSES = [
+  FollowUpMessageStatus.AwaitingReview,
+  FollowUpMessageStatus.Expired,
+] as const;
+
+export function isActionableFollowUpMessage(status: string | null | undefined): boolean {
+  return status === FollowUpMessageStatus.AwaitingReview || status === FollowUpMessageStatus.Expired;
+}
+
 // ── Scheduled email statuses ───────────────────────────────────────────
 
 export const ScheduledEmailStatus = {

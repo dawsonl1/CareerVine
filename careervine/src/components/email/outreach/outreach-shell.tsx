@@ -17,7 +17,7 @@ import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { buildThreads } from "@/lib/gmail-helpers";
-import { isOpenFollowUpMessage } from "@/lib/constants";
+import { isActionableFollowUpMessage, FollowUpMessageStatus } from "@/lib/constants";
 import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail } from "@/lib/types";
 import { Send, Clock, Reply, PenSquare, Loader2, Inbox as InboxIcon, ArrowUpRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,21 +46,36 @@ function fmtDateTime(value: string | null | undefined): string {
   return `${fmtDate(value)}, ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 }
 
-/** Sequence progress: the soonest pending step, any messages awaiting the user's
- * confirm-to-send, how many open steps remain, and the total. */
+/** Whole days from now until `value` (negative once past). null if unparseable. */
+function daysUntil(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  if (Number.isNaN(ms)) return null;
+  return Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+/** Sequence progress: the soonest pending step, the messages the user can still
+ * act on (awaiting_review OR expired-but-sendable), how many were actually sent,
+ * and the total. Expired is deliberately NOT counted as sent (CAR-105). */
 function followUpProgress(fu: EmailFollowUp): {
   next: EmailFollowUpMessage | null;
-  awaiting: EmailFollowUpMessage[];
-  remaining: number;
+  actionable: EmailFollowUpMessage[];
+  sentCount: number;
   total: number;
 } {
   const msgs = fu.email_follow_up_messages ?? [];
-  const byDate = (a: EmailFollowUpMessage, b: EmailFollowUpMessage) =>
-    new Date(a.scheduled_send_at || 0).getTime() - new Date(b.scheduled_send_at || 0).getTime();
-  const open = msgs.filter((m) => isOpenFollowUpMessage(m.status)).sort(byDate);
-  const awaiting = open.filter((m) => m.status === "awaiting_review");
-  const nextPending = open.find((m) => m.status === "pending") ?? null;
-  return { next: nextPending, awaiting, remaining: open.length, total: msgs.length };
+  const nextPending =
+    msgs
+      .filter((m) => m.status === FollowUpMessageStatus.Pending)
+      .sort(
+        (a, b) =>
+          new Date(a.scheduled_send_at || 0).getTime() - new Date(b.scheduled_send_at || 0).getTime(),
+      )[0] ?? null;
+  const actionable = msgs
+    .filter((m) => isActionableFollowUpMessage(m.status))
+    .sort((a, b) => (a.sequence_number ?? 0) - (b.sequence_number ?? 0));
+  const sentCount = msgs.filter((m) => m.status === FollowUpMessageStatus.Sent).length;
+  return { next: nextPending, actionable, sentCount, total: msgs.length };
 }
 
 export function OutreachShell() {
@@ -328,6 +343,29 @@ function ScheduledList({
   );
 }
 
+/** Countdown under an actionable follow-up: "Expires in N days" while parked, a
+ * muted "Expired" chip once it has softly retired (still one-click sendable). The
+ * countdown emphasizes (weight + color) in its final stretch. */
+function ExpiryLabel({ status, expiresAt }: { status: string; expiresAt: string | null }) {
+  if (status === FollowUpMessageStatus.Expired) {
+    return (
+      <span className="mt-1 inline-flex items-center rounded-full bg-surface-container-high px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+        Expired
+      </span>
+    );
+  }
+  const days = daysUntil(expiresAt);
+  if (days === null) return null;
+  const urgent = days <= 3;
+  const label =
+    days <= 0 ? "Expires today" : days === 1 ? "Expires in 1 day" : `Expires in ${days} days`;
+  return (
+    <span className={`mt-0.5 block text-[11px] ${urgent ? "font-medium text-on-surface" : "text-muted-foreground"}`}>
+      {label}
+    </span>
+  );
+}
+
 function FollowUpList({
   items,
   onConfirm,
@@ -349,7 +387,7 @@ function FollowUpList({
   return (
     <ul className="flex flex-col gap-2">
       {items.map((fu) => {
-        const { next, awaiting, remaining, total } = followUpProgress(fu);
+        const { next, actionable, sentCount, total } = followUpProgress(fu);
         return (
           <Row key={fu.id}>
             <div className="flex items-start justify-between gap-3">
@@ -359,11 +397,11 @@ function FollowUpList({
                 </p>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   To {fu.contact_name || fu.recipient_email || "Unknown recipient"}
-                  {total > 0 ? ` · ${total - remaining} of ${total} sent` : ""}
+                  {total > 0 ? ` · ${sentCount} of ${total} sent` : ""}
                 </p>
               </div>
               <div className="shrink-0 text-right">
-                {awaiting.length > 0 ? (
+                {actionable.length > 0 ? (
                   <span className="inline-flex items-center rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
                     Needs review
                   </span>
@@ -378,33 +416,39 @@ function FollowUpList({
               </div>
             </div>
 
-            {awaiting.length > 0 && (
+            {actionable.length > 0 && (
               <div className="mt-3 space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
                 <p className="text-xs font-medium text-on-surface">
                   Ready to send. Did {fu.contact_name || "they"} already reply?
                 </p>
-                {awaiting.map((m) => (
-                  <div key={m.id} className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-xs text-muted-foreground">
-                      Step {m.sequence_number}: {m.subject}
-                    </span>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={confirmingId !== null}
-                        onClick={() => onConfirm(m.id, true)}
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                        They replied
-                      </Button>
-                      <Button size="sm" disabled={confirmingId !== null} onClick={() => onConfirm(m.id, false)}>
-                        <Send className="h-3.5 w-3.5" />
-                        Send now
-                      </Button>
+                {actionable.map((m) => {
+                  const expired = m.status === FollowUpMessageStatus.Expired;
+                  return (
+                    <div key={m.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <div className={`min-w-0 ${expired ? "opacity-60" : ""}`}>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          Step {m.sequence_number}: {m.subject}
+                        </span>
+                        <ExpiryLabel status={m.status} expiresAt={m.expires_at} />
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={confirmingId !== null}
+                          onClick={() => onConfirm(m.id, true)}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          They replied
+                        </Button>
+                        <Button size="sm" disabled={confirmingId !== null} onClick={() => onConfirm(m.id, false)}>
+                          <Send className="h-3.5 w-3.5" />
+                          Send now
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Row>

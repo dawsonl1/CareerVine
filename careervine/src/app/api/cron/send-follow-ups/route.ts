@@ -7,6 +7,7 @@ import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { filterActiveUserIds } from "@/lib/user-status";
 import { capabilitiesFor } from "@/lib/capabilities/map";
 import type { Capability } from "@/lib/capabilities/types";
+import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 const receiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
@@ -165,7 +166,7 @@ async function runJob(): Promise<NextResponse> {
             .from("email_follow_up_messages")
             .update({ status: "cancelled" })
             .eq("follow_up_id", seqId)
-            .in("status", ["pending", "awaiting_review"]);
+            .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
           cancelled += messages.length;
         }
         continue;
@@ -210,7 +211,7 @@ async function runJob(): Promise<NextResponse> {
         .from("email_follow_up_messages")
         .update({ status: "cancelled" })
         .eq("follow_up_id", seqId)
-        .in("status", ["pending", "awaiting_review"]);
+        .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
       // Their reply graduates prospects/bench into the active network
       await activateContactByEmail(userId, parent.recipient_email);
       cancelled += messages.length;
@@ -274,14 +275,15 @@ async function runJob(): Promise<NextResponse> {
     }
 
     // Check if all messages in the sequence are done (nothing still open). A
-    // lingering awaiting_review sibling (parked while the user was on the free
-    // tier, before an upgrade) keeps the sequence open so it can't be marked
-    // completed out from under a still-confirmable message.
+    // lingering awaiting_review OR expired sibling keeps the sequence open so it
+    // can't be marked completed out from under a still-confirmable/sendable
+    // message — completing it would fail the confirm route's parent-active guard
+    // and strand that sibling forever (CAR-105).
     const { count } = await service
       .from("email_follow_up_messages")
       .select("id", { count: "exact", head: true })
       .eq("follow_up_id", seqId)
-      .in("status", ["pending", "sending", "awaiting_review"]);
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, "sending"]);
 
     if (count === 0) {
       await service
