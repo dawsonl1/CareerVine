@@ -55,15 +55,15 @@ describe("EmailExperience — Inbox/Outreach branch point", () => {
     expect(screen.queryByText("outreach-shell")).toBeNull();
   });
 
-  it("renders the premium Inbox shell when can(inbox:premium)", async () => {
-    capsState.can = (c) => c === "inbox:premium";
+  it("defaults to the premium Inbox shell when there is no free-tier grant (unconnected / error / pre-migration all land here)", async () => {
+    capsState.can = () => false;
     render(<EmailExperience />);
     await waitFor(() => expect(screen.getByText("inbox-shell")).toBeTruthy());
     expect(screen.queryByText("outreach-shell")).toBeNull();
   });
 
-  it("renders the Outreach shell when inbox:premium is absent", async () => {
-    capsState.can = () => false;
+  it("renders the Outreach shell only on a positive outreach:portal grant", async () => {
+    capsState.can = (c) => c === "outreach:portal";
     render(<EmailExperience />);
     await waitFor(() => expect(screen.getByText("outreach-shell")).toBeTruthy());
     expect(screen.queryByText("inbox-shell")).toBeNull();

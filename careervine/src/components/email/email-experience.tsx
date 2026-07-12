@@ -26,11 +26,15 @@ const OutreachShell = dynamic(
 
 /**
  * The single branch point between the paid Inbox and the free Outreach (CAR-103).
- * Renders a skeleton until capabilities resolve, then picks the shell from
- * `inbox:premium` — never the wrong shell, so there is no Inbox/Outreach flash.
+ * Renders a skeleton until capabilities resolve, then DEFAULTS to the Inbox shell
+ * (which handles its own connected / connect-prompt states) and routes to Outreach
+ * ONLY on a positive `outreach:portal` grant. Keying on a positive free signal —
+ * not the absence of premium — means an unconnected user, a transient capabilities
+ * error, and the deploy-before-migration window all fall through to the Inbox
+ * rather than the placeholder stub. Never renders the wrong shell, so no flash.
  */
 export function EmailExperience() {
   const { can, loading } = useCapabilities();
   if (loading) return <EmailExperienceSkeleton />;
-  return can("inbox:premium") ? <InboxShell /> : <OutreachShell />;
+  return can("outreach:portal") ? <OutreachShell /> : <InboxShell />;
 }

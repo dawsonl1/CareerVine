@@ -11,7 +11,8 @@ export type Capability =
   | "mailbox:modify" // mailbox actions: mark-read, trash/untrash, move/label
   | "drafts:gmail" // create real Gmail drafts (drafts.create)
   | "followups:auto" // cron auto reply-detection + bounce-cancel
-  | "inbox:premium"; // render the premium Inbox shell (else the Outreach shell)
+  | "inbox:premium" // premium tier (connection holds gmail.modify); gates mailbox operations in CAR-102
+  | "outreach:portal"; // the free Outreach experience — a POSITIVE free-tier grant (nobody in Phase 0; CAR-102 grants confirmed free users)
 
 /** The raw entitlement flags on a user's gmail_connections row — the resolver's inputs. */
 export interface EntitlementFlags {
