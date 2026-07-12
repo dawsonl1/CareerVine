@@ -25,6 +25,8 @@ export interface CompanyFilters {
   traction: OutreachStage | null;
   tier: string | null;
   contacts: ContactsFilter;
+  /** Only companies with a BYU alum in a product role. */
+  productAlum: boolean;
 }
 
 export const EMPTY_COMPANY_FILTERS: CompanyFilters = {
@@ -33,6 +35,7 @@ export const EMPTY_COMPANY_FILTERS: CompanyFilters = {
   traction: null,
   tier: null,
   contacts: "any",
+  productAlum: false,
 };
 
 const VALID_STATUSES = new Set<string>(TARGET_STATUSES);
@@ -44,7 +47,8 @@ export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
     f.statuses.length > 0 ||
     f.traction !== null ||
     f.tier !== null ||
-    f.contacts !== "any"
+    f.contacts !== "any" ||
+    f.productAlum
   );
 }
 
@@ -65,6 +69,7 @@ export function filterCompanies(rows: CompanySummary[], f: CompanyFilters): Comp
       const withContacts = c.current_count + c.former_count > 0;
       if (f.contacts === "with" ? !withContacts : withContacts) return false;
     }
+    if (f.productAlum && c.product_alum_count === 0) return false;
     return true;
   });
 }
@@ -106,6 +111,7 @@ export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
     traction: rawTraction && VALID_STAGES.has(rawTraction) ? (rawTraction as OutreachStage) : null,
     tier: rawTier || null,
     contacts: rawContacts === "with" || rawContacts === "none" ? rawContacts : "any",
+    productAlum: params.get("product_alum") === "1",
   };
 }
 
@@ -124,5 +130,6 @@ export function serializeCompanyFilters(f: CompanyFilters, base: URLSearchParams
   setOrDelete("traction", f.traction);
   setOrDelete("tier", f.tier);
   setOrDelete("contacts", f.contacts === "any" ? null : f.contacts);
+  setOrDelete("product_alum", f.productAlum ? "1" : null);
   return out;
 }

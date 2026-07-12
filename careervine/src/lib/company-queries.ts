@@ -17,6 +17,7 @@ import {
 } from "./stage-derivation";
 import { escapeIlikePattern } from "./search-helpers";
 import { findOrCreateCompany } from "./company-helpers";
+import { nextActionForCompany } from "./company-next-action";
 
 type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
 
@@ -48,10 +49,31 @@ async function chunked<T>(ids: number[], fn: (chunk: number[]) => Promise<T[]>):
   return out;
 }
 
+/** Pipeline personas that count as "in a product role" for the product-alum signal. */
+export const PRODUCT_PERSONAS = new Set(["product_leader", "alum_product", "product_peer"]);
+
 /** Schools that light the alum badge (extend as review shows gaps). */
 export function isByuSchoolName(name: string): boolean {
   const n = name.trim().toLowerCase();
   return n.includes("brigham young") || n.startsWith("byu");
+}
+
+/**
+ * Batch-resolve which of the given contacts have a BYU school on file
+ * (contact_schools → schools.name match). Complements contacts.verified_school
+ * for the who-you-know alum signal on the companies list.
+ */
+async function byuAlumContactIds(contactIds: number[]): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (contactIds.length === 0) return out;
+  const rows = await chunked(contactIds, async (chunk) => {
+    const { data } = await db().from("contact_schools").select("contact_id, schools(name)").in("contact_id", chunk);
+    return data ?? [];
+  });
+  for (const s of rows as unknown as Array<{ contact_id: number; schools: { name: string } | null }>) {
+    if (s.schools?.name && isByuSchoolName(s.schools.name)) out.add(s.contact_id);
+  }
+  return out;
 }
 
 // ── Stage signals (batch) ──────────────────────────────────────────────
@@ -214,10 +236,22 @@ export interface CompanySummary {
   current_count: number;
   former_count: number;
   bench_count: number;
+  /** BYU alumni among current non-bench contacts — the app's warm-intro edge. */
+  alum_count: number;
+  /** BYU alumni among current non-bench contacts who are in a product role — the top intro for a PM search. */
+  product_alum_count: number;
+  /** Recruiters among current non-bench contacts. */
+  recruiter_count: number;
+  /**
+   * The person to name in the next-action line: the highest-traction current
+   * contact when there's momentum, else the best warm lead (alum first). Null
+   * when the company has no current non-bench contacts.
+   */
+  lead_contact_name: string | null;
   target: TargetInfo | null;
   /** Targeted office scopes (location-level targets), highest priority first. */
   office_scopes: OfficeScopeSummary[];
-  /** Max derived stage across non-bench contacts (targets view only). */
+  /** Max derived stage across non-bench contacts (pursuing/in_play views). */
   traction: OutreachStage | null;
 }
 
@@ -293,16 +327,21 @@ export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
   };
 }
 
-export type CompanySort = "priority" | "traction" | "next_app_date" | "name";
+export type CompanySort = "next" | "priority" | "traction" | "next_app_date" | "name";
 
 /**
  * Which companies the dashboard returns:
  * - `targets`  — only companies the user explicitly targets (outreach queue, MCP).
- * - `in_play`  — targets + companies where the user has a CURRENT non-bench
- *                contact (active or prospect). The primary /companies view.
+ * - `pursuing` — targets + companies where the user has a CURRENT *prospect*
+ *                contact (someone intentionally put in the outreach funnel).
+ *                The primary /companies view: everything you're actually
+ *                working, without the noise of every imported contact's employer.
+ * - `in_play`  — targets + companies where the user has ANY current non-bench
+ *                contact (active or prospect). Broader; retained for callers
+ *                that want the full "where I know someone" set.
  * - `all`      — every company with contacts (full network-history search).
  */
-export type CompanyScope = "targets" | "in_play" | "all";
+export type CompanyScope = "targets" | "pursuing" | "in_play" | "all";
 
 /**
  * Pick which company ids a scope surfaces, given the user's targets and the
@@ -310,13 +349,19 @@ export type CompanyScope = "targets" | "in_play" | "all";
  * are unit-testable without a database.
  *
  * - `targets`  — exactly the targeted companies.
- * - `in_play`  — targets ∪ companies with a CURRENT contact (active or
+ * - `pursuing` — targets ∪ companies with a CURRENT *prospect* contact.
+ *                Intentional signals only: a prospect is someone you moved
+ *                into the outreach funnel, so an imported `active` contact
+ *                never drags its employer onto the list.
+ * - `in_play`  — targets ∪ companies with ANY current contact (active or
  *                prospect). Current only, so a contact's past employers don't
  *                flood the list; bench is already excluded from `current`.
  * - `all`      — targets ∪ companies with ≥ `minContacts` current-or-former
  *                contacts.
  */
-export function selectCompanyIds<A extends { current: { size: number }; former: { size: number } }>(
+export function selectCompanyIds<
+  A extends { current: { size: number }; former: { size: number }; currentProspect: { size: number } },
+>(
   scope: CompanyScope,
   targetCompanyIds: Iterable<number>,
   aggByCompany: Map<number, A>,
@@ -326,7 +371,11 @@ export function selectCompanyIds<A extends { current: { size: number }; former: 
   const ids = new Set<number>(targetCompanyIds);
   for (const [id, agg] of aggByCompany) {
     const qualifies =
-      scope === "in_play" ? agg.current.size >= 1 : agg.current.size + agg.former.size >= minContacts;
+      scope === "pursuing"
+        ? agg.currentProspect.size >= 1
+        : scope === "in_play"
+          ? agg.current.size >= 1
+          : agg.current.size + agg.former.size >= minContacts;
     if (qualifies) ids.add(id);
   }
   return [...ids];
@@ -336,7 +385,13 @@ interface EmploymentAggRow {
   company_id: number;
   contact_id: number;
   is_current: boolean;
-  contacts: { network_status: string; stage_override: string | null };
+  contacts: {
+    name: string;
+    network_status: string;
+    stage_override: string | null;
+    persona: string | null;
+    verified_school: string | null;
+  };
 }
 
 async function fetchUserEmploymentRows(userId: string): Promise<EmploymentAggRow[]> {
@@ -345,7 +400,9 @@ async function fetchUserEmploymentRows(userId: string): Promise<EmploymentAggRow
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await db()
       .from("contact_companies")
-      .select("company_id, contact_id, is_current, contacts!inner(user_id, network_status, stage_override)")
+      .select(
+        "company_id, contact_id, is_current, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
+      )
       .eq("contacts.user_id", userId)
       .range(from, from + PAGE - 1);
     if (error) throw error;
@@ -361,7 +418,9 @@ export async function getCompanies(
   opts: { scope?: CompanyScope; search?: string; minContacts?: number; sort?: CompanySort } = {},
 ): Promise<CompanySummary[]> {
   const scope = opts.scope ?? "targets";
-  const sort = opts.sort ?? (scope === "all" ? "name" : "priority");
+  // Default order: focused views lead with what needs you next; the full
+  // search is alphabetical; the outreach/MCP targets queue stays priority-first.
+  const sort = opts.sort ?? (scope === "all" ? "name" : scope === "targets" ? "priority" : "next");
 
   const [employment, targetsRes] = await Promise.all([
     fetchUserEmploymentRows(userId),
@@ -397,24 +456,56 @@ export async function getCompanies(
   }
 
   // Aggregate people per company; bench counted separately, never mixed
+  interface PersonAgg {
+    id: number;
+    name: string;
+    stage_override: string | null;
+    persona: string | null;
+    verified_school: string | null;
+    is_current: boolean;
+  }
   interface Agg {
     current: Set<number>;
     former: Set<number>;
     bench: Set<number>;
-    contactRows: Array<{ id: number; stage_override: string | null }>;
+    /** Current contacts intentionally put in the outreach funnel (network_status='prospect'). */
+    currentProspect: Set<number>;
+    /** Non-bench people at this company, deduped by contact id (current wins). */
+    people: Map<number, PersonAgg>;
   }
   const aggByCompany = new Map<number, Agg>();
   for (const row of employment) {
     let agg = aggByCompany.get(row.company_id);
     if (!agg) {
-      agg = { current: new Set(), former: new Set(), bench: new Set(), contactRows: [] };
+      agg = {
+        current: new Set(),
+        former: new Set(),
+        bench: new Set(),
+        currentProspect: new Set(),
+        people: new Map(),
+      };
       aggByCompany.set(row.company_id, agg);
     }
-    if (row.contacts.network_status === "bench") {
+    const contact = row.contacts;
+    if (contact.network_status === "bench") {
       agg.bench.add(row.contact_id);
     } else {
       (row.is_current ? agg.current : agg.former).add(row.contact_id);
-      agg.contactRows.push({ id: row.contact_id, stage_override: row.contacts.stage_override });
+      if (row.is_current && contact.network_status === "prospect") agg.currentProspect.add(row.contact_id);
+      const existing = agg.people.get(row.contact_id);
+      if (existing) {
+        // Same contact, multiple roles at this company — collapse; current wins.
+        if (row.is_current) existing.is_current = true;
+      } else {
+        agg.people.set(row.contact_id, {
+          id: row.contact_id,
+          name: contact.name,
+          stage_override: contact.stage_override,
+          persona: contact.persona,
+          verified_school: contact.verified_school,
+          is_current: row.is_current,
+        });
+      }
     }
   }
   // A boomeranger is current, not former
@@ -440,25 +531,59 @@ export async function getCompanies(
     return data ?? [];
   });
 
-  // Traction: max derived stage per company. Skipped only for the "all" view,
-  // whose company set is unbounded; targets/in_play are bounded and safe.
+  // Enrichment (traction + who-you-know) per company. Skipped only for the
+  // "all" view, whose company set is unbounded; targets/pursuing/in_play are
+  // bounded and safe. One extra batched query (BYU alumni) over the shown set.
   const traction = new Map<number, OutreachStage>();
+  const alumCountByCompany = new Map<number, number>();
+  const productAlumCountByCompany = new Map<number, number>();
+  const recruiterCountByCompany = new Map<number, number>();
+  const leadNameByCompany = new Map<number, string | null>();
   if (scope !== "all") {
     const uniqueContacts = new Map<number, { id: number; stage_override: string | null }>();
     for (const id of companyIds) {
-      for (const c of aggByCompany.get(id)?.contactRows ?? []) uniqueContacts.set(c.id, c);
-    }
-    const stages = await getContactStages(userId, [...uniqueContacts.values()]);
-    for (const id of companyIds) {
-      let best: ContactStage | null = null;
-      const seen = new Set<number>();
-      for (const c of aggByCompany.get(id)?.contactRows ?? []) {
-        if (seen.has(c.id)) continue;
-        seen.add(c.id);
-        const s = stages.get(c.id);
-        if (s && (!best || s.rank > best.rank)) best = s;
+      for (const p of aggByCompany.get(id)?.people.values() ?? []) {
+        uniqueContacts.set(p.id, { id: p.id, stage_override: p.stage_override });
       }
-      if (best) traction.set(id, best.stage);
+    }
+    const [stages, byuByContact] = await Promise.all([
+      getContactStages(userId, [...uniqueContacts.values()]),
+      byuAlumContactIds([...uniqueContacts.keys()]),
+    ]);
+    const isAlum = (p: PersonAgg) =>
+      byuByContact.has(p.id) || (p.verified_school != null && p.verified_school !== "none");
+    // A BYU alum in a product role — the highest-value intro for a PM search.
+    const isProductAlum = (p: PersonAgg) => isAlum(p) && PRODUCT_PERSONAS.has(p.persona ?? "");
+
+    for (const id of companyIds) {
+      const people = [...(aggByCompany.get(id)?.people.values() ?? [])];
+      const current = people.filter((p) => p.is_current);
+      alumCountByCompany.set(id, current.filter(isAlum).length);
+      productAlumCountByCompany.set(id, current.filter(isProductAlum).length);
+      recruiterCountByCompany.set(id, current.filter((p) => p.persona === "recruiter").length);
+
+      // Max derived stage across non-bench, and the contact driving it.
+      let best: { stage: ContactStage; person: PersonAgg } | null = null;
+      for (const p of people) {
+        const s = stages.get(p.id);
+        if (s && (!best || s.rank > best.stage.rank)) best = { stage: s, person: p };
+      }
+      if (best) traction.set(id, best.stage.stage);
+
+      // Lead name for the next-action line: the contact with real momentum, else
+      // the best warm lead among current contacts (product alum → alum → recruiter → any).
+      let lead: string | null = null;
+      if (best && best.stage.rank > stageRank("not_contacted")) {
+        lead = best.person.name;
+      } else if (current.length > 0) {
+        const warm =
+          current.find(isProductAlum) ??
+          current.find(isAlum) ??
+          current.find((p) => p.persona === "recruiter") ??
+          current[0];
+        lead = warm.name;
+      }
+      leadNameByCompany.set(id, lead);
     }
   }
 
@@ -478,6 +603,10 @@ export async function getCompanies(
       current_count: agg?.current.size ?? 0,
       former_count: agg?.former.size ?? 0,
       bench_count: agg?.bench.size ?? 0,
+      alum_count: alumCountByCompany.get(c.id) ?? 0,
+      product_alum_count: productAlumCountByCompany.get(c.id) ?? 0,
+      recruiter_count: recruiterCountByCompany.get(c.id) ?? 0,
+      lead_contact_name: leadNameByCompany.get(c.id) ?? null,
       target: derived?.target ?? null,
       office_scopes: derived?.office_scopes ?? [],
       traction: traction.get(c.id) ?? null,
@@ -492,8 +621,20 @@ export async function getCompanies(
     if (a > b) return desc ? -1 : 1;
     return 0;
   };
+  // "What's next" ranks are relatively expensive to derive; precompute once.
+  const nextRank = new Map<number, number>();
+  if (sort === "next") {
+    const now = new Date();
+    for (const c of summaries) nextRank.set(c.id, nextActionForCompany(c, now).rank);
+  }
   summaries.sort((a, b) => {
     switch (sort) {
+      case "next":
+        return (
+          (nextRank.get(b.id) ?? 0) - (nextRank.get(a.id) ?? 0) ||
+          cmpNullsLast(a.target?.next_app_date ?? null, b.target?.next_app_date ?? null) ||
+          a.name.localeCompare(b.name)
+        );
       case "priority":
         return (
           cmpNullsLast(a.target?.priority_score ?? null, b.target?.priority_score ?? null, true) ||
