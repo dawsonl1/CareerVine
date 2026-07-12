@@ -37,6 +37,9 @@ async function runJob(): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
   const now = new Date().toISOString();
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  // CAR-105: a parked follow-up expires 14 days out (active-aware; the nudge cron
+  // may extend this once). Stamped alongside the awaiting_review flip below.
+  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
   // Query pending follow-up messages that are due
   const { data: pendingMessages } = await service
@@ -124,9 +127,19 @@ async function runJob(): Promise<NextResponse> {
     const caps = capsByUser.get(userId);
     if (caps && !caps.has("followups:auto")) {
       if (caps.has("outreach:portal")) {
+        // CAR-105: stamp the expiry/nudge anchors as we park. parked_at = P (the
+        // countdown/expiry/cadence origin); reminder_count/seen_during_window reset
+        // so the nudge cron starts this item's day-0/4/9 sequence cleanly.
         await service
           .from("email_follow_up_messages")
-          .update({ status: "awaiting_review" })
+          .update({
+            status: "awaiting_review",
+            parked_at: now,
+            expires_at: expiresAt,
+            reminder_count: 0,
+            last_reminder_at: null,
+            seen_during_window: false,
+          })
           .in("id", messages.map((m) => m.id))
           .eq("status", "pending");
         awaitingReview += messages.length;

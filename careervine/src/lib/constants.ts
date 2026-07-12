@@ -17,6 +17,9 @@ export const FollowUpMessageStatus = {
   // CAR-102: free-tier confirm-to-send. The cron parks a due message here instead
   // of sending; the user confirms (send) or reports a reply (cancel) from the portal.
   AwaitingReview: "awaiting_review",
+  // CAR-105: the expiry window elapsed without action. NOT cancelled — stays
+  // visible (greyed) and one-click sendable; the parent sequence stays 'active'.
+  Expired: "expired",
 } as const;
 
 /** Follow-up message statuses that still count as an open/scheduled step: a
@@ -30,6 +33,19 @@ export const OPEN_FOLLOW_UP_MESSAGE_STATUSES = [
 export function isOpenFollowUpMessage(status: string | null | undefined): boolean {
   return status === FollowUpMessageStatus.Pending || status === FollowUpMessageStatus.AwaitingReview;
 }
+
+/** Follow-up message statuses that keep the PARENT sequence open and must be
+ * cleared on teardown: the open steps PLUS 'expired'. An expired message is still
+ * one-click sendable, so a sequence isn't "complete" while one lingers (else the
+ * parent-active guard would strand it), and a cancel/reply must clear it too or it
+ * orphans under a non-active parent. DISTINCT from OPEN_FOLLOW_UP_MESSAGE_STATUSES,
+ * which drives "N scheduled" counts and the rebuild-on-edit delete where 'expired'
+ * is EXCLUDED (an edit must not delete a still-sendable expired message). CAR-105. */
+export const UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES = [
+  FollowUpMessageStatus.Pending,
+  FollowUpMessageStatus.AwaitingReview,
+  FollowUpMessageStatus.Expired,
+] as const;
 
 // ── Scheduled email statuses ───────────────────────────────────────────
 
