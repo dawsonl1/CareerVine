@@ -16,6 +16,9 @@ interface ContactEmailsTabProps {
   emails: EmailMessage[];
   scheduledEmails: ScheduledEmail[];
   gmailConnected: boolean;
+  /** CAR-102: premium holds the live-mailbox read scope. Free users get cached
+   * snippets only (no live body fetch) and the manual "Mark as replied" control. */
+  canReadMailbox: boolean;
   loadingEmails: boolean;
   onScheduledEmailCancel: (id: number) => void;
   onReloadEmails: () => void;
@@ -28,6 +31,7 @@ export function ContactEmailsTab({
   emails,
   scheduledEmails,
   gmailConnected,
+  canReadMailbox,
   loadingEmails,
   onScheduledEmailCancel,
   onReloadEmails,
@@ -80,9 +84,28 @@ export function ContactEmailsTab({
     }
     setExpandedEmailId(gmailMessageId);
     setExpandedEmailContent(null);
-    setLoadingEmailContent(true);
 
     const msg = emails.find((e) => e.gmail_message_id === gmailMessageId);
+
+    // Free tier (no live mailbox read): show the cached snippet, never call the
+    // gated live-body route (it would 403) and never mark-read (no live mailbox).
+    if (!canReadMailbox) {
+      if (msg) {
+        setExpandedEmailContent({
+          subject: msg.subject || "",
+          from: msg.direction === "outbound" ? "You" : (msg.from_address || "Unknown"),
+          to: (msg.to_addresses || []).join(", "),
+          date: msg.date || "",
+          bodyHtml: null,
+          bodyText: msg.snippet || "No preview available for this message.",
+          messageId: msg.gmail_message_id,
+          threadId: msg.thread_id || "",
+        });
+      }
+      return;
+    }
+
+    setLoadingEmailContent(true);
     if (msg && !msg.is_read) {
       const delta = msg.direction === "inbound" ? -1 : 0;
       window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta } }));
@@ -126,6 +149,30 @@ export function ContactEmailsTab({
       }
     } catch (err) {
       toastError("Failed to cancel follow-up");
+    }
+  };
+
+  const [markingReplied, setMarkingReplied] = useState<string | null>(null);
+
+  // Free-tier manual "they replied": cancels the sequence, activates the contact,
+  // and fires the reply_received north-star (premium auto-detects this via sync).
+  const markReplied = async (threadId: string, recipientEmail: string) => {
+    if (markingReplied) return;
+    setMarkingReplied(threadId);
+    try {
+      const res = await fetch("/api/gmail/follow-ups/mark-replied", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId, recipientEmail }),
+      });
+      if (!res.ok) throw new Error();
+      toastSuccess("Marked as replied");
+      onReloadEmails();
+      loadFollowUpsForThread(threadId);
+    } catch {
+      toastError("Could not mark as replied");
+    } finally {
+      setMarkingReplied(null);
     }
   };
 
@@ -414,6 +461,24 @@ export function ContactEmailsTab({
                               </button>
                             );
                           })()}
+                          {!canReadMailbox && (() => {
+                            const hasInbound = thread.messages.some((m) => m.direction === "inbound");
+                            const outbound = thread.messages.find((m) => m.direction === "outbound");
+                            const to = outbound?.to_addresses?.[0];
+                            if (hasInbound || !to) return null;
+                            return (
+                              <button
+                                type="button"
+                                disabled={markingReplied === thread.threadId}
+                                className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors disabled:opacity-50"
+                                onClick={() => markReplied(thread.threadId, to)}
+                                title="Cancel follow-ups and mark this thread as replied"
+                              >
+                                <Check className="h-4 w-4" />
+                                Mark as replied
+                              </button>
+                            );
+                          })()}
                         </div>
 
                         {/* Active follow-ups indicator */}
@@ -448,7 +513,9 @@ export function ContactEmailsTab({
                                       </span>
                                     ))}
                                 </div>
-                                <p className="text-[10px] text-muted-foreground mt-1">Auto-cancels if they reply</p>
+                                <p className="text-[10px] text-muted-foreground mt-1">
+                                  {canReadMailbox ? "Auto-cancels if they reply" : "Use “Mark as replied” if they respond"}
+                                </p>
                               </div>
                               <div className="flex flex-col gap-1 shrink-0">
                                 <button

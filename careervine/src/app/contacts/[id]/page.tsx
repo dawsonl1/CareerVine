@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { hasInAppBackHistory } from "@/lib/nav-history";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
+import { useCapabilities } from "@/hooks/use-capabilities";
 import Navigation from "@/components/navigation";
 import { getContactById, getContacts, getMeetingsForContact, getActionItemsForContact, getCompletedActionItemsForContact, getInteractions, getAttachmentsForContact, getGmailConnection } from "@/lib/queries";
 import type { Contact, ContactMeeting, InteractionRow, GmailConnection, EmailMessage, ScheduledEmail } from "@/lib/types";
@@ -62,6 +63,7 @@ type TabKey = (typeof TABS)[number]["key"];
 export default function ContactDetailPage() {
   const { user } = useAuth();
   const { gmailConnected, gmailLoading } = useCompose();
+  const { can } = useCapabilities();
   const { open: openQuickCapture } = useQuickCapture();
   const { success: toastSuccess, error: toastError } = useToast();
   const router = useRouter();
@@ -353,6 +355,7 @@ export default function ContactDetailPage() {
                     emails={contactEmails}
                     scheduledEmails={scheduledEmails}
                     gmailConnected={gmailConnected}
+                    canReadMailbox={can("mailbox:read")}
                     loadingEmails={loadingEmails}
                     onScheduledEmailCancel={handleScheduledEmailCancel}
                     onReloadEmails={loadContactEmails}
