@@ -23,6 +23,10 @@ function company(overrides: CompanyOverrides): CompanySummary {
     current_count: 0,
     former_count: 0,
     bench_count: 0,
+    alum_count: 0,
+    product_alum_count: 0,
+    recruiter_count: 0,
+    lead_contact_name: null,
     office_scopes: [],
     traction: null,
     ...rest,
@@ -128,6 +132,15 @@ describe("filterCompanies", () => {
     });
   });
 
+  describe("BYU alum in product facet", () => {
+    it("keeps only companies with a product alum when enabled", () => {
+      const withProductAlum = company({ name: "Stripe", product_alum_count: 1 });
+      const alumOnly = company({ name: "Figma", alum_count: 2, product_alum_count: 0 });
+      const rows = [withProductAlum, alumOnly];
+      expect(filterCompanies(rows, filters({ productAlum: true }))).toEqual([withProductAlum]);
+    });
+  });
+
   it("ANDs search with facets", () => {
     const match = company({ name: "Stripe", current_count: 1, target: { status: "applied" } });
     const wrongStatus = company({ name: "Stripe Atlas", target: { status: "closed" } });
@@ -151,6 +164,7 @@ describe("hasActiveCompanyFilters", () => {
     expect(hasActiveCompanyFilters(filters({ traction: "replied" }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ tier: "Big Tech" }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ contacts: "none" }))).toBe(true);
+    expect(hasActiveCompanyFilters(filters({ productAlum: true }))).toBe(true);
   });
 });
 
@@ -198,7 +212,14 @@ describe("URL param round-trip", () => {
       traction: "replied",
       tier: "Big Tech",
       contacts: "none",
+      productAlum: false,
     });
+  });
+
+  it("round-trips the BYU-alum-in-product facet", () => {
+    const out = serializeCompanyFilters(filters({ productAlum: true }), new URLSearchParams());
+    expect(out.get("product_alum")).toBe("1");
+    expect(parseCompanyFilters(out).productAlum).toBe(true);
   });
 
   it("returns empty filters for an empty query string", () => {

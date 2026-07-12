@@ -8,7 +8,8 @@ import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
-import CompanyFilterBar, { STATUS_LABELS, STATUS_STYLES } from "@/components/companies/company-filter-bar";
+import CompanyFilterBar from "@/components/companies/company-filter-bar";
+import { CompanyCard } from "@/components/companies/company-card";
 import { AddCompanyModal } from "@/components/companies/add-company-modal";
 import { getCompanies, type CompanySummary, type CompanySort } from "@/lib/company-queries";
 import {
@@ -21,14 +22,9 @@ import {
   serializeCompanyFilters,
   type CompanyFilters,
 } from "@/lib/company-filters";
-import { STAGE_LABELS } from "@/lib/stage-derivation";
-import { Building2, ExternalLink, CalendarClock, Users, Send, Plus, MapPin } from "lucide-react";
+import { Building2, Send, Plus, Search, X } from "lucide-react";
 
-const VALID_SORTS: readonly CompanySort[] = ["priority", "next_app_date", "traction", "name"];
-
-function formatDate(d: string): string {
-  return new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
+const VALID_SORTS: readonly CompanySort[] = ["next", "priority", "next_app_date", "traction", "name"];
 
 // useSearchParams requires a Suspense boundary (same pattern as settings/page.tsx)
 export default function CompaniesPageWrapper() {
@@ -44,11 +40,10 @@ function CompaniesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // URL is the source of truth for view/sort/search so state survives
+  // URL is the source of truth for sort/search/filters so state survives
   // back-navigation from a company detail page and links are shareable.
-  const view: "in_play" | "all" = searchParams.get("view") === "all" ? "all" : "in_play";
   const rawSort = searchParams.get("sort") as CompanySort | null;
-  const sort: CompanySort = rawSort && VALID_SORTS.includes(rawSort) ? rawSort : "priority";
+  const sort: CompanySort = rawSort && VALID_SORTS.includes(rawSort) ? rawSort : "next";
   const urlFilters = useMemo(() => parseCompanyFilters(searchParams), [searchParams]);
 
   // Local echo of the search box so typing stays instant; synced to the URL
@@ -78,7 +73,7 @@ function CompaniesPage() {
     }
   }, [urlFilters.q]);
 
-  // Debounced input → URL (also drives the server-side search in "all" view)
+  // Debounced input → URL so search state is shareable and survives back-nav
   useEffect(() => {
     if (searchInput === urlFilters.q) return;
     const t = setTimeout(() => {
@@ -88,16 +83,9 @@ function CompaniesPage() {
     return () => clearTimeout(t);
   }, [searchInput, urlFilters, searchParams, replaceParams]);
 
-  const setView = (v: "in_play" | "all") => {
-    const p = new URLSearchParams(searchParams.toString());
-    if (v === "all") p.set("view", "all");
-    else p.delete("view");
-    replaceParams(p);
-  };
-
   const setSort = (s: CompanySort) => {
     const p = new URLSearchParams(searchParams.toString());
-    if (s === "priority") p.delete("sort");
+    if (s === "next") p.delete("sort");
     else p.set("sort", s);
     replaceParams(p);
   };
@@ -117,36 +105,28 @@ function CompaniesPage() {
     [replaceParams, searchParams],
   );
 
-  // Targets view filters client-side: the full aggregate is already in
-  // memory, so filtering is a pure pass — no refetch per keystroke.
+  // Everything filters client-side: the full aggregate is already in memory,
+  // so search + stage chips + facets are a pure pass, no refetch per keystroke.
   const deferredQ = useDeferredValue(searchInput);
   const visible = useMemo(
-    () => (view === "in_play" ? filterCompanies(companies, { ...urlFilters, q: deferredQ }) : companies),
-    [view, companies, urlFilters, deferredQ],
+    () => filterCompanies(companies, { ...urlFilters, q: deferredQ }),
+    [companies, urlFilters, deferredQ],
   );
   const tierOptions = useMemo(() => distinctTiers(companies), [companies]);
   const statusCounts = useMemo(() => countByStatus(companies), [companies]);
   const filtersActive = hasActiveCompanyFilters(liveFilters);
 
-  // All-companies view is search-driven: full-history import creates
-  // thousands of past-employer rows — an unfiltered list is a landfill.
-  const serverSearch = view === "all" ? urlFilters.q : undefined;
-
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const data = await getCompanies(user.id, {
-        scope: view === "all" ? "all" : "in_play",
-        sort,
-        search: serverSearch,
-        minContacts: 1,
-      });
+      // One list: every company you're targeting or already know someone at.
+      const data = await getCompanies(user.id, { scope: "in_play", sort, minContacts: 1 });
       setCompanies(data);
     } finally {
       setLoading(false);
     }
-  }, [user, view, sort, serverSearch]);
+  }, [user, sort]);
 
   useEffect(() => {
     load();
@@ -156,17 +136,17 @@ function CompaniesPage() {
     <div className="min-h-screen bg-background">
       <Navigation />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        {/* Header — title + primary actions */}
+        <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
           <div>
             <h1 className="text-2xl font-semibold text-on-surface flex items-center gap-2.5">
               <Building2 className="w-6 h-6 text-primary" /> Companies
             </h1>
             <p className="text-sm text-on-surface-variant mt-1">
-              {view === "in_play" ? "Companies where you know people, plus the ones you're targeting" : "Every company in your network history"}
+              Every company you're targeting or already know someone at. Filter by stage to focus.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => setShowAddCompany(true)}>
               <Plus className="w-4 h-4 mr-1.5" /> Add company
             </Button>
@@ -175,41 +155,48 @@ function CompaniesPage() {
                 <Send className="w-4 h-4 mr-1.5" /> Start outreach flow
               </Button>
             </Link>
-            {/* My companies / All toggle */}
-            <div className="flex rounded-full bg-surface-container-high p-1">
-              {(["in_play", "all"] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                    view === v ? "bg-primary text-on-primary" : "text-on-surface-variant hover:text-on-surface"
-                  }`}
-                >
-                  {v === "in_play" ? "My companies" : "All"}
-                </button>
-              ))}
-            </div>
-            {view === "in_play" && (
-              <Select
-                value={sort}
-                onChange={(v) => setSort(v as CompanySort)}
-                options={[
-                  { value: "priority", label: "Sort: Priority" },
-                  { value: "next_app_date", label: "Sort: Next app date" },
-                  { value: "traction", label: "Sort: Traction" },
-                  { value: "name", label: "Sort: Name" },
-                ]}
-                className="!h-10 text-sm"
-              />
-            )}
           </div>
         </div>
 
-        {/* Search + filters */}
+        {/* Control bar — search + sort */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search companies…"
+              className="w-full h-10 pl-10 pr-10 rounded-full bg-surface-container-highest text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            {searchInput && (
+              <button
+                onClick={() => setSearchInput("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-on-surface-variant hover:text-on-surface"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <Select
+            value={sort}
+            onChange={(v) => setSort(v as CompanySort)}
+            options={[
+              { value: "next", label: "Sort: What's next" },
+              { value: "priority", label: "Sort: Priority" },
+              { value: "next_app_date", label: "Sort: Next app date" },
+              { value: "traction", label: "Sort: Traction" },
+              { value: "name", label: "Sort: Name" },
+            ]}
+            className="text-sm shrink-0"
+            triggerClassName="!h-10 !rounded-full !border-outline-variant"
+          />
+        </div>
+
+        {/* Stage + facet filters — toggle stages to focus the list */}
         <CompanyFilterBar
-          view={view}
-          searchInput={searchInput}
-          onSearchChange={setSearchInput}
           filters={liveFilters}
           onFiltersChange={setFilters}
           tierOptions={tierOptions}
@@ -217,7 +204,7 @@ function CompaniesPage() {
         />
 
         {/* Result count — only when filtering, so the default view stays quiet */}
-        {!loading && view === "in_play" && filtersActive && companies.length > 0 && (
+        {!loading && filtersActive && companies.length > 0 && (
           <p className="text-xs text-on-surface-variant mb-3">
             {visible.length} of {companies.length} companies
           </p>
@@ -229,106 +216,27 @@ function CompaniesPage() {
         ) : visible.length === 0 ? (
           <Card>
             <CardContent className="py-16 text-center text-on-surface-variant text-sm">
-              {view === "in_play" && companies.length > 0 ? (
+              {companies.length > 0 ? (
                 <span className="inline-flex items-center gap-3">
                   No companies match these filters.
                   <button onClick={() => setFilters(EMPTY_COMPANY_FILTERS)} className="text-primary font-medium hover:underline">
                     Clear filters
                   </button>
                 </span>
-              ) : view === "in_play" ? (
+              ) : (
                 <span className="inline-flex items-center gap-3">
-                  No companies yet.
+                  No companies yet. Target a company or import your network to get started.
                   <button onClick={() => setShowAddCompany(true)} className="text-primary font-medium hover:underline">
                     Add a company
                   </button>
                 </span>
-              ) : urlFilters.q ? (
-                "No companies match that search."
-              ) : (
-                "Type to search across every company in your network history."
               )}
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-3">
             {visible.map((c) => (
-              <Link key={c.id} href={`/companies/${c.id}`} className="block group">
-                <Card className="transition-shadow group-hover:shadow-md">
-                  <CardContent className="py-4 px-5">
-                    <div className="flex items-center gap-4">
-                      {/* Logo / initial */}
-                      <div className="w-11 h-11 rounded-xl bg-surface-container-high flex items-center justify-center overflow-hidden shrink-0">
-                        {c.logo_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={c.logo_url} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-lg font-semibold text-on-surface-variant">{c.name.charAt(0)}</span>
-                        )}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-on-surface truncate">{c.name}</span>
-                          {c.target && (
-                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[c.target.status] ?? STATUS_STYLES.researching}`}>
-                              {STATUS_LABELS[c.target.status] ?? c.target.status}
-                            </span>
-                          )}
-                          {c.target?.tier && (
-                            <span className="px-2.5 py-0.5 rounded-full text-xs bg-surface-container-high text-on-surface-variant">{c.target.tier}</span>
-                          )}
-                          {c.traction && c.traction !== "not_contacted" && (
-                            <span className="px-2.5 py-0.5 rounded-full text-xs bg-tertiary-container text-on-tertiary-container">
-                              {STAGE_LABELS[c.traction]}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-on-surface-variant flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Users className="w-3.5 h-3.5" />
-                            {c.current_count + c.former_count} contact{c.current_count + c.former_count === 1 ? "" : "s"}
-                            {c.bench_count > 0 && <span className="opacity-70"> · {c.bench_count} bench</span>}
-                          </span>
-                          {c.target?.program_name && <span className="truncate">{c.target.program_name}</span>}
-                          {c.target?.next_app_date ? (
-                            <span className="flex items-center gap-1 text-primary font-medium">
-                              <CalendarClock className="w-3.5 h-3.5" /> Apps: {formatDate(c.target.next_app_date)}
-                            </span>
-                          ) : c.target?.app_window_text ? (
-                            <span className="italic opacity-80 truncate max-w-64" title={c.target.app_window_text}>
-                              {c.target.app_window_text}
-                            </span>
-                          ) : null}
-                        </div>
-                        {/* Office scopes — only when location-level targets exist (§21.5) */}
-                        {c.office_scopes.length > 0 && (
-                          <div className="flex items-center gap-1.5 mt-1 text-xs text-on-surface-variant flex-wrap">
-                            <MapPin className="w-3.5 h-3.5 shrink-0" />
-                            {c.office_scopes.slice(0, 2).map((s, i) => (
-                              <span key={s.location_id} className="truncate">
-                                {i > 0 && <span className="opacity-60">— </span>}
-                                {s.label} · {STATUS_LABELS[s.status] ?? s.status}
-                              </span>
-                            ))}
-                            {c.office_scopes.length > 2 && (
-                              <span className="opacity-70">+{c.office_scopes.length - 2} more</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {c.target?.priority_score != null && (
-                        <div className="text-right shrink-0">
-                          <div className="text-lg font-semibold text-on-surface">{c.target.priority_score}</div>
-                          <div className="text-[10px] uppercase tracking-wide text-on-surface-variant">priority</div>
-                        </div>
-                      )}
-                      <ExternalLink className="w-4 h-4 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+              <CompanyCard key={c.id} company={c} />
             ))}
           </div>
         )}
