@@ -389,6 +389,9 @@ export default function LandingPage() {
           <a href="/privacy" className="hover:underline">
             Privacy
           </a>
+          <a href="/terms" className="hover:underline">
+            Terms
+          </a>
         </div>
       </footer>
     </div>

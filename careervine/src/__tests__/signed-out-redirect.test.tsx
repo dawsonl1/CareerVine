@@ -63,7 +63,7 @@ describe("SignedOutRedirect (CAR-64)", () => {
   });
 
   it("leaves signed-out visitors alone on public pages", () => {
-    for (const path of ["/", "/auth", "/oauth/consent", "/contacts/preview", "/privacy"]) {
+    for (const path of ["/", "/auth", "/oauth/consent", "/contacts/preview", "/privacy", "/terms"]) {
       pathnameMock.mockReturnValue(path);
 
       renderGuard();
