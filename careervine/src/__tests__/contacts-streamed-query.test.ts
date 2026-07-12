@@ -1,21 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Capture the range() args and hand back queued page results so we can assert
-// the streaming pagination (small first page, large rest) and callback order.
+// Capture the select() column string and range() args, and hand back queued
+// page results so we can assert the streaming pagination (small first page,
+// large rest), the lean list projection, and callback order.
 const mockRange = vi.fn();
+const mockSelect = vi.fn();
 
 vi.mock("@/lib/supabase/browser-client", () => ({
   createSupabaseBrowserClient: () => ({
     from: () => ({
-      select: () => ({
-        eq: () => ({
-          in: () => ({
-            order: () => ({
-              range: (from: number, to: number) => mockRange(from, to),
+      select: (columns: string) => {
+        mockSelect(columns);
+        return {
+          eq: () => ({
+            in: () => ({
+              order: () => ({
+                range: (from: number, to: number) => mockRange(from, to),
+              }),
             }),
           }),
-        }),
-      }),
+        };
+      },
     }),
   }),
 }));
@@ -26,6 +31,7 @@ const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ id: i }));
 
 beforeEach(() => {
   mockRange.mockReset();
+  mockSelect.mockReset();
 });
 
 describe("getContactsStreamed", () => {
@@ -77,5 +83,21 @@ describe("getContactsStreamed", () => {
     await expect(
       getContactsStreamed("u1", ["active"], () => {}),
     ).rejects.toBeTruthy();
+  });
+
+  it("uses the lean list projection: trimmed leaf tables, no locations join (CAR-94)", async () => {
+    mockRange.mockResolvedValueOnce({ data: rows(1), error: null });
+    await getContactsStreamed("u1", ["active"], () => {});
+
+    const select = mockSelect.mock.calls[0][0] as string;
+    // Wide leaf tables trimmed to id+name — not the full-row embed.
+    expect(select).toContain("companies(id, name)");
+    expect(select).toContain("schools(id, name)");
+    expect(select).toContain("tags(id, name)");
+    // The unused locations join is dropped from the list payload entirely.
+    expect(select).not.toMatch(/locations\(/);
+    // Full-row leaf embeds must not sneak back in.
+    expect(select).not.toContain("companies(*)");
+    expect(select).not.toContain("schools(*)");
   });
 });

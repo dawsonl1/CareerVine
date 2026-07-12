@@ -45,6 +45,27 @@ export type Contact = ContactRow & {
   })[];
 };
 
+/**
+ * Lean projection of {@link Contact} for the contacts list (CAR-94). The list
+ * only reads company/school/tag *names* plus the narrow join rows, so the wide
+ * leaf tables are trimmed to id+name and the unused `locations` join is dropped
+ * from the payload. Used only by getContactsStreamed and the contacts page; the
+ * full Contact stays the shared shape everywhere else.
+ */
+export type ContactListItem = ContactRow & {
+  contact_emails: Database["public"]["Tables"]["contact_emails"]["Row"][];
+  contact_phones: Database["public"]["Tables"]["contact_phones"]["Row"][];
+  contact_companies: (Database["public"]["Tables"]["contact_companies"]["Row"] & {
+    companies: Pick<Database["public"]["Tables"]["companies"]["Row"], "id" | "name">;
+  })[];
+  contact_schools: (Database["public"]["Tables"]["contact_schools"]["Row"] & {
+    schools: Pick<Database["public"]["Tables"]["schools"]["Row"], "id" | "name">;
+  })[];
+  contact_tags: (Database["public"]["Tables"]["contact_tags"]["Row"] & {
+    tags: Pick<Database["public"]["Tables"]["tags"]["Row"], "id" | "name">;
+  })[];
+};
+
 /** Meeting with attendee contacts as returned by getMeetings() */
 export type Meeting = MeetingRow & {
   meeting_contacts: (Database["public"]["Tables"]["meeting_contacts"]["Row"] & {

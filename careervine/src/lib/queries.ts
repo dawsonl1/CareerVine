@@ -139,6 +139,30 @@ const CONTACTS_SELECT = `
   )
 `;
 
+// Lean column set for the contacts LIST (CAR-94). The list only reads
+// company/school/tag names (plus the narrow join rows), so the wide leaf tables
+// are trimmed to id+name and the unused `locations` join is dropped — a large
+// payload cut on big networks where every row drags full companies/schools rows.
+// Row shape matches the `ContactListItem` type. getContacts keeps the full
+// CONTACTS_SELECT for its other consumers.
+const CONTACTS_LIST_SELECT = `
+  *,
+  contact_emails(*),
+  contact_phones(*),
+  contact_companies(
+    *,
+    companies(id, name)
+  ),
+  contact_schools(
+    *,
+    schools(id, name)
+  ),
+  contact_tags(
+    *,
+    tags(id, name)
+  )
+`;
+
 export async function getContacts(
   userId: string,
   opts: { networkStatuses?: Array<"active" | "prospect" | "bench"> } = {},
@@ -177,7 +201,10 @@ export async function getContacts(
  * are contiguous ranges over a stable `order("name")`, so appending them in
  * call order yields the same name-sorted list `getContacts` returns.
  *
- * @returns the full accumulated array (same shape as getContacts).
+ * Uses the lean CONTACTS_LIST_SELECT (row shape = `ContactListItem`), not the
+ * full CONTACTS_SELECT — the list view doesn't need the wide leaf-table columns.
+ *
+ * @returns the full accumulated array (ContactListItem shape).
  */
 export async function getContactsStreamed(
   userId: string,
@@ -192,7 +219,7 @@ export async function getContactsStreamed(
   for (;;) {
     const { data, error } = await supabase
       .from("contacts")
-      .select(CONTACTS_SELECT)
+      .select(CONTACTS_LIST_SELECT)
       .eq("user_id", userId)
       .in("network_status", statuses)
       .order("name")
