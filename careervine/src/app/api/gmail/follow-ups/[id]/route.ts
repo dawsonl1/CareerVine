@@ -2,7 +2,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailFollowUpUpdateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
-import { FollowUpStatus, FollowUpMessageStatus } from "@/lib/constants";
+import { FollowUpStatus, FollowUpMessageStatus, OPEN_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 /**
  * PUT /api/gmail/follow-ups/[id]
@@ -36,12 +36,12 @@ export const PUT = withApiHandler({
 
     const { messages } = body;
 
-    // Delete existing pending messages
+    // Delete existing open messages (pending + awaiting_review) before rebuilding.
     await service
       .from("email_follow_up_messages")
       .delete()
       .eq("follow_up_id", followUpId)
-      .eq("status", FollowUpMessageStatus.Pending);
+      .in("status", [...OPEN_FOLLOW_UP_MESSAGE_STATUSES]);
 
     // Count already-sent messages to offset sequence numbers
     const { count: sentCount } = await service
@@ -106,12 +106,12 @@ export const DELETE = withApiHandler({
 
     const now = new Date().toISOString();
 
-    // Cancel all pending messages
+    // Cancel all open messages (pending + awaiting_review — no orphaned confirm step).
     await service
       .from("email_follow_up_messages")
       .update({ status: FollowUpMessageStatus.Cancelled })
       .eq("follow_up_id", followUpId)
-      .eq("status", FollowUpMessageStatus.Pending);
+      .in("status", [...OPEN_FOLLOW_UP_MESSAGE_STATUSES]);
 
     // Update the sequence status
     await service

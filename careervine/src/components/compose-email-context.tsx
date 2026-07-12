@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useCapabilities } from "@/hooks/use-capabilities";
 import { getGmailConnection } from "@/lib/queries";
 import type { GmailConnection } from "@/lib/types";
 
@@ -55,6 +56,8 @@ type ComposeContextValue = {
   gmailLoading: boolean;
   gmailAddress: string;
   unreadCount: number;
+  /** CAR-102: on the free tier the badge counts follow-ups awaiting review, not unread mail. */
+  isFreeOutreach: boolean;
   openCompose: (opts?: ComposeOptions) => void;
   closeCompose: () => void;
 };
@@ -77,6 +80,7 @@ const ComposeContext = createContext<ComposeContextValue>({
   gmailLoading: true,
   gmailAddress: "",
   unreadCount: 0,
+  isFreeOutreach: false,
   openCompose: () => {},
   closeCompose: () => {},
 });
@@ -87,6 +91,9 @@ export function useCompose() {
 
 export function ComposeEmailProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { can } = useCapabilities();
+  // Boolean (not the `can` fn) so the fetch callback stays referentially stable.
+  const isFreeOutreach = can("outreach:portal");
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
@@ -114,11 +121,14 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
 
   const fetchUnreadCount = useCallback(() => {
     if (!gmailConn) return;
-    fetch("/api/gmail/unread", { cache: "no-store" })
+    // Free tier holds no live inbox, so /unread is always 0 — count the follow-ups
+    // awaiting the user's confirm-to-send instead (CAR-102).
+    const url = isFreeOutreach ? "/api/gmail/follow-ups/awaiting-review" : "/api/gmail/unread";
+    fetch(url, { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => setUnreadCount(data.count || 0))
       .catch(() => {});
-  }, [gmailConn]);
+  }, [gmailConn, isFreeOutreach]);
 
   useEffect(() => {
     fetchUnreadCount();
@@ -201,6 +211,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         gmailLoading,
         gmailAddress: gmailConn?.gmail_address || "",
         unreadCount,
+        isFreeOutreach,
         openCompose,
         closeCompose,
       }}

@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/toast";
 import { FollowUpModal } from "@/components/follow-up-modal";
 import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
+import { isOpenFollowUpMessage } from "@/lib/constants";
 import { Inbox, ArrowUpRight, ArrowDownLeft, Reply, Clock, XCircle, Pencil, Check } from "lucide-react";
 
 interface ContactEmailsTabProps {
@@ -282,7 +283,7 @@ export function ContactEmailsTab({
                         )}
                         {(() => {
                           const activeFollowUps = (threadFollowUps[thread.threadId] || []).filter((fu) => fu.status === "active");
-                          const pendingCount = activeFollowUps.reduce((sum, fu) => sum + fu.email_follow_up_messages.filter((m) => m.status === "pending").length, 0);
+                          const pendingCount = activeFollowUps.reduce((sum, fu) => sum + fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length, 0);
                           if (pendingCount === 0) return null;
                           return (
                             <span className="inline-flex items-center gap-1 h-4 px-1.5 rounded-full bg-tertiary-container/50 text-[10px] font-medium text-on-tertiary-container shrink-0">
@@ -489,8 +490,8 @@ export function ContactEmailsTab({
                               <Clock className="h-4 w-4 text-tertiary shrink-0 mt-0.5" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-medium text-foreground">
-                                  {fu.email_follow_up_messages.filter((m) => m.status === "pending").length} follow-up
-                                  {fu.email_follow_up_messages.filter((m) => m.status === "pending").length !== 1 ? "s" : ""} scheduled
+                                  {fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length} follow-up
+                                  {fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length !== 1 ? "s" : ""} scheduled
                                 </p>
                                 <div className="flex flex-wrap gap-1.5 mt-1">
                                   {fu.email_follow_up_messages
@@ -503,12 +504,15 @@ export function ContactEmailsTab({
                                             ? "bg-primary/15 text-primary"
                                             : m.status === "cancelled"
                                             ? "bg-surface-container-low text-muted-foreground line-through"
+                                            : m.status === "awaiting_review"
+                                            ? "bg-primary/15 text-primary font-medium"
                                             : "bg-tertiary-container/50 text-on-tertiary-container"
                                         }`}
                                       >
                                         #{m.sequence_number}: Day {m.send_after_days}
                                         {m.status === "sent" && " (sent)"}
                                         {m.status === "cancelled" && " (cancelled)"}
+                                        {m.status === "awaiting_review" && " (awaiting your review)"}
                                         {m.status === "pending" && ` (${new Date(m.scheduled_send_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}
                                       </span>
                                     ))}

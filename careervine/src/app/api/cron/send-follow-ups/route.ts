@@ -5,6 +5,8 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getGmailClient, activateContactByEmail } from "@/lib/gmail";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { filterActiveUserIds } from "@/lib/user-status";
+import { capabilitiesFor } from "@/lib/capabilities/map";
+import type { Capability } from "@/lib/capabilities/types";
 
 const receiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
@@ -59,6 +61,7 @@ async function runJob(): Promise<NextResponse> {
 
   let sent = 0;
   let cancelled = 0;
+  let awaitingReview = 0;
 
   // Group by follow_up_id to batch reply detection
   const bySequence = new Map<number, typeof pendingMessages>();
@@ -75,9 +78,23 @@ async function runJob(): Promise<NextResponse> {
   const activeUserIds = await filterActiveUserIds(service, userIds);
   const { data: connections } = await service
     .from("gmail_connections")
-    .select("user_id, gmail_address")
+    .select("user_id, gmail_address, modify_scope_granted, automatic_features_enabled, premium_enabled")
     .in("user_id", [...activeUserIds]);
   const emailByUser = new Map((connections || []).map((c: any) => [c.user_id, c.gmail_address?.toLowerCase() || ""]));
+  // Resolve each connected user's capabilities from the SAME pre-fetch (no extra
+  // round-trips). followups:auto gates auto-send; a connected user without it is
+  // on the free (or opted-out) tier and gets confirm-to-send instead.
+  const capsByUser = new Map<string, Set<Capability>>(
+    (connections || []).map((c: any) => [
+      c.user_id,
+      capabilitiesFor({
+        modifyScopeGranted: c.modify_scope_granted ?? false,
+        automaticFeaturesEnabled: c.automatic_features_enabled ?? false,
+        premiumEnabled: c.premium_enabled ?? true,
+        hasConnection: true,
+      }),
+    ]),
+  );
 
   // Cache Gmail clients per user to avoid redundant auth
   const gmailClients = new Map<string, any>();
@@ -88,6 +105,25 @@ async function runJob(): Promise<NextResponse> {
     const threadId = parent.thread_id;
 
     if (!activeUserIds.has(userId)) continue;
+
+    // Free / confirm-to-send tier: a CONNECTED user without followups:auto does
+    // not auto-send. Park these due messages as 'awaiting_review' for the user to
+    // confirm from the portal, and skip Gmail entirely. This MUST run before the
+    // Gmail fetch below: a free user's gmail.send token authenticates fine, but
+    // the reply-detection threads.get needs a read scope they lack and would 403,
+    // silently skipping their follow-ups forever. `caps` is defined only for users
+    // WITH a connection row, so a disconnected user (no caps) falls through to the
+    // 3-day-cancel path below instead of being parked here.
+    const caps = capsByUser.get(userId);
+    if (caps && !caps.has("followups:auto")) {
+      await service
+        .from("email_follow_up_messages")
+        .update({ status: "awaiting_review" })
+        .in("id", messages.map((m) => m.id))
+        .eq("status", "pending");
+      awaitingReview += messages.length;
+      continue;
+    }
 
     // Check if Gmail is accessible for this user (cached)
     let gmail = gmailClients.get(userId);
@@ -234,5 +270,6 @@ async function runJob(): Promise<NextResponse> {
     processed: pendingMessages.length,
     sent,
     cancelled,
+    awaitingReview,
   });
 }

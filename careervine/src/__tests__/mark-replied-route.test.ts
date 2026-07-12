@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
  * CAR-102: POST /api/gmail/follow-ups/mark-replied — the free-tier manual reply
- * signal. Cancels active sequences, activates the contact, records a simulated
- * inbound row, and fires reply_received exactly once (idempotent on that row).
+ * signal. Guards ownership, then delegates to recordThreadReply which cancels
+ * active sequences, activates the contact, records a simulated inbound row, and
+ * fires reply_received exactly once (idempotent on that row).
  */
 
 let authedUser: Record<string, unknown> | null = { id: "u-1" };
 const state: {
-  outbound: unknown;
+  outbound: { ai_assisted?: boolean; matched_contact_id?: number | null } | null;
   inbound: unknown;
   seqs: { id: number }[];
   inserts: { table: string; row: Record<string, unknown> }[];
@@ -36,6 +37,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
   createSupabaseServiceClient: vi.fn(() => ({
     from: (table: string) => {
       let selectStr = "";
+      let direction = "";
       let mode: "read" | "update" = "read";
       const b: Record<string, unknown> = {
         select: (s: string) => {
@@ -51,15 +53,24 @@ vi.mock("@/lib/supabase/service-client", () => ({
           state.inserts.push({ table, row });
           return Promise.resolve({ error: null });
         },
-        eq: () => b,
+        eq: (col: string, val: string) => {
+          if (col === "direction") direction = val;
+          return b;
+        },
+        in: () => b,
         order: () => b,
         limit: () => b,
         maybeSingle: async () => {
-          if (table === "email_messages" && selectStr.includes("ai_assisted")) return { data: state.outbound };
-          if (table === "email_messages") return { data: state.inbound };
+          if (table === "email_messages") {
+            if (direction === "outbound") {
+              return selectStr.includes("ai_assisted")
+                ? { data: state.outbound }
+                : { data: state.outbound ? { id: 1 } : null };
+            }
+            if (direction === "inbound") return { data: state.inbound };
+          }
           return { data: null };
         },
-        // Awaited chains without maybeSingle: the seqs read, and update().eq() writes.
         then: (resolve: (v: unknown) => void) => {
           if (mode === "update") return resolve({ error: null });
           if (table === "email_follow_ups") return resolve({ data: state.seqs });
@@ -111,11 +122,9 @@ describe("POST /api/gmail/follow-ups/mark-replied (CAR-102)", () => {
     const { status, data } = await call({ threadId: "t-1", recipientEmail: "jane@corp.com" });
     expect(status).toBe(200);
     expect(data.ok).toBe(true);
-    expect(data.alreadyMarked).toBeUndefined();
-    // sequence + its pending messages cancelled
+    expect(data.alreadyMarked).toBe(false);
     expect(state.updates.some((u) => u.table === "email_follow_ups" && u.patch.status === "cancelled_reply")).toBe(true);
     expect(state.updates.some((u) => u.table === "email_follow_up_messages" && u.patch.status === "cancelled")).toBe(true);
-    // contact graduated + simulated inbound row + north-star fired
     expect(activateSpy).toHaveBeenCalledWith("u-1", "jane@corp.com");
     const inboundInsert = state.inserts.find((i) => i.table === "email_messages");
     expect(inboundInsert?.row.direction).toBe("inbound");
@@ -132,7 +141,6 @@ describe("POST /api/gmail/follow-ups/mark-replied (CAR-102)", () => {
     expect(data.alreadyMarked).toBe(true);
     expect(state.inserts.length).toBe(0);
     expect(trackSpy).not.toHaveBeenCalled();
-    // cancel + activate are still safe to repeat
     expect(activateSpy).toHaveBeenCalled();
   });
 });

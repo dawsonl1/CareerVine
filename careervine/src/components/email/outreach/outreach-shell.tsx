@@ -14,10 +14,12 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
+import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { buildThreads } from "@/lib/gmail-helpers";
+import { isOpenFollowUpMessage } from "@/lib/constants";
 import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail } from "@/lib/types";
-import { Send, Clock, Reply, PenSquare, Loader2, Inbox as InboxIcon, ArrowUpRight } from "lucide-react";
+import { Send, Clock, Reply, PenSquare, Loader2, Inbox as InboxIcon, ArrowUpRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
@@ -44,20 +46,30 @@ function fmtDateTime(value: string | null | undefined): string {
   return `${fmtDate(value)}, ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 }
 
-/** The soonest still-pending message in a sequence, plus how many remain. */
-function followUpProgress(fu: EmailFollowUp): { next: EmailFollowUpMessage | null; remaining: number; total: number } {
+/** Sequence progress: the soonest pending step, any messages awaiting the user's
+ * confirm-to-send, how many open steps remain, and the total. */
+function followUpProgress(fu: EmailFollowUp): {
+  next: EmailFollowUpMessage | null;
+  awaiting: EmailFollowUpMessage[];
+  remaining: number;
+  total: number;
+} {
   const msgs = fu.email_follow_up_messages ?? [];
-  const pending = msgs
-    .filter((m) => m.status === "pending")
-    .sort((a, b) => new Date(a.scheduled_send_at || 0).getTime() - new Date(b.scheduled_send_at || 0).getTime());
-  return { next: pending[0] ?? null, remaining: pending.length, total: msgs.length };
+  const byDate = (a: EmailFollowUpMessage, b: EmailFollowUpMessage) =>
+    new Date(a.scheduled_send_at || 0).getTime() - new Date(b.scheduled_send_at || 0).getTime();
+  const open = msgs.filter((m) => isOpenFollowUpMessage(m.status)).sort(byDate);
+  const awaiting = open.filter((m) => m.status === "awaiting_review");
+  const nextPending = open.find((m) => m.status === "pending") ?? null;
+  return { next: nextPending, awaiting, remaining: open.length, total: msgs.length };
 }
 
 export function OutreachShell() {
   const { user } = useAuth();
   const { gmailConnected, gmailLoading, openCompose } = useCompose();
+  const { success: toastSuccess, error: toastError } = useToast();
 
   const [loading, setLoading] = useState(true);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [error, setError] = useState(false);
   const [activeTab, setActiveTab] = useState<OutreachTab>("sent");
 
@@ -90,6 +102,30 @@ export function OutreachShell() {
   useEffect(() => {
     if (user) void load();
   }, [user, load]);
+
+  // Confirm-to-send: the user either sends a parked follow-up now (replied=false)
+  // or reports that the contact already replied (replied=true, which cancels + activates).
+  const confirmFollowUp = useCallback(
+    async (messageId: number, replied: boolean) => {
+      if (confirmingId) return;
+      setConfirmingId(messageId);
+      try {
+        const res = await fetch("/api/gmail/follow-ups/confirm", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageId, replied }),
+        });
+        if (!res.ok) throw new Error();
+        toastSuccess(replied ? "Marked as replied" : "Follow-up sent");
+        await load();
+      } catch {
+        toastError(replied ? "Could not update this follow-up" : "Could not send the follow-up");
+      } finally {
+        setConfirmingId(null);
+      }
+    },
+    [confirmingId, load, toastSuccess, toastError],
+  );
 
   // Sent outreach = the user's outbound messages, grouped into threads.
   const sentThreads = useMemo(
@@ -162,7 +198,9 @@ export function OutreachShell() {
             {activeTab === "scheduled" && (
               <ScheduledList items={scheduledEmails} nameFor={nameFor} />
             )}
-            {activeTab === "followups" && <FollowUpList items={followUps} />}
+            {activeTab === "followups" && (
+              <FollowUpList items={followUps} onConfirm={confirmFollowUp} confirmingId={confirmingId} />
+            )}
           </>
         )}
       </main>
@@ -288,7 +326,15 @@ function ScheduledList({
   );
 }
 
-function FollowUpList({ items }: { items: EmailFollowUp[] }) {
+function FollowUpList({
+  items,
+  onConfirm,
+  confirmingId,
+}: {
+  items: EmailFollowUp[];
+  onConfirm: (messageId: number, replied: boolean) => void;
+  confirmingId: number | null;
+}) {
   if (items.length === 0) {
     return (
       <EmptyState
@@ -301,7 +347,7 @@ function FollowUpList({ items }: { items: EmailFollowUp[] }) {
   return (
     <ul className="flex flex-col gap-2">
       {items.map((fu) => {
-        const { next, remaining, total } = followUpProgress(fu);
+        const { next, awaiting, remaining, total } = followUpProgress(fu);
         return (
           <Row key={fu.id}>
             <div className="flex items-start justify-between gap-3">
@@ -315,7 +361,11 @@ function FollowUpList({ items }: { items: EmailFollowUp[] }) {
                 </p>
               </div>
               <div className="shrink-0 text-right">
-                {next ? (
+                {awaiting.length > 0 ? (
+                  <span className="inline-flex items-center rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
+                    Needs review
+                  </span>
+                ) : next ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
                     <Clock className="h-3 w-3" />
                     Next {fmtDate(next.scheduled_send_at)}
@@ -325,6 +375,36 @@ function FollowUpList({ items }: { items: EmailFollowUp[] }) {
                 )}
               </div>
             </div>
+
+            {awaiting.length > 0 && (
+              <div className="mt-3 space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                <p className="text-xs font-medium text-on-surface">
+                  Ready to send. Did {fu.contact_name || "they"} already reply?
+                </p>
+                {awaiting.map((m) => (
+                  <div key={m.id} className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-xs text-muted-foreground">
+                      Step {m.sequence_number}: {m.subject}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={confirmingId === m.id}
+                        onClick={() => onConfirm(m.id, true)}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        They replied
+                      </Button>
+                      <Button size="sm" disabled={confirmingId === m.id} onClick={() => onConfirm(m.id, false)}>
+                        <Send className="h-3.5 w-3.5" />
+                        Send now
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </Row>
         );
       })}

@@ -21,6 +21,10 @@ vi.mock("@/components/compose-email-context", () => ({
   useCompose: () => ({ gmailConnected: true, gmailLoading: false, openCompose }),
 }));
 
+vi.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+}));
+
 const payload = {
   success: true,
   emails: [
@@ -52,7 +56,7 @@ const payload = {
       contact_id: null,
       contact_name: "Amy",
       email_follow_up_messages: [
-        { id: 1, status: "pending", sequence_number: 1, send_after_days: 7, scheduled_send_at: "2026-07-25T09:00:00Z" },
+        { id: 1, status: "awaiting_review", subject: "Quick nudge", sequence_number: 1, send_after_days: 7, scheduled_send_at: "2026-07-25T09:00:00Z" },
       ],
     },
   ],
@@ -65,7 +69,7 @@ import { OutreachShell } from "@/components/email/outreach/outreach-shell";
 describe("OutreachShell — free tier portal", () => {
   beforeEach(() => {
     openCompose.mockClear();
-    global.fetch = vi.fn(async () => ({ json: async () => payload })) as unknown as typeof fetch;
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => payload })) as unknown as typeof fetch;
   });
   afterEach(() => cleanup());
 
@@ -88,6 +92,24 @@ describe("OutreachShell — free tier portal", () => {
 
     fireEvent.click(screen.getByText("Follow-ups"));
     expect(screen.getByText("Intro to the team")).toBeTruthy();
+  });
+
+  it("surfaces confirm-to-send for an awaiting_review step and posts to the confirm route", async () => {
+    render(<OutreachShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
+    fireEvent.click(screen.getByText("Follow-ups"));
+
+    expect(screen.getByText("Send now")).toBeTruthy();
+    expect(screen.getByText("They replied")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Send now"));
+    await waitFor(() =>
+      expect(
+        (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+          (c) => c[0] === "/api/gmail/follow-ups/confirm",
+        ),
+      ).toBe(true),
+    );
   });
 
   it("opens the compose modal from the Compose button (send is free)", async () => {

@@ -47,6 +47,7 @@ import { Button } from "@/components/ui/button";
 import { useCursorTooltip } from "@/components/ui/cursor-tooltip";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
+import { isOpenFollowUpMessage } from "@/lib/constants";
 import { runFullGmailSync } from "@/lib/gmail-sync-client";
 import { trackBeforeNavigate } from "@/lib/analytics/client";
 
@@ -563,7 +564,7 @@ export function InboxShell() {
   const unreadEmailCount = emails.filter((e) => !e.is_read && e.direction === "inbound").length;
   const sentCount = sentEmails.length;
   const pendingFollowUpCount = followUps.reduce(
-    (sum, fu) => sum + fu.email_follow_up_messages.filter((m) => m.status === "pending").length,
+    (sum, fu) => sum + fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length,
     0
   );
 
@@ -794,7 +795,7 @@ export function InboxShell() {
           const contactName = thread.contactId ? contactMap[thread.contactId] : null;
           const isUnread = tabCtx === "inbox" && thread.messages.some((m) => !m.is_read && m.direction === "inbound");
           const threadFUs = followUpsByThread[thread.threadId] || [];
-          const pendingFUCount = threadFUs.reduce((sum, fu) => sum + fu.email_follow_up_messages.filter((m) => m.status === "pending").length, 0);
+          const pendingFUCount = threadFUs.reduce((sum, fu) => sum + fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length, 0);
           const linkedCalEvent = calendarByThread[thread.threadId] || null;
           const isSingle = thread.messages.length === 1;
 
@@ -1418,7 +1419,7 @@ export function InboxShell() {
                                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">Scheduled</span>
                                     {linkedFU && (
                                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/30 text-on-tertiary-container shrink-0">
-                                        + {linkedFU.email_follow_up_messages.filter((m) => m.status === "pending").length} follow-up(s)
+                                        + {linkedFU.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length} follow-up(s)
                                       </span>
                                     )}
                                   </div>
@@ -1463,7 +1464,7 @@ export function InboxShell() {
                     ) : (
                       <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
                         {followUps.map((fu) => {
-                          const pendingMsgs = fu.email_follow_up_messages.filter((m) => m.status === "pending").sort((a, b) => a.sequence_number - b.sequence_number);
+                          const pendingMsgs = fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).sort((a, b) => a.sequence_number - b.sequence_number);
                           const nextMsg = pendingMsgs[0];
                           return (
                             <div key={fu.id} className="px-5 py-3.5 hover:bg-surface-container-low/50 transition-colors">
@@ -1487,10 +1488,11 @@ export function InboxShell() {
                                   </div>
                                   <div className="flex flex-wrap gap-2 mt-2.5">
                                     {fu.email_follow_up_messages.sort((a, b) => a.sequence_number - b.sequence_number).map((m) => (
-                                      <span key={m.id} className={`text-[11px] px-2 py-0.5 rounded-full ${m.status === "sent" ? "bg-primary/15 text-primary" : m.status === "cancelled" ? "bg-surface-container-low text-muted-foreground line-through" : "bg-tertiary-container/50 text-on-tertiary-container"}`}>
+                                      <span key={m.id} className={`text-[11px] px-2 py-0.5 rounded-full ${m.status === "sent" ? "bg-primary/15 text-primary" : m.status === "cancelled" ? "bg-surface-container-low text-muted-foreground line-through" : m.status === "awaiting_review" ? "bg-primary/15 text-primary font-medium" : "bg-tertiary-container/50 text-on-tertiary-container"}`}>
                                         #{m.sequence_number}: Day {m.send_after_days}
                                         {m.status === "sent" && " (sent)"}
                                         {m.status === "cancelled" && " (cancelled)"}
+                                        {m.status === "awaiting_review" && " (awaiting review)"}
                                         {m.status === "pending" && ` (${new Date(m.scheduled_send_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}
                                       </span>
                                     ))}
