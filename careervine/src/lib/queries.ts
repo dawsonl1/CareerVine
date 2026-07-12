@@ -1705,7 +1705,7 @@ export async function getAttachmentUrl(objectPath: string, expiresIn = 3600) {
 export async function getGmailConnection(userId: string) {
   const { data, error } = await supabase
     .from("gmail_connections")
-    .select("id, gmail_address, last_gmail_sync_at, created_at")
+    .select("id, gmail_address, last_gmail_sync_at, created_at, send_scope_granted")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;

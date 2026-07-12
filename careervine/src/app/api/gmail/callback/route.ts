@@ -60,6 +60,14 @@ export const GET = withApiHandler({
       const { tokens } = await oauth2Client.getToken(code);
       const grantedScopes = tokens.scope?.split(" ") || [];
       const calendarGranted = grantedScopes.some(s => s.includes("calendar"));
+      // CAR-100: Gmail + Calendar share one consent screen with granular
+      // (per-scope) consent, so the user can grant Calendar while unchecking
+      // Gmail. Record whether Gmail is actually send-capable — gmail.modify is
+      // a superset of send, and the legacy full-mail scope covers it too — so
+      // the UI can gate "Gmail connected" on this instead of on the row existing.
+      const sendGranted = grantedScopes.some(
+        (s) => s.includes("gmail.send") || s.includes("gmail.modify") || s === "https://mail.google.com/",
+      );
 
       if (!tokens.access_token || !tokens.refresh_token) {
         return errorRedirect("Google did not return required tokens");
@@ -108,6 +116,7 @@ export const GET = withApiHandler({
           refresh_token: encryptOAuthToken(tokens.refresh_token),
           token_expires_at: new Date(tokens.expiry_date || Date.now() + 3600_000).toISOString(),
           calendar_scopes_granted: calendarGranted,
+          send_scope_granted: sendGranted,
           modify_scope_granted: modifyGranted,
           updated_at: new Date().toISOString(),
         },
@@ -119,7 +128,7 @@ export const GET = withApiHandler({
         return errorRedirect("Failed to store connection");
       }
 
-      track("gmail_connected", {});
+      if (sendGranted) track("gmail_connected", {});
       if (calendarGranted) track("calendar_connected", {});
 
       return NextResponse.redirect(`${baseUrl}${returnTo ?? "/settings?gmail=connected"}`);

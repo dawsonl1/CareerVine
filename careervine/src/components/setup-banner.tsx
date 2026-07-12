@@ -55,27 +55,21 @@ export default function SetupBanner() {
                   : "Connect Google Calendar to set availability and schedule meetings."}
             </p>
             <div className="flex flex-wrap items-center gap-2.5 mt-3">
-              {needsGmail && (
-                <Button
-                  href="/api/gmail/auth"
-                  size="sm"
-                  onClick={() => trackBeforeNavigate("gmail_connect_clicked", { source: "setup_banner" })}
-                >
-                  <Mail className="h-4 w-4 mr-2" />
-                  Connect Gmail
-                </Button>
-              )}
-              {needsCalendar && (
-                <Button
-                  href="/api/gmail/auth?scopes=calendar"
-                  size="sm"
-                  variant={needsGmail ? "outline" : "primary"}
-                  onClick={() => trackBeforeNavigate("calendar_connect_clicked", { source: "setup_banner" })}
-                >
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Connect Calendar
-                </Button>
-              )}
+              {/* CAR-100: one CTA — Gmail + Calendar are granted on a single
+                  consent screen. Label by what's still missing so an
+                  already-connected service isn't re-advertised. */}
+              <Button
+                href="/api/gmail/auth"
+                size="sm"
+                onClick={() => trackBeforeNavigate("gmail_connect_clicked", { source: "setup_banner" })}
+              >
+                {needsGmail ? <Mail className="h-4 w-4 mr-2" /> : <Calendar className="h-4 w-4 mr-2" />}
+                {needsGmail && needsCalendar
+                  ? "Connect Gmail & Calendar"
+                  : needsGmail
+                    ? "Connect Gmail"
+                    : "Connect Google Calendar"}
+              </Button>
               <button
                 type="button"
                 onClick={() => setShowOAuthInfo(!showOAuthInfo)}

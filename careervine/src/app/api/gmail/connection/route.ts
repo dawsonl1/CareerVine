@@ -10,7 +10,7 @@ export const GET = withApiHandler({
     const service = createSupabaseServiceClient();
     const { data, error } = await service
       .from("gmail_connections")
-      .select("id, gmail_address, last_gmail_sync_at, created_at, calendar_scopes_granted, calendar_last_synced_at, availability_standard, availability_priority, calendar_list, busy_calendar_ids, calendar_timezone")
+      .select("id, gmail_address, last_gmail_sync_at, created_at, send_scope_granted, calendar_scopes_granted, calendar_last_synced_at, availability_standard, availability_priority, calendar_list, busy_calendar_ids, calendar_timezone")
       .eq("user_id", user.id)
       .single();
 

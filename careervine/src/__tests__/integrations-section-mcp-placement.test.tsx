@@ -52,13 +52,14 @@ describe("IntegrationsSection MCP card placement", () => {
     mockUseGmailConnection.mockReturnValue({ calendarConnected: false, calendarLastSynced: null, loading: false, refresh: vi.fn() });
 
     render(<IntegrationsSection />);
-    await waitFor(() => expect(screen.getByText("Connect Gmail")).toBeTruthy());
+    // Neither connected → a single combined CTA (CAR-100: one consent screen).
+    await waitFor(() => expect(screen.getByText("Connect Gmail & Calendar")).toBeTruthy());
 
     expect(cardOrder()).toBe("mcp-last");
   });
 
   it("renders the MCP card below when only Gmail is connected", async () => {
-    mockGetGmailConnection.mockResolvedValue({ gmail_address: "d@x.com", last_gmail_sync_at: null });
+    mockGetGmailConnection.mockResolvedValue({ gmail_address: "d@x.com", last_gmail_sync_at: null, send_scope_granted: true });
     mockUseGmailConnection.mockReturnValue({ calendarConnected: false, calendarLastSynced: null, loading: false, refresh: vi.fn() });
 
     render(<IntegrationsSection />);
@@ -68,12 +69,28 @@ describe("IntegrationsSection MCP card placement", () => {
   });
 
   it("renders the MCP card on top once Gmail and Calendar are both connected", async () => {
-    mockGetGmailConnection.mockResolvedValue({ gmail_address: "d@x.com", last_gmail_sync_at: null });
+    mockGetGmailConnection.mockResolvedValue({ gmail_address: "d@x.com", last_gmail_sync_at: null, send_scope_granted: true });
     mockUseGmailConnection.mockReturnValue({ calendarConnected: true, calendarLastSynced: null, loading: false, refresh: vi.fn() });
 
     render(<IntegrationsSection />);
     await waitFor(() => expect(screen.getByText("d@x.com")).toBeTruthy());
 
     expect(cardOrder()).toBe("mcp-first");
+  });
+
+  // CAR-100 hardening: granular consent lets a user grant Calendar while
+  // unchecking Gmail. The connection row exists (shared with Calendar) but
+  // send_scope_granted is false, so Gmail must still read as NOT connected.
+  it("shows Gmail as not connected when only Calendar was granted (Gmail unchecked)", async () => {
+    mockGetGmailConnection.mockResolvedValue({ gmail_address: "d@x.com", last_gmail_sync_at: null, send_scope_granted: false });
+    mockUseGmailConnection.mockReturnValue({ calendarConnected: true, calendarLastSynced: null, loading: false, refresh: vi.fn() });
+
+    render(<IntegrationsSection />);
+    // Gmail card shows a connect CTA (label "Connect Gmail" since Calendar is
+    // already connected), NOT the connected address card.
+    await waitFor(() => expect(screen.getByText("Connect Gmail")).toBeTruthy());
+    expect(screen.queryByText("d@x.com")).toBeNull();
+    // Not both connected → MCP card stays below.
+    expect(cardOrder()).toBe("mcp-last");
   });
 });

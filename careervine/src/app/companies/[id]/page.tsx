@@ -192,7 +192,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
                     className="inline-flex items-center gap-2 mt-2.5 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
                   >
                     <Mail className="h-3.5 w-3.5" />
-                    Connect Gmail
+                    Connect Gmail & Calendar
                   </a>
                 </>
               )}

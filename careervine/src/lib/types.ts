@@ -140,6 +140,9 @@ export type GmailConnection = {
   gmail_address: string;
   last_gmail_sync_at: string | null;
   created_at: string | null;
+  // CAR-100: false when the user granted Calendar but unchecked Gmail on the
+  // shared consent screen. "Gmail connected" gates on this, not row existence.
+  send_scope_granted: boolean;
 };
 
 /** Cached email metadata row */

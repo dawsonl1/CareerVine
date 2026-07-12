@@ -6,15 +6,19 @@ import { gmailAuthQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 /**
- * GET /api/gmail/auth?scopes=calendar
+ * GET /api/gmail/auth
  * Generates a Google OAuth consent URL and redirects the user to it.
  * Uses a random nonce + user ID + timestamp for CSRF protection.
- * Optional query param: scopes=calendar to include Calendar scopes
  */
 export const GET = withApiHandler({
   querySchema: gmailAuthQuerySchema,
   handler: async ({ user, query, request }) => {
-    const includeCalendar = query.scopes === "calendar";
+    // CAR-100: Gmail and Calendar are always requested together, so the user
+    // passes through Google's consent screen (and the "unverified app" warning)
+    // once, not twice. Both are sensitive scopes, so bundling them changes
+    // nothing about verification or CASA — only the paid gmail.modify scope
+    // (added conditionally below) is restricted.
+    const includeCalendar = true;
 
     // Preserve the restricted gmail.modify scope for users who are ALREADY premium
     // (modify_scope_granted && premium_enabled). Otherwise a premium user clicking
