@@ -118,6 +118,8 @@ export function OutreachShell() {
         if (!res.ok) throw new Error();
         toastSuccess(replied ? "Marked as replied" : "Follow-up sent");
         await load();
+        // The confirm changed how many follow-ups await review — refresh the nav badge.
+        window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
       } catch {
         toastError(replied ? "Could not update this follow-up" : "Could not send the follow-up");
       } finally {
@@ -390,13 +392,13 @@ function FollowUpList({
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={confirmingId === m.id}
+                        disabled={confirmingId !== null}
                         onClick={() => onConfirm(m.id, true)}
                       >
                         <Check className="h-3.5 w-3.5" />
                         They replied
                       </Button>
-                      <Button size="sm" disabled={confirmingId === m.id} onClick={() => onConfirm(m.id, false)}>
+                      <Button size="sm" disabled={confirmingId !== null} onClick={() => onConfirm(m.id, false)}>
                         <Send className="h-3.5 w-3.5" />
                         Send now
                       </Button>

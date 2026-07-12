@@ -1009,7 +1009,7 @@ export async function detectBounces(
         .from("email_follow_up_messages")
         .update({ status: "cancelled" })
         .eq("follow_up_id", seq.id)
-        .eq("status", "pending");
+        .in("status", ["pending", "awaiting_review"]);
       cancelledSequences++;
     }
   }

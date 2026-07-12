@@ -170,6 +170,8 @@ export function ContactEmailsTab({
       toastSuccess("Marked as replied");
       onReloadEmails();
       loadFollowUpsForThread(threadId);
+      // Cancelling the sequence cleared its awaiting-review items — refresh the nav badge.
+      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
     } catch {
       toastError("Could not mark as replied");
     } finally {

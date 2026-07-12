@@ -993,7 +993,7 @@ export async function cancelFollowUpSequence(followUpId: number): Promise<void> 
     .from("email_follow_up_messages")
     .update({ status: "cancelled" })
     .eq("follow_up_id", followUpId)
-    .eq("status", "pending");
+    .in("status", ["pending", "awaiting_review"]);
   if (msgError) throw msgError;
 }
 

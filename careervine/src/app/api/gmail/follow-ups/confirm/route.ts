@@ -44,6 +44,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
         thread_id: string;
         recipient_email: string;
         original_gmail_message_id: string | null;
+        status: string;
       };
     } | null;
     const parent = msg?.email_follow_ups;
@@ -53,6 +54,13 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     }
     if (msg.status !== "awaiting_review") {
       throw new ApiError("This follow-up is not awaiting review.", 400);
+    }
+    // Defense-in-depth: an awaiting_review message whose parent sequence is no
+    // longer active is orphaned (the sequence was cancelled/completed without
+    // this row being cascaded). Never confirm-send or record against it — the
+    // portal should refetch and drop it.
+    if (parent.status !== "active") {
+      throw new ApiError("This follow-up sequence is no longer active.", 409);
     }
 
     if (replied) {

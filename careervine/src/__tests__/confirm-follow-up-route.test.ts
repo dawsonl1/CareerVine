@@ -64,6 +64,7 @@ const parent = {
   thread_id: "t-9",
   recipient_email: "amy@y.com",
   original_gmail_message_id: "gmid-1",
+  status: "active",
 };
 const awaitingMsg = {
   status: "awaiting_review",
@@ -109,6 +110,15 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     state.msgData = { ...awaitingMsg, status: "pending" };
     const { status } = await call({ messageId: 5, replied: false });
     expect(status).toBe(400);
+  });
+
+  it("409s an orphaned awaiting_review message whose parent sequence is no longer active", async () => {
+    // The row is still awaiting_review, but its sequence was cancelled elsewhere
+    // without cascading — never confirm-send against a stale sequence (review N6).
+    state.msgData = { ...awaitingMsg, email_follow_ups: { ...parent, status: "cancelled_reply" } };
+    const { status } = await call({ messageId: 5, replied: false });
+    expect(status).toBe(409);
+    expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
   });
 
   it("replied=true delegates to recordThreadReply (cancel + activate + fire), no send", async () => {

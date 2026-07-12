@@ -106,22 +106,31 @@ async function runJob(): Promise<NextResponse> {
 
     if (!activeUserIds.has(userId)) continue;
 
-    // Free / confirm-to-send tier: a CONNECTED user without followups:auto does
-    // not auto-send. Park these due messages as 'awaiting_review' for the user to
-    // confirm from the portal, and skip Gmail entirely. This MUST run before the
-    // Gmail fetch below: a free user's gmail.send token authenticates fine, but
-    // the reply-detection threads.get needs a read scope they lack and would 403,
-    // silently skipping their follow-ups forever. `caps` is defined only for users
-    // WITH a connection row, so a disconnected user (no caps) falls through to the
-    // 3-day-cancel path below instead of being parked here.
+    // No auto-send tier: a CONNECTED user without followups:auto does not
+    // auto-send, and skips Gmail entirely. This MUST run before the Gmail fetch
+    // below: a free user's gmail.send token authenticates fine, but the
+    // reply-detection threads.get needs a read scope they lack and would 403,
+    // silently skipping their follow-ups forever. `caps` is defined only for
+    // users WITH a connection row, so a disconnected user (no caps) falls through
+    // to the 3-day-cancel path below instead of being handled here.
+    //
+    // Two sub-cases split on tier:
+    //  - Free (outreach:portal): park due messages as 'awaiting_review' for the
+    //    user to confirm from the Outreach portal (confirm-to-send).
+    //  - Premium who opted out of automation (no outreach:portal): hold — leave
+    //    the messages pending until they re-enable automatic follow-ups. Parking
+    //    them as awaiting_review would strand them behind a portal a premium user
+    //    never sees.
     const caps = capsByUser.get(userId);
     if (caps && !caps.has("followups:auto")) {
-      await service
-        .from("email_follow_up_messages")
-        .update({ status: "awaiting_review" })
-        .in("id", messages.map((m) => m.id))
-        .eq("status", "pending");
-      awaitingReview += messages.length;
+      if (caps.has("outreach:portal")) {
+        await service
+          .from("email_follow_up_messages")
+          .update({ status: "awaiting_review" })
+          .in("id", messages.map((m) => m.id))
+          .eq("status", "pending");
+        awaitingReview += messages.length;
+      }
       continue;
     }
 
@@ -143,7 +152,7 @@ async function runJob(): Promise<NextResponse> {
             .from("email_follow_up_messages")
             .update({ status: "cancelled" })
             .eq("follow_up_id", seqId)
-            .eq("status", "pending");
+            .in("status", ["pending", "awaiting_review"]);
           cancelled += messages.length;
         }
         continue;
@@ -188,7 +197,7 @@ async function runJob(): Promise<NextResponse> {
         .from("email_follow_up_messages")
         .update({ status: "cancelled" })
         .eq("follow_up_id", seqId)
-        .eq("status", "pending");
+        .in("status", ["pending", "awaiting_review"]);
       // Their reply graduates prospects/bench into the active network
       await activateContactByEmail(userId, parent.recipient_email);
       cancelled += messages.length;
@@ -251,12 +260,15 @@ async function runJob(): Promise<NextResponse> {
       }
     }
 
-    // Check if all messages in the sequence are done (no pending or in-flight)
+    // Check if all messages in the sequence are done (nothing still open). A
+    // lingering awaiting_review sibling (parked while the user was on the free
+    // tier, before an upgrade) keeps the sequence open so it can't be marked
+    // completed out from under a still-confirmable message.
     const { count } = await service
       .from("email_follow_up_messages")
       .select("id", { count: "exact", head: true })
       .eq("follow_up_id", seqId)
-      .in("status", ["pending", "sending"]);
+      .in("status", ["pending", "sending", "awaiting_review"]);
 
     if (count === 0) {
       await service

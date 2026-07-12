@@ -71,7 +71,7 @@ export default function PremiumSection({
       )}
       {awaitingScope && (
         <p className="mt-3 text-sm text-muted-foreground">
-          Premium is on, but this connection does not hold the Gmail mailbox scope yet, so the account stays on the free tier until they reconnect with it.
+          Premium is on, but this connection does not hold the Gmail mailbox scope, so the live-inbox features stay inactive and the account keeps the free Outreach experience. Granting that scope needs a reconnect-to-upgrade flow that is not available yet.
         </p>
       )}
     </section>

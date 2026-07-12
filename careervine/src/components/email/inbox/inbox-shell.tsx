@@ -1497,7 +1497,9 @@ export function InboxShell() {
                                       </span>
                                     ))}
                                   </div>
-                                  <p className="text-[11px] text-muted-foreground mt-1.5">Auto-cancels if they reply</p>
+                                  {!fu.email_follow_up_messages.some((m) => m.status === "awaiting_review") && (
+                                    <p className="text-[11px] text-muted-foreground mt-1.5">Auto-cancels if they reply</p>
+                                  )}
                                 </div>
                                 <div className="flex flex-col gap-1.5 shrink-0">
                                   <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: fu.recipient_email, contactName: fu.contact_name, originalSubject: fu.original_subject || "", originalSentAt: fu.original_sent_at, originalGmailMessageId: fu.original_gmail_message_id, threadId: fu.thread_id, existingFollowUp: fu }); }} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Edit follow-ups">

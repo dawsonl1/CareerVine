@@ -14,7 +14,8 @@ const state: {
   seqs: { id: number }[];
   inserts: { table: string; row: Record<string, unknown> }[];
   updates: { table: string; patch: Record<string, unknown> }[];
-} = { outbound: null, inbound: null, seqs: [], inserts: [], updates: [] };
+  insertError: unknown;
+} = { outbound: null, inbound: null, seqs: [], inserts: [], updates: [], insertError: null };
 
 const activateSpy = vi.fn(async () => {});
 const trackSpy = vi.fn(async () => {});
@@ -51,7 +52,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
         },
         insert: (row: Record<string, unknown>) => {
           state.inserts.push({ table, row });
-          return Promise.resolve({ error: null });
+          return Promise.resolve({ error: state.insertError ?? null });
         },
         eq: (col: string, val: string) => {
           if (col === "direction") direction = val;
@@ -108,6 +109,7 @@ describe("POST /api/gmail/follow-ups/mark-replied (CAR-102)", () => {
     state.seqs = [{ id: 11 }];
     state.inserts = [];
     state.updates = [];
+    state.insertError = null;
   });
 
   it("404s when the user never sent on this thread", async () => {
@@ -142,5 +144,17 @@ describe("POST /api/gmail/follow-ups/mark-replied (CAR-102)", () => {
     expect(state.inserts.length).toBe(0);
     expect(trackSpy).not.toHaveBeenCalled();
     expect(activateSpy).toHaveBeenCalled();
+  });
+
+  it("loses a concurrent insert race (unique violation) -> alreadyMarked, does NOT double-fire reply_received", async () => {
+    // No inbound row yet, so the pre-insert idempotency check passes — but a
+    // concurrent mark/confirm wins the insert first, so ours hits the unique
+    // constraint. The error must be treated as already-recorded (review N4).
+    state.inbound = null;
+    state.insertError = { code: "23505", message: "duplicate key value violates unique constraint" };
+    const { status, data } = await call({ threadId: "t-1", recipientEmail: "jane@corp.com" });
+    expect(status).toBe(200);
+    expect(data.alreadyMarked).toBe(true);
+    expect(trackSpy).not.toHaveBeenCalled();
   });
 });

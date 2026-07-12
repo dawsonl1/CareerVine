@@ -149,4 +149,24 @@ describe("send-follow-ups cron — tier branch (CAR-102)", () => {
     expect(getGmailClientSpy).toHaveBeenCalledWith("prem-1");
     expect(state.updates.some((u) => u.patch.status === "awaiting_review")).toBe(false);
   });
+
+  it("premium but automation OFF (no followups:auto, no outreach:portal) -> holds pending: no park, no Gmail", async () => {
+    // Premium (modify granted + premium_enabled) so NOT the free portal tier, but
+    // automatic_features_enabled=false means no auto-send. The message must simply
+    // stay pending (held) — parking it as awaiting_review would strand it behind
+    // the Outreach portal a premium user never sees (review N2).
+    state.pendingMessages = [dueMessage("prem-off")];
+    state.connections = [
+      { user_id: "prem-off", gmail_address: "premoff@x.com", modify_scope_granted: true, automatic_features_enabled: false, premium_enabled: true },
+    ];
+    state.activeUserIds = ["prem-off"];
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(getGmailClientSpy).not.toHaveBeenCalled();
+    expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
+    expect(state.updates.some((u) => u.patch.status === "awaiting_review")).toBe(false);
+    expect(data.awaitingReview).toBe(0);
+  });
 });

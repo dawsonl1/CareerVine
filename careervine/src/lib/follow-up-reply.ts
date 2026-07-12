@@ -70,7 +70,7 @@ export async function recordThreadReply(
 
   // Simulated inbound row: reflects the reply in the thread and dedupes future
   // calls (the (user_id, gmail_message_id) unique constraint enforces one/thread).
-  await service.from("email_messages").insert({
+  const { error: insertErr } = await service.from("email_messages").insert({
     user_id: userId,
     gmail_message_id: `manual-reply-${threadId}`,
     thread_id: threadId,
@@ -82,6 +82,14 @@ export async function recordThreadReply(
     is_simulated: true,
     matched_contact_id: (outbound as { matched_contact_id?: number | null } | null)?.matched_contact_id ?? null,
   });
+
+  // The existingInbound check above closes the common case, but two concurrent
+  // marks/confirms can both pass it and race to insert. The unique constraint
+  // lets exactly one win; the loser gets an insert error. Treat that as
+  // already-recorded so reply_received fires EXACTLY once, never twice.
+  if (insertErr) {
+    return { ok: true, alreadyMarked: true };
+  }
 
   await trackServer(userId, "reply_received", {
     ai_assisted: (outbound as { ai_assisted?: boolean } | null)?.ai_assisted === true,
