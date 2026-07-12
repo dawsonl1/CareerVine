@@ -178,7 +178,7 @@ export default function ContactsPage() {
     if (user) {
       loadContacts();
       // Chip counts arrive in milliseconds, well before the full payload
-      getNetworkTierCounts(user.id).then(setServerTierCounts).catch(() => {});
+      getNetworkTierCounts().then(setServerTierCounts).catch(() => {});
       getTags(user.id).then(setAllTags).catch(() => {});
     }
   }, [user, loadContacts]);
