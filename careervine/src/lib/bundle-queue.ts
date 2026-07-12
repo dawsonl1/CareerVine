@@ -163,6 +163,10 @@ export interface ProcessResult {
   applied: number;
   /** Contacts removed by resumed unsubscribe cleanups (CAR-53). */
   removed: number;
+  /** Threw mid-processing — logged and dropped from the hot queue (CAR-106),
+   * NOT re-enqueued; the daily stale-scan re-picks them up with a clean slate
+   * instead of a 500 that QStash would retry the whole batch 3×. */
+  failed: number[];
 }
 
 /**
@@ -189,7 +193,7 @@ export async function processSubscriptionsUnderBudget(
     now: deps.now ?? Date.now,
   };
   const deadline = d.now() + budgetMs;
-  const result: ProcessResult = { completed: [], remaining: [], skipped: [], applied: 0, removed: 0 };
+  const result: ProcessResult = { completed: [], remaining: [], skipped: [], applied: 0, removed: 0, failed: [] };
   if (subscriptionIds.length === 0) return result;
 
   type Row = SubscriptionCore & {
@@ -213,90 +217,102 @@ export async function processSubscriptionsUnderBudget(
       break;
     }
 
-    // ── Pending unsubscribe cleanup (CAR-53) ──
-    if (sub && sub.status === "unsubscribed" && sub.unsubscribe_keep_all != null) {
-      // No claim: the status flip already fences out sync drivers, and the
-      // removal loop is idempotent (deterministic decisions, delete-by-id) —
-      // matching the client-driven unsubscribe, which never claimed either.
-      let cursor: number | null = null;
-      let finished = false;
-      while (d.now() < deadline) {
-        const step = await d.unsubscribe(service, sub, { keepAll: sub.unsubscribe_keep_all, cursor });
-        result.removed += step.removed;
-        if (step.done) {
-          finished = true;
+    // Isolate each subscription (CAR-106): a merge-path throw (linkage/removal
+    // failures) or a transient DB error on ONE subscription must not 500 the
+    // whole worker — a non-2xx makes QStash retry the entire batch 3×, which
+    // multiplies invocations and Active CPU. Catch it, drop the subscription
+    // from the hot queue (it re-surfaces on the next daily stale-scan with a
+    // clean slate), and keep processing the rest. break/continue below still
+    // target the for-loop, not this try; the inner finally releases the claim.
+    try {
+      // ── Pending unsubscribe cleanup (CAR-53) ──
+      if (sub && sub.status === "unsubscribed" && sub.unsubscribe_keep_all != null) {
+        // No claim: the status flip already fences out sync drivers, and the
+        // removal loop is idempotent (deterministic decisions, delete-by-id) —
+        // matching the client-driven unsubscribe, which never claimed either.
+        let cursor: number | null = null;
+        let finished = false;
+        while (d.now() < deadline) {
+          const step = await d.unsubscribe(service, sub, { keepAll: sub.unsubscribe_keep_all, cursor });
+          result.removed += step.removed;
+          if (step.done) {
+            finished = true;
+            break;
+          }
+          cursor = step.nextCursor;
+        }
+        if (finished) result.completed.push(id);
+        else {
+          result.remaining.push(...subscriptionIds.slice(i));
           break;
         }
-        cursor = step.nextCursor;
+        continue;
       }
-      if (finished) result.completed.push(id);
+
+      if (
+        !sub ||
+        sub.status !== "active" ||
+        !sub.data_bundles ||
+        sub.data_bundles.status !== "published" ||
+        sub.synced_version >= sub.data_bundles.version
+      ) {
+        result.completed.push(id); // nothing to do (finished unsubscribe, unpublished, or current)
+        continue;
+      }
+
+      let token = await d.claim(service, id, null);
+      if (!token) {
+        result.skipped.push(id);
+        continue;
+      }
+
+      const bundle: BundleCore = {
+        id: sub.data_bundles.id,
+        slug: sub.data_bundles.slug,
+        name: sub.data_bundles.name,
+        version: sub.data_bundles.version,
+        resolved_version: sub.data_bundles.resolved_version,
+      };
+      // Resume an interrupted sync from its persisted checkpoint (CAR-54):
+      // the stored pin keeps the resumed loop on the version it started
+      // against; a later publish is picked up by the next stale-scan.
+      const checkpoint = readSyncCheckpoint(sub.sync_cursor, sub.synced_version);
+      const pinnedVersion = checkpoint?.pinnedVersion ?? bundle.version;
+      let cursor: ApplyCursor | null = checkpoint ? { phase: checkpoint.phase, afterId: checkpoint.afterId } : null;
+      let finished = false;
+
+      try {
+        while (d.now() < deadline) {
+          const step = await d.apply(service, sub, bundle, { cursor, pinnedVersion });
+          result.applied += step.applied;
+          if (step.done) {
+            finished = true;
+            break;
+          }
+          cursor = step.nextCursor;
+          const renewed = await d.claim(service, id, token);
+          if (!renewed) break; // lost the claim — back off
+          token = renewed;
+        }
+      } finally {
+        await d.release(service, id, token).catch(() => {});
+      }
+
+      // A resumed pin can be behind the bundle's current version — completing
+      // it is progress, but the subscription may still be stale, so only count
+      // it done when it reached the live version.
+      if (finished && pinnedVersion >= bundle.version) result.completed.push(id);
+      else if (finished) result.remaining.push(id);
       else {
+        // Ran out of budget (or lost the claim) mid-subscription: everything
+        // from here re-enqueues; the persisted checkpoint (CAR-54) makes the
+        // next invocation resume instead of re-scanning from chunk 0.
         result.remaining.push(...subscriptionIds.slice(i));
         break;
       }
-      continue;
-    }
-
-    if (
-      !sub ||
-      sub.status !== "active" ||
-      !sub.data_bundles ||
-      sub.data_bundles.status !== "published" ||
-      sub.synced_version >= sub.data_bundles.version
-    ) {
-      result.completed.push(id); // nothing to do (finished unsubscribe, unpublished, or current)
-      continue;
-    }
-
-    let token = await d.claim(service, id, null);
-    if (!token) {
-      result.skipped.push(id);
-      continue;
-    }
-
-    const bundle: BundleCore = {
-      id: sub.data_bundles.id,
-      slug: sub.data_bundles.slug,
-      name: sub.data_bundles.name,
-      version: sub.data_bundles.version,
-      resolved_version: sub.data_bundles.resolved_version,
-    };
-    // Resume an interrupted sync from its persisted checkpoint (CAR-54):
-    // the stored pin keeps the resumed loop on the version it started
-    // against; a later publish is picked up by the next stale-scan.
-    const checkpoint = readSyncCheckpoint(sub.sync_cursor, sub.synced_version);
-    const pinnedVersion = checkpoint?.pinnedVersion ?? bundle.version;
-    let cursor: ApplyCursor | null = checkpoint ? { phase: checkpoint.phase, afterId: checkpoint.afterId } : null;
-    let finished = false;
-
-    try {
-      while (d.now() < deadline) {
-        const step = await d.apply(service, sub, bundle, { cursor, pinnedVersion });
-        result.applied += step.applied;
-        if (step.done) {
-          finished = true;
-          break;
-        }
-        cursor = step.nextCursor;
-        const renewed = await d.claim(service, id, token);
-        if (!renewed) break; // lost the claim — back off
-        token = renewed;
-      }
-    } finally {
-      await d.release(service, id, token).catch(() => {});
-    }
-
-    // A resumed pin can be behind the bundle's current version — completing
-    // it is progress, but the subscription may still be stale, so only count
-    // it done when it reached the live version.
-    if (finished && pinnedVersion >= bundle.version) result.completed.push(id);
-    else if (finished) result.remaining.push(id);
-    else {
-      // Ran out of budget (or lost the claim) mid-subscription: everything
-      // from here re-enqueues; the persisted checkpoint (CAR-54) makes the
-      // next invocation resume instead of re-scanning from chunk 0.
-      result.remaining.push(...subscriptionIds.slice(i));
-      break;
+    } catch (err) {
+      console.error(`[bundle-queue] sync failed for subscription ${id}:`, err);
+      result.failed.push(id);
     }
   }
 

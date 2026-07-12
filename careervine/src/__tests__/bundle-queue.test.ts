@@ -241,6 +241,27 @@ describe('processSubscriptionsUnderBudget', () => {
     expect(result.completed).toEqual([1]);
     expect(unsubscribe).not.toHaveBeenCalled();
   });
+
+  it('isolates a throwing subscription: reports it failed, releases its claim, keeps going, never rejects (CAR-106)', async () => {
+    // A merge-path throw on sub 1 must not reject the whole call — that would
+    // 500 the worker and QStash would retry the entire batch 3×.
+    const apply = vi.fn()
+      .mockRejectedValueOnce(new Error('merge-path linkage failure'))
+      .mockResolvedValueOnce(stepDone());
+    const claim = vi.fn(async () => 'token');
+    const release = vi.fn(async () => {});
+    const result = await processSubscriptionsUnderBudget(
+      mockService([subRow(1), subRow(2)]),
+      [1, 2],
+      45_000,
+      { apply, claim, release },
+    );
+    expect(result.failed).toEqual([1]);
+    expect(result.completed).toEqual([2]); // the rest still processes
+    expect(result.remaining).toEqual([]); // failed is NOT re-enqueued
+    expect(release).toHaveBeenCalledTimes(2); // claim released even on throw
+    expect(apply).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('findPendingUnsubscribeIds', () => {
