@@ -92,6 +92,23 @@ describe("shapeAdminUser", () => {
     expect(shaped.firstName).toBe("");
     expect(shaped.lastName).toBe("");
   });
+
+  it("defaults the CAR-103 entitlement fields to false without a gmail connection", () => {
+    const shaped = shapeAdminUser(basePub, undefined, "none", false);
+    expect(shaped.automaticFeaturesEnabled).toBe(false);
+    expect(shaped.modifyScopeGranted).toBe(false);
+    expect(shaped.hasGmailConnection).toBe(false);
+  });
+
+  it("carries the CAR-103 entitlement flags from the gmail connection", () => {
+    const shaped = shapeAdminUser(basePub, undefined, "none", false, {
+      automatic_features_enabled: true,
+      modify_scope_granted: true,
+    });
+    expect(shaped.automaticFeaturesEnabled).toBe(true);
+    expect(shaped.modifyScopeGranted).toBe(true);
+    expect(shaped.hasGmailConnection).toBe(true);
+  });
 });
 
 describe("isEffectivelyShared (CAR-51)", () => {
