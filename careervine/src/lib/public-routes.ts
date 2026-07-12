@@ -9,6 +9,7 @@
 const PUBLIC_PATHS = new Set([
   "/", // landing page renders here when signed out
   "/privacy",
+  "/terms",
   "/reset-password", // recovery flow establishes its own session
   "/contacts/preview", // extension preview — renders an inline AuthForm
 ]);

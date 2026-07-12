@@ -5,6 +5,7 @@ describe("isPublicPath (CAR-64)", () => {
   it("allows the signed-out surfaces", () => {
     expect(isPublicPath("/")).toBe(true);
     expect(isPublicPath("/privacy")).toBe(true);
+    expect(isPublicPath("/terms")).toBe(true);
     expect(isPublicPath("/reset-password")).toBe(true);
     expect(isPublicPath("/contacts/preview")).toBe(true);
     expect(isPublicPath("/auth")).toBe(true);
@@ -37,5 +38,6 @@ describe("isPublicPath (CAR-64)", () => {
     expect(isPublicPath("/authors")).toBe(false);
     expect(isPublicPath("/oauthful")).toBe(false);
     expect(isPublicPath("/privacy-policy")).toBe(false);
+    expect(isPublicPath("/terms-of-service")).toBe(false);
   });
 });
