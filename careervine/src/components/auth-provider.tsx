@@ -42,18 +42,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // useEffect runs on component mount to check for existing session
   // This handles page refreshes and returning users
   useEffect(() => {
+    // Apply a new session with REFERENCE-STABLE state: keep the previous object
+    // when identity hasn't changed. On mount Supabase emits the session multiple
+    // times in quick succession (getSession, then onAuthStateChange's
+    // INITIAL_SESSION, then a token event), each a fresh User/Session object.
+    // Without this dedupe, every consumer keyed on `user`/`session` re-runs its
+    // effects 2-3×, tripling the data load on every authenticated page (CAR-96).
+    const apply = (nextSession: Session | null) => {
+      setSession((prev) =>
+        prev?.access_token === nextSession?.access_token ? prev : nextSession,
+      );
+      const nextUser = nextSession?.user ?? null;
+      setUser((prev) => (prev?.id === nextUser?.id ? prev : nextUser));
+    };
+
     const getSession = async () => {
       try {
         // Check if there's an existing session in browser storage
         const { data: { session } } = await supabase.auth.getSession();
-
-        // Update state with session data
-        setSession(session);
-        setUser(session?.user ?? null);
+        apply(session);
       } catch {
         // Stale or invalid refresh token — treat as signed out
-        setSession(null);
-        setUser(null);
+        apply(null);
       } finally {
         setLoading(false);
       }
@@ -67,9 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Update React state whenever auth state changes
-      setSession(session);
-      setUser(session?.user ?? null);
+      apply(session);
       setLoading(false);
     });
 
