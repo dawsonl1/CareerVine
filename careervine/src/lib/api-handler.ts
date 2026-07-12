@@ -15,6 +15,7 @@ import { ZodSchema, ZodError } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { getExtensionAuth, corsHeaders } from "@/lib/extension-auth";
 import { checkRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
+import { resolveCapabilities, type Capability } from "@/lib/capabilities";
 import { trackServer } from "@/lib/analytics/server";
 import type { AnalyticsEvent, AnalyticsEvents } from "@/lib/analytics/events";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
@@ -77,6 +78,13 @@ interface RouteConfig<TBody = unknown, TQuery = unknown> {
   authOptional?: boolean;
   /** When true, the authenticated user must carry app_metadata.role === 'admin' or the request is rejected with 403. */
   requireAdmin?: boolean;
+  /**
+   * Require a CAR-103 capability. The user's capability set is resolved
+   * server-side (service-role read of the entitlement flags); a missing
+   * capability is rejected with 403. Fails closed for an authOptional route
+   * with no user (403, never a 500). Generalizes requireAdmin.
+   */
+  requireCapability?: Capability;
   /**
    * Opt-in per-user rate limit (CAR-41), checked right after auth resolves.
    * Skipped when there is no user (authOptional). On exceeded the wrapper
@@ -176,6 +184,24 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         const role = (user as User | null)?.app_metadata?.role;
         if (role !== "admin") {
           return jsonResponse({ error: "Forbidden" }, 403, headers);
+        }
+      }
+
+      // ── Capability gate (CAR-103) ───────────────────────────────
+      // Generalizes the admin gate to the capability model. The set is
+      // resolved server-side; a missing capability is a 403. Null-guarded so
+      // an authOptional route with no user fails closed to 403, not a 500.
+      if (config.requireCapability) {
+        const capUserId = (user as User | null)?.id;
+        const caps = capUserId
+          ? await resolveCapabilities(capUserId)
+          : new Set<Capability>();
+        if (!caps.has(config.requireCapability)) {
+          return jsonResponse(
+            { error: "Forbidden", capability: config.requireCapability },
+            403,
+            headers,
+          );
         }
       }
 
