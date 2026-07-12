@@ -8,6 +8,7 @@ import {
   keyStatusFor,
   isEffectivelyShared,
   type PublicUserRow,
+  type GmailEntitlementRow,
 } from "@/lib/admin-users";
 
 /** GET /api/admin/users/[id] — full detail for one account. Admin only. */
@@ -27,7 +28,7 @@ export const GET = withApiHandler({
     if (!pub) throw new ApiError("User not found", 404);
 
     const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
-    const [{ data: authData }, { data: keyRow }, { data: accessRow }, { data: spend }] =
+    const [{ data: authData }, { data: keyRow }, { data: accessRow }, { data: spend }, { data: gmailRow }] =
       await Promise.all([
         service.auth.admin.getUserById(id),
         service
@@ -45,6 +46,13 @@ export const GET = withApiHandler({
         // toggle sits beside the number it controls (plan 36). Same RPC as
         // cap enforcement; best-effort here (null on error, never blocks).
         service.rpc("sum_scrape_spend", { p_user_id: id, p_since: monthStart }),
+        // CAR-103 entitlement flags (service-role-only) — feed the automatic-
+        // features toggle. Null when the account has no Gmail connection.
+        service
+          .from("gmail_connections")
+          .select("automatic_features_enabled, modify_scope_granted")
+          .eq("user_id", id)
+          .maybeSingle(),
       ]);
 
     const user = shapeAdminUser(
@@ -52,6 +60,7 @@ export const GET = withApiHandler({
       authData?.user ?? undefined,
       keyStatusFor((keyRow as { status: string } | null)?.status),
       isEffectivelyShared(accessRow as { shared_access: boolean; expires_at: string | null } | null),
+      gmailRow as GmailEntitlementRow | null,
     );
 
     return { user, apifyMonthSpendUsd: Number(spend ?? 0) };

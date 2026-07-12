@@ -42,6 +42,18 @@ export interface AdminUserListItem extends AdminUserBase {
 
 export interface AdminUserDetail extends AdminUserBase {
   phone: string | null;
+  /** CAR-103: paid automatic-features entitlement (admin-granted). */
+  automaticFeaturesEnabled: boolean;
+  /** CAR-103: whether the Gmail connection holds the gmail.modify scope. */
+  modifyScopeGranted: boolean;
+  /** CAR-103: whether the user has a Gmail connection at all. */
+  hasGmailConnection: boolean;
+}
+
+/** The gmail_connections entitlement columns the admin surface reads (CAR-103). */
+export interface GmailEntitlementRow {
+  automatic_features_enabled: boolean;
+  modify_scope_granted: boolean;
 }
 
 /** The public.users columns the admin surface reads. */
@@ -89,6 +101,7 @@ export function shapeAdminUser(
   auth: AuthUserProjection | undefined,
   keyStatus: AdminUserKeyStatus,
   sharedAccess: boolean,
+  gmailConnection?: GmailEntitlementRow | null,
 ): AdminUserDetail {
   return {
     id: pub.id,
@@ -105,6 +118,9 @@ export function shapeAdminUser(
     keyStatus,
     lastSignInAt: auth?.last_sign_in_at ?? null,
     createdAt: pub.created_at,
+    automaticFeaturesEnabled: gmailConnection?.automatic_features_enabled ?? false,
+    modifyScopeGranted: gmailConnection?.modify_scope_granted ?? false,
+    hasGmailConnection: !!gmailConnection,
   };
 }
 
