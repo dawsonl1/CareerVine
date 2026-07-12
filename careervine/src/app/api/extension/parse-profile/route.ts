@@ -85,8 +85,11 @@ export const POST = withApiHandler({
             }
           },
           education: {
+            // Raised from 2 (CAR-95): capping at 2 could drop the entry that
+            // drives student/professional classification when a person lists
+            // several schools.
             type: "array",
-            maxItems: 2,
+            maxItems: 4,
             items: {
               type: "object",
               additionalProperties: false,
@@ -120,7 +123,10 @@ export const POST = withApiHandler({
       "generated_notes should be 2 or 3 short sentences about the person. " +
       "Return only valid JSON matching the schema. Prefer null when information is unclear or missing. " +
       "Industry should reflect the person's current or clearly intended industry based on the profile. " +
+      "Extract EVERY position in the Experience section, not just the most recent one — include internships, part-time, and past roles. " +
+      "When one company lists multiple roles (a company name followed by several titles and date ranges), output a separate experience entry for each role, each with that same company. " +
       "For current roles, set end_month to Present. " +
+      "Extract EVERY school in the Education section. Set education end_year to the graduation year or expected graduation year, even when it is in the future (e.g. a current student graduating in 2028). " +
       "Extract a geographic job location for each experience if available (e.g., 'San Francisco, CA'). " +
       "Ignore work arrangement terms like remote, hybrid, internship, contract, freelance, part-time, full-time, temporary, or self-employed as locations. ";
 
