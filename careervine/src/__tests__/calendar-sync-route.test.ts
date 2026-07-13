@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockFetchCalendarEvents = vi.fn();
 const mockGetCalendarTimezone = vi.fn();
 const mockGetCalendarList = vi.fn();
+const calendarEventUpsert = vi.fn(async () => ({ error: null }));
 
 const state = {
   connection: {
@@ -50,7 +51,7 @@ function createServiceClient() {
 
       if (table === "calendar_events") {
         return {
-          upsert: async () => ({ error: null }),
+          upsert: calendarEventUpsert,
           select: () => ({
             eq: () => ({
               eq: () => ({
@@ -175,5 +176,30 @@ describe("/api/calendar/sync", () => {
     expect(mockFetchCalendarEvents.mock.calls[0]?.[1]).toMatchObject({
       syncToken: "active-token",
     });
+  });
+
+  it("upserts events on the (user_id, google_event_id) natural key, not the PK (CAR-113)", async () => {
+    // Without onConflict the upsert conflict-targets the bigserial PK, so every
+    // re-synced event INSERTs and trips calendar_events_user_id_google_event_id_key
+    // (23505) — and the event's edits never reach the cache.
+    mockFetchCalendarEvents.mockResolvedValue({
+      events: [
+        {
+          id: "evt-1",
+          status: "confirmed",
+          start: { dateTime: "2026-07-10T15:00:00.000Z" },
+          end: { dateTime: "2026-07-10T16:00:00.000Z" },
+          summary: "Coffee chat",
+        },
+      ],
+      nextSyncToken: "next-token",
+    });
+
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+    expect(calendarEventUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: "user-1", google_event_id: "evt-1" }),
+      { onConflict: "user_id,google_event_id" },
+    );
   });
 });
