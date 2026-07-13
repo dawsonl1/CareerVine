@@ -66,10 +66,18 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Failed = threw mid-processing (CAR-106). Deliberately NOT re-enqueued —
+  // the daily stale-scan re-picks them up clean, so a deterministically-broken
+  // subscription can't hot-loop the queue. Reported for observability.
+  if (result.failed.length > 0) {
+    console.warn(`[bundle-sync] ${result.failed.length} subscription(s) failed and were dropped: ${result.failed.join(", ")}`);
+  }
+
   return NextResponse.json({
     completed: result.completed.length,
     skipped: result.skipped.length,
     remaining: result.remaining.length,
+    failed: result.failed.length,
     requeued,
     retriedSkipped,
     applied: result.applied,

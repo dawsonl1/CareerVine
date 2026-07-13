@@ -217,6 +217,28 @@ describe("resolveBundleChunk", () => {
     expect(result.nextAfterId).toBe(5);
   });
 
+  it("halts at the deadline after finishing one prospect and returns a resume cursor (CAR-106)", async () => {
+    const rows = [janeRow({ id: 1 }), janeRow({ id: 2 }), janeRow({ id: 3 })];
+    const { client } = createMockClient(resolverResponder(rows));
+    // Deadline already passed: Pass 1 finishes exactly one prospect (the >=1
+    // floor guarantees forward progress) then stops before the next, so a cold
+    // 200-row chunk can't run past the route's maxDuration.
+    const result = await resolveBundleChunk(client, BUNDLE, { afterId: 0, deadline: Date.now() - 1 });
+
+    expect(result.done).toBe(false);
+    expect(result.resolved).toBe(1);
+    expect(result.nextAfterId).toBe(1); // resume after the one we finished
+  });
+
+  it("resolves the whole fetched batch when no deadline is given (unchanged)", async () => {
+    const rows = [janeRow({ id: 1 }), janeRow({ id: 2 }), janeRow({ id: 3 })];
+    const { client } = createMockClient(resolverResponder(rows));
+    const result = await resolveBundleChunk(client, BUNDLE, { afterId: 0 });
+
+    expect(result.done).toBe(true);
+    expect(result.resolved).toBe(3);
+  });
+
   it("scans only unresolved rows (is resolved null) so it never re-scans done rows (CAR-81)", async () => {
     const { client, calls } = createMockClient(resolverResponder([janeRow()]));
     await resolveBundleChunk(client, BUNDLE, { afterId: 0 });
