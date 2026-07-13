@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, type ChangeEvent } from "react";
+import Link from "next/link";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useToast } from "@/components/ui/toast";
 import { useCompose } from "@/components/compose-email-context";
@@ -281,7 +282,12 @@ export function ContactProfileCard({
           <p className="text-base text-muted-foreground mt-0.5">
             {currentCompany.title}
             {currentCompany.title && currentCompany.companies.name ? " at " : ""}
-            {currentCompany.companies.name}
+            <Link
+              href={`/companies/${currentCompany.companies.id}`}
+              className="hover:text-primary hover:underline"
+            >
+              {currentCompany.companies.name}
+            </Link>
           </p>
         )}
         {contact.industry && !currentCompany && (
