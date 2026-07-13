@@ -45,19 +45,20 @@ beforeEach(() => {
   process.env.NUDGE_UNSUBSCRIBE_SECRET = "test-secret-value";
 });
 
-describe("POST /api/notifications/unsubscribe", () => {
-  it("disables nudges for a valid token", async () => {
+describe("POST /api/notifications/unsubscribe (mutating)", () => {
+  it("disables nudges for a valid token and renders the result page", async () => {
     const token = signUnsubscribeToken("user-77", "followup_nudges");
     const res = await POST(req(token));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    expect(await res.text()).toContain("You're unsubscribed");
     expect(updates).toEqual([{ patch: { followup_nudges_enabled: false }, id: "user-77" }]);
   });
 
   it("400s an invalid token and writes nothing", async () => {
     const res = await POST(req("garbage.token.value"));
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ ok: false });
+    expect(await res.text()).toContain("Link expired");
     expect(updates).toHaveLength(0);
   });
 
@@ -72,26 +73,28 @@ describe("POST /api/notifications/unsubscribe", () => {
     const token = signUnsubscribeToken("user-77", "followup_nudges");
     const res = await POST(req(token));
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ ok: false });
+    expect(await res.text()).toContain("Link expired");
   });
 });
 
-describe("GET /api/notifications/unsubscribe", () => {
-  it("renders a success confirmation page for a valid token", async () => {
+describe("GET /api/notifications/unsubscribe (NEVER mutates — scanner-safe)", () => {
+  it("renders a confirm-to-unsubscribe page for a valid token WITHOUT writing", async () => {
     const token = signUnsubscribeToken("user-77", "followup_nudges");
     const res = await GET(req(token));
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
     const html = await res.text();
-    expect(html).toContain("You're unsubscribed");
-    expect(updates).toHaveLength(1);
+    expect(html).toContain("Unsubscribe from reminders?");
+    expect(html).toContain("<form method=\"POST\"");
+    // The load-bearing assertion: a GET (as issued by email link-scanners) must
+    // perform NO database write.
+    expect(updates).toHaveLength(0);
   });
 
-  it("renders an expired-link page (400) for an invalid token", async () => {
+  it("renders an expired-link page (400) for an invalid token, no write", async () => {
     const res = await GET(req("nope"));
     expect(res.status).toBe(400);
-    const html = await res.text();
-    expect(html).toContain("Link expired");
+    expect(await res.text()).toContain("Link expired");
     expect(updates).toHaveLength(0);
   });
 });

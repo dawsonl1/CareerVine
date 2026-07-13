@@ -34,7 +34,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     const { data: msgData } = await service
       .from("email_follow_up_messages")
       .select(
-        "id, subject, body_html, status, follow_up_id, " +
+        "id, subject, body_html, status, expires_at, follow_up_id, " +
           "email_follow_ups!inner(user_id, thread_id, recipient_email, original_gmail_message_id, status)",
       )
       .eq("id", messageId)
@@ -44,6 +44,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
       status: string;
       subject: string;
       body_html: string;
+      expires_at: string | null;
       follow_up_id: number;
       email_follow_ups?: {
         user_id: string;
@@ -76,12 +77,22 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     }
 
     // No reply: send this follow-up now. Atomic claim prevents a double send.
-    // Claims from either confirmable state (awaiting_review or expired); the
-    // prior status is remembered so a send failure reverts to exactly that, not
-    // a blanket awaiting_review that would resurrect an expired item (CAR-105).
+    // Claims from either confirmable state (awaiting_review or expired).
+    // On a send failure we revert to the row's TRUE current state, derived from
+    // the deadline rather than the pre-claim status read (a concurrent nudge-cron
+    // expiry could have staled that read): past its window => expired (still
+    // sendable), otherwise awaiting_review. A user in this path is necessarily
+    // active (loading the portal stamped web_last_seen_at), so a passed deadline
+    // reliably means "expired," not the never-return hold. Falls back to the read
+    // status only if no deadline is stamped.
     // count (not .select()) detects the claim: the update sets the same `status`
     // the filter tests, so a returning-representation read is the rule-17 trap.
-    const priorStatus = msg.status;
+    const revertStatus =
+      msg.expires_at != null
+        ? Date.parse(msg.expires_at) <= Date.now()
+          ? "expired"
+          : "awaiting_review"
+        : msg.status;
     const { count: claimedCount } = await service
       .from("email_follow_up_messages")
       .update({ status: "sending" }, { count: "exact" })
@@ -105,11 +116,11 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
         { isFollowUp: true },
       );
     } catch (err) {
-      // Revert to the exact prior state so the user can retry: an expired item
+      // Revert to the true current state so the user can retry: an expired item
       // stays expired (still sendable), not resurrected as awaiting_review.
       await service
         .from("email_follow_up_messages")
-        .update({ status: priorStatus })
+        .update({ status: revertStatus })
         .eq("id", messageId);
       const capped = err instanceof SendPolicyError && err.status === 429;
       throw new ApiError(

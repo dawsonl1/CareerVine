@@ -48,4 +48,16 @@ describe("unsubscribe tokens", () => {
     expect(verifyUnsubscribeToken("two.parts")).toBeNull();
     expect(verifyUnsubscribeToken("")).toBeNull();
   });
+
+  it("fails CLOSED when the secret is unset: an empty-key HMAC token is rejected", () => {
+    // Mint a token WITH a secret, then verify with the secret unset. Empty-key
+    // HMAC is publicly forgeable, so verification must refuse rather than trust it.
+    const token = signUnsubscribeToken("user-123", "followup_nudges");
+    delete process.env.NUDGE_UNSUBSCRIBE_SECRET;
+    expect(verifyUnsubscribeToken(token)).toBeNull();
+
+    // And a token an attacker forges with the empty key is likewise rejected.
+    const forged = signUnsubscribeToken("victim-999", "followup_nudges"); // signed with "" now
+    expect(verifyUnsubscribeToken(forged)).toBeNull();
+  });
 });

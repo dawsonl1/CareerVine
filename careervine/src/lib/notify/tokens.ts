@@ -26,13 +26,20 @@ export function signUnsubscribeToken(userId: string, purpose: NotificationPurpos
 export function verifyUnsubscribeToken(
   token: string,
 ): { userId: string; purpose: NotificationPurpose } | null {
+  // Fail CLOSED on a missing secret: HMAC-SHA256 with an empty key is a public,
+  // reproducible function, so verifying against it would accept attacker-forged
+  // tokens for any userId. Refuse to verify anything until the secret is set,
+  // rather than silently trusting an empty-key MAC (CAR-105 review).
+  const key = secret();
+  if (!key) return null;
+
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [userId, purpose, sig] = parts;
   if (purpose !== "followup_nudges") return null;
 
   const expected = crypto
-    .createHmac("sha256", secret())
+    .createHmac("sha256", key)
     .update(`${userId}.${purpose}`)
     .digest("base64url");
   const a = Buffer.from(sig);

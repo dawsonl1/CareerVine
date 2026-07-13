@@ -141,6 +141,9 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   store.email_follow_up_messages = [];
   store.users = [];
+  // The cron only claims/sends when both secrets are present (canEmail preflight).
+  process.env.RESEND_API_KEY = "re_test";
+  process.env.NUDGE_UNSUBSCRIBE_SECRET = "test-secret";
 });
 
 describe("CAR-105 nudge cron — cadence", () => {
@@ -226,6 +229,33 @@ describe("CAR-105 nudge cron — cadence", () => {
 
     expect(sendAppEmailSpy).not.toHaveBeenCalled();
     expect(m.reminder_count).toBe(0);
+  });
+
+  it("preflight: a missing secret skips claim+send but still lets expiry run", async () => {
+    delete process.env.RESEND_API_KEY; // canEmail = false
+    // A just-parked item that WOULD get day-0, and a past-window seen item that
+    // SHOULD expire regardless of the email preflight.
+    const due = msg({ id: 1, parked_at: new Date(NOW).toISOString(), reminder_count: 0 });
+    const stale = msg({
+      id: 2,
+      follow_up_id: 2,
+      parked_at: new Date(NOW - 15 * DAY).toISOString(),
+      reminder_count: 3,
+      seen_during_window: true,
+    });
+    store.email_follow_up_messages = [due, stale];
+    store.users = [user({ web_last_seen_at: new Date(NOW - 14 * DAY).toISOString() })];
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    // No email, and the due item was NOT claimed (reminder_count never advanced
+    // while nothing goes out) — so it will nudge cleanly next run once configured.
+    expect(sendAppEmailSpy).not.toHaveBeenCalled();
+    expect(due.reminder_count).toBe(0);
+    // Expiry is independent of the email preflight.
+    expect(stale.status).toBe("expired");
+    expect(data.expired).toBe(1);
   });
 });
 

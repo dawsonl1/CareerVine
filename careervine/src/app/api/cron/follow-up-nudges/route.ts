@@ -82,8 +82,9 @@ async function runJob(): Promise<NextResponse> {
 
   // All parked, still-active follow-up messages. awaiting_review is naturally a
   // small set (free-tier items pending confirmation); a generous cap bounds
-  // maxDuration, and any overflow is picked up next daily run (delayed expiry
-  // errs safe; a skipped nudge milestone just fires the next one).
+  // maxDuration. Ordered oldest-parked-first so the cap is FIFO: overflow rows
+  // are the newest, and processed items leave the set as they expire/confirm, so
+  // a >1000 backlog drains deterministically instead of starving a stable tail.
   const { data: rows } = await service
     .from("email_follow_up_messages")
     .select(`
@@ -92,6 +93,7 @@ async function runJob(): Promise<NextResponse> {
     `)
     .eq("status", "awaiting_review")
     .eq("email_follow_ups.status", "active")
+    .order("parked_at", { ascending: true })
     .limit(1000);
 
   const messages = (rows ?? []) as unknown as ParkedMessage[];
@@ -115,11 +117,27 @@ async function runJob(): Promise<NextResponse> {
 
   const analyticsJobs: Promise<unknown>[] = [];
 
+  // Preflight the two secrets the email phase needs: RESEND_API_KEY to send, and
+  // NUDGE_UNSUBSCRIBE_SECRET to mint a working one-click unsubscribe link (a
+  // reminder email without a valid unsubscribe is not CAN-SPAM safe, and an empty
+  // signing key would produce forgeable links). Missing either => skip claiming
+  // AND sending this run so we never advance reminder_count while no email goes
+  // out (the item simply nudges next run once configured). Expiry (Phase 3) still
+  // runs regardless. In a correct deploy the QStash schedule is created only after
+  // both secrets are set, so this guard is defense-in-depth.
+  const canEmail = !!process.env.RESEND_API_KEY && !!process.env.NUDGE_UNSUBSCRIBE_SECRET;
+  if (!canEmail) {
+    console.error(
+      "[cron:follow-up-nudges] RESEND_API_KEY or NUDGE_UNSUBSCRIBE_SECRET missing; skipping nudge emails this run",
+    );
+  }
+
   // ── Phase 1: cadence — claim due milestones (before sending) ─────────────
-  // digestByUser[userId] = the items claimed for this run's digest.
+  // digestByUser[userId] = the items claimed for this run's digest. Iterates the
+  // empty set when we can't email, so nothing is claimed and Phase 2 is a no-op.
   const digestByUser = new Map<string, NudgeItem[]>();
 
-  for (const msg of messages) {
+  for (const msg of canEmail ? messages : []) {
     const parent = msg.email_follow_ups;
     const user = userById.get(parent.user_id);
     // Suspended/missing accounts are frozen: hold everything (no nudge, no
@@ -179,8 +197,13 @@ async function runJob(): Promise<NextResponse> {
       html,
       text,
       listUnsubscribeUrl: unsubscribeUrl,
-      // One logical digest per user per day — dedupes a QStash retry that lands
-      // after the claim already succeeded but before the response was recorded.
+      // Delivery is best-effort, at-most-once per milestone: the atomic claim above
+      // already bumped reminder_count, and a failed send is NOT reverted, so this
+      // milestone won't retry. That is deliberate — the alternative (revert on
+      // failure) would re-send next day under a different date-scoped key and could
+      // double-send a message Resend actually delivered behind a 5xx. A dropped
+      // early milestone self-heals: day 4/9 re-send the same stage-agnostic digest.
+      // The key is same-day dedupe insurance in case this exact send is retried.
       idempotencyKey: `nudge-${uid}-${today}`,
     });
     if (res.ok) {

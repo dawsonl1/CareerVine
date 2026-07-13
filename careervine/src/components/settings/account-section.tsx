@@ -7,11 +7,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getUserProfile, updateUserProfile } from "@/lib/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { Toggle } from "@/components/ui/toggle";
+import { useToast } from "@/components/ui/toast";
 import { User, Phone, Mail, Check, Lock, Bell } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
 export default function AccountSection() {
   const { user } = useAuth();
+  const { error: toastError } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -90,6 +92,7 @@ export default function AccountSection() {
     } catch (err) {
       console.error("Error saving notification preference:", err);
       setNudgesEnabled(!value); // revert on failure
+      toastError("Could not save that. Please try again.");
     } finally {
       setNudgesSaving(false);
     }
