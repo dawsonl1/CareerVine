@@ -16,8 +16,8 @@ export const maxDuration = 60;
 
 /**
  * POST /api/cron/scrape-refresh
- * Daily QStash schedule (managed in the Upstash console, like
- * send-follow-ups). The cadence drip (plan 29 §7.3):
+ * Daily QStash schedule (source of truth: scripts/qstash-schedules.mjs).
+ * The cadence drip (plan 29 §7.3):
  *   1. Sweep runs stuck 'pending' >24h to 'timed_out' (lost webhooks) so they
  *      free their contacts and stop reserving budget.
  *   2. Per user: select the ~80 stalest eligible contacts and start batched
