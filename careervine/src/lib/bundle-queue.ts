@@ -29,8 +29,27 @@ import {
  * failure blast radius small without a message-per-subscriber storm. */
 export const FANOUT_BATCH_SIZE = 10;
 
-/** Wall-clock budget for one worker/cron invocation (maxDuration is 60s). */
-export const SYNC_BUDGET_MS = 45_000;
+/** All the sync routes run under Vercel's `maxDuration = 60s` hard kill; the
+ * budgets below derive from it. Keep in sync with the routes' `maxDuration`. */
+export const FUNCTION_MAX_MS = 60_000;
+
+/** Worst-case wall clock for one in-flight `applyBundleDelta` step. The budget
+ * gates STARTING a step and never interrupts one (CAR-78), so the margin
+ * between SYNC_BUDGET_MS and FUNCTION_MAX_MS must cover a full step. */
+export const SYNC_STEP_RESERVE_MS = 25_000;
+
+/** Stop STARTING new subscriptions/chunks after this much wall clock. Was
+ * 45_000 — only a 15s margin, smaller than one worst-case step — which let the
+ * bundle-sync worker overrun maxDuration and get hard-killed mid-chunk
+ * (CAR-112). Now FUNCTION_MAX_MS − SYNC_STEP_RESERVE_MS, matching the margin
+ * /api/bundles/apply has always used. */
+export const SYNC_BUDGET_MS = FUNCTION_MAX_MS - SYNC_STEP_RESERVE_MS; // 35_000
+
+/** Hard backstop for the budgeted route handlers (CAR-112): the handler must
+ * have sent its response by here even if a single step blows past
+ * SYNC_STEP_RESERVE_MS. Leaves FUNCTION_MAX_MS − this (5s) to serialize the
+ * response and re-enqueue before the kill. Enforced via runWithResponseDeadline. */
+export const SYNC_RESPONSE_DEADLINE_MS = 55_000;
 
 export interface BundleSyncJob {
   subscriptionIds: number[];
