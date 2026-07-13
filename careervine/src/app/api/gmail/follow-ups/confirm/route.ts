@@ -3,6 +3,12 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { recordThreadReply } from "@/lib/follow-up-reply";
+import {
+  ACTIONABLE_FOLLOW_UP_MESSAGE_STATUSES,
+  UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
+} from "@/lib/constants";
+
+const CONFIRMABLE_STATUSES: string[] = [...ACTIONABLE_FOLLOW_UP_MESSAGE_STATUSES];
 
 const schema = z.object({
   messageId: z.number().int(),
@@ -28,7 +34,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     const { data: msgData } = await service
       .from("email_follow_up_messages")
       .select(
-        "id, subject, body_html, status, follow_up_id, " +
+        "id, subject, body_html, status, expires_at, follow_up_id, " +
           "email_follow_ups!inner(user_id, thread_id, recipient_email, original_gmail_message_id, status)",
       )
       .eq("id", messageId)
@@ -38,6 +44,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
       status: string;
       subject: string;
       body_html: string;
+      expires_at: string | null;
       follow_up_id: number;
       email_follow_ups?: {
         user_id: string;
@@ -52,7 +59,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     if (!msg || !parent || parent.user_id !== user.id) {
       throw new ApiError("Follow-up not found", 404);
     }
-    if (msg.status !== "awaiting_review") {
+    if (!CONFIRMABLE_STATUSES.includes(msg.status)) {
       throw new ApiError("This follow-up is not awaiting review.", 400);
     }
     // Defense-in-depth: an awaiting_review message whose parent sequence is no
@@ -70,14 +77,28 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     }
 
     // No reply: send this follow-up now. Atomic claim prevents a double send.
-    const { data: claimed } = await service
+    // Claims from either confirmable state (awaiting_review or expired).
+    // On a send failure we revert to the row's TRUE current state, derived from
+    // the deadline rather than the pre-claim status read (a concurrent nudge-cron
+    // expiry could have staled that read): past its window => expired (still
+    // sendable), otherwise awaiting_review. A user in this path is necessarily
+    // active (loading the portal stamped web_last_seen_at), so a passed deadline
+    // reliably means "expired," not the never-return hold. Falls back to the read
+    // status only if no deadline is stamped.
+    // count (not .select()) detects the claim: the update sets the same `status`
+    // the filter tests, so a returning-representation read is the rule-17 trap.
+    const revertStatus =
+      msg.expires_at != null
+        ? Date.parse(msg.expires_at) <= Date.now()
+          ? "expired"
+          : "awaiting_review"
+        : msg.status;
+    const { count: claimedCount } = await service
       .from("email_follow_up_messages")
-      .update({ status: "sending" })
+      .update({ status: "sending" }, { count: "exact" })
       .eq("id", messageId)
-      .eq("status", "awaiting_review")
-      .select("id")
-      .maybeSingle();
-    if (!claimed) {
+      .in("status", CONFIRMABLE_STATUSES);
+    if (!claimedCount) {
       throw new ApiError("This follow-up is no longer awaiting review.", 409);
     }
 
@@ -95,10 +116,25 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
         { isFollowUp: true },
       );
     } catch (err) {
-      // Revert so the user can retry from the portal.
+      // Revert so the user can retry. But a concurrent teardown may have cancelled
+      // the PARENT while we held this row in 'sending' — teardown message-cancels
+      // filter out 'sending', so they can't see an in-flight claim (CAR-108).
+      // Reverting into an actionable status under a cancelled parent would orphan
+      // the row behind the parent-active guard forever. So re-read the parent: if
+      // it is no longer active, cancel this message to match it; otherwise revert
+      // to the true current state (expired stays sendable, not resurrected as
+      // awaiting_review). A residual sub-millisecond window remains between this
+      // read and the write, orders of magnitude tighter than the send round-trip.
+      const { data: freshParent } = await service
+        .from("email_follow_ups")
+        .select("status")
+        .eq("id", msg.follow_up_id)
+        .maybeSingle();
+      const revertTo =
+        (freshParent as { status?: string } | null)?.status === "active" ? revertStatus : "cancelled";
       await service
         .from("email_follow_up_messages")
-        .update({ status: "awaiting_review" })
+        .update({ status: revertTo })
         .eq("id", messageId);
       const capped = err instanceof SendPolicyError && err.status === 429;
       throw new ApiError(
@@ -113,12 +149,14 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
       .update({ status: "sent", sent_at: now })
       .eq("id", messageId);
 
-    // Complete the sequence when nothing is left to send or review.
+    // Complete the sequence only when nothing is left to send or review — an
+    // expired sibling still counts as open (it stays one-click sendable), so
+    // completing here would strand it behind the parent-active guard (CAR-105).
     const { count } = await service
       .from("email_follow_up_messages")
       .select("id", { count: "exact", head: true })
       .eq("follow_up_id", msg.follow_up_id)
-      .in("status", ["pending", "sending", "awaiting_review"]);
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, "sending"]);
     if (count === 0) {
       await service
         .from("email_follow_ups")

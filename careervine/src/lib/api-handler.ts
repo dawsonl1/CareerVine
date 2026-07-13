@@ -174,6 +174,31 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
           }
         } else {
           user = u;
+          // CAR-105: throttled web last-active stamp — the signal the active-aware
+          // follow-up expiry depends on. Conditional so it writes at most ~once/hour;
+          // NOT a rule-17 CAS trap (the result is never read). Wrapped so it can NEVER
+          // affect the request: the whole stamp is a caught best-effort promise, so a
+          // missing method (minimal test mocks), a malformed filter, or a DB error just
+          // no-ops (worst case: items stop expiring, which is non-destructive). Needs
+          // the GRANT UPDATE(web_last_seen_at) in 20260712070000. The threshold is
+          // millisecond-stripped so its dot-free value can't confuse PostgREST's .or().
+          const stampUserId = user.id;
+          pendingTracks.push(
+            (async () => {
+              try {
+                const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+                  .toISOString()
+                  .replace(/\.\d{3}Z$/, "Z");
+                await supabase
+                  .from("users")
+                  .update({ web_last_seen_at: new Date().toISOString() })
+                  .eq("id", stampUserId)
+                  .or(`web_last_seen_at.is.null,web_last_seen_at.lt.${oneHourAgo}`);
+              } catch {
+                // best-effort; never affects the request
+              }
+            })(),
+          );
         }
       }
 

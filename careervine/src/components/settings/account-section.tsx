@@ -6,11 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getUserProfile, updateUserProfile } from "@/lib/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
-import { User, Phone, Mail, Check, Lock } from "lucide-react";
+import { Toggle } from "@/components/ui/toggle";
+import { useToast } from "@/components/ui/toast";
+import { User, Phone, Mail, Check, Lock, Bell } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
 export default function AccountSection() {
   const { user } = useAuth();
+  const { error: toastError } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -19,6 +22,11 @@ export default function AccountSection() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+
+  // CAR-105 email-notification opt-out. Persisted via the browser RLS client; the
+  // migration grants UPDATE (followup_nudges_enabled) to authenticated.
+  const [nudgesEnabled, setNudgesEnabled] = useState(true);
+  const [nudgesSaving, setNudgesSaving] = useState(false);
 
   // Password
   const [newPassword, setNewPassword] = useState("");
@@ -38,6 +46,7 @@ export default function AccountSection() {
       setFirstName(profile.first_name || "");
       setLastName(profile.last_name || "");
       setPhone(profile.phone || "");
+      setNudgesEnabled(profile.followup_nudges_enabled ?? true);
     } catch (err) {
       console.error("Error loading profile:", err);
     } finally {
@@ -71,6 +80,21 @@ export default function AccountSection() {
       setError("Failed to save profile. Please try again.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleNudges = async (value: boolean) => {
+    if (!user) return;
+    setNudgesEnabled(value); // optimistic
+    setNudgesSaving(true);
+    try {
+      await updateUserProfile(user.id, { followup_nudges_enabled: value });
+    } catch (err) {
+      console.error("Error saving notification preference:", err);
+      setNudgesEnabled(!value); // revert on failure
+      toastError("Could not save that. Please try again.");
+    } finally {
+      setNudgesSaving(false);
     }
   };
 
@@ -195,6 +219,29 @@ export default function AccountSection() {
               )}
             </div>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* Email notifications */}
+      <Card variant="outlined">
+        <CardContent className="p-7">
+          <div className="flex items-center gap-3 mb-6">
+            <Bell className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-medium text-foreground">Email notifications</h2>
+          </div>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-base font-medium text-foreground">Follow-up reminders</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Get an email when a follow-up is waiting for your review, with a reminder or two before it expires.
+              </p>
+            </div>
+            <Toggle
+              checked={nudgesEnabled}
+              disabled={nudgesSaving}
+              onChange={(v) => void toggleNudges(v)}
+            />
+          </div>
         </CardContent>
       </Card>
 

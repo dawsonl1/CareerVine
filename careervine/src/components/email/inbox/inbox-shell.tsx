@@ -1488,10 +1488,11 @@ export function InboxShell() {
                                   </div>
                                   <div className="flex flex-wrap gap-2 mt-2.5">
                                     {fu.email_follow_up_messages.sort((a, b) => a.sequence_number - b.sequence_number).map((m) => (
-                                      <span key={m.id} className={`text-[11px] px-2 py-0.5 rounded-full ${m.status === "sent" ? "bg-primary/15 text-primary" : m.status === "cancelled" ? "bg-surface-container-low text-muted-foreground line-through" : m.status === "awaiting_review" ? "bg-primary/15 text-primary font-medium" : "bg-tertiary-container/50 text-on-tertiary-container"}`}>
+                                      <span key={m.id} className={`text-[11px] px-2 py-0.5 rounded-full ${m.status === "sent" ? "bg-primary/15 text-primary" : m.status === "cancelled" ? "bg-surface-container-low text-muted-foreground line-through" : m.status === "expired" ? "bg-surface-container-low text-muted-foreground" : m.status === "awaiting_review" ? "bg-primary/15 text-primary font-medium" : "bg-tertiary-container/50 text-on-tertiary-container"}`}>
                                         #{m.sequence_number}: Day {m.send_after_days}
                                         {m.status === "sent" && " (sent)"}
                                         {m.status === "cancelled" && " (cancelled)"}
+                                        {m.status === "expired" && " (expired)"}
                                         {m.status === "awaiting_review" && " (awaiting review)"}
                                         {m.status === "pending" && ` (${new Date(m.scheduled_send_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}
                                       </span>

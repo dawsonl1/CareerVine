@@ -7,6 +7,7 @@ import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { filterActiveUserIds } from "@/lib/user-status";
 import { capabilitiesFor } from "@/lib/capabilities/map";
 import type { Capability } from "@/lib/capabilities/types";
+import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 const receiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
@@ -37,6 +38,9 @@ async function runJob(): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
   const now = new Date().toISOString();
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  // CAR-105: a parked follow-up expires 14 days out (active-aware; the nudge cron
+  // may extend this once). Stamped alongside the awaiting_review flip below.
+  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
   // Query pending follow-up messages that are due
   const { data: pendingMessages } = await service
@@ -124,9 +128,19 @@ async function runJob(): Promise<NextResponse> {
     const caps = capsByUser.get(userId);
     if (caps && !caps.has("followups:auto")) {
       if (caps.has("outreach:portal")) {
+        // CAR-105: stamp the expiry/nudge anchors as we park. parked_at = P (the
+        // countdown/expiry/cadence origin); reminder_count/seen_during_window reset
+        // so the nudge cron starts this item's day-0/4/9 sequence cleanly.
         await service
           .from("email_follow_up_messages")
-          .update({ status: "awaiting_review" })
+          .update({
+            status: "awaiting_review",
+            parked_at: now,
+            expires_at: expiresAt,
+            reminder_count: 0,
+            last_reminder_at: null,
+            seen_during_window: false,
+          })
           .in("id", messages.map((m) => m.id))
           .eq("status", "pending");
         awaitingReview += messages.length;
@@ -152,7 +166,7 @@ async function runJob(): Promise<NextResponse> {
             .from("email_follow_up_messages")
             .update({ status: "cancelled" })
             .eq("follow_up_id", seqId)
-            .in("status", ["pending", "awaiting_review"]);
+            .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
           cancelled += messages.length;
         }
         continue;
@@ -197,7 +211,7 @@ async function runJob(): Promise<NextResponse> {
         .from("email_follow_up_messages")
         .update({ status: "cancelled" })
         .eq("follow_up_id", seqId)
-        .in("status", ["pending", "awaiting_review"]);
+        .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
       // Their reply graduates prospects/bench into the active network
       await activateContactByEmail(userId, parent.recipient_email);
       cancelled += messages.length;
@@ -261,14 +275,15 @@ async function runJob(): Promise<NextResponse> {
     }
 
     // Check if all messages in the sequence are done (nothing still open). A
-    // lingering awaiting_review sibling (parked while the user was on the free
-    // tier, before an upgrade) keeps the sequence open so it can't be marked
-    // completed out from under a still-confirmable message.
+    // lingering awaiting_review OR expired sibling keeps the sequence open so it
+    // can't be marked completed out from under a still-confirmable/sendable
+    // message — completing it would fail the confirm route's parent-active guard
+    // and strand that sibling forever (CAR-105).
     const { count } = await service
       .from("email_follow_up_messages")
       .select("id", { count: "exact", head: true })
       .eq("follow_up_id", seqId)
-      .in("status", ["pending", "sending", "awaiting_review"]);
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, "sending"]);
 
     if (count === 0) {
       await service

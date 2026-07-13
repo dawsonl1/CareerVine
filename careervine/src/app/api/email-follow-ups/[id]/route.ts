@@ -1,5 +1,6 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 /**
  * DELETE /api/email-follow-ups/[id]
@@ -22,13 +23,14 @@ export const DELETE = withApiHandler({
       throw new ApiError("Follow-up sequence not found", 404);
     }
 
-    // Cancel all open messages — pending AND awaiting_review, so a parked
-    // confirm-to-send step is never orphaned (CAR-102). Ownership verified above.
+    // Cancel all unresolved messages — pending, awaiting_review AND expired, so a
+    // parked confirm-to-send step or a still-sendable expired one is never
+    // orphaned (CAR-102/CAR-105). Ownership verified above.
     await service
       .from("email_follow_up_messages")
       .update({ status: "cancelled" })
       .eq("follow_up_id", id)
-      .in("status", ["pending", "awaiting_review"]);
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
 
     // Cancel the sequence
     await service

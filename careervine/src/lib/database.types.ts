@@ -65,12 +65,14 @@ export type Database = {
           extension_onboarding_contact_id: number | null; // First contact imported during the CAR-68 flow (redirect target)
           extension_last_seen_at: string | null; // Last Bearer-authed extension API call — stamped in api-handler (CAR-68)
           dismissed_getting_started: string[]; // Getting-started checklist row IDs the user dismissed on Home (CAR-73) — user-writable
+          web_last_seen_at: string | null; // Last authenticated WEB app activity (CAR-105) — user-writable, throttled stamp in api-handler
+          followup_nudges_enabled: boolean; // Opt-in for follow-up reminder emails (CAR-105), default true — user-writable
           created_at: string;            // Auto-generated timestamp
           updated_at: string;            // Auto-generated timestamp
         };
         Insert: Omit<
           Database["public"]["Tables"]["users"]["Row"],
-          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "onboarding_state" | "extension_onboarding_state" | "extension_onboarding_contact_id" | "extension_last_seen_at" | "dismissed_getting_started" | "created_at" | "updated_at"
+          "id" | "status" | "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled" | "onboarding_state" | "extension_onboarding_state" | "extension_onboarding_contact_id" | "extension_last_seen_at" | "dismissed_getting_started" | "web_last_seen_at" | "followup_nudges_enabled" | "created_at" | "updated_at"
         > & {
           status?: "active" | "suspended";
           apify_enrichment_enabled?: boolean;
@@ -81,6 +83,8 @@ export type Database = {
           extension_onboarding_contact_id?: number | null;
           extension_last_seen_at?: string | null;
           dismissed_getting_started?: string[];
+          web_last_seen_at?: string | null;
+          followup_nudges_enabled?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
       };
@@ -577,8 +581,23 @@ export type Database = {
           scheduled_send_at: string;
           sent_at: string | null;
           created_at: string | null;
+          // CAR-105: nudge + active-aware expiry anchors.
+          parked_at: string | null;
+          expires_at: string | null;
+          reminder_count: number;
+          last_reminder_at: string | null;
+          seen_during_window: boolean;
         };
-        Insert: Omit<Database["public"]["Tables"]["email_follow_up_messages"]["Row"], "id" | "created_at">;
+        Insert: Omit<
+          Database["public"]["Tables"]["email_follow_up_messages"]["Row"],
+          "id" | "created_at" | "parked_at" | "expires_at" | "reminder_count" | "last_reminder_at" | "seen_during_window"
+        > & {
+          parked_at?: string | null;
+          expires_at?: string | null;
+          reminder_count?: number;
+          last_reminder_at?: string | null;
+          seen_during_window?: boolean;
+        };
         Update: Partial<Database["public"]["Tables"]["email_follow_up_messages"]["Insert"]>;
       };
 

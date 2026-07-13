@@ -1,7 +1,7 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailScheduleUpdateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { ScheduledEmailStatus, FollowUpStatus, FollowUpMessageStatus, OPEN_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { ScheduledEmailStatus, FollowUpStatus, FollowUpMessageStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 /**
  * PUT /api/gmail/schedule/[id]
@@ -90,7 +90,9 @@ export const DELETE = withApiHandler({
         .from("email_follow_up_messages")
         .update({ status: FollowUpMessageStatus.Cancelled })
         .in("follow_up_id", fuIds)
-        .in("status", [...OPEN_FOLLOW_UP_MESSAGE_STATUSES]);
+        // Include expired so a still-sendable expired sibling isn't orphaned when
+        // its parent scheduled email is cancelled (CAR-105).
+        .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
 
       await service
         .from("email_follow_ups")

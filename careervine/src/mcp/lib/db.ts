@@ -18,6 +18,7 @@ import { escapeIlike, findOrCreateCompany, findOrCreateLocation } from "@/lib/co
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
+import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -993,7 +994,7 @@ export async function cancelFollowUpSequence(followUpId: number): Promise<void> 
     .from("email_follow_up_messages")
     .update({ status: "cancelled" })
     .eq("follow_up_id", followUpId)
-    .in("status", ["pending", "awaiting_review"]);
+    .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
   if (msgError) throw msgError;
 }
 

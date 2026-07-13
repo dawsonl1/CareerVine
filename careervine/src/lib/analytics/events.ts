@@ -166,6 +166,21 @@ export type AnalyticsEvents = {
   gmail_connect_clicked: { source: "setup_banner" | "settings" | "inbox" };
   calendar_connect_clicked: { source: "setup_banner" | "settings" };
 
+  // ── Free-tier follow-up nudges (CAR-105) ─────────────────────────
+  /**
+   * A reminder digest email went out to a free-tier user with follow-ups
+   * parked awaiting review. `items` is how many the digest covered — the
+   * signal for "are the nudges doing their job" (open/act rate follows from
+   * the portal visits + confirms they drive).
+   */
+  nudge_sent: { items: number };
+  /**
+   * A parked follow-up crossed its active-aware expiry window and flipped to
+   * `expired`. Volume here is the free-tier friction signal: items the user
+   * left unconfirmed long enough to go stale (still recoverable, never lost).
+   */
+  follow_up_expired: Record<string, never>;
+
   // ── Guardrails ────────────────────────────────────────────────────
   send_cap_hit: Record<string, never>;
   api_error: { route: string; method: string };

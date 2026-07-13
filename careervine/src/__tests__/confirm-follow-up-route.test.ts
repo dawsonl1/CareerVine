@@ -9,10 +9,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 let authedUser: Record<string, unknown> | null = { id: "u-1" };
 const state: {
   msgData: unknown;
-  claimed: unknown;
-  count: number;
-  singleCall: number;
-} = { msgData: null, claimed: { id: 5 }, count: 0, singleCall: 0 };
+  /** The fresh parent re-read the send-failure revert path performs (CAR-108). */
+  parentRow: { status: string } | null;
+  /** rows matched by the atomic claim update (1 = won, 0 = already taken). */
+  claimCount: number;
+  /** rows still open when the completion-count query runs (0 = parent completes). */
+  completionCount: number;
+  /** every update() patch, in order — the revert is the last one. */
+  updates: Record<string, unknown>[];
+  /** global maybeSingle counter: 1st = message read, 2nd = fresh parent read. */
+  singleCalls: number;
+} = {
+  msgData: null,
+  parentRow: { status: "active" },
+  claimCount: 1,
+  completionCount: 1,
+  updates: [],
+  singleCalls: 0,
+};
 
 const recordThreadReplySpy = vi.fn(async () => ({ ok: true, alreadyMarked: false }));
 const sendTrackedEmailSpy = vi.fn(async () => {});
@@ -41,16 +55,28 @@ vi.mock("@/lib/email-send", () => ({
 vi.mock("@/lib/supabase/service-client", () => ({
   createSupabaseServiceClient: vi.fn(() => ({
     from: () => {
+      // The claim is now a count-based update (rule 17), so it and the
+      // completion-count SELECT both resolve via then() but need different
+      // counts — distinguish by whether update() was called on this builder.
+      let isUpdate = false;
+      let patch: Record<string, unknown> | null = null;
       const b: Record<string, unknown> = {
         select: () => b,
-        update: () => b,
+        update: (p: Record<string, unknown>) => {
+          isUpdate = true;
+          patch = p;
+          return b;
+        },
         eq: () => b,
         in: () => b,
         maybeSingle: async () => {
-          state.singleCall += 1;
-          return state.singleCall === 1 ? { data: state.msgData } : { data: state.claimed };
+          state.singleCalls += 1;
+          return { data: state.singleCalls === 1 ? state.msgData : state.parentRow };
         },
-        then: (resolve: (v: unknown) => void) => resolve({ count: state.count, error: null }),
+        then: (resolve: (v: unknown) => void) => {
+          if (isUpdate && patch) state.updates.push(patch);
+          return resolve({ count: isUpdate ? state.claimCount : state.completionCount, error: null });
+        },
       };
       return b;
     },
@@ -71,6 +97,7 @@ const awaitingMsg = {
   subject: "Nudge",
   body_html: "<p>hi</p>",
   follow_up_id: 3,
+  expires_at: "2999-01-01T00:00:00.000Z", // far future: a normal in-window parked item
   email_follow_ups: parent,
 };
 
@@ -94,9 +121,11 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     vi.clearAllMocks();
     authedUser = { id: "u-1" };
     state.msgData = awaitingMsg;
-    state.claimed = { id: 5 };
-    state.count = 0;
-    state.singleCall = 0;
+    state.parentRow = { status: "active" };
+    state.claimCount = 1;
+    state.completionCount = 1;
+    state.updates = [];
+    state.singleCalls = 0;
   });
 
   it("404s an unknown or foreign message", async () => {
@@ -137,10 +166,45 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     expect(recordThreadReplySpy).not.toHaveBeenCalled();
   });
 
+  it("accepts an EXPIRED message and sends it (CAR-105 keeps expired one-click sendable)", async () => {
+    state.msgData = { ...awaitingMsg, status: "expired" };
+    const { status, data } = await call({ messageId: 5, replied: false });
+    expect(status).toBe(200);
+    expect(data.sent).toBe(true);
+    expect(sendTrackedEmailSpy).toHaveBeenCalled();
+  });
+
   it("409s when the message can no longer be claimed (already processed)", async () => {
-    state.claimed = null;
+    state.claimCount = 0;
     const { status } = await call({ messageId: 5, replied: false });
     expect(status).toBe(409);
     expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
+  });
+
+  it("send failure reverts to the deadline-derived status: an expired item stays expired (CAR-105)", async () => {
+    // Expired-but-sendable item; send fails. The revert must keep it 'expired'
+    // (derived from a past expires_at), never resurrect it as awaiting_review.
+    state.msgData = { ...awaitingMsg, status: "expired", expires_at: "2000-01-01T00:00:00.000Z" };
+    state.parentRow = { status: "active" };
+    sendTrackedEmailSpy.mockRejectedValueOnce(new Error("smtp down"));
+
+    const { status } = await call({ messageId: 5, replied: false });
+
+    expect(status).toBe(400);
+    expect(state.updates.at(-1)).toEqual({ status: "expired" }); // last write is the revert
+  });
+
+  it("send failure under a concurrently-cancelled parent cancels the row, no orphan (CAR-108)", async () => {
+    // The parent was torn down while we held the row in 'sending' (teardown can't
+    // see a 'sending' row). On send failure we must NOT revert into an actionable
+    // status under a cancelled parent — cancel the row to match its parent.
+    state.msgData = { ...awaitingMsg, status: "awaiting_review" };
+    state.parentRow = { status: "cancelled_reply" }; // fresh re-read: parent is gone
+    sendTrackedEmailSpy.mockRejectedValueOnce(new Error("smtp down"));
+
+    const { status } = await call({ messageId: 5, replied: false });
+
+    expect(status).toBe(400);
+    expect(state.updates.at(-1)).toEqual({ status: "cancelled" });
   });
 });

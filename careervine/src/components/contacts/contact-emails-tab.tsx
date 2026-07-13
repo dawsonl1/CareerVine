@@ -7,8 +7,8 @@ import { useToast } from "@/components/ui/toast";
 import { FollowUpModal } from "@/components/follow-up-modal";
 import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
-import { isOpenFollowUpMessage } from "@/lib/constants";
-import { Inbox, ArrowUpRight, ArrowDownLeft, Reply, Clock, XCircle, Pencil, Check } from "lucide-react";
+import { isOpenFollowUpMessage, isActionableFollowUpMessage, FollowUpMessageStatus } from "@/lib/constants";
+import { Inbox, ArrowUpRight, ArrowDownLeft, Reply, Clock, XCircle, Pencil, Check, Send } from "lucide-react";
 
 interface ContactEmailsTabProps {
   contactId: number;
@@ -154,6 +154,32 @@ export function ContactEmailsTab({
   };
 
   const [markingReplied, setMarkingReplied] = useState<string | null>(null);
+  const [confirmingMsgId, setConfirmingMsgId] = useState<number | null>(null);
+
+  // CAR-102/CAR-105 per-message confirm-to-send from the contact page: send a
+  // parked (awaiting_review) OR softly-retired (expired) follow-up now, or report
+  // the contact already replied (cancels the sequence + activates the contact).
+  const confirmMessage = async (messageId: number, replied: boolean, threadId: string) => {
+    if (confirmingMsgId) return;
+    setConfirmingMsgId(messageId);
+    try {
+      const res = await fetch("/api/gmail/follow-ups/confirm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messageId, replied }),
+      });
+      if (!res.ok) throw new Error();
+      toastSuccess(replied ? "Marked as replied" : "Follow-up sent");
+      onReloadEmails();
+      loadFollowUpsForThread(threadId);
+      // The confirm changed how many follow-ups await review — refresh the nav badge.
+      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
+    } catch {
+      toastError(replied ? "Could not update this follow-up" : "Could not send the follow-up");
+    } finally {
+      setConfirmingMsgId(null);
+    }
+  };
 
   // Free-tier manual "they replied": cancels the sequence, activates the contact,
   // and fires the reply_received north-star (premium auto-detects this via sync).
@@ -506,6 +532,8 @@ export function ContactEmailsTab({
                                             ? "bg-primary/15 text-primary"
                                             : m.status === "cancelled"
                                             ? "bg-surface-container-low text-muted-foreground line-through"
+                                            : m.status === FollowUpMessageStatus.Expired
+                                            ? "bg-surface-container-low text-muted-foreground"
                                             : m.status === "awaiting_review"
                                             ? "bg-primary/15 text-primary font-medium"
                                             : "bg-tertiary-container/50 text-on-tertiary-container"
@@ -514,11 +542,55 @@ export function ContactEmailsTab({
                                         #{m.sequence_number}: Day {m.send_after_days}
                                         {m.status === "sent" && " (sent)"}
                                         {m.status === "cancelled" && " (cancelled)"}
+                                        {m.status === FollowUpMessageStatus.Expired && " (expired)"}
                                         {m.status === "awaiting_review" && " (awaiting your review)"}
                                         {m.status === "pending" && ` (${new Date(m.scheduled_send_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}
                                       </span>
                                     ))}
                                 </div>
+
+                                {/* Per-message confirm-to-send: parked (awaiting_review)
+                                    and softly-retired (expired) items stay one-click
+                                    sendable here; expired is greyed but still actionable. */}
+                                {(() => {
+                                  const actionable = fu.email_follow_up_messages
+                                    .filter((m) => isActionableFollowUpMessage(m.status))
+                                    .sort((a, b) => a.sequence_number - b.sequence_number);
+                                  if (actionable.length === 0) return null;
+                                  return (
+                                    <div className="mt-2 space-y-1.5">
+                                      {actionable.map((m) => {
+                                        const expired = m.status === FollowUpMessageStatus.Expired;
+                                        return (
+                                          <div key={m.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                                            <span className={`min-w-0 truncate text-[11px] text-muted-foreground ${expired ? "opacity-60" : ""}`}>
+                                              {expired ? "Expired · " : ""}Step {m.sequence_number}: {m.subject}
+                                            </span>
+                                            <div className="flex shrink-0 items-center gap-3">
+                                              <button
+                                                type="button"
+                                                disabled={confirmingMsgId !== null}
+                                                onClick={() => confirmMessage(m.id, true, thread.threadId)}
+                                                className="inline-flex items-center gap-1 text-[11px] font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors disabled:opacity-50"
+                                              >
+                                                <Check className="h-3 w-3" /> They replied
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={confirmingMsgId !== null}
+                                                onClick={() => confirmMessage(m.id, false, thread.threadId)}
+                                                className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors disabled:opacity-50"
+                                              >
+                                                <Send className="h-3 w-3" /> Send now
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
+
                                 <p className="text-[10px] text-muted-foreground mt-1">
                                   {canReadMailbox ? "Auto-cancels if they reply" : "Use “Mark as replied” if they respond"}
                                 </p>

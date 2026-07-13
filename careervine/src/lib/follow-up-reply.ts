@@ -1,6 +1,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { activateContactByEmail } from "@/lib/gmail";
 import { trackServer } from "@/lib/analytics/server";
+import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 /**
  * Record that a contact replied on a thread — the free-tier manual reply signal
@@ -39,7 +40,9 @@ export async function recordThreadReply(
       .from("email_follow_up_messages")
       .update({ status: "cancelled" })
       .eq("follow_up_id", s.id)
-      .in("status", ["pending", "awaiting_review"]);
+      // Clear expired too (CAR-105): a still-sendable expired sibling must not
+      // orphan under a now-cancelled parent.
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
   }
 
   // Graduate the contact (no-op if unmatched / already active).
