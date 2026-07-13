@@ -116,11 +116,25 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
         { isFollowUp: true },
       );
     } catch (err) {
-      // Revert to the true current state so the user can retry: an expired item
-      // stays expired (still sendable), not resurrected as awaiting_review.
+      // Revert so the user can retry. But a concurrent teardown may have cancelled
+      // the PARENT while we held this row in 'sending' — teardown message-cancels
+      // filter out 'sending', so they can't see an in-flight claim (CAR-108).
+      // Reverting into an actionable status under a cancelled parent would orphan
+      // the row behind the parent-active guard forever. So re-read the parent: if
+      // it is no longer active, cancel this message to match it; otherwise revert
+      // to the true current state (expired stays sendable, not resurrected as
+      // awaiting_review). A residual sub-millisecond window remains between this
+      // read and the write, orders of magnitude tighter than the send round-trip.
+      const { data: freshParent } = await service
+        .from("email_follow_ups")
+        .select("status")
+        .eq("id", msg.follow_up_id)
+        .maybeSingle();
+      const revertTo =
+        (freshParent as { status?: string } | null)?.status === "active" ? revertStatus : "cancelled";
       await service
         .from("email_follow_up_messages")
-        .update({ status: revertStatus })
+        .update({ status: revertTo })
         .eq("id", messageId);
       const capped = err instanceof SendPolicyError && err.status === 429;
       throw new ApiError(
