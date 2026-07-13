@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Contact } from "@/lib/types";
 import { Briefcase, GraduationCap } from "lucide-react";
 
@@ -29,10 +30,24 @@ export function ContactExperienceCard({ contact }: ContactExperienceCardProps) {
               <Briefcase className={`h-5 w-5 shrink-0 mt-0.5 ${cc.is_current ? "text-primary" : "text-muted-foreground"}`} />
               <div className="min-w-0">
                 <p className="text-base text-foreground font-medium leading-tight">
-                  {cc.title || cc.companies.name}
+                  {cc.title || (
+                    <Link
+                      href={`/companies/${cc.companies.id}`}
+                      className="hover:text-primary hover:underline"
+                    >
+                      {cc.companies.name}
+                    </Link>
+                  )}
                 </p>
                 {cc.title && (
-                  <p className="text-sm text-muted-foreground">{cc.companies.name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    <Link
+                      href={`/companies/${cc.companies.id}`}
+                      className="hover:text-primary hover:underline"
+                    >
+                      {cc.companies.name}
+                    </Link>
+                  </p>
                 )}
                 <p className="text-sm text-muted-foreground">
                   {(cc as any).start_month && (

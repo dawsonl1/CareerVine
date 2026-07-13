@@ -5,6 +5,7 @@ import { advanceExtensionOnboarding } from "@/lib/onboarding/extension-server";
 import { sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
+import { syncContactEmailHistoryIfPaid } from "@/lib/contact-email-history";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { findOrCreateCompany, findOrCreateLocation, ensureCompanyLocation } from "@/lib/company-helpers";
 import { addTagsToContact, downloadAndStorePhoto } from "@/lib/import-db-helpers";
@@ -101,10 +102,20 @@ export const POST = withApiHandler({
       contact = await createNewContact(supabase, profileData, user.id);
     }
 
-    // Backfill orphaned emails in the background
+    // Surface prior correspondence on the contact (CAR-109 #1).
     if (profileData.contactInfo?.email) {
-      backfillEmailsForContact(user.id, contact.id, [profileData.contactInfo.email])
+      const email = profileData.contactInfo.email;
+      // Cheap, every tier: re-link any already-cached orphan rows for this address.
+      backfillEmailsForContact(user.id, contact.id, [email])
         .catch((err) => console.warn("[import] Email backfill failed:", err));
+      // Paid tier only: fetch this person's Gmail history so emails you exchanged
+      // before they were a contact show on their profile. No-op on free tier
+      // (no mailbox:read scope). Awaited for reliability; never fails the import.
+      try {
+        await syncContactEmailHistoryIfPaid(user.id, contact.id, [email]);
+      } catch (err) {
+        console.warn("[import] Prior email history sync failed:", err);
+      }
     }
 
     // Handle photo download and storage (never blocks import)
