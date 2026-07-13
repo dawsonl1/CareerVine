@@ -43,10 +43,55 @@ const RESTRICTED_GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
 ];
 
-const CALENDAR_SCOPES = [
-  "https://www.googleapis.com/auth/calendar",
-  "https://www.googleapis.com/auth/calendar.events",
-];
+// CAR-111: least-privilege calendar set. calendar.readonly covers every calendar
+// READ the app makes (events.list/get, freebusy.query, calendarList.list for the
+// busy-calendar picker, settings.get for timezone); calendar.events covers the
+// WRITES (create/update/delete meetings + invites + Meet links). Deliberately NOT
+// the full `calendar` scope (kept below only as the legacy superset for grant
+// detection) — the app never manages calendars, sharing/ACL, or settings-writes,
+// and the narrower set verifies faster with Google (no CASA either way, both are
+// sensitive). The restricted gmail.modify path is unchanged.
+const CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+// Legacy full-access scope: no longer requested, but pre-narrowing connections may
+// still hold it, and it is a superset that covers both read and write.
+const CALENDAR_FULL_LEGACY_SCOPE = "https://www.googleapis.com/auth/calendar";
+
+const CALENDAR_SCOPES = [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE];
+
+/**
+ * Derive connection capability flags from the space-separated scope string Google
+ * returns on the token. Lives next to the scope definitions so "which scopes grant
+ * which capability" can't drift from what we request.
+ *
+ * CAR-111: Calendar requires BOTH read (`calendar.readonly`) AND write
+ * (`calendar.events`). The two are separately grantable on Google's granular
+ * consent screen, so a partial grant of only one is treated as NOT connected — the
+ * user is re-prompted to reconnect rather than silently hitting a mid-feature 403
+ * (free/busy + the calendar picker need read; creating a meeting needs write). The
+ * legacy full `calendar` scope is a superset that satisfies both, so connections
+ * made before the narrowing keep working.
+ */
+export function deriveGrantedScopeFlags(scopeParam: string | null | undefined): {
+  sendGranted: boolean;
+  calendarGranted: boolean;
+  modifyGranted: boolean;
+} {
+  const granted = scopeParam?.split(" ").filter(Boolean) ?? [];
+  const has = (scope: string) => granted.includes(scope);
+
+  const calendarRead = has(CALENDAR_FULL_LEGACY_SCOPE) || has(CALENDAR_READONLY_SCOPE);
+  const calendarWrite = has(CALENDAR_FULL_LEGACY_SCOPE) || has(CALENDAR_EVENTS_SCOPE);
+
+  return {
+    // gmail.modify is a superset of send; the legacy full-mail scope covers it too.
+    sendGranted:
+      granted.some((s) => s.includes("gmail.send") || s.includes("gmail.modify")) ||
+      has("https://mail.google.com/"),
+    calendarGranted: calendarRead && calendarWrite,
+    modifyGranted: granted.some((s) => s.includes("gmail.modify")),
+  };
+}
 
 /**
  * Generate the Google consent URL. The default (a new or free connect) requests

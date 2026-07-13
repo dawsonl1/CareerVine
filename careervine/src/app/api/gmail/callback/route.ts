@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { google } from "googleapis";
 import { getOAuth2Client, encryptOAuthToken } from "@/lib/oauth-helpers";
+import { deriveGrantedScopeFlags } from "@/lib/gmail";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 /**
@@ -58,16 +59,12 @@ export const GET = withApiHandler({
     try {
       const oauth2Client = getOAuth2Client();
       const { tokens } = await oauth2Client.getToken(code);
-      const grantedScopes = tokens.scope?.split(" ") || [];
-      const calendarGranted = grantedScopes.some(s => s.includes("calendar"));
-      // CAR-100: Gmail + Calendar share one consent screen with granular
-      // (per-scope) consent, so the user can grant Calendar while unchecking
-      // Gmail. Record whether Gmail is actually send-capable — gmail.modify is
-      // a superset of send, and the legacy full-mail scope covers it too — so
-      // the UI can gate "Gmail connected" on this instead of on the row existing.
-      const sendGranted = grantedScopes.some(
-        (s) => s.includes("gmail.send") || s.includes("gmail.modify") || s === "https://mail.google.com/",
-      );
+      // CAR-100/CAR-111: Gmail + Calendar share one consent screen with granular
+      // (per-scope) consent, so a user can grant one capability while unchecking
+      // another. Gate "connected" on what was ACTUALLY granted: send-capability for
+      // Gmail, and BOTH calendar read+write (a partial calendar grant reads as not
+      // connected, so the user re-prompts instead of hitting a mid-feature 403).
+      const { sendGranted, calendarGranted, modifyGranted } = deriveGrantedScopeFlags(tokens.scope);
 
       if (!tokens.access_token || !tokens.refresh_token) {
         return errorRedirect("Google did not return required tokens");
@@ -103,9 +100,6 @@ export const GET = withApiHandler({
       if (!gmailAddress) {
         return errorRedirect("Could not read your Google email address");
       }
-
-      // Persist the truthful token-fact: does this connection hold gmail.modify.
-      const modifyGranted = grantedScopes.some((s) => s.includes("gmail.modify"));
 
       const serviceClient = createSupabaseServiceClient();
       const { error } = await serviceClient.from("gmail_connections").upsert(
