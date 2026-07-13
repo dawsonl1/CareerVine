@@ -22,7 +22,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
   createSupabaseServiceClient: () => ({}),
 }));
 
-import { getAuthUrl } from "@/lib/gmail";
+import { getAuthUrl, deriveGrantedScopeFlags } from "@/lib/gmail";
 
 describe("getAuthUrl scope sets (CAR-102)", () => {
   it("default (new/free connect) requests sign-in + gmail.send, NOT gmail.modify or calendar", () => {
@@ -49,5 +49,57 @@ describe("getAuthUrl scope sets (CAR-102)", () => {
     const scope = getAuthUrl("state", { includeModify: true });
     expect(scope).toContain("gmail.modify");
     expect(scope).toContain("gmail.send");
+  });
+});
+
+describe("deriveGrantedScopeFlags — granular-consent handling (CAR-111)", () => {
+  const READONLY = "https://www.googleapis.com/auth/calendar.readonly";
+  const EVENTS = "https://www.googleapis.com/auth/calendar.events";
+  const FULL = "https://www.googleapis.com/auth/calendar"; // legacy superset
+  const SEND = "https://www.googleapis.com/auth/gmail.send";
+  const MODIFY = "https://www.googleapis.com/auth/gmail.modify";
+  const MAIL = "https://mail.google.com/";
+
+  it("full calendar consent (readonly + events) → calendarGranted true", () => {
+    const f = deriveGrantedScopeFlags(`openid ${SEND} ${READONLY} ${EVENTS}`);
+    expect(f).toEqual({ sendGranted: true, calendarGranted: true, modifyGranted: false });
+  });
+
+  it("partial calendar (readonly only, events unchecked) → calendarGranted FALSE", () => {
+    const f = deriveGrantedScopeFlags(`${SEND} ${READONLY}`);
+    expect(f.calendarGranted).toBe(false);
+    expect(f.sendGranted).toBe(true);
+  });
+
+  it("partial calendar (events only, readonly unchecked) → calendarGranted FALSE", () => {
+    const f = deriveGrantedScopeFlags(`${SEND} ${EVENTS}`);
+    expect(f.calendarGranted).toBe(false);
+  });
+
+  it("legacy full `calendar` scope alone satisfies both read and write", () => {
+    const f = deriveGrantedScopeFlags(`${SEND} ${FULL}`);
+    expect(f.calendarGranted).toBe(true);
+  });
+
+  it("no calendar scopes → calendarGranted false, send still detected", () => {
+    const f = deriveGrantedScopeFlags(`openid ${SEND}`);
+    expect(f.calendarGranted).toBe(false);
+    expect(f.sendGranted).toBe(true);
+  });
+
+  it("gmail.modify implies both sendGranted and modifyGranted", () => {
+    const f = deriveGrantedScopeFlags(`${MODIFY} ${READONLY} ${EVENTS}`);
+    expect(f.sendGranted).toBe(true);
+    expect(f.modifyGranted).toBe(true);
+  });
+
+  it("legacy full-mail scope implies sendGranted", () => {
+    expect(deriveGrantedScopeFlags(MAIL).sendGranted).toBe(true);
+  });
+
+  it("empty / undefined scope → all flags false", () => {
+    const empty = { sendGranted: false, calendarGranted: false, modifyGranted: false };
+    expect(deriveGrantedScopeFlags(undefined)).toEqual(empty);
+    expect(deriveGrantedScopeFlags("")).toEqual(empty);
   });
 });
