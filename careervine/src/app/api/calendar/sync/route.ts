@@ -143,7 +143,9 @@ export const POST = withApiHandler({
         }
       }
 
-      // Upsert calendar event
+      // Upsert on the (user_id, google_event_id) natural key: the row carries no
+      // bigserial id, so a default (PK) conflict target INSERTs every time and
+      // trips the unique constraint (23505), silently dropping event edits (CAR-113).
       const { error: upsertErr } = await service.from("calendar_events").upsert({
         user_id: user.id,
         google_event_id: event.id,
@@ -161,7 +163,7 @@ export const POST = withApiHandler({
         recurring_event_id: event.recurringEventId || null,
         contact_id: contactId,
         synced_at: new Date().toISOString(),
-      });
+      }, { onConflict: "user_id,google_event_id" });
 
       if (upsertErr) {
         console.error("Error upserting event:", upsertErr);
