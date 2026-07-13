@@ -22,6 +22,7 @@ vi.mock("@/lib/bundle-queue", () => ({
   findStaleSubscriptionIds: vi.fn(async () => []),
   findPendingUnsubscribeIds: vi.fn(async () => []),
   processSubscriptionsUnderBudget: vi.fn(async () => ({ completed: [], remaining: [], applied: 0 })),
+  SYNC_RESPONSE_DEADLINE_MS: 55_000,
 }));
 
 vi.mock("@/lib/cron-guard", () => ({

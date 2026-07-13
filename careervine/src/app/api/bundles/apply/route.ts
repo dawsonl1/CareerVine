@@ -20,14 +20,9 @@ import {
   releaseSubscriptionSync,
   type ApplyCursor,
 } from "@/lib/bundle-sync";
+import { SYNC_BUDGET_MS } from "@/lib/bundle-queue";
 
 export const maxDuration = 60;
-
-/** Stop starting new steps after this much wall clock (CAR-78). The margin to
- * maxDuration must absorb one worst-case step — the budget gates STARTING a
- * step, never interrupts one — so a step beginning at the budget edge still
- * has ~25s before the platform kills the function. */
-const APPLY_LOOP_BUDGET_MS = 35_000;
 
 export const POST = withApiHandler({
   schema: bundleApplySchema,
@@ -103,7 +98,9 @@ export const POST = withApiHandler({
         }
         cursor = step.nextCursor;
 
-        if (Date.now() - startedAt >= APPLY_LOOP_BUDGET_MS) {
+        // Stop starting new steps at the shared budget (CAR-78/CAR-112): the
+        // margin to maxDuration must absorb one in-flight worst-case step.
+        if (Date.now() - startedAt >= SYNC_BUDGET_MS) {
           return { ...step, ...totals, claimToken };
         }
         // CAS-renew so the claim horizon stays a full window ahead of the

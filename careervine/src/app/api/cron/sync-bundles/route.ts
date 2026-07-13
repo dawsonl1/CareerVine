@@ -21,8 +21,10 @@ import {
   findStaleSubscriptionIds,
   findPendingUnsubscribeIds,
   processSubscriptionsUnderBudget,
+  SYNC_RESPONSE_DEADLINE_MS,
 } from "@/lib/bundle-queue";
 import { resolveBundleChunk, markBundleResolved } from "@/lib/bundle-resolve";
+import { runWithResponseDeadline } from "@/lib/time-budget";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const maxDuration = 60;
@@ -153,13 +155,30 @@ async function runJob(req: NextRequest): Promise<NextResponse> {
   // Vercel hard-kill would strand held claims until their TTL). Floor keeps at
   // least one useful chunk's worth of budget.
   const remainingMs = Math.max(10_000, MAX_JOB_MS - (Date.now() - jobStart));
-  const result = await processSubscriptionsUnderBudget(service, stale, remainingMs);
-  return NextResponse.json({
-    stale: stale.length,
-    processedDirectly: result.completed.length,
-    remaining: result.remaining.length,
-    applied: result.applied,
-    resolvedProspects,
-    drained,
-  });
+  // Hard backstop (CAR-112): the processor's budget gates STARTING a chunk, not
+  // one in flight — a slow chunk near the edge could overrun maxDuration. Race
+  // the direct-sync against the response deadline; if it wins, return the
+  // partial result. This path only runs when QStash is down, so re-enqueue
+  // isn't an option — the stale rows are picked up by the next daily run.
+  return runWithResponseDeadline<NextResponse>(
+    SYNC_RESPONSE_DEADLINE_MS - (Date.now() - jobStart),
+    (async () => {
+      const result = await processSubscriptionsUnderBudget(service, stale, remainingMs);
+      return NextResponse.json({
+        stale: stale.length,
+        processedDirectly: result.completed.length,
+        remaining: result.remaining.length,
+        applied: result.applied,
+        resolvedProspects,
+        drained,
+      });
+    })(),
+    () =>
+      NextResponse.json({
+        stale: stale.length,
+        timedOut: true,
+        resolvedProspects,
+        drained,
+      }),
+  );
 }

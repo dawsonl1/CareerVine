@@ -8,6 +8,7 @@ import {
   findPendingUnsubscribeIds,
   processSubscriptionsUnderBudget,
   FANOUT_BATCH_SIZE,
+  SYNC_BUDGET_MS,
 } from '@/lib/bundle-queue';
 import type { ApplyStepResult } from '@/lib/bundle-sync';
 
@@ -261,6 +262,27 @@ describe('processSubscriptionsUnderBudget', () => {
     expect(result.remaining).toEqual([]); // failed is NOT re-enqueued
     expect(release).toHaveBeenCalledTimes(2); // claim released even on throw
     expect(apply).toHaveBeenCalledTimes(2);
+  });
+
+  it('defaults the budget to SYNC_BUDGET_MS = 35_000 (CAR-112: a full worst-case step under the 60s maxDuration)', () => {
+    expect(SYNC_BUDGET_MS).toBe(35_000);
+  });
+
+  it('uses SYNC_BUDGET_MS as the default budget: a clock past it re-enqueues all (CAR-112)', async () => {
+    // now() → 0 when the deadline is computed, then jumps to the budget on the
+    // first per-subscription check, so nothing starts and all rows re-enqueue.
+    const seq = [0, SYNC_BUDGET_MS];
+    let i = 0;
+    const now = () => seq[Math.min(i++, seq.length - 1)];
+    const apply = vi.fn();
+    const result = await processSubscriptionsUnderBudget(
+      mockService([subRow(1), subRow(2)]),
+      [1, 2],
+      undefined, // exercise the default budget
+      { apply, claim: vi.fn(async () => 't'), release: vi.fn(async () => {}), now },
+    );
+    expect(result.remaining).toEqual([1, 2]);
+    expect(apply).not.toHaveBeenCalled();
   });
 });
 
