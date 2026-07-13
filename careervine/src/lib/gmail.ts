@@ -43,8 +43,15 @@ const RESTRICTED_GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
 ];
 
+// CAR-111: least-privilege calendar set. calendar.readonly covers every calendar
+// READ the app makes (events.list/get, freebusy.query, calendarList.list for the
+// busy-calendar picker, settings.get for timezone); calendar.events covers the
+// WRITES (create/update/delete meetings + invites + Meet links). Deliberately NOT
+// the full `calendar` scope — the app never manages calendars, sharing/ACL, or
+// settings-writes, and the narrower set verifies faster with Google (no CASA either
+// way, both are sensitive). The restricted gmail.modify path is unchanged.
 const CALENDAR_SCOPES = [
-  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
 ];
 

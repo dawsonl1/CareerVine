@@ -34,10 +34,15 @@ describe("getAuthUrl scope sets (CAR-102)", () => {
     expect(scope).not.toContain("calendar");
   });
 
-  it("includeCalendar adds calendar scopes, still no gmail.modify", () => {
-    const scope = getAuthUrl("state", { includeCalendar: true });
-    expect(scope).toContain("calendar");
-    expect(scope).not.toContain("gmail.modify");
+  it("includeCalendar adds least-privilege calendar scopes (readonly + events), NOT full calendar or gmail.modify (CAR-111)", () => {
+    const scopes = getAuthUrl("state", { includeCalendar: true }).split(" ");
+    expect(scopes).toContain("https://www.googleapis.com/auth/calendar.readonly");
+    expect(scopes).toContain("https://www.googleapis.com/auth/calendar.events");
+    // The broad full-access `calendar` scope must NOT be requested (exact-match on
+    // the split array — `.../calendar` !== `.../calendar.readonly`).
+    expect(scopes).not.toContain("https://www.googleapis.com/auth/calendar");
+    expect(scopes).toContain("https://www.googleapis.com/auth/gmail.send");
+    expect(scopes).not.toContain("https://www.googleapis.com/auth/gmail.modify");
   });
 
   it("includeModify (premium reconnect) adds gmail.modify alongside send", () => {
