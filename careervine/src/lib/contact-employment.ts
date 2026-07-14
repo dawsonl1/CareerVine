@@ -17,6 +17,17 @@ type ServiceClient = {
   from: (table: string) => any;
 };
 
+type ContactRow = { id: number; name: string | null };
+type EmailRow = { email: string | null; contact_id: number | null };
+type JobRow = {
+  contact_id: number;
+  title: string | null;
+  location: string | null;
+  workplace_type: string | null;
+  locations: { city: string | null; state: string | null; country: string } | null;
+  companies: { id: number; name: string } | null;
+};
+
 function locationLabel(
   loc: { city: string | null; state: string | null; country: string } | null | undefined,
 ): string | null {
@@ -74,9 +85,9 @@ export async function resolveEmailsToContactIds(
       .eq("contacts.user_id", userId)
       .in("email", chunk);
     if (error) throw error;
-    for (const row of data || []) {
+    for (const row of (data || []) as EmailRow[]) {
       if (row.email && row.contact_id != null) {
-        map.set(String(row.email).toLowerCase(), row.contact_id as number);
+        map.set(String(row.email).toLowerCase(), row.contact_id);
       }
     }
   }
@@ -103,13 +114,13 @@ export async function loadContactEmploymentMap(
       .eq("user_id", userId)
       .in("id", chunk);
     if (error) throw error;
-    return data || [];
+    return (data || []) as ContactRow[];
   });
 
   for (const c of contacts) {
-    out[c.id as number] = {
-      id: c.id as number,
-      name: (c.name as string) || "Unknown",
+    out[c.id] = {
+      id: c.id,
+      name: c.name || "Unknown",
       title: null,
       company_id: null,
       company_name: null,
@@ -126,17 +137,10 @@ export async function loadContactEmploymentMap(
       .eq("is_current", true)
       .in("contact_id", chunk);
     if (error) throw error;
-    return data || [];
+    return (data || []) as JobRow[];
   });
 
-  for (const row of jobs as Array<{
-    contact_id: number;
-    title: string | null;
-    location: string | null;
-    workplace_type: string | null;
-    locations: { city: string | null; state: string | null; country: string } | null;
-    companies: { id: number; name: string } | null;
-  }>) {
+  for (const row of jobs) {
     const entry = out[row.contact_id];
     if (!entry) continue;
     entry.title = row.title || null;
