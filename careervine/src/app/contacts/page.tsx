@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   getContactsStreamed, createContact, findOrCreateSchool, addSchoolToContact,
-  findOrCreateCompany, addCompanyToContact,
+  findOrCreateCompany, addCompanyToContact, resolveManualCompanyLocation,
   addEmailToContact, addPhoneToContact,
   getTags, createTag, addTagToContact, findOrCreateLocation,
   activateContact, getNetworkTierCounts,
@@ -27,6 +27,7 @@ import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
 import { Select } from "@/components/ui/select";
+import { StateSelect } from "@/components/ui/state-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
@@ -56,6 +57,11 @@ export default function ContactsPage() {
 
   // Create contact form state
   const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy guard: a second click can fire before `submitting`
+  // re-renders the button disabled, so the state flag alone can't stop a
+  // double-submit. The ref is read+set in the same tick and is race-proof.
+  const submittingRef = useRef(false);
   const [formData, setFormData] = useState(emptyForm);
   const [companies, setCompanies] = useState<CompanyEntry[]>([]);
   type EmailEntry = { email: string; is_primary: boolean };
@@ -271,6 +277,9 @@ export default function ContactsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       const contactData = {
         user_id: user.id,
@@ -316,11 +325,15 @@ export default function ContactsPage() {
       for (const entry of companies) {
         if (entry.company_name.trim()) {
           const company = await findOrCreateCompany(entry.company_name.trim());
+          const loc = await resolveManualCompanyLocation(entry.location);
           await addCompanyToContact({
             contact_id: contactId,
             company_id: company.id,
             title: entry.title || null,
-            location: entry.location || null,
+            location: loc.location,
+            location_id: loc.location_id,
+            location_source: loc.location_source,
+            location_raw: loc.location_raw,
             is_current: entry.is_current,
             start_date: null,
             end_date: null,
@@ -365,6 +378,9 @@ export default function ContactsPage() {
       toastSuccess("Contact created");
     } catch (error) {
       toastError("Failed to create contact");
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -783,7 +799,7 @@ export default function ContactsPage() {
                   </div>
                   <div>
                     <label className={labelClasses}>State</label>
-                    <input type="text" value={formData.location_state} onChange={(e) => setFormData({ ...formData, location_state: e.target.value })} className={inputClasses} placeholder="e.g. CA" />
+                    <StateSelect country={formData.location_country} value={formData.location_state} onChange={(val) => setFormData({ ...formData, location_state: val })} />
                   </div>
                   <div>
                     <label className={labelClasses}>Country</label>
@@ -815,7 +831,7 @@ export default function ContactsPage() {
                         <input type="text" value={entry.company_name} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], company_name: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Company name" />
                         <input type="text" value={entry.title} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], title: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Job title" />
                       </div>
-                      <input type="text" value={entry.location} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], location: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Location" />
+                      <input type="text" value={entry.location} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], location: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Location (e.g., San Francisco, CA)" />
                       <div className="grid grid-cols-2 gap-2">
                         <input type="text" value={entry.start_month} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], start_month: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Start (e.g., Jan 2023)" />
                         {!entry.is_current ? (
@@ -978,8 +994,8 @@ export default function ContactsPage() {
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button type="button" variant="text" onClick={closeForm}>Cancel</Button>
-                  <Button type="submit">Create</Button>
+                  <Button type="button" variant="text" onClick={closeForm} disabled={submitting}>Cancel</Button>
+                  <Button type="submit" loading={submitting} disabled={submitting}>Create</Button>
                 </div>
               </form>
             </div>
