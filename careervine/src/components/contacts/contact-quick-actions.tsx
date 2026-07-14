@@ -28,7 +28,7 @@ export function ContactQuickActions({
         <Button
           variant="tonal"
           size="sm"
-          onClick={() => openCompose({ to: primaryEmail, name: contact.name })}
+          onClick={() => openCompose({ to: primaryEmail, name: contact.name, contactId: contact.id })}
         >
           <Send className="h-5 w-5" /> Compose email
         </Button>

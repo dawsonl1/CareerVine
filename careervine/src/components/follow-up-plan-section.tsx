@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, ChevronDown, ChevronUp, AlertCircle, RefreshCw } from "lucide-react";
+import { X, ChevronDown, ChevronUp, AlertCircle, RefreshCw, Plus } from "lucide-react";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 
 export interface FollowUpDraft {
@@ -18,10 +18,12 @@ interface FollowUpPlanSectionProps {
   loading: boolean;
   error: string | null;
   placeholder: boolean;
-  /** Provenance pill next to the title; defaults to "AI-generated". */
-  badgeLabel?: string;
+  /** Provenance pill next to the title; defaults to "AI-generated". Pass null to hide. */
+  badgeLabel?: string | null;
   onToggle: (enabled: boolean) => void;
   onEdit: (id: string, updates: Partial<FollowUpDraft>) => void;
+  /** When provided, renders a manual "Add follow-up" button (CAR-120). */
+  onAdd?: () => void;
   onRemove: (id: string) => void;
   onRetry: () => void;
 }
@@ -44,6 +46,7 @@ export function FollowUpPlanSection({
   badgeLabel = "AI-generated",
   onToggle,
   onEdit,
+  onAdd,
   onRemove,
   onRetry,
 }: FollowUpPlanSectionProps) {
@@ -55,7 +58,7 @@ export function FollowUpPlanSection({
       <div className="flex items-center justify-between px-5 py-3.5">
         <div className="flex items-center gap-2.5">
           <span className="text-sm font-semibold text-foreground">Follow-up plan</span>
-          {!placeholder && !loading && (
+          {badgeLabel && !placeholder && !loading && (
             <span className="text-[10px] text-muted-foreground bg-surface-container-highest px-2 py-0.5 rounded-full">
               {badgeLabel}
             </span>
@@ -248,6 +251,20 @@ export function FollowUpPlanSection({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Manual add (CAR-120) */}
+      {onAdd && !loading && !error && (
+        <div className="px-5 pb-3">
+          <button
+            type="button"
+            onClick={onAdd}
+            className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add follow-up
+          </button>
         </div>
       )}
 
