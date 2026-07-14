@@ -45,3 +45,64 @@ export function buildFollowUpMessageRows(
     };
   });
 }
+
+/** Prior open-step snapshot used when rebuilding a sequence on edit (CAR-125). */
+export type PriorFollowUpMessageSnapshot = {
+  sequence_number: number;
+  send_after_days: number;
+  status: string;
+  parked_at: string | null;
+  expires_at: string | null;
+  reminder_count: number | null;
+  last_reminder_at: string | null;
+  seen_during_window: boolean | null;
+};
+
+type RebuildRow = {
+  sequence_number: number;
+  send_after_days: number;
+  status: string;
+  scheduled_send_at: string;
+  subject: string;
+  body_html: string;
+  follow_up_id: number;
+};
+
+/**
+ * After a follow-up edit rebuild, restore awaiting_review/expired + park metadata
+ * when the step's delay is unchanged so "Send now" still works immediately.
+ * A delay change is treated as an intentional reschedule → stays pending.
+ */
+export function reconcileFollowUpEditStatuses<T extends RebuildRow>(
+  newRows: T[],
+  priorBySequence: Map<number, PriorFollowUpMessageSnapshot>,
+): Array<
+  T & {
+    parked_at?: string | null;
+    expires_at?: string | null;
+    reminder_count?: number;
+    last_reminder_at?: string | null;
+    seen_during_window?: boolean;
+  }
+> {
+  return newRows.map((row) => {
+    const prior = priorBySequence.get(row.sequence_number);
+    if (
+      prior &&
+      (prior.status === FollowUpMessageStatus.AwaitingReview ||
+        prior.status === FollowUpMessageStatus.Expired) &&
+      prior.send_after_days === row.send_after_days
+    ) {
+      return {
+        ...row,
+        status: prior.status,
+        parked_at: prior.parked_at,
+        expires_at: prior.expires_at,
+        reminder_count: prior.reminder_count ?? 0,
+        last_reminder_at: prior.last_reminder_at,
+        seen_during_window: prior.seen_during_window ?? false,
+      };
+    }
+    return row;
+  });
+}

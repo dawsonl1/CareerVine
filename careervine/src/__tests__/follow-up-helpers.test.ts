@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildFollowUpMessageRows } from '@/lib/follow-up-helpers';
+import { buildFollowUpMessageRows, reconcileFollowUpEditStatuses } from '@/lib/follow-up-helpers';
 import { FollowUpMessageStatus } from '@/lib/constants';
 
 describe('buildFollowUpMessageRows', () => {
@@ -91,5 +91,110 @@ describe('buildFollowUpMessageRows', () => {
   it('returns empty array for empty messages', () => {
     const rows = buildFollowUpMessageRows(1, [], baseDate);
     expect(rows).toEqual([]);
+  });
+});
+
+describe('reconcileFollowUpEditStatuses', () => {
+  const baseRow = {
+    follow_up_id: 1,
+    sequence_number: 1,
+    send_after_days: 7,
+    status: FollowUpMessageStatus.Pending,
+    scheduled_send_at: '2026-07-20T09:00:00Z',
+    subject: 'Edited subject',
+    body_html: '<p>Edited</p>',
+  };
+
+  it('keeps awaiting_review + park metadata when delay is unchanged', () => {
+    const prior = new Map([
+      [
+        1,
+        {
+          sequence_number: 1,
+          send_after_days: 7,
+          status: FollowUpMessageStatus.AwaitingReview,
+          parked_at: '2026-07-14T09:00:00Z',
+          expires_at: '2026-07-28T09:00:00Z',
+          reminder_count: 1,
+          last_reminder_at: '2026-07-15T09:00:00Z',
+          seen_during_window: true,
+        },
+      ],
+    ]);
+
+    const [row] = reconcileFollowUpEditStatuses([baseRow], prior);
+    expect(row.status).toBe(FollowUpMessageStatus.AwaitingReview);
+    expect(row.parked_at).toBe('2026-07-14T09:00:00Z');
+    expect(row.expires_at).toBe('2026-07-28T09:00:00Z');
+    expect(row.reminder_count).toBe(1);
+    expect(row.subject).toBe('Edited subject');
+  });
+
+  it('keeps expired when delay is unchanged', () => {
+    const prior = new Map([
+      [
+        1,
+        {
+          sequence_number: 1,
+          send_after_days: 7,
+          status: FollowUpMessageStatus.Expired,
+          parked_at: '2026-07-01T09:00:00Z',
+          expires_at: '2026-07-14T09:00:00Z',
+          reminder_count: 2,
+          last_reminder_at: null,
+          seen_during_window: false,
+        },
+      ],
+    ]);
+
+    const [row] = reconcileFollowUpEditStatuses([baseRow], prior);
+    expect(row.status).toBe(FollowUpMessageStatus.Expired);
+    expect(row.expires_at).toBe('2026-07-14T09:00:00Z');
+  });
+
+  it('resets to pending when delay changes', () => {
+    const prior = new Map([
+      [
+        1,
+        {
+          sequence_number: 1,
+          send_after_days: 7,
+          status: FollowUpMessageStatus.AwaitingReview,
+          parked_at: '2026-07-14T09:00:00Z',
+          expires_at: '2026-07-28T09:00:00Z',
+          reminder_count: 1,
+          last_reminder_at: null,
+          seen_during_window: false,
+        },
+      ],
+    ]);
+
+    const [row] = reconcileFollowUpEditStatuses(
+      [{ ...baseRow, send_after_days: 10 }],
+      prior,
+    );
+    expect(row.status).toBe(FollowUpMessageStatus.Pending);
+    expect(row.parked_at).toBeUndefined();
+  });
+
+  it('leaves pending steps pending', () => {
+    const prior = new Map([
+      [
+        1,
+        {
+          sequence_number: 1,
+          send_after_days: 7,
+          status: FollowUpMessageStatus.Pending,
+          parked_at: null,
+          expires_at: null,
+          reminder_count: 0,
+          last_reminder_at: null,
+          seen_during_window: false,
+        },
+      ],
+    ]);
+
+    const [row] = reconcileFollowUpEditStatuses([baseRow], prior);
+    expect(row.status).toBe(FollowUpMessageStatus.Pending);
   });
 });

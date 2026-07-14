@@ -24,7 +24,7 @@ export const FollowUpMessageStatus = {
 
 /** Follow-up message statuses that still count as an open/scheduled step: a
  * pending auto-send, or one awaiting the user's confirm-to-send (CAR-102). Used
- * for "N scheduled" counts and cancel filters so awaiting_review is never dropped. */
+ * for "N scheduled" counts. Expired steps are counted via UNRESOLVED instead. */
 export const OPEN_FOLLOW_UP_MESSAGE_STATUSES = [
   FollowUpMessageStatus.Pending,
   FollowUpMessageStatus.AwaitingReview,
@@ -35,17 +35,22 @@ export function isOpenFollowUpMessage(status: string | null | undefined): boolea
 }
 
 /** Follow-up message statuses that keep the PARENT sequence open and must be
- * cleared on teardown: the open steps PLUS 'expired'. An expired message is still
- * one-click sendable, so a sequence isn't "complete" while one lingers (else the
- * parent-active guard would strand it), and a cancel/reply must clear it too or it
- * orphans under a non-active parent. DISTINCT from OPEN_FOLLOW_UP_MESSAGE_STATUSES,
- * which drives "N scheduled" counts and the rebuild-on-edit delete where 'expired'
- * is EXCLUDED (an edit must not delete a still-sendable expired message). CAR-105. */
+ * cleared on teardown OR rebuilt on edit: the open steps PLUS 'expired'. An
+ * expired message is still one-click sendable, so a sequence isn't "complete"
+ * while one lingers, and cancel/reply/edit must clear it too (CAR-105, CAR-125). */
 export const UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES = [
   FollowUpMessageStatus.Pending,
   FollowUpMessageStatus.AwaitingReview,
   FollowUpMessageStatus.Expired,
 ] as const;
+
+export function isUnresolvedFollowUpMessage(status: string | null | undefined): boolean {
+  return (
+    status === FollowUpMessageStatus.Pending ||
+    status === FollowUpMessageStatus.AwaitingReview ||
+    status === FollowUpMessageStatus.Expired
+  );
+}
 
 /** Follow-up message statuses the user can still ACT on from the portal or a
  * contact page (confirm-send or mark-replied): freshly parked (awaiting_review)
