@@ -5,6 +5,7 @@ import { useClickOutside } from "@/hooks/use-click-outside";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { StateSelect } from "@/components/ui/state-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
@@ -23,6 +24,7 @@ import {
   Tag, Briefcase, GraduationCap, Trash2,
 } from "lucide-react";
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
+import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 
@@ -81,7 +83,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       degree: schoolInfo?.degree || "",
       field_of_study: schoolInfo?.field_of_study || "",
       location_city: contact.locations?.city || "",
-      location_state: contact.locations?.state || "",
+      location_state: isUnitedStates(contact.locations?.country || "United States")
+        ? (canonicalUsState(contact.locations?.state) ?? contact.locations?.state ?? "")
+        : (contact.locations?.state || ""),
       location_country: contact.locations?.country || "United States",
     });
     setCompanies(
@@ -285,7 +289,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
           </div>
           <div>
             <label className={labelClasses}>State</label>
-            <input type="text" value={formData.location_state} onChange={(e) => setFormData({ ...formData, location_state: e.target.value })} className={inputClasses} placeholder="e.g. CA" />
+            <StateSelect country={formData.location_country} value={formData.location_state} onChange={(val) => setFormData({ ...formData, location_state: val })} />
           </div>
           <div>
             <label className={labelClasses}>Country</label>

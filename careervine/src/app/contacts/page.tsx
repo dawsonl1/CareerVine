@@ -27,6 +27,7 @@ import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
 import { Select } from "@/components/ui/select";
+import { StateSelect } from "@/components/ui/state-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
@@ -783,7 +784,7 @@ export default function ContactsPage() {
                   </div>
                   <div>
                     <label className={labelClasses}>State</label>
-                    <input type="text" value={formData.location_state} onChange={(e) => setFormData({ ...formData, location_state: e.target.value })} className={inputClasses} placeholder="e.g. CA" />
+                    <StateSelect country={formData.location_country} value={formData.location_state} onChange={(val) => setFormData({ ...formData, location_state: val })} />
                   </div>
                   <div>
                     <label className={labelClasses}>Country</label>
