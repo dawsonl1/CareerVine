@@ -87,6 +87,21 @@ describe("UnifiedActionList onboarding row (CAR-68)", () => {
     renderList([], true);
     expect(screen.getByText("Install the Chrome extension")).toBeTruthy();
   });
+
+  it("extension card opens the Chrome Web Store listing", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    try {
+      renderList([], true);
+      fireEvent.click(screen.getByText("Install the Chrome extension"));
+      expect(open).toHaveBeenCalledWith(
+        "https://chromewebstore.google.com/detail/careervine-linkedin-integ/jdiefmjeiihacjencfdempbgapnppooj",
+        "_blank",
+        "noopener",
+      );
+    } finally {
+      open.mockRestore();
+    }
+  });
 });
 
 describe("Getting-started checklist dismissal (CAR-73)", () => {
