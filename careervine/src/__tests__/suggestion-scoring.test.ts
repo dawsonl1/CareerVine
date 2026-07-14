@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   generateGraduationSuggestions,
   generateNoInteractionCadenceSuggestions,
+  generateFirstTouchSuggestions,
   generateDecayWarningSuggestions,
 } from "@/lib/ai-followup/generate-suggestions";
 import type { SuggestionContact, Suggestion } from "@/lib/ai-followup/suggestion-types";
@@ -19,6 +20,7 @@ function makeContact(overrides: Partial<SuggestionContact> = {}): SuggestionCont
     notes: null,
     last_touch: null,
     days_since_touch: null,
+    days_since_added: null,
     interaction_count: 0,
     ...overrides,
   };
@@ -32,8 +34,8 @@ describe("suggestion scoring and ordering", () => {
       makeContact({ id: 1, name: "Low", interaction_count: 2, days_since_touch: 65 }),
       // Graduation: score ~90 (near graduation)
       makeContact({ id: 2, name: "High", contact_status: "student", expected_graduation: "2026-03-25" }),
-      // No-interaction cadence: score 75
-      makeContact({ id: 3, name: "Mid", follow_up_frequency_days: 14, interaction_count: 0, days_since_touch: 20, last_touch: "2026-03-01" }),
+      // No-interaction cadence: score 75 (never contacted, added 20d ago, 14d cadence)
+      makeContact({ id: 3, name: "Mid", follow_up_frequency_days: 14, last_touch: null, days_since_added: 20 }),
     ];
 
     const all = [
@@ -94,5 +96,66 @@ describe("suggestion scoring and ordering", () => {
     expect(top5).toHaveLength(5);
     // Top 5 should have highest scores
     expect(top5[0].score).toBeGreaterThanOrEqual(top5[4].score);
+  });
+});
+
+describe("first-touch generators use days-since-added and fire only for never-contacted (CAR-119)", () => {
+  describe("generateNoInteractionCadenceSuggestions", () => {
+    it("fires for a never-contacted contact added longer ago than its cadence", () => {
+      const out = generateNoInteractionCadenceSuggestions([
+        makeContact({ id: 1, follow_up_frequency_days: 14, last_touch: null, days_since_added: 20 }),
+      ]);
+      expect(out).toHaveLength(1);
+      // Never contacted → label stays "Never contacted" (daysSinceContact null)
+      expect(out[0].daysSinceContact).toBeNull();
+      // Evidence counts days since added, not a phantom last touch
+      expect(out[0].evidence).toContain("Added 20 days ago");
+    });
+
+    it("does NOT fire once the contact has been contacted, even if added long ago", () => {
+      const out = generateNoInteractionCadenceSuggestions([
+        makeContact({ id: 1, follow_up_frequency_days: 14, last_touch: "2026-03-01", days_since_touch: 3, days_since_added: 40 }),
+      ]);
+      expect(out).toHaveLength(0);
+    });
+
+    it("does NOT fire when a meeting counts as the first touch (last_touch set, zero interactions)", () => {
+      const out = generateNoInteractionCadenceSuggestions([
+        makeContact({ id: 1, follow_up_frequency_days: 14, last_touch: "2026-03-01", days_since_touch: 5, days_since_added: 40, interaction_count: 0 }),
+      ]);
+      expect(out).toHaveLength(0);
+    });
+
+    it("does NOT fire before the cadence window has elapsed", () => {
+      const out = generateNoInteractionCadenceSuggestions([
+        makeContact({ id: 1, follow_up_frequency_days: 30, last_touch: null, days_since_added: 10 }),
+      ]);
+      expect(out).toHaveLength(0);
+    });
+  });
+
+  describe("generateFirstTouchSuggestions", () => {
+    it("fires for a recently-added never-contacted contact with no cadence", () => {
+      const out = generateFirstTouchSuggestions([
+        makeContact({ id: 1, last_touch: null, days_since_added: 3 }),
+      ]);
+      expect(out).toHaveLength(1);
+      expect(out[0].daysSinceContact).toBeNull();
+      expect(out[0].evidence).toContain("Added 3 days ago");
+    });
+
+    it("does NOT fire once the contact has been contacted", () => {
+      const out = generateFirstTouchSuggestions([
+        makeContact({ id: 1, last_touch: "2026-03-01", days_since_touch: 2, days_since_added: 3 }),
+      ]);
+      expect(out).toHaveLength(0);
+    });
+
+    it("does NOT fire for a stale add (older than 30 days)", () => {
+      const out = generateFirstTouchSuggestions([
+        makeContact({ id: 1, last_touch: null, days_since_added: 45 }),
+      ]);
+      expect(out).toHaveLength(0);
+    });
   });
 });

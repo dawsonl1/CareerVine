@@ -29,7 +29,8 @@ export interface SuggestionContact {
   follow_up_frequency_days: number | null;
   notes: string | null;
   met_through: string | null;
-  last_touch: string | null;
-  days_since_touch: number | null;
+  last_touch: string | null;      // Most recent interaction OR meeting; null if never contacted
+  days_since_touch: number | null; // Days since last_touch; null if never contacted
+  days_since_added: number | null; // Days since the contact was added (contacts.created_at)
   interaction_count: number;
 }
