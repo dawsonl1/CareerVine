@@ -12,6 +12,7 @@
  */
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
+import { parseManualLocation } from "@/lib/location-normalizer";
 import type { Database } from "@/lib/database.types";
 import { RECENTLY_ADDED_DAYS, SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
@@ -891,6 +892,31 @@ export async function findOrCreateLocation(location: { city: string | null; stat
     .single();
   if (error) throw error;
   return data;
+}
+
+/**
+ * Resolve a manually-entered work-experience location string into the
+ * contact_companies location columns. Normalizes the free text with the same
+ * parser the scrape/import pipeline uses and find-or-creates the canonical
+ * `locations` row (location_id), keeping the original text in location_raw so
+ * it can be re-normalized later. Country-only / vague / unparseable input keeps
+ * the raw text with no location_id.
+ */
+export async function resolveManualCompanyLocation(raw: string | null | undefined): Promise<{
+  location: string | null;
+  location_id: number | null;
+  location_source: string | null;
+  location_raw: string | null;
+}> {
+  const parsed = parseManualLocation(raw);
+  if (!parsed.display) {
+    return { location: null, location_id: null, location_source: null, location_raw: null };
+  }
+  if (!parsed.isPlace) {
+    return { location: parsed.display, location_id: null, location_source: "manual", location_raw: parsed.display };
+  }
+  const location = await findOrCreateLocation({ city: parsed.city, state: parsed.state, country: parsed.country });
+  return { location: parsed.display, location_id: location.id, location_source: "manual", location_raw: (raw ?? "").trim() };
 }
 
 /**

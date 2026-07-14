@@ -334,3 +334,37 @@ export function locationMatchKey(loc: NormalizedLocation): string | null {
   if (loc.granularity !== "city" || !loc.city) return null;
   return [loc.city.toLowerCase(), (loc.state ?? "").toLowerCase(), (loc.country ?? "").toLowerCase()].join("|");
 }
+
+/**
+ * Parse a manually-typed location string (e.g. a work-experience location) into
+ * canonical parts plus a compact display string ("San Francisco, California").
+ * Reuses normalizeLocation so hand-entered locations match scraped ones.
+ *
+ * `isPlace` is true only when the string resolves to a real city or state worth
+ * a locations row; country-only, vague-region, or unparseable input keeps the
+ * raw text with isPlace=false (no normalized row). Empty input → display null.
+ * The display string omits "United States" for brevity but keeps other
+ * countries ("London, United Kingdom").
+ */
+export function parseManualLocation(raw: string | null | undefined): {
+  isPlace: boolean;
+  city: string | null;
+  state: string | null;
+  country: string;
+  display: string | null;
+} {
+  const text = (raw ?? "").trim();
+  if (!text) return { isPlace: false, city: null, state: null, country: "United States", display: null };
+
+  const norm = normalizeLocation(text);
+  if (norm.city || norm.state) {
+    const country = norm.country ?? "United States";
+    const display =
+      [norm.city, norm.state, country !== "United States" ? country : null]
+        .filter(Boolean)
+        .join(", ") || text;
+    return { isPlace: true, city: norm.city, state: norm.state, country, display };
+  }
+  // Country-only, vague region, or unparseable — keep the raw text as-is.
+  return { isPlace: false, city: null, state: null, country: "United States", display: text };
+}

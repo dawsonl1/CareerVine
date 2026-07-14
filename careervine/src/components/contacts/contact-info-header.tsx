@@ -12,7 +12,7 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
 import {
   updateContact, findOrCreateSchool, addSchoolToContact,
-  removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact,
+  removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact, resolveManualCompanyLocation,
   removeCompaniesFromContact, removeEmailsFromContact, addEmailToContact,
   removePhonesFromContact, addPhoneToContact, getTags, createTag,
   addTagToContact, removeTagFromContact, findOrCreateLocation,
@@ -49,6 +49,8 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
     location_city: "", location_state: "", location_country: "United States",
   });
   const [companies, setCompanies] = useState<CompanyEntry[]>([]);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   type EmailEntry = { email: string; is_primary: boolean };
   type PhoneEntry = { phone: string; type: string; is_primary: boolean };
   const [emails, setEmails] = useState<EmailEntry[]>([]);
@@ -141,6 +143,9 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
   };
 
   const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       const contactData = {
         user_id: userId,
@@ -186,11 +191,15 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
       for (const entry of companies) {
         if (entry.company_name.trim()) {
           const company = await findOrCreateCompany(entry.company_name.trim());
+          const loc = await resolveManualCompanyLocation(entry.location);
           await addCompanyToContact({
             contact_id: contact.id,
             company_id: company.id,
             title: entry.title || null,
-            location: entry.location || null,
+            location: loc.location,
+            location_id: loc.location_id,
+            location_source: loc.location_source,
+            location_raw: loc.location_raw,
             is_current: entry.is_current,
             start_date: null,
             end_date: null,
@@ -240,6 +249,9 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
       toastSuccess("Contact saved");
     } catch (error) {
       toastError("Failed to save contact");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -676,8 +688,8 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
-        <Button type="button" variant="text" onClick={cancelEditing}>Cancel</Button>
-        <Button type="submit">Save</Button>
+        <Button type="button" variant="text" onClick={cancelEditing} disabled={saving}>Cancel</Button>
+        <Button type="submit" loading={saving} disabled={saving}>Save</Button>
       </div>
     </form>
   );

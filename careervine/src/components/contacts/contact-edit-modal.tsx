@@ -13,7 +13,7 @@ import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
 import { Modal } from "@/components/ui/modal";
 import {
   updateContact, findOrCreateSchool, addSchoolToContact,
-  removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact,
+  removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact, resolveManualCompanyLocation,
   removeCompaniesFromContact, removeEmailsFromContact, addEmailToContact,
   removePhonesFromContact, addPhoneToContact, getTags, createTag,
   addTagToContact, removeTagFromContact, findOrCreateLocation,
@@ -54,6 +54,8 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
   const [preferredContactKey, setPreferredContactKey] = useState("");
   const [showEducation, setShowEducation] = useState(false);
   const [showCustomFrequency, setShowCustomFrequency] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const [allTags, setAllTags] = useState<TagRow[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -130,6 +132,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
   }, [isOpen, contact]);
 
   const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       const contactData = {
         user_id: userId,
@@ -175,11 +180,15 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       for (const entry of companies) {
         if (entry.company_name.trim()) {
           const company = await findOrCreateCompany(entry.company_name.trim());
+          const loc = await resolveManualCompanyLocation(entry.location);
           await addCompanyToContact({
             contact_id: contact.id,
             company_id: company.id,
             title: entry.title || null,
-            location: entry.location || null,
+            location: loc.location,
+            location_id: loc.location_id,
+            location_source: loc.location_source,
+            location_raw: loc.location_raw,
             is_current: entry.is_current,
             start_date: null,
             end_date: null,
@@ -229,6 +238,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       toastSuccess("Contact saved");
     } catch {
       toastError("Failed to save contact");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -539,8 +551,8 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
             Delete contact
           </button>
           <div className="flex gap-2">
-            <Button type="button" variant="text" onClick={onClose}>Cancel</Button>
-            <Button type="submit">Save</Button>
+            <Button type="button" variant="text" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="submit" loading={saving} disabled={saving}>Save</Button>
           </div>
         </div>
       </form>
