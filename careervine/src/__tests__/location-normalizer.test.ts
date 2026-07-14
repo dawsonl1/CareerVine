@@ -3,6 +3,7 @@ import {
   normalizeLocation,
   normalizeParsedLocation,
   locationMatchKey,
+  parseManualLocation,
 } from '@/lib/location-normalizer';
 
 describe('normalizeLocation — city grain (can establish offices)', () => {
@@ -142,5 +143,51 @@ describe('locationMatchKey — rule-2 string-level matching', () => {
   it('distinct cities produce distinct keys', () => {
     expect(locationMatchKey(normalizeLocation('San Francisco, CA')))
       .not.toBe(locationMatchKey(normalizeLocation('Mountain View, CA')));
+  });
+});
+
+describe('parseManualLocation — manual work-experience location', () => {
+  it('normalizes "City, ST" to canonical parts + a compact display (US country omitted)', () => {
+    expect(parseManualLocation('San Francisco, CA')).toEqual({
+      isPlace: true, city: 'San Francisco', state: 'California', country: 'United States',
+      display: 'San Francisco, California',
+    });
+  });
+
+  it('is idempotent for an already-canonical "City, State"', () => {
+    expect(parseManualLocation('San Francisco, California')).toMatchObject({
+      isPlace: true, city: 'San Francisco', state: 'California', display: 'San Francisco, California',
+    });
+  });
+
+  it('heals a lowercase / abbreviated state', () => {
+    expect(parseManualLocation('new york, ny')).toMatchObject({
+      isPlace: true, city: 'New York', state: 'New York', display: 'New York, New York',
+    });
+  });
+
+  it('collapses a metro string via the shared normalizer', () => {
+    expect(parseManualLocation('Greater Seattle Area')).toMatchObject({
+      isPlace: true, city: 'Seattle', state: 'Washington', display: 'Seattle, Washington',
+    });
+  });
+
+  it('keeps a non-US country in the display', () => {
+    expect(parseManualLocation('London, UK')).toMatchObject({
+      isPlace: true, city: 'London', state: null, country: 'United Kingdom',
+      display: 'London, United Kingdom',
+    });
+  });
+
+  it('keeps raw text (no place) for country-only, vague, or unparseable input', () => {
+    expect(parseManualLocation('USA')).toMatchObject({ isPlace: false, display: 'USA' });
+    expect(parseManualLocation('EMEA')).toMatchObject({ isPlace: false, display: 'EMEA' });
+    expect(parseManualLocation('Remote')).toMatchObject({ isPlace: false, display: 'Remote' });
+  });
+
+  it('returns a null display for empty input', () => {
+    expect(parseManualLocation('')).toMatchObject({ isPlace: false, display: null });
+    expect(parseManualLocation('   ')).toMatchObject({ isPlace: false, display: null });
+    expect(parseManualLocation(null)).toMatchObject({ isPlace: false, display: null });
   });
 });
