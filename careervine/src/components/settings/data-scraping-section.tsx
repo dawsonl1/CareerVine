@@ -11,6 +11,7 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { RefreshCw, CircleDollarSign, Activity, PauseCircle, Search } from "lucide-react";
+import { EXTENSION_STORE_URL } from "@/lib/extension-store";
 
 interface ScrapeStatus {
   configured: boolean;
@@ -132,8 +133,17 @@ export default function DataScrapingSection() {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Contacts saved from the Chrome extension are enriched automatically (photo, employment history,
-        verified email). Per-account control over auto-enrich arrives with the admin dashboard.
+        Contacts saved from the{" "}
+        <a
+          href={EXTENSION_STORE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary hover:underline"
+        >
+          Chrome extension
+        </a>{" "}
+        are enriched automatically (photo, employment history, verified email). Per-account
+        control over auto-enrich arrives with the admin dashboard.
       </p>
     </div>
   );
