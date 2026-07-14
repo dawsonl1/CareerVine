@@ -5,8 +5,8 @@
  *
  * The destination for free users (capability `outreach:portal`), selected by
  * EmailExperience. Built entirely on the DB-only /api/gmail/inbox payload: the
- * outreach a user has sent, what is scheduled, and their follow-up plans. No live
- * mailbox read (free users hold only the gmail.send scope), so there is no inbox,
+ * outreach a user has sent, what is scheduled, their follow-up plans, and drafts.
+ * No live mailbox read (free users hold only the gmail.send scope), so there is no inbox,
  * labels, sync, or trash/label actions here. Sent messages DO expand to show the
  * full body, read from the persisted email_messages.body_html we store at send time
  * (CAR-115) — not a live fetch. Composing and sending work (send needs only
@@ -25,13 +25,13 @@ import {
   isUnresolvedFollowUpMessage,
   FollowUpMessageStatus,
 } from "@/lib/constants";
-import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail } from "@/lib/types";
-import { Send, Clock, Reply, PenSquare, Pencil, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight } from "lucide-react";
+import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail, EmailDraft } from "@/lib/types";
+import { Send, Clock, Reply, PenSquare, Pencil, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import DOMPurify from "dompurify";
 
-type OutreachTab = "sent" | "scheduled" | "followups";
+type OutreachTab = "sent" | "scheduled" | "followups" | "drafts";
 
 /** Short "Jul 12" / "Jul 12, 2025" date, safe for a client-only render. */
 function fmtDate(value: string | null | undefined): string {
@@ -105,7 +105,19 @@ export function OutreachShell() {
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
   const [followUps, setFollowUps] = useState<EmailFollowUp[]>([]);
+  const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [contactMap, setContactMap] = useState<Record<number, string>>({});
+  const [cancellingDraftId, setCancellingDraftId] = useState<number | null>(null);
+
+  const loadDrafts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/gmail/drafts");
+      const data = await res.json();
+      setDrafts(data.drafts || []);
+    } catch {
+      // best-effort — drafts are additive to the main inbox payload
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -129,8 +141,17 @@ export function OutreachShell() {
   }, []);
 
   useEffect(() => {
-    if (user) void load();
-  }, [user, load]);
+    if (user) {
+      void load();
+      void loadDrafts();
+    }
+  }, [user, load, loadDrafts]);
+
+  useEffect(() => {
+    const handler = () => void loadDrafts();
+    window.addEventListener("careervine:drafts-changed", handler);
+    return () => window.removeEventListener("careervine:drafts-changed", handler);
+  }, [loadDrafts]);
 
   // Confirm-to-send: the user either sends a parked follow-up now (replied=false)
   // or reports that the contact already replied (replied=true, which cancels + activates).
@@ -170,8 +191,45 @@ export function OutreachShell() {
     [contactMap],
   );
 
+  const openDraft = useCallback(
+    (draft: EmailDraft) => {
+      openCompose({
+        to: draft.recipient_email || undefined,
+        name: draft.contact_name || undefined,
+        subject: draft.subject || undefined,
+        bodyHtml: draft.body_html || undefined,
+        threadId: draft.thread_id || undefined,
+        inReplyTo: draft.in_reply_to || undefined,
+        references: draft.references_header || undefined,
+        draftId: draft.id,
+      });
+    },
+    [openCompose],
+  );
+
+  const cancelDraft = useCallback(
+    async (draftId: number) => {
+      if (cancellingDraftId) return;
+      setCancellingDraftId(draftId);
+      const previous = drafts;
+      setDrafts((prev) => prev.filter((d) => d.id !== draftId));
+      try {
+        const res = await fetch(`/api/gmail/drafts/${draftId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error();
+        toastSuccess("Draft cancelled");
+      } catch {
+        setDrafts(previous);
+        toastError("Could not cancel this draft");
+      } finally {
+        setCancellingDraftId(null);
+      }
+    },
+    [cancellingDraftId, drafts, toastSuccess, toastError],
+  );
+
   const tabs: { key: OutreachTab; label: string; count: number }[] = [
     { key: "sent", label: "Sent", count: sentThreads.length },
+    { key: "drafts", label: "Drafts", count: drafts.length },
     { key: "scheduled", label: "Scheduled", count: scheduledEmails.length },
     { key: "followups", label: "Follow-ups", count: followUps.length },
   ];
@@ -186,7 +244,7 @@ export function OutreachShell() {
           <div>
             <h1 className="text-2xl font-semibold text-on-surface">Outreach</h1>
             <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-              Everything you have sent, what is scheduled next, and your follow-up plans, all in one place.
+              Everything you have sent, drafts in progress, what is scheduled next, and your follow-up plans, all in one place.
             </p>
           </div>
           <Button onClick={() => openCompose()} size="md">
@@ -225,6 +283,14 @@ export function OutreachShell() {
 
             {activeTab === "sent" && (
               <SentList threads={sentThreads} nameFor={nameFor} onCompose={() => openCompose()} />
+            )}
+            {activeTab === "drafts" && (
+              <DraftsList
+                items={drafts}
+                onEdit={openDraft}
+                onCancel={cancelDraft}
+                cancellingId={cancellingDraftId}
+              />
             )}
             {activeTab === "scheduled" && (
               <ScheduledList items={scheduledEmails} nameFor={nameFor} />
@@ -418,6 +484,99 @@ function ScheduledList({
           </div>
         </Row>
       ))}
+    </ul>
+  );
+}
+
+function DraftsList({
+  items,
+  onEdit,
+  onCancel,
+  cancellingId,
+}: {
+  items: EmailDraft[];
+  onEdit: (draft: EmailDraft) => void;
+  onCancel: (draftId: number) => void;
+  cancellingId: number | null;
+}) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        icon={<FileText className="h-6 w-6" />}
+        title="No drafts"
+        hint="Anything you start writing and leave unfinished is auto-saved here."
+      />
+    );
+  }
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {items.map((draft) => {
+        const isExpanded = expandedId === draft.id;
+        const recipient = draft.contact_name || draft.recipient_email || "No recipient";
+        return (
+          <Row key={draft.id}>
+            <div className="flex items-start justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setExpandedId(isExpanded ? null : draft.id)}
+                aria-expanded={isExpanded}
+                aria-label={isExpanded ? "Collapse draft" : "Expand to read draft"}
+                className="flex min-w-0 flex-1 items-start gap-2 text-left"
+              >
+                <span className="mt-0.5 shrink-0 text-muted-foreground">
+                  {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-on-surface">
+                    {draft.subject || "(no subject)"}
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    To {recipient}
+                    {draft.updated_at ? ` · Updated ${fmtDate(draft.updated_at)}` : ""}
+                  </span>
+                </span>
+              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onEdit(draft)}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-primary hover:bg-surface-container-high"
+                  aria-label="Edit draft"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  disabled={cancellingId !== null}
+                  onClick={() => onCancel(draft.id)}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-surface-container-high hover:text-on-surface disabled:opacity-50"
+                  aria-label="Cancel draft"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Cancel
+                </button>
+              </div>
+            </div>
+
+            {isExpanded && (
+              <div className="mt-3 border-t border-outline-variant pt-3">
+                {draft.body_html ? (
+                  <div
+                    className="prose prose-sm max-h-[28rem] max-w-none overflow-y-auto [&_*]:!text-on-surface [&_a]:!text-primary [&_a]:underline"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(draft.body_html) }}
+                  />
+                ) : (
+                  <p className="text-sm italic text-muted-foreground">This draft has no body yet.</p>
+                )}
+              </div>
+            )}
+          </Row>
+        );
+      })}
     </ul>
   );
 }

@@ -4,8 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 
 /**
- * CAR-102: the free Outreach portal renders sent / scheduled / follow-up views
- * from the DB-only /api/gmail/inbox payload. No live mailbox anywhere.
+ * CAR-102: the free Outreach portal renders sent / scheduled / follow-up / drafts
+ * views. Inbox + follow-ups come from the DB-only /api/gmail/inbox payload;
+ * drafts load from /api/gmail/drafts. No live mailbox anywhere.
  */
 
 vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <nav /> }));
@@ -90,12 +91,45 @@ const payload = {
   gmailAddress: "me@gmail.com",
 };
 
+const draftsPayload = {
+  drafts: [
+    {
+      id: 42,
+      user_id: "u-1",
+      recipient_email: "leo@corp.com",
+      contact_name: "Leo",
+      cc: null,
+      bcc: null,
+      subject: "Half-finished intro",
+      body_html: "<p>Hey Leo, still drafting this…</p>",
+      thread_id: null,
+      in_reply_to: null,
+      references_header: null,
+      updated_at: "2026-07-14T12:00:00Z",
+      created_at: "2026-07-14T11:00:00Z",
+    },
+  ],
+};
+
+function mockFetch(inbox = payload, drafts = draftsPayload) {
+  global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const path = typeof url === "string" ? url : url.toString();
+    if (path.includes("/api/gmail/drafts/") && init?.method === "DELETE") {
+      return { ok: true, json: async () => ({ success: true }) };
+    }
+    if (path.includes("/api/gmail/drafts")) {
+      return { ok: true, json: async () => drafts };
+    }
+    return { ok: true, json: async () => inbox };
+  }) as unknown as typeof fetch;
+}
+
 import { OutreachShell } from "@/components/email/outreach/outreach-shell";
 
 describe("OutreachShell — free tier portal", () => {
   beforeEach(() => {
     openCompose.mockClear();
-    global.fetch = vi.fn(async () => ({ ok: true, json: async () => payload })) as unknown as typeof fetch;
+    mockFetch();
   });
   afterEach(() => cleanup());
 
@@ -105,6 +139,7 @@ describe("OutreachShell — free tier portal", () => {
     expect(screen.getByText(/To Jane Doe/)).toBeTruthy();
     // tab counts
     expect(screen.getByText("Sent")).toBeTruthy();
+    expect(screen.getByText("Drafts")).toBeTruthy();
     expect(screen.getByText("Scheduled")).toBeTruthy();
     expect(screen.getByText("Follow-ups")).toBeTruthy();
   });
@@ -164,25 +199,22 @@ describe("OutreachShell — free tier portal", () => {
   });
 
   it("falls back to the stored snippet when a sent email has no persisted body", async () => {
-    global.fetch = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        ...payload,
-        emails: [
-          {
-            gmail_message_id: "m2",
-            thread_id: "t2",
-            subject: "Older outreach",
-            direction: "outbound",
-            to_addresses: ["sam@corp.com"],
-            date: "2026-06-01T12:00:00Z",
-            matched_contact_id: null,
-            snippet: "Only a snippet survived for this one",
-            body_html: null,
-          },
-        ],
-      }),
-    })) as unknown as typeof fetch;
+    mockFetch({
+      ...payload,
+      emails: [
+        {
+          gmail_message_id: "m2",
+          thread_id: "t2",
+          subject: "Older outreach",
+          direction: "outbound",
+          to_addresses: ["sam@corp.com"],
+          date: "2026-06-01T12:00:00Z",
+          matched_contact_id: null,
+          snippet: "Only a snippet survived for this one",
+          body_html: null,
+        },
+      ],
+    });
 
     render(<OutreachShell />);
     await waitFor(() => expect(screen.getByText("Older outreach")).toBeTruthy());
@@ -196,5 +228,39 @@ describe("OutreachShell — free tier portal", () => {
     await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
     fireEvent.click(screen.getByText("Compose"));
     expect(openCompose).toHaveBeenCalled();
+  });
+
+  it("lists drafts, expands body, edits into compose with draftId, and cancels (CAR-127)", async () => {
+    render(<OutreachShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Drafts"));
+    await waitFor(() => expect(screen.getByText("Half-finished intro")).toBeTruthy());
+    expect(screen.getByText(/To Leo/)).toBeTruthy();
+
+    // Body hidden until expand
+    expect(screen.queryByText(/still drafting this/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /expand to read draft/i }));
+    expect(screen.getByText(/still drafting this/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /edit draft/i }));
+    expect(openCompose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "leo@corp.com",
+        name: "Leo",
+        subject: "Half-finished intro",
+        draftId: 42,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /cancel draft/i }));
+    await waitFor(() =>
+      expect(
+        (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+          (c) => typeof c[0] === "string" && String(c[0]).includes("/api/gmail/drafts/42"),
+        ),
+      ).toBe(true),
+    );
+    await waitFor(() => expect(screen.queryByText("Half-finished intro")).toBeNull());
   });
 });

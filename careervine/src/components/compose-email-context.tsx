@@ -32,6 +32,8 @@ type ComposeOptions = {
   inReplyTo?: string;
   references?: string;
   quotedHtml?: string;
+  /** Resume an existing email_drafts row (CAR-127). Autosave updates this id. */
+  draftId?: number;
   aiDraftContext?: AiDraftContext;
   isIntro?: boolean;
   contactId?: number;
@@ -49,6 +51,8 @@ type ComposeContextValue = {
   replyReferences: string;
   replyQuotedHtml: string;
   aiDraftContext: AiDraftContext | null;
+  /** Existing draft id to resume when compose opens (CAR-127). */
+  existingDraftId: number | null;
   isIntro: boolean;
   contactId: number;
   templateFollowUps: TemplateFollowUp[] | null;
@@ -73,6 +77,7 @@ const ComposeContext = createContext<ComposeContextValue>({
   replyReferences: "",
   replyQuotedHtml: "",
   aiDraftContext: null,
+  existingDraftId: null,
   isIntro: false,
   contactId: 0,
   templateFollowUps: null,
@@ -106,6 +111,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   const [replyReferences, setReplyReferences] = useState("");
   const [replyQuotedHtml, setReplyQuotedHtml] = useState("");
   const [aiDraftCtx, setAiDraftCtx] = useState<AiDraftContext | null>(null);
+  const [existingDraftId, setExistingDraftId] = useState<number | null>(null);
   const [isIntro, setIsIntro] = useState(false);
   const [contactId, setContactId] = useState(0);
   const [templateFollowUps, setTemplateFollowUps] = useState<TemplateFollowUp[] | null>(null);
@@ -169,6 +175,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setReplyReferences(opts?.references || "");
     setReplyQuotedHtml(opts?.quotedHtml || "");
     setAiDraftCtx(opts?.aiDraftContext || null);
+    setExistingDraftId(opts?.draftId ?? null);
     setIsIntro(opts?.isIntro || false);
     setContactId(opts?.contactId || 0);
     setTemplateFollowUps(opts?.templateFollowUps?.length ? opts.templateFollowUps : null);
@@ -186,6 +193,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setReplyReferences("");
     setReplyQuotedHtml("");
     setAiDraftCtx(null);
+    setExistingDraftId(null);
     setIsIntro(false);
     setContactId(0);
     setTemplateFollowUps(null);
@@ -204,6 +212,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
         replyReferences,
         replyQuotedHtml,
         aiDraftContext: aiDraftCtx,
+        existingDraftId,
         isIntro,
         contactId,
         templateFollowUps,

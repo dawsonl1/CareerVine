@@ -22,6 +22,7 @@ const mock = vi.hoisted(() => {
     replyReferences: "",
     replyQuotedHtml: "",
     aiDraftContext: null,
+    existingDraftId: null,
     isIntro: false,
     contactId: 0,
     templateFollowUps: null,
@@ -33,6 +34,17 @@ const mock = vi.hoisted(() => {
 });
 
 vi.mock("@/components/compose-email-context", () => ({ useCompose: () => mock.state }));
+vi.mock("@/components/auth-provider", () => ({
+  useAuth: () => ({ user: { id: "u-1" } }),
+}));
+vi.mock("@/hooks/use-capabilities", () => ({
+  useCapabilities: () => ({
+    capabilities: new Set(),
+    loading: false,
+    can: () => true,
+    refresh: async () => {},
+  }),
+}));
 
 // Heavy children — irrelevant to this behavior, and TipTap is unstable in jsdom.
 vi.mock("@/components/ui/rich-text-editor", () => ({ RichTextEditor: () => <div data-testid="rte" /> }));
