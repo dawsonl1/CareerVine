@@ -7,7 +7,7 @@ import {
   X, Plus, Clock, Check, AlertCircle, ChevronRight, Pencil, Wand2,
 } from "lucide-react";
 import type { EmailFollowUp } from "@/lib/types";
-import { isOpenFollowUpMessage } from "@/lib/constants";
+import { isUnresolvedFollowUpMessage } from "@/lib/constants";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
@@ -100,9 +100,9 @@ export function FollowUpModal({
     if (!isOpen) return;
 
     if (existingFollowUp) {
-      // Edit mode — populate from existing open steps (pending or awaiting_review)
+      // Edit mode — pending, awaiting_review, and expired (still editable / sendable)
       const msgs = [...existingFollowUp.email_follow_up_messages]
-        .filter((m) => isOpenFollowUpMessage(m.status))
+        .filter((m) => isUnresolvedFollowUpMessage(m.status))
         .sort((a, b) => a.sequence_number - b.sequence_number);
 
       if (msgs.length === 0) {

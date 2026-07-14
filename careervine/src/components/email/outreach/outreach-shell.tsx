@@ -19,7 +19,11 @@ import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { buildThreads } from "@/lib/gmail-helpers";
-import { isActionableFollowUpMessage, FollowUpMessageStatus } from "@/lib/constants";
+import {
+  isActionableFollowUpMessage,
+  isUnresolvedFollowUpMessage,
+  FollowUpMessageStatus,
+} from "@/lib/constants";
 import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail } from "@/lib/types";
 import { Send, Clock, Reply, PenSquare, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -57,28 +61,22 @@ function daysUntil(value: string | null | undefined): number | null {
   return Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-/** Sequence progress: the soonest pending step, the messages the user can still
- * act on (awaiting_review OR expired-but-sendable), how many were actually sent,
- * and the total. Expired is deliberately NOT counted as sent (CAR-105). */
+/** Sequence progress: every unresolved step (pending + awaiting_review + expired),
+ * the messages the user can still act on, how many were actually sent, and the
+ * total. Expired is deliberately NOT counted as sent (CAR-105). */
 function followUpProgress(fu: EmailFollowUp): {
-  next: EmailFollowUpMessage | null;
+  openSteps: EmailFollowUpMessage[];
   actionable: EmailFollowUpMessage[];
   sentCount: number;
   total: number;
 } {
   const msgs = fu.email_follow_up_messages ?? [];
-  const nextPending =
-    msgs
-      .filter((m) => m.status === FollowUpMessageStatus.Pending)
-      .sort(
-        (a, b) =>
-          new Date(a.scheduled_send_at || 0).getTime() - new Date(b.scheduled_send_at || 0).getTime(),
-      )[0] ?? null;
-  const actionable = msgs
-    .filter((m) => isActionableFollowUpMessage(m.status))
+  const openSteps = msgs
+    .filter((m) => isUnresolvedFollowUpMessage(m.status))
     .sort((a, b) => (a.sequence_number ?? 0) - (b.sequence_number ?? 0));
+  const actionable = openSteps.filter((m) => isActionableFollowUpMessage(m.status));
   const sentCount = msgs.filter((m) => m.status === FollowUpMessageStatus.Sent).length;
-  return { next: nextPending, actionable, sentCount, total: msgs.length };
+  return { openSteps, actionable, sentCount, total: msgs.length };
 }
 
 export function OutreachShell() {
@@ -435,7 +433,9 @@ function FollowUpList({
   return (
     <ul className="flex flex-col gap-2">
       {items.map((fu) => {
-        const { next, actionable, sentCount, total } = followUpProgress(fu);
+        const { openSteps, actionable, sentCount, total } = followUpProgress(fu);
+        const nextPending =
+          openSteps.find((m) => m.status === FollowUpMessageStatus.Pending) ?? null;
         return (
           <Row key={fu.id}>
             <div className="flex items-start justify-between gap-3">
@@ -453,10 +453,10 @@ function FollowUpList({
                   <span className="inline-flex items-center rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
                     Needs review
                   </span>
-                ) : next ? (
+                ) : nextPending ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
                     <Clock className="h-3 w-3" />
-                    Next {fmtDate(next.scheduled_send_at)}
+                    Next {fmtDate(nextPending.scheduled_send_at)}
                   </span>
                 ) : (
                   <span className="text-xs text-muted-foreground">Awaiting reply</span>

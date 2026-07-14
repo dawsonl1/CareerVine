@@ -1,18 +1,23 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailFollowUpUpdateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
+import {
+  buildFollowUpMessageRows,
+  reconcileFollowUpEditStatuses,
+  type PriorFollowUpMessageSnapshot,
+} from "@/lib/follow-up-helpers";
 import {
   FollowUpStatus,
   FollowUpMessageStatus,
-  OPEN_FOLLOW_UP_MESSAGE_STATUSES,
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
 
 /**
  * PUT /api/gmail/follow-ups/[id]
- * Updates the pending messages in a follow-up sequence.
- * Deletes all existing pending messages and replaces them with new ones.
+ * Updates the open messages in a follow-up sequence.
+ * Deletes unresolved messages (pending + awaiting_review + expired) and replaces
+ * them. Content-preserving edits of awaiting_review/expired steps keep that
+ * status + park metadata so Send now still works (CAR-125).
  */
 export const PUT = withApiHandler({
   schema: gmailFollowUpUpdateSchema,
@@ -41,12 +46,26 @@ export const PUT = withApiHandler({
 
     const { messages } = body;
 
-    // Delete existing open messages (pending + awaiting_review) before rebuilding.
+    // Snapshot unresolved steps before rebuild so we can preserve review state.
+    const { data: priorOpen } = await service
+      .from("email_follow_up_messages")
+      .select(
+        "sequence_number, send_after_days, status, parked_at, expires_at, reminder_count, last_reminder_at, seen_during_window",
+      )
+      .eq("follow_up_id", followUpId)
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
+
+    const priorBySequence = new Map<number, PriorFollowUpMessageSnapshot>();
+    for (const row of priorOpen ?? []) {
+      priorBySequence.set(row.sequence_number, row as PriorFollowUpMessageSnapshot);
+    }
+
+    // Delete all unresolved messages (includes expired) before rebuilding.
     await service
       .from("email_follow_up_messages")
       .delete()
       .eq("follow_up_id", followUpId)
-      .in("status", [...OPEN_FOLLOW_UP_MESSAGE_STATUSES]);
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
 
     // Count already-sent messages to offset sequence numbers
     const { count: sentCount } = await service
@@ -55,11 +74,14 @@ export const PUT = withApiHandler({
       .eq("follow_up_id", followUpId);
 
     // Insert new messages with sequence numbers after any already-sent ones
-    const msgRows = buildFollowUpMessageRows(
-      followUpId,
-      messages,
-      new Date(followUp.original_sent_at),
-      sentCount ?? 0,
+    const msgRows = reconcileFollowUpEditStatuses(
+      buildFollowUpMessageRows(
+        followUpId,
+        messages,
+        new Date(followUp.original_sent_at),
+        sentCount ?? 0,
+      ),
+      priorBySequence,
     );
 
     const { error: msgError } = await service
@@ -109,17 +131,15 @@ export const DELETE = withApiHandler({
       throw new ApiError("Not found", 404);
     }
 
-    const now = new Date().toISOString();
-
     // Cancel every unresolved message (pending + awaiting_review + expired) so no
-    // confirm step or still-sendable expired one is orphaned (CAR-102/CAR-105).
+    // sendable orphan remains under a cancelled parent (CAR-105).
     await service
       .from("email_follow_up_messages")
       .update({ status: FollowUpMessageStatus.Cancelled })
       .eq("follow_up_id", followUpId)
       .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
 
-    // Update the sequence status
+    const now = new Date().toISOString();
     await service
       .from("email_follow_ups")
       .update({ status: FollowUpStatus.CancelledUser, updated_at: now })
