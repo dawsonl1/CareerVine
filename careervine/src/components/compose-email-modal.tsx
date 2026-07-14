@@ -1040,6 +1040,7 @@ export function ComposeEmailModal() {
                   loading={introPhase === "generating-followups"}
                   error={followUpAiFailure ? null : followUpError}
                   placeholder={introPhase === "editing" && followUps.length === 0}
+                  recipientFirstName={(selectedContactName || prefillName || "").split(/\s+/)[0] || null}
                   onToggle={setFollowUpsEnabled}
                   onEdit={editFollowUp}
                   onAdd={addManualFollowUp}
@@ -1089,6 +1090,7 @@ export function ComposeEmailModal() {
                       loading={introPhase === "generating-followups"}
                       error={followUpAiFailure ? null : followUpError}
                       placeholder={false}
+                      recipientFirstName={(selectedContactName || prefillName || "").split(/\s+/)[0] || null}
                       onToggle={setFollowUpsEnabled}
                       onEdit={editFollowUp}
                       onAdd={addManualFollowUp}
