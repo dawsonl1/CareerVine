@@ -72,9 +72,10 @@ export default function CalendarPage() {
   const [contactEmailsMap, setContactEmailsMap] = useState<Record<number, string[]>>({});
   const [linkedMeetings, setLinkedMeetings] = useState<Record<string, Meeting>>({});
 
-  // ── Week view: event bubble
+  // ── Week view: event bubble (absolute within weekShell so it scrolls with the page)
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [bubblePos, setBubblePos] = useState({ top: 0, left: 0, alignRight: false });
+  const weekShellRef = useRef<HTMLDivElement>(null);
 
   // ── Week view: drag-to-create
   const gridRef = useRef<HTMLDivElement>(null);
@@ -456,7 +457,8 @@ export default function CalendarPage() {
 
         {/* ── Week Grid View ── */}
         {view === "week" && (
-          <div className="overflow-x-auto relative">
+          <div ref={weekShellRef} className="relative">
+            <div className="overflow-x-auto">
             <div className="min-w-[640px]">
               {/* Day headers */}
               <div className="grid grid-cols-[48px_repeat(7,1fr)] mb-1">
@@ -551,10 +553,20 @@ export default function CalendarPage() {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (event.is_private) return;
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              const alignRight = rect.left > window.innerWidth / 2;
-                              setBubblePos({ top: rect.top, left: alignRight ? rect.left - 4 : rect.right + 4, alignRight });
-                              setSelectedEvent(isSelected ? null : event);
+                              if (isSelected) { setSelectedEvent(null); return; }
+                              const eventRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              const shellRect = weekShellRef.current?.getBoundingClientRect();
+                              if (!shellRect) return;
+                              const alignRight = eventRect.left > window.innerWidth / 2;
+                              // Coords relative to the week shell so absolute positioning scrolls with the page
+                              setBubblePos({
+                                top: eventRect.top - shellRect.top,
+                                left: alignRight
+                                  ? eventRect.left - shellRect.left - 4
+                                  : eventRect.right - shellRect.left + 4,
+                                alignRight,
+                              });
+                              setSelectedEvent(event);
                             }}
                             className={`absolute rounded px-1 py-0.5 overflow-hidden text-[10px] leading-tight cursor-pointer transition-shadow hover:shadow-md ${
                               event.is_private ? "bg-surface-container text-muted-foreground border border-outline-variant/50" : "bg-primary/15 text-primary border border-primary/20"
@@ -586,12 +598,18 @@ export default function CalendarPage() {
                 })()}
               </div>
             </div>
+            </div>
 
-            {/* Event detail bubble */}
+            {/* Event detail bubble — absolute in week shell so it scrolls with the page */}
             {selectedEvent && (
               <div
-                className="fixed z-50 w-80 bg-surface-container-high rounded-[16px] shadow-xl border border-outline-variant/50 p-5"
-                style={{ top: `${bubblePos.top}px`, ...(bubblePos.alignRight ? { right: `${window.innerWidth - bubblePos.left}px` } : { left: `${bubblePos.left}px` }) }}
+                className="absolute z-50 w-80 bg-surface-container-high rounded-[16px] shadow-xl border border-outline-variant/50 p-5"
+                style={{
+                  top: `${bubblePos.top}px`,
+                  ...(bubblePos.alignRight
+                    ? { left: `${bubblePos.left}px`, transform: "translateX(-100%)" }
+                    : { left: `${bubblePos.left}px` }),
+                }}
                 onClick={e => e.stopPropagation()}
               >
                 <div className="flex items-start justify-between gap-2.5 mb-2.5">
