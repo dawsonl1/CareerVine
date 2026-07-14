@@ -81,7 +81,7 @@ export function ContactTimelineTab({
         </div>
       ) : entries.length === 0 ? (
         <p className="text-sm text-muted-foreground py-1">
-          No interactions yet. Use &quot;Log conversation&quot; above to record your first interaction.
+          No interactions yet. Use &quot;Schedule/log conversation&quot; above to record your first interaction.
         </p>
       ) : (
         <div className="relative">

@@ -2104,11 +2104,12 @@ export async function getActionListCounts(userId: string) {
       .eq("user_id", userId)
       .not("follow_up_frequency_days", "is", null),
 
-    // Recently added contacts (last 7 days)
+    // Recently added contacts (last 7 days), active network only to match the rendered Recently Added list
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
+      .eq("network_status", "active")
       .gte("created_at", cutoff),
   ]);
 
@@ -2327,8 +2328,9 @@ export async function getHomeStats(userId: string) {
     supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", false),
     supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", currentStr),
     supabase.from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", previousStr).lt("completed_at", currentStr),
-    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", currentStr),
-    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", previousStr).lt("created_at", currentStr),
+    // "Contacts added" counts the real network only; imported prospects/bench are not contacts the user added (matches the active-only Recently Added list)
+    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("network_status", "active").gte("created_at", currentStr),
+    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("network_status", "active").gte("created_at", previousStr).lt("created_at", currentStr),
     supabase.from("interactions").select("*, contacts!inner()", { count: "exact", head: true }).eq("contacts.user_id", userId).gte("interaction_date", currentStr.split("T")[0]),
     supabase.from("interactions").select("*, contacts!inner()", { count: "exact", head: true }).eq("contacts.user_id", userId).gte("interaction_date", previousStr.split("T")[0]).lt("interaction_date", currentStr.split("T")[0]),
     supabase.from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").gte("date", currentStr.split("T")[0]),
