@@ -120,6 +120,8 @@ describe("sendTrackedEmail", () => {
       direction: "outbound",
       matched_contact_id: 7,
       to_addresses: ["jane@corp.com"],
+      // CAR-115: the full sent body is persisted so free-tier Outreach can re-read it.
+      body_html: OPTS.bodyHtml,
     });
 
     const interaction = inserts.find((i) => i.table === "interactions");

@@ -36,6 +36,8 @@ const payload = {
       to_addresses: ["jane@corp.com"],
       date: "2026-07-10T12:00:00Z",
       matched_contact_id: 5,
+      snippet: "Hi Jane, coffee next week?",
+      body_html: "<p>Hi Jane, coffee next week?</p>",
     },
   ],
   scheduledEmails: [
@@ -110,6 +112,45 @@ describe("OutreachShell — free tier portal", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it("expands a sent email to reveal the persisted body (CAR-115), collapsed by default", async () => {
+    render(<OutreachShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
+
+    // Body is hidden until the row is expanded.
+    expect(screen.queryByText("Hi Jane, coffee next week?")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /expand to read/i }));
+    expect(screen.getByText("Hi Jane, coffee next week?")).toBeTruthy();
+  });
+
+  it("falls back to the stored snippet when a sent email has no persisted body", async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ...payload,
+        emails: [
+          {
+            gmail_message_id: "m2",
+            thread_id: "t2",
+            subject: "Older outreach",
+            direction: "outbound",
+            to_addresses: ["sam@corp.com"],
+            date: "2026-06-01T12:00:00Z",
+            matched_contact_id: null,
+            snippet: "Only a snippet survived for this one",
+            body_html: null,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    render(<OutreachShell />);
+    await waitFor(() => expect(screen.getByText("Older outreach")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /expand to read/i }));
+    expect(screen.getByText("Only a snippet survived for this one")).toBeTruthy();
   });
 
   it("opens the compose modal from the Compose button (send is free)", async () => {
