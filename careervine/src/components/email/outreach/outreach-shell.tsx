@@ -5,8 +5,8 @@
  *
  * The destination for free users (capability `outreach:portal`), selected by
  * EmailExperience. Built entirely on the DB-only /api/gmail/inbox payload: the
- * outreach a user has sent, what is scheduled, and their follow-up plans. No live
- * mailbox read (free users hold only the gmail.send scope), so there is no inbox,
+ * outreach a user has sent, what is scheduled, their follow-up plans, and drafts.
+ * No live mailbox read (free users hold only the gmail.send scope), so there is no inbox,
  * labels, sync, or trash/label actions here. Sent messages DO expand to show the
  * full body, read from the persisted email_messages.body_html we store at send time
  * (CAR-115) — not a live fetch. Composing and sending work (send needs only
@@ -25,13 +25,14 @@ import {
   isUnresolvedFollowUpMessage,
   FollowUpMessageStatus,
 } from "@/lib/constants";
-import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail } from "@/lib/types";
-import { Send, Clock, Reply, PenSquare, Pencil, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight } from "lucide-react";
+import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail, EmailDraft, ContactEmployment } from "@/lib/types";
+import { Send, Clock, Reply, PenSquare, Pencil, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import DOMPurify from "dompurify";
 
-type OutreachTab = "sent" | "scheduled" | "followups";
+type OutreachTab = "sent" | "scheduled" | "followups" | "drafts";
+type ContactDetailsMap = Record<number, ContactEmployment>;
 
 /** Short "Jul 12" / "Jul 12, 2025" date, safe for a client-only render. */
 function fmtDate(value: string | null | undefined): string {
@@ -105,7 +106,23 @@ export function OutreachShell() {
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
   const [followUps, setFollowUps] = useState<EmailFollowUp[]>([]);
+  const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [contactMap, setContactMap] = useState<Record<number, string>>({});
+  const [contactDetails, setContactDetails] = useState<ContactDetailsMap>({});
+  const [cancellingDraftId, setCancellingDraftId] = useState<number | null>(null);
+
+  const loadDrafts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/gmail/drafts");
+      const data = await res.json();
+      setDrafts(data.drafts || []);
+      if (data.contactDetails) {
+        setContactDetails((prev) => ({ ...prev, ...data.contactDetails }));
+      }
+    } catch {
+      // best-effort — drafts are additive to the main inbox payload
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +135,7 @@ export function OutreachShell() {
         setScheduledEmails(data.scheduledEmails || []);
         setFollowUps(data.followUps || []);
         setContactMap(data.contactMap || {});
+        setContactDetails((prev) => ({ ...prev, ...(data.contactDetails || {}) }));
       } else {
         setError(true);
       }
@@ -129,8 +147,17 @@ export function OutreachShell() {
   }, []);
 
   useEffect(() => {
-    if (user) void load();
-  }, [user, load]);
+    if (user) {
+      void load();
+      void loadDrafts();
+    }
+  }, [user, load, loadDrafts]);
+
+  useEffect(() => {
+    const handler = () => void loadDrafts();
+    window.addEventListener("careervine:drafts-changed", handler);
+    return () => window.removeEventListener("careervine:drafts-changed", handler);
+  }, [loadDrafts]);
 
   // Confirm-to-send: the user either sends a parked follow-up now (replied=false)
   // or reports that the contact already replied (replied=true, which cancels + activates).
@@ -164,14 +191,48 @@ export function OutreachShell() {
     [emails],
   );
 
-  const nameFor = useCallback(
-    (contactId: number | null, fallback: string | null | undefined): string =>
-      (contactId != null && contactMap[contactId]) || fallback || "Unknown recipient",
-    [contactMap],
+  const openDraft = useCallback(
+    (draft: EmailDraft) => {
+      const detail =
+        draft.matched_contact_id != null ? contactDetails[draft.matched_contact_id] : null;
+      openCompose({
+        to: draft.recipient_email || undefined,
+        name: detail?.name || draft.contact_name || undefined,
+        subject: draft.subject || undefined,
+        bodyHtml: draft.body_html || undefined,
+        threadId: draft.thread_id || undefined,
+        inReplyTo: draft.in_reply_to || undefined,
+        references: draft.references_header || undefined,
+        draftId: draft.id,
+        contactId: draft.matched_contact_id || undefined,
+      });
+    },
+    [openCompose, contactDetails],
+  );
+
+  const cancelDraft = useCallback(
+    async (draftId: number) => {
+      if (cancellingDraftId) return;
+      setCancellingDraftId(draftId);
+      const previous = drafts;
+      setDrafts((prev) => prev.filter((d) => d.id !== draftId));
+      try {
+        const res = await fetch(`/api/gmail/drafts/${draftId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error();
+        toastSuccess("Draft cancelled");
+      } catch {
+        setDrafts(previous);
+        toastError("Could not cancel this draft");
+      } finally {
+        setCancellingDraftId(null);
+      }
+    },
+    [cancellingDraftId, drafts, toastSuccess, toastError],
   );
 
   const tabs: { key: OutreachTab; label: string; count: number }[] = [
     { key: "sent", label: "Sent", count: sentThreads.length },
+    { key: "drafts", label: "Drafts", count: drafts.length },
     { key: "scheduled", label: "Scheduled", count: scheduledEmails.length },
     { key: "followups", label: "Follow-ups", count: followUps.length },
   ];
@@ -186,7 +247,7 @@ export function OutreachShell() {
           <div>
             <h1 className="text-2xl font-semibold text-on-surface">Outreach</h1>
             <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-              Everything you have sent, what is scheduled next, and your follow-up plans, all in one place.
+              Everything you have sent, drafts in progress, what is scheduled next, and your follow-up plans, all in one place.
             </p>
           </div>
           <Button onClick={() => openCompose()} size="md">
@@ -224,14 +285,24 @@ export function OutreachShell() {
             </nav>
 
             {activeTab === "sent" && (
-              <SentList threads={sentThreads} nameFor={nameFor} onCompose={() => openCompose()} />
+              <SentList threads={sentThreads} contactDetails={contactDetails} contactMap={contactMap} />
+            )}
+            {activeTab === "drafts" && (
+              <DraftsList
+                items={drafts}
+                contactDetails={contactDetails}
+                onEdit={openDraft}
+                onCancel={cancelDraft}
+                cancellingId={cancellingDraftId}
+              />
             )}
             {activeTab === "scheduled" && (
-              <ScheduledList items={scheduledEmails} nameFor={nameFor} />
+              <ScheduledList items={scheduledEmails} contactDetails={contactDetails} contactMap={contactMap} />
             )}
             {activeTab === "followups" && (
               <FollowUpList
                 items={followUps}
+                contactDetails={contactDetails}
                 onConfirm={confirmFollowUp}
                 confirmingId={confirmingId}
                 onEdit={setFollowUpModal}
@@ -279,14 +350,121 @@ function Row({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Recipient line for an Outreach email row (CAR-127).
+ * Contact and company are links when we have ids; role + office are plain text.
+ */
+function RecipientMeta({
+  contactId,
+  fallbackName,
+  contactDetails,
+  contactMap,
+  suffix,
+}: {
+  contactId: number | null | undefined;
+  fallbackName: string | null | undefined;
+  contactDetails: ContactDetailsMap;
+  contactMap?: Record<number, string>;
+  suffix?: string;
+}) {
+  const detail = contactId != null ? contactDetails[contactId] : undefined;
+  const name =
+    detail?.name ||
+    (contactId != null && contactMap?.[contactId]) ||
+    fallbackName ||
+    "Unknown recipient";
+
+  const bits: React.ReactNode[] = [];
+
+  if (contactId != null) {
+    bits.push(
+      <Link
+        key="contact"
+        href={`/contacts/${contactId}`}
+        className="font-medium text-on-surface hover:text-primary hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {name}
+      </Link>,
+    );
+  } else {
+    bits.push(
+      <span key="contact" className="font-medium text-on-surface">
+        {name}
+      </span>,
+    );
+  }
+
+  if (detail?.title) {
+    bits.push(
+      <span key="title" className="text-muted-foreground">
+        {detail.title}
+      </span>,
+    );
+  }
+
+  if (detail?.company_name) {
+    if (detail.company_id != null) {
+      bits.push(
+        <Link
+          key="company"
+          href={`/companies/${detail.company_id}`}
+          className="text-muted-foreground hover:text-primary hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {detail.company_name}
+        </Link>,
+      );
+    } else {
+      bits.push(
+        <span key="company" className="text-muted-foreground">
+          {detail.company_name}
+        </span>,
+      );
+    }
+  }
+
+  if (detail?.location_label) {
+    bits.push(
+      <span key="loc" className="text-muted-foreground">
+        {detail.location_label}
+      </span>,
+    );
+  }
+
+  return (
+    <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+      <span>To</span>
+      {bits.flatMap((bit, i) =>
+        i === 0
+          ? [bit]
+          : [
+              <span key={`sep-${i}`} className="text-muted-foreground/60" aria-hidden>
+                ·
+              </span>,
+              bit,
+            ],
+      )}
+      {suffix ? (
+        <>
+          <span className="text-muted-foreground/60" aria-hidden>
+            ·
+          </span>
+          <span>{suffix.replace(/^·\s*/, "")}</span>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
 function SentList({
   threads,
-  nameFor,
-  onCompose,
+  contactDetails,
+  contactMap,
 }: {
   threads: ReturnType<typeof buildThreads>;
-  nameFor: (contactId: number | null, fallback: string | null | undefined) => string;
-  onCompose: () => void;
+  contactDetails: ContactDetailsMap;
+  contactMap: Record<number, string>;
 }) {
   const { openCompose } = useCompose();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -308,24 +486,29 @@ function SentList({
         return (
           <Row key={t.threadId}>
             <div className="flex items-start justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setExpandedId(isExpanded ? null : t.threadId)}
-                aria-expanded={isExpanded}
-                aria-label={isExpanded ? "Collapse email" : "Expand to read what was sent"}
-                className="flex min-w-0 flex-1 items-start gap-2 text-left"
-              >
-                <span className="mt-0.5 shrink-0 text-muted-foreground">
-                  {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-on-surface">{t.subject}</span>
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                    To {nameFor(t.contactId, to)}
-                    {t.messages.length > 1 ? ` · ${t.messages.length} messages` : ""}
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(isExpanded ? null : t.threadId)}
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? "Collapse email" : "Expand to read what was sent"}
+                  className="flex w-full min-w-0 items-start gap-2 text-left"
+                >
+                  <span className="mt-0.5 shrink-0 text-muted-foreground">
+                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </span>
-                </span>
-              </button>
+                  <span className="block min-w-0 truncate text-sm font-medium text-on-surface">{t.subject}</span>
+                </button>
+                <div className="pl-6">
+                  <RecipientMeta
+                    contactId={t.contactId}
+                    fallbackName={to}
+                    contactDetails={contactDetails}
+                    contactMap={contactMap}
+                    suffix={t.messages.length > 1 ? `${t.messages.length} messages` : undefined}
+                  />
+                </div>
+              </div>
               <div className="flex shrink-0 items-center gap-3">
                 <span className="text-xs text-muted-foreground">{fmtDate(t.latestDate)}</span>
                 <button
@@ -386,10 +569,12 @@ function SentMessageBody({ message, showMeta }: { message: EmailMessage; showMet
 
 function ScheduledList({
   items,
-  nameFor,
+  contactDetails,
+  contactMap,
 }: {
   items: ScheduledEmail[];
-  nameFor: (contactId: number | null, fallback: string | null | undefined) => string;
+  contactDetails: ContactDetailsMap;
+  contactMap: Record<number, string>;
 }) {
   if (items.length === 0) {
     return (
@@ -407,9 +592,12 @@ function ScheduledList({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-on-surface">{s.subject}</p>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                To {nameFor(s.matched_contact_id, s.contact_name || s.recipient_email)}
-              </p>
+              <RecipientMeta
+                contactId={s.matched_contact_id}
+                fallbackName={s.contact_name || s.recipient_email}
+                contactDetails={contactDetails}
+                contactMap={contactMap}
+              />
             </div>
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
               <Clock className="h-3 w-3" />
@@ -418,6 +606,108 @@ function ScheduledList({
           </div>
         </Row>
       ))}
+    </ul>
+  );
+}
+
+function DraftsList({
+  items,
+  contactDetails,
+  onEdit,
+  onCancel,
+  cancellingId,
+}: {
+  items: EmailDraft[];
+  contactDetails: ContactDetailsMap;
+  onEdit: (draft: EmailDraft) => void;
+  onCancel: (draftId: number) => void;
+  cancellingId: number | null;
+}) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        icon={<FileText className="h-6 w-6" />}
+        title="No drafts"
+        hint="Anything you start writing and leave unfinished is auto-saved here."
+      />
+    );
+  }
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {items.map((draft) => {
+        const isExpanded = expandedId === draft.id;
+        return (
+          <Row key={draft.id}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(isExpanded ? null : draft.id)}
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? "Collapse draft" : "Expand to read draft"}
+                  className="flex w-full min-w-0 items-start gap-2 text-left"
+                >
+                  <span className="mt-0.5 shrink-0 text-muted-foreground">
+                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </span>
+                  <span className="block min-w-0 truncate text-sm font-medium text-on-surface">
+                    {draft.subject || "(no subject)"}
+                  </span>
+                </button>
+                <div className="pl-6">
+                  <RecipientMeta
+                    contactId={draft.matched_contact_id}
+                    fallbackName={draft.contact_name || draft.recipient_email || "No recipient"}
+                    contactDetails={contactDetails}
+                  />
+                  {draft.updated_at ? (
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      Updated {fmtDate(draft.updated_at)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onEdit(draft)}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-primary hover:bg-surface-container-high"
+                  aria-label="Edit draft"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  disabled={cancellingId !== null}
+                  onClick={() => onCancel(draft.id)}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-surface-container-high hover:text-on-surface disabled:opacity-50"
+                  aria-label="Cancel draft"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Cancel
+                </button>
+              </div>
+            </div>
+
+            {isExpanded && (
+              <div className="mt-3 border-t border-outline-variant pt-3">
+                {draft.body_html ? (
+                  <div
+                    className="prose prose-sm max-h-[28rem] max-w-none overflow-y-auto [&_*]:!text-on-surface [&_a]:!text-primary [&_a]:underline"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(draft.body_html) }}
+                  />
+                ) : (
+                  <p className="text-sm italic text-muted-foreground">This draft has no body yet.</p>
+                )}
+              </div>
+            )}
+          </Row>
+        );
+      })}
     </ul>
   );
 }
@@ -447,11 +737,13 @@ function ExpiryLabel({ status, expiresAt }: { status: string; expiresAt: string 
 
 function FollowUpList({
   items,
+  contactDetails,
   onConfirm,
   confirmingId,
   onEdit,
 }: {
   items: EmailFollowUp[];
+  contactDetails: ContactDetailsMap;
   onConfirm: (messageId: number, replied: boolean) => void;
   confirmingId: number | null;
   onEdit: (fu: EmailFollowUp) => void;
@@ -476,10 +768,12 @@ function FollowUpList({
                 <p className="truncate text-sm font-medium text-on-surface">
                   {fu.original_subject || "(no subject)"}
                 </p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  To {fu.contact_name || fu.recipient_email || "Unknown recipient"}
-                  {total > 0 ? ` · ${sentCount} of ${total} sent` : ""}
-                </p>
+                <RecipientMeta
+                  contactId={fu.matched_contact_id}
+                  fallbackName={fu.contact_name || fu.recipient_email || "Unknown recipient"}
+                  contactDetails={contactDetails}
+                  suffix={total > 0 ? `${sentCount} of ${total} sent` : undefined}
+                />
               </div>
               <button
                 type="button"

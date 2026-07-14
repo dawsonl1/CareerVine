@@ -184,16 +184,31 @@ export type ScheduledEmail = Database["public"]["Tables"]["scheduled_emails"]["R
 /** A follow-up sequence with its messages */
 export type EmailFollowUp = Database["public"]["Tables"]["email_follow_ups"]["Row"] & {
   email_follow_up_messages: EmailFollowUpMessage[];
+  /** Resolved at read time from recipient_email → contact_emails (CAR-127). */
+  matched_contact_id?: number | null;
 };
 
 /** Individual follow-up message in a sequence */
 export type EmailFollowUpMessage = Database["public"]["Tables"]["email_follow_up_messages"]["Row"];
 
 /** Email draft — auto-saved compose state */
-export type EmailDraft = Database["public"]["Tables"]["email_drafts"]["Row"];
+export type EmailDraft = Database["public"]["Tables"]["email_drafts"]["Row"] & {
+  /** Resolved at read time from recipient_email → contact_emails (CAR-127). */
+  matched_contact_id?: number | null;
+};
 
 /** Email template — user-defined AI email generation template */
 export type EmailTemplate = Database["public"]["Tables"]["email_templates"]["Row"];
+
+/** Current role/company/office for an outreach recipient row (CAR-127). */
+export type ContactEmployment = {
+  id: number;
+  name: string;
+  title: string | null;
+  company_id: number | null;
+  company_name: string | null;
+  location_label: string | null;
+};
 
 // ── Transcript types ──
 

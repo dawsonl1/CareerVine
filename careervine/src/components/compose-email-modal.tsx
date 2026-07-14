@@ -44,7 +44,7 @@ export function ComposeEmailModal() {
   const {
     isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml,
     replyThreadId, replyInReplyTo, replyReferences, replyQuotedHtml,
-    aiDraftContext, isIntro, contactId, templateFollowUps, gmailAddress, closeCompose,
+    aiDraftContext, existingDraftId, isIntro, contactId, templateFollowUps, gmailAddress, closeCompose,
   } = useCompose();
 
   const [showAiContext, setShowAiContext] = useState(false);
@@ -212,7 +212,8 @@ export function ComposeEmailModal() {
       setIntroAiFailure(null);
       setFollowUpAiFailure(null);
       introContextRef.current = { howMet: "", goal: "" };
-      draftIdRef.current = null;
+      // Resume an existing email_drafts row when opened from Drafts (CAR-127).
+      draftIdRef.current = existingDraftId;
       sentOrScheduledRef.current = false;
       setContactSuggestions([]);
       setShowSuggestions(false);
@@ -243,7 +244,7 @@ export function ComposeEmailModal() {
         }
       }, 100);
     }
-  }, [isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml, templateFollowUps]);
+  }, [isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml, templateFollowUps, existingDraftId, aiDraftContext, isIntro, isReply]);
 
   // Contact autocomplete: debounced search
   const searchContacts = useCallback(async (query: string) => {

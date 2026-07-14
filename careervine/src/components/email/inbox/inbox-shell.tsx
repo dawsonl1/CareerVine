@@ -487,9 +487,8 @@ export function InboxShell() {
       threadId: draft.thread_id || undefined,
       inReplyTo: draft.in_reply_to || undefined,
       references: draft.references_header || undefined,
+      draftId: draft.id,
     });
-    // Delete the draft since it's now open in compose
-    deleteDraft(draft.id);
   };
 
   // ── Scheduled / Follow-up cancel ──
