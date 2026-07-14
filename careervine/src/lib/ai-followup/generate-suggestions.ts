@@ -44,43 +44,53 @@ export function invalidateSuggestionCache(userId: string) {
 export async function fetchSuggestionCandidates(userId: string): Promise<SuggestionContact[]> {
   const service = createSupabaseServiceClient();
 
-  // Fetch contacts and last-touch data in parallel (independent queries)
-  const [contactsResult, touchResult] = await Promise.all([
-    service
-      .from("contacts")
-      .select("id, name, photo_url, industry, contact_status, expected_graduation, follow_up_frequency_days, notes, met_through")
-      .eq("user_id", userId)
-      .eq("network_status", "active"), // AI suggestions never target imported prospects/bench
-    service.rpc("get_contacts_with_last_touch", { p_user_id: userId }),
+  const { data: contacts, error } = await service
+    .from("contacts")
+    .select("id, name, photo_url, industry, contact_status, expected_graduation, follow_up_frequency_days, notes, met_through, created_at")
+    .eq("user_id", userId)
+    .eq("network_status", "active"); // AI suggestions never target imported prospects/bench
+
+  if (error || !contacts || contacts.length === 0) return [];
+
+  const contactIds = contacts.map((c) => c.id);
+
+  // Last touch = most recent interaction OR meeting. Computed in TS from the same
+  // source tables as buildLastTouchMap (queries.ts) so the suggestion path shares
+  // one source of truth with the rest of the app — rather than the phantom
+  // `get_contacts_with_last_touch` RPC this used to call, which never existed in
+  // production and silently left every contact "never contacted" (CAR-119).
+  const [{ data: interactionRows }, { data: meetingLinks }] = await Promise.all([
+    service.from("interactions").select("contact_id, interaction_date").in("contact_id", contactIds),
+    service.from("meeting_contacts").select("contact_id, meetings(meeting_date)").in("contact_id", contactIds),
   ]);
 
-  const contacts = contactsResult.data;
-  if (contactsResult.error || !contacts) return [];
-
-  const touchMap = new Map<number, { last_touch: string | null; days_since_touch: number | null }>();
-  for (const t of touchResult.data || []) {
-    touchMap.set(t.id, { last_touch: t.last_touch, days_since_touch: t.days_since_touch });
-  }
-
-  // Fetch interaction counts (select only contact_id, count client-side)
-  const contactIds = contacts.map((c) => c.id);
-  const { data: interactionRows } = await service
-    .from("interactions")
-    .select("contact_id")
-    .in("contact_id", contactIds);
-
-  const countMap = new Map<number, number>();
+  const lastTouch = new Map<number, string>();
+  const interactionCount = new Map<number, number>();
   for (const row of interactionRows || []) {
-    countMap.set(row.contact_id, (countMap.get(row.contact_id) || 0) + 1);
+    interactionCount.set(row.contact_id, (interactionCount.get(row.contact_id) || 0) + 1);
+    const date = row.interaction_date;
+    if (!date) continue;
+    const prev = lastTouch.get(row.contact_id);
+    if (!prev || date > prev) lastTouch.set(row.contact_id, date);
   }
+  for (const ml of (meetingLinks || []) as unknown as { contact_id: number; meetings: { meeting_date: string } | null }[]) {
+    const date = ml.meetings?.meeting_date;
+    if (!date) continue;
+    const prev = lastTouch.get(ml.contact_id);
+    if (!prev || date > prev) lastTouch.set(ml.contact_id, date);
+  }
+
+  const now = Date.now();
+  const daysSince = (iso: string) => Math.floor((now - new Date(iso).getTime()) / 86_400_000);
 
   return contacts.map((c) => {
-    const touch = touchMap.get(c.id);
+    const touch = lastTouch.get(c.id) ?? null;
     return {
       ...c,
-      last_touch: touch?.last_touch ?? null,
-      days_since_touch: touch?.days_since_touch ?? null,
-      interaction_count: countMap.get(c.id) || 0,
+      last_touch: touch,
+      days_since_touch: touch ? daysSince(touch) : null,
+      days_since_added: c.created_at ? daysSince(c.created_at) : null,
+      interaction_count: interactionCount.get(c.id) || 0,
     };
   });
 }
@@ -150,10 +160,11 @@ export function generateNoInteractionCadenceSuggestions(
   const suggestions: Suggestion[] = [];
 
   for (const c of contacts) {
-    // Must have a cadence set, zero interactions, and be overdue
-    if (!c.follow_up_frequency_days || c.interaction_count > 0) continue;
-    if (c.days_since_touch === null) continue;
-    if (c.days_since_touch < c.follow_up_frequency_days) continue;
+    // Must have a cadence set, never been contacted (no interactions OR meetings),
+    // and have been added longer ago than one cadence cycle.
+    if (!c.follow_up_frequency_days || c.last_touch !== null) continue;
+    if (c.days_since_added === null) continue;
+    if (c.days_since_added < c.follow_up_frequency_days) continue;
 
     suggestions.push({
       id: `nointeract-${c.id}`,
@@ -162,12 +173,12 @@ export function generateNoInteractionCadenceSuggestions(
       contactPhotoUrl: c.photo_url,
       contactIndustry: c.industry,
       headline: `You added ${c.name} but haven't had a conversation yet`,
-      evidence: `Added ${c.days_since_touch} days ago · Follow-up cadence is every ${c.follow_up_frequency_days} days`,
+      evidence: `Added ${c.days_since_added} days ago · Follow-up cadence is every ${c.follow_up_frequency_days} days`,
       reasonType: SuggestionReasonType.NoInteractionCadence,
       score: 75,
       suggestedTitle: `Have your first conversation with ${c.name}`,
       suggestedDescription: `You set a ${c.follow_up_frequency_days}-day follow-up cadence but haven't logged an interaction yet. Reach out to start the relationship.`,
-      daysSinceContact: c.days_since_touch,
+      daysSinceContact: null,
     });
   }
 
@@ -214,11 +225,12 @@ export function generateFirstTouchSuggestions(
   const suggestions: Suggestion[] = [];
 
   for (const c of contacts) {
-    // Never contacted, no cadence (NoInteractionCadence handles those), added recently
-    if (c.interaction_count > 0) continue;
+    // Never contacted (no interactions OR meetings), no cadence (NoInteractionCadence
+    // handles those), added recently.
+    if (c.last_touch !== null) continue;
     if (c.follow_up_frequency_days) continue; // handled by NoInteractionCadence
-    if (c.days_since_touch === null) continue; // no touch data at all
-    if (c.days_since_touch > 30) continue; // too old — don't nag about stale contacts
+    if (c.days_since_added === null) continue; // no added date at all
+    if (c.days_since_added > 30) continue; // too old — don't nag about stale contacts
 
     // Build contextual suggested action
     let suggestedTitle: string;
@@ -242,12 +254,12 @@ export function generateFirstTouchSuggestions(
       contactPhotoUrl: c.photo_url,
       contactIndustry: c.industry,
       headline: `You haven't reached out to ${c.name} yet`,
-      evidence: `Added ${c.days_since_touch} day${c.days_since_touch === 1 ? "" : "s"} ago${c.met_through ? ` · Met through ${c.met_through}` : ""}`,
+      evidence: `Added ${c.days_since_added} day${c.days_since_added === 1 ? "" : "s"} ago${c.met_through ? ` · Met through ${c.met_through}` : ""}`,
       reasonType: SuggestionReasonType.FirstTouch,
       score: 72,
       suggestedTitle,
       suggestedDescription,
-      daysSinceContact: c.days_since_touch,
+      daysSinceContact: null,
     });
   }
 

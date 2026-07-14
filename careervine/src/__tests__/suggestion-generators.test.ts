@@ -134,24 +134,39 @@ describe("generateGraduationSuggestions", () => {
 // ── No-Interaction Cadence Suggestions ──────────────────────────────────
 
 describe("generateNoInteractionCadenceSuggestions", () => {
-  it("suggests for zero-interaction contact with overdue cadence", () => {
+  it("suggests for never-contacted contact with overdue cadence", () => {
     const contacts = [makeContact({
       follow_up_frequency_days: 14,
-      interaction_count: 0,
-      days_since_touch: 20,
-      last_touch: "2026-03-01",
+      last_touch: null,
+      days_since_added: 20,
     })];
     const result = generateNoInteractionCadenceSuggestions(contacts);
     expect(result).toHaveLength(1);
     expect(result[0].reasonType).toBe(SuggestionReasonType.NoInteractionCadence);
     expect(result[0].score).toBe(75);
+    // Never contacted → label stays "Never contacted"
+    expect(result[0].daysSinceContact).toBeNull();
+    expect(result[0].evidence).toContain("Added 20 days ago");
   });
 
-  it("skips contact with interactions", () => {
+  it("skips a contact that has already been contacted", () => {
     const contacts = [makeContact({
       follow_up_frequency_days: 14,
-      interaction_count: 1,
-      days_since_touch: 20,
+      last_touch: "2026-03-01",
+      days_since_touch: 3,
+      days_since_added: 20,
+    })];
+    const result = generateNoInteractionCadenceSuggestions(contacts);
+    expect(result).toHaveLength(0);
+  });
+
+  it("skips a contact whose only touch is a meeting (no interactions logged)", () => {
+    const contacts = [makeContact({
+      follow_up_frequency_days: 14,
+      last_touch: "2026-03-01",
+      days_since_touch: 5,
+      interaction_count: 0,
+      days_since_added: 20,
     })];
     const result = generateNoInteractionCadenceSuggestions(contacts);
     expect(result).toHaveLength(0);
@@ -160,8 +175,8 @@ describe("generateNoInteractionCadenceSuggestions", () => {
   it("skips contact without cadence", () => {
     const contacts = [makeContact({
       follow_up_frequency_days: null,
-      interaction_count: 0,
-      days_since_touch: 20,
+      last_touch: null,
+      days_since_added: 20,
     })];
     const result = generateNoInteractionCadenceSuggestions(contacts);
     expect(result).toHaveLength(0);
@@ -170,18 +185,18 @@ describe("generateNoInteractionCadenceSuggestions", () => {
   it("skips contact not yet overdue", () => {
     const contacts = [makeContact({
       follow_up_frequency_days: 30,
-      interaction_count: 0,
-      days_since_touch: 20,
+      last_touch: null,
+      days_since_added: 20,
     })];
     const result = generateNoInteractionCadenceSuggestions(contacts);
     expect(result).toHaveLength(0);
   });
 
-  it("skips contact with null days_since_touch", () => {
+  it("skips contact with null days_since_added", () => {
     const contacts = [makeContact({
       follow_up_frequency_days: 14,
-      interaction_count: 0,
-      days_since_touch: null,
+      last_touch: null,
+      days_since_added: null,
     })];
     const result = generateNoInteractionCadenceSuggestions(contacts);
     expect(result).toHaveLength(0);
@@ -255,24 +270,26 @@ describe("generateDecayWarningSuggestions", () => {
 describe("generateFirstTouchSuggestions", () => {
   const today = new Date("2026-03-20");
 
-  it("suggests for new contact with no interactions and no cadence", () => {
+  it("suggests for a recently-added, never-contacted contact with no cadence", () => {
     const contacts = [makeContact({
-      interaction_count: 0,
+      last_touch: null,
       follow_up_frequency_days: null,
-      days_since_touch: 5,
+      days_since_added: 5,
     })];
     const result = generateFirstTouchSuggestions(contacts, today);
     expect(result).toHaveLength(1);
     expect(result[0].reasonType).toBe(SuggestionReasonType.FirstTouch);
     expect(result[0].score).toBe(72);
     expect(result[0].headline).toContain("haven't reached out");
+    // Never contacted → label stays "Never contacted"
+    expect(result[0].daysSinceContact).toBeNull();
   });
 
   it("uses met_through context when available", () => {
     const contacts = [makeContact({
-      interaction_count: 0,
+      last_touch: null,
       follow_up_frequency_days: null,
-      days_since_touch: 3,
+      days_since_added: 3,
       met_through: "Career Fair 2026",
     })];
     const result = generateFirstTouchSuggestions(contacts, today);
@@ -283,9 +300,9 @@ describe("generateFirstTouchSuggestions", () => {
 
   it("uses industry context when no met_through", () => {
     const contacts = [makeContact({
-      interaction_count: 0,
+      last_touch: null,
       follow_up_frequency_days: null,
-      days_since_touch: 7,
+      days_since_added: 7,
       industry: "Finance",
     })];
     const result = generateFirstTouchSuggestions(contacts, today);
@@ -293,11 +310,24 @@ describe("generateFirstTouchSuggestions", () => {
     expect(result[0].suggestedDescription).toContain("Finance");
   });
 
-  it("skips contacts with interactions", () => {
+  it("skips contacts that have already been contacted", () => {
     const contacts = [makeContact({
-      interaction_count: 1,
+      last_touch: "2026-03-01",
+      days_since_touch: 2,
       follow_up_frequency_days: null,
-      days_since_touch: 5,
+      days_since_added: 5,
+    })];
+    const result = generateFirstTouchSuggestions(contacts, today);
+    expect(result).toHaveLength(0);
+  });
+
+  it("skips a contact whose only touch is a meeting (no interactions logged)", () => {
+    const contacts = [makeContact({
+      last_touch: "2026-03-18",
+      days_since_touch: 2,
+      interaction_count: 0,
+      follow_up_frequency_days: null,
+      days_since_added: 5,
     })];
     const result = generateFirstTouchSuggestions(contacts, today);
     expect(result).toHaveLength(0);
@@ -305,9 +335,9 @@ describe("generateFirstTouchSuggestions", () => {
 
   it("skips contacts with cadence (handled by NoInteractionCadence)", () => {
     const contacts = [makeContact({
-      interaction_count: 0,
+      last_touch: null,
       follow_up_frequency_days: 14,
-      days_since_touch: 5,
+      days_since_added: 5,
     })];
     const result = generateFirstTouchSuggestions(contacts, today);
     expect(result).toHaveLength(0);
@@ -315,9 +345,9 @@ describe("generateFirstTouchSuggestions", () => {
 
   it("skips contacts added more than 30 days ago", () => {
     const contacts = [makeContact({
-      interaction_count: 0,
+      last_touch: null,
       follow_up_frequency_days: null,
-      days_since_touch: 35,
+      days_since_added: 35,
     })];
     const result = generateFirstTouchSuggestions(contacts, today);
     expect(result).toHaveLength(0);
@@ -325,27 +355,27 @@ describe("generateFirstTouchSuggestions", () => {
 
   it("includes contacts at exactly 30 days", () => {
     const contacts = [makeContact({
-      interaction_count: 0,
+      last_touch: null,
       follow_up_frequency_days: null,
-      days_since_touch: 30,
+      days_since_added: 30,
     })];
     const result = generateFirstTouchSuggestions(contacts, today);
     expect(result).toHaveLength(1);
   });
 
-  it("skips contacts with null days_since_touch", () => {
+  it("skips contacts with null days_since_added", () => {
     const contacts = [makeContact({
-      interaction_count: 0,
+      last_touch: null,
       follow_up_frequency_days: null,
-      days_since_touch: null,
+      days_since_added: null,
     })];
     const result = generateFirstTouchSuggestions(contacts, today);
     expect(result).toHaveLength(0);
   });
 
   it("pluralizes days correctly", () => {
-    const one = [makeContact({ interaction_count: 0, days_since_touch: 1 })];
-    const five = [makeContact({ interaction_count: 0, days_since_touch: 5 })];
+    const one = [makeContact({ last_touch: null, days_since_added: 1 })];
+    const five = [makeContact({ last_touch: null, days_since_added: 5 })];
     const r1 = generateFirstTouchSuggestions(one, today);
     const r5 = generateFirstTouchSuggestions(five, today);
     expect(r1[0].evidence).toContain("1 day ago");
