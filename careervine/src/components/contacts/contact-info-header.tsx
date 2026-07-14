@@ -294,7 +294,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
                 type="button"
                 variant="tonal"
                 size="sm"
-                onClick={() => openCompose({ to: primaryEmail, name: contact.name })}
+                onClick={() => openCompose({ to: primaryEmail, name: contact.name, contactId: contact.id })}
               >
                 <Send className="h-5 w-5" /> Email
               </Button>
@@ -330,7 +330,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
                         type="button"
                         className="ml-0.5 p-0.5 rounded text-muted-foreground hover:text-primary transition-colors cursor-pointer"
                         title={`Send to ${email.email}`}
-                        onClick={() => openCompose({ to: email.email!, name: contact.name })}
+                        onClick={() => openCompose({ to: email.email!, name: contact.name, contactId: contact.id })}
                       >
                         <Send className="h-3 w-3" />
                       </button>

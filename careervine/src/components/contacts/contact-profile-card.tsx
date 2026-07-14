@@ -343,7 +343,7 @@ export function ContactProfileCard({
           )}
           {gmailConnected && primaryEmail && !editingEmail && (
             <button
-              onClick={() => openCompose({ to: primaryEmail, name: contact.name })}
+              onClick={() => openCompose({ to: primaryEmail, name: contact.name, contactId: contact.id })}
               className="p-1 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
               title="Send email"
             >

@@ -12,6 +12,8 @@ import { AiWriteDropdown } from "@/components/ai-write-dropdown";
 import { AvailabilityPicker } from "@/components/availability-picker";
 import { IntroContextForm } from "@/components/intro-context-form";
 import { FollowUpPlanSection, type FollowUpDraft } from "@/components/follow-up-plan-section";
+import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { track } from "@/lib/analytics/client";
@@ -33,9 +35,9 @@ const inputClasses =
 const fieldRowClasses =
   "flex items-center border-b border-outline-variant/50";
 
-function toLocalDatetimeString(date: Date): string {
+function toLocalDateString(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 export function ComposeEmailModal() {
@@ -51,6 +53,8 @@ export function ComposeEmailModal() {
   // Follow-up plan state (intro flow only)
   const [followUps, setFollowUps] = useState<FollowUpDraft[]>([]);
   const [followUpsEnabled, setFollowUpsEnabled] = useState(true);
+  // Regular (non-intro) compose: whether the user opened the follow-up planner (CAR-120).
+  const [showFollowUps, setShowFollowUps] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [introError, setIntroError] = useState<string | null>(null);
   const [introAiFailure, setIntroAiFailure] = useState<AiFailureCode | null>(null);
@@ -76,6 +80,9 @@ export function ComposeEmailModal() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [scheduled, setScheduled] = useState(false);
+  // The exact time a scheduled send landed on — drives the confirmation copy,
+  // and works whether the time came from the pickers or a quick-schedule button.
+  const [confirmedSendAt, setConfirmedSendAt] = useState<Date | null>(null);
   const [error, setError] = useState("");
   // Provenance warning for scraped/pattern-guessed/bounced addresses (plan 24)
   const [emailMeta, setEmailMeta] = useState<{ id: number; source: string; bounced_at: string | null } | null>(null);
@@ -91,12 +98,15 @@ export function ComposeEmailModal() {
     return () => clearTimeout(t);
   }, [to]);
 
-  // Schedule send state
+  // Schedule send state — custom date + time pickers (CAR-120)
   const [showSchedule, setShowSchedule] = useState(false);
-  const [scheduleDatetime, setScheduleDatetime] = useState("");
+  const [scheduleDate, setScheduleDate] = useState(""); // YYYY-MM-DD
+  const [scheduleTime, setScheduleTime] = useState(""); // HH:MM (24h)
 
   const toRef = useRef<HTMLInputElement>(null);
   const draftIdRef = useRef<number | null>(null);
+  // Monotonic id source for manually-added follow-up steps (CAR-120).
+  const followUpIdRef = useRef(0);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sentOrScheduledRef = useRef(false);
 
@@ -105,12 +115,21 @@ export function ComposeEmailModal() {
   const [contactSuggestions, setContactSuggestions] = useState<Array<{ id: number; name: string; email: string; emails: string[] }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedContactName, setSelectedContactName] = useState("");
+  // Contact resolved from the recipient autocomplete — lets Outreach's blank compose
+  // attach follow-ups without an explicit contactId prop (CAR-120).
+  const [matchedContactId, setMatchedContactId] = useState<number | null>(null);
   const [contactEmailOptions, setContactEmailOptions] = useState<string[]>([]);
   const contactSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  // Minimum datetime is 5 minutes from now
-  const minDatetime = toLocalDatetimeString(new Date(Date.now() + 5 * 60_000));
+  // Combined scheduled-send time from the custom date + time pickers (CAR-120).
+  const scheduledAt = scheduleDate && scheduleTime ? new Date(`${scheduleDate}T${scheduleTime}`) : null;
+
+  // Follow-ups attach to a contact: the explicit prop (contact-page compose) or the
+  // one resolved from the recipient autocomplete (Outreach compose). The intro flow
+  // has its own follow-up UI, so the regular-compose entry excludes it (CAR-120).
+  const activeContactId = contactId || matchedContactId || 0;
+  const followUpsAvailable = !isReply && !isIntro && activeContactId > 0;
 
   const saveDraft = useCallback(async (fields: { to: string; cc: string; bcc: string; subject: string; bodyHtml: string }) => {
     // Don't save empty drafts
@@ -165,7 +184,9 @@ export function ComposeEmailModal() {
       setScheduled(false);
       setError("");
       setShowSchedule(false);
-      setScheduleDatetime("");
+      setScheduleDate("");
+      setScheduleTime("");
+      setConfirmedSendAt(null);
       setShowAiContext(false);
       // Pre-written follow-ups (onboarding templates) skip the AI generate
       // gate entirely: the plan arrives ready and stays fully editable.
@@ -185,6 +206,7 @@ export function ComposeEmailModal() {
         setFollowUps([]);
       }
       setFollowUpsEnabled(true);
+      setShowFollowUps(false);
       setFollowUpError(null);
       setIntroError(null);
       setIntroAiFailure(null);
@@ -197,6 +219,7 @@ export function ComposeEmailModal() {
       setSelectedContactName(prefillName || "");
       setContactQuery("");
       setContactEmailOptions([]);
+      setMatchedContactId(null);
       // AI-followup drafts arrive pre-filled with AI content; anything else
       // starts as a human draft until an AI generation lands in the body.
       aiBodyRef.current = aiDraftContext && prefillBodyHtml ? prefillBodyHtml : null;
@@ -239,6 +262,7 @@ export function ComposeEmailModal() {
   const handleToChange = (value: string) => {
     setTo(value);
     setSelectedContactName("");
+    setMatchedContactId(null);
     setContactEmailOptions([]);
     // If it looks like an email already, don't search
     if (value.includes("@")) {
@@ -253,6 +277,7 @@ export function ComposeEmailModal() {
   const handleSelectContact = (contact: { id: number; name: string; email: string; emails: string[] }) => {
     setTo(contact.email);
     setSelectedContactName(contact.name);
+    setMatchedContactId(contact.id);
     setShowSuggestions(false);
     setContactSuggestions([]);
     setContactEmailOptions(contact.emails.length > 1 ? contact.emails : []);
@@ -301,18 +326,20 @@ export function ComposeEmailModal() {
     scheduledEmailId?: number;
     sendTime: Date;
   }) => {
-    if (!isIntro || !followUpsEnabled || followUps.length === 0 || !contactId) return;
+    // Fire for the intro flow OR a regular compose where the user opened the planner,
+    // as long as follow-ups are enabled, non-empty, and a contact is resolved (CAR-120).
+    if ((!isIntro && !showFollowUps) || !followUpsEnabled || followUps.length === 0 || !activeContactId) return;
     try {
       await fetch("/api/email-follow-ups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contactId,
+          contactId: activeContactId,
           threadId: opts.threadId || null,
           messageId: opts.messageId || null,
           scheduledEmailId: opts.scheduledEmailId || null,
           recipientEmail: to.trim(),
-          contactName: prefillName || null,
+          contactName: selectedContactName || prefillName || null,
           originalSubject: subject.trim(),
           originalSentAt: opts.sendTime.toISOString(),
           timezoneOffsetMinutes: new Date().getTimezoneOffset(),
@@ -326,7 +353,7 @@ export function ComposeEmailModal() {
     } catch (err) {
       console.warn("[follow-ups] Failed to create follow-up records:", err);
     }
-  }, [isIntro, followUpsEnabled, followUps, contactId, to, prefillName, subject]);
+  }, [isIntro, showFollowUps, followUpsEnabled, followUps, activeContactId, to, selectedContactName, prefillName, subject]);
 
   // Shared follow-up generation logic (used by approve button + retry)
   const generateFollowUps = useCallback(async () => {
@@ -338,7 +365,7 @@ export function ComposeEmailModal() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contactId,
+          contactId: activeContactId,
           introSubject: subject,
           introBodyHtml: bodyHtml,
           goal: introContextRef.current.goal || undefined,
@@ -367,7 +394,45 @@ export function ComposeEmailModal() {
       setFollowUpError("Failed to generate follow-ups. Try again.");
       setIntroPhase("editing");
     }
-  }, [contactId, subject, bodyHtml]);
+  }, [activeContactId, subject, bodyHtml]);
+
+  // Follow-up list mutations, shared by the intro and regular-compose planners.
+  const editFollowUp = useCallback((id: string, updates: Partial<FollowUpDraft>) => {
+    setFollowUps((prev) =>
+      prev.map((fu) => {
+        if (fu.id !== id) return fu;
+        const updated = { ...fu, ...updates };
+        // Recalculate projected date when the delay changes.
+        if (updates.delayDays && updates.delayDays !== fu.delayDays) {
+          updated.projectedDate = formatProjectedDate(updates.delayDays);
+        }
+        return updated;
+      }),
+    );
+  }, []);
+
+  const removeFollowUp = useCallback((id: string) => {
+    setFollowUps((prev) => prev.filter((fu) => fu.id !== id));
+  }, []);
+
+  // Manual step: appended a week after the last one, empty body for the user to
+  // write. No-AI users build a whole plan this way (CAR-120).
+  const addManualFollowUp = useCallback(() => {
+    setFollowUps((prev) => {
+      const delayDays = (prev.length ? prev[prev.length - 1].delayDays : 0) + 7 || 7;
+      const trimmed = subject.trim();
+      return [
+        ...prev,
+        {
+          id: `fu-manual-${followUpIdRef.current++}`,
+          subject: trimmed ? (trimmed.startsWith("Re:") ? trimmed : `Re: ${trimmed}`) : "Following up",
+          bodyHtml: "",
+          delayDays,
+          projectedDate: formatProjectedDate(delayDays),
+        },
+      ];
+    });
+  }, [subject]);
 
   const handleSendNow = async () => {
     if (!validate()) return;
@@ -450,7 +515,7 @@ export function ComposeEmailModal() {
 
   const handleScheduleSend = async (sendAtOverride?: Date) => {
     if (!validate()) return;
-    const sendAt = sendAtOverride || (scheduleDatetime ? new Date(scheduleDatetime) : null);
+    const sendAt = sendAtOverride || scheduledAt;
     if (!sendAt) {
       setError("Please select a date and time to send");
       return;
@@ -483,6 +548,7 @@ export function ComposeEmailModal() {
       if (!res.ok) throw new Error(data.error);
 
       setScheduled(true);
+      setConfirmedSendAt(sendAt);
       sentOrScheduledRef.current = true;
       deleteDraft();
 
@@ -592,7 +658,7 @@ export function ComposeEmailModal() {
             </div>
             <p className="text-base text-foreground font-medium">
               {scheduled
-                ? `Scheduled for ${new Date(scheduleDatetime).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                ? `Scheduled for ${confirmedSendAt ? confirmedSendAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`
                 : "Your email has been sent"}
             </p>
           </div>
@@ -975,49 +1041,81 @@ export function ComposeEmailModal() {
                   error={followUpAiFailure ? null : followUpError}
                   placeholder={introPhase === "editing" && followUps.length === 0}
                   onToggle={setFollowUpsEnabled}
-                  onEdit={(id, updates) => {
-                    setFollowUps((prev) =>
-                      prev.map((fu) => {
-                        if (fu.id !== id) return fu;
-                        const updated = { ...fu, ...updates };
-                        // Recalculate projected date when delay changes
-                        if (updates.delayDays && updates.delayDays !== fu.delayDays) {
-                          updated.projectedDate = formatProjectedDate(updates.delayDays);
-                        }
-                        return updated;
-                      })
-                    );
-                  }}
-                  onRemove={(id) => {
-                    setFollowUps((prev) => prev.filter((fu) => fu.id !== id));
-                  }}
+                  onEdit={editFollowUp}
+                  onAdd={addManualFollowUp}
+                  onRemove={removeFollowUp}
                   onRetry={generateFollowUps}
                 />
               </div>
             )}
 
-            {/* Schedule send row */}
+            {/* Follow-up plan (regular compose, CAR-120) */}
+            {followUpsAvailable && (
+              <div className="px-5">
+                {!showFollowUps ? (
+                  <div className="flex justify-center py-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowFollowUps(true)}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
+                    >
+                      <Clock className="h-4 w-4" />
+                      Add follow-ups
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {followUps.length === 0 && introPhase !== "generating-followups" && (
+                      <div className="flex justify-center py-3">
+                        <button
+                          type="button"
+                          onClick={generateFollowUps}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          Generate with AI
+                        </button>
+                      </div>
+                    )}
+                    {followUpAiFailure && (
+                      <div className="pb-3">
+                        <AiUnavailableNotice code={followUpAiFailure} onRetry={generateFollowUps} />
+                      </div>
+                    )}
+                    <FollowUpPlanSection
+                      followUps={followUps}
+                      badgeLabel={null}
+                      enabled={followUpsEnabled}
+                      loading={introPhase === "generating-followups"}
+                      error={followUpAiFailure ? null : followUpError}
+                      placeholder={false}
+                      onToggle={setFollowUpsEnabled}
+                      onEdit={editFollowUp}
+                      onAdd={addManualFollowUp}
+                      onRemove={removeFollowUp}
+                      onRetry={generateFollowUps}
+                    />
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Schedule send row — custom date + time pickers (CAR-120) */}
             {showSchedule && (
               <div className="px-7 pt-2.5 pb-1.5">
-                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-tertiary-container/20 border border-tertiary/15">
-                  <Clock className="h-5 w-5 text-tertiary shrink-0" />
+                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-tertiary-container/20 border border-tertiary/15">
+                  <Clock className="h-5 w-5 text-tertiary shrink-0 mt-2.5" />
                   <div className="flex-1 min-w-0">
-                    <label className="text-sm font-medium text-foreground block mb-1.5" htmlFor="schedule-datetime">
-                      Send at
-                    </label>
-                    <input
-                      id="schedule-datetime"
-                      type="datetime-local"
-                      value={scheduleDatetime}
-                      min={minDatetime}
-                      onChange={(e) => setScheduleDatetime(e.target.value)}
-                      className="w-full h-9 px-2.5 rounded-lg border border-outline bg-surface-container-low text-base text-foreground focus:outline-none focus:border-primary"
-                    />
+                    <span className="text-sm font-medium text-foreground block mb-1.5">Send at</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <DatePicker value={scheduleDate} onChange={setScheduleDate} placeholder="Pick a date" />
+                      <TimePicker value={scheduleTime} onChange={setScheduleTime} placeholder="Pick a time" />
+                    </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => { setShowSchedule(false); setScheduleDatetime(""); }}
-                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
+                    onClick={() => { setShowSchedule(false); setScheduleDate(""); setScheduleTime(""); }}
+                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer shrink-0 mt-2.5"
                     title="Cancel scheduling"
                   >
                     <X className="h-4 w-4" />
@@ -1079,7 +1177,16 @@ export function ComposeEmailModal() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setShowSchedule(true)}
+                      onClick={() => {
+                        // Default to tomorrow 9:05 AM so the pickers open populated.
+                        if (!scheduleDate && !scheduleTime) {
+                          const t = new Date();
+                          t.setDate(t.getDate() + 1);
+                          setScheduleDate(toLocalDateString(t));
+                          setScheduleTime("09:05");
+                        }
+                        setShowSchedule(true);
+                      }}
                     >
                       <Clock className="h-4 w-4 mr-1.5" />
                       Schedule
@@ -1095,7 +1202,7 @@ export function ComposeEmailModal() {
                     size="sm"
                     onClick={() => handleScheduleSend()}
                     loading={sending}
-                    disabled={!scheduleDatetime}
+                    disabled={!scheduledAt}
                   >
                     <Clock className="h-4 w-4 mr-1.5" />
                     Schedule send
