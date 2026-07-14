@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import AuthForm from "./auth-form";
+import { EXTENSION_STORE_URL } from "@/lib/extension-store";
 
 /* ── Feature data ── */
 
@@ -24,6 +25,8 @@ type Feature = {
   headline: string;
   tagline: string;
   details: string[];
+  /** Optional outbound CTA shown under the detail list (e.g. Chrome Web Store). */
+  cta?: { label: string; href: string };
 };
 
 const features: Feature[] = [
@@ -130,6 +133,10 @@ const features: Feature[] = [
       "Duplicate detection checks LinkedIn URLs before importing",
       "Profile photos are downloaded and stored with the contact",
     ],
+    cta: {
+      label: "Install from the Chrome Web Store",
+      href: EXTENSION_STORE_URL,
+    },
   },
 ];
 
@@ -172,16 +179,30 @@ function DetailPanel({
         </div>
 
         {/* Details */}
-        <ul className="flex-1 space-y-2.5">
-          {feature.details.map((detail, j) => (
-            <li key={j} className="flex items-start gap-2.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-primary mt-[7px] shrink-0" />
-              <span className="text-sm text-muted-foreground leading-relaxed">
-                {detail}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="flex-1 space-y-3">
+          <ul className="space-y-2.5">
+            {feature.details.map((detail, j) => (
+              <li key={j} className="flex items-start gap-2.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary mt-[7px] shrink-0" />
+                <span className="text-sm text-muted-foreground leading-relaxed">
+                  {detail}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {feature.cta && (
+            <a
+              href={feature.cta.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+            >
+              {feature.cta.label}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </a>
+          )}
+        </div>
 
         {/* Close */}
         <button

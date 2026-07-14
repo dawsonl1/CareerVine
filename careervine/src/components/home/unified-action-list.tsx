@@ -21,6 +21,7 @@ import {
   Building2,
 } from "lucide-react";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
+import { EXTENSION_STORE_URL } from "@/lib/extension-store";
 
 // ── Action button with colored hover + animated label ──
 
@@ -240,10 +241,6 @@ function GettingStartedList({
   /** Persist a dismissal for one getting-started row (CAR-73). */
   onDismissGettingStarted: (id: string) => void;
 }) {
-  // Set by CAR-40 when the extension ships on the Chrome Web Store; until
-  // then the extension row stays informational rather than a dead link.
-  const extensionUrl = process.env.NEXT_PUBLIC_EXTENSION_STORE_URL;
-
   // Ordered by payoff-per-effort for a brand-new account (CAR-50): seed a
   // network first, aim it at a company, then wire up sending.
   const items: Array<{
@@ -282,9 +279,7 @@ function GettingStartedList({
           icon: <Chrome className="h-6 w-6 text-[#39656b]" />,
           title: "Install the Chrome extension",
           subtitle: "Add contacts from LinkedIn in one click",
-          ...(extensionUrl
-            ? { onClick: () => window.open(extensionUrl, "_blank", "noopener") }
-            : {}),
+          onClick: () => window.open(EXTENSION_STORE_URL, "_blank", "noopener"),
         }]
       : []),
     {

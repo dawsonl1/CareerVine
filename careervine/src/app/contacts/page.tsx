@@ -32,6 +32,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Tooltip } from "@/components/ui/tooltip";
+import { EXTENSION_STORE_URL } from "@/lib/extension-store";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 
@@ -535,7 +536,16 @@ export default function ContactsPage() {
                 Add people you meet: colleagues, mentors, classmates, or anyone worth staying in touch with.
               </p>
               <p className="text-sm text-muted-foreground mb-6">
-                You can also import contacts from LinkedIn using the Chrome extension.
+                You can also{" "}
+                <a
+                  href={EXTENSION_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  import contacts from LinkedIn using the Chrome extension
+                </a>
+                .
               </p>
               <Button onClick={() => setShowForm(true)}>
                 <Plus className="h-[18px] w-[18px]" /> Add your first contact

@@ -29,10 +29,9 @@ import {
 import { deleteActionItem, getOnboardingActionItemId, updateActionItem } from "@/lib/queries";
 import { isChromeLike } from "@/lib/browser-detect";
 import { track } from "@/lib/analytics/client";
+import { EXTENSION_STORE_URL } from "@/lib/extension-store";
 
-const CV_STORE_URL =
-  process.env.NEXT_PUBLIC_EXTENSION_STORE_URL ||
-  "https://chromewebstore.google.com/detail/careervine-linkedin-integ/kckdmkjjfcnjlhilgdgfggpgodlmbacd";
+const CV_STORE_URL = EXTENSION_STORE_URL;
 const APOLLO_STORE_URL =
   "https://chromewebstore.google.com/detail/apolloio-free-b2b-phone-n/alhgpfoeiimagjlnfekdhkjlkiomcapa";
 
