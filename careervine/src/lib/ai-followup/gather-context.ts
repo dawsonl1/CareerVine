@@ -26,7 +26,7 @@ export interface ContactContext {
 interface MeetingContext {
   id: number;
   date: string;
-  type: string;
+  type: string | null;
   title: string | null;
   notes: string | null;
   transcriptExcerpt: string | null;

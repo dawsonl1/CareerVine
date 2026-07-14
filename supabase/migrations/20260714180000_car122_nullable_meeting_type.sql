@@ -1,0 +1,1 @@
+ALTER TABLE meetings ALTER COLUMN meeting_type DROP NOT NULL;

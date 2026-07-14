@@ -23,7 +23,7 @@ type UserTemplate = PresetTemplate & {
 type Meeting = {
   id: number;
   meeting_date: string;
-  meeting_type: string;
+  meeting_type: string | null;
   notes: string | null;
   transcript: string | null;
   contacts?: string;
@@ -243,7 +243,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground">
                             {new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                            <span className="ml-2 font-normal text-muted-foreground">({m.meeting_type})</span>
+                            <span className="ml-2 font-normal text-muted-foreground">({m.meeting_type || "Meeting"})</span>
                           </p>
                           {m.notes && (
                             <p className="text-xs text-muted-foreground truncate mt-0.5">{m.notes.substring(0, 80)}</p>

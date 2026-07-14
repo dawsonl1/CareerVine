@@ -337,7 +337,7 @@ export type Database = {
           id: number;                    // Auto-incrementing primary key
           user_id: string;               // Foreign key to users
           meeting_date: string;          // When the meeting occurred
-          meeting_type: string;           // Type of meeting (coffee, video, etc.)
+          meeting_type: string | null;    // Type of meeting (coffee, video, etc.); optional for bare calendar events
           title: string | null;          // Custom meeting name (overrides auto-generated)
           notes: string | null;          // Meeting notes (past meetings)
           private_notes: string | null;  // Private reminders for future meetings

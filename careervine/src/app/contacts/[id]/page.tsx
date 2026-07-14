@@ -31,7 +31,7 @@ type ActionItem = {
   description: string | null;
   due_at: string | null;
   is_completed: boolean;
-  meetings: { id: number; meeting_type: string; meeting_date: string } | null;
+  meetings: { id: number; meeting_type: string | null; meeting_date: string } | null;
   action_item_contacts?: { contact_id: number; contacts: { id: number; name: string } | null }[];
 };
 type CompletedAction = {
@@ -40,7 +40,7 @@ type CompletedAction = {
   due_at: string | null;
   is_completed: boolean;
   completed_at: string | null;
-  meetings: { id: number; meeting_type: string; meeting_date: string } | null;
+  meetings: { id: number; meeting_type: string | null; meeting_date: string } | null;
 };
 type Attachment = {
   id: number;

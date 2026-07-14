@@ -24,7 +24,7 @@ type ActionItem = {
   is_completed: boolean;
   direction?: string | null;
   created_at?: string | null;
-  meetings: { id: number; meeting_type: string; meeting_date: string } | null;
+  meetings: { id: number; meeting_type: string | null; meeting_date: string } | null;
   action_item_contacts?: { contact_id: number; contacts: { id: number; name: string } | null }[];
 };
 
@@ -35,7 +35,7 @@ type CompletedAction = {
   is_completed: boolean;
   completed_at: string | null;
   direction?: string | null;
-  meetings: { id: number; meeting_type: string; meeting_date: string } | null;
+  meetings: { id: number; meeting_type: string | null; meeting_date: string } | null;
 };
 
 interface ContactActionsTabProps {
@@ -419,7 +419,7 @@ export function ContactActionsTab({
                       { value: "", label: "No linked meeting" },
                       ...meetings.map((m) => ({
                         value: String(m.id),
-                        label: `${m.meeting_type.charAt(0).toUpperCase() + m.meeting_type.slice(1)} · ${new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+                        label: `${(m.meeting_type ? m.meeting_type.charAt(0).toUpperCase() + m.meeting_type.slice(1) : (m.title || "Meeting"))} · ${new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
                       })),
                     ]}
                   />

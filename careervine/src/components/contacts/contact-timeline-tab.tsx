@@ -103,7 +103,7 @@ export function ContactTimelineTab({
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-base font-medium text-foreground capitalize">{m.meeting_type}</span>
+                        <span className="text-base font-medium text-foreground capitalize">{m.title || m.meeting_type || "Meeting"}</span>
                         <span className="text-sm text-muted-foreground">
                           {new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </span>
