@@ -9,6 +9,10 @@ import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/re
  */
 
 vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <nav /> }));
+vi.mock("@/components/follow-up-modal", () => ({
+  FollowUpModal: ({ isOpen }: { isOpen: boolean }) =>
+    isOpen ? <div role="dialog" aria-label="Edit follow-ups">Edit follow-ups modal</div> : null,
+}));
 // Stable user reference (created once in the factory closure) — matches the real
 // context-backed useAuth, so the load effect doesn't re-run on every render.
 vi.mock("@/components/auth-provider", () => {
@@ -57,8 +61,28 @@ const payload = {
       recipient_email: "amy@y.com",
       contact_id: null,
       contact_name: "Amy",
+      original_sent_at: "2026-07-01T12:00:00Z",
+      original_gmail_message_id: "orig-1",
+      thread_id: "th-1",
       email_follow_up_messages: [
-        { id: 1, status: "awaiting_review", subject: "Quick nudge", sequence_number: 1, send_after_days: 7, scheduled_send_at: "2026-07-25T09:00:00Z" },
+        {
+          id: 1,
+          status: "awaiting_review",
+          subject: "Quick nudge",
+          sequence_number: 1,
+          send_after_days: 7,
+          scheduled_send_at: "2026-07-08T09:00:00Z",
+          expires_at: "2026-07-22T09:00:00Z",
+        },
+        {
+          id: 2,
+          status: "pending",
+          subject: "Second check-in",
+          sequence_number: 2,
+          send_after_days: 14,
+          scheduled_send_at: "2026-07-15T09:00:00Z",
+          expires_at: null,
+        },
       ],
     },
   ],
@@ -112,6 +136,20 @@ describe("OutreachShell — free tier portal", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it("shows pending steps with subject and opens Edit follow-ups modal (CAR-125)", async () => {
+    render(<OutreachShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
+    fireEvent.click(screen.getByText("Follow-ups"));
+
+    expect(screen.getByText(/Step 1: Quick nudge/)).toBeTruthy();
+    expect(screen.getByText(/Step 2: Second check-in/)).toBeTruthy();
+    expect(screen.getByText("Needs confirm")).toBeTruthy();
+    expect(screen.getByText(/Scheduled Jul 15/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /edit follow-ups/i }));
+    expect(screen.getByRole("dialog", { name: /edit follow-ups/i })).toBeTruthy();
   });
 
   it("expands a sent email to reveal the persisted body (CAR-115), collapsed by default", async () => {

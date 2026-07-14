@@ -27,6 +27,7 @@ CareerVine runs background automations through QStash so important outreach task
 - Scheduled emails are sent on a recurring cron tick.
 - Each scheduled-email cron run now reports delivery lag and throughput health so capacity risks are visible before sends fall behind.
 - Follow-up sequence steps are processed every 15 minutes.
+- On free Outreach, every pending and waiting follow-up step is visible with subject and date, editable before send, with confirm-to-send still applying when due.
 - Bundle sync jobs fan out on publish with a daily safety-net sweep.
 
 This keeps delivery and data freshness reliable without requiring users to keep a tab open.

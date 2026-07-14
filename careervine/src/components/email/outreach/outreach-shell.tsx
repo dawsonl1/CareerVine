@@ -18,6 +18,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
+import { FollowUpModal } from "@/components/follow-up-modal";
 import { buildThreads } from "@/lib/gmail-helpers";
 import {
   isActionableFollowUpMessage,
@@ -25,7 +26,7 @@ import {
   FollowUpMessageStatus,
 } from "@/lib/constants";
 import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail } from "@/lib/types";
-import { Send, Clock, Reply, PenSquare, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Send, Clock, Reply, PenSquare, Pencil, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import DOMPurify from "dompurify";
@@ -61,6 +62,17 @@ function daysUntil(value: string | null | undefined): number | null {
   return Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
+/** Status chip for an open follow-up step on Outreach (CAR-125). */
+function openStepChip(status: string): { label: string; className: string } {
+  if (status === FollowUpMessageStatus.AwaitingReview) {
+    return { label: "Needs confirm", className: "bg-primary/15 text-primary" };
+  }
+  if (status === FollowUpMessageStatus.Expired) {
+    return { label: "Expired", className: "bg-surface-container-high text-muted-foreground" };
+  }
+  return { label: "Scheduled", className: "bg-secondary text-secondary-foreground" };
+}
+
 /** Sequence progress: every unresolved step (pending + awaiting_review + expired),
  * the messages the user can still act on, how many were actually sent, and the
  * total. Expired is deliberately NOT counted as sent (CAR-105). */
@@ -88,6 +100,7 @@ export function OutreachShell() {
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [error, setError] = useState(false);
   const [activeTab, setActiveTab] = useState<OutreachTab>("sent");
+  const [followUpModal, setFollowUpModal] = useState<EmailFollowUp | null>(null);
 
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
@@ -217,11 +230,31 @@ export function OutreachShell() {
               <ScheduledList items={scheduledEmails} nameFor={nameFor} />
             )}
             {activeTab === "followups" && (
-              <FollowUpList items={followUps} onConfirm={confirmFollowUp} confirmingId={confirmingId} />
+              <FollowUpList
+                items={followUps}
+                onConfirm={confirmFollowUp}
+                confirmingId={confirmingId}
+                onEdit={setFollowUpModal}
+              />
             )}
           </>
         )}
       </main>
+
+      <FollowUpModal
+        isOpen={!!followUpModal}
+        onClose={() => {
+          setFollowUpModal(null);
+          void load();
+        }}
+        recipientEmail={followUpModal?.recipient_email || ""}
+        contactName={followUpModal?.contact_name || null}
+        originalSubject={followUpModal?.original_subject || ""}
+        originalSentAt={followUpModal?.original_sent_at || new Date().toISOString()}
+        originalGmailMessageId={followUpModal?.original_gmail_message_id || ""}
+        threadId={followUpModal?.thread_id || ""}
+        existingFollowUp={followUpModal}
+      />
     </>
   );
 }
@@ -416,10 +449,12 @@ function FollowUpList({
   items,
   onConfirm,
   confirmingId,
+  onEdit,
 }: {
   items: EmailFollowUp[];
   onConfirm: (messageId: number, replied: boolean) => void;
   confirmingId: number | null;
+  onEdit: (fu: EmailFollowUp) => void;
 }) {
   if (items.length === 0) {
     return (
@@ -434,8 +469,6 @@ function FollowUpList({
     <ul className="flex flex-col gap-2">
       {items.map((fu) => {
         const { openSteps, actionable, sentCount, total } = followUpProgress(fu);
-        const nextPending =
-          openSteps.find((m) => m.status === FollowUpMessageStatus.Pending) ?? null;
         return (
           <Row key={fu.id}>
             <div className="flex items-start justify-between gap-3">
@@ -448,56 +481,87 @@ function FollowUpList({
                   {total > 0 ? ` · ${sentCount} of ${total} sent` : ""}
                 </p>
               </div>
-              <div className="shrink-0 text-right">
-                {actionable.length > 0 ? (
-                  <span className="inline-flex items-center rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
-                    Needs review
-                  </span>
-                ) : nextPending ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
-                    <Clock className="h-3 w-3" />
-                    Next {fmtDate(nextPending.scheduled_send_at)}
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Awaiting reply</span>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => onEdit(fu)}
+                className="shrink-0 rounded-full p-2 text-muted-foreground transition-colors hover:text-primary"
+                title="Edit follow-ups"
+                aria-label="Edit follow-ups"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
             </div>
 
-            {actionable.length > 0 && (
-              <div className="mt-3 space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                <p className="text-xs font-medium text-on-surface">
-                  Ready to send. Did {fu.contact_name || "they"} already reply?
-                </p>
-                {actionable.map((m) => {
+            {openSteps.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {openSteps.map((m) => {
+                  const chip = openStepChip(m.status);
+                  const actionableStep = isActionableFollowUpMessage(m.status);
                   const expired = m.status === FollowUpMessageStatus.Expired;
                   return (
-                    <div key={m.id} className="flex flex-wrap items-center justify-between gap-2">
-                      <div className={`min-w-0 ${expired ? "opacity-60" : ""}`}>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          Step {m.sequence_number}: {m.subject}
-                        </span>
-                        <ExpiryLabel status={m.status} expiresAt={m.expires_at} />
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={confirmingId !== null}
-                          onClick={() => onConfirm(m.id, true)}
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                          They replied
-                        </Button>
-                        <Button size="sm" disabled={confirmingId !== null} onClick={() => onConfirm(m.id, false)}>
-                          <Send className="h-3.5 w-3.5" />
-                          Send now
-                        </Button>
+                    <div
+                      key={m.id}
+                      className={`rounded-lg border p-3 ${
+                        actionableStep
+                          ? "border-primary/20 bg-primary/5"
+                          : "border-outline-variant bg-surface-container-low/40"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className={`min-w-0 ${expired ? "opacity-60" : ""}`}>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-on-surface">
+                              Step {m.sequence_number}: {m.subject}
+                            </span>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${chip.className}`}
+                            >
+                              {chip.label}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            {m.status === FollowUpMessageStatus.Pending
+                              ? `Scheduled ${fmtDate(m.scheduled_send_at)}`
+                              : m.status === FollowUpMessageStatus.Expired
+                                ? "Still sendable"
+                                : `Due ${fmtDate(m.scheduled_send_at)}`}
+                          </p>
+                          {actionableStep && (
+                            <ExpiryLabel status={m.status} expiresAt={m.expires_at} />
+                          )}
+                        </div>
+                        {actionableStep && (
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={confirmingId !== null}
+                              onClick={() => onConfirm(m.id, true)}
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              They replied
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={confirmingId !== null}
+                              onClick={() => onConfirm(m.id, false)}
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                              Send now
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
+            )}
+
+            {actionable.length > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Ready to send. Did {fu.contact_name || "they"} already reply?
+              </p>
             )}
           </Row>
         );
