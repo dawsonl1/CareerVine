@@ -7,8 +7,10 @@
  * EmailExperience. Built entirely on the DB-only /api/gmail/inbox payload: the
  * outreach a user has sent, what is scheduled, and their follow-up plans. No live
  * mailbox read (free users hold only the gmail.send scope), so there is no inbox,
- * body-expand, labels, sync, or trash/label actions here. Composing and sending
- * work (send needs only gmail.send), via the shared compose modal.
+ * labels, sync, or trash/label actions here. Sent messages DO expand to show the
+ * full body, read from the persisted email_messages.body_html we store at send time
+ * (CAR-115) — not a live fetch. Composing and sending work (send needs only
+ * gmail.send), via the shared compose modal.
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
@@ -19,9 +21,10 @@ import Navigation from "@/components/navigation";
 import { buildThreads } from "@/lib/gmail-helpers";
 import { isActionableFollowUpMessage, FollowUpMessageStatus } from "@/lib/constants";
 import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail } from "@/lib/types";
-import { Send, Clock, Reply, PenSquare, Loader2, Inbox as InboxIcon, ArrowUpRight, Check } from "lucide-react";
+import { Send, Clock, Reply, PenSquare, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import DOMPurify from "dompurify";
 
 type OutreachTab = "sent" | "scheduled" | "followups";
 
@@ -255,6 +258,7 @@ function SentList({
   onCompose: () => void;
 }) {
   const { openCompose } = useCompose();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   if (threads.length === 0) {
     return (
       <EmptyState
@@ -269,16 +273,28 @@ function SentList({
       {threads.map((t) => {
         const last = t.messages[t.messages.length - 1];
         const to = last?.to_addresses?.[0] ?? null;
+        const isExpanded = expandedId === t.threadId;
         return (
           <Row key={t.threadId}>
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-on-surface">{t.subject}</p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  To {nameFor(t.contactId, to)}
-                  {t.messages.length > 1 ? ` · ${t.messages.length} messages` : ""}
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setExpandedId(isExpanded ? null : t.threadId)}
+                aria-expanded={isExpanded}
+                aria-label={isExpanded ? "Collapse email" : "Expand to read what was sent"}
+                className="flex min-w-0 flex-1 items-start gap-2 text-left"
+              >
+                <span className="mt-0.5 shrink-0 text-muted-foreground">
+                  {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-on-surface">{t.subject}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    To {nameFor(t.contactId, to)}
+                    {t.messages.length > 1 ? ` · ${t.messages.length} messages` : ""}
+                  </span>
+                </span>
+              </button>
               <div className="flex shrink-0 items-center gap-3">
                 <span className="text-xs text-muted-foreground">{fmtDate(t.latestDate)}</span>
                 <button
@@ -298,10 +314,42 @@ function SentList({
                 </button>
               </div>
             </div>
+
+            {isExpanded && (
+              <div className="mt-3 space-y-4 border-t border-outline-variant pt-3">
+                {t.messages.map((m) => (
+                  <SentMessageBody key={m.id} message={m} showMeta={t.messages.length > 1} />
+                ))}
+              </div>
+            )}
           </Row>
         );
       })}
     </ul>
+  );
+}
+
+/** One sent message inside an expanded thread. Renders the persisted HTML body
+ * (DOMPurify-sanitized) when present (CAR-115), falls back to the stored plaintext
+ * snippet for messages sent before bodies were saved, and shows a gentle note if
+ * neither exists. Never does a live mailbox read: everything comes from the DB payload. */
+function SentMessageBody({ message, showMeta }: { message: EmailMessage; showMeta: boolean }) {
+  return (
+    <div>
+      {showMeta && (
+        <p className="mb-1 text-[11px] font-medium text-muted-foreground">{fmtDateTime(message.date)}</p>
+      )}
+      {message.body_html ? (
+        <div
+          className="prose prose-sm max-h-[28rem] max-w-none overflow-y-auto [&_*]:!text-on-surface [&_a]:!text-primary [&_a]:underline"
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(message.body_html) }}
+        />
+      ) : message.snippet ? (
+        <p className="whitespace-pre-wrap text-sm text-on-surface">{message.snippet}</p>
+      ) : (
+        <p className="text-sm italic text-muted-foreground">The text of this email was not saved.</p>
+      )}
+    </div>
   );
 }
 
