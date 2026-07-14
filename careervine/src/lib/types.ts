@@ -114,7 +114,7 @@ export type MeetingActionsMap = Record<number, ActionItemWithContacts[]>;
 export type ContactMeeting = {
   id: number;
   meeting_date: string;
-  meeting_type: string;
+  meeting_type: string | null;
   title: string | null;
   notes: string | null;
   private_notes: string | null;

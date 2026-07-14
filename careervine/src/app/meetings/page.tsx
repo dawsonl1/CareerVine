@@ -319,7 +319,7 @@ export default function MeetingsPage() {
               const names = m.meeting_contacts.map(mc => mc.contacts?.name || "").join(" ");
               return (
                 title.toLowerCase().includes(q) ||
-                m.meeting_type.toLowerCase().includes(q) ||
+                m.meeting_type?.toLowerCase().includes(q) ||
                 (m.notes || "").toLowerCase().includes(q) ||
                 ((m as any).private_notes || "").toLowerCase().includes(q) ||
                 names.toLowerCase().includes(q)
@@ -398,7 +398,7 @@ export default function MeetingsPage() {
                       <Calendar className="h-7 w-7 text-on-secondary-container" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-lg font-medium text-foreground">{(meeting as any).title || <span className="capitalize">{meeting.meeting_type}</span>}</h3>
+                      <h3 className="text-lg font-medium text-foreground">{(meeting as any).title || <span className="capitalize">{meeting.meeting_type || "Meeting"}</span>}</h3>
                       <p className="text-base text-muted-foreground">
                         {new Date(meeting.meeting_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         {" · "}

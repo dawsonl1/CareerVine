@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Calendar, MapPin, Video, Clock, Users, X } from "lucide-react";
+import { packOverlappingEvents } from "@/lib/calendar-layout";
 
 export interface ScheduleEventAttendee {
   email: string;
@@ -208,9 +209,9 @@ function EventPopover({
       ref={popoverRef}
       className="absolute z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant w-[300px] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
       style={{
-        // Position to the left of the event block, or overlay if not enough room
+        // Beside the event block (wrapper is already offset by event.top)
         right: "calc(100% + 8px)",
-        top: Math.max(0, event.top - 20),
+        top: 0,
       }}
     >
       {/* Action bar */}
@@ -492,9 +493,9 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
   const showNowLine = nowHour >= startHour && nowHour <= endHour;
   const nowTop = (nowHour - startHour) * HOUR_HEIGHT;
 
-  // Position events
+  // Position events with side-by-side packing for overlaps
   const positionedEvents = useMemo(() => {
-    return events.map((event) => {
+    const withGeometry = events.map((event) => {
       const start = new Date(event.start_at);
       const end = new Date(event.end_at);
       const startFrac = start.getHours() + start.getMinutes() / 60;
@@ -504,7 +505,21 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
       const top = (startFrac - startHour) * HOUR_HEIGHT;
       const height = Math.max((endFrac - startFrac) * HOUR_HEIGHT, MIN_EVENT_HEIGHT);
       const timeLabel = start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-      return { ...event, top, height, timeLabel };
+      return {
+        ...event,
+        top,
+        height,
+        timeLabel,
+        startMs: start.getTime(),
+        endMs: end.getTime(),
+      };
+    });
+    const packed = packOverlappingEvents(
+      withGeometry.map((e) => ({ id: e.id, startMs: e.startMs, endMs: e.endMs }))
+    );
+    return withGeometry.map((event) => {
+      const slot = packed.get(event.id) ?? { columnIndex: 0, columnCount: 1 };
+      return { ...event, columnIndex: slot.columnIndex, columnCount: slot.columnCount };
     });
   }, [events, startHour]);
 
@@ -664,13 +679,25 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
           )}
 
           {/* Event blocks */}
-          {positionedEvents.map((event) => (
-            <div key={event.id} data-event-block className="absolute" style={{ top: event.top, height: event.height, left: LABEL_WIDTH + 4, right: 0 }}>
+          {positionedEvents.map((event) => {
+            const contentLeft = LABEL_WIDTH + 4;
+            const colCount = event.columnCount;
+            const colIndex = event.columnIndex;
+            return (
+            <div
+              key={event.id}
+              data-event-block
+              className="absolute"
+              style={{
+                top: event.top,
+                height: event.height,
+                left: `calc(${contentLeft}px + (100% - ${contentLeft}px) * ${colIndex} / ${colCount})`,
+                width: `calc((100% - ${contentLeft}px) / ${colCount} - 2px)`,
+              }}
+            >
               <div
                 onClick={() => {
                   setSelectedEventId(selectedEventId === event.id ? null : event.id);
-                  if (event.title?.includes("Dawson Pitcher")) {
-                  }
                 }}
                 className={`h-full rounded-lg border-l-[3px] border-primary px-3 py-1.5 overflow-hidden transition-colors cursor-pointer ${
                   selectedEventId === event.id ? "bg-primary/20" : "bg-primary/10 hover:bg-primary/15"
@@ -707,7 +734,8 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
                 />
               )}
             </div>
-          ))}
+            );
+          })}
 
           {/* Drag preview */}
           {dragPreview && (

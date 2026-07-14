@@ -50,6 +50,19 @@ export const DELETE = withApiHandler({
       .eq("google_event_id", googleEventId)
       .eq("user_id", user.id);
 
+    // Cascade: remove any CareerVine meeting row linked to this Google event
+    const { data: linked } = await service
+      .from("meetings")
+      .select("id")
+      .eq("calendar_event_id", googleEventId)
+      .eq("user_id", user.id);
+
+    if (linked && linked.length > 0) {
+      const ids = linked.map((m) => m.id);
+      await service.from("meeting_contacts").delete().in("meeting_id", ids);
+      await service.from("meetings").delete().in("id", ids).eq("user_id", user.id);
+    }
+
     return { success: true };
   },
 });

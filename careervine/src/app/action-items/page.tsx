@@ -343,7 +343,7 @@ export default function ActionItemsPage() {
             </div>
             <p className="text-base text-muted-foreground">
               {(item.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || item.contacts?.name || "No contact"}
-              {item.meetings && <span> · <Calendar className="inline h-4 w-4 mb-0.5" /> {item.meetings.meeting_type}</span>}
+              {item.meetings && <span> · <Calendar className="inline h-4 w-4 mb-0.5" /> {item.meetings.title || item.meetings.meeting_type || "Meeting"}</span>}
               {isAiGenerated(item) && <span> · {item.source === ActionItemSource.AiSuggestion ? "AI suggestion" : "From transcript"}</span>}
             </p>
             {isAiGenerated(item) && item.suggestion_headline && (
@@ -424,7 +424,7 @@ export default function ActionItemsPage() {
               </div>
               <p className="text-base text-muted-foreground">
                 {(item.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || item.contacts?.name || "No contact"}
-                {item.meetings && <span> · <Calendar className="inline h-4 w-4 mb-0.5" /> {item.meetings.meeting_type}</span>}
+                {item.meetings && <span> · <Calendar className="inline h-4 w-4 mb-0.5" /> {item.meetings.title || item.meetings.meeting_type || "Meeting"}</span>}
                 {isAiGenerated(item) && <span> · {item.source === ActionItemSource.AiSuggestion ? "AI suggestion" : "From transcript"}</span>}
               </p>
               <p className="mt-2 text-sm text-tertiary">
@@ -747,7 +747,7 @@ export default function ActionItemsPage() {
                     </h3>
                     <div className="p-5 rounded-[12px] bg-surface-container">
                       <div className="flex items-center gap-3 mb-3">
-                        <span className="text-base font-medium text-foreground capitalize">{selectedItem.meetings.meeting_type}</span>
+                        <span className="text-base font-medium text-foreground capitalize">{selectedItem.meetings.title || selectedItem.meetings.meeting_type || "Meeting"}</span>
                         <span className="text-sm text-muted-foreground">
                           {new Date(selectedItem.meetings.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </span>
