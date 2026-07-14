@@ -5,6 +5,7 @@ import { useClickOutside } from "@/hooks/use-click-outside";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { StateSelect } from "@/components/ui/state-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
@@ -12,7 +13,7 @@ import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
 import { Modal } from "@/components/ui/modal";
 import {
   updateContact, findOrCreateSchool, addSchoolToContact,
-  removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact,
+  removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact, resolveManualCompanyLocation,
   removeCompaniesFromContact, removeEmailsFromContact, addEmailToContact,
   removePhonesFromContact, addPhoneToContact, getTags, createTag,
   addTagToContact, removeTagFromContact, findOrCreateLocation,
@@ -23,6 +24,7 @@ import {
   Tag, Briefcase, GraduationCap, Trash2,
 } from "lucide-react";
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
+import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 
@@ -52,6 +54,8 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
   const [preferredContactKey, setPreferredContactKey] = useState("");
   const [showEducation, setShowEducation] = useState(false);
   const [showCustomFrequency, setShowCustomFrequency] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const [allTags, setAllTags] = useState<TagRow[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -81,7 +85,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       degree: schoolInfo?.degree || "",
       field_of_study: schoolInfo?.field_of_study || "",
       location_city: contact.locations?.city || "",
-      location_state: contact.locations?.state || "",
+      location_state: isUnitedStates(contact.locations?.country || "United States")
+        ? (canonicalUsState(contact.locations?.state) ?? contact.locations?.state ?? "")
+        : (contact.locations?.state || ""),
       location_country: contact.locations?.country || "United States",
     });
     setCompanies(
@@ -126,6 +132,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
   }, [isOpen, contact]);
 
   const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       const contactData = {
         user_id: userId,
@@ -171,11 +180,15 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       for (const entry of companies) {
         if (entry.company_name.trim()) {
           const company = await findOrCreateCompany(entry.company_name.trim());
+          const loc = await resolveManualCompanyLocation(entry.location);
           await addCompanyToContact({
             contact_id: contact.id,
             company_id: company.id,
             title: entry.title || null,
-            location: entry.location || null,
+            location: loc.location,
+            location_id: loc.location_id,
+            location_source: loc.location_source,
+            location_raw: loc.location_raw,
             is_current: entry.is_current,
             start_date: null,
             end_date: null,
@@ -225,6 +238,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       toastSuccess("Contact saved");
     } catch {
       toastError("Failed to save contact");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -285,7 +301,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
           </div>
           <div>
             <label className={labelClasses}>State</label>
-            <input type="text" value={formData.location_state} onChange={(e) => setFormData({ ...formData, location_state: e.target.value })} className={inputClasses} placeholder="e.g. CA" />
+            <StateSelect country={formData.location_country} value={formData.location_state} onChange={(val) => setFormData({ ...formData, location_state: val })} />
           </div>
           <div>
             <label className={labelClasses}>Country</label>
@@ -535,8 +551,8 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
             Delete contact
           </button>
           <div className="flex gap-2">
-            <Button type="button" variant="text" onClick={onClose}>Cancel</Button>
-            <Button type="submit">Save</Button>
+            <Button type="button" variant="text" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="submit" loading={saving} disabled={saving}>Save</Button>
           </div>
         </div>
       </form>

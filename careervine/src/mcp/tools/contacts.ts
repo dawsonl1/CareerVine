@@ -54,7 +54,14 @@ export const addContactSchema = {
     .object({ name: z.string(), degree: z.string().optional(), field_of_study: z.string().optional() })
     .optional(),
   location: z
-    .object({ city: z.string().optional(), state: z.string().optional(), country: z.string() })
+    .object({
+      city: z.string().optional(),
+      state: z
+        .string()
+        .optional()
+        .describe('Full US state name preferred (e.g. "California", not "CA") — normalized on save'),
+      country: z.string(),
+    })
     .optional(),
 };
 
