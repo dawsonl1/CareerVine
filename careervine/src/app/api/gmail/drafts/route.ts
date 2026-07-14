@@ -1,15 +1,22 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { gmailDraftSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import {
+  loadContactEmploymentMap,
+  resolveEmailsToContactIds,
+  type ContactEmployment,
+} from "@/lib/contact-employment";
 
 /**
  * GET /api/gmail/drafts
  * Returns all drafts for the current user, ordered by most recently updated.
+ * CAR-127: each draft is enriched with matched_contact_id + contactDetails for
+ * Outreach recipient lines (live from contact_companies, not denormalized).
  */
 export const GET = withApiHandler({
   authOptional: true,
   handler: async ({ user }) => {
-    if (!user) return { drafts: [] };
+    if (!user) return { drafts: [], contactDetails: {} as Record<number, ContactEmployment> };
     const service = createSupabaseServiceClient();
     const { data, error } = await service
       .from("email_drafts")
@@ -18,7 +25,27 @@ export const GET = withApiHandler({
       .order("updated_at", { ascending: false });
 
     if (error) throw error;
-    return { drafts: data || [] };
+    const draftsRaw = data || [];
+
+    const emailToContact = await resolveEmailsToContactIds(
+      service,
+      user.id,
+      draftsRaw.map((d: { recipient_email?: string | null }) => d.recipient_email),
+    );
+
+    const drafts = draftsRaw.map((d: { recipient_email?: string | null }) => {
+      const matched =
+        (d.recipient_email && emailToContact.get(d.recipient_email.toLowerCase())) || null;
+      return { ...d, matched_contact_id: matched };
+    });
+
+    const ids = drafts
+      .map((d: { matched_contact_id?: number | null }) => d.matched_contact_id)
+      .filter((id: number | null | undefined): id is number => id != null);
+
+    const contactDetails = await loadContactEmploymentMap(service, user.id, ids);
+
+    return { drafts, contactDetails };
   },
 });
 

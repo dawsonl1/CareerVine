@@ -88,6 +88,24 @@ const payload = {
     },
   ],
   contactMap: { 5: "Jane Doe" },
+  contactDetails: {
+    5: {
+      id: 5,
+      name: "Jane Doe",
+      title: "Product Manager",
+      company_id: 9,
+      company_name: "Acme",
+      location_label: "SF, CA",
+    },
+    7: {
+      id: 7,
+      name: "Leo",
+      title: "Recruiter",
+      company_id: 11,
+      company_name: "Samsara",
+      location_label: "Remote",
+    },
+  },
   gmailAddress: "me@gmail.com",
 };
 
@@ -98,6 +116,7 @@ const draftsPayload = {
       user_id: "u-1",
       recipient_email: "leo@corp.com",
       contact_name: "Leo",
+      matched_contact_id: 7,
       cc: null,
       bcc: null,
       subject: "Half-finished intro",
@@ -109,6 +128,16 @@ const draftsPayload = {
       created_at: "2026-07-14T11:00:00Z",
     },
   ],
+  contactDetails: {
+    7: {
+      id: 7,
+      name: "Leo",
+      title: "Recruiter",
+      company_id: 11,
+      company_name: "Samsara",
+      location_label: "Remote",
+    },
+  },
 };
 
 function mockFetch(inbox = payload, drafts = draftsPayload) {
@@ -136,7 +165,10 @@ describe("OutreachShell — free tier portal", () => {
   it("renders the sent thread by default, with the contact name resolved", async () => {
     render(<OutreachShell />);
     await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
-    expect(screen.getByText(/To Jane Doe/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Jane Doe" }).getAttribute("href")).toBe("/contacts/5");
+    expect(screen.getByText("Product Manager")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Acme" }).getAttribute("href")).toBe("/companies/9");
+    expect(screen.getByText("SF, CA")).toBeTruthy();
     // tab counts
     expect(screen.getByText("Sent")).toBeTruthy();
     expect(screen.getByText("Drafts")).toBeTruthy();
@@ -236,7 +268,10 @@ describe("OutreachShell — free tier portal", () => {
 
     fireEvent.click(screen.getByText("Drafts"));
     await waitFor(() => expect(screen.getByText("Half-finished intro")).toBeTruthy());
-    expect(screen.getByText(/To Leo/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Leo" }).getAttribute("href")).toBe("/contacts/7");
+    expect(screen.getByText("Recruiter")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Samsara" }).getAttribute("href")).toBe("/companies/11");
+    expect(screen.getByText("Remote")).toBeTruthy();
 
     // Body hidden until expand
     expect(screen.queryByText(/still drafting this/)).toBeNull();
@@ -250,6 +285,7 @@ describe("OutreachShell — free tier portal", () => {
         name: "Leo",
         subject: "Half-finished intro",
         draftId: 42,
+        contactId: 7,
       }),
     );
 
