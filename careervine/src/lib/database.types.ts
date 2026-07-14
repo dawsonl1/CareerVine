@@ -513,10 +513,13 @@ export type Database = {
           direction: string | null;
           matched_contact_id: number | null;
           created_at: string | null;
+          /** CAR-115: full HTML body of an outbound message, persisted at send time so free-tier Outreach can re-read it. Null for pre-CAR-115 rows, inbound, and sync rows (UI falls back to snippet). */
+          body_html: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["email_messages"]["Row"], "id" | "created_at" | "is_simulated" | "ai_assisted"> & {
+        Insert: Omit<Database["public"]["Tables"]["email_messages"]["Row"], "id" | "created_at" | "is_simulated" | "ai_assisted" | "body_html"> & {
           is_simulated?: boolean;
           ai_assisted?: boolean;
+          body_html?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["email_messages"]["Insert"]>;
       };

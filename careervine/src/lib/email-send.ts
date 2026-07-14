@@ -113,6 +113,11 @@ export async function sendTrackedEmail(
       thread_id: result.threadId || null,
       subject: opts.subject,
       snippet: opts.bodyHtml ? opts.bodyHtml.replace(/<[^>]*>/g, "").slice(0, 200) : null,
+      // Persist the full body so free-tier Outreach can re-read the sent message
+      // without a live Gmail fetch (CAR-115). Every outbound path — interactive
+      // send, MCP send_email, scheduled-email cron, follow-up cron — flows through
+      // here, so this one write-site covers them all.
+      body_html: opts.bodyHtml || null,
       from_address: conn?.gmail_address?.toLowerCase() || "",
       to_addresses: [toAddr],
       date: sentAt,
