@@ -22,7 +22,7 @@ export function ContactQuickActions({
   return (
     <div className="flex flex-wrap gap-2.5">
       <Button variant="tonal" size="sm" onClick={onLogConversation}>
-        <MessageSquare className="h-5 w-5" /> Log conversation
+        <MessageSquare className="h-5 w-5" /> Schedule/log conversation
       </Button>
       {gmailConnected && primaryEmail && (
         <Button
