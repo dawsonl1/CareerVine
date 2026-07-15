@@ -163,7 +163,7 @@ export type AnalyticsEvents = {
    * consent-screen abandonment measurable — without them a click that goes
    * nowhere is indistinguishable from never trying.
    */
-  gmail_connect_clicked: { source: "setup_banner" | "settings" | "inbox" };
+  gmail_connect_clicked: { source: "setup_banner" | "settings" | "inbox" | "outreach" };
   calendar_connect_clicked: { source: "setup_banner" | "settings" };
 
   // ── Free-tier follow-up nudges (CAR-105) ─────────────────────────

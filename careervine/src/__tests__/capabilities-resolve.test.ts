@@ -35,11 +35,20 @@ describe("resolveCapabilities — server resolver, fails closed", () => {
     expect(caps.has("followups:auto")).toBe(false);
   });
 
-  it("connected free (modify false) -> outreach:portal only", async () => {
+  it("connected free (modify false, Premium on) -> outreach:portal + inbox:upgrade", async () => {
     mockConnection({ data: { modify_scope_granted: false, automatic_features_enabled: false, premium_enabled: true }, error: null });
     const caps = await resolveCapabilities("user-1");
     expect(caps.has("outreach:portal")).toBe(true);
+    expect(caps.has("inbox:upgrade")).toBe(true);
     expect(caps.has("inbox:premium")).toBe(false);
+    expect(caps.size).toBe(2);
+  });
+
+  it("connected free (modify false, Premium off) -> outreach:portal only", async () => {
+    mockConnection({ data: { modify_scope_granted: false, automatic_features_enabled: false, premium_enabled: false }, error: null });
+    const caps = await resolveCapabilities("user-1");
+    expect(caps.has("outreach:portal")).toBe(true);
+    expect(caps.has("inbox:upgrade")).toBe(false);
     expect(caps.size).toBe(1);
   });
 

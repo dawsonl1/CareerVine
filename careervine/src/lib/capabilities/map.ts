@@ -46,5 +46,12 @@ export function capabilitiesFor(flags: EntitlementFlags): Set<Capability> {
     caps.add("outreach:portal");
   }
 
+  // Admin turned Premium on but the token still lacks gmail.modify: stay on Outreach
+  // and surface a reconnect-to-upgrade CTA (CAR-131). Distinct from plain free
+  // (premium_enabled false), which must not self-serve into the restricted scope.
+  if (hasConnection && premiumEnabled && !modifyScopeGranted) {
+    caps.add("inbox:upgrade");
+  }
+
   return caps;
 }

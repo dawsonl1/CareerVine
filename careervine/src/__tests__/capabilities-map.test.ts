@@ -20,10 +20,18 @@ describe("capabilitiesFor — the single source of truth for tier -> capability"
     expect(caps.size).toBe(0);
   });
 
-  it("connected without the modify scope -> free Outreach portal only", () => {
-    const caps = capabilitiesFor(flags({ modifyScopeGranted: false }));
+  it("connected without the modify scope + Premium on -> Outreach + inbox:upgrade", () => {
+    const caps = capabilitiesFor(flags({ modifyScopeGranted: false, premiumEnabled: true }));
     expect(caps.has("outreach:portal")).toBe(true);
+    expect(caps.has("inbox:upgrade")).toBe(true);
     expect(caps.has("inbox:premium")).toBe(false);
+    expect(caps.size).toBe(2);
+  });
+
+  it("connected free (Premium off, no modify) -> Outreach only, no upgrade CTA", () => {
+    const caps = capabilitiesFor(flags({ modifyScopeGranted: false, premiumEnabled: false }));
+    expect(caps.has("outreach:portal")).toBe(true);
+    expect(caps.has("inbox:upgrade")).toBe(false);
     expect(caps.size).toBe(1);
   });
 
@@ -32,6 +40,7 @@ describe("capabilitiesFor — the single source of truth for tier -> capability"
     expect(hasAll(caps, "mailbox:read", "mailbox:modify", "drafts:gmail", "inbox:premium")).toBe(true);
     expect(caps.has("followups:auto")).toBe(false);
     expect(caps.has("outreach:portal")).toBe(false);
+    expect(caps.has("inbox:upgrade")).toBe(false);
     expect(caps.size).toBe(4);
   });
 
@@ -47,13 +56,15 @@ describe("capabilitiesFor — the single source of truth for tier -> capability"
     expect(caps.has("outreach:portal")).toBe(true);
     expect(caps.has("inbox:premium")).toBe(false);
     expect(caps.has("followups:auto")).toBe(false);
+    expect(caps.has("inbox:upgrade")).toBe(false);
     expect(caps.size).toBe(1);
   });
 
-  it("automatic enabled without premium -> no followups:auto (the scope is physical); connected -> outreach only", () => {
-    const caps = capabilitiesFor(flags({ modifyScopeGranted: false, automaticFeaturesEnabled: true }));
+  it("automatic enabled without modify -> no followups:auto; Premium on -> outreach + upgrade", () => {
+    const caps = capabilitiesFor(flags({ modifyScopeGranted: false, automaticFeaturesEnabled: true, premiumEnabled: true }));
     expect(caps.has("followups:auto")).toBe(false);
     expect(caps.has("outreach:portal")).toBe(true);
-    expect(caps.size).toBe(1);
+    expect(caps.has("inbox:upgrade")).toBe(true);
+    expect(caps.size).toBe(2);
   });
 });

@@ -12,6 +12,7 @@ export type Capability =
   | "drafts:gmail" // create real Gmail drafts (drafts.create)
   | "followups:auto" // cron auto reply-detection + bounce-cancel
   | "inbox:premium" // premium tier (connection holds gmail.modify); gates mailbox operations in CAR-102
+  | "inbox:upgrade" // premium switch on but token lacks gmail.modify — show reconnect-to-upgrade (CAR-131)
   | "outreach:portal"; // the free Outreach experience — a POSITIVE free-tier grant (nobody in Phase 0; CAR-102 grants confirmed free users)
 
 /** The raw entitlement flags on a user's gmail_connections row — the resolver's inputs. */
