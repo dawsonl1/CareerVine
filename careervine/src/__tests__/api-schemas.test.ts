@@ -275,6 +275,22 @@ describe('calendarAvailabilityProfileSchema', () => {
       data: {},
     });
   });
+
+  // CAR-130: Settings / picker save workingDays; old schema stripped them to {}.
+  it('preserves workingDays day configs (does not strip to empty data)', () => {
+    const workingDays = [
+      { day: 0, enabled: true, startTime: '09:00', endTime: '18:00', bufferBefore: 10, bufferAfter: 10 },
+      { day: 1, enabled: false, startTime: '09:00', endTime: '18:00', bufferBefore: 10, bufferAfter: 10 },
+    ];
+    const result = calendarAvailabilityProfileSchema.safeParse({
+      profile: 'standard',
+      data: { workingDays },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.data.workingDays).toEqual(workingDays);
+    }
+  });
 });
 
 // ── followUpMessageSchema (via gmailFollowUpCreateSchema) ────────────
