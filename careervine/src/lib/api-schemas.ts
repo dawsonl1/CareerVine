@@ -179,9 +179,21 @@ export const calendarAvailabilityQuerySchema = z.object({
   profile: optionalString,
 });
 
+const availabilityDayConfigSchema = z.object({
+  day: z.number(),
+  enabled: z.boolean(),
+  startTime: z.string().min(1),
+  endTime: z.string().min(1),
+  bufferBefore: z.number(),
+  bufferAfter: z.number(),
+});
+
 export const calendarAvailabilityProfileSchema = z.object({
   profile: z.enum(["standard", "priority"]),
   data: z.object({
+    // Current shape (Settings + compose availability picker)
+    workingDays: z.array(availabilityDayConfigSchema).optional(),
+    // Legacy flat shape (still accepted if present)
     days: z.array(z.number()).optional(),
     windowStart: optionalString,
     windowEnd: optionalString,

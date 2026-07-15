@@ -7,27 +7,25 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Calendar, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
+import {
+  defaultAvailabilityProfile,
+  normalizeAvailabilityProfile,
+  type AvailabilityDayConfig,
+  type AvailabilityProfile,
+} from "@/lib/availability-profile";
 
 const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-type DayConfig = { day: number; enabled: boolean; startTime: string; endTime: string; bufferBefore: number; bufferAfter: number };
-type AvailabilityProfile = { workingDays: DayConfig[] };
-
-const defaultStandard: AvailabilityProfile = {
-  workingDays: Array.from({ length: 7 }, (_, i) => ({
-    day: i, enabled: i < 5, startTime: "09:00", endTime: "18:00", bufferBefore: 10, bufferAfter: 10,
-  })),
-};
-
-const defaultPriority: AvailabilityProfile = {
-  workingDays: Array.from({ length: 7 }, (_, i) => ({
-    day: i, enabled: i < 5, startTime: "09:00", endTime: "17:00", bufferBefore: 15, bufferAfter: 15,
-  })),
-};
+const defaultStandard = defaultAvailabilityProfile();
+const defaultPriority = defaultAvailabilityProfile({
+  endTime: "17:00",
+  bufferBefore: 15,
+  bufferAfter: 15,
+});
 
 export default function AvailabilitySection() {
   const { user } = useAuth();
-  const { data: connData, loading, calendarConnected } = useGmailConnection();
+  const { data: connData, loading, calendarConnected, refresh } = useGmailConnection();
   const [activeTab, setActiveTab] = useState<"standard" | "priority">("standard");
   const [standard, setStandard] = useState<AvailabilityProfile>(defaultStandard);
   const [priority, setPriority] = useState<AvailabilityProfile>(defaultPriority);
@@ -43,8 +41,9 @@ export default function AvailabilitySection() {
   // Hydrate local state from shared connection data
   useEffect(() => {
     if (!connData) return;
-    if (connData.availability_standard) setStandard(connData.availability_standard as AvailabilityProfile);
-    if (connData.availability_priority) setPriority(connData.availability_priority as AvailabilityProfile);
+    // Empty `{}` from the CAR-130 Zod strip must not replace defaults (would crash .map).
+    setStandard(normalizeAvailabilityProfile(connData.availability_standard, defaultStandard));
+    setPriority(normalizeAvailabilityProfile(connData.availability_priority, defaultPriority));
     if (connData.calendar_list) setCalendarList(connData.calendar_list);
     if (connData.busy_calendar_ids) setBusyCalendarIds(connData.busy_calendar_ids);
     if (connData.calendar_timezone) setCalendarTimezone(connData.calendar_timezone);
@@ -67,6 +66,7 @@ export default function AvailabilitySection() {
         body: JSON.stringify({ profile: activeTab, data: profile }),
       });
       if (!res.ok) throw new Error("Failed to save availability");
+      await refresh();
       setSavedAvailability(true);
       setTimeout(() => setSavedAvailability(false), 2500);
     } catch (err) {
@@ -96,7 +96,7 @@ export default function AvailabilitySection() {
     }
   };
 
-  const updateDay = (idx: number, updates: Partial<DayConfig>) => {
+  const updateDay = (idx: number, updates: Partial<AvailabilityDayConfig>) => {
     const setter = activeTab === "standard" ? setStandard : setPriority;
     const profile = activeTab === "standard" ? standard : priority;
     setter({
