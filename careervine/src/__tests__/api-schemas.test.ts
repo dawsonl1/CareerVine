@@ -381,6 +381,12 @@ describe('calendarAvailabilityQuerySchema', () => {
       start: '2026-03-20', end: '2026-03-27',
     });
   });
+
+  // CAR-129: Calendar page used to call /api/calendar/availability with no
+  // params to detect connection; that 400 left calendarConnected false forever.
+  it('rejects when start/end are missing (not a connection probe)', () => {
+    expectInvalid(calendarAvailabilityQuerySchema, {});
+  });
 });
 
 // ── openaiKeySaveSchema ────────────────────────────────────────────────
