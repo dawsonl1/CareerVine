@@ -101,9 +101,23 @@ describe("GET /api/gmail/auth — modify-scope decision (CAR-102 N3)", () => {
     expect(lastIncludeModify()).toBe(false);
   });
 
-  it("connected without the modify scope -> NO modify even if premium_enabled", async () => {
+  it("connected without the modify scope -> NO modify on a normal reconnect", async () => {
     state.conn = { modify_scope_granted: false, premium_enabled: true };
     await call();
+    expect(lastIncludeModify()).toBe(false);
+  });
+
+  // CAR-131: admin Premium on + ?upgrade=1 requests modify even when not yet granted.
+  it("upgrade reconnect (?upgrade=1) with Premium on -> requests gmail.modify", async () => {
+    state.conn = { modify_scope_granted: false, premium_enabled: true };
+    const res = await call("?upgrade=1");
+    expect(lastIncludeModify()).toBe(true);
+    expect(res.headers.get("location")).toContain("modify=1");
+  });
+
+  it("upgrade reconnect with Premium off -> still NO modify", async () => {
+    state.conn = { modify_scope_granted: false, premium_enabled: false };
+    await call("?upgrade=1");
     expect(lastIncludeModify()).toBe(false);
   });
 

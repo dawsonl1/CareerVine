@@ -21,6 +21,9 @@ export const gmailAuthQuerySchema = z.object({
   // (Gmail + Calendar are always requested together now — CAR-100 — so there
   // is no longer a `scopes` param selecting which services to request.)
   returnTo: optionalString,
+  // CAR-131: reconnect-to-upgrade. When "1"/"true" and premium is enabled,
+  // request gmail.modify even if the current token does not hold it yet.
+  upgrade: optionalString,
 });
 
 export const gmailSendSchema = z.object({

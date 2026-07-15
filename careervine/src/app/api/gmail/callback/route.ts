@@ -102,6 +102,15 @@ export const GET = withApiHandler({
       }
 
       const serviceClient = createSupabaseServiceClient();
+      // Brand-new free connects must land with premium_enabled=false so they do
+      // not see inbox:upgrade / cannot self-serve into gmail.modify (CAR-131).
+      // Existing rows keep whatever the admin set; never overwrite on reconnect.
+      const { data: existing } = await serviceClient
+        .from("gmail_connections")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
       const { error } = await serviceClient.from("gmail_connections").upsert(
         {
           user_id: user.id,
@@ -112,6 +121,7 @@ export const GET = withApiHandler({
           calendar_scopes_granted: calendarGranted,
           send_scope_granted: sendGranted,
           modify_scope_granted: modifyGranted,
+          ...(!existing && !modifyGranted ? { premium_enabled: false } : {}),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }

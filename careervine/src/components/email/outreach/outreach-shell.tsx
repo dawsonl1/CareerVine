@@ -30,6 +30,8 @@ import { Send, Clock, Reply, PenSquare, Pencil, Loader2, Inbox as InboxIcon, Arr
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import DOMPurify from "dompurify";
+import { useCapabilities } from "@/hooks/use-capabilities";
+import { PremiumUpgradeBanner } from "@/components/email/premium-upgrade-banner";
 
 type OutreachTab = "sent" | "scheduled" | "followups" | "drafts";
 type ContactDetailsMap = Record<number, ContactEmployment>;
@@ -95,6 +97,8 @@ function followUpProgress(fu: EmailFollowUp): {
 export function OutreachShell() {
   const { user } = useAuth();
   const { gmailConnected, gmailLoading, openCompose } = useCompose();
+  const { can } = useCapabilities();
+  const showInboxUpgrade = can("inbox:upgrade");
   const { success: toastSuccess, error: toastError } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -255,6 +259,12 @@ export function OutreachShell() {
             Compose
           </Button>
         </header>
+
+        {showInboxUpgrade && !showConnectPrompt && (
+          <div className="mb-5">
+            <PremiumUpgradeBanner source="outreach" />
+          </div>
+        )}
 
         {gmailLoading || loading ? (
           <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-label="Loading">

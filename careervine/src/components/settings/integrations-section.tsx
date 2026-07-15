@@ -11,13 +11,17 @@ import type { GmailConnection } from "@/lib/types";
 import { Mail, Check, RefreshCw, Unplug, MailCheck, Calendar } from "lucide-react";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { useGmailConnection, invalidateGmailConnectionCache } from "@/hooks/use-gmail-connection";
+import { useCapabilities } from "@/hooks/use-capabilities";
 import { trackBeforeNavigate } from "@/lib/analytics/client";
 import McpConnectCard from "@/components/settings/mcp-connect-card";
+import { PremiumUpgradeBanner } from "@/components/email/premium-upgrade-banner";
 
 export default function IntegrationsSection() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const { calendarConnected, calendarLastSynced, loading: calendarLoading, refresh: refreshConnection } = useGmailConnection();
+  const { can } = useCapabilities();
+  const showInboxUpgrade = can("inbox:upgrade");
 
   // Gmail — still uses direct Supabase query for address/sync info
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
@@ -145,6 +149,7 @@ export default function IntegrationsSection() {
             </div>
           ) : gmailConn && gmailConn.send_scope_granted ? (
             <div className="space-y-5">
+              {showInboxUpgrade && <PremiumUpgradeBanner source="settings" />}
               <div className="flex items-center gap-4 p-4 rounded-lg bg-primary-container/30">
                 <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center">
                   <Mail className="h-5 w-5 text-on-primary-container" />

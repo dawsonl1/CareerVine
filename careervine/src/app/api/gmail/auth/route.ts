@@ -4,6 +4,7 @@ import { getAuthUrl } from "@/lib/gmail";
 import { withApiHandler } from "@/lib/api-handler";
 import { gmailAuthQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { shouldRequestGmailModifyScope } from "@/lib/gmail-modify-scope";
 
 /**
  * GET /api/gmail/auth
@@ -20,11 +21,10 @@ export const GET = withApiHandler({
     // (added conditionally below) is restricted.
     const includeCalendar = true;
 
-    // Preserve the restricted gmail.modify scope for users who are ALREADY premium
-    // (modify_scope_granted && premium_enabled). Otherwise a premium user clicking
-    // "Connect Calendar" or reconnecting would re-consent without modify and get
-    // silently downgraded to the free tier. New / free users get sensitive-only, so
-    // the default consent screen stays sensitive-only for verification (CAR-102).
+    // Scope decision (CAR-102 / CAR-131):
+    // - Preserve modify for users who already hold it and still have Premium on.
+    // - Upgrade path: ?upgrade=1 + premium on → request modify even if not granted yet.
+    // - Free / Premium-off: sensitive-only so the default consent stays verification-safe.
     //
     // Read the raw entitlement flags directly rather than via resolveCapabilities():
     // that helper fails CLOSED to an empty set on a DB error — the right call for
@@ -48,10 +48,13 @@ export const GET = withApiHandler({
       );
     }
 
-    // Mirrors capabilitiesFor's isPremium: modify granted AND premium not disabled.
+    const upgradeRequested = query.upgrade === "1" || query.upgrade === "true";
     // A new user (no row yet) resolves to false -> sensitive-only consent.
-    const includeModify =
-      (conn?.modify_scope_granted ?? false) && (conn?.premium_enabled ?? true);
+    const includeModify = shouldRequestGmailModifyScope({
+      modifyScopeGranted: conn?.modify_scope_granted ?? false,
+      premiumEnabled: conn?.premium_enabled,
+      upgradeRequested,
+    });
 
     // Optional post-OAuth landing path (CAR-50 onboarding). Only same-origin
     // relative paths ride along in state; anything else falls back to

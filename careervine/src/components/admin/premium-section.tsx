@@ -45,7 +45,7 @@ export default function PremiumSection({
   };
 
   // Switch on, but the connection lacks the modify scope (a free-connected user or a
-  // not-yet-upgraded account): premium won't take effect until they connect with it.
+  // not-yet-upgraded account): premium won't take effect until they reconnect with upgrade.
   const awaitingScope = user.premiumEnabled && user.hasGmailConnection && !user.modifyScopeGranted;
 
   return (
@@ -71,7 +71,7 @@ export default function PremiumSection({
       )}
       {awaitingScope && (
         <p className="mt-3 text-sm text-muted-foreground">
-          Premium is on, but this connection does not hold the Gmail mailbox scope, so the live-inbox features stay inactive and the account keeps the free Outreach experience. Granting that scope needs a reconnect-to-upgrade flow that is not available yet.
+          Premium is on, but this connection does not hold the Gmail mailbox scope yet. Ask them to open Outreach or Settings → Integrations and click &quot;Reconnect to unlock Inbox&quot; so Google can grant that scope.
         </p>
       )}
     </section>
