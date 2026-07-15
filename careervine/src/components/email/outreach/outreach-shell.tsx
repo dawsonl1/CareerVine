@@ -7,9 +7,9 @@
  * EmailExperience. Built entirely on the DB-only /api/gmail/inbox payload: the
  * outreach a user has sent, what is scheduled, their follow-up plans, and drafts.
  * No live mailbox read (free users hold only the gmail.send scope), so there is no inbox,
- * labels, sync, or trash/label actions here. Sent messages DO expand to show the
- * full body, read from the persisted email_messages.body_html we store at send time
- * (CAR-115) — not a live fetch. Composing and sending work (send needs only
+ * labels, sync, or trash/label actions here. Every tab can expand to show the full
+ * body from the DB payload (CAR-115 sent, CAR-127 drafts, CAR-128 scheduled +
+ * follow-up steps) — not a live fetch. Composing and sending work (send needs only
  * gmail.send), via the shared compose modal.
  */
 
@@ -350,6 +350,26 @@ function Row({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Full HTML body for an expanded Outreach email. No max-height clip (CAR-128):
+ * the page scrolls so the entire message is readable. */
+function EmailBodyHtml({
+  html,
+  emptyHint = "No body.",
+}: {
+  html: string | null | undefined;
+  emptyHint?: string;
+}) {
+  if (html) {
+    return (
+      <div
+        className="prose prose-sm max-w-none [&_*]:!text-on-surface [&_a]:!text-primary [&_a]:underline"
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
+      />
+    );
+  }
+  return <p className="text-sm italic text-muted-foreground">{emptyHint}</p>;
+}
+
 /**
  * Recipient line for an Outreach email row (CAR-127).
  * Contact and company are links when we have ids; role + office are plain text.
@@ -554,14 +574,11 @@ function SentMessageBody({ message, showMeta }: { message: EmailMessage; showMet
         <p className="mb-1 text-[11px] font-medium text-muted-foreground">{fmtDateTime(message.date)}</p>
       )}
       {message.body_html ? (
-        <div
-          className="prose prose-sm max-h-[28rem] max-w-none overflow-y-auto [&_*]:!text-on-surface [&_a]:!text-primary [&_a]:underline"
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(message.body_html) }}
-        />
+        <EmailBodyHtml html={message.body_html} />
       ) : message.snippet ? (
         <p className="whitespace-pre-wrap text-sm text-on-surface">{message.snippet}</p>
       ) : (
-        <p className="text-sm italic text-muted-foreground">The text of this email was not saved.</p>
+        <EmailBodyHtml html={null} emptyHint="The text of this email was not saved." />
       )}
     </div>
   );
@@ -576,6 +593,8 @@ function ScheduledList({
   contactDetails: ContactDetailsMap;
   contactMap: Record<number, string>;
 }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
   if (items.length === 0) {
     return (
       <EmptyState
@@ -587,25 +606,46 @@ function ScheduledList({
   }
   return (
     <ul className="flex flex-col gap-2">
-      {items.map((s) => (
-        <Row key={s.id}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-on-surface">{s.subject}</p>
-              <RecipientMeta
-                contactId={s.matched_contact_id}
-                fallbackName={s.contact_name || s.recipient_email}
-                contactDetails={contactDetails}
-                contactMap={contactMap}
-              />
+      {items.map((s) => {
+        const isExpanded = expandedId === s.id;
+        return (
+          <Row key={s.id}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(isExpanded ? null : s.id)}
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? "Collapse scheduled email" : "Expand to read scheduled email"}
+                  className="flex w-full min-w-0 items-start gap-2 text-left"
+                >
+                  <span className="mt-0.5 shrink-0 text-muted-foreground">
+                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </span>
+                  <span className="block min-w-0 truncate text-sm font-medium text-on-surface">{s.subject}</span>
+                </button>
+                <div className="pl-6">
+                  <RecipientMeta
+                    contactId={s.matched_contact_id}
+                    fallbackName={s.contact_name || s.recipient_email}
+                    contactDetails={contactDetails}
+                    contactMap={contactMap}
+                  />
+                </div>
+              </div>
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
+                <Clock className="h-3 w-3" />
+                {fmtDateTime(s.scheduled_send_at)}
+              </span>
             </div>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
-              <Clock className="h-3 w-3" />
-              {fmtDateTime(s.scheduled_send_at)}
-            </span>
-          </div>
-        </Row>
-      ))}
+            {isExpanded && (
+              <div className="mt-3 border-t border-outline-variant pt-3">
+                <EmailBodyHtml html={s.body_html} emptyHint="This scheduled email has no body." />
+              </div>
+            )}
+          </Row>
+        );
+      })}
     </ul>
   );
 }
@@ -695,14 +735,7 @@ function DraftsList({
 
             {isExpanded && (
               <div className="mt-3 border-t border-outline-variant pt-3">
-                {draft.body_html ? (
-                  <div
-                    className="prose prose-sm max-h-[28rem] max-w-none overflow-y-auto [&_*]:!text-on-surface [&_a]:!text-primary [&_a]:underline"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(draft.body_html) }}
-                  />
-                ) : (
-                  <p className="text-sm italic text-muted-foreground">This draft has no body yet.</p>
-                )}
+                <EmailBodyHtml html={draft.body_html} emptyHint="This draft has no body yet." />
               </div>
             )}
           </Row>
@@ -748,6 +781,8 @@ function FollowUpList({
   confirmingId: number | null;
   onEdit: (fu: EmailFollowUp) => void;
 }) {
+  const [expandedStepId, setExpandedStepId] = useState<number | null>(null);
+
   if (items.length === 0) {
     return (
       <EmptyState
@@ -792,6 +827,7 @@ function FollowUpList({
                   const chip = openStepChip(m.status);
                   const actionableStep = isActionableFollowUpMessage(m.status);
                   const expired = m.status === FollowUpMessageStatus.Expired;
+                  const isExpanded = expandedStepId === m.id;
                   return (
                     <div
                       key={m.id}
@@ -802,8 +838,25 @@ function FollowUpList({
                       }`}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className={`min-w-0 ${expired ? "opacity-60" : ""}`}>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedStepId(isExpanded ? null : m.id)}
+                          aria-expanded={isExpanded}
+                          aria-label={
+                            isExpanded
+                              ? `Collapse step ${m.sequence_number}`
+                              : `Expand to read step ${m.sequence_number}`
+                          }
+                          className={`min-w-0 flex-1 text-left ${expired ? "opacity-60" : ""}`}
+                        >
                           <div className="flex flex-wrap items-center gap-2">
+                            <span className="shrink-0 text-muted-foreground">
+                              {isExpanded ? (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              ) : (
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              )}
+                            </span>
                             <span className="text-xs font-medium text-on-surface">
                               Step {m.sequence_number}: {m.subject}
                             </span>
@@ -813,7 +866,7 @@ function FollowUpList({
                               {chip.label}
                             </span>
                           </div>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          <p className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
                             {m.status === FollowUpMessageStatus.Pending
                               ? `Scheduled ${fmtDate(m.scheduled_send_at)}`
                               : m.status === FollowUpMessageStatus.Expired
@@ -821,9 +874,11 @@ function FollowUpList({
                                 : `Due ${fmtDate(m.scheduled_send_at)}`}
                           </p>
                           {actionableStep && (
-                            <ExpiryLabel status={m.status} expiresAt={m.expires_at} />
+                            <div className="pl-5">
+                              <ExpiryLabel status={m.status} expiresAt={m.expires_at} />
+                            </div>
                           )}
-                        </div>
+                        </button>
                         {actionableStep && (
                           <div className="flex shrink-0 items-center gap-2">
                             <Button
@@ -846,6 +901,14 @@ function FollowUpList({
                           </div>
                         )}
                       </div>
+                      {isExpanded && (
+                        <div className="mt-3 border-t border-outline-variant/60 pt-3">
+                          <EmailBodyHtml
+                            html={m.body_html}
+                            emptyHint="This follow-up step has no body."
+                          />
+                        </div>
+                      )}
                     </div>
                   );
                 })}

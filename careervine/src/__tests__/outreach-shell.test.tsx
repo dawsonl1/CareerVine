@@ -53,6 +53,7 @@ const payload = {
       contact_name: "Bob",
       matched_contact_id: null,
       scheduled_send_at: "2026-07-20T09:00:00Z",
+      body_html: "<p>Bob, circling back on the coffee chat we discussed.</p>",
     },
   ],
   followUps: [
@@ -70,6 +71,7 @@ const payload = {
           id: 1,
           status: "awaiting_review",
           subject: "Quick nudge",
+          body_html: "<p>Amy, just bumping this in case it got buried.</p>",
           sequence_number: 1,
           send_after_days: 7,
           scheduled_send_at: "2026-07-08T09:00:00Z",
@@ -79,6 +81,7 @@ const payload = {
           id: 2,
           status: "pending",
           subject: "Second check-in",
+          body_html: "<p>Amy, one last note before I close the loop.</p>",
           sequence_number: 2,
           send_after_days: 14,
           scheduled_send_at: "2026-07-15T09:00:00Z",
@@ -298,5 +301,43 @@ describe("OutreachShell — free tier portal", () => {
       ).toBe(true),
     );
     await waitFor(() => expect(screen.queryByText("Half-finished intro")).toBeNull());
+  });
+
+  it("expands a scheduled email to show its full body (CAR-128)", async () => {
+    render(<OutreachShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
+    fireEvent.click(screen.getByText("Scheduled"));
+
+    expect(screen.queryByText(/circling back on the coffee chat/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /expand to read scheduled email/i }));
+    expect(screen.getByText(/circling back on the coffee chat/)).toBeTruthy();
+  });
+
+  it("expands a follow-up step to show its full body (CAR-128)", async () => {
+    render(<OutreachShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
+    fireEvent.click(screen.getByText("Follow-ups"));
+
+    expect(screen.queryByText(/bumping this in case it got buried/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /expand to read step 1/i }));
+    expect(screen.getByText(/bumping this in case it got buried/)).toBeTruthy();
+
+    // Expanding another step swaps focus; step 2 body appears.
+    fireEvent.click(screen.getByRole("button", { name: /expand to read step 2/i }));
+    expect(screen.getByText(/one last note before I close the loop/)).toBeTruthy();
+  });
+
+  it("renders expanded sent bodies without a nested max-height clip (CAR-128)", async () => {
+    render(<OutreachShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat?")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /expand to read/i }));
+
+    const body = screen.getByText("Hi Jane, coffee next week?");
+    // Walk up to the prose container and assert we did not reintroduce the clip.
+    let el: HTMLElement | null = body;
+    while (el && !el.className.includes("prose")) el = el.parentElement;
+    expect(el).toBeTruthy();
+    expect(String(el?.className || "")).not.toMatch(/max-h-/);
+    expect(String(el?.className || "")).not.toMatch(/overflow-y-auto/);
   });
 });
