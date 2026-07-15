@@ -17,6 +17,7 @@ import { useToast } from "@/components/ui/toast";
 import { CONVERSATION_TYPE_OPTIONS, getRsvpDisplay } from "@/lib/constants";
 import { packOverlappingEvents, slotStyle } from "@/lib/calendar-layout";
 import { resolveCalendarSaveMode } from "@/lib/calendar-save-mode";
+import { useGmailConnection } from "@/hooks/use-gmail-connection";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -57,6 +58,9 @@ function snapMins(raw: number) { return Math.round(raw / 15) * 15; }
 export default function CalendarPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  // Same source as Home / Meetings — never probe /api/calendar/availability
+  // without start/end (that 400 left calendarConnected stuck false; CAR-129).
+  const { calendarConnected } = useGmailConnection();
 
   // ── Core
   const [loading, setLoading] = useState(true);
@@ -92,7 +96,6 @@ export default function CalendarPage() {
   const [inviteEmailMap, setInviteEmailMap] = useState<Record<number, string>>({});
   const [includeMeetLink, setIncludeMeetLink] = useState(true);
   const [meetingDuration, setMeetingDuration] = useState(60);
-  const [calendarConnected, setCalendarConnected] = useState(false);
 
   // ── Derived: week days Mon–Sun
   const weekDays = useMemo(() => {
@@ -158,7 +161,7 @@ export default function CalendarPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadEvents(), loadContacts(), loadLinkedMeetings(), checkCalendarConnection()]);
+      await Promise.all([loadEvents(), loadContacts(), loadLinkedMeetings()]);
       // Background auto-sync (silent, respects 5-min cooldown)
       fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) loadEvents(); }).catch(() => {});
     } finally { setLoading(false); }
@@ -193,10 +196,6 @@ export default function CalendarPage() {
     const map: Record<string, Meeting> = {};
     meetings.forEach(m => { if (m.calendar_event_id) map[m.calendar_event_id] = m; });
     setLinkedMeetings(map);
-  };
-
-  const checkCalendarConnection = async () => {
-    try { const r = await fetch("/api/calendar/availability"); if (r.ok) { setCalendarConnected(true); } } catch {}
   };
 
   const handleSync = async () => {
@@ -309,11 +308,12 @@ export default function CalendarPage() {
           const effectiveDuration = meetingDuration > 0 ? meetingDuration : 60;
           const startTime = new Date(dateTime).toISOString();
           const endTime = new Date(new Date(dateTime).getTime() + effectiveDuration * 60000).toISOString();
-          await fetch(`/api/calendar/events/${encodeURIComponent(editingMeeting.calendar_event_id)}`, {
+          const patchRes = await fetch(`/api/calendar/events/${encodeURIComponent(editingMeeting.calendar_event_id)}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime }),
-          }).catch(() => {}); // Best-effort — don't fail the whole save
+          });
+          if (!patchRes.ok) throw new Error("Failed to update Google Calendar event");
         }
       } else if (saveMode === "patch-existing-google" && editingGoogleEventId) {
         // Link a CareerVine meeting to the existing Google event; never create a duplicate
@@ -330,11 +330,12 @@ export default function CalendarPage() {
           const effectiveDuration = meetingDuration > 0 ? meetingDuration : 60;
           const startTime = new Date(dateTime).toISOString();
           const endTime = new Date(new Date(dateTime).getTime() + effectiveDuration * 60000).toISOString();
-          await fetch(`/api/calendar/events/${encodeURIComponent(editingGoogleEventId)}`, {
+          const patchRes = await fetch(`/api/calendar/events/${encodeURIComponent(editingGoogleEventId)}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime }),
-          }).catch(() => {});
+          });
+          if (!patchRes.ok) throw new Error("Failed to update Google Calendar event");
         }
       } else {
         const created = await createMeeting({
@@ -351,8 +352,20 @@ export default function CalendarPage() {
           const attendeeEmails = selectedContactIds.map(id => inviteEmailMap[id] || contactEmailsMap[id]?.[0] || allContacts.find(c => c.id === id)?.email || null).filter(Boolean) as string[];
           const startTime = new Date(dateTime).toISOString();
           const endTime = new Date(new Date(dateTime).getTime() + effectiveDuration * 60000).toISOString();
-          await fetch("/api/calendar/create-event", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime, attendeeEmails, conferenceType: includeMeetLink ? "meet" : "none", meetingId: created.id }) });
+          const createRes = await fetch("/api/calendar/create-event", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              summary: autoSummary,
+              description: formData.calendarDescription || undefined,
+              startTime,
+              endTime,
+              attendeeEmails,
+              conferenceType: includeMeetLink ? "meet" : "none",
+              meetingId: created.id,
+            }),
+          });
+          if (!createRes.ok) throw new Error("Failed to create Google Calendar event");
         }
       }
       await loadLinkedMeetings(); await loadEvents();
