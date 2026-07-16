@@ -505,6 +505,24 @@ export function InboxShell() {
     }
   };
 
+  // A failed scheduled email (the send process died mid-flight, CAR-134) can
+  // be requeued; the user decides, since the original may or may not have
+  // actually gone out.
+  const retryScheduledEmail = async (id: number) => {
+    try {
+      const res = await fetch(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
+      if (res.ok) {
+        // Kick the send driver so it goes out now, not on the next cron tick.
+        fetch("/api/gmail/schedule/process", { method: "POST" }).catch(() => {});
+        setScheduledEmails((prev) =>
+          prev.map((e) => (e.id === id ? { ...e, status: "pending" } : e)),
+        );
+      }
+    } catch (err) {
+      console.error("Error retrying scheduled email:", err);
+    }
+  };
+
   const cancelFollowUp = async (followUpId: number) => {
     try {
       const res = await fetch(`/api/gmail/follow-ups/${followUpId}`, { method: "DELETE" });
@@ -1415,7 +1433,16 @@ export function InboxShell() {
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2.5">
                                     <span className="text-base font-medium text-foreground truncate">{se.subject}</span>
-                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">Scheduled</span>
+                                    {se.status === "failed" ? (
+                                      <span
+                                        className="text-[11px] px-2 py-0.5 rounded-full bg-destructive/10 text-destructive shrink-0"
+                                        title="Sending was interrupted, so this email may not have gone out. Check your Gmail Sent folder, then retry or cancel it."
+                                      >
+                                        Didn&apos;t send
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">Scheduled</span>
+                                    )}
                                     {linkedFU && (
                                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/30 text-on-tertiary-container shrink-0">
                                         + {linkedFU.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length} follow-up(s)
@@ -1425,10 +1452,17 @@ export function InboxShell() {
                                   <div className="flex items-center gap-2.5 mt-1">
                                     <span className="text-sm text-muted-foreground truncate">To: {contactName || se.recipient_email}</span>
                                     <span className="text-sm text-muted-foreground">·</span>
-                                    <span className="text-sm text-muted-foreground shrink-0">Sends {formatDateFull(se.scheduled_send_at)}</span>
+                                    <span className="text-sm text-muted-foreground shrink-0">
+                                      {se.status === "failed" ? `Was due ${formatDateFull(se.scheduled_send_at)}` : `Sends ${formatDateFull(se.scheduled_send_at)}`}
+                                    </span>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
+                                  {se.status === "failed" && (
+                                    <button type="button" onClick={() => retryScheduledEmail(se.id)} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Retry sending this email">
+                                      <RotateCcw className="h-4 w-4" />
+                                    </button>
+                                  )}
                                   <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: se.recipient_email, contactName: se.contact_name, originalSubject: se.subject, originalSentAt: se.scheduled_send_at, originalGmailMessageId: `scheduled_${se.id}`, threadId: se.thread_id || `pending_scheduled_${se.id}`, scheduledEmailId: se.id, existingFollowUp: linkedFU || null }); }} className="p-2 rounded-full text-muted-foreground hover:text-tertiary cursor-pointer transition-colors" title="Schedule follow-up">
                                     <Clock className="h-4 w-4" />
                                   </button>

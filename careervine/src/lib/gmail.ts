@@ -872,11 +872,19 @@ export async function createDraft(
  * After sending each, update any follow-up sequences linked to the scheduled email
  * with the real Gmail message ID and thread ID.
  */
-export async function processScheduledEmails(userId: string): Promise<{
+export async function processScheduledEmails(
+  userId: string,
+  // Injected for tests only — production callers pass nothing.
+  deps: {
+    service?: ReturnType<typeof createSupabaseServiceClient>;
+    send?: typeof sendTrackedEmail;
+  } = {},
+): Promise<{
   sent: number;
   errors: number;
 }> {
-  const supabase = createSupabaseServiceClient();
+  const supabase = deps.service ?? createSupabaseServiceClient();
+  const send = deps.send ?? sendTrackedEmail;
   const now = new Date().toISOString();
 
   const { data: pending } = await supabase
@@ -892,13 +900,39 @@ export async function processScheduledEmails(userId: string): Promise<{
   let errors = 0;
 
   for (const email of pending) {
+    // Atomic claim (CAR-134): two drivers process the same user concurrently
+    // (the 15-min cron and the contact-page fire-and-forget process call), and
+    // the race window is the whole Gmail round trip. Flip pending → sending
+    // first; whoever loses the CAS skips the row. count, not .select() — the
+    // update writes the column the filter tests, so a returning-representation
+    // read comes back empty on success (rule 17).
+    const { count: claimed } = await supabase
+      .from("scheduled_emails")
+      .update(
+        { status: "sending", claimed_at: now, updated_at: now },
+        { count: "exact" },
+      )
+      .eq("id", email.id)
+      .eq("status", "pending");
+    if (claimed !== 1) continue;
+
+    // Release the claim so a later tick retries. Guarded on 'sending' as
+    // belt-and-braces against overwriting a concurrent status change.
+    const releaseClaim = async () => {
+      await supabase
+        .from("scheduled_emails")
+        .update({ status: "pending", claimed_at: null, updated_at: new Date().toISOString() })
+        .eq("id", email.id)
+        .eq("status", "sending");
+    };
+
     try {
       // Route through the shared tracked path so scheduled sends count against
       // the daily cap, are refused if the address has since bounced, and get
       // cached + interaction-logged like interactive sends.
       let result: { messageId: string; threadId: string };
       try {
-        result = await sendTrackedEmail(
+        result = await send(
           userId,
           {
             to: email.recipient_email,
@@ -917,13 +951,17 @@ export async function processScheduledEmails(userId: string): Promise<{
           // Cap reached (429) → stop the batch, retry next run. Bounce (422) →
           // leave pending; detectBounces cancels the row once the NDR lands.
           console.warn(`[scheduled] ${email.id} deferred: ${policyErr.message}`);
+          await releaseClaim();
           if (policyErr.status === 429) break;
           continue;
         }
         throw policyErr;
       }
 
-      // Mark as sent
+      // Mark as sent. Guarded on the claim so nothing else gets overwritten;
+      // if this write is never reached (process killed mid-send), the row
+      // stays 'sending' and the cron sweeper flags it 'failed' rather than
+      // re-sending — the email may already be out.
       await supabase
         .from("scheduled_emails")
         .update({
@@ -933,7 +971,8 @@ export async function processScheduledEmails(userId: string): Promise<{
           sent_thread_id: result.threadId,
           updated_at: now,
         })
-        .eq("id", email.id);
+        .eq("id", email.id)
+        .eq("status", "sending");
 
       // Update any follow-ups linked to this scheduled email
       await supabase
@@ -948,7 +987,11 @@ export async function processScheduledEmails(userId: string): Promise<{
 
       sent++;
     } catch (err) {
+      // A throw here almost certainly precedes Gmail accepting the message:
+      // the steps after the send inside sendTrackedEmail surface errors as
+      // values, not throws. Release the claim so the next tick retries.
       console.error(`Error sending scheduled email ${email.id}:`, err);
+      await releaseClaim();
       errors++;
     }
   }
