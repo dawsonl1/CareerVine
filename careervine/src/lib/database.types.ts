@@ -539,6 +539,7 @@ export type Database = {
           references_header: string | null;
           scheduled_send_at: string;
           status: string;
+          claimed_at: string | null;
           sent_at: string | null;
           gmail_message_id: string | null;
           sent_thread_id: string | null;
@@ -547,7 +548,7 @@ export type Database = {
           created_at: string | null;
           updated_at: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["scheduled_emails"]["Row"], "id" | "created_at" | "updated_at">;
+        Insert: Omit<Database["public"]["Tables"]["scheduled_emails"]["Row"], "id" | "claimed_at" | "created_at" | "updated_at">;
         Update: Partial<Database["public"]["Tables"]["scheduled_emails"]["Insert"]>;
       };
 
