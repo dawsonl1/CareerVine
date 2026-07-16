@@ -12,7 +12,13 @@
  * dependency, importable anywhere); this module owns the S3 I/O.
  */
 
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+} from "@aws-sdk/client-s3";
 import { createHash } from "crypto";
 import {
   USER_PHOTO_PREFIX,
@@ -95,5 +101,52 @@ export async function deletePhotoByUrl(url: string | null | undefined): Promise<
     await deletePhotoObject(key);
   } catch (err) {
     console.warn(`[r2] Photo cleanup failed for ${key}:`, err);
+  }
+}
+
+/** Max keys per S3 DeleteObjects request. */
+const DELETE_BATCH_SIZE = 1000;
+
+/**
+ * Best-effort removal of every per-user contact photo under a deleted account's
+ * R2 prefix (`careervine/contact-photos/{userId}/`). DB rows cascade on account
+ * deletion but R2 objects on the public CDN do not, so without this they orphan
+ * forever (CAR-135 / R4.4). Shared bundle photos live under a different prefix
+ * and are never touched. Never throws — the caller is a delete path.
+ */
+export async function deleteUserPhotoObjects(userId: string): Promise<void> {
+  // An empty userId collapses the prefix to the shared contact-photos root and
+  // would enumerate and delete every user's photos. Never allow it.
+  if (!userId) throw new Error("deleteUserPhotoObjects: userId is required");
+  const prefix = `${USER_PHOTO_PREFIX}${userId}/`;
+  try {
+    const bucket = requireEnv("R2_BUCKET");
+    const s3 = getR2Client();
+    let continuationToken: string | undefined;
+    do {
+      const listed = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+      const keys = (listed.Contents ?? [])
+        .map((o) => o.Key)
+        .filter((k): k is string => Boolean(k));
+      for (let i = 0; i < keys.length; i += DELETE_BATCH_SIZE) {
+        const batch = keys.slice(i, i + DELETE_BATCH_SIZE);
+        await s3.send(
+          new DeleteObjectsCommand({
+            Bucket: bucket,
+            Delete: { Objects: batch.map((Key) => ({ Key })) },
+          }),
+        );
+        for (const key of batch) console.log(`[user-delete] removed R2 ${key}`);
+      }
+      continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+    } while (continuationToken);
+  } catch (err) {
+    console.error(`[r2] User photo cleanup failed for ${userId}:`, err);
   }
 }

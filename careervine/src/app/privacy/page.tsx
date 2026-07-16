@@ -1,5 +1,5 @@
 export default function PrivacyPolicyPage() {
-  const lastUpdated = "July 11, 2026";
+  const lastUpdated = "July 16, 2026";
 
   return (
     <div className="min-h-screen bg-background">
@@ -35,7 +35,11 @@ export default function PrivacyPolicyPage() {
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">Google Account Data (optional)</h3>
-                <p>If you connect Gmail or Google Calendar, we access your emails and calendar events to display them in-app and sync meetings. We only read and display this data. We do not store the full content of your emails on our servers. Calendar events are cached locally in your CareerVine account to enable filtering and syncing features.</p>
+                <p>If you connect Gmail or Google Calendar, we access your emails and calendar events to display them in-app and sync meetings. For messages we read from your inbox, we store only metadata and a short preview (sender, subject, date, and a snippet), not the full body. Calendar events are cached in your CareerVine account to enable filtering and syncing features. Emails you write and send through CareerVine are handled separately, as described next.</p>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Emails You Send Through CareerVine</h3>
+                <p>When you send, schedule, or draft an email through CareerVine, or when it sends an automated follow-up you set up, we store the full content of that message (its subject and body), its recipients, and its send status in your account. We keep this so you can re-read exactly what you sent, review and edit your scheduled messages and drafts, and manage your follow-up sequences without re-fetching from Gmail. These messages are stored as part of your account data and are deleted when you delete your account.</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">LinkedIn Data (via Chrome Extension)</h3>
@@ -43,6 +47,14 @@ export default function PrivacyPolicyPage() {
                 <p className="mt-2"><span className="font-medium text-foreground">Duplicate check (automatic while you are signed in):</span> when you view a LinkedIn profile, the extension sends that profile&apos;s URL (not the page content) to our servers to check whether the person is already one of your contacts, so it can show you an &quot;already in CareerVine&quot; indicator. Only the profile&apos;s URL is sent for this check.</p>
                 <p className="mt-2"><span className="font-medium text-foreground">Profile import (when you choose to import):</span> when you start an import, the extension reads the publicly visible text of the profile as it appears in your browser (the person&apos;s name, headline, location, current and past roles and companies, their &quot;About&quot; summary, and education), along with the profile&apos;s URL and profile photo, and sends it to our servers, where it is parsed by AI (OpenAI) into structured contact fields for you to review and edit before saving. This full read happens only when you start an import, or, if you turn on the optional auto-analyze setting, when you open a profile page.</p>
                 <p className="mt-2">In both cases the extension only accesses the LinkedIn profile you are viewing. It does not read your LinkedIn messages, connections, or feed, does not access your LinkedIn account or credentials, and does not use LinkedIn&apos;s private APIs.</p>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Contact Enrichment &amp; Prospect Discovery (LinkedIn)</h3>
+                <p>Separately from the Chrome extension, CareerVine collects publicly available LinkedIn profile information on our servers through a third-party data provider (Apify) to keep your contacts current and help you grow your network:</p>
+                <p className="mt-2"><span className="font-medium text-foreground">Enriching your contacts:</span> when you save or refresh a contact, we look up their public LinkedIn profile to fill in details like their current role, company, location, and education.</p>
+                <p className="mt-2"><span className="font-medium text-foreground">Finding an email address:</span> when a contact you save has no email address on file, we may run a paid lookup that attempts to find and verify a likely professional email address for them.</p>
+                <p className="mt-2"><span className="font-medium text-foreground">Suggesting new people:</span> for discovery features, we collect publicly available profile information (such as name, headline, location, current role, and photo) for people who are not yet your contacts, for example recent hires in relevant roles at companies you follow, and store it as suggestions in your account. When you dismiss a suggestion or add it as a contact, we clear the stored profile details for that suggestion and keep only a minimal record so it does not resurface. Suggestions you never act on are removed automatically once they stop appearing in our searches. The curated contact lists you can subscribe to are built from the same kind of publicly available professional information, which can include professional email addresses.</p>
+                <p className="mt-2">This collection uses only publicly available profile information, runs under per-account spending limits, and is used only to power the CareerVine features described in this policy. We do not sell it or use it for advertising.</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">File Attachments</h3>
@@ -61,6 +73,7 @@ export default function PrivacyPolicyPage() {
               <li>To provide and operate the CareerVine service</li>
               <li>To sync and display your Gmail and Google Calendar data within the app</li>
               <li>To parse LinkedIn profiles using AI when you use the Chrome extension</li>
+              <li>To enrich your contacts with public profile details and suggest new people to add, using publicly available LinkedIn data collected through Apify</li>
               <li>To generate AI-written emails, parse transcripts, and power follow-up suggestions using OpenAI</li>
               <li>If you provide your own OpenAI API key, to route your AI requests through your OpenAI account instead of ours</li>
               <li>To transcribe audio/video recordings you upload using Deepgram (or, if you provide your own Deepgram API key, through your Deepgram account instead of ours)</li>
@@ -91,6 +104,10 @@ export default function PrivacyPolicyPage() {
                 <p>When you upload an audio or video recording of a meeting, the audio is sent to Deepgram to produce a transcript. By default this uses CareerVine&apos;s shared Deepgram API key. If you add your own Deepgram API key in Settings → AI, your key is encrypted before storage and used server-side only for your requests. We never return it to your browser, and transcription runs on your Deepgram account instead. See <a href="https://deepgram.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Deepgram&apos;s Privacy Policy</a>.</p>
               </div>
               <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Apify (LinkedIn data)</h3>
+                <p>We use Apify, a third-party web data platform, to collect publicly available LinkedIn profile information for contact enrichment, email-address lookup, and prospect discovery (see Section 2). See <a href="https://apify.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Apify&apos;s Privacy Policy</a>.</p>
+              </div>
+              <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">PostHog</h3>
                 <p>We use PostHog for product analytics and, on the web app, session replay (with all inputs masked). Usage data is processed on PostHog&apos;s infrastructure. See <a href="https://posthog.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">PostHog&apos;s Privacy Policy</a>.</p>
               </div>
@@ -105,9 +122,12 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium mb-3">6. Data Storage &amp; Security</h2>
+            <h2 className="text-lg font-medium mb-3">6. Data Storage, Security &amp; Retention</h2>
             <p className="text-muted-foreground leading-relaxed">
               All data is stored with row-level security policies so that only your account can access your data. We use HTTPS for all data transmission. Google OAuth tokens are stored securely and used only to make API calls on your behalf.
+            </p>
+            <p className="text-muted-foreground leading-relaxed mt-3">
+              We retain your data for as long as your account is active. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network. We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
             </p>
           </section>
 

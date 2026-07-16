@@ -3,6 +3,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { importPeopleChunk } from "@/lib/bulk-import";
 import { buildCandidatePeopleRecord } from "@/lib/apify/discovery";
 import { triggerEnrichOnSave } from "@/lib/apify/scrape-service";
+import { REDACTED_CANDIDATE_FIELDS } from "@/lib/data-retention";
 
 /**
  * POST /api/discovery/candidates/[id]/add
@@ -62,16 +63,23 @@ export const POST = withApiHandler({
 
     if (result?.status === "skipped_suppressed") {
       // A previously deleted import — honor the tombstone and stop resurfacing.
-      await service.from("discovery_candidates").update({ status: "dismissed" }).eq("id", c.id);
+      // Redact the scraped payload too (CAR-135 / R4.8): a dismissed candidate
+      // keeps only its identity tombstone.
+      await service
+        .from("discovery_candidates")
+        .update({ status: "dismissed", ...REDACTED_CANDIDATE_FIELDS })
+        .eq("id", c.id);
       throw new ApiError("This person was previously deleted from your contacts", 409);
     }
     if (!result || result.status === "error" || result.contact_id == null) {
       throw new ApiError(result?.error ?? "Could not create the contact", 500);
     }
 
+    // The new contact now holds the profile data, so redact the candidate's
+    // scraped payload and keep only the tombstone (CAR-135 / R4.8).
     await service
       .from("discovery_candidates")
-      .update({ status: "added", added_contact_id: result.contact_id })
+      .update({ status: "added", added_contact_id: result.contact_id, ...REDACTED_CANDIDATE_FIELDS })
       .eq("id", c.id);
 
     const enrich = await triggerEnrichOnSave(user.id, result.contact_id);

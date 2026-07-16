@@ -1,6 +1,7 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { writeAudit } from "@/lib/admin";
+import { cleanupContactPhoto } from "@/lib/contact-photo-cleanup";
 
 /**
  * DELETE /api/admin/users/[id]/contacts/[contactId] — remove one contact from
@@ -24,7 +25,7 @@ export const DELETE = withApiHandler({
 
     const { data: contact, error: readError } = await service
       .from("contacts")
-      .select("id, name, user_id")
+      .select("id, name, user_id, photo_url")
       .eq("id", contactId)
       .eq("user_id", id)
       .maybeSingle();
@@ -37,6 +38,10 @@ export const DELETE = withApiHandler({
       .eq("id", contactId)
       .eq("user_id", id);
     if (error) throw new ApiError(`Delete failed: ${error.message}`, 400);
+
+    // The contact's photo lives in R2 / legacy Supabase storage and doesn't
+    // cascade with the DB row, so clear it explicitly (CAR-135 / R4.4).
+    await cleanupContactPhoto(service, id, contactId, (contact as { photo_url: string | null }).photo_url);
 
     await writeAudit(service, {
       adminId: admin.id,

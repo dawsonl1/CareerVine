@@ -15,18 +15,11 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { validateContactPhotoFile } from "@/lib/contact-photo";
 import { makePhotoThumb } from "@/lib/photo-thumb";
-import {
-  userPhotoKey,
-  putPhotoObject,
-  r2PublicUrl,
-  isUserPhotoUrl,
-  deletePhotoByUrl,
-} from "@/lib/r2";
+import { userPhotoKey, putPhotoObject, r2PublicUrl } from "@/lib/r2";
+import { cleanupContactPhoto } from "@/lib/contact-photo-cleanup";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const maxDuration = 30;
-
-const LEGACY_SUPABASE_PHOTO_MARKER = "/storage/v1/object/public/contact-photos/";
 
 async function getOwnedContactPhoto(
   supabase: SupabaseClient,
@@ -42,20 +35,6 @@ async function getOwnedContactPhoto(
   if (error) throw new ApiError("Failed to load contact", 500);
   if (!data) throw new ApiError("Contact not found", 404);
   return (data as { photo_url: string | null }).photo_url;
-}
-
-/** Best-effort cleanup of a replaced/removed photo, old or new backend. */
-async function cleanupPreviousPhoto(supabase: SupabaseClient, userId: string, contactId: number, prevUrl: string | null) {
-  if (!prevUrl) return;
-  if (isUserPhotoUrl(prevUrl)) {
-    await deletePhotoByUrl(prevUrl);
-  } else if (prevUrl.includes(LEGACY_SUPABASE_PHOTO_MARKER)) {
-    try {
-      await supabase.storage.from("contact-photos").remove([`${userId}/${contactId}.jpg`]);
-    } catch (err) {
-      console.warn(`[contacts/photo] Legacy photo cleanup failed for contact ${contactId}:`, err);
-    }
-  }
 }
 
 export const POST = withApiHandler({
@@ -97,7 +76,7 @@ export const POST = withApiHandler({
     if (updateError) throw new ApiError("Failed to save photo", 500);
 
     if (prevUrl !== photoUrl) {
-      await cleanupPreviousPhoto(supabase, user.id, contactId, prevUrl);
+      await cleanupContactPhoto(supabase, user.id, contactId, prevUrl);
     }
 
     return { photoUrl };
@@ -119,7 +98,7 @@ export const DELETE = withApiHandler({
         .eq("id", contactId)
         .eq("user_id", user.id);
       if (updateError) throw new ApiError("Failed to remove photo", 500);
-      await cleanupPreviousPhoto(supabase, user.id, contactId, prevUrl);
+      await cleanupContactPhoto(supabase, user.id, contactId, prevUrl);
     }
 
     return { photoUrl: null };

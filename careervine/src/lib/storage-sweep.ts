@@ -34,6 +34,13 @@ export const DEFAULT_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 export const SWEPT_BUCKETS = ["attachments", "application-files"] as const;
 export type SweptBucket = (typeof SWEPT_BUCKETS)[number];
 
+// Buckets whose entire {userId}/ folder is cleared when an account is deleted.
+// Superset of SWEPT_BUCKETS: `contact-photos` holds legacy pre-R2 photos that
+// the daily orphan sweep can't cover (it has no live-path fetcher and RLS-owning
+// table), so account deletion must clear it here (CAR-135 / R4.4). Current-backend
+// contact photos live on R2 and are removed by deleteUserPhotoObjects in lib/r2.
+const USER_DELETE_BUCKETS = ["attachments", "application-files", "contact-photos"] as const;
+
 export interface BucketSweepResult {
   scanned: number;
   live: number;
@@ -205,9 +212,12 @@ export async function sweepStorageOrphans(opts: SweepOptions): Promise<SweepResu
 }
 
 /**
- * Best-effort inline cleanup of one user's storage before their account is
- * deleted (auth.admin.deleteUser cascades the DB rows but not storage).
- * Errors are swallowed — the daily sweep self-heals anything missed here.
+ * Best-effort inline cleanup of one user's Supabase Storage before their account
+ * is deleted (auth.admin.deleteUser cascades the DB rows but not storage). Clears
+ * the user's folder in every USER_DELETE_BUCKETS bucket, including the legacy
+ * contact-photos bucket. R2 contact photos are handled separately by
+ * deleteUserPhotoObjects (lib/r2). Errors are swallowed — for the swept buckets
+ * the daily sweep self-heals anything missed here.
  */
 export async function removeUserStorageObjects(
   service: SupabaseClient,
@@ -217,7 +227,7 @@ export async function removeUserStorageObjects(
   // object in the bucket for all users. This function is an unconditional,
   // un-aged, cross-user delete primitive; never let it run bucket-wide.
   if (!userId) throw new Error("removeUserStorageObjects: userId is required");
-  for (const bucket of SWEPT_BUCKETS) {
+  for (const bucket of USER_DELETE_BUCKETS) {
     try {
       const userPaths = (await listAllObjects(service, bucket, userId)).map((o) => o.path);
       for (let i = 0; i < userPaths.length; i += REMOVE_BATCH_SIZE) {

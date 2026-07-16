@@ -448,9 +448,12 @@ async function loadPartitionContext(
 }
 
 /**
- * New candidates insert as status='new'; re-discovered ones only refresh
- * observed fields + last_seen_at — status is NEVER touched (sticky dismiss,
- * and an 'added' candidate stays added).
+ * New candidates insert as status='new'; re-discovered ones that are still
+ * 'new' refresh observed fields + last_seen_at. status is NEVER touched (sticky
+ * dismiss, and an 'added' candidate stays added), and re-discovery NEVER
+ * repopulates the payload of an added/dismissed row — its profile data was
+ * redacted at the transition (CAR-135 / R4.8), so the `status = 'new'` guard on
+ * the refresh keeps it redacted.
  */
 async function upsertCandidates(
   service: ServiceClient,
@@ -509,7 +512,10 @@ async function upsertCandidates(
         last_seen_at: now,
       })
       .eq("user_id", userId)
-      .eq("linkedin_url", d.linkedinUrl);
+      .eq("linkedin_url", d.linkedinUrl)
+      // Only 'new' rows carry a live payload; added/dismissed rows were redacted
+      // at the transition and must not be repopulated (CAR-135 / R4.8).
+      .eq("status", "new");
     if (error) console.error(`[discovery] candidate refresh failed for ${d.linkedinUrl}:`, error);
   }
 }

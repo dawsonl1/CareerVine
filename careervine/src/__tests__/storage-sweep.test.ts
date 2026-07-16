@@ -253,6 +253,20 @@ describe("removeUserStorageObjects", () => {
     ]);
   });
 
+  it("also clears the legacy contact-photos bucket on account deletion", async () => {
+    const { service, removeCalls } = mockService({
+      storage: {
+        attachments: { userA: [file("a.pdf")] },
+        "application-files": {},
+        "contact-photos": { userA: [file("42.jpg")] },
+      },
+    });
+
+    await removeUserStorageObjects(service, "userA");
+
+    expect(removeCalls).toContainEqual({ bucket: "contact-photos", paths: ["userA/42.jpg"] });
+  });
+
   it("throws on a falsy userId rather than wiping the whole bucket", async () => {
     const { service, removeCalls } = mockService({
       storage: { attachments: { "": [file("a.pdf")] }, "application-files": {} },
