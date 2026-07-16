@@ -3,6 +3,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { writeAudit } from "@/lib/admin";
 import { removeUserStorageObjects } from "@/lib/storage-sweep";
+import { deleteUserPhotoObjects } from "@/lib/r2";
 import {
   shapeAdminUser,
   keyStatusFor,
@@ -171,11 +172,15 @@ export const DELETE = withApiHandler({
     const { error } = await service.auth.admin.deleteUser(id);
     if (error) throw new ApiError(`Delete failed: ${error.message}`, 400);
 
-    // Storage objects don't cascade with the DB rows — clear the user's
-    // folders in both tracked buckets, best-effort (the daily storage-sweep
-    // cron self-heals anything missed here). Done AFTER the account is deleted
-    // so a failed deleteUser never strands live files whose rows still exist.
+    // Storage objects don't cascade with the DB rows — clear the user's folders,
+    // best-effort (the daily storage-sweep cron self-heals the swept buckets).
+    // Done AFTER the account is deleted so a failed deleteUser never strands live
+    // files whose rows still exist. Supabase buckets and R2 (the public CDN that
+    // holds contact photos) are separate systems, so each needs its own sweep
+    // (CAR-135 / R4.4) — without the R2 pass, deleted users' photos would linger
+    // on the public CDN, contradicting the deletion promise in our privacy policy.
     await removeUserStorageObjects(service, id);
+    await deleteUserPhotoObjects(id);
 
     await writeAudit(service, {
       adminId: admin.id,
