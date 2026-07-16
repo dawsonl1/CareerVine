@@ -17,7 +17,10 @@ export const GET = withApiHandler({
       .from("scheduled_emails")
       .select("*")
       .eq("user_id", user.id)
-      .eq("status", ScheduledEmailStatus.Pending)
+      // failed = stale send claim swept by the cron (CAR-134); shown with a
+      // Retry action so it never vanishes silently. 'sending' is transient
+      // and intentionally hidden.
+      .in("status", [ScheduledEmailStatus.Pending, ScheduledEmailStatus.Failed])
       .order("scheduled_send_at", { ascending: true });
 
     if (contactId) {
