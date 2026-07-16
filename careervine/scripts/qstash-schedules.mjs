@@ -33,6 +33,7 @@ const SCHEDULES = [
   { name: "scrape-refresh", path: "/api/cron/scrape-refresh", cron: "0 9 * * *", retries: 3 },
   { name: "discovery", path: "/api/cron/discovery", cron: "0 10 * * 1", retries: 3 },
   { name: "storage-sweep", path: "/api/cron/storage-sweep", cron: "0 10 * * *", retries: 3 },
+  { name: "data-retention", path: "/api/cron/data-retention", cron: "30 10 * * *", retries: 3 },
 ];
 
 const token = process.env.QSTASH_TOKEN;
