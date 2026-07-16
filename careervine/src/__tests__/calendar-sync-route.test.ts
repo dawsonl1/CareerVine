@@ -16,6 +16,17 @@ const state = {
 };
 
 const gmailUpdates: Array<Record<string, unknown>> = [];
+const calendarEventContactUpserts: Array<Record<string, unknown>> = [];
+
+// contact_emails store — each row carries its owning tenant via the contacts
+// join, so the mock can enforce the same tenant scoping the real join does.
+let contactEmailRows: Array<{ email: string; contact_id: number; user_id: string }> = [];
+// Records the (column, value) passed to the tenant-scoping .eq() so a test can
+// prove the route actually filters by contacts.user_id.
+const contactEmailFilters: Array<{ col: string; val: unknown }> = [];
+// Row returned by the post-upsert calendar_events lookup that drives the
+// contact-link upsert; null skips linking (matches the pre-existing tests).
+let calendarEventRow: { id: number } | null = null;
 
 vi.mock("@/lib/calendar", () => ({
   fetchCalendarEvents: (...args: unknown[]) => mockFetchCalendarEvents(...args),
@@ -55,7 +66,7 @@ function createServiceClient() {
           select: () => ({
             eq: () => ({
               eq: () => ({
-                single: async () => ({ data: null, error: null }),
+                single: async () => ({ data: calendarEventRow, error: null }),
               }),
             }),
           }),
@@ -67,7 +78,10 @@ function createServiceClient() {
 
       if (table === "calendar_event_contacts") {
         return {
-          upsert: async () => ({ error: null }),
+          upsert: async (payload: Record<string, unknown>) => {
+            calendarEventContactUpserts.push(payload);
+            return { error: null };
+          },
           delete: () => ({
             eq: async () => ({ error: null }),
           }),
@@ -75,9 +89,20 @@ function createServiceClient() {
       }
 
       if (table === "contact_emails") {
+        // Model the contacts!inner(user_id) join: .in(email) then
+        // .eq("contacts.user_id", user.id) must exclude foreign-tenant rows.
         return {
           select: () => ({
-            in: async () => ({ data: [] }),
+            in: (_col: string, emails: string[]) => ({
+              eq: async (col: string, val: unknown) => {
+                contactEmailFilters.push({ col, val });
+                const data = contactEmailRows
+                  .filter((r) => emails.includes(r.email))
+                  .filter((r) => r.user_id === val)
+                  .map((r) => ({ contact_id: r.contact_id, contacts: { user_id: r.user_id } }));
+                return { data };
+              },
+            }),
           }),
         };
       }
@@ -109,6 +134,10 @@ describe("/api/calendar/sync", () => {
     vi.setSystemTime(new Date("2026-07-09T12:00:00.000Z"));
     vi.clearAllMocks();
     gmailUpdates.length = 0;
+    calendarEventContactUpserts.length = 0;
+    contactEmailFilters.length = 0;
+    contactEmailRows = [];
+    calendarEventRow = null;
     state.connection = {
       calendar_scopes_granted: true,
       calendar_last_synced_at: null,
@@ -201,5 +230,76 @@ describe("/api/calendar/sync", () => {
       expect.objectContaining({ user_id: "user-1", google_event_id: "evt-1" }),
       { onConflict: "user_id,google_event_id" },
     );
+  });
+
+  it("does NOT match an attendee email that belongs to another tenant's contact (CAR-133 / R2.1)", async () => {
+    // contact_emails has no user_id column, so an unscoped service-client match
+    // is global across tenants. A foreign contact whose email happens to be an
+    // attendee on this user's event must never be linked.
+    contactEmailRows = [
+      { email: "attendee@corp.com", contact_id: 999, user_id: "user-2" },
+    ];
+    calendarEventRow = { id: 42 };
+
+    mockFetchCalendarEvents.mockResolvedValue({
+      events: [
+        {
+          id: "evt-foreign",
+          status: "confirmed",
+          start: { dateTime: "2026-07-10T15:00:00.000Z" },
+          end: { dateTime: "2026-07-10T16:00:00.000Z" },
+          summary: "Coffee chat",
+          attendees: [{ email: "attendee@corp.com" }],
+        },
+      ],
+      nextSyncToken: "next-token",
+    });
+
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+
+    // The route must scope the match by contacts.user_id = the caller.
+    expect(contactEmailFilters).toContainEqual({ col: "contacts.user_id", val: "user-1" });
+
+    // No foreign contact_id reaches the event row...
+    expect(calendarEventUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ google_event_id: "evt-foreign", contact_id: null }),
+      { onConflict: "user_id,google_event_id" },
+    );
+    // ...and no cross-tenant link row is written.
+    expect(calendarEventContactUpserts).toHaveLength(0);
+  });
+
+  it("matches an attendee email that belongs to the caller's own contact", async () => {
+    contactEmailRows = [
+      { email: "attendee@corp.com", contact_id: 7, user_id: "user-1" },
+    ];
+    calendarEventRow = { id: 42 };
+
+    mockFetchCalendarEvents.mockResolvedValue({
+      events: [
+        {
+          id: "evt-own",
+          status: "confirmed",
+          start: { dateTime: "2026-07-10T15:00:00.000Z" },
+          end: { dateTime: "2026-07-10T16:00:00.000Z" },
+          summary: "Coffee chat",
+          attendees: [{ email: "attendee@corp.com" }],
+        },
+      ],
+      nextSyncToken: "next-token",
+    });
+
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+
+    expect(calendarEventUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ google_event_id: "evt-own", contact_id: 7 }),
+      { onConflict: "user_id,google_event_id" },
+    );
+    expect(calendarEventContactUpserts).toContainEqual({
+      calendar_event_id: 42,
+      contact_id: 7,
+    });
   });
 });

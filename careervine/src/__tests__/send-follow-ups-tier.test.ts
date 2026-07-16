@@ -16,7 +16,9 @@ const state: {
   connections: unknown[];
   activeUserIds: string[];
   updates: { table: string; patch: Record<string, unknown> }[];
-} = { pendingMessages: [], connections: [], activeUserIds: [], updates: [] };
+  /** count returned for count-tracked updates (the 'sending' CAS claim). 1 = claim wins. */
+  claimCount: number;
+} = { pendingMessages: [], connections: [], activeUserIds: [], updates: [], claimCount: 1 };
 
 vi.mock("@upstash/qstash", () => ({
   Receiver: class {
@@ -54,8 +56,9 @@ vi.mock("@/lib/supabase/service-client", () => ({
           if (opts?.count) isCount = true;
           return b;
         },
-        update: (patch: Record<string, unknown>) => {
+        update: (patch: Record<string, unknown>, opts?: { count?: string }) => {
           mode = "update";
+          if (opts?.count) isCount = true;
           state.updates.push({ table, patch });
           return b;
         },
@@ -65,9 +68,9 @@ vi.mock("@/lib/supabase/service-client", () => ({
         not: () => b,
         order: () => b,
         limit: () => b,
-        single: async () => ({ data: null }), // atomic claim "fails" -> premium send loop skips
         then: (resolve: (v: unknown) => void) => {
-          if (mode === "update") return resolve({ error: null });
+          // count-tracked update = the CAS 'sending' claim (CAR-132)
+          if (mode === "update") return resolve({ error: null, count: isCount ? state.claimCount : null });
           if (isCount) return resolve({ count: 0 });
           if (table === "email_follow_up_messages") return resolve({ data: state.pendingMessages });
           if (table === "gmail_connections") return resolve({ data: state.connections });
@@ -114,6 +117,7 @@ describe("send-follow-ups cron — tier branch (CAR-102)", () => {
     state.connections = [];
     state.activeUserIds = [];
     state.updates = [];
+    state.claimCount = 1;
     getGmailClientSpy.mockReset();
   });
 
@@ -148,6 +152,55 @@ describe("send-follow-ups cron — tier branch (CAR-102)", () => {
 
     expect(getGmailClientSpy).toHaveBeenCalledWith("prem-1");
     expect(state.updates.some((u) => u.patch.status === "awaiting_review")).toBe(false);
+  });
+
+  it("premium, claim wins (count=1) -> sends and marks the message sent (CAR-132)", async () => {
+    // Success path: the CAS claim reports count=1, so the send MUST happen and
+    // the row MUST be marked 'sent'. Before CAR-132 this path had zero coverage
+    // (the old mock hardcoded the claim as failing) so the audit's claim-detection
+    // concern was untestable.
+    getGmailClientSpy.mockResolvedValue({
+      users: { threads: { get: async () => ({ data: { messages: [{ payload: { headers: [] } }] } }) } },
+    });
+    state.pendingMessages = [dueMessage("prem-1")];
+    state.connections = [
+      { user_id: "prem-1", gmail_address: "prem@x.com", modify_scope_granted: true, automatic_features_enabled: true, premium_enabled: true },
+    ];
+    state.activeUserIds = ["prem-1"];
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(sendTrackedEmailSpy).toHaveBeenCalledTimes(1);
+    expect(sendTrackedEmailSpy).toHaveBeenCalledWith(
+      "prem-1",
+      expect.objectContaining({ to: "amy@y.com", subject: "Nudge", threadId: "t-1" }),
+      { isFollowUp: true },
+    );
+    const claimIdx = state.updates.findIndex((u) => u.table === "email_follow_up_messages" && u.patch.status === "sending");
+    const sentIdx = state.updates.findIndex((u) => u.table === "email_follow_up_messages" && u.patch.status === "sent");
+    expect(claimIdx).toBeGreaterThanOrEqual(0);
+    expect(sentIdx).toBeGreaterThan(claimIdx);
+    expect(data.sent).toBe(1);
+  });
+
+  it("premium, claim contested (count=0) -> skips without sending", async () => {
+    getGmailClientSpy.mockResolvedValue({
+      users: { threads: { get: async () => ({ data: { messages: [{ payload: { headers: [] } }] } }) } },
+    });
+    state.pendingMessages = [dueMessage("prem-1")];
+    state.connections = [
+      { user_id: "prem-1", gmail_address: "prem@x.com", modify_scope_granted: true, automatic_features_enabled: true, premium_enabled: true },
+    ];
+    state.activeUserIds = ["prem-1"];
+    state.claimCount = 0;
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
+    expect(state.updates.some((u) => u.patch.status === "sent")).toBe(false);
+    expect(data.sent).toBe(0);
   });
 
   it("premium but automation OFF (no followups:auto, no outreach:portal) -> holds pending: no park, no Gmail", async () => {
