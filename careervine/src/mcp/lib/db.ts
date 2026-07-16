@@ -20,6 +20,7 @@ import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { cancelFollowUpsForScheduledEmail } from "@/lib/follow-up-helpers";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -973,6 +974,7 @@ export async function listScheduled() {
 }
 
 export async function cancelScheduledEmail(scheduledEmailId: number): Promise<void> {
+  const now = new Date().toISOString();
   // 'cancelled' — NOT 'cancelled_user': the scheduled_emails CHECK only allows
   // pending/sent/cancelled ('cancelled_user' is the email_follow_ups vocabulary;
   // writing it here 23514'd every cancel until CAR-132). Count-based CAS per the
@@ -980,7 +982,7 @@ export async function cancelScheduledEmail(scheduledEmailId: number): Promise<vo
   const { error, count } = await db()
     .from("scheduled_emails")
     .update(
-      { status: ScheduledEmailStatus.Cancelled, updated_at: new Date().toISOString() },
+      { status: ScheduledEmailStatus.Cancelled, updated_at: now },
       { count: "exact" },
     )
     .eq("id", scheduledEmailId)
@@ -990,6 +992,11 @@ export async function cancelScheduledEmail(scheduledEmailId: number): Promise<vo
   if (!count) {
     throw new Error(`No pending scheduled email with id ${scheduledEmailId}`);
   }
+
+  // Tear down any follow-up sequences linked to this scheduled email, like
+  // the web DELETE route does — otherwise they stay active and fire into a
+  // thread whose opening email never sent (CAR-136).
+  await cancelFollowUpsForScheduledEmail(db(), scheduledEmailId, now);
 }
 
 export async function cancelFollowUpSequence(followUpId: number): Promise<void> {
