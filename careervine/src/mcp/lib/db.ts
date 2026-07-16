@@ -1214,7 +1214,11 @@ export async function listCalendarEvents(timeMin: string, timeMax: string) {
   const linkRows = await chunked(eventIds, async (chunk) => {
     const { data: links } = await db()
       .from("calendar_event_contacts")
-      .select("calendar_event_id, contact_id, contacts(id, name)")
+      // Defense-in-depth: scope the linked contact to this user. calendar_event_contacts
+      // has no user_id, so an unscoped embed would surface a foreign contact's name if a
+      // bad link ever landed here (CAR-133 / R2.1). The inner join drops any such link.
+      .select("calendar_event_id, contact_id, contacts!inner(id, name, user_id)")
+      .eq("contacts.user_id", uid())
       .in("calendar_event_id", chunk);
     return (links as unknown as Array<{ calendar_event_id: number; contacts: { id: number; name: string } | null }>) ?? [];
   });

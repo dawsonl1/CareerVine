@@ -25,12 +25,28 @@ export const GET = withApiHandler({
     }
 
     const serviceClient = createSupabaseServiceClient();
+    const numericContactId = parseInt(contactId);
+
+    // Verify the contact belongs to this user before touching it. The service
+    // client bypasses RLS, so an unscoped read by raw contactId is an IDOR:
+    // it would leak a foreign contact's email addresses and kick off background
+    // sync/backfill jobs against them (CAR-133 / R2.6).
+    const { data: ownedContact } = await serviceClient
+      .from("contacts")
+      .select("id")
+      .eq("id", numericContactId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!ownedContact) {
+      throw new ApiError("Contact not found", 404);
+    }
 
     // Get the contact's email addresses
     const { data: contactEmails } = await serviceClient
       .from("contact_emails")
       .select("email")
-      .eq("contact_id", parseInt(contactId));
+      .eq("contact_id", numericContactId);
 
     const emails = (contactEmails || [])
       .map((e: { email: string | null }) => e.email)
@@ -45,7 +61,7 @@ export const GET = withApiHandler({
 
     if (emails.length > 0) {
       // Claim any orphaned emails that match this contact's addresses
-      backfillEmailsForContact(user.id, parseInt(contactId), emails)
+      backfillEmailsForContact(user.id, numericContactId, emails)
         .catch((err) => console.error("Email backfill error:", err));
 
       if (isStale) {
@@ -57,7 +73,7 @@ export const GET = withApiHandler({
           // Sync in the background — don't block the response
           syncEmailsForContact(
             user.id,
-            parseInt(contactId),
+            numericContactId,
             emails,
             conn.gmail_address,
             90
@@ -71,7 +87,7 @@ export const GET = withApiHandler({
       .from("email_messages")
       .select("*")
       .eq("user_id", user.id)
-      .eq("matched_contact_id", parseInt(contactId))
+      .eq("matched_contact_id", numericContactId)
       .eq("is_trashed", false)
       .eq("is_hidden", false)
       .order("date", { ascending: false });

@@ -19,6 +19,8 @@ vi.mock("@/lib/supabase/server-client", () => ({
 }));
 
 const results: Record<string, { data: unknown; error: unknown }> = {
+  // Ownership gate (CAR-133 / R2.6): a truthy row = the contact belongs to the user.
+  contacts: { data: { id: 5 }, error: null },
   contact_emails: { data: [{ email: "jane@corp.com" }], error: null },
   email_messages: { data: [{ id: 1, subject: "Hi" }], error: null },
 };
@@ -26,7 +28,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
   createSupabaseServiceClient: vi.fn(() => ({
     from: (table: string) => {
       const chain: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "order"]) chain[m] = () => chain;
+      for (const m of ["select", "eq", "order", "maybeSingle"]) chain[m] = () => chain;
       (chain as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) =>
         resolve(results[table]);
       return chain;
@@ -72,6 +74,7 @@ describe("GET /api/gmail/emails — tier-aware background sync (CAR-102)", () =>
   beforeEach(() => {
     vi.clearAllMocks();
     authedUser = { id: "u-1" };
+    results.contacts = { data: { id: 5 }, error: null };
   });
 
   it("premium (mailbox:read) -> serves history AND triggers the background live sync", async () => {
@@ -88,5 +91,18 @@ describe("GET /api/gmail/emails — tier-aware background sync (CAR-102)", () =>
     expect(status).toBe(200);
     expect(data.emails).toHaveLength(1); // DB history still served — the free Sent tab is not empty
     expect(syncSpy).not.toHaveBeenCalled();
+  });
+
+  it("foreign contactId (not owned by the user) -> 404 with no background sync/backfill (CAR-133 / R2.6)", async () => {
+    // The service client bypasses RLS; reading contact_emails by a raw, foreign
+    // contactId would leak that contact's addresses and fire background jobs
+    // against them. The ownership gate must return 404 before any of that.
+    caps = new Set(["mailbox:read"]);
+    results.contacts = { data: null, error: null };
+
+    const { status } = await call();
+    expect(status).toBe(404);
+    expect(syncSpy).not.toHaveBeenCalled();
+    expect(backfillSpy).not.toHaveBeenCalled();
   });
 });

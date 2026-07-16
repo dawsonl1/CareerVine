@@ -131,10 +131,16 @@ export const POST = withApiHandler({
       const contactIds: number[] = [];
 
       if (attendeeEmails.length > 0) {
+        // Scope the match to THIS user's contacts. contact_emails has no
+        // user_id column, so an unscoped service-client match is global across
+        // all tenants and would write a foreign contact_id onto this user's
+        // calendar rows (CAR-133 / R2.1). Join through contacts.user_id, exactly
+        // like activateContactByEmail in src/lib/gmail.ts.
         const { data: matched } = await service
           .from("contact_emails")
-          .select("contact_id")
-          .in("email", attendeeEmails);
+          .select("contact_id, contacts!inner(user_id)")
+          .in("email", attendeeEmails)
+          .eq("contacts.user_id", user.id);
 
         if (matched) {
           const uniqueIds = [...new Set(matched.map((m: any) => m.contact_id))];
