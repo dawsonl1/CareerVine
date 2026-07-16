@@ -19,15 +19,12 @@ export const PUT = withApiHandler({
 
     const { data: existing } = await service
       .from("scheduled_emails")
-      .select("id, user_id, status")
+      .select("id, user_id")
       .eq("id", emailId)
       .single();
 
     if (!existing || existing.user_id !== user.id) {
       throw new ApiError("Not found", 404);
-    }
-    if (existing.status !== ScheduledEmailStatus.Pending) {
-      throw new ApiError("Can only edit pending emails", 400);
     }
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -39,16 +36,23 @@ export const PUT = withApiHandler({
     if (body.bodyHtml !== undefined) updates.body_html = body.bodyHtml;
     if (body.scheduledSendAt !== undefined) updates.scheduled_send_at = body.scheduledSendAt;
 
+    // Pending-only enforced inside the UPDATE itself (CAR-134): a read-then-
+    // write guard races the send drivers — the row can be claimed and sent
+    // between the check and the write. Status is not modified here, so
+    // .select() is safe (no rule-17 trap).
     const { data, error } = await service
       .from("scheduled_emails")
       .update(updates)
       .eq("id", emailId)
-      .select()
-      .single();
+      .eq("status", ScheduledEmailStatus.Pending)
+      .select();
 
     if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new ApiError("Can only edit pending emails", 400);
+    }
 
-    return { scheduledEmail: data };
+    return { scheduledEmail: data[0] };
   },
 });
 
@@ -77,7 +81,26 @@ export const DELETE = withApiHandler({
 
     const now = new Date().toISOString();
 
-    // Cancel linked follow-ups
+    // Cancel the scheduled email first, atomically (CAR-134): only a row that
+    // is still waiting (pending) or dead (failed) can be cancelled. A row a
+    // send driver has claimed ('sending') or already sent must not flip to
+    // cancelled — the mark-sent write is guarded on 'sending' and would be
+    // stomped. count, not .select(): the update writes the filtered column
+    // (rule 17).
+    const { count: cancelled } = await service
+      .from("scheduled_emails")
+      .update(
+        { status: ScheduledEmailStatus.Cancelled, updated_at: now },
+        { count: "exact" },
+      )
+      .eq("id", emailId)
+      .in("status", [ScheduledEmailStatus.Pending, ScheduledEmailStatus.Failed]);
+
+    if (!cancelled) {
+      throw new ApiError("This email is already sending or was sent.", 409);
+    }
+
+    // Cancel linked follow-ups (only after the cancel actually landed)
     const { data: linkedFollowUps } = await service
       .from("email_follow_ups")
       .select("id")
@@ -99,12 +122,6 @@ export const DELETE = withApiHandler({
         .update({ status: FollowUpStatus.CancelledUser, updated_at: now })
         .in("id", fuIds);
     }
-
-    // Cancel the scheduled email
-    await service
-      .from("scheduled_emails")
-      .update({ status: ScheduledEmailStatus.Cancelled, updated_at: now })
-      .eq("id", emailId);
 
     return { success: true };
   },

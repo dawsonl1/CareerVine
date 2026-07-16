@@ -26,7 +26,7 @@ import {
   FollowUpMessageStatus,
 } from "@/lib/constants";
 import type { EmailMessage, EmailFollowUp, EmailFollowUpMessage, ScheduledEmail, EmailDraft, ContactEmployment } from "@/lib/types";
-import { Send, Clock, Reply, PenSquare, Pencil, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight, FileText, X } from "lucide-react";
+import { Send, Clock, Reply, PenSquare, Pencil, Loader2, Inbox as InboxIcon, ArrowUpRight, Check, ChevronDown, ChevronRight, FileText, X, RotateCcw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import DOMPurify from "dompurify";
@@ -114,6 +114,7 @@ export function OutreachShell() {
   const [contactMap, setContactMap] = useState<Record<number, string>>({});
   const [contactDetails, setContactDetails] = useState<ContactDetailsMap>({});
   const [cancellingDraftId, setCancellingDraftId] = useState<number | null>(null);
+  const [retryingScheduledId, setRetryingScheduledId] = useState<number | null>(null);
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -187,6 +188,29 @@ export function OutreachShell() {
       }
     },
     [confirmingId, load, toastSuccess, toastError],
+  );
+
+  // A failed scheduled email (the send process died mid-flight, CAR-134) can
+  // be requeued; the user decides, since the original may or may not have
+  // actually gone out.
+  const retryScheduledEmail = useCallback(
+    async (id: number) => {
+      if (retryingScheduledId) return;
+      setRetryingScheduledId(id);
+      try {
+        const res = await fetch(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
+        if (!res.ok) throw new Error();
+        // Kick the send driver so it goes out now, not on the next cron tick.
+        fetch("/api/gmail/schedule/process", { method: "POST" }).catch(() => {});
+        toastSuccess("Email queued to send now");
+        await load();
+      } catch {
+        toastError("Could not retry this email");
+      } finally {
+        setRetryingScheduledId(null);
+      }
+    },
+    [retryingScheduledId, load, toastSuccess, toastError],
   );
 
   // Sent outreach = the user's outbound messages, grouped into threads.
@@ -307,7 +331,13 @@ export function OutreachShell() {
               />
             )}
             {activeTab === "scheduled" && (
-              <ScheduledList items={scheduledEmails} contactDetails={contactDetails} contactMap={contactMap} />
+              <ScheduledList
+                items={scheduledEmails}
+                contactDetails={contactDetails}
+                contactMap={contactMap}
+                onRetry={retryScheduledEmail}
+                retryingId={retryingScheduledId}
+              />
             )}
             {activeTab === "followups" && (
               <FollowUpList
@@ -598,10 +628,14 @@ function ScheduledList({
   items,
   contactDetails,
   contactMap,
+  onRetry,
+  retryingId,
 }: {
   items: ScheduledEmail[];
   contactDetails: ContactDetailsMap;
   contactMap: Record<number, string>;
+  onRetry: (id: number) => void;
+  retryingId: number | null;
 }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -643,10 +677,32 @@ function ScheduledList({
                   />
                 </div>
               </div>
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
-                <Clock className="h-3 w-3" />
-                {fmtDateTime(s.scheduled_send_at)}
-              </span>
+              {s.status === "failed" ? (
+                <span className="flex shrink-0 items-center gap-2">
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive"
+                    title="Sending was interrupted, so this email may not have gone out. Check your Gmail Sent folder, then retry or cancel it."
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    Didn&apos;t send
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 px-2 text-xs"
+                    disabled={retryingId === s.id}
+                    onClick={() => onRetry(s.id)}
+                  >
+                    {retryingId === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                    Retry
+                  </Button>
+                </span>
+              ) : (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
+                  <Clock className="h-3 w-3" />
+                  {fmtDateTime(s.scheduled_send_at)}
+                </span>
+              )}
             </div>
             {isExpanded && (
               <div className="mt-3 border-t border-outline-variant pt-3">

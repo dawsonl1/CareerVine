@@ -71,10 +71,19 @@ export function isActionableFollowUpMessage(status: string | null | undefined): 
 
 export const ScheduledEmailStatus = {
   Pending: "pending",
+  /** Claimed by a send driver (CAR-134) — transient, hidden from list UIs. */
+  Sending: "sending",
   Cancelled: "cancelled",
   CancelledUser: "cancelled_user",
   Sent: "sent",
+  /** Claim went stale (process died mid-send). Surfaced with a Retry action,
+   * never auto-retried: the send may or may not have gone out. */
+  Failed: "failed",
 } as const;
+
+/** Claims in 'sending' older than this are dead (no lambda runs this long)
+ * and get swept to 'failed' by the cron. */
+export const SCHEDULED_SEND_STALE_CLAIM_MINUTES = 15;
 
 // ── Email direction ────────────────────────────────────────────────────
 

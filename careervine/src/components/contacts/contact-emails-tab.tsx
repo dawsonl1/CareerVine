@@ -8,7 +8,7 @@ import { FollowUpModal } from "@/components/follow-up-modal";
 import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 import { isOpenFollowUpMessage, isActionableFollowUpMessage, FollowUpMessageStatus } from "@/lib/constants";
-import { Inbox, ArrowUpRight, ArrowDownLeft, Reply, Clock, XCircle, Pencil, Check, Send } from "lucide-react";
+import { Inbox, ArrowUpRight, ArrowDownLeft, Reply, Clock, XCircle, Pencil, Check, Send, RotateCcw } from "lucide-react";
 
 interface ContactEmailsTabProps {
   contactId: number;
@@ -76,6 +76,22 @@ export function ContactEmailsTab({
   }, [gmailConnected, emails]);
 
   const emailThreads = useMemo(() => buildThreads(emails), [emails]);
+
+  // A failed scheduled email (the send process died mid-flight, CAR-134) can
+  // be requeued; the user decides, since the original may or may not have
+  // actually gone out.
+  const retryScheduledEmail = async (id: number) => {
+    try {
+      const res = await fetch(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
+      if (!res.ok) throw new Error();
+      // Kick the send driver so it goes out now, not on the next cron tick.
+      fetch("/api/gmail/schedule/process", { method: "POST" }).catch(() => {});
+      toastSuccess("Email queued to send now");
+      onReloadEmails();
+    } catch {
+      toastError("Could not retry this email");
+    }
+  };
 
   const handleExpandEmail = async (gmailMessageId: string) => {
     if (expandedEmailId === gmailMessageId) {
@@ -220,15 +236,34 @@ export function ContactEmailsTab({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2.5">
                   <span className="text-sm font-medium text-foreground truncate">{se.subject}</span>
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">
-                    Scheduled
-                  </span>
+                  {se.status === "failed" ? (
+                    <span
+                      className="text-[11px] px-2 py-0.5 rounded-full bg-destructive/10 text-destructive shrink-0"
+                      title="Sending was interrupted, so this email may not have gone out. Check your Gmail Sent folder, then retry or cancel it."
+                    >
+                      Didn&apos;t send
+                    </span>
+                  ) : (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">
+                      Scheduled
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  To: {se.recipient_email} · Sends {new Date(se.scheduled_send_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                  To: {se.recipient_email} · {se.status === "failed" ? "Was due" : "Sends"} {new Date(se.scheduled_send_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                 </p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {se.status === "failed" && (
+                  <button
+                    type="button"
+                    onClick={() => retryScheduledEmail(se.id)}
+                    className="p-1 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+                    title="Retry sending this email"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </button>
+                )}
                 {gmailConnected && (
                   <button
                     type="button"

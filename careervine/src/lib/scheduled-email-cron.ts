@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { processScheduledEmails } from "@/lib/gmail";
 import { filterActiveUserIds } from "@/lib/user-status";
+import { SCHEDULED_SEND_STALE_CLAIM_MINUTES } from "@/lib/constants";
 
 export interface ScheduledEmailCronResult {
   dueRows: number;
@@ -9,6 +10,8 @@ export interface ScheduledEmailCronResult {
   usersFailed: number;
   sent: number;
   errors: number;
+  /** Stale 'sending' claims flagged as 'failed' this tick (CAR-134). */
+  sweptFailed: number;
   durationMs: number;
   oldestDueScheduledAt: string | null;
   maxDelayMs: number;
@@ -39,6 +42,20 @@ export async function processDueScheduledEmails(
   const service = deps.service ?? createSupabaseServiceClient();
   const processForUser = deps.processForUser ?? processScheduledEmails;
 
+  // Sweep stale claims (CAR-134): a row stuck in 'sending' longer than any
+  // send driver can live was orphaned by a crash. The crash may have happened
+  // after the Gmail send but before the mark-sent write, so flag it 'failed'
+  // (surfaced in the UI with a Retry action) instead of re-queueing it — an
+  // automatic retry could double-send a real email.
+  const staleCutoff = new Date(
+    nowMs - SCHEDULED_SEND_STALE_CLAIM_MINUTES * 60_000,
+  ).toISOString();
+  const { count: sweptFailed } = await service
+    .from("scheduled_emails")
+    .update({ status: "failed", updated_at: nowIso }, { count: "exact" })
+    .eq("status", "sending")
+    .lt("claimed_at", staleCutoff);
+
   const { data } = await service
     .from("scheduled_emails")
     .select("user_id,scheduled_send_at")
@@ -68,6 +85,7 @@ export async function processDueScheduledEmails(
       usersFailed: 0,
       sent: 0,
       errors: 0,
+      sweptFailed: sweptFailed ?? 0,
       durationMs: Date.now() - startedAt,
       oldestDueScheduledAt: null,
       maxDelayMs: 0,
@@ -109,6 +127,7 @@ export async function processDueScheduledEmails(
     usersFailed,
     sent,
     errors,
+    sweptFailed: sweptFailed ?? 0,
     durationMs,
     oldestDueScheduledAt,
     maxDelayMs,
