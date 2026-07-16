@@ -1,8 +1,51 @@
 /**
- * Shared helpers for follow-up message row construction.
+ * Shared helpers for follow-up message row construction and teardown.
  */
 
-import { FollowUpMessageStatus } from "@/lib/constants";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  FollowUpStatus,
+  FollowUpMessageStatus,
+  UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
+} from "@/lib/constants";
+
+/**
+ * Cancel every active follow-up sequence linked to a scheduled email
+ * (email_follow_ups.scheduled_email_id) plus their unresolved messages.
+ * Runs after the scheduled email itself was cancelled: a sequence whose
+ * opening email will never send must not keep firing follow-ups into a
+ * thread that doesn't exist. Shared by the web DELETE route and the MCP
+ * cancel_scheduled tool (CAR-136).
+ */
+export async function cancelFollowUpsForScheduledEmail(
+  service: SupabaseClient,
+  scheduledEmailId: number,
+  now: string = new Date().toISOString(),
+): Promise<void> {
+  const { data: linked, error: readError } = await service
+    .from("email_follow_ups")
+    .select("id")
+    .eq("scheduled_email_id", scheduledEmailId)
+    .eq("status", FollowUpStatus.Active);
+  if (readError) throw readError;
+  if (!linked || linked.length === 0) return;
+
+  const fuIds = linked.map((fu: { id: number }) => fu.id);
+  const { error: msgError } = await service
+    .from("email_follow_up_messages")
+    .update({ status: FollowUpMessageStatus.Cancelled })
+    .in("follow_up_id", fuIds)
+    // Include expired so a still-sendable expired sibling isn't orphaned when
+    // its parent scheduled email is cancelled (CAR-105).
+    .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
+  if (msgError) throw msgError;
+
+  const { error: fuError } = await service
+    .from("email_follow_ups")
+    .update({ status: FollowUpStatus.CancelledUser, updated_at: now })
+    .in("id", fuIds);
+  if (fuError) throw fuError;
+}
 
 interface FollowUpMessageInput {
   sendAfterDays: number;

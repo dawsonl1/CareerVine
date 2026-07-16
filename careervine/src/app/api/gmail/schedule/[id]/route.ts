@@ -1,7 +1,8 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailScheduleUpdateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { ScheduledEmailStatus, FollowUpStatus, FollowUpMessageStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { ScheduledEmailStatus } from "@/lib/constants";
+import { cancelFollowUpsForScheduledEmail } from "@/lib/follow-up-helpers";
 
 /**
  * PUT /api/gmail/schedule/[id]
@@ -100,28 +101,9 @@ export const DELETE = withApiHandler({
       throw new ApiError("This email is already sending or was sent.", 409);
     }
 
-    // Cancel linked follow-ups (only after the cancel actually landed)
-    const { data: linkedFollowUps } = await service
-      .from("email_follow_ups")
-      .select("id")
-      .eq("scheduled_email_id", emailId)
-      .eq("status", FollowUpStatus.Active);
-
-    if (linkedFollowUps && linkedFollowUps.length > 0) {
-      const fuIds = linkedFollowUps.map((fu) => fu.id);
-      await service
-        .from("email_follow_up_messages")
-        .update({ status: FollowUpMessageStatus.Cancelled })
-        .in("follow_up_id", fuIds)
-        // Include expired so a still-sendable expired sibling isn't orphaned when
-        // its parent scheduled email is cancelled (CAR-105).
-        .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
-
-      await service
-        .from("email_follow_ups")
-        .update({ status: FollowUpStatus.CancelledUser, updated_at: now })
-        .in("id", fuIds);
-    }
+    // Cancel linked follow-ups, only after the cancel actually landed
+    // (shared with the MCP cancel_scheduled tool, CAR-136).
+    await cancelFollowUpsForScheduledEmail(service, emailId, now);
 
     return { success: true };
   },
