@@ -19,7 +19,7 @@ import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
-import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -973,30 +973,37 @@ export async function listScheduled() {
 }
 
 export async function cancelScheduledEmail(scheduledEmailId: number): Promise<void> {
-  const { data, error } = await db()
+  // 'cancelled' — NOT 'cancelled_user': the scheduled_emails CHECK only allows
+  // pending/sent/cancelled ('cancelled_user' is the email_follow_ups vocabulary;
+  // writing it here 23514'd every cancel until CAR-132). Count-based CAS per the
+  // house convention (rule 17, CAR-108).
+  const { error, count } = await db()
     .from("scheduled_emails")
-    .update({ status: "cancelled_user", updated_at: new Date().toISOString() })
+    .update(
+      { status: ScheduledEmailStatus.Cancelled, updated_at: new Date().toISOString() },
+      { count: "exact" },
+    )
     .eq("id", scheduledEmailId)
     .eq("user_id", uid())
-    .eq("status", "pending")
-    .select("id");
+    .eq("status", ScheduledEmailStatus.Pending);
   if (error) throw error;
-  if (!data || data.length === 0) {
+  if (!count) {
     throw new Error(`No pending scheduled email with id ${scheduledEmailId}`);
   }
 }
 
 export async function cancelFollowUpSequence(followUpId: number): Promise<void> {
   const now = new Date().toISOString();
-  const { data, error } = await db()
+  // Count-based CAS (rule 17, CAR-108): don't gate the child-message cleanup
+  // below on a .select() read-back of a row whose filtered column just changed.
+  const { error, count } = await db()
     .from("email_follow_ups")
-    .update({ status: "cancelled_user", updated_at: now })
+    .update({ status: "cancelled_user", updated_at: now }, { count: "exact" })
     .eq("id", followUpId)
     .eq("user_id", uid())
-    .eq("status", "active")
-    .select("id");
+    .eq("status", "active");
   if (error) throw error;
-  if (!data || data.length === 0) {
+  if (!count) {
     throw new Error(`No active follow-up sequence with id ${followUpId}`);
   }
   const { error: msgError } = await db()

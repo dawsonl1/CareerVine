@@ -223,16 +223,18 @@ async function runJob(): Promise<NextResponse> {
     // one run would burst multiple cold emails seconds apart (deliverability
     // risk) if several fell due together (e.g. after cron downtime).
     for (const msg of messages) {
-      // Atomic status check: set to 'sending' to prevent duplicates
-      const { data: updated } = await service
+      // Atomic status check: set to 'sending' to prevent duplicates. Detect the
+      // claim via count, not a .select() read-back — the update sets the same
+      // `status` the filter tests, and the house CAS convention (rule 17,
+      // CAR-108) is count-based so success never depends on representation or
+      // RLS visibility semantics.
+      const { count: claimedCount } = await service
         .from("email_follow_up_messages")
-        .update({ status: "sending" })
+        .update({ status: "sending" }, { count: "exact" })
         .eq("id", msg.id)
-        .eq("status", "pending")
-        .select("id")
-        .single();
+        .eq("status", "pending");
 
-      if (!updated) continue; // Already being processed
+      if (claimedCount !== 1) continue; // Already being processed
 
       try {
         // Tracked path: counts against the daily cap, refuses bounced
