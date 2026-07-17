@@ -646,8 +646,8 @@ export function ContactEmailsTab({
                                       contactName: fu.contact_name,
                                       originalSubject: fu.original_subject || thread.subject,
                                       originalSentAt: fu.original_sent_at,
-                                      originalGmailMessageId: fu.original_gmail_message_id,
-                                      threadId: fu.thread_id,
+                                      originalGmailMessageId: fu.original_gmail_message_id ?? "",
+                                      threadId: fu.thread_id ?? "",
                                       existingFollowUp: fu,
                                     });
                                   }}

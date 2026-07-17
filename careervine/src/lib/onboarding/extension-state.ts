@@ -19,7 +19,7 @@
  */
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
-import type { ExtensionOnboardingState } from "@/lib/database.types";
+import type { ExtensionOnboardingState } from "@/lib/app-types";
 
 export type { ExtensionOnboardingState };
 
@@ -72,7 +72,8 @@ export async function getExtensionOnboardingSnapshot(
     .maybeSingle();
   if (error || !data) return null;
   return {
-    state: data.extension_onboarding_state,
+    // extension_onboarding_state is CHECK-constrained to ExtensionOnboardingState's members.
+    state: data.extension_onboarding_state as ExtensionOnboardingState,
     contactId: data.extension_onboarding_contact_id,
     extensionLastSeenAt: data.extension_last_seen_at,
   };

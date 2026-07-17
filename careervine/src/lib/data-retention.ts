@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Json } from "@/lib/database.types";
 
 /**
  * Retention purge for scraped third-party data (CAR-135 / R4.8).
@@ -27,7 +28,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *  NULL, so it is emptied to `{}` rather than nulled. Keeps the identity
  *  tombstone (user_id, linkedin_url, name, status) for dedup + sticky dismiss. */
 export const REDACTED_CANDIDATE_FIELDS = {
-  raw: {} as Record<string, unknown>,
+  raw: {} as Json,
   headline: null,
   location: null,
   photo_url: null,

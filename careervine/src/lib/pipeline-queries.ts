@@ -10,7 +10,7 @@
  */
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
-import type { Database } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 import {
   type CycleFormState,
   type PipelineFileRef,
@@ -369,7 +369,7 @@ export async function savePipelineCycle(
   const { error } = await db().rpc("save_pipeline_cycle", {
     p_target_company_id: targetId,
     p_cycle_number: cycleNumber,
-    p_payload: cyclePayloadFromForm(form),
+    p_payload: cyclePayloadFromForm(form) as unknown as Json,
   });
   if (error) throw error;
 }

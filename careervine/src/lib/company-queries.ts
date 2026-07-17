@@ -70,7 +70,7 @@ async function byuAlumContactIds(contactIds: number[]): Promise<Set<number>> {
     const { data } = await db().from("contact_schools").select("contact_id, schools(name)").in("contact_id", chunk);
     return data ?? [];
   });
-  for (const s of rows as unknown as Array<{ contact_id: number; schools: { name: string } | null }>) {
+  for (const s of rows) {
     if (s.schools?.name && isByuSchoolName(s.schools.name)) out.add(s.contact_id);
   }
   return out;
@@ -178,13 +178,13 @@ export async function getContactStages(
     if (contactId == null || !startAt || status === "cancelled") return;
     (startAt > nowIso ? upcoming : past).add(contactId);
   };
-  for (const e of calEvents as Array<{ contact_id: number | null; start_at: string | null; status: string | null }>) {
+  for (const e of calEvents) {
     noteEvent(e.contact_id, e.start_at, e.status);
   }
-  for (const l of calLinks as unknown as Array<{ contact_id: number; calendar_events: { start_at: string | null; status: string | null } }>) {
+  for (const l of calLinks) {
     noteEvent(l.contact_id, l.calendar_events?.start_at ?? null, l.calendar_events?.status ?? null);
   }
-  for (const l of meetingLinks as unknown as Array<{ contact_id: number; meetings: { meeting_date: string | null } }>) {
+  for (const l of meetingLinks) {
     const d = l.meetings?.meeting_date;
     if (!d) continue;
     (d > nowIso ? upcoming : past).add(l.contact_id);
@@ -406,7 +406,7 @@ async function fetchUserEmploymentRows(userId: string): Promise<EmploymentAggRow
       .eq("contacts.user_id", userId)
       .range(from, from + PAGE - 1);
     if (error) throw error;
-    const rows = (data as unknown as EmploymentAggRow[] | null) ?? [];
+    const rows = data ?? [];
     all.push(...rows);
     if (rows.length < PAGE) break;
   }
@@ -434,12 +434,7 @@ export async function getCompanies(
       .eq("user_id", userId),
   ]);
   if (targetsRes.error) throw targetsRes.error;
-  const scopeRows = (targetsRes.data ?? []) as unknown as Array<
-    Omit<CompanyTargetScopeRow, "location_label"> & {
-      company_id: number;
-      locations: { city: string | null; state: string | null; country: string } | null;
-    }
-  >;
+  const scopeRows = targetsRes.data ?? [];
   // A company is a target if ANY scope (company-wide or office) is targeted.
   const targetByCompany = new Map<number, ReturnType<typeof deriveCompanyTarget>>();
   {
@@ -797,32 +792,7 @@ export async function getCompanyDetail(
     .limit(2000);
   if (empError) throw empError;
 
-  type EmpRow = {
-    id: number;
-    contact_id: number;
-    title: string | null;
-    is_current: boolean;
-    start_month: string | null;
-    end_month: string | null;
-    location_id: number | null;
-    workplace_type: string | null;
-    locations: { city: string | null; state: string | null; country: string } | null;
-    contacts: {
-      id: number;
-      name: string;
-      photo_url: string | null;
-      headline: string | null;
-      persona: string | null;
-      network_status: string;
-      verified_school: string | null;
-      review_note: string | null;
-      last_scraped_at: string | null;
-      stage_override: string | null;
-      import_meta: Record<string, unknown> | null;
-      linkedin_url: string | null;
-    };
-  };
-  const rows = ((empRows as unknown as EmpRow[] | null) ?? []);
+  const rows = empRows ?? [];
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
 
   // Emails, alum badge, stages, latest logged interaction, current employer
@@ -860,7 +830,7 @@ export async function getCompanyDetail(
   ]);
 
   const emailByContact = new Map<number, { address: string; source: string; bounced: boolean }>();
-  for (const e of emailRows as Array<{ contact_id: number; email: string | null; source: string; is_primary: boolean; bounced_at: string | null }>) {
+  for (const e of emailRows) {
     if (!e.email) continue;
     const existing = emailByContact.get(e.contact_id);
     if (!existing || e.is_primary) {
@@ -868,13 +838,13 @@ export async function getCompanyDetail(
     }
   }
   const alumContacts = new Set<number>();
-  for (const s of schoolRows as unknown as Array<{ contact_id: number; schools: { name: string } | null }>) {
+  for (const s of schoolRows) {
     if (s.schools?.name && isByuSchoolName(s.schools.name)) alumContacts.add(s.contact_id);
   }
 
   // Rows arrive newest-first per chunk; keep the first seen per contact.
   const lastInteractionByContact = new Map<number, { type: string; date: string }>();
-  for (const i of interactionRows as Array<{ contact_id: number; interaction_type: string; interaction_date: string }>) {
+  for (const i of interactionRows) {
     if (!lastInteractionByContact.has(i.contact_id)) {
       lastInteractionByContact.set(i.contact_id, { type: i.interaction_type, date: i.interaction_date });
     }
@@ -883,7 +853,7 @@ export async function getCompanyDetail(
   // Current employer per contact (contact_companies.is_current); a contact could
   // theoretically have more than one flagged current — keep the first seen.
   const currentPositionByContact = new Map<number, { title: string | null; company_id: number; company_name: string }>();
-  for (const p of currentPositionRows as unknown as Array<{ contact_id: number; title: string | null; companies: { id: number; name: string } | null }>) {
+  for (const p of currentPositionRows) {
     if (!p.companies || currentPositionByContact.has(p.contact_id)) continue;
     currentPositionByContact.set(p.contact_id, { title: p.title, company_id: p.companies.id, company_name: p.companies.name });
   }
@@ -915,7 +885,7 @@ export async function getCompanyDetail(
           (r.contacts.verified_school != null && r.contacts.verified_school !== "none"),
         review_note: r.contacts.review_note,
         selection_reason:
-          meta && typeof meta === "object" && typeof meta.selection_reason === "string"
+          meta && typeof meta === "object" && !Array.isArray(meta) && typeof meta.selection_reason === "string"
             ? meta.selection_reason
             : null,
         last_scraped_at: r.contacts.last_scraped_at,
@@ -1031,13 +1001,7 @@ export async function getCompanyDetail(
       .select("id, note, created_at, location_id, locations(city, state, country)")
       .eq("target_company_id", t.id)
       .order("created_at", { ascending: false });
-    const notes: CompanyNote[] = ((noteRows as unknown as Array<{
-      id: number;
-      note: string;
-      created_at: string;
-      location_id: number | null;
-      locations: { city: string | null; state: string | null; country: string } | null;
-    }> | null) ?? [])
+    const notes: CompanyNote[] = ((noteRows) ?? [])
       .map((n) => ({
         id: n.id,
         note: n.note,
@@ -1048,12 +1012,7 @@ export async function getCompanyDetail(
     target = { ...t, notes };
   }
 
-  const offices: CompanyOffice[] = ((officesRes.data as unknown as Array<{
-    id: number;
-    location_id: number;
-    source: string;
-    locations: { city: string | null; state: string | null; country: string } | null;
-  }> | null) ?? []).map((o) => ({
+  const offices: CompanyOffice[] = ((officesRes.data) ?? []).map((o) => ({
     id: o.id,
     location_id: o.location_id,
     source: o.source,

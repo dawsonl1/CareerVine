@@ -283,7 +283,7 @@ export function registerEmailTools(server: McpServer): void {
         contactName: contact.name,
         originalSubject: original.subject,
         originalSentAt: sentAt,
-        messageRows: rows as unknown as Array<Record<string, unknown>>,
+        messageRows: rows,
       });
       return {
         summary: `${messages.length}-step follow-up sequence created for ${contact.name}; cancels automatically on reply`,

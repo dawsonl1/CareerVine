@@ -137,3 +137,14 @@ This creates `supabase/migrations/<timestamp>_<description>.sql`.
 7. `supabase stop` when done
 
 Refer back to this guide whenever you forget the command flow.
+
+## 9. Generated types & schema drift (CAR-142)
+
+- `careervine/src/lib/database.types.ts` is **generated, not hand-edited**. After any migration change, rebuild the local DB and regenerate:
+  ```bash
+  supabase db reset            # apply supabase/migrations/* to the local stack
+  cd careervine && npm run gen:types
+  ```
+  CI's `types-drift` job regenerates the same way and fails if the committed file differs, so a migration PR that forgets to regenerate goes red. Hand-authored app types live in `careervine/src/lib/app-types.ts`; per-column prose lives in `database-reference/schema-notes.md`.
+- `./scripts/supabase-prod-push.sh` now runs a **drift pre-flight** (`scripts/supabase-prod-drift-check.sh`) before pushing: it refuses to push if production has schema the migration chain does not produce (a hand-applied change or a lost migration). Reconcile any drift into a catch-up migration first (never ad-hoc SQL).
+- `database-reference/schema.sql` is a point-in-time snapshot of the full public schema for reference.

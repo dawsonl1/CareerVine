@@ -22,6 +22,7 @@
 
 import { ChangeEventType, ChangeEventTier } from "@/lib/constants";
 import type { ApifyProfileItem } from "@/lib/apify/client";
+import type { Json } from "@/lib/database.types";
 
 // ── Snapshot shape (stored in contact_scrape_snapshots.snapshot) ───────
 
@@ -99,8 +100,8 @@ export interface DiffEvent {
   evidence: string;
   suggestedTitle: string;
   suggestedDescription: string;
-  oldValue: Record<string, unknown> | null;
-  newValue: Record<string, unknown> | null;
+  oldValue: Json | null;
+  newValue: Json | null;
 }
 
 // ── Engine ─────────────────────────────────────────────────────────────

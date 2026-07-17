@@ -142,8 +142,7 @@ async function runJob(): Promise<NextResponse> {
   }
 
   // Pre-fetch gmail_connections for all users to avoid N+1
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const userIds = [...new Set([...bySequence.values()].map((msgs) => (msgs[0] as any).email_follow_ups.user_id))];
+  const userIds = [...new Set([...bySequence.values()].map((msgs) => msgs[0].email_follow_ups.user_id))];
   // Suspended accounts are frozen: their follow-ups stay pending (held, not
   // dropped) and resume if the account is reactivated.
   const activeUserIds = await filterActiveUserIds(service, userIds);
@@ -151,14 +150,12 @@ async function runJob(): Promise<NextResponse> {
     .from("gmail_connections")
     .select("user_id, gmail_address, modify_scope_granted, automatic_features_enabled, premium_enabled")
     .in("user_id", [...activeUserIds]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const emailByUser = new Map((connections || []).map((c: any) => [c.user_id, c.gmail_address?.toLowerCase() || ""]));
+  const emailByUser = new Map((connections || []).map((c): [string, string] => [c.user_id, c.gmail_address?.toLowerCase() || ""]));
   // Resolve each connected user's capabilities from the SAME pre-fetch (no extra
   // round-trips). followups:auto gates auto-send; a connected user without it is
   // on the free (or opted-out) tier and gets confirm-to-send instead.
   const capsByUser = new Map<string, Set<Capability>>(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    (connections || []).map((c: any) => [
+    (connections || []).map((c): [string, Set<Capability>] => [
       c.user_id,
       capabilitiesFor({
         modifyScopeGranted: c.modify_scope_granted ?? false,
@@ -174,8 +171,7 @@ async function runJob(): Promise<NextResponse> {
   const gmailClients = new Map<string, any>();
 
   for (const [seqId, messages] of bySequence) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    const parent = (messages[0] as any).email_follow_ups;
+    const parent = messages[0].email_follow_ups;
     const userId = parent.user_id;
     const threadId = parent.thread_id;
 
@@ -319,9 +315,9 @@ async function runJob(): Promise<NextResponse> {
           to: parent.recipient_email,
           subject: msg.subject,
           bodyHtml: msg.body_html,
-          threadId: threadId,
-          inReplyTo: parent.original_gmail_message_id,
-          references: parent.original_gmail_message_id,
+          threadId: threadId ?? undefined,
+          inReplyTo: parent.original_gmail_message_id ?? undefined,
+          references: parent.original_gmail_message_id ?? undefined,
         }, { isFollowUp: true });
 
         await service

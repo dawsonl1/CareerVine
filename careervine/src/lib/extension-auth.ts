@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { getSupabaseEnv } from "@/lib/supabase/config";
 import type { User, SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "./database.types";
 
 /** CORS headers for Chrome extension requests. */
 export const corsHeaders = {
@@ -27,16 +28,16 @@ export function handleOptions() {
  * or an error response if authentication fails.
  */
 export async function getExtensionAuth(request: NextRequest): Promise<
-  | { supabase: SupabaseClient; user: User; error?: never }
+  | { supabase: SupabaseClient<Database>; user: User; error?: never }
   | { error: NextResponse; supabase?: never; user?: never }
 > {
   const authHeader = request.headers.get("authorization");
-  let supabase: SupabaseClient;
+  let supabase: SupabaseClient<Database>;
 
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.substring(7);
     const { url, anonKey } = getSupabaseEnv();
-    supabase = createClient(url, anonKey, {
+    supabase = createClient<Database>(url, anonKey, {
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
   } else {

@@ -22,6 +22,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalizeLinkedinUrl, extractPublicIdentifier } from "@/lib/linkedin-url";
 import type { PeopleRecord } from "@/lib/scrape-mapper";
+import type { Json } from "@/lib/database.types";
 import {
   DISCOVERY_COMPANIES_PER_RUN,
   DISCOVERY_MIN_AGE_DAYS,
@@ -486,7 +487,7 @@ async function upsertCandidates(
       location: d.location,
       photo_url: d.photoUrl,
       position: d.position,
-      raw: d.raw as unknown as Record<string, unknown>,
+      raw: d.raw as unknown as Json,
       first_seen_at: now,
       last_seen_at: now,
     }));
@@ -508,7 +509,7 @@ async function upsertCandidates(
         location: d.location,
         photo_url: d.photoUrl,
         position: d.position,
-        raw: d.raw as unknown as Record<string, unknown>,
+        raw: d.raw as unknown as Json,
         last_seen_at: now,
       })
       .eq("user_id", userId)

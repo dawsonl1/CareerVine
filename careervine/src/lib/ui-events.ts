@@ -84,7 +84,7 @@ export function onUiEvent<K extends UiEventName>(
  * contact views (CAR-145 / F18).
  */
 export function unreadDeltaFor(message: {
-  is_read: boolean;
+  is_read: boolean | null;
   direction: string | null;
 }): number {
   return !message.is_read && message.direction === "inbound" ? -1 : 0;

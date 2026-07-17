@@ -13,6 +13,7 @@
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import type { TablesInsert } from "@/lib/database.types";
 import { setCompanyQueriesClient } from "@/lib/company-queries";
 import { escapeIlike, findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
 import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
@@ -198,7 +199,7 @@ export async function fetchSearchRows(tiers?: string[]): Promise<SearchRow[]> {
       .order("name")
       .range(from, from + PAGE - 1);
     if (error) throw error;
-    all.push(...((data as unknown as SearchRow[]) ?? []));
+    all.push(...(data ?? []));
     if (!data || data.length < PAGE) break;
   }
   return all;
@@ -216,7 +217,7 @@ export async function buildLastTouchMap(contactIds: number[]): Promise<Map<numbe
         .select("contact_id, meetings!inner(user_id, meeting_date)")
         .eq("meetings.user_id", uid())
         .in("contact_id", chunk);
-      return (data as unknown as Array<{ contact_id: number; meetings: { meeting_date: string | null } }>) ?? [];
+      return data ?? [];
     }),
     chunked(contactIds, async (chunk) => {
       const { data } = await db()
@@ -547,7 +548,7 @@ export async function listActionItems(opts: {
   if (opts.direction) query = query.eq("direction", opts.direction);
   const { data, error } = await query;
   if (error) throw error;
-  let items = (data as unknown as ActionItemRow[]) ?? [];
+  let items = data ?? [];
 
   if (opts.contactId != null) {
     items = items.filter((i) => i.action_item_contacts.some((c) => c.contact_id === opts.contactId));
@@ -1048,7 +1049,7 @@ export async function insertFollowUpSequence(input: {
   contactName: string | null;
   originalSubject: string | null;
   originalSentAt: string;
-  messageRows: Array<Record<string, unknown>>;
+  messageRows: Array<TablesInsert<"email_follow_up_messages">>;
 }): Promise<number> {
   const { data: followUp, error } = await db()
     .from("email_follow_ups")
@@ -1170,16 +1171,16 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       : Promise.resolve({ data: [], error: null } as { data: never[]; error: null }),
   ]);
 
-  const openActionItems = ((actionItemsRes.data ?? []) as unknown as Array<{ follow_up_action_items: Record<string, unknown> | null }>)
+  const openActionItems = (actionItemsRes.data ?? [])
     .map((r) => r.follow_up_action_items)
-    .filter((i): i is Record<string, unknown> => Boolean(i) && !(i as { is_completed?: boolean }).is_completed);
-  const completedActionItems = ((completedRes.data ?? []) as unknown as Array<{ follow_up_action_items: Record<string, unknown> | null }>)
+    .filter((i): i is NonNullable<typeof i> => i != null && !i.is_completed);
+  const completedActionItems = (completedRes.data ?? [])
     .map((r) => r.follow_up_action_items)
-    .filter((i): i is Record<string, unknown> => Boolean(i) && Boolean((i as { is_completed?: boolean }).is_completed))
+    .filter((i): i is NonNullable<typeof i> => i != null && Boolean(i.is_completed))
     .sort((a, b) => String(b.completed_at ?? "").localeCompare(String(a.completed_at ?? "")))
     .slice(0, depth === "full" ? 1000 : 5);
 
-  const meetings = ((meetingsRes.data ?? []) as unknown as Array<{ meetings: Record<string, unknown> }>)
+  const meetings = (meetingsRes.data ?? [])
     .map((r) => r.meetings)
     .filter(Boolean)
     .sort((a, b) => String(b.meeting_date ?? "").localeCompare(String(a.meeting_date ?? "")))
@@ -1220,7 +1221,7 @@ export async function listCalendarEvents(timeMin: string, timeMax: string) {
     .select("email, contact_id, contacts!inner(id, name, user_id)")
     .eq("contacts.user_id", uid());
   const byEmail = new Map<string, { id: number; name: string }>();
-  for (const row of (emailRows ?? []) as unknown as Array<{ email: string | null; contacts: { id: number; name: string } }>) {
+  for (const row of emailRows ?? []) {
     if (row.email && row.contacts) byEmail.set(row.email.toLowerCase(), row.contacts);
   }
 
@@ -1234,7 +1235,7 @@ export async function listCalendarEvents(timeMin: string, timeMax: string) {
       .select("calendar_event_id, contact_id, contacts!inner(id, name, user_id)")
       .eq("contacts.user_id", uid())
       .in("calendar_event_id", chunk);
-    return (links as unknown as Array<{ calendar_event_id: number; contacts: { id: number; name: string } | null }>) ?? [];
+    return links ?? [];
   });
   const linksByEvent = new Map<number, Array<{ id: number; name: string }>>();
   for (const l of linkRows) {

@@ -16,6 +16,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { importPeopleChunk, type PersonImportInput, type RescrapeDiffCapture } from "@/lib/bulk-import";
 import { buildSnapshot, computeDiff, type ScrapeSnapshot } from "@/lib/change-events/diff-engine";
+import type { Json, TablesInsert } from "@/lib/database.types";
 import {
   CADENCE_SOFT_CAP_USD,
   ChangeEventType,
@@ -521,8 +522,8 @@ async function processDiffs(
     }
   }
 
-  const eventRows: Array<Record<string, unknown>> = [];
-  const snapshotRows: Array<Record<string, unknown>> = [];
+  const eventRows: TablesInsert<"contact_change_events">[] = [];
+  const snapshotRows: TablesInsert<"contact_scrape_snapshots">[] = [];
 
   for (const capture of captures) {
     const item = itemByUrl.get(capture.linkedinUrl);
@@ -559,7 +560,7 @@ async function processDiffs(
       contact_id: capture.contactId,
       scrape_run_id: scrapeRunId,
       scraped_at: now,
-      snapshot: nextSnapshot as unknown as Record<string, unknown>,
+      snapshot: nextSnapshot as unknown as Json,
     });
   }
 
