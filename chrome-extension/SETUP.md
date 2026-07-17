@@ -24,13 +24,13 @@ The extension defaults to `env/development.json` (app on `localhost:3000`, Supab
 
 ## Applying migrations to the hosted project (maintainers)
 
-Local dev needs no linking. To push migrations to the hosted CareerVine project, link this clone to it once (the config.toml gate in `scripts/supabase-prod-push.sh` then passes):
+Local dev needs no linking. To push migrations to the hosted CareerVine project, link this clone to it once so `supabase db push` can reach the remote:
 
 ```bash
 supabase link --project-ref <project-ref>
 ```
 
-Then apply migrations with `./scripts/supabase-prod-push.sh`.
+Then apply migrations with `./scripts/supabase-prod-push.sh` (it checks for the link first).
 
 ## Using it
 

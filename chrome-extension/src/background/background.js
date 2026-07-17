@@ -166,9 +166,12 @@ async function getValidSession() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Ensure config is loaded before handling message
   (async () => {
-    await ensureConfig();
-
     try {
+      // Inside the try so a config-load failure is reported to the caller via
+      // sendResponse({error}) with its descriptive message, not surfaced as an
+      // opaque "message port closed" when the rejection escapes uncaught.
+      await ensureConfig();
+
       switch (message.action) {
       case 'parseProfile':
         await handleParseProfile(message.data, sendResponse);
@@ -405,19 +408,28 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     console.log('CareerVine Extension installed');
 
-    // Initialize configuration
-    await ensureConfig();
-
-    // Set default values
+    // Set default values first — independent of config, so a config-load
+    // failure can't skip install initialization.
     await chrome.storage.local.set({ session: null });
 
-    // Onboarding funnel start (CAR-38) — anonymous until first login
-    await trackEvent('extension_installed');
+    // Initialize configuration. A failure here must not become an unhandled
+    // rejection now that ensureConfig fails loud (F57).
+    try {
+      await ensureConfig();
+      // Onboarding funnel start (CAR-38) — anonymous until first login
+      await trackEvent('extension_installed');
+    } catch (error) {
+      console.error('CareerVine: config load failed during install:', error.message);
+    }
   }
 });
 
 // Handle extension startup
 chrome.runtime.onStartup.addListener(async () => {
   console.log('CareerVine Extension started');
-  await ensureConfig();
+  try {
+    await ensureConfig();
+  } catch (error) {
+    console.error('CareerVine: config load failed on startup:', error.message);
+  }
 });

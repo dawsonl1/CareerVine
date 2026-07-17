@@ -5,9 +5,12 @@ set -euo pipefail
 # WARNING: This affects production! Only run after testing locally.
 # Usage: ./scripts/supabase-prod-push.sh
 
-# Check if we're in a Supabase project
-if [[ ! -f "supabase/config.toml" ]] && ! supabase status > /dev/null 2>&1; then
-  echo "Error: No Supabase project detected. Run 'supabase link <project-ref>' first." >&2
+# Check that this clone is linked to a remote project. `supabase link` writes
+# the project ref here (supabase/.temp/ is gitignored); `supabase db push` below
+# needs it. config.toml is committed to the repo, so its presence no longer
+# signals linkage.
+if [[ ! -f "supabase/.temp/project-ref" ]]; then
+  echo "Error: No linked Supabase project detected. Run 'supabase link --project-ref <project-ref>' first." >&2
   exit 1
 fi
 

@@ -32,8 +32,9 @@ class PopupManager {
   async loadWebappBase() {
     try {
       const { apiBaseUrl } = await this.api.getConfig();
-      // Same derivation as the LinkedIn panel: strip the trailing /api.
-      this.webappBase = apiBaseUrl.replace(/\/api$/, '');
+      // Same derivation as the LinkedIn panel: strip the trailing /api
+      // (with or without a trailing slash).
+      this.webappBase = apiBaseUrl.replace(/\/api\/?$/, '');
     } catch (error) {
       // Fail loud rather than silently defaulting to production.
       console.error('Failed to load extension config; auth links disabled:', error);
