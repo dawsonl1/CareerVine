@@ -1,5 +1,5 @@
-import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { linkLinkedinSchema } from "@/lib/api-schemas";
+import { withApiHandler } from "@/lib/api-handler";
+import { linkLinkedinSchema, idParamSchema } from "@/lib/api-schemas";
 import { linkContactLinkedin } from "@/lib/apify/resolver";
 
 /**
@@ -10,9 +10,9 @@ import { linkContactLinkedin } from "@/lib/apify/resolver";
  */
 export const POST = withApiHandler({
   schema: linkLinkedinSchema,
+  paramsSchema: idParamSchema,
   handler: async ({ user, params, body }) => {
-    const contactId = Number(params.id);
-    if (!Number.isFinite(contactId)) throw new ApiError("Invalid contact id", 400);
+    const contactId = params.id;
     const result = await linkContactLinkedin(user.id, contactId, body.linkedinUrl);
     return { success: true, ...result };
   },

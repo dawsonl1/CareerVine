@@ -33,7 +33,7 @@ export const POST = withApiHandler({
       ? new Date(row.access_requested_at).getTime()
       : null;
     if (requestedAtMs !== null && Date.now() - requestedAtMs < RENOTIFY_WINDOW_MS) {
-      return { ok: true, alreadyRequested: true };
+      return { success: true, alreadyRequested: true };
     }
 
     const now = new Date().toISOString();
@@ -64,6 +64,6 @@ export const POST = withApiHandler({
     );
 
     track("ai_access_requested", {});
-    return { ok: true, alreadyRequested: false };
+    return { success: true, alreadyRequested: false };
   },
 });

@@ -1,5 +1,5 @@
-import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { scrapeContactSchema } from "@/lib/api-schemas";
+import { withApiHandler } from "@/lib/api-handler";
+import { scrapeContactSchema, idParamSchema } from "@/lib/api-schemas";
 import { triggerContactScrape } from "@/lib/apify/scrape-service";
 import { ScrapeMode, ScrapeTrigger } from "@/lib/constants";
 
@@ -13,9 +13,12 @@ export const maxDuration = 30;
 
 export const POST = withApiHandler({
   schema: scrapeContactSchema,
+  paramsSchema: idParamSchema,
+  // Modest per-user cap (CAR-149): each run can trigger Apify spend (also
+  // ledger-capped). Not fail-closed — the cost ledger is the hard spend gate.
+  rateLimit: { bucket: "contacts-scrape", limit: 30, window: "1 h" },
   handler: async ({ user, params, body }) => {
-    const contactId = Number(params.id);
-    if (!Number.isFinite(contactId)) throw new ApiError("Invalid contact id", 400);
+    const contactId = params.id;
 
     const mode = body?.mode === "email" ? ScrapeMode.Email : ScrapeMode.Profile;
     const result = await triggerContactScrape({

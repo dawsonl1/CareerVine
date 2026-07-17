@@ -203,6 +203,37 @@ describe('withApiHandler', () => {
     });
   });
 
+  describe('paramsSchema validation (CAR-149 F47)', () => {
+    const paramsSchema = z.object({ id: z.coerce.number().int().positive() });
+
+    it('coerces and passes validated params to the handler', async () => {
+      const handler = withApiHandler({
+        paramsSchema,
+        handler: async ({ params }) => ({ id: params.id, kind: typeof params.id }),
+      });
+
+      const { status, data } = await callHandler(handler, makeRequest('GET'), { id: '42' });
+      expect(status).toBe(200);
+      expect(data).toEqual({ id: 42, kind: 'number' });
+    });
+
+    it('returns 400 for a non-numeric param (no hand-rolled isNaN needed)', async () => {
+      const handlerFn = vi.fn(async () => ({ success: true }));
+      const handler = withApiHandler({ paramsSchema, handler: handlerFn });
+
+      const { status, data } = await callHandler(handler, makeRequest('GET'), { id: 'abc' });
+      expect(status).toBe(400);
+      expect(typeof data.error).toBe('string');
+      expect(handlerFn).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for a non-positive id', async () => {
+      const handler = withApiHandler({ paramsSchema, handler: async () => ({ success: true }) });
+      const { status } = await callHandler(handler, makeRequest('GET'), { id: '0' });
+      expect(status).toBe(400);
+    });
+  });
+
   describe('error handling', () => {
     it('returns ApiError status and message', async () => {
       const handler = withApiHandler({
@@ -237,6 +268,19 @@ describe('withApiHandler', () => {
 
       const { data } = await callHandler(handler, makeRequest('GET'));
       expect(data).not.toHaveProperty('code');
+    });
+
+    it('merges ApiError headers (e.g. Retry-After) into the response (CAR-149)', async () => {
+      const handler = withApiHandler({
+        handler: async () => {
+          throw new ApiError('Slow down', 429, undefined, { 'Retry-After': '30' });
+        },
+      });
+
+      const response = await handler(makeRequest('GET'));
+      expect(response.status).toBe(429);
+      expect(response.headers.get('Retry-After')).toBe('30');
+      expect(await response.json()).toEqual({ error: 'Slow down' });
     });
 
     it('returns 500 for unexpected errors', async () => {

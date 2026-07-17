@@ -25,6 +25,19 @@ export function sanitizeForPostgrest(s: string): string {
   return s.replace(/[%_\\.,()'"]/g, '');
 }
 
+/**
+ * Strip only the STRUCTURAL metacharacters of a PostgREST `.or()` / array
+ * literal (`,`, `(`, `)`, `{`, `}`) from a value interpolated into one. Unlike
+ * sanitizeForPostgrest it preserves `.`, `@`, `-`, `+`, so it is SAFE for exact
+ * eq/email values (sanitizeForPostgrest would strip the domain dots and break
+ * the match). Defense-in-depth behind schema validation (CAR-149, F48) — a
+ * value already validated as an email has none of these, so it passes through
+ * unchanged, but a schema regression can't reopen the injection surface.
+ */
+export function stripPostgrestOrMetachars(s: string): string {
+  return s.replace(/[,(){}]/g, '');
+}
+
 /** Build the contact data object for insert from extension profile data */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 export function buildContactData(profileData: any, userId: string, locationId: number | null): Record<string, any> {

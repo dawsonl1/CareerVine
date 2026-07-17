@@ -61,5 +61,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 503 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ success: true });
 }

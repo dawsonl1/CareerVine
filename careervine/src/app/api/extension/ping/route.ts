@@ -15,5 +15,5 @@ export async function OPTIONS() {
 export const POST = withApiHandler({
   extensionAuth: true,
   cors: true,
-  handler: async () => ({ ok: true }),
+  handler: async () => ({ success: true }),
 });

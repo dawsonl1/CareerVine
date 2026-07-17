@@ -69,7 +69,7 @@ describe("POST /api/ai/request-access", () => {
 
     const { status, data } = await call();
     expect(status).toBe(200);
-    expect(data).toEqual({ ok: true, alreadyRequested: false });
+    expect(data).toEqual({ success: true, alreadyRequested: false });
 
     expect(db.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -89,7 +89,7 @@ describe("POST /api/ai/request-access", () => {
     const db = mockAccessTable(null);
     const { status, data } = await call();
     expect(status).toBe(200);
-    expect(data).toEqual({ ok: true, alreadyRequested: false });
+    expect(data).toEqual({ success: true, alreadyRequested: false });
     expect(db.upsert).toHaveBeenCalled();
   });
 
@@ -104,7 +104,7 @@ describe("POST /api/ai/request-access", () => {
 
     const { status, data } = await call();
     expect(status).toBe(200);
-    expect(data).toEqual({ ok: true, alreadyRequested: true });
+    expect(data).toEqual({ success: true, alreadyRequested: true });
     expect(db.upsert).not.toHaveBeenCalled();
     expect(notifyOwner).not.toHaveBeenCalled();
     expect(trackServer).not.toHaveBeenCalled();
@@ -120,7 +120,7 @@ describe("POST /api/ai/request-access", () => {
     });
 
     const { data } = await call();
-    expect(data).toEqual({ ok: true, alreadyRequested: false });
+    expect(data).toEqual({ success: true, alreadyRequested: false });
     expect(notifyOwner).toHaveBeenCalledTimes(1);
   });
 
@@ -130,7 +130,7 @@ describe("POST /api/ai/request-access", () => {
 
     const { status, data } = await call();
     expect(status).toBe(200);
-    expect(data).toEqual({ ok: true, alreadyRequested: false });
+    expect(data).toEqual({ success: true, alreadyRequested: false });
     expect(trackServer).toHaveBeenCalledWith("user-123", "ai_access_requested", {});
   });
 

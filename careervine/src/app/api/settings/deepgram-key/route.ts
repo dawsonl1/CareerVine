@@ -5,26 +5,6 @@ import { encryptSecret, CryptoError } from "@/lib/crypto";
 import { evictDeepgramKeyCache } from "@/lib/deepgram";
 
 const DEEPGRAM_PROVIDER = "deepgram";
-const SAVE_WINDOW_MS = 10 * 60 * 1000;
-const SAVE_MAX_ATTEMPTS = 5;
-
-const saveAttempts = new Map<string, { count: number; windowStart: number }>();
-
-function checkSaveRateLimit(userId: string): void {
-  const now = Date.now();
-  const entry = saveAttempts.get(userId);
-
-  if (!entry || now - entry.windowStart >= SAVE_WINDOW_MS) {
-    saveAttempts.set(userId, { count: 1, windowStart: now });
-    return;
-  }
-
-  if (entry.count >= SAVE_MAX_ATTEMPTS) {
-    throw new ApiError("Too many attempts. Please try again in a few minutes.", 429);
-  }
-
-  entry.count += 1;
-}
 
 function formatKeyStatus(row: {
   key_last4: string;
@@ -99,9 +79,11 @@ export const GET = withApiHandler({
  */
 export const PUT = withApiHandler({
   schema: deepgramKeySaveSchema,
+  // Save validates by calling Deepgram, so it fronts real spend. Fail closed
+  // (CAR-149) so a limiter outage can't turn key-save into an unmetered
+  // validation oracle. 5 attempts / 10 min matches the old Map limiter.
+  rateLimit: { bucket: "settings-deepgram-key-save", limit: 5, window: "10 m", failClosed: true },
   handler: async ({ user, body, track }) => {
-    checkSaveRateLimit(user.id);
-
     const apiKey = body.apiKey;
 
     let encryptedKey: string;

@@ -1,4 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { idParamSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { importPeopleChunk } from "@/lib/bulk-import";
 import { buildCandidatePeopleRecord } from "@/lib/apify/discovery";
@@ -16,9 +17,9 @@ import { REDACTED_CANDIDATE_FIELDS } from "@/lib/data-retention";
 export const maxDuration = 30;
 
 export const POST = withApiHandler({
+  paramsSchema: idParamSchema,
   handler: async ({ user, params }) => {
-    const candidateId = Number(params.id);
-    if (!Number.isFinite(candidateId)) throw new ApiError("Invalid candidate id", 400);
+    const candidateId = params.id;
 
     const service = createSupabaseServiceClient();
     const { data: candidate } = await service

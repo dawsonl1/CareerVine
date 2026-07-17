@@ -1,4 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { idParamSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
@@ -7,8 +8,9 @@ import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
  * Cancels a follow-up sequence and all its pending messages.
  */
 export const DELETE = withApiHandler({
+  paramsSchema: idParamSchema,
   handler: async ({ user, params }) => {
-    const id = Number(params.id);
+    const id = params.id;
     const service = createSupabaseServiceClient();
 
     // Verify ownership first

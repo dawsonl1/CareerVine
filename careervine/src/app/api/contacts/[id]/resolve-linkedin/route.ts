@@ -1,4 +1,5 @@
-import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { withApiHandler } from "@/lib/api-handler";
+import { idParamSchema } from "@/lib/api-schemas";
 import { resolveContactLinkedin } from "@/lib/apify/resolver";
 
 /**
@@ -10,9 +11,9 @@ import { resolveContactLinkedin } from "@/lib/apify/resolver";
 export const maxDuration = 60;
 
 export const POST = withApiHandler({
+  paramsSchema: idParamSchema,
   handler: async ({ user, params }) => {
-    const contactId = Number(params.id);
-    if (!Number.isFinite(contactId)) throw new ApiError("Invalid contact id", 400);
+    const contactId = params.id;
     const result = await resolveContactLinkedin(user.id, contactId);
     return { success: true, ...result };
   },

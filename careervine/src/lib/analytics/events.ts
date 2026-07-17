@@ -184,6 +184,14 @@ export type AnalyticsEvents = {
   // ── Guardrails ────────────────────────────────────────────────────
   send_cap_hit: Record<string, never>;
   api_error: { route: string; method: string };
+  /**
+   * A rate-limit bucket could not reach its limiter and FAILED OPEN — the
+   * request was allowed through with NO limit enforced (CAR-149). Emitted once
+   * per bucket per process; a nonzero count means Upstash is unset/down and a
+   * protected route is currently unthrottled. (Fail-closed buckets deny instead,
+   * which surfaces as 429s, not this event.)
+   */
+  rate_limit_degraded: { bucket: string };
 };
 
 export type AnalyticsEvent = keyof AnalyticsEvents;

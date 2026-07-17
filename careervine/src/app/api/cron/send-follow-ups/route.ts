@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Receiver } from "@upstash/qstash";
+import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getGmailClient, activateContactByEmail } from "@/lib/gmail";
@@ -13,11 +13,6 @@ import {
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
 
-const receiver = new Receiver({
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
-  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY || "",
-});
-
 /**
  * POST /api/cron/send-follow-ups
  * Called by QStash every 15 minutes. Processes due follow-up emails:
@@ -26,16 +21,9 @@ const receiver = new Receiver({
  * - Handles disconnected Gmail gracefully
  */
 export async function POST(req: NextRequest) {
-  // Verify QStash signature
-  try {
-    const body = await req.text();
-    const signature = req.headers.get("upstash-signature") || "";
-    await receiver.verify({ body, signature, url: req.url });
-  } catch {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
-
-  return withCronGuard("/api/cron/send-follow-ups", () => runJob());
+  return withQStashVerification(req, () =>
+    withCronGuard("/api/cron/send-follow-ups", () => runJob()),
+  );
 }
 
 async function runJob(): Promise<NextResponse> {

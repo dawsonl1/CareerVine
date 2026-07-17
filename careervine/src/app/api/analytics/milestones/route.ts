@@ -11,6 +11,6 @@ import { checkContactMilestone } from "@/lib/analytics/server";
 export const POST = withApiHandler({
   handler: async ({ user }) => {
     await checkContactMilestone(user.id);
-    return { ok: true };
+    return { success: true };
   },
 });

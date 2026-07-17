@@ -46,8 +46,14 @@ export const POST = withApiHandler({
       : 0;
     const cooldown = force ? SYNC_FORCE_COOLDOWN_MS : SYNC_COOLDOWN_MS;
 
-    if (Date.now() - lastSynced < cooldown) {
-      throw new ApiError("Synced recently, try again later.", 429);
+    const sinceLastMs = Date.now() - lastSynced;
+    if (sinceLastMs < cooldown) {
+      // CAR-149: every 429 carries Retry-After so clients back off exactly the
+      // remaining cooldown instead of hammering. The DB cooldown itself stays.
+      const retryAfterSec = Math.max(1, Math.ceil((cooldown - sinceLastMs) / 1000));
+      throw new ApiError("Synced recently, try again later.", 429, undefined, {
+        "Retry-After": String(retryAfterSec),
+      });
     }
 
     // On first sync: fetch timezone and calendar list from Google

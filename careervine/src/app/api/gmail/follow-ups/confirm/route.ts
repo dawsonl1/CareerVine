@@ -11,6 +11,15 @@ import {
 
 const CONFIRMABLE_STATUSES: string[] = [...ACTIONABLE_FOLLOW_UP_MESSAGE_STATUSES];
 
+/** Seconds until the daily send cap resets (server-local midnight = UTC on
+ *  Vercel, matching sendTrackedEmail's cap window). For the 429 Retry-After. */
+function secondsUntilSendCapReset(): number {
+  const now = new Date();
+  const nextMidnight = new Date(now);
+  nextMidnight.setHours(24, 0, 0, 0);
+  return Math.max(1, Math.ceil((nextMidnight.getTime() - now.getTime()) / 1000));
+}
+
 const schema = z.object({
   messageId: z.number().int(),
   replied: z.boolean(),
@@ -74,7 +83,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     if (replied) {
       // They replied: cancel the sequence (incl. this message) + activate + fire.
       const result = await recordThreadReply(user.id, parent.thread_id, parent.recipient_email);
-      return { ok: true, replied: true, alreadyMarked: result.alreadyMarked };
+      return { success: true, replied: true, alreadyMarked: result.alreadyMarked };
     }
 
     // No reply: send this follow-up now. Atomic claim prevents a double send.
@@ -144,6 +153,9 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
       throw new ApiError(
         capped ? "You have reached today's sending limit. Try again later." : "Could not send the follow-up.",
         capped ? 429 : 400,
+        undefined,
+        // CAR-149: every 429 carries Retry-After. The cap resets at midnight.
+        capped ? { "Retry-After": String(secondsUntilSendCapReset()) } : undefined,
       );
     }
 
@@ -168,6 +180,6 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
         .eq("id", msg.follow_up_id);
     }
 
-    return { ok: true, sent: true };
+    return { success: true, sent: true };
   },
 });

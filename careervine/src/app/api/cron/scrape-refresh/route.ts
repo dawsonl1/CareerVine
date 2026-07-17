@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Receiver } from "@upstash/qstash";
+import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { selectCadenceCandidates } from "@/lib/apify/cadence";
 import { triggerBatchScrape, sweepStuckRuns } from "@/lib/apify/scrape-service";
 import { isApifyConfigured } from "@/lib/apify/client";
 import { CADENCE_BATCH_SIZE } from "@/lib/constants";
-
-const receiver = new Receiver({
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
-  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY || "",
-});
 
 export const maxDuration = 60;
 
@@ -26,15 +21,9 @@ export const maxDuration = 60;
  *      excluded from selection; spend is capped per batch).
  */
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.text();
-    const signature = req.headers.get("upstash-signature") || "";
-    await receiver.verify({ body, signature, url: req.url });
-  } catch {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
-
-  return withCronGuard("/api/cron/scrape-refresh", () => runJob());
+  return withQStashVerification(req, () =>
+    withCronGuard("/api/cron/scrape-refresh", () => runJob()),
+  );
 }
 
 async function runJob(): Promise<NextResponse> {

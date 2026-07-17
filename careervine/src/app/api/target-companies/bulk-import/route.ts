@@ -81,7 +81,7 @@ export const POST = withApiHandler({
             .from("target_companies")
             .update({ ...researchFields, is_targeted: true, updated_at: new Date().toISOString() })
             .eq("id", (existing as { id: number }).id);
-          if (error) throw new Error(error.message);
+          if (error) throw error;
           updated++;
         } else {
           const { error } = await supabase.from("target_companies").insert({
@@ -89,11 +89,16 @@ export const POST = withApiHandler({
             company_id: company.id,
             ...researchFields,
           });
-          if (error) throw new Error(error.message);
+          if (error) throw error;
           created++;
         }
       } catch (err) {
-        errors.push({ name: input.name, error: err instanceof Error ? err.message : "Import failed" });
+        // Curate at the client boundary (CAR-149 F45): any raw error in the loop
+        // — a DB error above, or a raw supabase error thrown by
+        // findOrCreateCompany — stays in the server log; the caller only ever
+        // gets a safe per-company message, never a raw error.message.
+        console.error(`[target-companies/bulk-import] import failed for "${input.name}":`, err);
+        errors.push({ name: input.name, error: "Could not import this company." });
       }
     }
 

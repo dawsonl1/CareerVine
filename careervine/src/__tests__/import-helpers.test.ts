@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseFollowUpFrequency,
   sanitizeForPostgrest,
+  stripPostgrestOrMetachars,
   buildContactData,
   buildUpdateData,
 } from '@/lib/import-helpers';
@@ -87,6 +88,30 @@ describe('sanitizeForPostgrest', () => {
 
   it('handles empty string', () => {
     expect(sanitizeForPostgrest('')).toBe('');
+  });
+});
+
+describe('stripPostgrestOrMetachars (CAR-149 F48)', () => {
+  it('leaves a normal email intact (dots, @, +, -, _ preserved)', () => {
+    // The whole point: unlike sanitizeForPostgrest, it must NOT corrupt an
+    // email — stripping the domain dots would break the eq match.
+    expect(stripPostgrestOrMetachars('john.doe+tag-1_x@sub.example.com')).toBe(
+      'john.doe+tag-1_x@sub.example.com',
+    );
+  });
+
+  it('strips .or() condition/grouping/array metacharacters', () => {
+    expect(stripPostgrestOrMetachars('a,b(c)d{e}f')).toBe('abcdef');
+  });
+
+  it('neutralizes an injection payload smuggled through the value', () => {
+    expect(
+      stripPostgrestOrMetachars('x@y.com,user_id.neq.0'),
+    ).toBe('x@y.comuser_id.neq.0'); // comma gone → cannot open a new condition
+  });
+
+  it('handles empty string', () => {
+    expect(stripPostgrestOrMetachars('')).toBe('');
   });
 });
 

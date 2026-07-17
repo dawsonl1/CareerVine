@@ -5,15 +5,15 @@
  */
 
 import { withApiHandler, ApiError } from "@/lib/api-handler";
-import { aiFollowUpPatchSchema } from "@/lib/api-schemas";
+import { aiFollowUpPatchSchema, idParamSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { AiFollowUpDraftStatus } from "@/lib/constants";
 
 export const PATCH = withApiHandler({
   schema: aiFollowUpPatchSchema,
+  paramsSchema: idParamSchema,
   handler: async ({ user, body, params, track }) => {
-    const draftId = Number(params.id);
-    if (isNaN(draftId)) throw new ApiError("Invalid draft ID", 400);
+    const draftId = params.id;
 
     const service = createSupabaseServiceClient();
 

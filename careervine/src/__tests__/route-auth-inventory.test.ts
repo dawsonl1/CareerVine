@@ -37,7 +37,8 @@ const HAND_ROLLED: Record<string, string> = {
   // BUNDLE_ADMIN_TOKEN bearer (constant-time), service-role client, no session.
   "admin/ai-access/route.ts": "bundle-admin-token",
   "admin/bundles/publish/route.ts": "bundle-admin-token",
-  // QStash signed webhooks — @upstash/qstash Receiver.verify on upstash-signature.
+  // QStash signed webhooks — shared withQStashVerification (src/lib/qstash-verify.ts)
+  // over the upstash-signature header; refuses 401 when signing keys are unset.
   "cron/data-retention/route.ts": "qstash-signature",
   "cron/discovery/route.ts": "qstash-signature",
   "cron/follow-up-nudges/route.ts": "qstash-signature",

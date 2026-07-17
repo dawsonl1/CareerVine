@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Receiver } from "@upstash/qstash";
+import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendAppEmail } from "@/lib/notify/email";
@@ -8,11 +8,6 @@ import { trackServer } from "@/lib/analytics/server";
 import { renderNudgeDigest, type NudgeItem } from "./digest";
 
 export const maxDuration = 60;
-
-const receiver = new Receiver({
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
-  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY || "",
-});
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -41,15 +36,9 @@ const WINDOW = 14 * DAY;
  * Emails are sent BEFORE the expiry flip so a same-run day-9 is never eaten.
  */
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.text();
-    const signature = req.headers.get("upstash-signature") || "";
-    await receiver.verify({ body, signature, url: req.url });
-  } catch {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
-
-  return withCronGuard("/api/cron/follow-up-nudges", () => runJob());
+  return withQStashVerification(req, () =>
+    withCronGuard("/api/cron/follow-up-nudges", () => runJob()),
+  );
 }
 
 interface ParkedMessage {

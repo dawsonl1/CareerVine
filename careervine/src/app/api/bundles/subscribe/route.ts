@@ -77,7 +77,10 @@ export const POST = withApiHandler({
         .eq("id", row.id)
         .select("id, status, synced_version")
         .single();
-      if (error) throw new ApiError(`Resubscribe failed: ${error.message}`, 500);
+      if (error) {
+        console.error("[bundles/subscribe] Resubscribe update failed:", error);
+        throw new ApiError("Could not update your subscription. Please try again.", 500);
+      }
       await enqueueBackupSync(row.id);
       track("bundle_subscribed", { bundle_id: String(bundleId) });
       return { subscription: updated, reactivated: true };
@@ -88,7 +91,10 @@ export const POST = withApiHandler({
       .insert({ user_id: user.id, bundle_id: bundleId })
       .select("id, status, synced_version")
       .single();
-    if (error) throw new ApiError(`Subscribe failed: ${error.message}`, 500);
+    if (error) {
+      console.error("[bundles/subscribe] Subscribe insert failed:", error);
+      throw new ApiError("Could not create your subscription. Please try again.", 500);
+    }
     await enqueueBackupSync((created as { id: number }).id);
     track("bundle_subscribed", { bundle_id: String(bundleId) });
     return { subscription: created, reactivated: false };

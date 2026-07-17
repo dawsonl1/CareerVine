@@ -1,6 +1,7 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { gmailAiWriteResolveContactQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { stripPostgrestOrMetachars } from "@/lib/import-helpers";
 
 /**
  * GET /api/gmail/ai-write/resolve-contact?email=...
@@ -12,6 +13,11 @@ export const GET = withApiHandler({
   handler: async ({ user, query }) => {
     if (!user) return { contactId: null };
     const { email } = query;
+    // email is validated as an email by the query schema; strip PostgREST
+    // structural metachars before the .or() interpolation below as
+    // defense-in-depth (CAR-149, F48). The exact .eq lookups use the raw value
+    // (PostgREST parameterizes those, and stripping would corrupt the domain).
+    const emailForOr = stripPostgrestOrMetachars(email);
 
     const service = createSupabaseServiceClient();
 
@@ -36,7 +42,7 @@ export const GET = withApiHandler({
       .from("email_messages")
       .select("matched_contact_id")
       .eq("user_id", user.id)
-      .or(`from_address.eq.${email},to_addresses.cs.{${email}}`)
+      .or(`from_address.eq.${emailForOr},to_addresses.cs.{${emailForOr}}`)
       .not("matched_contact_id", "is", null)
       .limit(1)
       .single();
