@@ -93,14 +93,22 @@ describe("OAuth consent — approve/deny wiring", () => {
     expect(denyMock).not.toHaveBeenCalled();
   });
 
-  it("deny calls denyAuthorization and falls back to settings when no redirect_url comes back", async () => {
-    denyMock.mockResolvedValue({ data: {}, error: null });
+  it("deny calls denyAuthorization and follows the returned redirect_url", async () => {
+    // Production denyAuthorization always returns a redirect_url (the field is
+    // required in AuthOAuthConsentResponse), so the redirect branch is the
+    // real path — not the router.push fallback.
+    denyMock.mockResolvedValue({
+      data: { redirect_url: "https://claude.ai/callback?error=access_denied" },
+      error: null,
+    });
     await renderConsent();
 
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 
     await waitFor(() => expect(denyMock).toHaveBeenCalledWith("auth-123"));
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/settings?tab=integrations"));
+    await waitFor(() =>
+      expect(window.location.href).toBe("https://claude.ai/callback?error=access_denied"),
+    );
     expect(approveMock).not.toHaveBeenCalled();
   });
 
