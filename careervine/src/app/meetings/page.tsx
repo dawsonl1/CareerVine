@@ -189,7 +189,7 @@ export default function MeetingsPage() {
       }
       const atts = await getAttachmentsForMeeting(meetingId);
       setMeetingAttachments(prev => ({ ...prev, [meetingId]: atts as typeof meetingAttachments[number] }));
-    } catch (err) {
+    } catch {
       toastError("Failed to upload attachment");
     } finally {
       setAttachmentUploading(null);
@@ -207,7 +207,7 @@ export default function MeetingsPage() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    } catch (err) {
+    } catch {
       toastError("Failed to download attachment");
     }
   };
@@ -219,7 +219,7 @@ export default function MeetingsPage() {
         ...prev,
         [meetingId]: (prev[meetingId] || []).filter(a => a.id !== attachmentId),
       }));
-    } catch (err) {
+    } catch {
       toastError("Failed to delete attachment");
     }
   };
@@ -417,7 +417,7 @@ export default function MeetingsPage() {
                           await deleteMeeting(meeting.id);
                           await loadMeetings();
                           toastSuccess("Meeting deleted");
-                        } catch (err) {
+                        } catch {
                           toastError("Failed to delete meeting");
                         }
                       }}

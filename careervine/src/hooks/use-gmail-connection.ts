@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
+import { useEffect, useCallback, useSyncExternalStore } from "react";
 import { useAuth } from "@/components/auth-provider";
 
 /**
@@ -37,12 +37,6 @@ function getSnapshot(): StoreState {
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
-}
-
-function emit() {
-  // Create new reference so useSyncExternalStore detects the change
-  state = { ...state };
-  listeners.forEach((l) => l());
 }
 
 function setState(patch: Partial<StoreState>) {

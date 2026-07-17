@@ -17,7 +17,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getInteractions, createInteraction, updateInteraction, deleteInteraction } from "@/lib/queries";
@@ -37,7 +36,6 @@ import { inputClasses, labelClasses } from "@/lib/form-styles";
 const emptyForm = { interaction_date: "", interaction_type: "", summary: "" };
 
 export default function InteractionsPage({ contactId, contactName }: InteractionsPageProps) {
-  const { user } = useAuth();
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);

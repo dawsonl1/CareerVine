@@ -247,7 +247,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
       setEditing(false);
       onContactUpdate(contact);
       toastSuccess("Contact saved");
-    } catch (error) {
+    } catch {
       toastError("Failed to save contact");
     } finally {
       savingRef.current = false;
@@ -264,7 +264,6 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
   // ── View mode ──
   if (!editing) {
     const currentCompany = contact.contact_companies.find((cc) => cc.is_current);
-    const schoolInfo = contact.contact_schools?.[0];
     const locationParts = [contact.locations?.city, contact.locations?.state, contact.locations?.country].filter(Boolean);
     const primaryEmail = contact.contact_emails.find((e) => e.is_primary)?.email || contact.contact_emails[0]?.email;
 

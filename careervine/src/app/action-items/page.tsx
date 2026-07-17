@@ -30,7 +30,7 @@ import { useQuickCapture } from "@/components/quick-capture-context";
 
 export default function ActionItemsPage() {
   const { user } = useAuth();
-  const { toast, success: toastSuccess, error: toastError } = useToast();
+  const { success: toastSuccess, error: toastError } = useToast();
   const { open: openQuickCapture } = useQuickCapture();
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [completedItems, setCompletedItems] = useState<ActionItem[]>([]);
@@ -157,7 +157,7 @@ export default function ActionItemsPage() {
       await updateActionItem(id, { is_completed: false, completed_at: null });
       await loadActionItems();
       toastSuccess("Action item restored");
-    } catch (err) { toastError("Failed to restore action item"); }
+    } catch { toastError("Failed to restore action item"); }
   };
 
   const removeItem = (e: React.MouseEvent, item: ActionItem) => {
@@ -239,7 +239,7 @@ export default function ActionItemsPage() {
       setEditingItem(null);
       if (selectedItem?.id === editingItem.id) setSelectedItem(null);
       toastSuccess("Action item updated");
-    } catch (err) { toastError("Failed to update action item"); }
+    } catch { toastError("Failed to update action item"); }
     finally { setEditSaving(false); }
   };
 
@@ -874,7 +874,7 @@ export default function ActionItemsPage() {
                         resetCreate();
                         await loadActionItems();
                         toastSuccess("Action item created");
-                      } catch (err) { toastError("Failed to create action item"); }
+                      } catch { toastError("Failed to create action item"); }
                       finally { setNewSaving(false); }
                     }}
                   >

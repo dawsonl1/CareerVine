@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 /**
  * Integration-style tests for the contact import flow.
@@ -17,11 +17,11 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
 
   function makeQueryBuilder(tableName: string) {
     const filters: Record<string, any> = {};
-    let selectFields = '*';
+    let _selectFields = '*';
 
     const builder: any = {
       select(fields?: string) {
-        selectFields = fields || '*';
+        _selectFields = fields || '*';
         return builder;
       },
       eq(col: string, val: any) {
@@ -93,7 +93,7 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
   function makeUpdateBuilder(tableName: string, data: any) {
     ops.push({ table: tableName, op: 'update', data });
     const builder: any = {
-      eq(col: string, val: any) { return builder; },
+      eq(_col: string, _val: any) { return builder; },
       select() { return builder; },
       single() {
         return { data: { id: 1, ...data }, error: null };
@@ -105,7 +105,7 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
   function makeDeleteBuilder(tableName: string) {
     ops.push({ table: tableName, op: 'delete' });
     const builder: any = {
-      eq(col: string, val: any) { return builder; },
+      eq(_col: string, _val: any) { return builder; },
     };
     return builder;
   }
@@ -132,7 +132,6 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
 
 // ── Import the helpers we're testing ──
 import {
-  parseFollowUpFrequency,
   sanitizeForPostgrest,
   buildContactData,
   buildUpdateData,

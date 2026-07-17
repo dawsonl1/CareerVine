@@ -15,7 +15,7 @@ const releaseMock = vi.fn(async () => undefined);
 vi.mock("@/lib/bundle-sync", () => ({
   applyBundleDelta: (...args: unknown[]) => applyMock(...args),
   claimSubscriptionSync: (...args: unknown[]) => claimMock(...args),
-  releaseSubscriptionSync: (...args: unknown[]) => releaseMock(),
+  releaseSubscriptionSync: (..._args: unknown[]) => releaseMock(),
 }));
 
 vi.mock("@/lib/analytics/server", () => ({

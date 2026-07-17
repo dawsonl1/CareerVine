@@ -13,6 +13,23 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // Honor the `_` prefix as "intentionally unused" (the codebase already uses
+  // _args/_opts/_id this way). Standard convention; keeps genuinely-unused
+  // bindings a lint error while letting signature-required params opt out.
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+          ignoreRestSiblings: true,
+        },
+      ],
+    },
+  },
   // The React Compiler static-analysis rules target shipped components. Test
   // harnesses legitimately reassign module-scoped mocks and poke refs from test
   // helpers, which trips these rules without indicating a real component bug.

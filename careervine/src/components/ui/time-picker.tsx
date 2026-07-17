@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
 import { usePortalDropdown } from "@/hooks/use-portal-dropdown";

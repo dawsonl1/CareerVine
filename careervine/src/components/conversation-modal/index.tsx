@@ -36,7 +36,6 @@ import {
   Globe,
   MessageSquare,
 } from "lucide-react";
-import type { SimpleContact } from "@/lib/types";
 import type { ConversationFormState, PendingAction, TranscriptState } from "./types";
 import { PastMeetingFields } from "./past-meeting-fields";
 import { FutureMeetingFields } from "./future-meeting-fields";

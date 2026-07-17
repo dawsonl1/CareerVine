@@ -15,10 +15,6 @@ export type LayoutSlot = {
   columnCount: number;
 };
 
-function intervalsOverlap(a: TimedInterval, b: TimedInterval): boolean {
-  return a.startMs < b.endMs && b.startMs < a.endMs;
-}
-
 /**
  * Assign horizontal slots for a list of timed events in one day column.
  * Returns a map from event id → { columnIndex, columnCount }.

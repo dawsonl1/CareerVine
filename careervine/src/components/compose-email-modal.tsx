@@ -111,7 +111,7 @@ export function ComposeEmailModal() {
   const sentOrScheduledRef = useRef(false);
 
   // Contact autocomplete
-  const [contactQuery, setContactQuery] = useState("");
+  const [, setContactQuery] = useState("");
   const [contactSuggestions, setContactSuggestions] = useState<Array<{ id: number; name: string; email: string; emails: string[] }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedContactName, setSelectedContactName] = useState("");

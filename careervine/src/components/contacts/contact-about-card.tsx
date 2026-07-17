@@ -1,7 +1,7 @@
 "use client";
 
 import type { Contact } from "@/lib/types";
-import { User, Users, StickyNote } from "lucide-react";
+import { Users, StickyNote } from "lucide-react";
 
 interface ContactAboutCardProps {
   contact: Contact;

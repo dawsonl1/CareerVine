@@ -50,7 +50,7 @@ export default function ContactsPage() {
   const [contacts, setContacts] = useState<ContactListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTagFilter, setSelectedTagFilter] = useState<number | null>(null);
+  const [selectedTagFilter] = useState<number | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(true);
   const searchRef = useRef<HTMLDivElement>(null);
@@ -189,16 +189,6 @@ export default function ContactsPage() {
       getTags(user.id).then(setAllTags).catch(() => {});
     }
   }, [user, loadContacts]);
-
-  const uniqueTags = useMemo(() => {
-    const tagMap = new Map<number, string>();
-    for (const c of contacts) {
-      for (const ct of c.contact_tags) {
-        tagMap.set(ct.tag_id, ct.tags.name);
-      }
-    }
-    return Array.from(tagMap, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [contacts]);
 
   // Search suggestions: people matching by name, email, company, job
   // title, school, or industry — then tag-only matches
@@ -377,7 +367,7 @@ export default function ContactsPage() {
       closeForm();
       await loadContacts();
       toastSuccess("Contact created");
-    } catch (error) {
+    } catch {
       toastError("Failed to create contact");
     } finally {
       submittingRef.current = false;

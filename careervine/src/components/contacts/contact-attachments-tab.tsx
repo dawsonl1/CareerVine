@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { uploadAttachment, addAttachmentToContact, getAttachmentUrl, deleteAttachment, getAttachmentsForContact } from "@/lib/queries";
-import { Paperclip, Plus, Trash2, Download } from "lucide-react";
+import { Paperclip, Plus, Trash2 } from "lucide-react";
 
 type Attachment = {
   id: number;

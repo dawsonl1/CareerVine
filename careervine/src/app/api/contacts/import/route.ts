@@ -65,10 +65,6 @@ interface SchoolRelRow {
   school_id: number;
 }
 
-interface TagLinkRow {
-  tag_id: number;
-}
-
 // ── Route ──────────────────────────────────────────────────────────────
 
 export async function OPTIONS() {

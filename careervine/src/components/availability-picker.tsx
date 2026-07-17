@@ -57,7 +57,7 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
   // Mode: standard | priority | custom
   const [mode, setMode] = useState<PickerMode>("standard");
   const [autoDetectedProfile, setAutoDetectedProfile] = useState<"standard" | "priority">("standard");
-  const [hasStandard, setHasStandard] = useState(false);
+  const [, setHasStandard] = useState(false);
   const [hasPriority, setHasPriority] = useState(false);
   const [standardSummary, setStandardSummary] = useState("");
   const [prioritySummary, setPrioritySummary] = useState("");

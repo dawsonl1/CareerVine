@@ -220,7 +220,7 @@ export function generateDecayWarningSuggestions(
 
 export function generateFirstTouchSuggestions(
   contacts: SuggestionContact[],
-  today: Date = new Date(),
+  _today: Date = new Date(),
 ): Suggestion[] {
   const suggestions: Suggestion[] = [];
 
