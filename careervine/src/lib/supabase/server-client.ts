@@ -30,7 +30,13 @@ export const createSupabaseServerClient = async () => {
       // fresh sessions (e.g. /auth/confirm's verifyOtp) lose maxAge/path and
       // degrade to browser-session cookies.
       setAll: (cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) => {
-        cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+        } catch {
+          // Called from a Server Component, where the cookie store is
+          // read-only. Safe to ignore: src/proxy.ts refreshes sessions and
+          // persists rotated cookies before the render ever runs.
+        }
       },
     },
   });
