@@ -218,8 +218,8 @@ export async function triggerDiscoveryBatch(userId: string): Promise<DiscoveryTr
     const scrapeRunId = (runRow as { id: number }).id;
 
     try {
-      const secret = process.env.APIFY_WEBHOOK_SECRET ?? "";
-      const callbackUrl = `${getAppBaseUrl()}/api/apify/run-callback?secret=${encodeURIComponent(secret)}&run=${scrapeRunId}`;
+      // Secret rides in a webhook header (CAR-140 / F26), not the callback URL.
+      const callbackUrl = `${getAppBaseUrl()}/api/apify/run-callback?run=${scrapeRunId}`;
       const run = await startProfileSearchRun({
         companyLinkedinUrl: company.linkedinUrl,
         maxTotalChargeUsd: DISCOVERY_PAGE_COST_USD * 1.5, // one page + margin

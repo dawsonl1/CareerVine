@@ -10,7 +10,7 @@ import {
   BundlePublishError,
 } from '@/lib/bundle-publish';
 import { bundleProspectPayloadV1Schema } from '@/lib/bundle-payload';
-import { isAuthorizedAdminToken } from '@/app/api/admin/bundles/publish/route';
+import { isAuthorizedAdminToken } from '@/lib/admin-auth';
 
 vi.mock('@/lib/company-helpers', () => ({
   findOrCreateCompany: vi.fn(async () => ({ id: 500, name: 'Goldman Sachs' })),

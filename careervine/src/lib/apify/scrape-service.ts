@@ -131,11 +131,11 @@ export async function triggerContactScrape(opts: {
   const scrapeRunId = (runRow as { id: number }).id;
 
   try {
-    const secret = process.env.APIFY_WEBHOOK_SECRET ?? "";
     // The scrape_runs id rides in the callback URL so ingest correlates by it
     // directly — no dependency on the apify_run_id write winning a race with a
-    // fast run's completion webhook.
-    const callbackUrl = `${getAppBaseUrl()}/api/apify/run-callback?secret=${encodeURIComponent(secret)}&run=${scrapeRunId}`;
+    // fast run's completion webhook. The webhook secret travels in a header, not
+    // the URL (CAR-140 / F26) — see terminalWebhookParam in client.ts.
+    const callbackUrl = `${getAppBaseUrl()}/api/apify/run-callback?run=${scrapeRunId}`;
     const run = await startProfileScrapeRun({
       urls: [url],
       mode,
@@ -210,8 +210,8 @@ export async function triggerBatchScrape(
   const scrapeRunId = (runRow as { id: number }).id;
 
   try {
-    const secret = process.env.APIFY_WEBHOOK_SECRET ?? "";
-    const callbackUrl = `${getAppBaseUrl()}/api/apify/run-callback?secret=${encodeURIComponent(secret)}&run=${scrapeRunId}`;
+    // Secret rides in a webhook header (CAR-140 / F26), not the callback URL.
+    const callbackUrl = `${getAppBaseUrl()}/api/apify/run-callback?run=${scrapeRunId}`;
     const run = await startProfileScrapeRun({
       urls: batch.map((c) => c.url),
       mode,

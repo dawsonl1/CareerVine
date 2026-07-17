@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { ingestScrapeRun } from "@/lib/apify/scrape-service";
+import { APIFY_WEBHOOK_SECRET_HEADER } from "@/lib/apify/client";
 
 /** Constant-time equality that also avoids leaking length via early return. */
 function secretsMatch(a: string | null, b: string | undefined): boolean {
@@ -12,16 +13,23 @@ function secretsMatch(a: string | null, b: string | undefined): boolean {
 }
 
 /**
- * POST /api/apify/run-callback?secret=...
+ * POST /api/apify/run-callback?run=...
  * Apify webhook target, fired when a scrape run terminates. Verifies the shared
  * secret, then ingests the run (map → rescrape-merge → cost). Ingestion is
  * idempotent, so a duplicate delivery is a safe no-op.
+ *
+ * The secret is presented in the X-Careervine-Webhook-Secret header (CAR-140 /
+ * F26), never the URL. The `?secret=` query param is accepted as a transitional
+ * fallback so runs already in flight at deploy time (whose callback URLs still
+ * carry the old query secret) don't orphan. Remove the fallback + rotate the
+ * secret ≥24h after deploy, once all pre-deploy runs have drained.
  */
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const secret = req.nextUrl.searchParams.get("secret");
-  if (!secretsMatch(secret, process.env.APIFY_WEBHOOK_SECRET)) {
+  const presented =
+    req.headers.get(APIFY_WEBHOOK_SECRET_HEADER) ?? req.nextUrl.searchParams.get("secret");
+  if (!secretsMatch(presented, process.env.APIFY_WEBHOOK_SECRET)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
