@@ -2,15 +2,16 @@
  * Shared tracked-send path (plan 26).
  *
  * EVERY outbound email flows through sendTrackedEmail() so send policy can't
- * drift between surfaces. All four callers use it: the app's /api/gmail/send
- * route, the MCP server's send_email tool, the scheduled-email cron
- * (processScheduledEmails), and the follow-up cron (/api/cron/send-follow-ups).
- * The crons are NOT exempt from the cap: they call sendTrackedEmail() like the
- * interactive paths and catch SendPolicyError to DEFER rather than bypass. A
- * 429 (daily cap reached) stops that cron tick and retries next run; a 422
- * (recipient has bounced) leaves the row for the bounce path to resolve
- * (detectBounces cancels the sequence once the NDR lands). sendTrackedEmail()
- * applies:
+ * drift between surfaces. Its callers: the app's /api/gmail/send route, the MCP
+ * server's send_email tool, the scheduled-email cron (processScheduledEmails),
+ * the follow-up cron (/api/cron/send-follow-ups), and the interactive follow-up
+ * confirm route (/api/gmail/follow-ups/confirm). The crons are NOT exempt from
+ * the cap: they call sendTrackedEmail() like the interactive paths and catch
+ * SendPolicyError to DEFER rather than bypass. A 429 (daily cap reached) stops
+ * that cron tick and retries next run; a 422 (recipient has bounced) is left
+ * for the bounce path to resolve (detectBounces cancels the sequence once the
+ * NDR lands), except a follow-up message already past its 3-day retry window,
+ * which the follow-up cron cancels outright. sendTrackedEmail() applies:
  *   - daily cap (deliverability guardrail)
  *   - bounced-address refusal
  *   - pattern-guessed-address warning

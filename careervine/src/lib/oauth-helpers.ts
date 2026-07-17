@@ -8,11 +8,13 @@ import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 /** Create a Google OAuth2 client from env vars. */
 export function getOAuth2Client() {
-  return new OAuth2Client(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  );
+  // Options-object form: the positional (clientId, clientSecret, redirectUri)
+  // constructor is deprecated in google-auth-library v10 (CAR-147).
+  return new OAuth2Client({
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    redirectUri: process.env.GOOGLE_REDIRECT_URI,
+  });
 }
 
 // ── OAuth token encryption at rest (CAR-27) ──

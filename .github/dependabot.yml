@@ -11,6 +11,14 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
+      # The per-API Google subpackages and google-auth-library share the
+      # googleapis-common runtime and must move in lockstep, so group them
+      # across ALL update types (majors included) into one PR (CAR-147).
+      careervine-google-apis:
+        patterns:
+          - "@googleapis/*"
+          - "google-auth-library"
+          - "googleapis-common"
       careervine-minor-patch:
         patterns:
           - "*"
