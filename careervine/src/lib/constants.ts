@@ -14,6 +14,14 @@ export const FollowUpMessageStatus = {
   Pending: "pending",
   Cancelled: "cancelled",
   Sent: "sent",
+  // Transient claim held by a send driver (the send-follow-ups cron or the
+  // confirm route) for the duration of one Gmail round trip — never a resting
+  // state. Stamped with claimed_at (CAR-139); claims older than
+  // SEND_STALE_CLAIM_MINUTES were orphaned by a crash and are swept to
+  // 'awaiting_review' (never back to 'pending' — the send may have gone out,
+  // and an auto-retry would double-send). In the DB CHECK since
+  // 20260712065000_car105_followup_nudge_expiry_columns.sql.
+  Sending: "sending",
   // CAR-102: free-tier confirm-to-send. The cron parks a due message here instead
   // of sending; the user confirms (send) or reports a reply (cancel) from the portal.
   AwaitingReview: "awaiting_review",
@@ -84,9 +92,10 @@ export const ScheduledEmailStatus = {
   Failed: "failed",
 } as const;
 
-/** Claims in 'sending' older than this are dead (no lambda runs this long)
- * and get swept to 'failed' by the cron. */
-export const SCHEDULED_SEND_STALE_CLAIM_MINUTES = 15;
+/** Claims in 'sending' older than this are dead (no lambda runs this long).
+ * The crons sweep them: scheduled_emails → 'failed' (CAR-134),
+ * email_follow_up_messages → 'awaiting_review' (CAR-139). */
+export const SEND_STALE_CLAIM_MINUTES = 15;
 
 // ── Email direction ────────────────────────────────────────────────────
 

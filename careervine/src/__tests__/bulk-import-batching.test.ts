@@ -225,6 +225,24 @@ describe("importPeopleChunk batching (CAR-47)", () => {
     expect((linkInserts[0].payload as unknown[]).length).toBe(3);
   });
 
+  it("fails the chunk when the suppression read errors (never silently re-imports tombstones, CAR-139)", async () => {
+    const { respond } = happyPathResponder();
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === "suppressed_imports") return { data: null, error: { message: "connection reset" } };
+      return respond(state);
+    });
+
+    await expect(
+      importPeopleChunk(client, "user-1", [{ mapped: JANE }], {
+        mergePolicy: "bundle",
+        skipPhotos: true,
+        noteLabel: "Imported from data bundle",
+      }),
+    ).rejects.toThrow(/Suppression read failed/);
+    // Nothing was imported past the failed tombstone check.
+    expect(byTable(calls, "contacts", "insert")).toHaveLength(0);
+  });
+
   it("falls back to findOrCreateCompany when the prefetch misses", async () => {
     const { respond } = happyPathResponder();
     const { client, calls } = createMockClient((state) => {

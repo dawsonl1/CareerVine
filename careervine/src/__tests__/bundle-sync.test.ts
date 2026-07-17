@@ -361,6 +361,69 @@ describe('applyBundleDelta — removal phase', () => {
   });
 });
 
+// ── Fail-loud reads (F6, CAR-139) ──────────────────────────────────────
+// A swallowed read error must never let the step reach the synced_version
+// commit — a throw leaves the checkpoint for the daily stale-scan instead of
+// silently committing past an unapplied delta.
+
+describe('applyBundleDelta — fail-loud reads (CAR-139)', () => {
+  const commitCall = (calls: QueryState[]) =>
+    calls.find((c) => c.table === 'bundle_subscriptions' && c.op === 'update');
+
+  it('throws on an apply-phase prospect read error and never commits', async () => {
+    const base = responder({});
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === 'bundle_prospects' && state.op === 'select') {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Apply-phase prospect read failed/);
+    expect(commitCall(calls)).toBeUndefined();
+  });
+
+  it('throws on a pre-apply fingerprint contact read error and never commits', async () => {
+    const base = responder({ prospects: [PROSPECT_ROW] });
+    const { client, calls } = createMockClient((state) => {
+      const wantsSnapshot = filterArgs(state, 'select').some((a) => String(a[0]).includes('stage_override'));
+      if (state.table === 'contacts' && state.op === 'select' && !wantsSnapshot) {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Pre-apply fingerprint read failed/);
+    expect(commitCall(calls)).toBeUndefined();
+  });
+
+  it('throws on a removal-phase prospect read error and never commits', async () => {
+    const base = responder({ prospects: [] });
+    const { client, calls } = createMockClient((state) => {
+      const isRemovalQuery = filterArgs(state, 'gt').some((a) => a[0] === 'removed_in_version');
+      if (state.table === 'bundle_prospects' && state.op === 'select' && isRemovalQuery) {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Removal-phase prospect read failed/);
+    expect(commitCall(calls)).toBeUndefined();
+  });
+
+  it('throws on a removal linkage read error and never commits', async () => {
+    const base = responder({
+      prospects: [],
+      removedProspects: [{ id: 301, linkedin_url: 'https://www.linkedin.com/in/jane-analyst' }],
+    });
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === 'bundle_subscription_contacts' && state.op === 'select') {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Removal linkage read failed/);
+    expect(commitCall(calls)).toBeUndefined();
+  });
+});
+
 // ── Claims ─────────────────────────────────────────────────────────────
 
 describe('claimSubscriptionSync', () => {

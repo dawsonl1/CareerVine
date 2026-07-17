@@ -4,9 +4,10 @@ import { SendPolicyError } from "@/lib/email-send";
 
 /**
  * CAR-134: processScheduledEmails must claim each row atomically before the
- * Gmail round trip. Two drivers run it concurrently for the same user (the
- * 15-minute cron and the contact-page fire-and-forget process call), so
- * without the claim a due email can be sent twice.
+ * Gmail round trip. The 15-minute cron is the sole send driver (CAR-139
+ * removed the page-load process triggers), but overlapping cron ticks can
+ * still run it concurrently for the same user, so without the claim a due
+ * email can be sent twice.
  */
 
 type Row = Record<string, unknown> & { id: number; status: string };

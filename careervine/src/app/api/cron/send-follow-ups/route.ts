@@ -7,7 +7,11 @@ import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { filterActiveUserIds } from "@/lib/user-status";
 import { capabilitiesFor } from "@/lib/capabilities/map";
 import type { Capability } from "@/lib/capabilities/types";
-import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import {
+  FollowUpMessageStatus,
+  SEND_STALE_CLAIM_MINUTES,
+  UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
+} from "@/lib/constants";
 
 const receiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
@@ -42,8 +46,37 @@ async function runJob(): Promise<NextResponse> {
   // may extend this once). Stamped alongside the awaiting_review flip below.
   const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Query pending follow-up messages that are due
-  const { data: pendingMessages } = await service
+  // Sweep stale claims (CAR-139): a row stuck in 'sending' longer than any
+  // send driver can live was orphaned by a crash. The crash may have happened
+  // after the Gmail send but before the mark-sent write, so park it as
+  // 'awaiting_review' (with the full CAR-105 parking stamp, so the portal,
+  // contact-page buttons, and nudge emails all surface it) instead of
+  // re-queueing it — an automatic retry could double-send a real email.
+  const staleCutoff = new Date(Date.now() - SEND_STALE_CLAIM_MINUTES * 60_000).toISOString();
+  const { count: sweptStale } = await service
+    .from("email_follow_up_messages")
+    .update(
+      {
+        status: FollowUpMessageStatus.AwaitingReview,
+        parked_at: now,
+        expires_at: expiresAt,
+        reminder_count: 0,
+        last_reminder_at: null,
+        seen_during_window: false,
+        claimed_at: null,
+      },
+      { count: "exact" },
+    )
+    .eq("status", FollowUpMessageStatus.Sending)
+    .lt("claimed_at", staleCutoff);
+  if (sweptStale) {
+    console.warn(`[cron] Swept ${sweptStale} stale 'sending' follow-up claim(s) to awaiting_review`);
+  }
+
+  // Query pending follow-up messages that are due. Fail loud (F6): a read
+  // error must surface as a cron failure via withCronGuard, not a healthy
+  // {processed: 0} that hides missed sends from alerting.
+  const { data: pendingMessages, error: dueError } = await service
     .from("email_follow_up_messages")
     .select(`
       id, follow_up_id, subject, body_html, scheduled_send_at,
@@ -58,6 +91,7 @@ async function runJob(): Promise<NextResponse> {
     .eq("email_follow_ups.status", "active")
     .order("scheduled_send_at", { ascending: true })
     .limit(20);
+  if (dueError) throw new Error(`Due follow-up query failed: ${dueError.message}`);
 
   if (!pendingMessages || pendingMessages.length === 0) {
     return NextResponse.json({ processed: 0, sent: 0, cancelled: 0 });
@@ -230,7 +264,10 @@ async function runJob(): Promise<NextResponse> {
       // RLS visibility semantics.
       const { count: claimedCount } = await service
         .from("email_follow_up_messages")
-        .update({ status: "sending" }, { count: "exact" })
+        .update(
+          { status: FollowUpMessageStatus.Sending, claimed_at: now },
+          { count: "exact" },
+        )
         .eq("id", msg.id)
         .eq("status", "pending");
 
@@ -263,13 +300,13 @@ async function runJob(): Promise<NextResponse> {
         if (!capped && msg.scheduled_send_at < threeDaysAgo) {
           await service
             .from("email_follow_up_messages")
-            .update({ status: "cancelled" })
+            .update({ status: "cancelled", claimed_at: null })
             .eq("id", msg.id);
         } else {
           // Revert to pending so it's retried next cycle
           await service
             .from("email_follow_up_messages")
-            .update({ status: "pending" })
+            .update({ status: "pending", claimed_at: null })
             .eq("id", msg.id);
         }
         if (capped) break; // cap is global — stop this run
@@ -285,7 +322,7 @@ async function runJob(): Promise<NextResponse> {
       .from("email_follow_up_messages")
       .select("id", { count: "exact", head: true })
       .eq("follow_up_id", seqId)
-      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, "sending"]);
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, FollowUpMessageStatus.Sending]);
 
     if (count === 0) {
       await service

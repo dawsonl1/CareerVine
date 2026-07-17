@@ -400,7 +400,11 @@ export async function applyBundleDelta(
   };
 
   if (cursor.phase === "apply") {
-    const { data: rows } = await client
+    // Fail-loud reads (F6, CAR-139): a swallowed read error here would let the
+    // step run to the synced_version commit below with a delta silently
+    // unapplied. A throw instead leaves the checkpoint in place and routes
+    // recovery to the daily stale-scan.
+    const { data: rows, error: applyReadError } = await client
       .from("bundle_prospects")
       .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
       .eq("bundle_id", bundle.id)
@@ -410,6 +414,7 @@ export async function applyBundleDelta(
       .gt("id", cursor.afterId)
       .order("id", { ascending: true })
       .limit(chunkSize);
+    if (applyReadError) throw new Error(`Apply-phase prospect read failed: ${applyReadError.message}`);
     const prospects = (rows as ProspectRow[] | null) ?? [];
 
     if (prospects.length > 0) {
@@ -445,11 +450,12 @@ export async function applyBundleDelta(
       const urls = parsed.map((p) => p.mapped.linkedin_url);
       const existingIds: number[] = [];
       for (const urlChunk of chunkList(urls)) {
-        const { data: existingContacts } = await client
+        const { data: existingContacts, error: fpReadError } = await client
           .from("contacts")
           .select("id, linkedin_url")
           .eq("user_id", subscription.user_id)
           .in("linkedin_url", urlChunk);
+        if (fpReadError) throw new Error(`Pre-apply fingerprint read failed: ${fpReadError.message}`);
         existingIds.push(...(((existingContacts as Array<{ id: number }> | null) ?? []).map((c) => c.id)));
       }
       const signals = await fetchTouchSignals(client, subscription.user_id, existingIds);
@@ -588,7 +594,7 @@ export async function applyBundleDelta(
 
   // ── Removal phase ──
   const removeAfter = cursor.phase === "remove" ? cursor.afterId : 0;
-  const { data: removedRows } = await client
+  const { data: removedRows, error: removeReadError } = await client
     .from("bundle_prospects")
     .select("id, linkedin_url")
     .eq("bundle_id", bundle.id)
@@ -597,14 +603,16 @@ export async function applyBundleDelta(
     .gt("id", removeAfter)
     .order("id", { ascending: true })
     .limit(chunkSize);
+  if (removeReadError) throw new Error(`Removal-phase prospect read failed: ${removeReadError.message}`);
   const removed = (removedRows as Array<{ id: number; linkedin_url: string }> | null) ?? [];
 
   if (removed.length > 0) {
-    const { data: links } = await client
+    const { data: links, error: linkageReadError } = await client
       .from("bundle_subscription_contacts")
       .select("id, contact_id, created_by_bundle, bundle_prospect_id")
       .eq("subscription_id", subscription.id)
       .in("bundle_prospect_id", removed.map((r) => r.id));
+    if (linkageReadError) throw new Error(`Removal linkage read failed: ${linkageReadError.message}`);
     const linkRows = (links as Array<{ id: number; contact_id: number; created_by_bundle: boolean; bundle_prospect_id: number }> | null) ?? [];
 
     const candidateIds = linkRows.filter((l) => l.created_by_bundle).map((l) => l.contact_id);

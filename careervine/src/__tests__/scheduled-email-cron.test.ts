@@ -14,6 +14,8 @@ function mockService(
     staleSendingCount?: number;
     /** Records the sweep's filters so tests can assert its shape. */
     sweepCalls?: Array<{ payload: Record<string, unknown>; filters: Array<[string, string, unknown]> }>;
+    /** Error injected into the due-rows read (fail-loud coverage, CAR-139). */
+    dueReadError?: { message: string };
   } = {},
 ): SupabaseClient {
   const suspended = new Set(opts.suspendedUserIds ?? []);
@@ -33,6 +35,7 @@ function mockService(
           .map((id) => ({ id }));
         return { data: ids, error: null };
       }
+      if (opts.dueReadError) return { data: null, error: opts.dueReadError };
       return { data: scheduledRows, error: null };
     };
     Object.assign(builder, {
@@ -198,5 +201,16 @@ describe("processDueScheduledEmails", () => {
     expect(sweepCalls[0].filters).toContainEqual(["eq", "status", "sending"]);
     // Only claims older than the 15-minute staleness window are swept.
     expect(sweepCalls[0].filters).toContainEqual(["lt", "claimed_at", "2025-12-31T23:45:00.000Z"]);
+  });
+
+  it("throws on a due-read error instead of reporting a healthy empty run (CAR-139)", async () => {
+    // The cron route wraps this in withCronGuard, so the throw becomes a 500 +
+    // api_error guardrail event — never a false-healthy zero-row payload.
+    await expect(
+      processDueScheduledEmails("2026-01-01T00:00:00.000Z", {
+        service: mockService([], { dueReadError: { message: "connection reset" } }),
+        processForUser: vi.fn(),
+      }),
+    ).rejects.toThrow(/Due scheduled-email query failed/);
   });
 });
