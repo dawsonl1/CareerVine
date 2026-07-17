@@ -79,7 +79,7 @@ describe("MCP cancel helpers — count-based CAS (CAR-132)", () => {
   it("cancelScheduledEmail throws when no pending row matched (count=0)", async () => {
     state.results = [{ count: 0, error: null }];
 
-    await expect(cancelScheduledEmail(7)).rejects.toThrow(/No pending scheduled email/);
+    await expect(cancelScheduledEmail(7)).rejects.toThrow(/No cancellable scheduled email/);
   });
 
   it("cancelFollowUpSequence count=1 -> also cancels the child messages", async () => {
@@ -146,7 +146,7 @@ describe("MCP cancel helpers — count-based CAS (CAR-132)", () => {
     state.readData = { email_follow_ups: [{ id: 3 }] };
     state.results = [{ count: 0, error: null }];
 
-    await expect(cancelScheduledEmail(7)).rejects.toThrow(/No pending scheduled email/);
+    await expect(cancelScheduledEmail(7)).rejects.toThrow(/No cancellable scheduled email/);
     expect(state.updates).toHaveLength(1); // no follow-up teardown
   });
 });

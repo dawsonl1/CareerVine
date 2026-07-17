@@ -9,7 +9,7 @@
 
 import { db, must } from "./client";
 import { paginateAll } from "./postgrest";
-import { buildLastTouchMap, getRecentCutoff } from "./follow-ups";
+import { buildLastTouchMap, deriveDueFollowUps, getRecentCutoff } from "./follow-ups";
 
 /**
  * Combined home page data fetch — loads action items + all contact-derived data
@@ -58,7 +58,7 @@ export async function getHomeCoreData(userId: string) {
   const contactIds = allContacts.map((c) => c.id);
 
   // Build last-touch map (2 queries in parallel)
-  const lastTouchMap = await buildLastTouchMap(contactIds);
+  const lastTouchMap = await buildLastTouchMap(userId, contactIds);
 
   // ── Derive contactHealth (for lastTouchLookup) ──
   const contactHealth = allContacts.map((c) => {
@@ -75,62 +75,13 @@ export async function getHomeCoreData(userId: string) {
   });
 
   // ── Derive followUps (reach out contacts) ──
-  // Filter snoozed contacts for followUps/recentlyAdded (but not contactHealth)
+  // Shared derivation (CAR-151): the same policy backs the standalone
+  // getContactsDueForFollowUp and the MCP list_due_follow_ups tool.
+  const followUps = deriveDueFollowUps(allContacts, lastTouchMap, now);
+
+  // Filter snoozed contacts for recentlyAdded (but not contactHealth)
   const isSnoozed = (c: { reach_out_snoozed_until: string | null }) =>
     c.reach_out_snoozed_until && new Date(c.reach_out_snoozed_until) > new Date(now);
-
-  const followUps = allContacts
-    .map((c) => {
-      if (isSnoozed(c)) return null;
-
-      const lastTouch = lastTouchMap.get(c.id);
-      const lastTouchDate = lastTouch ? new Date(lastTouch) : null;
-      const freqDays = c.follow_up_frequency_days;
-      const neverContacted = !lastTouchDate;
-      const noCadence = !freqDays;
-      const isRecent = c.created_at >= recentCutoff;
-
-      if (neverContacted && (isRecent || c.first_outreach_skipped)) return null;
-
-      if (noCadence) {
-        if (!neverContacted || !isRecent) {
-          return {
-            id: c.id, name: c.name, industry: c.industry, photo_url: c.photo_url,
-            follow_up_frequency_days: 0, last_touch: lastTouch || null,
-            days_overdue: 0, never_contacted: neverContacted, no_cadence: true,
-
-            emails: (c.contact_emails || []).map((e) => e.email).filter((email): email is string => email !== null),
-          };
-        }
-        return null;
-      }
-
-      let daysOverdue: number;
-      if (neverContacted) {
-        const dueDate = new Date(c.created_at);
-        dueDate.setDate(dueDate.getDate() + freqDays);
-        daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-      } else {
-        const dueDate = new Date(lastTouchDate);
-        dueDate.setDate(dueDate.getDate() + freqDays);
-        daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-      }
-      if (daysOverdue < 0) return null;
-
-      return {
-        id: c.id, name: c.name, industry: c.industry, photo_url: c.photo_url,
-        follow_up_frequency_days: freqDays, last_touch: lastTouch || null,
-        days_overdue: daysOverdue, never_contacted: neverContacted, no_cadence: false,
-
-        emails: (c.contact_emails || []).map((e) => e.email).filter((email): email is string => email !== null),
-      };
-    })
-    .filter((c): c is NonNullable<typeof c> => c !== null)
-    .sort((a, b) => {
-      if (a.no_cadence && !b.no_cadence) return 1;
-      if (!a.no_cadence && b.no_cadence) return -1;
-      return b.days_overdue - a.days_overdue;
-    });
 
   // ── Derive recentlyAdded (uncontacted contacts in last 7 days) ──
   const contacted = new Set<number>();

@@ -1,30 +1,54 @@
 /**
  * Service-role data layer for the MCP server.
  *
- * The app's data layer (src/lib/data/*, behind the lib/queries barrel)
- * relies on RLS for tenant isolation, so its queries can't run on the
- * service-role client as-is; the reads/writes the tools need are
- * reimplemented here — compact, and with EVERY query explicitly scoped to
- * the single operating user (plan 26). Contact- and item-referencing
- * writes verify ownership first: the service role bypasses RLS, so scoping
- * is this module's job. (Collapsing this fork onto src/lib/data via its
- * setDataClient() seam — with explicit scoping preserved — is CAR-151.)
- *
- * company-queries.ts is reused directly (the entry points MCP calls are
- * all userId-parameterized) via setCompanyQueriesClient() injection.
+ * Since CAR-151 this is a thin layer, not a fork: the shared src/lib/data
+ * modules receive the service client through their setDataClient() seam
+ * (and company-queries through setCompanyQueriesClient()), and every
+ * shared function MCP reaches is explicitly user-scoped — enforced
+ * exhaustively by __tests__/db-scoping.test.ts. What remains here is
+ * MCP-specific: uid() context, contact/company resolution and ownership
+ * assertions, and tool-shaped projections/aggregations. The service role
+ * bypasses RLS, so every query in this module scopes to the operating
+ * user or runs behind an ownership assertion.
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import type { TablesInsert } from "@/lib/database.types";
 import { setCompanyQueriesClient } from "@/lib/company-queries";
-import { findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
+import { setDataClient, type QueryClient } from "@/lib/data/client";
 import { chunked, escapeIlike, paginateAll } from "@/lib/data/postgrest";
+import {
+  addCompanyToContact,
+  addEmailToContact,
+  addPhoneToContact,
+  addSchoolToContact,
+  appendContactNote,
+  createContact,
+  findOrCreateCompany,
+  findOrCreateLocation,
+  findOrCreateSchool,
+  getContactById,
+  getContactEmailLookup,
+} from "@/lib/data/contacts";
+import {
+  buildLastTouchMap as buildLastTouchMapShared,
+  getContactsDueForFollowUp,
+  getNeglectedContacts,
+  getRelationshipsOnTrack,
+} from "@/lib/data/follow-ups";
+import { getNetworkingStreak } from "@/lib/data/home";
+import { createActionItem as createActionItemShared, getActionItems } from "@/lib/data/action-items";
+import {
+  cancelFollowUpSequenceCascade,
+  cancelScheduledEmailCascade,
+  insertEmailDraft,
+  insertFollowUpSequenceRows,
+  insertScheduledEmail,
+} from "@/lib/data/emails";
 import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
-import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
-import { cancelFollowUpsForScheduledEmail } from "@/lib/follow-up-helpers";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -35,6 +59,11 @@ let stdioUserId = "";
 function ensureClient(): ServiceClient {
   if (!client) {
     client = createSupabaseServiceClient();
+    // Park the service client in the shared data-layer seams. Module-global
+    // by design (deterministic, no per-request swapping): safe because every
+    // shared function MCP reaches scopes by userId explicitly (gate suite),
+    // and no server-side web code resolves these seams implicitly.
+    setDataClient(client as QueryClient);
     setCompanyQueriesClient(client as Parameters<typeof setCompanyQueriesClient>[0]);
   }
   return client;
@@ -54,6 +83,10 @@ export function db(): ServiceClient {
 }
 
 export function uid(): string {
+  // Ensure the client seams are wired before any shared data function runs:
+  // every entry point here resolves uid() first, so this guarantees the
+  // shared modules never fall back to the browser client in an MCP process.
+  ensureClient();
   const requestUser = currentUserIdOrNull();
   if (requestUser) return requestUser;
   if (stdioUserId) return stdioUserId;
@@ -135,26 +168,9 @@ export async function assertContactOwned(contactId: number): Promise<ContactCore
 
 // ── Contact reads ──────────────────────────────────────────────────────
 
-/** The same relation embed shape the app's getContactById uses. */
-const CONTACT_FULL_EMBED = `
-  *,
-  locations(*),
-  contact_emails(*),
-  contact_phones(*),
-  contact_companies(*, companies(*)),
-  contact_schools(*, schools(*)),
-  contact_tags(*, tags(*))
-`;
-
+/** Full contact with relations — the app's getContactById, bound to uid(). */
 export async function getContactFull(contactId: number) {
-  const { data, error } = await db()
-    .from("contacts")
-    .select(CONTACT_FULL_EMBED)
-    .eq("user_id", uid())
-    .eq("id", contactId)
-    .single();
-  if (error) throw error;
-  return data;
+  return getContactById(contactId, uid());
 }
 
 export interface SearchRow {
@@ -172,13 +188,12 @@ export interface SearchRow {
 
 /**
  * Fetch all of the user's contacts in a compact search shape (paged —
- * bulk imports push counts past PostgREST's 1000-row cap).
+ * bulk imports push counts past PostgREST's 1000-row cap; id breaks name
+ * ties so the range windows stay stable).
  */
 export async function fetchSearchRows(tiers?: string[]): Promise<SearchRow[]> {
   const statuses = tiers?.length ? tiers : ["active", "prospect", "bench"];
-  const PAGE = 1000;
-  const all: SearchRow[] = [];
-  for (let from = 0; ; from += PAGE) {
+  return paginateAll<SearchRow>(async (from, to) => {
     const { data, error } = await db()
       .from("contacts")
       .select(`
@@ -191,61 +206,16 @@ export async function fetchSearchRows(tiers?: string[]): Promise<SearchRow[]> {
       .eq("user_id", uid())
       .in("network_status", statuses)
       .order("name")
-      .range(from, from + PAGE - 1);
+      .order("id")
+      .range(from, to);
     if (error) throw error;
-    all.push(...(data ?? []));
-    if (!data || data.length < PAGE) break;
-  }
-  return all;
+    return (data ?? []) as SearchRow[];
+  });
 }
 
-/** Latest touch (meeting or logged interaction) per contact. */
+/** Latest touch (meeting or logged interaction) per contact — shared map, bound to uid(). */
 export async function buildLastTouchMap(contactIds: number[]): Promise<Map<number, string>> {
-  const map = new Map<number, string>();
-  if (contactIds.length === 0) return map;
-
-  // Chunk rows are paginated too: 200 contacts can carry >1000 touches and
-  // PostgREST truncates silently. meeting_contacts has no id column, so its
-  // (contact_id, meeting_id) composite is the stable pagination order.
-  const [meetingLinks, interactions] = await Promise.all([
-    chunked(contactIds, async (chunk) =>
-      paginateAll(async (from, to) => {
-        const { data } = await db()
-          .from("meeting_contacts")
-          .select("contact_id, meetings!inner(user_id, meeting_date)")
-          .eq("meetings.user_id", uid())
-          .in("contact_id", chunk)
-          .order("contact_id")
-          .order("meeting_id")
-          .range(from, to);
-        return data ?? [];
-      }),
-    ),
-    chunked(contactIds, async (chunk) =>
-      paginateAll(async (from, to) => {
-        const { data } = await db()
-          .from("interactions")
-          .select("contact_id, interaction_date")
-          .in("contact_id", chunk)
-          .order("id")
-          .range(from, to);
-        return (data as Array<{ contact_id: number; interaction_date: string | null }>) ?? [];
-      }),
-    ),
-  ]);
-
-  for (const ml of meetingLinks) {
-    const date = ml.meetings?.meeting_date;
-    if (!date) continue;
-    const prev = map.get(ml.contact_id);
-    if (!prev || date > prev) map.set(ml.contact_id, date);
-  }
-  for (const i of interactions) {
-    if (!i.interaction_date) continue;
-    const prev = map.get(i.contact_id);
-    if (!prev || i.interaction_date > prev) map.set(i.contact_id, i.interaction_date);
-  }
-  return map;
+  return buildLastTouchMapShared(uid(), contactIds);
 }
 
 // ── Contact writes ─────────────────────────────────────────────────────
@@ -266,6 +236,7 @@ export interface NewContactInput {
 }
 
 export async function createContactFull(input: NewContactInput): Promise<number> {
+  const userId = uid();
   let locationId: number | null = null;
   if (input.location) {
     const rawState = input.location.state ?? null;
@@ -276,7 +247,7 @@ export async function createContactFull(input: NewContactInput): Promise<number>
     const state = isUnitedStates(input.location.country)
       ? (canonicalUsState(rawState) ?? rawState)
       : rawState;
-    const loc = await findOrCreateLocation(db(), {
+    const loc = await findOrCreateLocation({
       city: input.location.city ?? null,
       state,
       country: input.location.country,
@@ -284,48 +255,39 @@ export async function createContactFull(input: NewContactInput): Promise<number>
     locationId = loc.id;
   }
 
-  const { data: contact, error } = await db()
-    .from("contacts")
-    .insert({
-      user_id: uid(),
-      name: input.name,
-      industry: input.industry ?? null,
-      linkedin_url: input.linkedin_url ?? null,
-      notes: input.notes ?? null,
-      met_through: input.met_through ?? null,
-      follow_up_frequency_days: input.follow_up_frequency_days ?? null,
-      network_status: input.network_status ?? "active",
-      location_id: locationId,
-      preferred_contact_method: null,
-      preferred_contact_value: null,
-      contact_status: null,
-      expected_graduation: null,
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
+  const contact = await createContact({
+    user_id: userId,
+    name: input.name,
+    industry: input.industry ?? null,
+    linkedin_url: input.linkedin_url ?? null,
+    notes: input.notes ?? null,
+    met_through: input.met_through ?? null,
+    follow_up_frequency_days: input.follow_up_frequency_days ?? null,
+    network_status: input.network_status ?? "active",
+    location_id: locationId,
+    preferred_contact_method: null,
+    preferred_contact_value: null,
+    contact_status: null,
+    expected_graduation: null,
+  });
   const contactId = (contact as { id: number }).id;
 
-  // The contact row is already committed; the child inserts below are not
-  // transactional (Supabase JS has no client-side transaction). If any child
-  // fails, roll back by deleting the contact so a retry doesn't orphan a
-  // partial/duplicate contact. Cascade FKs clean up any children written so far.
+  // The contact row is already committed; the child writes below are not
+  // transactional (Supabase JS has no client-side transaction) and are safe
+  // under the service client because they key on the contact we just created
+  // for uid(). If any child fails, roll back by deleting the contact so a
+  // retry doesn't orphan a partial/duplicate contact. Cascade FKs clean up
+  // any children written so far.
   try {
     for (const [i, email] of (input.emails ?? []).entries()) {
-      const { error: e } = await db()
-        .from("contact_emails")
-        .insert({ contact_id: contactId, email: email.trim().toLowerCase(), is_primary: i === 0 });
-      if (e) throw e;
+      await addEmailToContact(contactId, email.trim().toLowerCase(), i === 0);
     }
     for (const [i, p] of (input.phones ?? []).entries()) {
-      const { error: e } = await db()
-        .from("contact_phones")
-        .insert({ contact_id: contactId, phone: p.phone, type: p.type ?? "mobile", is_primary: i === 0 });
-      if (e) throw e;
+      await addPhoneToContact(contactId, p.phone, p.type ?? "mobile", i === 0);
     }
     if (input.company?.name) {
-      const company = await findOrCreateCompany(db(), { name: input.company.name });
-      const { error: e } = await db().from("contact_companies").insert({
+      const company = await findOrCreateCompany(input.company.name);
+      await addCompanyToContact({
         contact_id: contactId,
         company_id: company.id,
         title: input.company.title ?? null,
@@ -336,57 +298,37 @@ export async function createContactFull(input: NewContactInput): Promise<number>
         start_month: null,
         end_month: null,
       });
-      if (e) throw e;
     }
     if (input.school?.name) {
-      const schoolId = await findOrCreateSchool(input.school.name);
-      const { error: e } = await db().from("contact_schools").insert({
+      const school = await findOrCreateSchool(input.school.name);
+      await addSchoolToContact({
         contact_id: contactId,
-        school_id: schoolId,
+        school_id: (school as { id: number }).id,
         degree: input.school.degree ?? null,
         field_of_study: input.school.field_of_study ?? null,
         start_year: null,
         end_year: null,
       });
-      if (e) throw e;
     }
   } catch (childErr) {
-    await db().from("contacts").delete().eq("id", contactId).eq("user_id", uid());
+    await db().from("contacts").delete().eq("id", contactId).eq("user_id", userId);
     throw childErr;
   }
 
   // Assistant-created contacts count toward the contacts funnel and the
   // contacts_5 milestone like every other surface (CAR-58 audit: this path
   // was invisible, so AI-driven users looked like they never activated).
-  await trackServer(uid(), "contact_imported", { source: "mcp" }, "mcp");
-  await checkContactMilestone(uid());
+  await trackServer(userId, "contact_imported", { source: "mcp" }, "mcp");
+  await checkContactMilestone(userId);
 
   return contactId;
 }
 
-async function findOrCreateSchool(name: string): Promise<number> {
-  const { data: existing } = await db()
-    .from("schools")
-    .select("id")
-    .ilike("name", escapeIlike(name.trim()))
-    .limit(1);
-  if (existing?.[0]) return (existing[0] as { id: number }).id;
-  const { data, error } = await db()
-    .from("schools")
-    .insert({ name: name.trim() })
-    .select("id")
-    .single();
-  if (error) throw error;
-  return (data as { id: number }).id;
-}
-
 export async function appendNote(contactId: number, note: string): Promise<void> {
+  // Ownership assertion is the scoping here: the shared RPC keys on the
+  // contact id alone, and the service role bypasses RLS inside it.
   await assertContactOwned(contactId);
-  const { error } = await db().rpc("append_contact_note", {
-    p_contact_id: contactId,
-    p_note: note,
-  });
-  if (error) throw error;
+  await appendContactNote(contactId, note);
 }
 
 export async function tagContact(contactId: number, tagNames: string[]): Promise<string[]> {
@@ -497,9 +439,10 @@ export async function createActionItem(input: {
   contactIds: number[];
 }): Promise<number> {
   for (const id of input.contactIds) await assertContactOwned(id);
-  const { data, error } = await db()
-    .from("follow_up_action_items")
-    .insert({
+  // Shared insert (payload carries user_id; the junction rows key on the
+  // ownership-asserted contact ids above).
+  const item = await createActionItemShared(
+    {
       user_id: uid(),
       contact_id: input.contactIds[0] ?? null,
       meeting_id: null,
@@ -511,18 +454,10 @@ export async function createActionItem(input: {
       created_at: new Date().toISOString(),
       direction: input.direction ?? "my_task",
       source: "manual",
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
-  const itemId = (data as { id: number }).id;
-  if (input.contactIds.length > 0) {
-    const { error: junctionErr } = await db()
-      .from("action_item_contacts")
-      .insert(input.contactIds.map((cid) => ({ action_item_id: itemId, contact_id: cid })));
-    if (junctionErr) throw junctionErr;
-  }
-  return itemId;
+    },
+    input.contactIds,
+  );
+  return (item as { id: number }).id;
 }
 
 export interface ActionItemRow {
@@ -544,18 +479,25 @@ export async function listActionItems(opts: {
   contactId?: number;
 }): Promise<ActionItemRow[]> {
   const now = new Date();
-  let query = db()
-    .from("follow_up_action_items")
-    .select("id, title, description, due_at, is_completed, completed_at, created_at, direction, snoozed_until, action_item_contacts(contact_id, contacts(id, name))")
-    .eq("user_id", uid())
-    .eq("is_completed", false)
-    .or(`snoozed_until.is.null,snoozed_until.lt.${now.toISOString()}`)
-    .order("due_at", { ascending: true, nullsFirst: false });
-  if (opts.direction) query = query.eq("direction", opts.direction);
-  const { data, error } = await query;
-  if (error) throw error;
-  let items = data ?? [];
+  // Shared fetch (the same pending-items query the web action list runs);
+  // the due/direction/contact narrowing below is the MCP tool's aggregation.
+  const rows = await getActionItems(uid());
+  let items: ActionItemRow[] = (rows ?? []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    description: r.description,
+    due_at: r.due_at,
+    is_completed: r.is_completed,
+    completed_at: r.completed_at,
+    created_at: r.created_at,
+    direction: r.direction,
+    snoozed_until: r.snoozed_until,
+    action_item_contacts: r.action_item_contacts ?? [],
+  }));
 
+  if (opts.direction) {
+    items = items.filter((i) => i.direction === opts.direction);
+  }
   if (opts.contactId != null) {
     items = items.filter((i) => i.action_item_contacts.some((c) => c.contact_id === opts.contactId));
   }
@@ -614,8 +556,6 @@ export async function updateActionItem(
 
 // ── Due follow-ups (home-page reach-out list) ──────────────────────────
 
-const RECENTLY_ADDED_DAYS = 7;
-
 export interface DueFollowUp {
   id: number;
   name: string;
@@ -628,194 +568,71 @@ export interface DueFollowUp {
   has_email: boolean;
 }
 
-/** Port of the app's getContactsDueForFollowUp (active tier only). */
+/** The app's reach-out list (shared derivation), projected to the MCP tool shape. */
 export async function listDueFollowUps(): Promise<DueFollowUp[]> {
-  const now = new Date().toISOString();
-  const recentCutoffDate = new Date();
-  recentCutoffDate.setDate(recentCutoffDate.getDate() - RECENTLY_ADDED_DAYS);
-  const recentCutoff = recentCutoffDate.toISOString();
-
-  const { data: contacts, error } = await db()
-    .from("contacts")
-    .select("id, name, industry, follow_up_frequency_days, created_at, first_outreach_skipped, contact_emails(email)")
-    .eq("user_id", uid())
-    .eq("network_status", "active")
-    .or(`reach_out_snoozed_until.is.null,reach_out_snoozed_until.lt.${now}`)
-    .order("name");
-  if (error) throw error;
-  if (!contacts || contacts.length === 0) return [];
-
-  const lastTouchMap = await buildLastTouchMap(contacts.map((c) => c.id));
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  return contacts
-    .map((c) => {
-      const lastTouch = lastTouchMap.get(c.id) ?? null;
-      const neverContacted = !lastTouch;
-      const freqDays = c.follow_up_frequency_days;
-      const isRecent = c.created_at >= recentCutoff;
-      const emails = ((c as { contact_emails?: Array<{ email: string | null }> }).contact_emails ?? [])
-        .map((e) => e.email)
-        .filter(Boolean);
-
-      if (neverContacted && (isRecent || c.first_outreach_skipped)) return null;
-
-      if (!freqDays) {
-        if (!neverContacted || !isRecent) {
-          return {
-            id: c.id,
-            name: c.name,
-            industry: c.industry,
-            follow_up_frequency_days: 0,
-            last_touch: lastTouch,
-            days_overdue: 0,
-            never_contacted: neverContacted,
-            no_cadence: true,
-            has_email: emails.length > 0,
-          };
-        }
-        return null;
-      }
-
-      const baseDate = neverContacted ? new Date(c.created_at) : new Date(lastTouch!);
-      const dueDate = new Date(baseDate);
-      dueDate.setDate(dueDate.getDate() + freqDays);
-      const daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / 86400_000);
-      if (daysOverdue < 0) return null;
-
-      return {
-        id: c.id,
-        name: c.name,
-        industry: c.industry,
-        follow_up_frequency_days: freqDays,
-        last_touch: lastTouch,
-        days_overdue: daysOverdue,
-        never_contacted: neverContacted,
-        no_cadence: false,
-        has_email: emails.length > 0,
-      };
-    })
-    .filter((c): c is DueFollowUp => c !== null)
-    .sort((a, b) => {
-      if (a.no_cadence !== b.no_cadence) return a.no_cadence ? 1 : -1;
-      return b.days_overdue - a.days_overdue;
-    });
+  const entries = await getContactsDueForFollowUp(uid());
+  return entries.map((e) => ({
+    id: e.id,
+    name: e.name,
+    industry: e.industry,
+    follow_up_frequency_days: e.follow_up_frequency_days,
+    last_touch: e.last_touch,
+    days_overdue: e.days_overdue,
+    never_contacted: e.never_contacted,
+    no_cadence: e.no_cadence,
+    has_email: e.emails.length > 0,
+  }));
 }
 
 // ── Network health ─────────────────────────────────────────────────────
 
 export async function getNetworkHealth() {
+  const userId = uid();
+
+  // Tier counts + last-30-day totals are MCP-specific aggregations; the
+  // on-track ratio, neglected list, and streak are the web's own functions.
   const tiers = ["active", "prospect", "bench"] as const;
-  const tierResults = await Promise.all(
-    tiers.map((tier) =>
-      db()
-        .from("contacts")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", uid())
-        .eq("network_status", tier),
+  const thirtyAgo = new Date(Date.now() - 30 * 86400_000).toISOString();
+  const [tierResults, onTrackRes, neglectedRes, streakRes, m30, i30, e30, a30] = await Promise.all([
+    Promise.all(
+      tiers.map((tier) =>
+        db()
+          .from("contacts")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("network_status", tier),
+      ),
     ),
-  );
+    getRelationshipsOnTrack(userId),
+    getNeglectedContacts(userId),
+    getNetworkingStreak(userId),
+    db().from("meetings").select("id", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", thirtyAgo.split("T")[0]),
+    db().from("interactions").select("id, contacts!inner(user_id)", { count: "exact", head: true }).eq("contacts.user_id", userId).gte("interaction_date", thirtyAgo.split("T")[0]),
+    db().from("email_messages").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").eq("is_simulated", false).gte("date", thirtyAgo),
+    db().from("follow_up_action_items").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", thirtyAgo),
+  ]);
   const tierCounts = {
     active: tierResults[0].count ?? 0,
     prospect: tierResults[1].count ?? 0,
     bench: tierResults[2].count ?? 0,
   };
 
-  // On-track ratio (port of getRelationshipsOnTrack, active tier)
-  const recentCutoffDate = new Date();
-  recentCutoffDate.setDate(recentCutoffDate.getDate() - RECENTLY_ADDED_DAYS);
-  const recentCutoff = recentCutoffDate.toISOString();
-  const { data: contacts, error } = await db()
-    .from("contacts")
-    .select("id, name, follow_up_frequency_days, created_at, first_outreach_skipped")
-    .eq("user_id", uid())
-    .eq("network_status", "active");
-  if (error) throw error;
-
-  const lastTouchMap = await buildLastTouchMap((contacts ?? []).map((c) => c.id));
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  let onTrack = 0;
-  let total = 0;
-  const neglected: Array<{ id: number; name: string; days_since_touch: number | null; cadence_days: number }> = [];
-  for (const c of contacts ?? []) {
-    if (c.first_outreach_skipped) continue;
-    const lastTouch = lastTouchMap.get(c.id);
-    const isRecent = c.created_at >= recentCutoff;
-    if (!lastTouch && isRecent) continue;
-    total++;
-
-    const baseDate = lastTouch ? new Date(lastTouch) : new Date(c.created_at);
-    const daysSince = Math.floor((today.getTime() - baseDate.getTime()) / 86400_000);
-    if (c.follow_up_frequency_days) {
-      // Match the app's getRelationshipsOnTrack: contacted contacts compare
-      // whole-day elapsed vs cadence; never-contacted-with-cadence compare
-      // today against created_at + cadence (keeps the created time-of-day, so
-      // the two surfaces don't disagree by a day at sub-day boundaries).
-      let onTrackHere: boolean;
-      if (lastTouch) {
-        onTrackHere = daysSince <= c.follow_up_frequency_days;
-      } else {
-        const dueDate = new Date(c.created_at);
-        dueDate.setDate(dueDate.getDate() + c.follow_up_frequency_days);
-        onTrackHere = today <= dueDate;
-      }
-      if (onTrackHere) onTrack++;
-    }
-    if (c.follow_up_frequency_days && daysSince >= c.follow_up_frequency_days * 2) {
-      neglected.push({
-        id: c.id,
-        name: c.name,
-        days_since_touch: lastTouch ? daysSince : null,
-        cadence_days: c.follow_up_frequency_days,
-      });
-    }
-  }
-  neglected.sort((a, b) => (b.days_since_touch ?? 9999) - (a.days_since_touch ?? 9999));
-
-  // Streak (port of getNetworkingStreak)
-  const lookback = new Date(today);
-  lookback.setDate(lookback.getDate() - 365);
-  const lookbackStr = lookback.toISOString().split("T")[0];
-  const [meetingsRes, completedRes, interactionsRes] = await Promise.all([
-    db().from("meetings").select("meeting_date").eq("user_id", uid()).gte("meeting_date", lookbackStr),
-    db().from("follow_up_action_items").select("completed_at").eq("user_id", uid()).eq("is_completed", true).gte("completed_at", lookback.toISOString()),
-    db().from("interactions").select("interaction_date, contacts!inner(user_id)").eq("contacts.user_id", uid()).gte("interaction_date", lookbackStr),
-  ]);
-  const activeDays = new Set<string>();
-  for (const m of meetingsRes.data ?? []) if (m.meeting_date) activeDays.add(m.meeting_date.split("T")[0]);
-  for (const a of completedRes.data ?? []) if (a.completed_at) activeDays.add(a.completed_at.split("T")[0]);
-  for (const i of interactionsRes.data ?? []) if (i.interaction_date) activeDays.add(i.interaction_date.split("T")[0]);
-
-  let streak = 0;
-  const check = new Date(today);
-  if (activeDays.has(today.toISOString().split("T")[0])) streak = 1;
-  check.setDate(check.getDate() - 1);
-  while (activeDays.has(check.toISOString().split("T")[0])) {
-    streak++;
-    check.setDate(check.getDate() - 1);
-  }
-
-  // Last-30-day activity totals
-  const thirtyAgo = new Date(Date.now() - 30 * 86400_000).toISOString();
-  const [m30, i30, e30, a30] = await Promise.all([
-    db().from("meetings").select("id", { count: "exact", head: true }).eq("user_id", uid()).gte("meeting_date", thirtyAgo.split("T")[0]),
-    db().from("interactions").select("id, contacts!inner(user_id)", { count: "exact", head: true }).eq("contacts.user_id", uid()).gte("interaction_date", thirtyAgo.split("T")[0]),
-    db().from("email_messages").select("id", { count: "exact", head: true }).eq("user_id", uid()).eq("direction", "outbound").eq("is_simulated", false).gte("date", thirtyAgo),
-    db().from("follow_up_action_items").select("id", { count: "exact", head: true }).eq("user_id", uid()).eq("is_completed", true).gte("completed_at", thirtyAgo),
-  ]);
-
   return {
     tierCounts,
     onTrack: {
-      percentage: total > 0 ? Math.round((onTrack / total) * 100) : 100,
-      onTrack,
-      total,
+      percentage: onTrackRes.percentage,
+      onTrack: onTrackRes.onTrack,
+      total: onTrackRes.total,
     },
-    streakDays: streak,
-    neglectedContacts: neglected.slice(0, 15),
+    streakDays: streakRes.streak,
+    neglectedContacts: neglectedRes
+      .map((n) => ({
+        id: n.id,
+        name: n.name,
+        days_since_touch: n.days_since_touch,
+        cadence_days: n.follow_up_frequency_days,
+      }))
+      .slice(0, 15),
     last30Days: {
       meetings: m30.count ?? 0,
       interactions: i30.count ?? 0,
@@ -858,19 +675,6 @@ export async function getCachedThreadMessages(threadId: string) {
   return data ?? [];
 }
 
-export async function getEmailsForContact(contactId: number, limit: number) {
-  const { data, error } = await db()
-    .from("email_messages")
-    .select("gmail_message_id, thread_id, subject, snippet, date, direction")
-    .eq("user_id", uid())
-    .eq("matched_contact_id", contactId)
-    .eq("is_simulated", false)
-    .order("date", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return data ?? [];
-}
-
 export async function createScheduledEmail(input: {
   to: string;
   cc?: string;
@@ -884,36 +688,14 @@ export async function createScheduledEmail(input: {
   contactName?: string;
   matchedContactId?: number | null;
 }): Promise<number> {
-  const { data, error } = await db()
-    .from("scheduled_emails")
-    .insert({
-      user_id: uid(),
-      recipient_email: input.to,
-      cc: input.cc ?? null,
-      bcc: input.bcc ?? null,
-      subject: input.subject,
-      body_html: input.bodyHtml,
-      thread_id: input.threadId ?? null,
-      in_reply_to: input.inReplyTo ?? null,
-      references_header: input.references ?? null,
-      scheduled_send_at: input.scheduledSendAt,
-      status: "pending",
-      sent_at: null,
-      gmail_message_id: null,
-      sent_thread_id: null,
-      contact_name: input.contactName ?? null,
-      matched_contact_id: input.matchedContactId ?? null,
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
-  return (data as { id: number }).id;
+  const row = await insertScheduledEmail(db(), uid(), input);
+  return (row as { id: number }).id;
 }
 
 /**
  * Insert an app-side draft (email_drafts). The free-tier fallback for
  * create_email_draft, which cannot call Gmail's drafts.create (no gmail.modify).
- * Mirrors POST /api/gmail/drafts. Returns the new draft id.
+ * Same shared insert as POST /api/gmail/drafts. Returns the new draft id.
  */
 export async function createAppDraft(input: {
   to: string;
@@ -924,22 +706,8 @@ export async function createAppDraft(input: {
   references?: string;
   contactName?: string;
 }): Promise<number> {
-  const { data, error } = await db()
-    .from("email_drafts")
-    .insert({
-      user_id: uid(),
-      recipient_email: input.to,
-      subject: input.subject,
-      body_html: input.bodyHtml,
-      thread_id: input.threadId ?? null,
-      in_reply_to: input.inReplyTo ?? null,
-      references_header: input.references ?? null,
-      contact_name: input.contactName ?? null,
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
-  return (data as { id: number }).id;
+  const row = await insertEmailDraft(db(), uid(), input);
+  return (row as { id: number }).id;
 }
 
 export async function listScheduled() {
@@ -981,51 +749,23 @@ export async function listScheduled() {
 }
 
 export async function cancelScheduledEmail(scheduledEmailId: number): Promise<void> {
-  const now = new Date().toISOString();
-  // 'cancelled' — NOT 'cancelled_user': the scheduled_emails CHECK only allows
-  // pending/sent/cancelled ('cancelled_user' is the email_follow_ups vocabulary;
-  // writing it here 23514'd every cancel until CAR-132). Count-based CAS per the
-  // house convention (rule 17, CAR-108).
-  const { error, count } = await db()
-    .from("scheduled_emails")
-    .update(
-      { status: ScheduledEmailStatus.Cancelled, updated_at: now },
-      { count: "exact" },
-    )
-    .eq("id", scheduledEmailId)
-    .eq("user_id", uid())
-    .eq("status", ScheduledEmailStatus.Pending);
-  if (error) throw error;
-  if (!count) {
-    throw new Error(`No pending scheduled email with id ${scheduledEmailId}`);
+  // Shared CAS + linked follow-up teardown — the same cascade the web DELETE
+  // route runs (CAR-136/CAR-151). Cancels pending AND failed rows, matching
+  // the web behavior.
+  const cancelled = await cancelScheduledEmailCascade(db(), uid(), scheduledEmailId);
+  if (!cancelled) {
+    throw new Error(`No cancellable scheduled email with id ${scheduledEmailId} — it may already be sending or sent`);
   }
-
-  // Tear down any follow-up sequences linked to this scheduled email, like
-  // the web DELETE route does — otherwise they stay active and fire into a
-  // thread whose opening email never sent (CAR-136).
-  await cancelFollowUpsForScheduledEmail(db(), scheduledEmailId, now);
 }
 
 export async function cancelFollowUpSequence(followUpId: number): Promise<void> {
-  const now = new Date().toISOString();
-  // Count-based CAS (rule 17, CAR-108): don't gate the child-message cleanup
-  // below on a .select() read-back of a row whose filtered column just changed.
-  const { error, count } = await db()
-    .from("email_follow_ups")
-    .update({ status: "cancelled_user", updated_at: now }, { count: "exact" })
-    .eq("id", followUpId)
-    .eq("user_id", uid())
-    .eq("status", "active");
-  if (error) throw error;
-  if (!count) {
+  // Shared active-only cascade — the same teardown the web DELETE routes run
+  // (CAR-151): parent CAS first (count-based, rule 17), then every unresolved
+  // message.
+  const cancelled = await cancelFollowUpSequenceCascade(db(), uid(), followUpId);
+  if (!cancelled) {
     throw new Error(`No active follow-up sequence with id ${followUpId}`);
   }
-  const { error: msgError } = await db()
-    .from("email_follow_up_messages")
-    .update({ status: "cancelled" })
-    .eq("follow_up_id", followUpId)
-    .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
-  if (msgError) throw msgError;
 }
 
 /** Locate the original outbound message a follow-up sequence hangs off. */
@@ -1057,27 +797,21 @@ export async function insertFollowUpSequence(input: {
   originalSentAt: string;
   messageRows: Array<TablesInsert<"email_follow_up_messages">>;
 }): Promise<number> {
-  const { data: followUp, error } = await db()
-    .from("email_follow_ups")
-    .insert({
-      user_id: uid(),
-      original_gmail_message_id: input.originalGmailMessageId,
-      thread_id: input.threadId,
-      recipient_email: input.recipientEmail,
-      contact_name: input.contactName,
-      original_subject: input.originalSubject,
-      original_sent_at: input.originalSentAt,
-      status: "active",
-      scheduled_email_id: null,
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
-  const followUpId = (followUp as { id: number }).id;
-  const rows = input.messageRows.map((r) => ({ ...r, follow_up_id: followUpId }));
-  const { error: msgError } = await db().from("email_follow_up_messages").insert(rows);
-  if (msgError) throw msgError;
-  return followUpId;
+  // Shared parent+messages insert (with parent rollback on message failure) —
+  // the same rows the web follow-up creation routes write (CAR-151).
+  return insertFollowUpSequenceRows(
+    db(),
+    uid(),
+    {
+      originalGmailMessageId: input.originalGmailMessageId,
+      threadId: input.threadId,
+      recipientEmail: input.recipientEmail,
+      contactName: input.contactName,
+      originalSubject: input.originalSubject,
+      originalSentAt: input.originalSentAt,
+    },
+    input.messageRows,
+  );
 }
 
 // ── Dossier data bundle ────────────────────────────────────────────────
@@ -1221,14 +955,12 @@ export async function listCalendarEvents(timeMin: string, timeMax: string) {
   if (error) throw error;
   const events = data ?? [];
 
-  // Attendee → contact matching (same idea as the home page)
-  const { data: emailRows } = await db()
-    .from("contact_emails")
-    .select("email, contact_id, contacts!inner(id, name, user_id)")
-    .eq("contacts.user_id", uid());
+  // Attendee → contact matching via the shared email lookup (paginated,
+  // user-scoped); projected down to {id, name} to keep the tool shape stable.
+  const emailLookup = await getContactEmailLookup(uid());
   const byEmail = new Map<string, { id: number; name: string }>();
-  for (const row of emailRows ?? []) {
-    if (row.email && row.contacts) byEmail.set(row.email.toLowerCase(), row.contacts);
+  for (const [email, contact] of emailLookup) {
+    byEmail.set(email, { id: contact.id, name: contact.name });
   }
 
   const eventIds = events.map((e) => e.id);
@@ -1365,8 +1097,30 @@ export async function getOrCreateTargetCompany(companyId: number): Promise<numbe
 }
 
 export async function addTargetCompanyNote(targetCompanyId: number, note: string, locationId: number | null): Promise<void> {
+  // Ownership assertion: target_company_notes has no user_id column, so the
+  // parent target row must be verified as the operating user's first.
+  const { data: target, error: targetErr } = await db()
+    .from("target_companies")
+    .select("id")
+    .eq("id", targetCompanyId)
+    .eq("user_id", uid())
+    .maybeSingle();
+  if (targetErr) throw targetErr;
+  if (!target) throw new Error(`No target company with id ${targetCompanyId}`);
+
   const { error } = await db()
     .from("target_company_notes")
     .insert({ target_company_id: targetCompanyId, note, location_id: locationId });
   if (error) throw error;
+}
+
+/** Company display name (companies is a global, cross-user table). */
+export async function getCompanyName(companyId: number): Promise<string | null> {
+  const { data, error } = await db()
+    .from("companies")
+    .select("name")
+    .eq("id", companyId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as { name: string } | null)?.name ?? null;
 }

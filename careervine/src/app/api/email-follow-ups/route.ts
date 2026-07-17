@@ -1,5 +1,6 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { insertFollowUpSequenceRows } from "@/lib/data/emails";
 import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 import { z } from "zod";
 
@@ -79,30 +80,7 @@ export const POST = withApiHandler({
 
     const service = createSupabaseServiceClient();
 
-    // Create the parent sequence record
-    const { data: sequence, error: seqErr } = await service
-      .from("email_follow_ups")
-      .insert({
-        user_id: user.id,
-        original_gmail_message_id: messageId || null,
-        thread_id: threadId || null,
-        recipient_email: recipientEmail,
-        contact_name: contactName,
-        original_subject: originalSubject,
-        original_sent_at: originalSentAt,
-        contact_id: contactId,
-        scheduled_email_id: scheduledEmailId || null,
-        status: "active",
-      })
-      .select("id")
-      .single();
-
-    if (seqErr || !sequence) {
-      console.error("[follow-ups] Failed to create sequence:", seqErr);
-      throw seqErr || new Error("Failed to create follow-up sequence");
-    }
-
-    // Create individual message records
+    // Build message rows (follow_up_id is stamped by the shared insert).
     // Compute 9:05 AM in user's local timezone as UTC:
     // 9:05 AM local = 9:05 UTC + offsetMinutes (getTimezoneOffset returns minutes BEHIND UTC)
     const sendBase = new Date(originalSentAt);
@@ -113,7 +91,7 @@ export const POST = withApiHandler({
       sendAt.setUTCMinutes(sendAt.getUTCMinutes() + timezoneOffsetMinutes);
 
       return {
-        follow_up_id: sequence.id,
+        follow_up_id: 0,
         sequence_number: i + 1,
         send_after_days: fu.delayDays,
         subject: fu.subject,
@@ -125,17 +103,24 @@ export const POST = withApiHandler({
       };
     });
 
-    const { error: msgErr } = await service
-      .from("email_follow_up_messages")
-      .insert(messages);
+    // Shared parent+messages insert with parent rollback on message failure
+    // (CAR-151): same rows the gmail flow and MCP schedule_follow_ups write.
+    const sequenceId = await insertFollowUpSequenceRows(
+      service,
+      user.id,
+      {
+        originalGmailMessageId: messageId || null,
+        threadId: threadId || null,
+        recipientEmail,
+        contactName,
+        originalSubject,
+        originalSentAt,
+        contactId,
+        scheduledEmailId: scheduledEmailId || null,
+      },
+      messages,
+    );
 
-    if (msgErr) {
-      console.error("[follow-ups] Failed to create messages:", msgErr);
-      // Clean up orphaned sequence
-      await service.from("email_follow_ups").delete().eq("id", sequence.id);
-      throw msgErr;
-    }
-
-    return { sequenceId: sequence.id, messagesCreated: messages.length };
+    return { sequenceId, messagesCreated: messages.length };
   },
 });

@@ -7,9 +7,9 @@ import {
   type PriorFollowUpMessageSnapshot,
 } from "@/lib/follow-up-helpers";
 import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
+import { cancelFollowUpSequenceCascade } from "@/lib/data/emails";
 import {
   FollowUpStatus,
-  FollowUpMessageStatus,
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
 
@@ -123,30 +123,22 @@ export const DELETE = withApiHandler({
 
     const service = createSupabaseServiceClient();
 
-    // Verify ownership
+    // Verify ownership (distinguishes 404 from an already-terminal sequence)
     const { data: followUp } = await service
       .from("email_follow_ups")
-      .select("id, user_id")
+      .select("id")
       .eq("id", followUpId)
+      .eq("user_id", user.id)
       .single();
 
-    if (!followUp || followUp.user_id !== user.id) {
+    if (!followUp) {
       throw new ApiError("Not found", 404);
     }
 
-    // Cancel every unresolved message (pending + awaiting_review + expired) so no
-    // sendable orphan remains under a cancelled parent (CAR-105).
-    await service
-      .from("email_follow_up_messages")
-      .update({ status: FollowUpMessageStatus.Cancelled })
-      .eq("follow_up_id", followUpId)
-      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
-
-    const now = new Date().toISOString();
-    await service
-      .from("email_follow_ups")
-      .update({ status: FollowUpStatus.CancelledUser, updated_at: now })
-      .eq("id", followUpId);
+    // Shared active-only cascade (CAR-151): parent CAS first, then every
+    // unresolved message (CAR-105). A completed or already-cancelled sequence
+    // is a no-op — cancelling must not rewrite its terminal status.
+    await cancelFollowUpSequenceCascade(service, user.id, followUpId);
 
     return { success: true };
   },

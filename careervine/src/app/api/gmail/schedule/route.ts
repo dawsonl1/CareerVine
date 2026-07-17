@@ -2,6 +2,7 @@ import { withApiHandler } from "@/lib/api-handler";
 import { gmailScheduleQuerySchema, gmailScheduleCreateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { ScheduledEmailStatus } from "@/lib/constants";
+import { insertScheduledEmail } from "@/lib/data/emails";
 
 /**
  * GET /api/gmail/schedule?contactId=xxx
@@ -49,27 +50,20 @@ export const POST = withApiHandler({
 
     const service = createSupabaseServiceClient();
 
-    const { data, error } = await service
-      .from("scheduled_emails")
-      .insert({
-        user_id: user.id,
-        recipient_email: to,
-        cc: cc || null,
-        bcc: bcc || null,
-        subject,
-        body_html: bodyHtml || "",
-        thread_id: threadId || null,
-        in_reply_to: inReplyTo || null,
-        references_header: references || null,
-        scheduled_send_at: scheduledSendAt,
-        status: ScheduledEmailStatus.Pending,
-        contact_name: contactName || null,
-        matched_contact_id: matchedContactId || null,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
+    // Shared insert (CAR-151): same rows the MCP schedule_email tool writes.
+    const data = await insertScheduledEmail(service, user.id, {
+      to,
+      cc,
+      bcc,
+      subject,
+      bodyHtml: bodyHtml || "",
+      scheduledSendAt,
+      threadId,
+      inReplyTo,
+      references,
+      contactName,
+      matchedContactId: matchedContactId || null,
+    });
 
     track("email_scheduled", {
       send_in_hours: Math.max(

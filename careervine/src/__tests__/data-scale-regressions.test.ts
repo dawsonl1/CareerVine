@@ -79,7 +79,7 @@ describe("buildLastTouchMap chunk pagination", () => {
       return { data: [], error: null };
     };
 
-    const map = await buildLastTouchMap([1]);
+    const map = await buildLastTouchMap("user-1", [1]);
     expect(map.get(1)).toBe("2026-07-15");
 
     // Two windows were requested for meeting_contacts: [0,999] then [1000,1999].
@@ -97,7 +97,7 @@ describe("buildLastTouchMap chunk pagination", () => {
   });
 
   it("returns an empty map without querying for an empty id list", async () => {
-    const map = await buildLastTouchMap([]);
+    const map = await buildLastTouchMap("user-1", []);
     expect(map.size).toBe(0);
     expect(h.state.calls).toHaveLength(0);
   });

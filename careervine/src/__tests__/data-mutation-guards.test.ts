@@ -32,7 +32,7 @@ const h = vi.hoisted(() => {
       call.ops.push({ m, args });
       return builder;
     };
-    for (const m of ["select", "insert", "update", "upsert", "delete", "eq", "is", "in", "order", "limit", "range", "or", "not", "gte", "lt"]) {
+    for (const m of ["select", "insert", "update", "upsert", "delete", "eq", "ilike", "is", "in", "order", "limit", "range", "or", "not", "gte", "lt"]) {
       builder[m] = chain(m);
     }
     builder.single = async () => {

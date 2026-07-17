@@ -2,7 +2,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailScheduleUpdateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { ScheduledEmailStatus } from "@/lib/constants";
-import { cancelFollowUpsForScheduledEmail } from "@/lib/follow-up-helpers";
+import { cancelScheduledEmailCascade } from "@/lib/data/emails";
 
 /**
  * PUT /api/gmail/schedule/[id]
@@ -80,30 +80,12 @@ export const DELETE = withApiHandler({
       throw new ApiError("Not found", 404);
     }
 
-    const now = new Date().toISOString();
-
-    // Cancel the scheduled email first, atomically (CAR-134): only a row that
-    // is still waiting (pending) or dead (failed) can be cancelled. A row a
-    // send driver has claimed ('sending') or already sent must not flip to
-    // cancelled — the mark-sent write is guarded on 'sending' and would be
-    // stomped. count, not .select(): the update writes the filtered column
-    // (rule 17).
-    const { count: cancelled } = await service
-      .from("scheduled_emails")
-      .update(
-        { status: ScheduledEmailStatus.Cancelled, updated_at: now },
-        { count: "exact" },
-      )
-      .eq("id", emailId)
-      .in("status", [ScheduledEmailStatus.Pending, ScheduledEmailStatus.Failed]);
-
+    // Atomic pending|failed → cancelled CAS + linked follow-up teardown,
+    // shared with the MCP cancel_scheduled tool (CAR-134/CAR-136/CAR-151).
+    const cancelled = await cancelScheduledEmailCascade(service, user.id, emailId);
     if (!cancelled) {
       throw new ApiError("This email is already sending or was sent.", 409);
     }
-
-    // Cancel linked follow-ups, only after the cancel actually landed
-    // (shared with the MCP cancel_scheduled tool, CAR-136).
-    await cancelFollowUpsForScheduledEmail(service, emailId, now);
 
     return { success: true };
   },

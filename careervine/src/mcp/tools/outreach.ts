@@ -11,11 +11,11 @@ import { buildOutreachQueue, APP_DATE_BOOST_DAYS } from "@/lib/outreach-queue";
 import { STAGE_ORDER } from "@/lib/stage-derivation";
 import {
   uid,
-  db,
   resolveContact,
   resolveCompanyId,
   getOrCreateTargetCompany,
   addTargetCompanyNote,
+  getCompanyName,
   setStageOverride,
 } from "../lib/db";
 import { handler, contactRefShape, companyRefShape } from "../lib/tool-utils";
@@ -173,8 +173,7 @@ export function registerOutreachTools(server: McpServer): void {
       const id = await resolveCompanyId({ company_id, name });
       const targetId = await getOrCreateTargetCompany(id);
       await addTargetCompanyNote(targetId, note, location_id ?? null);
-      const { data } = await db().from("companies").select("name").eq("id", id).maybeSingle();
-      const companyName = (data as { name: string } | null)?.name ?? `company ${id}`;
+      const companyName = (await getCompanyName(id)) ?? `company ${id}`;
       return { summary: `Intel logged for ${companyName}` };
     }),
   );

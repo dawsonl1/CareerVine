@@ -10,7 +10,7 @@
  */
 
 import { db, must } from "./client";
-import { chunked, chunkList, paginateAll } from "./postgrest";
+import { chunked, chunkList, escapeIlike, paginateAll } from "./postgrest";
 import { parseManualLocation } from "@/lib/location-normalizer";
 import type { Database } from "@/lib/database.types";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
@@ -574,15 +574,21 @@ export async function removeCompaniesFromContact(contactId: number) {
  * @throws Error if creation fails
  */
 export async function findOrCreateSchool(name: string) {
-  // Try to find existing. must(): an errored probe must not fall through
-  // to the insert and create a duplicate row.
-  const existing = must(
-    await db()
+  const clean = name.trim();
+  // Case-insensitive escaped-ilike probe (CAR-151), matching company-helpers'
+  // find-or-create semantics so "byu" reuses an existing "BYU" instead of
+  // duplicating it. limit(1) keeps maybeSingle() safe if historical
+  // case-variant duplicates already exist. must(): an errored probe must not
+  // fall through to the insert and create a duplicate row.
+  const probe = () =>
+    db()
       .from("schools")
       .select("*")
-      .eq("name", name)
-      .maybeSingle(),
-  );
+      .ilike("name", escapeIlike(clean))
+      .order("id")
+      .limit(1)
+      .maybeSingle();
+  const existing = must(await probe());
   if (existing) return existing;
 
   // Create new. Concurrent saves of the same new name race here: schools.name
@@ -590,14 +596,12 @@ export async function findOrCreateSchool(name: string) {
   // whole contact save (same recovery as company-helpers' find-or-creates).
   const { data, error } = await db()
     .from("schools")
-    .insert({ name })
+    .insert({ name: clean })
     .select()
     .single();
   if (error) {
     if (error.code === "23505") {
-      const winner = must(
-        await db().from("schools").select("*").eq("name", name).maybeSingle(),
-      );
+      const winner = must(await probe());
       if (winner) return winner;
     }
     throw error;
