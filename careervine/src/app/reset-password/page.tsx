@@ -94,8 +94,9 @@ export default function ResetPasswordPage() {
         ) : (
           <form onSubmit={handleSubmit} className="p-6 rounded-2xl bg-surface-container-high space-y-4">
             <div>
-              <label className={labelClasses}>New password</label>
+              <label htmlFor="new-password" className={labelClasses}>New password</label>
               <input
+                id="new-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -107,8 +108,9 @@ export default function ResetPasswordPage() {
               />
             </div>
             <div>
-              <label className={labelClasses}>Confirm new password</label>
+              <label htmlFor="confirm-password" className={labelClasses}>Confirm new password</label>
               <input
+                id="confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
