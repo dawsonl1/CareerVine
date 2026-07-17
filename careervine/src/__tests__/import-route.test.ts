@@ -363,9 +363,11 @@ describe('Import flow integration', () => {
     it("resolves 'CA' and 'California' to ONE locations row", async () => {
       const { supabase, ops } = createMockSupabase({ locations: [] });
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const first = await resolveProfileLocationId(supabase as any, {
         city: 'San Francisco', state: 'CA', country: '',
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const second = await resolveProfileLocationId(supabase as any, {
         city: 'San Francisco', state: 'California', country: 'United States',
       });
@@ -379,6 +381,7 @@ describe('Import flow integration', () => {
 
     it('returns null for an empty location object', async () => {
       const { supabase, ops } = createMockSupabase({ locations: [] });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const id = await resolveProfileLocationId(supabase as any, { city: '', state: null, country: '' });
       expect(id).toBeNull();
       expect(ops).toHaveLength(0);
@@ -388,8 +391,10 @@ describe('Import flow integration', () => {
       // profileData.location subfields are schema-`unknown`; a numeric ZIP or a
       // nested object must be treated as absent, not crash normalizeParsedLocation.
       const { supabase } = createMockSupabase({ locations: [] });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const id = await resolveProfileLocationId(supabase as any, {
         city: 12345, state: 'CA', country: 'US',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       } as any);
       // city coerced away, state 'CA' -> 'California' still resolves to a row.
       expect(id).not.toBeNull();
