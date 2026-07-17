@@ -26,7 +26,10 @@ function TrendArrow({ current, previous }: { current: number; previous: number }
 
 export function StatCounters({ stats }: StatCountersProps) {
   const [hoveredStat, setHoveredStat] = useState<string | null>(null);
-  const { posRef, tooltipRef, handleMouseMove } = useCursorTooltip();
+  // Seed the tooltip's initial position from the enter event (not by reading a
+  // ref during render); handleMouseMove takes over imperatively on subsequent moves.
+  const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
+  const { tooltipRef, handleMouseMove } = useCursorTooltip();
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -37,7 +40,12 @@ export function StatCounters({ stats }: StatCountersProps) {
           <div
             key={stat.label}
             className={`rounded-xl bg-surface-container-low px-7 py-6 relative ${hasTooltip ? "cursor-default" : ""}`}
-            onMouseEnter={() => hasTooltip && setHoveredStat(stat.label)}
+            onMouseEnter={(e) => {
+              if (hasTooltip) {
+                setTipPos({ x: e.clientX, y: e.clientY });
+                setHoveredStat(stat.label);
+              }
+            }}
             onMouseLeave={() => setHoveredStat(null)}
             onMouseMove={hasTooltip ? handleMouseMove : undefined}
           >
@@ -46,7 +54,7 @@ export function StatCounters({ stats }: StatCountersProps) {
                 <div
                   ref={tooltipRef}
                   className="fixed z-[9999] px-4 py-3 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg min-w-[220px] pointer-events-none"
-                  style={{ left: posRef.current.x + 14, top: posRef.current.y - 60 }}
+                  style={{ left: tipPos.x + 14, top: tipPos.y - 60 }}
                 >
                   {stat.tooltipLines.map((line, i) => (
                     <p key={i} className="text-sm text-foreground whitespace-nowrap">

@@ -27,7 +27,10 @@ const SEGMENTS = [
 
 export function NetworkDonut({ data }: NetworkDonutProps) {
   const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
-  const { posRef, tooltipRef, handleMouseMove } = useCursorTooltip();
+  // Seed the tooltip's initial position from the enter event (not by reading a
+  // ref during render); handleMouseMove takes over imperatively on subsequent moves.
+  const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
+  const { tooltipRef, handleMouseMove } = useCursorTooltip();
 
   if (data.total === 0) return null;
 
@@ -37,15 +40,19 @@ export function NetworkDonut({ data }: NetworkDonutProps) {
   const circumference = 2 * Math.PI * radius;
   const center = size / 2;
 
-  let offset = 0;
-  const arcs = SEGMENTS.map((seg) => {
+  // Cumulative dash offset without a mutable accumulator (each arc starts where
+  // the prior visible arcs ended). Functional so nothing is reassigned mid-render.
+  const visibleSegments = SEGMENTS.map((seg) => {
     const value = data[seg.key];
     const pct = data.total > 0 ? value / data.total : 0;
-    const dashLength = pct * circumference;
-    const dashOffset = -offset;
-    offset += dashLength;
-    return { ...seg, value, pct, dashLength, dashOffset };
+    return { ...seg, value, pct, dashLength: pct * circumference };
   }).filter((a) => a.value > 0);
+  const arcs = visibleSegments.map((seg, i) => {
+    const dashOffset = -visibleSegments
+      .slice(0, i)
+      .reduce((sum, s) => sum + s.dashLength, 0);
+    return { ...seg, dashOffset };
+  });
 
   const hoveredArc = hoveredSegment ? arcs.find((a) => a.key === hoveredSegment) : null;
 
@@ -65,7 +72,10 @@ export function NetworkDonut({ data }: NetworkDonutProps) {
               strokeDasharray={`${arc.dashLength} ${circumference - arc.dashLength}`}
               strokeDashoffset={arc.dashOffset}
               className="transition-all duration-200 cursor-default"
-              onMouseEnter={() => setHoveredSegment(arc.key)}
+              onMouseEnter={(e) => {
+                setTipPos({ x: e.clientX, y: e.clientY });
+                setHoveredSegment(arc.key);
+              }}
               onMouseLeave={() => setHoveredSegment(null)}
             />
           ))}
@@ -78,7 +88,7 @@ export function NetworkDonut({ data }: NetworkDonutProps) {
           <div
             ref={tooltipRef}
             className="fixed z-[9999] px-4 py-2.5 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg pointer-events-none"
-            style={{ left: posRef.current.x + 14, top: posRef.current.y - 60 }}
+            style={{ left: tipPos.x + 14, top: tipPos.y - 60 }}
           >
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full" style={{ backgroundColor: hoveredArc.color }} />

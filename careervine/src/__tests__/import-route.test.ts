@@ -16,7 +16,7 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
   const ops: { table: string; op: string; data?: any; filters?: any }[] = [];
 
   function makeQueryBuilder(tableName: string) {
-    let filters: Record<string, any> = {};
+    const filters: Record<string, any> = {};
     let selectFields = '*';
 
     const builder: any = {

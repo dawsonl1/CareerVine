@@ -131,15 +131,16 @@ export default function CalendarPage() {
     return map;
   }, [allContacts, contactEmailsMap]);
 
-  const eventHasContact = (e: CalendarEvent) =>
+  const eventHasContact = useCallback((e: CalendarEvent) =>
     e.contact_id !== null ||
-    e.attendees.some(a => contactEmailToName[a.email?.toLowerCase()] !== undefined);
+    e.attendees.some(a => contactEmailToName[a.email?.toLowerCase()] !== undefined),
+    [contactEmailToName]);
 
   const filteredEvents = useMemo(() => events.filter(e => {
     if (contactFilter === "contacts") return eventHasContact(e);
     if (contactFilter === "no-contacts") return !eventHasContact(e);
     return true;
-  }), [events, contactFilter, contactEmailToName]);
+  }), [events, contactFilter, eventHasContact]);
 
   const weekEvents = useMemo(() => {
     const startStr = dateToStr(weekDays[0]);
@@ -157,28 +158,18 @@ export default function CalendarPage() {
     });
   }, [filteredEvents, weekDays]);
 
-  // ── Mount
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      await Promise.all([loadEvents(), loadContacts(), loadLinkedMeetings()]);
-      // Background auto-sync (silent, respects 5-min cooldown)
-      fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) loadEvents(); }).catch(() => {});
-    } finally { setLoading(false); }
-  }, [user]);
-
-  useEffect(() => { if (user) loadData(); }, [user, loadData]);
-
-  const loadEvents = async () => {
+  // ── Mount — loaders are memoized so the mount effect and loadData don't
+  // re-run every render; loadData depends on them explicitly.
+  const loadEvents = useCallback(async () => {
     const now = new Date();
     const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
     const res = await fetch(`/api/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
     const data = await res.json();
     if (data.events) setEvents(data.events.sort((a: CalendarEvent, b: CalendarEvent) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
-  };
+  }, []);
 
-  const loadContacts = async () => {
+  const loadContacts = useCallback(async () => {
     if (!user) return;
     const data = await getContacts(user.id);
     const em: Record<number, string[]> = {};
@@ -188,15 +179,26 @@ export default function CalendarPage() {
       return { id: c.id, name: c.name, email: emails[0], emails };
     }));
     setContactEmailsMap(em);
-  };
+  }, [user]);
 
-  const loadLinkedMeetings = async () => {
+  const loadLinkedMeetings = useCallback(async () => {
     if (!user) return;
     const meetings = await getMeetings(user.id) as Meeting[];
     const map: Record<string, Meeting> = {};
     meetings.forEach(m => { if (m.calendar_event_id) map[m.calendar_event_id] = m; });
     setLinkedMeetings(map);
-  };
+  }, [user]);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([loadEvents(), loadContacts(), loadLinkedMeetings()]);
+      // Background auto-sync (silent, respects 5-min cooldown)
+      fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) loadEvents(); }).catch(() => {});
+    } finally { setLoading(false); }
+  }, [loadEvents, loadContacts, loadLinkedMeetings]);
+
+  useEffect(() => { if (user) loadData(); }, [user, loadData]);
 
   const handleSync = async () => {
     setSyncing(true); setError("");

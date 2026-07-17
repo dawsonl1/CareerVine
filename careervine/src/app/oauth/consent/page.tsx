@@ -36,31 +36,33 @@ function OAuthConsentContent() {
   const [password, setPassword] = useState("");
   const [signInError, setSignInError] = useState<string | null>(null);
 
-  const loadDetails = useCallback(async () => {
-    if (!authorizationId || !user) return;
-    setError(null);
-    const supabase = createSupabaseBrowserClient();
-    const { data, error: detailsError } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
-    if (detailsError) {
-      setError(detailsError.message);
-      return;
-    }
-    if (data?.redirect_url) {
-      window.location.href = data.redirect_url;
-      return;
-    }
-    if (data) setDetails(data as AuthDetails);
-  }, [authorizationId, user]);
-
+  // Load the authorization details once the user is known. State is only set
+  // after the await, so this is an async data load, not a synchronous
+  // set-state-in-effect.
   useEffect(() => {
-    if (!authorizationId) {
-      setError("Missing authorization_id.");
-      return;
-    }
-    if (!authLoading && user) {
-      void loadDetails();
-    }
-  }, [authorizationId, authLoading, user, loadDetails]);
+    if (authLoading || !user || !authorizationId) return;
+    let cancelled = false;
+    void (async () => {
+      const supabase = createSupabaseBrowserClient();
+      const { data, error: detailsError } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
+      if (cancelled) return;
+      if (detailsError) {
+        setError(detailsError.message);
+        return;
+      }
+      if (data?.redirect_url) {
+        window.location.href = data.redirect_url;
+        return;
+      }
+      if (data) {
+        setError(null);
+        setDetails(data as AuthDetails);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user, authorizationId]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,8 +135,11 @@ function OAuthConsentContent() {
     );
   }
 
-  if (error) {
-    return <ConsentShell error={error} />;
+  // A missing authorization_id is derived from the (stable) URL param rather
+  // than pushed into state from an effect.
+  const displayError = error ?? (authorizationId ? null : "Missing authorization_id.");
+  if (displayError) {
+    return <ConsentShell error={displayError} />;
   }
 
   if (!details) {

@@ -986,10 +986,17 @@ function RecruitingPanel({
 
   const progressStage = cycleForm.selectedStage;
   const [expandedStage, setExpandedStage] = useState<PipelineStage>(progressStage);
+  const [prevCycle, setPrevCycle] = useState(scopeState.activeCycle);
+  const [prevProgressStage, setPrevProgressStage] = useState(progressStage);
 
-  useEffect(() => {
+  // Reset the expanded stage to the progress stage when the active cycle or the
+  // progress stage changes. Adjusting state during render (both are primitives,
+  // so this can't loop) is React's prop-sync pattern.
+  if (scopeState.activeCycle !== prevCycle || progressStage !== prevProgressStage) {
+    setPrevCycle(scopeState.activeCycle);
+    setPrevProgressStage(progressStage);
     setExpandedStage(progressStage);
-  }, [scopeState.activeCycle, progressStage]);
+  }
 
   const handleStageClick = (stage: PipelineStage) => {
     const clickedIndex = stageIndex(stage);
@@ -1190,8 +1197,11 @@ export function PipelineLayout({
     [peopleBlock],
   );
 
+  // Destructure before the memo so the compiler doesn't read the `.current`
+  // data property as a ref access (which made it skip preserving this memo).
+  const { current: currentPeople, former: formerPeople } = peopleBlock;
   const filteredPeople = useMemo(() => {
-    const all = [...peopleBlock.current, ...peopleBlock.former];
+    const all = [...currentPeople, ...formerPeople];
     const q = search.trim().toLowerCase();
     if (!q) return all;
     return all.filter(
@@ -1199,7 +1209,7 @@ export function PipelineLayout({
         p.name.toLowerCase().includes(q) ||
         (p.roles[0]?.title ?? p.headline ?? "").toLowerCase().includes(q),
     );
-  }, [peopleBlock, search]);
+  }, [currentPeople, formerPeople, search]);
 
   // Tier separation — the avatar rings only read correctly when network
   // contacts and prospects live in distinct groups (matches /contacts).

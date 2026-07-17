@@ -291,7 +291,7 @@ export default function SpeakerResolver({
     } finally {
       setAiLoading(false);
     }
-  }, [segments, mappings, meetingContacts, buildContactContext, meetingTitle]);
+  }, [segments, mappings, buildContactContext, meetingTitle]);
 
   // Other contacts not in this meeting (computed once for the dropdown)
   const meetingContactIds = new Set(meetingContacts.map((c) => c.id));

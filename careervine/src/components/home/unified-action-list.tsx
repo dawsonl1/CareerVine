@@ -417,10 +417,11 @@ export function UnifiedActionList({
   const clampedPage = totalPages > 0 ? Math.min(page, totalPages - 1) : 0;
   const paginatedItems = filteredItems.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
 
-  // Sync page state down after clamping
-  useEffect(() => {
-    if (clampedPage !== page) setPage(clampedPage);
-  }, [clampedPage, page]);
+  // Clamp page state during render when items shrink below the current page
+  // (e.g. snooze/complete on the last page). Adjusting state during render is
+  // React's sanctioned pattern for this and avoids an extra effect commit;
+  // clampedPage is idempotent so this can't loop.
+  if (clampedPage !== page) setPage(clampedPage);
 
   const handleFilterChange = useCallback((key: FilterType) => {
     setActiveFilter(key);

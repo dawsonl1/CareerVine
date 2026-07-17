@@ -46,11 +46,18 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [showFinale, setShowFinale] = useState(false);
   const startedTracked = useRef(false);
 
+  // Clear onboarding state when the user logs out. Adjusting state during render
+  // (keyed on the stable user id) is React's prop-sync pattern; the effect below
+  // owns the async load for a signed-in user.
+  const userId = user?.id ?? null;
+  const [prevUserId, setPrevUserId] = useState(userId);
+  if (userId !== prevUserId) {
+    setPrevUserId(userId);
+    if (!userId) setState(null);
+  }
+
   useEffect(() => {
-    if (!user) {
-      setState(null);
-      return;
-    }
+    if (!user) return;
     let cancelled = false;
     getOnboardingState(user.id).then((s) => {
       if (cancelled) return;

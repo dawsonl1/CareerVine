@@ -145,13 +145,20 @@ export function ApplicationDatePicker({
   const anchor = calendarAnchorFromApplicationDate(value);
   const [viewYear, setViewYear] = useState(anchor.year);
   const [viewMonth, setViewMonth] = useState(anchor.month);
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevValue, setPrevValue] = useState(value);
 
-  useEffect(() => {
-    if (!open) return;
-    const next = calendarAnchorFromApplicationDate(value);
-    setViewYear(next.year);
-    setViewMonth(next.month);
-  }, [open, value]);
+  // When the picker opens (or value changes while open), snap the calendar view
+  // to the value's anchor month. Adjusting state during render is React's
+  // pattern for prop-driven resets and avoids an extra effect commit.
+  if (open !== prevOpen || value !== prevValue) {
+    setPrevOpen(open);
+    setPrevValue(value);
+    if (open) {
+      setViewYear(anchor.year);
+      setViewMonth(anchor.month);
+    }
+  }
 
   const display = formatApplicationDateDisplay(value);
 

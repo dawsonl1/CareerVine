@@ -258,8 +258,10 @@ export function ApplicationsOpenPicker({
     dropdownWidth: DROPDOWN_WIDTH,
   });
 
-  const committedRef = useRef(value);
-  const wasOpenRef = useRef(false);
+  // The committed value is state (not a ref) so canApply below can read it
+  // during render reactively. Every mutation is already paired with a setState,
+  // so this adds no extra renders.
+  const [committed, setCommitted] = useState(value);
   const [draft, setDraft] = useState<ApplicationsOpenValue>(() => parseApplicationsOpenValue(value));
 
   const anchorOnOpen = useMemo(
@@ -271,21 +273,25 @@ export function ApplicationsOpenPicker({
   const [viewMonth, setViewMonth] = useState(anchorOnOpen.month);
   const [rangeAnchor, setRangeAnchor] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open && !wasOpenRef.current) {
-      committedRef.current = value;
+  // Reset draft/view/committed on the picker's open and close transitions.
+  // Adjusting state during render (tracking the previous open flag) is React's
+  // prop-sync pattern and replaces the old open-transition effect.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
       const parsed = parseApplicationsOpenValue(value);
       const anchor = calendarAnchorFromValue(parsed, value);
+      setCommitted(value);
       setDraft(parsed);
       setViewYear(anchor.year);
       setViewMonth(anchor.month);
       setRangeAnchor(null);
-    } else if (!open && wasOpenRef.current) {
+    } else {
       setDraft(parseApplicationsOpenValue(value));
       setRangeAnchor(null);
     }
-    wasOpenRef.current = open;
-  }, [open, value]);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -310,7 +316,7 @@ export function ApplicationsOpenPicker({
     const next = draft.kind === "range" ? normalizeRange(draft) : draft;
     const serialized = serializeApplicationsOpenValue(next);
     onChange(serialized);
-    committedRef.current = serialized;
+    setCommitted(serialized);
     setOpen(false);
   };
 
@@ -353,7 +359,7 @@ export function ApplicationsOpenPicker({
     }
   };
 
-  const canApply = canCommitDraft(draft, committedRef.current);
+  const canApply = canCommitDraft(draft, committed);
   const awaitingRangeEnd =
     draft.kind === "range" && Boolean(draft.rangeStart) && !draft.rangeEnd;
 

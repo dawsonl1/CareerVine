@@ -143,7 +143,7 @@ function CompaniesPage() {
               <Building2 className="w-6 h-6 text-primary" /> Companies
             </h1>
             <p className="text-sm text-on-surface-variant mt-1">
-              Every company you're targeting or already know someone at. Filter by stage to focus.
+              Every company you&apos;re targeting or already know someone at. Filter by stage to focus.
             </p>
           </div>
           <div className="flex items-center gap-2">
