@@ -14,8 +14,8 @@ vi.mock("@/lib/oauth-helpers", () => ({
   encryptOAuthToken: (v: string) => v,
 }));
 
-vi.mock("googleapis", () => ({
-  google: { gmail: () => ({}), auth: { OAuth2: class {} }, oauth2: () => ({}) },
+vi.mock("@googleapis/gmail", () => ({
+  gmail: () => ({}),
 }));
 
 vi.mock("@/lib/supabase/service-client", () => ({
