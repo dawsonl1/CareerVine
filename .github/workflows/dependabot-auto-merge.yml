@@ -1,0 +1,116 @@
+# CAR-163 — Dependabot auto-merge + notify.
+#
+# What it does:
+#   * patch/minor Dependabot PRs  -> enable GitHub auto-merge (they merge
+#     themselves once the required CI checks (web/mcp/extension) go green).
+#   * major Dependabot PRs        -> email dawsonlpitcher@gmail.com ("needs a
+#     human", we never auto-merge majors).
+#   * any Dependabot PR whose CI fails -> email dawsonlpitcher@gmail.com
+#     ("can't auto-merge, CI failing").
+# So Dawson only hears about PRs that actually need him; the safe majority merge
+# silently.
+#
+# SECURITY: `pull_request_target` runs in the base-repo context with secrets and
+# a write token, which Dependabot PRs need for auto-merge. This job NEVER checks
+# out or executes PR code — it only reads Dependabot metadata and calls gh/curl,
+# so the untrusted-code risk of pull_request_target does not apply here.
+#
+# Note: this workflow only takes effect once it is on the default branch, and it
+# cannot run against its own PR. A major that also fails CI can produce two
+# emails (one per rule); both are accurate.
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  triage:
+    # Only Dependabot PRs, only on the pull_request_target trigger.
+    if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for patch/minor
+        if: >
+          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          steps.meta.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --merge "$PR_URL"
+
+      - name: Email — major bump needs manual review
+        if: steps.meta.outputs.update-type == 'version-update:semver-major'
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          DEPS: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          jq -n \
+            --arg num "$PR_NUM" --arg title "$PR_TITLE" --arg url "$PR_URL" --arg deps "$DEPS" \
+            '{
+               from: "CareerVine Dependabot <dependabot@careervine.app>",
+               to: ["dawsonlpitcher@gmail.com"],
+               subject: ("🔧 Dependabot needs you: #" + $num + " " + $title),
+               html: ("<p>A Dependabot PR needs your manual review — it is a <b>major</b> version bump, which is never auto-merged.</p>"
+                      + "<p><b>PR #" + $num + ":</b> " + $title + "<br>Package(s): " + $deps + "</p>"
+                      + "<p><a href=\"" + $url + "\">Open the PR »</a></p>"
+                      + "<p>Majors often need code changes — build-check it before merging.</p>")
+             }' \
+          | curl -sS --fail-with-body -X POST https://api.resend.com/emails \
+              -H "Authorization: Bearer $RESEND_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d @-
+
+  notify-ci-failure:
+    # Any Dependabot PR whose CI run concluded in failure can't auto-merge.
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'failure' &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR and email
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          HEAD: ${{ github.event.workflow_run.head_branch }}
+          REPO: ${{ github.repository }}
+        run: |
+          pr=$(gh pr list --repo "$REPO" --head "$HEAD" --state open \
+                 --json number,title,url --jq '.[0] // empty')
+          if [ -z "$pr" ]; then
+            echo "No open PR for branch $HEAD; nothing to notify."
+            exit 0
+          fi
+          num=$(echo "$pr" | jq -r '.number')
+          title=$(echo "$pr" | jq -r '.title')
+          url=$(echo "$pr" | jq -r '.url')
+          jq -n --arg num "$num" --arg title "$title" --arg url "$url" \
+            '{
+               from: "CareerVine Dependabot <dependabot@careervine.app>",
+               to: ["dawsonlpitcher@gmail.com"],
+               subject: ("🛑 Dependabot CI failing: #" + $num + " " + $title),
+               html: ("<p>A Dependabot PR can <b>not</b> auto-merge — its CI checks are <b>failing</b>.</p>"
+                      + "<p><b>PR #" + $num + ":</b> " + $title + "</p>"
+                      + "<p><a href=\"" + $url + "\">Open the PR »</a> to see which check failed.</p>")
+             }' \
+          | curl -sS --fail-with-body -X POST https://api.resend.com/emails \
+              -H "Authorization: Bearer $RESEND_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d @-
