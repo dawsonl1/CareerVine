@@ -228,6 +228,7 @@ export function InboxShell() {
   const followUpsByThread = useMemo(() => {
     const map: Record<string, EmailFollowUp[]> = {};
     for (const fu of followUps) {
+      if (!fu.thread_id) continue; // unthreaded follow-ups aren't grouped by thread
       if (!map[fu.thread_id]) map[fu.thread_id] = [];
       map[fu.thread_id].push(fu);
     }
@@ -1528,7 +1529,7 @@ export function InboxShell() {
                                   )}
                                 </div>
                                 <div className="flex flex-col gap-1.5 shrink-0">
-                                  <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: fu.recipient_email, contactName: fu.contact_name, originalSubject: fu.original_subject || "", originalSentAt: fu.original_sent_at, originalGmailMessageId: fu.original_gmail_message_id, threadId: fu.thread_id, existingFollowUp: fu }); }} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Edit follow-ups">
+                                  <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: fu.recipient_email, contactName: fu.contact_name, originalSubject: fu.original_subject || "", originalSentAt: fu.original_sent_at, originalGmailMessageId: fu.original_gmail_message_id ?? "", threadId: fu.thread_id ?? "", existingFollowUp: fu}); }} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Edit follow-ups">
                                     <Pencil className="h-4 w-4" />
                                   </button>
                                   <button type="button" onClick={() => cancelFollowUp(fu.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Cancel all follow-ups">

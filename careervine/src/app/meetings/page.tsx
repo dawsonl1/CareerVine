@@ -108,7 +108,9 @@ export default function MeetingsPage() {
 
       // Load calendar events for meetings that have a linked calendar_event_id
       const typedMeetings = data as unknown as Meeting[];
-      const calEventIds = typedMeetings.map(m => m.calendar_event_id).filter(Boolean);
+      const calEventIds = typedMeetings
+        .map(m => m.calendar_event_id)
+        .filter((id): id is string => Boolean(id));
       if (calEventIds.length > 0) {
         try {
           const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser-client");
@@ -121,9 +123,11 @@ export default function MeetingsPage() {
           if (calEvents) {
             const calMap: Record<number, { google_event_id: string; attendees: Array<{ email: string; name: string; responseStatus: string }> }> = {};
             for (const m of typedMeetings) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-              const ce = calEvents.find((c: any) => c.google_event_id === m.calendar_event_id);
-              if (ce) calMap[m.id] = { google_event_id: ce.google_event_id, attendees: ce.attendees || [] };
+              const ce = calEvents.find((c) => c.google_event_id === m.calendar_event_id);
+              if (ce) calMap[m.id] = {
+                google_event_id: ce.google_event_id,
+                attendees: (ce.attendees ?? []) as unknown as Array<{ email: string; name: string; responseStatus: string }>,
+              };
             }
             setMeetingCalendarMap(calMap);
           }

@@ -17,6 +17,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseEnv } from "./config";
+import type { Database } from "../database.types";
 
 export const createSupabaseServiceClient = () => {
   const { url, serviceRoleKey } = getSupabaseEnv({ server: true });
@@ -25,7 +26,7 @@ export const createSupabaseServiceClient = () => {
     throw new Error("Service role key is required for service client");
   }
   
-  return createClient(url, serviceRoleKey, {
+  return createClient<Database>(url, serviceRoleKey, {
     auth: { persistSession: false },  // Stateless - no session persistence
   });
 };

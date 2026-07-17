@@ -2,6 +2,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { calendarSyncQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { fetchCalendarEvents, getCalendarTimezone, getCalendarList, DEFAULT_TIMEZONE } from "@/lib/calendar";
+import type { Json } from "@/lib/database.types";
 
 
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes (auto-sync)
@@ -57,14 +58,13 @@ export const POST = withApiHandler({
           getCalendarList(user.id),
         ]);
         const busyIds = calList
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          .filter((c: any) => c.accessRole === "owner" || c.accessRole === "writer")
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          .map((c: any) => c.id);
+          .filter((c) => c.accessRole === "owner" || c.accessRole === "writer")
+          .map((c) => c.id)
+          .filter((id): id is string => Boolean(id));
 
         await service.from("gmail_connections").update({
           calendar_timezone: tz || DEFAULT_TIMEZONE,
-          calendar_list: calList,
+          calendar_list: calList as unknown as Json,
           busy_calendar_ids: busyIds.length > 0 ? busyIds : ["primary"],
         }).eq("user_id", user.id);
       } catch (err) {

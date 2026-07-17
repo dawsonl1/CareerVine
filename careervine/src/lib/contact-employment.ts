@@ -3,6 +3,9 @@
  * Used by Outreach / Inbox to enrich email rows without N+1 client fetches (CAR-127).
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/database.types";
+
 export type ContactEmployment = {
   id: number;
   name: string;
@@ -13,21 +16,7 @@ export type ContactEmployment = {
   location_label: string | null;
 };
 
-type ServiceClient = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  from: (table: string) => any;
-};
-
-type ContactRow = { id: number; name: string | null };
-type EmailRow = { email: string | null; contact_id: number | null };
-type JobRow = {
-  contact_id: number;
-  title: string | null;
-  location: string | null;
-  workplace_type: string | null;
-  locations: { city: string | null; state: string | null; country: string } | null;
-  companies: { id: number; name: string } | null;
-};
+type ServiceClient = SupabaseClient<Database>;
 
 function locationLabel(
   loc: { city: string | null; state: string | null; country: string } | null | undefined,
@@ -86,7 +75,7 @@ export async function resolveEmailsToContactIds(
       .eq("contacts.user_id", userId)
       .in("email", chunk);
     if (error) throw error;
-    for (const row of (data || []) as EmailRow[]) {
+    for (const row of data || []) {
       if (row.email && row.contact_id != null) {
         map.set(String(row.email).toLowerCase(), row.contact_id);
       }
@@ -115,7 +104,7 @@ export async function loadContactEmploymentMap(
       .eq("user_id", userId)
       .in("id", chunk);
     if (error) throw error;
-    return (data || []) as ContactRow[];
+    return data || [];
   });
 
   for (const c of contacts) {
@@ -138,7 +127,7 @@ export async function loadContactEmploymentMap(
       .eq("is_current", true)
       .in("contact_id", chunk);
     if (error) throw error;
-    return (data || []) as JobRow[];
+    return data || [];
   });
 
   for (const row of jobs) {

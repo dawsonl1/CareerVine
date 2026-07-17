@@ -9,7 +9,7 @@
  */
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
-import type { OnboardingState } from "@/lib/database.types";
+import type { OnboardingState } from "@/lib/app-types";
 
 export type { OnboardingState };
 
@@ -43,7 +43,9 @@ export async function getOnboardingState(userId: string): Promise<OnboardingStat
   // Fail closed to "completed": a transient read error must not re-open the
   // intro over a working dashboard.
   if (error || !data) return "completed";
-  return data.onboarding_state;
+  // onboarding_state is a text column whose CHECK constraint enumerates exactly
+  // OnboardingState's members, so the stored value is always a valid state.
+  return data.onboarding_state as OnboardingState;
 }
 
 /**

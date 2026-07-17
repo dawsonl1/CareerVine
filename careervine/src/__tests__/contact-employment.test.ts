@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/database.types";
 import {
   loadContactEmploymentMap,
   resolveEmailsToContactIds,
@@ -25,7 +27,9 @@ function mockService(handlers: Record<string, (args: Record<string, unknown>) =>
       };
       return chain;
     },
-  };
+    // The mock only implements the from().select().eq().in() chain these
+    // helpers use; cast to the full client type for the typed signatures.
+  } as unknown as SupabaseClient<Database>;
 }
 
 describe("contact-employment", () => {
