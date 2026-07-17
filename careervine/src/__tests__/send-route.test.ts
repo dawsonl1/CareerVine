@@ -31,7 +31,7 @@ function makeBuilder(table: string) {
 vi.mock("@/lib/supabase/service-client", () => ({
   createSupabaseServiceClient: () => ({ from: (t: string) => makeBuilder(t) }),
 }));
-vi.mock("@/lib/gmail", () => ({
+vi.mock("@/lib/gmail-send-core", () => ({
   sendEmail: async () => ({ messageId: "m1", threadId: "t1" }),
   getConnection: async () => ({ gmail_address: "me@example.com" }),
 }));

@@ -1,4 +1,5 @@
-import { getConnection, syncEmailsForContact } from "@/lib/gmail";
+import { getConnection } from "@/lib/gmail-send-core";
+import { syncEmailsForContact } from "@/lib/gmail";
 import { resolveCapabilities } from "@/lib/capabilities/resolve";
 
 /**

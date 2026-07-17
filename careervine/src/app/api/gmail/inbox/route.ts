@@ -1,6 +1,6 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { getConnection } from "@/lib/gmail";
+import { getConnection } from "@/lib/gmail-send-core";
 import {
   loadContactEmploymentMap,
   resolveEmailsToContactIds,
