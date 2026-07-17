@@ -19,7 +19,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
-import { AnalyticsProvider } from "@/lib/analytics/client";
+import { AnalyticsProvider } from "@/components/analytics-provider";
 import { ComposeEmailProvider } from "@/components/compose-email-context";
 import { ComposeEmailModal } from "@/components/compose-email-modal";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-context";

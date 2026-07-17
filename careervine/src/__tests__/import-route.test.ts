@@ -152,6 +152,7 @@ import {
   sanitizeForPostgrest,
   buildContactData,
   buildUpdateData,
+  resolveProfileLocationId,
 } from '@/lib/import-helpers';
 
 describe('Import flow integration', () => {
@@ -355,6 +356,43 @@ describe('Import flow integration', () => {
 
       const { data } = supabase.from('contacts').select('*').eq('user_id', 'user-999').single();
       expect(data).toBeNull();
+    });
+  });
+
+  describe('resolveProfileLocationId normalizes before find-or-create (CAR-139 / F27)', () => {
+    it("resolves 'CA' and 'California' to ONE locations row", async () => {
+      const { supabase, ops } = createMockSupabase({ locations: [] });
+
+      const first = await resolveProfileLocationId(supabase as any, {
+        city: 'San Francisco', state: 'CA', country: '',
+      });
+      const second = await resolveProfileLocationId(supabase as any, {
+        city: 'San Francisco', state: 'California', country: 'United States',
+      });
+
+      expect(first).not.toBeNull();
+      expect(second).toBe(first);
+      // Exactly one insert: the second call found the canonical row.
+      expect(ops.filter((o) => o.table === 'locations' && o.op === 'insert')).toHaveLength(1);
+      expect(ops[0].data).toMatchObject({ city: 'San Francisco', state: 'California', country: 'United States' });
+    });
+
+    it('returns null for an empty location object', async () => {
+      const { supabase, ops } = createMockSupabase({ locations: [] });
+      const id = await resolveProfileLocationId(supabase as any, { city: '', state: null, country: '' });
+      expect(id).toBeNull();
+      expect(ops).toHaveLength(0);
+    });
+
+    it('tolerates a non-string location field instead of 500ing the import (CAR-139)', async () => {
+      // profileData.location subfields are schema-`unknown`; a numeric ZIP or a
+      // nested object must be treated as absent, not crash normalizeParsedLocation.
+      const { supabase } = createMockSupabase({ locations: [] });
+      const id = await resolveProfileLocationId(supabase as any, {
+        city: 12345, state: 'CA', country: 'US',
+      } as any);
+      // city coerced away, state 'CA' -> 'California' still resolves to a row.
+      expect(id).not.toBeNull();
     });
   });
 });

@@ -1389,6 +1389,7 @@ export async function getContactsWithLastTouch(userId: string) {
     .from("contacts")
     .select("id, name, industry, follow_up_frequency_days, photo_url")
     .eq("user_id", userId)
+    .eq("network_status", "active") // health grid covers the real network only (matches getHomeCoreData)
     .order("name")
     .limit(500);
   if (cErr) throw cErr;
@@ -2150,7 +2151,8 @@ export async function getRelationshipsOnTrack(userId: string) {
   const { data: contacts, error } = await supabase
     .from("contacts")
     .select("id, follow_up_frequency_days, created_at, first_outreach_skipped")
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("network_status", "active"); // on-track % covers the real network only (matches getHomeCoreData)
   if (error) throw error;
   if (!contacts || contacts.length === 0) {
     return { percentage: 100, onTrack: 0, total: 0, breakdown: { withCadenceOnTrack: 0, withCadenceOverdue: 0, noCadence: 0, neverContactedPast7d: 0 } };

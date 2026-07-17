@@ -2,7 +2,7 @@ import { withApiHandler } from "@/lib/api-handler";
 import { contactsImportSchema } from "@/lib/api-schemas";
 import { checkContactMilestone } from "@/lib/analytics/server";
 import { advanceExtensionOnboarding } from "@/lib/onboarding/extension-server";
-import { sanitizeForPostgrest, buildUpdateData, buildContactData } from '@/lib/import-helpers';
+import { sanitizeForPostgrest, buildUpdateData, buildContactData, resolveProfileLocationId } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
 import { syncContactEmailHistoryIfPaid } from "@/lib/contact-email-history";
@@ -189,13 +189,8 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
   const updateData = buildUpdateData(profileData);
 
   if (profileData.location && typeof profileData.location === 'object') {
-    const { city, state, country } = profileData.location;
-    if (city || state || country) {
-      const location = await findOrCreateLocation(supabase, {
-        city: city || null, state: state || null, country: country || 'United States'
-      });
-      updateData.location_id = location.id;
-    }
+    const locationId = await resolveProfileLocationId(supabase, profileData.location);
+    if (locationId != null) updateData.location_id = locationId;
   }
 
   const { data: contact, error: updateError } = await supabase
@@ -282,15 +277,7 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
 async function createNewContact(supabase: SupabaseClient, profileData: ProfileData, userId: string): Promise<ContactRow> {
   let locationId: number | null = null;
   if (profileData.location && typeof profileData.location === 'object') {
-    const { city, state, country } = profileData.location;
-    if (city || state || country) {
-      const location = await findOrCreateLocation(supabase, {
-        city: city || null,
-        state: state || null,
-        country: country || 'United States'
-      });
-      locationId = location.id;
-    }
+    locationId = await resolveProfileLocationId(supabase, profileData.location);
   }
 
   const contactData = buildContactData(profileData, userId, locationId);

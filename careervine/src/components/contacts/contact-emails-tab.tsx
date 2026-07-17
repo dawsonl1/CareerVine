@@ -83,9 +83,9 @@ export function ContactEmailsTab({
     try {
       const res = await fetch(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
       if (!res.ok) throw new Error();
-      // Kick the send driver so it goes out now, not on the next cron tick.
-      fetch("/api/gmail/schedule/process", { method: "POST" }).catch(() => {});
-      toastSuccess("Email queued to send now");
+      // The cron is the sole send driver (CAR-139); the requeued email goes
+      // out on the next tick (within ~15 minutes).
+      toastSuccess("Email requeued. It will send within 15 minutes.");
       onReloadEmails();
     } catch {
       toastError("Could not retry this email");

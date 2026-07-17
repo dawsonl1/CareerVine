@@ -8,7 +8,7 @@
 
 import { google } from "googleapis";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
 /** Retry a function with exponential backoff on rate-limit (429) or server errors (5xx). */
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
@@ -502,24 +502,25 @@ export async function backfillEmailsForContact(
 
   let totalMatched = 0;
   for (const email of lowerEmails) {
-    // Match orphaned messages where from_address or to_addresses contains this email
-    const { data: orphanedFrom } = await supabase
+    // Match orphaned messages where from_address or to_addresses contains this
+    // email. Detect matches via count, not a .select() read-back — the update
+    // writes the matched_contact_id column the filter tests, the rule-17 shape
+    // (CAR-139).
+    const { count: matchedFrom } = await supabase
       .from("email_messages")
-      .update({ matched_contact_id: contactId })
+      .update({ matched_contact_id: contactId }, { count: "exact" })
       .eq("user_id", userId)
       .is("matched_contact_id", null)
-      .eq("from_address", email)
-      .select("id");
+      .eq("from_address", email);
 
-    const { data: orphanedTo } = await supabase
+    const { count: matchedTo } = await supabase
       .from("email_messages")
-      .update({ matched_contact_id: contactId })
+      .update({ matched_contact_id: contactId }, { count: "exact" })
       .eq("user_id", userId)
       .is("matched_contact_id", null)
-      .contains("to_addresses", [email])
-      .select("id");
+      .contains("to_addresses", [email]);
 
-    totalMatched += (orphanedFrom?.length || 0) + (orphanedTo?.length || 0);
+    totalMatched += (matchedFrom || 0) + (matchedTo || 0);
   }
 
   return totalMatched;
@@ -892,7 +893,7 @@ export async function processScheduledEmails(
     .from("scheduled_emails")
     .select("*")
     .eq("user_id", userId)
-    .eq("status", "pending")
+    .eq("status", ScheduledEmailStatus.Pending)
     .lte("scheduled_send_at", now);
 
   if (!pending || pending.length === 0) return { sent: 0, errors: 0 };
@@ -901,20 +902,20 @@ export async function processScheduledEmails(
   let errors = 0;
 
   for (const email of pending) {
-    // Atomic claim (CAR-134): two drivers process the same user concurrently
-    // (the 15-min cron and the contact-page fire-and-forget process call), and
-    // the race window is the whole Gmail round trip. Flip pending → sending
-    // first; whoever loses the CAS skips the row. count, not .select() — the
-    // update writes the column the filter tests, so a returning-representation
-    // read comes back empty on success (rule 17).
+    // Atomic claim (CAR-134): the 15-min cron is the sole send driver
+    // (CAR-139 removed the page-load process triggers), but overlapping cron
+    // ticks can still race, and the race window is the whole Gmail round trip.
+    // Flip pending → sending first; whoever loses the CAS skips the row.
+    // count, not .select() — the update writes the column the filter tests, so
+    // a returning-representation read comes back empty on success (rule 17).
     const { count: claimed } = await supabase
       .from("scheduled_emails")
       .update(
-        { status: "sending", claimed_at: now, updated_at: now },
+        { status: ScheduledEmailStatus.Sending, claimed_at: now, updated_at: now },
         { count: "exact" },
       )
       .eq("id", email.id)
-      .eq("status", "pending");
+      .eq("status", ScheduledEmailStatus.Pending);
     if (claimed !== 1) continue;
 
     // Release the claim so a later tick retries. Guarded on 'sending' as
@@ -922,9 +923,9 @@ export async function processScheduledEmails(
     const releaseClaim = async () => {
       await supabase
         .from("scheduled_emails")
-        .update({ status: "pending", claimed_at: null, updated_at: new Date().toISOString() })
+        .update({ status: ScheduledEmailStatus.Pending, claimed_at: null, updated_at: new Date().toISOString() })
         .eq("id", email.id)
-        .eq("status", "sending");
+        .eq("status", ScheduledEmailStatus.Sending);
     };
 
     try {
@@ -966,14 +967,14 @@ export async function processScheduledEmails(
       await supabase
         .from("scheduled_emails")
         .update({
-          status: "sent",
+          status: ScheduledEmailStatus.Sent,
           sent_at: now,
           gmail_message_id: result.messageId,
           sent_thread_id: result.threadId,
           updated_at: now,
         })
         .eq("id", email.id)
-        .eq("status", "sending");
+        .eq("status", ScheduledEmailStatus.Sending);
 
       // Update any follow-ups linked to this scheduled email
       await supabase

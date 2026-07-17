@@ -284,11 +284,15 @@ export async function importPeopleChunk(
     // chunkList bounds the .in() list — 150+ URL-encoded LinkedIn URLs in
     // one GET query string flirts with infra header limits (CAR-57).
     for (const urlChunk of chunkList(urls)) {
-      const { data: suppressedRows } = await supabase
+      // Fail loud (F6, CAR-139): swallowing an error here reads as "nothing
+      // suppressed" and silently re-imports tombstoned contacts. Failing the
+      // chunk keeps the tombstones authoritative; the caller retries.
+      const { data: suppressedRows, error: suppressionError } = await supabase
         .from("suppressed_imports")
         .select("linkedin_url")
         .eq("user_id", userId)
         .in("linkedin_url", urlChunk);
+      if (suppressionError) throw new Error(`Suppression read failed: ${suppressionError.message}`);
       for (const r of (suppressedRows as { linkedin_url: string }[] | null) ?? []) {
         suppressed.add(r.linkedin_url);
       }

@@ -10,9 +10,13 @@
  * Driven by careervine/scripts/publish-bundle.mjs.
  */
 
-import { createHash, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import {
+  isAuthorizedAdminToken,
+  writeMachineTokenAudit,
+  checkMachineRateLimit,
+} from "@/lib/admin-auth";
 import { bundlePublishSchema } from "@/lib/api-schemas";
 import { bundleCompanyEntrySchema, mappedPersonToBundlePayload } from "@/lib/bundle-payload";
 import { mapPeopleRecord, ScrapeMappingError, type PeopleRecord } from "@/lib/scrape-mapper";
@@ -29,20 +33,18 @@ import { enqueueBundleSyncJobs, findStaleSubscriptionIds } from "@/lib/bundle-qu
 
 export const maxDuration = 60;
 
-/** Constant-time bearer check; digests equalize length so timingSafeEqual
- * never throws on mismatched input sizes. */
-export function isAuthorizedAdminToken(header: string | null, secret: string | undefined): boolean {
-  if (!secret) return false;
-  const presented = header?.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!presented) return false;
-  const a = createHash("sha256").update(presented).digest();
-  const b = createHash("sha256").update(secret).digest();
-  return timingSafeEqual(a, b);
-}
+// Generous coarse cap: the publish driver posts sequentially in 50-item chunks,
+// so a large bundle produces a few hundred requests in a 60s window — the limit
+// must bound a leaked token's blast radius without ever throttling a real publish.
+const PUBLISH_RATE_LIMIT = 1200;
 
 export async function POST(req: NextRequest) {
   if (!isAuthorizedAdminToken(req.headers.get("authorization"), process.env.BUNDLE_ADMIN_TOKEN)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!(await checkMachineRateLimit("admin-bundle-publish", PUBLISH_RATE_LIMIT))) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
   let body: unknown;
@@ -71,6 +73,12 @@ export async function POST(req: NextRequest) {
           slug: input.slug,
           name: input.name,
           description: input.description,
+        });
+        // Audit the consequential lifecycle modes only (begin/finalize/abort) —
+        // per-chunk/per-resolve calls would flood admin_audit_log.
+        await writeMachineTokenAudit(service, {
+          action: "bundle_publish_begin",
+          detail: { slug: input.slug, stagingVersion: result.stagingVersion },
         });
         return NextResponse.json(result);
       }
@@ -112,6 +120,16 @@ export async function POST(req: NextRequest) {
         // the merge path with live entity resolution. The final resolve call
         // fans out; the daily cron self-heals a finalize that never resolved.
         const result = await finalizePublish(service, input.slug, input.stagingVersion);
+        await writeMachineTokenAudit(service, {
+          action: "bundle_publish_finalize",
+          detail: {
+            slug: input.slug,
+            published: result.published,
+            version: result.version,
+            prospectCount: result.prospectCount,
+            removed: result.removed,
+          },
+        });
         return NextResponse.json(result);
       }
       case "resolve": {
@@ -147,6 +165,10 @@ export async function POST(req: NextRequest) {
       }
       case "abort": {
         await abortPublish(service, input.slug, input.stagingVersion);
+        await writeMachineTokenAudit(service, {
+          action: "bundle_publish_abort",
+          detail: { slug: input.slug, stagingVersion: input.stagingVersion },
+        });
         return NextResponse.json({ aborted: true });
       }
     }

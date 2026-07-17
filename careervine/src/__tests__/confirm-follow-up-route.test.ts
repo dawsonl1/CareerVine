@@ -191,7 +191,8 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     const { status } = await call({ messageId: 5, replied: false });
 
     expect(status).toBe(400);
-    expect(state.updates.at(-1)).toEqual({ status: "expired" }); // last write is the revert
+    // last write is the revert; it also releases the claim (CAR-139)
+    expect(state.updates.at(-1)).toEqual({ status: "expired", claimed_at: null });
   });
 
   it("send failure under a concurrently-cancelled parent cancels the row, no orphan (CAR-108)", async () => {
@@ -205,6 +206,14 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     const { status } = await call({ messageId: 5, replied: false });
 
     expect(status).toBe(400);
-    expect(state.updates.at(-1)).toEqual({ status: "cancelled" });
+    expect(state.updates.at(-1)).toEqual({ status: "cancelled", claimed_at: null });
+  });
+
+  it("the atomic claim stamps claimed_at so a crashed send is sweepable (CAR-139)", async () => {
+    const { status } = await call({ messageId: 5, replied: false });
+    expect(status).toBe(200);
+    const claim = state.updates.find((u) => u.status === "sending");
+    expect(claim).toBeDefined();
+    expect(typeof claim!.claimed_at).toBe("string");
   });
 });

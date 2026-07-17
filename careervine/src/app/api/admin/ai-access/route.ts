@@ -11,13 +11,22 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { isAuthorizedAdminToken } from "@/app/api/admin/bundles/publish/route";
+import {
+  isAuthorizedAdminToken,
+  writeMachineTokenAudit,
+  checkMachineRateLimit,
+} from "@/lib/admin-auth";
 import { adminAiAccessSchema } from "@/lib/api-schemas";
 import { evictSharedAccessCache } from "@/lib/openai";
 
 export async function POST(req: NextRequest) {
   if (!isAuthorizedAdminToken(req.headers.get("authorization"), process.env.BUNDLE_ADMIN_TOKEN)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Grants/revokes are infrequent — a tight coarse cap on the machine token.
+  if (!(await checkMachineRateLimit("admin-ai-access", 30))) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
   let body: unknown;
@@ -77,6 +86,12 @@ export async function POST(req: NextRequest) {
     console.error("[admin/ai-access] upsert failed:", upsertError);
     return NextResponse.json({ error: "Failed to update access" }, { status: 500 });
   }
+
+  await writeMachineTokenAudit(service, {
+    action: sharedAccess ? "grant_ai_access" : "revoke_ai_access",
+    targetUserId: userId,
+    detail: { sharedAccess },
+  });
 
   // Best-effort: clear this lambda's cached entitlement so the change is visible
   // immediately here (other instances converge within the 60s TTL).

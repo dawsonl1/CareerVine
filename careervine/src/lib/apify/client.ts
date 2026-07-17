@@ -36,6 +36,32 @@ const WEBHOOK_EVENT_TYPES = [
   "ACTOR.RUN.TIMED_OUT",
 ];
 
+/**
+ * Header the completion webhook presents the shared secret in (CAR-140 / F26).
+ * Carrying it here instead of a query-string param keeps it out of Apify's run
+ * logs and our access logs. Not one of Apify's reserved headers, so it passes
+ * through the webhook dispatcher unchanged.
+ */
+export const APIFY_WEBHOOK_SECRET_HEADER = "X-Careervine-Webhook-Secret";
+
+/**
+ * Base64-encoded ad-hoc webhook array for a terminal-event completion callback,
+ * with the shared secret attached as a custom header via Apify's headersTemplate.
+ * `run` still rides in the callback URL (it's a non-secret correlation id).
+ */
+function terminalWebhookParam(callbackUrl: string): string {
+  const secret = process.env.APIFY_WEBHOOK_SECRET ?? "";
+  return Buffer.from(
+    JSON.stringify([
+      {
+        eventTypes: WEBHOOK_EVENT_TYPES,
+        requestUrl: callbackUrl,
+        headersTemplate: JSON.stringify({ [APIFY_WEBHOOK_SECRET_HEADER]: secret }),
+      },
+    ]),
+  ).toString("base64");
+}
+
 /** Shape of one harvestapi profile dataset item (subset the mapper consumes). */
 export interface ApifyProfileItem {
   linkedinUrl?: string | null;
@@ -91,9 +117,7 @@ export async function startProfileScrapeRun(opts: {
 }): Promise<ApifyRun> {
   const token = getApifyToken();
 
-  const webhooks = Buffer.from(
-    JSON.stringify([{ eventTypes: WEBHOOK_EVENT_TYPES, requestUrl: opts.callbackUrl }]),
-  ).toString("base64");
+  const webhooks = terminalWebhookParam(opts.callbackUrl);
 
   const params = new URLSearchParams({
     token,
@@ -150,9 +174,7 @@ export async function startProfileSearchRun(opts: {
 }): Promise<ApifyRun> {
   const token = getApifyToken();
 
-  const webhooks = Buffer.from(
-    JSON.stringify([{ eventTypes: WEBHOOK_EVENT_TYPES, requestUrl: opts.callbackUrl }]),
-  ).toString("base64");
+  const webhooks = terminalWebhookParam(opts.callbackUrl);
 
   const params = new URLSearchParams({
     token,

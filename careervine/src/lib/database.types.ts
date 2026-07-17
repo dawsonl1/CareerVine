@@ -591,16 +591,19 @@ export type Database = {
           reminder_count: number;
           last_reminder_at: string | null;
           seen_during_window: boolean;
+          // CAR-139: send-driver claim timestamp (stale-claim sweep anchor).
+          claimed_at: string | null;
         };
         Insert: Omit<
           Database["public"]["Tables"]["email_follow_up_messages"]["Row"],
-          "id" | "created_at" | "parked_at" | "expires_at" | "reminder_count" | "last_reminder_at" | "seen_during_window"
+          "id" | "created_at" | "parked_at" | "expires_at" | "reminder_count" | "last_reminder_at" | "seen_during_window" | "claimed_at"
         > & {
           parked_at?: string | null;
           expires_at?: string | null;
           reminder_count?: number;
           last_reminder_at?: string | null;
           seen_during_window?: boolean;
+          claimed_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["email_follow_up_messages"]["Insert"]>;
       };

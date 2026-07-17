@@ -302,9 +302,15 @@ export function normalizeParsedLocation(parsed: {
   state?: string | null;
   country?: string | null;
 }): NormalizedLocation {
-  const city = parsed.city?.trim() || null;
-  const state = parsed.state?.trim() || null;
-  const country = parsed.country?.trim() || null;
+  // Coerce defensively: callers reach here from an import route whose payload is
+  // schema-typed `unknown`, so a non-string field (e.g. a numeric ZIP or a
+  // nested {code,name} object) is possible. Optional chaining only guards
+  // null/undefined, so `.trim()` on a non-string would throw and 500 the whole
+  // import (CAR-139) — treat any non-string as absent instead.
+  const asStr = (v: unknown): string | null => (typeof v === "string" ? v.trim() || null : null);
+  const city = asStr(parsed.city);
+  const state = asStr(parsed.state);
+  const country = asStr(parsed.country);
   const raw = [city, state, country].filter(Boolean).join(", ");
 
   if (city) {
