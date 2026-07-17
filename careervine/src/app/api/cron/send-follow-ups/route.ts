@@ -4,7 +4,7 @@ import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getGmailClient } from "@/lib/gmail-send-core";
 import { activateContactByEmail } from "@/lib/gmail";
-import { buildOwnAddressSet, parseEmailAddress } from "@/lib/gmail-helpers";
+import { buildOwnAddressSet, parseEmailAddress, isBounceSenderAddress } from "@/lib/gmail-helpers";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { filterActiveUserIds } from "@/lib/user-status";
 import { capabilitiesFor } from "@/lib/capabilities/map";
@@ -136,10 +136,17 @@ async function runJob(): Promise<NextResponse> {
   // Suspended accounts are frozen: their follow-ups stay pending (held, not
   // dropped) and resume if the account is reactivated.
   const activeUserIds = await filterActiveUserIds(service, userIds);
-  const { data: connections } = await service
+  // Fail loud on a read error (matches the sweep/due reads above): a silently
+  // null result here would empty ownAddressesByUser AND capsByUser for every
+  // user, and an empty own-address set makes the user's own messages read as
+  // contact replies — mass false cancels + false activations.
+  const { data: connections, error: connectionsError } = await service
     .from("gmail_connections")
     .select("user_id, gmail_address, send_as_aliases, modify_scope_granted, automatic_features_enabled, premium_enabled")
     .in("user_id", [...activeUserIds]);
+  if (connectionsError) {
+    throw new Error(`Gmail connections prefetch failed: ${connectionsError.message}`);
+  }
   // Own-address set per user (CAR-153/R2.5): primary + send-as aliases,
   // lowercased — a user replying manually from an alias must not read as the
   // contact replying.
@@ -252,20 +259,32 @@ async function runJob(): Promise<NextResponse> {
       // If there are more messages than just the original, check if any are
       // from someone else. Membership in the own-address set (primary +
       // send-as aliases, CAR-153/R2.5) replaces the old substring test, which
-      // both misread alias-sent mail as a contact reply AND treated every
-      // message as "someone else" when the stored address was empty.
+      // misread alias-sent mail as a contact reply. (The old test's empty-
+      // address degenerate case went the other way: "x".includes("") is true,
+      // so an empty stored address made every message read as the user's own
+      // and NOTHING was ever flagged.)
       if (threadMessages.length > 1) {
         const ownAddresses = ownAddressesByUser.get(userId) ?? new Set<string>();
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        hasReply = threadMessages.some((m: any) => {
-          const fromHeader = m.payload?.headers?.find(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-            (h: any) => h.name?.toLowerCase() === "from"
-          );
-          const fromAddr = parseEmailAddress(fromHeader?.value || "");
-          return Boolean(fromAddr) && !ownAddresses.has(fromAddr);
-        });
+        // Empty set = ownership cannot be determined (user missing from the
+        // prefetch, e.g. a mid-run connect race). Inverting to "everything is
+        // a reply" would terminally cancel the sequence and falsely activate
+        // the contact — stay conservative and treat it as no reply, matching
+        // the old code's degenerate behavior.
+        if (ownAddresses.size > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+          hasReply = threadMessages.some((m: any) => {
+            const fromHeader = m.payload?.headers?.find(
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+              (h: any) => h.name?.toLowerCase() === "from"
+            );
+            const fromAddr = parseEmailAddress(fromHeader?.value || "");
+            // NDRs are delivery failures, not replies — detectBounces owns
+            // them (cancelled_bounce), and cancelling as "replied" here would
+            // also activate the very contact whose address just bounced.
+            return Boolean(fromAddr) && !ownAddresses.has(fromAddr) && !isBounceSenderAddress(fromAddr);
+          });
+        }
       }
     } catch {
       // If thread check fails, skip this cycle (don't send, don't cancel)

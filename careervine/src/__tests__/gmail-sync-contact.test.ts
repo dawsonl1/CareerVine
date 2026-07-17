@@ -46,7 +46,7 @@ vi.mock("@/lib/analytics/server", () => ({
   checkCompaniesEmailedMilestone: async () => {},
 }));
 
-import { syncEmailsForContact, fetchSendAsAliases, withRetry, checkForReplyInThread } from "@/lib/gmail";
+import { syncEmailsForContact, syncAllContactEmails, fetchSendAsAliases, withRetry, checkForReplyInThread } from "@/lib/gmail";
 
 function seedDb(overrides: Partial<Record<string, Record<string, unknown>[]>> = {}) {
   db = createFakeSyncDb({
@@ -231,7 +231,14 @@ describe("syncEmailsForContact — completion-gated watermark (R2.2)", () => {
     const watermarkWrites = db.opsFor("contacts", "update").filter((o) => o.values && "email_synced_through" in o.values);
     expect(watermarkWrites).toHaveLength(0);
 
-    // Second run: same afterEpoch (re-covers the interrupted span), then completes.
+    // Second run: same afterEpoch (re-covers the interrupted span), then
+    // completes. Coverage note (deep-review): this re-cover is SEQUENTIAL, so
+    // the existingIds pre-filter already skips the cached row and the
+    // ignoreDuplicates upsert's conflict path never fires here — the
+    // CONCURRENT dedupe guarantee (two overlapping syncs racing past the
+    // pre-filter, resolved by the unique constraint + RETURNING-only-inserted,
+    // CAR-58) rests on the DB constraint and is not reproducible with this
+    // single-threaded fake.
     fake.options.failOnListPages!.clear();
     const runStart = Date.now();
     await syncEmailsForContact(USER, CONTACT, ["jane@corp.com"], ["me@gmail.com"]);
@@ -299,6 +306,45 @@ describe("withRetry — Gmail 403 rate limits (R2.2)", () => {
   });
 });
 
+describe("syncAllContactEmails — totalSynced under concurrent completion", () => {
+  it("counts every contact's rows when pooled syncs overlap (no lost update)", async () => {
+    // Pins the `x += await f()` lost-update race: compound assignment reads
+    // the accumulator BEFORE the await suspends, so overlapping tasks would
+    // clobber each other's additions (3 contacts x 2 rows -> 2, not 6).
+    seedDb({
+      contacts: [1, 2, 3].map((id) => ({
+        id,
+        user_id: USER,
+        email_synced_through: null,
+        network_status: "active",
+        contact_emails: [{ email: `p${id}@x.com` }],
+      })),
+      gmail_connections: [{ user_id: USER, gmail_address: "me@gmail.com" }],
+    });
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((r) => { releaseGate = r; });
+    fake = createFakeGmail({
+      pages: [[
+        { id: "m1", threadId: "t1", from: "jane@corp.com", to: "me@gmail.com", date: "Mon, 13 Jul 2026 10:00:00 -0600" },
+        { id: "m2", threadId: "t1", from: "Me <me@gmail.com>", to: "jane@corp.com", date: "Mon, 13 Jul 2026 11:00:00 -0600" },
+      ]],
+      listGate: () => gate,
+    });
+
+    const resultPromise = syncAllContactEmails(USER, 90);
+    // Let all three pooled tasks launch and block on the gate together, so
+    // their accumulator updates genuinely interleave.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fake.state.inFlightListCalls).toBe(3);
+    releaseGate();
+    const result = await resultPromise;
+
+    expect(result.processedContacts).toBe(3);
+    expect(result.nextCursor).toBeNull();
+    expect(result.totalSynced).toBe(6);
+  });
+});
+
 describe("checkForReplyInThread — alias-aware self-filter (R2.5)", () => {
   it("does not count the user's own alias-sent thread message as a reply", async () => {
     seedDb({
@@ -330,6 +376,24 @@ describe("checkForReplyInThread — alias-aware self-filter (R2.5)", () => {
     });
 
     await expect(checkForReplyInThread(USER, "t1", "2026-07-01T00:00:00Z")).resolves.toBe(true);
+  });
+
+  it("does not count an NDR (mailer-daemon) in the thread as a reply", async () => {
+    // A bounce is a delivery failure, not the contact writing back —
+    // detectBounces owns NDRs (bounced_at + cancelled_bounce).
+    seedDb({
+      contacts: [],
+      email_messages: [],
+      gmail_connections: [{ user_id: USER, gmail_address: "me@gmail.com" }],
+    });
+    fake = createFakeGmail({
+      threads: { t1: [
+        { from: "me@gmail.com" },
+        { from: "Mail Delivery Subsystem <mailer-daemon@googlemail.com>" },
+      ] },
+    });
+
+    await expect(checkForReplyInThread(USER, "t1", "2026-07-01T00:00:00Z")).resolves.toBe(false);
   });
 });
 

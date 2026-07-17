@@ -61,6 +61,27 @@ describe("activateContactByEmail", () => {
     expect(selects[0].filters).toContainEqual(["eq:email", "john.doe@x.com"]);
     expect(db.tables.contacts[0].network_status).toBe("active");
   });
+
+  it("activates EVERY matching contact when two contacts share the address", async () => {
+    // With limit(1) and no order-by the row choice was arbitrary: if the
+    // already-active twin came back, the prospect never graduated.
+    db = createFakeSyncDb({
+      contacts: [
+        { id: 3, user_id: USER, network_status: "prospect" },
+        { id: 9, user_id: USER, network_status: "active" },
+      ],
+      contact_emails: [
+        { id: 1, contact_id: 9, email: "jane@corp.com", contacts: { user_id: USER } },
+        { id: 2, contact_id: 3, email: "jane@corp.com", contacts: { user_id: USER } },
+      ],
+      gmail_connections: [{ user_id: USER, gmail_address: "me@gmail.com" }],
+    });
+
+    await activateContactByEmail(USER, "jane@corp.com");
+
+    expect(db.tables.contacts.find((c) => c.id === 3)!.network_status).toBe("active");
+    expect(db.tables.contacts.find((c) => c.id === 9)!.network_status).toBe("active");
+  });
 });
 
 describe("detectBounces", () => {
@@ -84,7 +105,7 @@ describe("detectBounces", () => {
 });
 
 describe("contact_emails matcher hygiene", () => {
-  it("no .ilike matcher remains on any contact_emails query in src", () => {
+  it("no ILIKE matcher (in any form) remains on contact_emails in src", () => {
     const root = path.resolve(__dirname, "..");
     const offenders: string[] = [];
 
@@ -96,14 +117,29 @@ describe("contact_emails matcher hygiene", () => {
           walk(full);
         } else if (/\.(ts|tsx)$/.test(entry.name)) {
           const src = fs.readFileSync(full, "utf8");
-          // Examine the builder chain following each contact_emails query;
-          // chains end at the statement's terminating semicolon.
-          let idx = src.indexOf('from("contact_emails")');
+          const rel = path.relative(root, full);
+
+          // 1. Builder chains rooted at contact_emails: any ilike-carrying
+          //    method — .ilike(), or ilike smuggled through the .or()/.not()/
+          //    .filter() string-operator syntax (e.g. `.or("email.ilike.…")`).
+          let idx = src.search(/from\(['"`]contact_emails['"`]\)/);
           while (idx !== -1) {
             const chainEnd = src.indexOf(";", idx);
             const chain = src.slice(idx, chainEnd === -1 ? undefined : chainEnd);
-            if (chain.includes(".ilike(")) offenders.push(path.relative(root, full));
-            idx = src.indexOf('from("contact_emails")', idx + 1);
+            if (/\.ilike\(/.test(chain) || /\.(or|not|filter)\([^)]*ilike/i.test(chain)) {
+              offenders.push(`${rel} (contact_emails chain)`);
+            }
+            const next = src.slice(idx + 1).search(/from\(['"`]contact_emails['"`]\)/);
+            idx = next === -1 ? -1 : idx + 1 + next;
+          }
+
+          // 2. File-wide: ilike targeting the embedded column from a
+          //    parent-table chain, e.g. .ilike("contact_emails.email", …) or
+          //    `.or("contact_emails.email.ilike.…")` — specific enough to
+          //    contact_emails that it cannot false-positive on other tables'
+          //    email columns (e.g. the users-table admin search).
+          if (/contact_emails\.email\.?ilike/i.test(src) || /\.ilike\(\s*['"`]contact_emails\.email/i.test(src)) {
+            offenders.push(`${rel} (embedded contact_emails.email ilike)`);
           }
         }
       }

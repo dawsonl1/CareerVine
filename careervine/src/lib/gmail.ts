@@ -8,7 +8,7 @@
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
-import { getHeader, parseEmailAddress, buildOwnAddressSet } from "@/lib/gmail-helpers";
+import { getHeader, parseEmailAddress, buildOwnAddressSet, isBounceSenderAddress } from "@/lib/gmail-helpers";
 import type { ParsedHeader } from "@/lib/gmail-helpers";
 import type { gmail_v1 } from "@googleapis/gmail";
 import { getOAuth2Client, decryptOAuthToken } from "@/lib/oauth-helpers";
@@ -407,9 +407,12 @@ export async function syncEmailsForContact(
  * users.settings.sendAs.list is covered by the gmail.modify scope; free
  * (send-only) connections cannot call it — callers must gate on
  * modify_scope_granted and fall back to the primary address.
+ *
+ * `maxRetries: 0` makes it a single fast-fail attempt — used on the OAuth
+ * callback where backoff sleeps would sit on a user-facing redirect.
  */
-export async function fetchSendAsAliases(gmail: gmail_v1.Gmail): Promise<string[]> {
-  const res = await withRetry(() => gmail.users.settings.sendAs.list({ userId: "me" }));
+export async function fetchSendAsAliases(gmail: gmail_v1.Gmail, maxRetries = 3): Promise<string[]> {
+  const res = await withRetry(() => gmail.users.settings.sendAs.list({ userId: "me" }), maxRetries);
   return (res.data.sendAs || [])
     .map((s) => s.sendAsEmail?.toLowerCase().trim())
     .filter((e): e is string => Boolean(e));
@@ -464,17 +467,25 @@ export async function syncAllContactEmails(
   // Opportunistic alias refresh (R2.5): keeps direction classification
   // current as users add/remove send-as addresses. Best-effort — a failure
   // falls back to the stored set — and modify-gated, since send-only
-  // connections cannot read Gmail settings.
+  // connections cannot read Gmail settings. Only on the FIRST pass of a
+  // sync: cursor-resumed passes reuse the stored set instead of re-spending
+  // a Gmail settings call + DB write per pass.
   let ownAddresses: string[] = [...buildOwnAddressSet(conn.gmail_address, conn.send_as_aliases)];
-  if (conn.modify_scope_granted) {
+  if (conn.modify_scope_granted && opts.cursor == null) {
     try {
       const gmail = await getGmailClient(userId);
       const aliases = await fetchSendAsAliases(gmail);
       ownAddresses = [...buildOwnAddressSet(conn.gmail_address, aliases)];
-      await supabase
+      // Persist failures surface as an error VALUE, not a throw — log them,
+      // or a chronically failing write leaves the stored set stale for the
+      // cron/reply/calendar readers with zero signal.
+      const { error: aliasPersistError } = await supabase
         .from("gmail_connections")
         .update({ send_as_aliases: aliases, updated_at: new Date().toISOString() })
         .eq("user_id", userId);
+      if (aliasPersistError) {
+        console.warn("Persisting send-as aliases failed (stored set stale):", aliasPersistError);
+      }
     } catch (err) {
       console.warn("Send-as alias refresh failed (using stored set):", err);
     }
@@ -536,7 +547,11 @@ export async function syncAllContactEmails(
       launchedContacts++;
       const task = (async () => {
         try {
-          totalSynced += await syncEmailsForContact(
+          // Deliberately NOT `totalSynced += await ...`: compound assignment
+          // reads the accumulator BEFORE the await suspends, so concurrent
+          // pooled tasks would capture the same base and clobber each other's
+          // additions (lost update). Await first, then add synchronously.
+          const synced = await syncEmailsForContact(
             userId,
             contact.id,
             emails,
@@ -546,6 +561,7 @@ export async function syncAllContactEmails(
             // email_synced_through, so the per-contact lookup is skipped.
             { syncedThrough: contact.email_synced_through ?? null }
           );
+          totalSynced += synced;
         } catch (err) {
           failedContacts++;
           console.error(`Sync failed for contact ${contact.id}:`, err);
@@ -844,7 +860,9 @@ export async function checkForReplyInThread(
       const from = getHeader(headers, "From");
       const fromAddr = parseEmailAddress(from);
       const msgDate = Number(msg.internalDate || 0);
-      if (!ownAddressSet.has(fromAddr) && msgDate >= sinceTime) {
+      // An NDR in the thread is a delivery failure, not the contact replying
+      // — detectBounces owns those (cancelled_bounce, bounced_at).
+      if (!ownAddressSet.has(fromAddr) && !isBounceSenderAddress(fromAddr) && msgDate >= sinceTime) {
         return true;
       }
     }
@@ -873,19 +891,24 @@ export async function activateContactByEmail(userId: string, email: string) {
   // contact_emails.email is normalized to lower(trim()) by a DB trigger
   // (CAR-153/R2.8), so an exact match on the lowercased input replaces the
   // old unescaped ILIKE (whose _ and % wildcards could cross-match).
+  // Activate EVERY matching contact: with a limit(1) and no order-by, two
+  // contacts sharing the address made the row choice arbitrary, and the
+  // reply could land on the already-active twin while the prospect never
+  // graduated.
   const { data, error } = await supabase
     .from("contact_emails")
     .select("contact_id, contacts!inner(user_id)")
     .eq("email", email.toLowerCase().trim())
-    .eq("contacts.user_id", userId)
-    .limit(1)
-    .maybeSingle();
-  if (error || !data?.contact_id) return;
+    .eq("contacts.user_id", userId);
+  if (error || !data || data.length === 0) return;
+
+  const contactIds = [...new Set(data.map((r) => r.contact_id).filter((id): id is number => id != null))];
+  if (contactIds.length === 0) return;
 
   const { error: actError } = await supabase
     .from("contacts")
     .update({ network_status: "active" })
-    .eq("id", data.contact_id)
+    .in("id", contactIds)
     .in("network_status", ["prospect", "bench"]);
   if (actError) console.error("Failed to activate contact on reply:", actError);
 }

@@ -66,9 +66,12 @@ folded AS (
   JOIN contact_emails ce ON ce.id = r.id
   GROUP BY m.keeper_id
 )
+-- earliest_bounced_at is min() over the WHOLE group (keeper included, NULLs
+-- ignored), so assigning it directly is strict earliest-wins; a COALESCE on
+-- the keeper's own value would wrongly keep a keeper's LATER bounce.
 UPDATE contact_emails ce
 SET is_primary = f.any_primary,
-    bounced_at = COALESCE(ce.bounced_at, f.earliest_bounced_at)
+    bounced_at = f.earliest_bounced_at
 FROM folded f
 WHERE ce.id = f.keeper_id;
 

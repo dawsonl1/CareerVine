@@ -84,6 +84,17 @@ export function ownAddressesFromConnection(conn: {
 }
 
 /**
+ * True when an address is a mail-system bounce sender (NDR), not a person.
+ * Reply detection must skip these: an NDR inside a followed thread is a
+ * delivery FAILURE, and treating it as "the contact wrote back" cancels the
+ * sequence as replied and activates the very contact whose address bounced.
+ * detectBounces owns NDRs and cancels via cancelled_bounce instead.
+ */
+export function isBounceSenderAddress(addr: string): boolean {
+  return /^(mailer-daemon|postmaster)@/i.test(addr);
+}
+
+/**
  * True if `dateStr` is a valid timestamp within the last `days` days. Wraps the
  * `Date.now()` recency check so render code (e.g. the "Follow-up" affordance on
  * recent outbound mail) stays free of impure calls — the time read lives here.

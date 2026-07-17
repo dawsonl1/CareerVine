@@ -92,6 +92,7 @@ Core entity for professional network.
 - `stage_override`: Manual override for the derived outreach stage.
 - `scrape_failed_at`: Last failed scrape attempt (plan 29).
 - `scrape_failure_count`: Consecutive failed scrapes; 0 on success.
+- `email_synced_through`: CAR-153 (20260717020000). Gmail sync watermark: history is fully cached through this instant. Written ONLY when a sync pass drains every page without throwing; `NULL` = never fully synced (sync falls back to the sinceDays window). Never derive it from max(cached message date) — Gmail lists newest-first, so that self-hides holes after an interrupted backfill.
 
 ## locations
 
@@ -106,9 +107,11 @@ Normalized geographic locations.
 
 Supports multiple emails per contact.
 
+**Normalization invariant (CAR-153, 20260717020000):** `email` is forced to `lower(trim())` by a `BEFORE INSERT OR UPDATE OF email` trigger (`normalize_contact_email`), and all pre-existing rows were normalized (with a dedupe of would-collide casings) in the same migration. Every matcher may therefore use an exact `=`/`.eq` against a lowercased+trimmed input; ILIKE on this column is banned (unescaped `_`/`%` wildcards cross-match).
+
 - `id`: Auto-incrementing primary key.
 - `contact_id`: Foreign key to `contacts`.
-- `email`: Email address.
+- `email`: Email address, always lowercase+trimmed (see invariant above).
 - `is_primary`: Whether this is the primary email.
 - `source`: `'manual'` | `'scraped'` | `'pattern_guessed'` | `'verified'` (monotonic upgrade only).
 - `bounced_at`: Set when an NDR is detected for this address.
@@ -285,6 +288,7 @@ Per-user OAuth tokens for Gmail API access.
 - `send_scope_granted`: CAR-100. Whether `gmail.send` was actually granted (browser-readable UX flag; granular consent can grant Calendar but not Gmail).
 - `automatic_features_enabled`, `modify_scope_granted`: CAR-103 entitlement flags (service-role-only; hidden from the browser client by CAR-27 column grants).
 - `premium_enabled`: CAR-102 premium master switch (service-role-only; same CAR-27 column-grant exclusion).
+- `send_as_aliases`: CAR-153 (20260717020000). Lowercased send-as addresses from `users.settings.sendAs.list` (jsonb string array). Used with `gmail_address` to build the "own address" set for direction classification, reply detection, and the calendar attendee self-filter. `NULL` = unknown (send-only grants can't read Gmail settings) — readers degrade to primary-only via `buildOwnAddressSet`. Written best-effort at OAuth connect and refreshed on the first pass of each full sync (modify-gated).
 
 ## email_messages
 

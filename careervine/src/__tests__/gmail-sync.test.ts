@@ -271,6 +271,14 @@ describe('syncAllContactEmails', () => {
   });
 
   it('keeps the resume cursor contiguous under out-of-order completion', async () => {
+    // Invariant note (deep-review): because the pool launches strictly in id
+    // order AND drains every launched task before computing the cursor, the
+    // settled set is always the contiguous launched prefix — so on every
+    // reachable path "highest contiguous settled" equals "highest settled".
+    // This test pins the reachable contract (out-of-order completion never
+    // yields a cursor past an unlaunched contact, each contact attempted
+    // exactly once); the contiguity bookkeeping itself is defense-in-depth
+    // that only diverges if the drain guarantee is ever broken.
     // Only Date is faked (budget math); timers stay real so the pool's
     // awaits and the test's flushes run normally.
     vi.useFakeTimers({ toFake: ['Date'] });
