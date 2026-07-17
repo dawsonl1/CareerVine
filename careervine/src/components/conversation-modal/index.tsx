@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { useQuickCapture } from "@/components/quick-capture-context";
 import { track } from "@/lib/analytics/client";
@@ -372,7 +373,7 @@ export function ConversationModal() {
       close();
 
       // Notify other components to refresh
-      window.dispatchEvent(new CustomEvent("careervine:conversation-logged"));
+      emitUiEvent(UI_EVENTS.conversationLogged);
     } catch (err) {
       console.error("Error saving:", err);
       toastError("Failed to save");
@@ -518,7 +519,7 @@ export function ConversationModal() {
                 allContacts={allContacts}
                 onAiActionAccepted={(action) => setPendingActions((prev) => [...prev, action])}
                 onActionCreated={() => {
-                  window.dispatchEvent(new CustomEvent("careervine:conversation-logged"));
+                  emitUiEvent(UI_EVENTS.conversationLogged);
                 }}
               />
               <ActionItemsSection

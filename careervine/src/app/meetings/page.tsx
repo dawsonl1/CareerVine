@@ -21,6 +21,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
@@ -172,8 +173,7 @@ export default function MeetingsPage() {
       loadMeetings();
       loadInteractions();
     };
-    window.addEventListener("careervine:conversation-logged", handler);
-    return () => window.removeEventListener("careervine:conversation-logged", handler);
+    return onUiEvent(UI_EVENTS.conversationLogged, handler);
   }, [loadMeetings, loadInteractions]);
 
   const reloadMeetingActions = async (meetingId: number) => {

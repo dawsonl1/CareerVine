@@ -13,6 +13,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 const mock = vi.hoisted(() => {
   const defaults = {
     isOpen: true,
+    composeSessionId: 1,
     prefillTo: "",
     prefillName: "",
     prefillSubject: "",
@@ -56,6 +57,16 @@ vi.mock("@/lib/queries", () => ({
   markEmailVerified: async () => {},
 }));
 vi.mock("@/lib/analytics/client", () => ({ track: () => {} }));
+vi.mock("@/components/ui/toast", () => ({
+  useToast: () => ({
+    toast: () => "",
+    dismiss: () => {},
+    success: () => {},
+    error: () => {},
+    info: () => {},
+    warning: () => {},
+  }),
+}));
 
 import { ComposeEmailModal } from "@/components/compose-email-modal";
 

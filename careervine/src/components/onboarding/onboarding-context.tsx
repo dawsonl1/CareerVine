@@ -10,6 +10,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { track } from "@/lib/analytics/client";
 import {
@@ -99,17 +100,14 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   // intros) must NOT pop the finale.
   useEffect(() => {
     if (state !== "outreach") return;
-    const onSent = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { onboardingIntro?: boolean } | undefined;
+    return onUiEvent(UI_EVENTS.emailSent, (detail) => {
       if (!detail?.onboardingIntro) return;
       track("onboarding_email_sent", {});
       // Persist the terminal state at send time — the confetti is cosmetic,
       // and a closed tab mid-finale must not leave onboarding armed forever.
       advance("completed");
       setShowFinale(true);
-    };
-    window.addEventListener("careervine:email-sent", onSent);
-    return () => window.removeEventListener("careervine:email-sent", onSent);
+    });
   }, [state, advance]);
 
   const finishFinale = useCallback(() => {
