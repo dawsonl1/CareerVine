@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import OpenAI, { APIError, AuthenticationError } from "openai";
 
 const mockFrom = vi.fn();
-const mockServiceClient = { from: mockFrom };
+const mockRpc = vi.fn().mockResolvedValue({ error: null });
+const mockServiceClient = { from: mockFrom, rpc: mockRpc };
 
 vi.mock("@/lib/supabase/service-client", () => ({
   createSupabaseServiceClient: vi.fn(() => mockServiceClient),
@@ -74,15 +75,39 @@ function accessTableMock(opts: {
 
 type AccessMock = ReturnType<typeof accessTableMock>;
 
+/**
+ * ai_shared_usage mock (CAR-143 R5.3): select().eq().eq().maybeSingle().
+ * Defaults to "no usage row" (spend $0 → budget available).
+ */
+function spendTableMock(opts: { costUsd?: number; error?: boolean } = {}) {
+  const maybeSingle = vi.fn().mockResolvedValue(
+    opts.error
+      ? { data: null, error: { message: "spend lookup boom" } }
+      : {
+          data: opts.costUsd == null ? null : { estimated_cost_usd: opts.costUsd },
+          error: null,
+        },
+  );
+  const chain: Record<string, unknown> = { maybeSingle };
+  chain.select = vi.fn(() => chain);
+  chain.eq = vi.fn(() => chain);
+  return { chain, maybeSingle };
+}
+
+type SpendMock = ReturnType<typeof spendTableMock>;
+
 function mockDb(
   keyRow: Record<string, unknown> | null,
   access: AccessMock = accessTableMock(),
+  spend: SpendMock = spendTableMock(),
 ) {
   const keys = tableMock(keyRow);
-  mockFrom.mockImplementation((table: string) =>
-    table === "user_ai_access" ? access.chain : keys.chain,
-  );
-  return { keys, access };
+  mockFrom.mockImplementation((table: string) => {
+    if (table === "user_ai_access") return access.chain;
+    if (table === "ai_shared_usage") return spend.chain;
+    return keys.chain;
+  });
+  return { keys, access, spend };
 }
 
 /** An entitlement row; defaults to a permanent grant. */
@@ -310,6 +335,7 @@ describe("openai routing", () => {
     const accessSpy = vi
       .spyOn(routing, "resolveSharedAccess")
       .mockResolvedValue({ granted: true, trialExpired: false });
+    const budgetSpy = vi.spyOn(routing, "hasSharedSpendBudget").mockResolvedValue(true);
 
     const result = await openaiModule.runWithOpenAIFallback("user-123", (client) =>
       client.responses.create({ model: "gpt-5-mini", input: "hi" } as never),
@@ -321,6 +347,7 @@ describe("openai routing", () => {
     getSpy.mockRestore();
     appSpy.mockRestore();
     accessSpy.mockRestore();
+    budgetSpy.mockRestore();
   });
 
   it("throws ai_key_invalid on a user-key auth error when NOT entitled", async () => {
@@ -475,5 +502,117 @@ describe("openai routing", () => {
     await openaiModule.getOpenAIForUser("user-123");
 
     expect(access.maybeSingle).toHaveBeenCalledTimes(1);
+  });
+
+  // ── CAR-143 (R5.3): shared-key spend ceiling ──────────────────────────
+
+  it("denies with ai_trial_expired when entitled but at the spend ceiling", async () => {
+    mockDb(
+      null,
+      accessTableMock({ rows: [accessRow()] }),
+      spendTableMock({ costUsd: 999 }),
+    );
+    const resolved = await openaiModule.getOpenAIForUser("user-123");
+    expect(resolved).toMatchObject({ ok: false, code: "ai_trial_expired" });
+  });
+
+  it("grants the shared client while under the ceiling", async () => {
+    const { spend } = mockDb(
+      null,
+      accessTableMock({ rows: [accessRow()] }),
+      spendTableMock({ costUsd: 0.05 }),
+    );
+    const resolved = await openaiModule.getOpenAIForUser("user-123");
+    expect(resolved).toMatchObject({ ok: true, source: "app" });
+    expect(spend.maybeSingle).toHaveBeenCalled();
+  });
+
+  it("fails CLOSED to ai_trial_expired when the spend lookup errors", async () => {
+    mockDb(null, accessTableMock({ rows: [accessRow()] }), spendTableMock({ error: true }));
+    const resolved = await openaiModule.getOpenAIForUser("user-123");
+    expect(resolved).toMatchObject({ ok: false, code: "ai_trial_expired" });
+  });
+
+  it("keeps the key-specific code when over the ceiling with a dead personal key", async () => {
+    mockDb(
+      activeKeyRow({ status: "invalid" }),
+      accessTableMock({ rows: [accessRow()] }),
+      spendTableMock({ costUsd: 999 }),
+    );
+    const resolved = await openaiModule.getOpenAIForUser("user-123");
+    expect(resolved).toMatchObject({ ok: false, code: "ai_key_invalid" });
+  });
+
+  it("records shared spend after a successful shared-key call", async () => {
+    mockDb(null, accessTableMock({ rows: [accessRow()] }));
+    const getSpy = vi.spyOn(routing, "getOpenAIForUser").mockResolvedValue({
+      ok: true,
+      client: openaiModule.getAppOpenAIClient(),
+      source: "app",
+    });
+
+    await openaiModule.runWithOpenAIFallback("user-123", async () => ({
+      output_text: "ok",
+      usage: { input_tokens: 1000, output_tokens: 500 },
+    }));
+    // recordSharedAiSpend is fire-and-forget — let the microtask settle.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRpc).toHaveBeenCalledWith(
+      "increment_ai_shared_usage",
+      expect.objectContaining({ p_user_id: "user-123", p_cost: expect.any(Number) }),
+    );
+    const cost = mockRpc.mock.calls[0][1].p_cost as number;
+    expect(cost).toBeGreaterThan(0);
+
+    getSpy.mockRestore();
+  });
+
+  it("does not record spend after a user-key call", async () => {
+    mockDb(activeKeyRow());
+    const getSpy = vi.spyOn(routing, "getOpenAIForUser").mockResolvedValue({
+      ok: true,
+      client: {} as OpenAI,
+      source: "user",
+    });
+
+    await openaiModule.runWithOpenAIFallback("user-123", async () => ({
+      usage: { input_tokens: 1000, output_tokens: 500 },
+    }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRpc).not.toHaveBeenCalled();
+    getSpy.mockRestore();
+  });
+
+  it("blocks the user-key→shared fallback when over the ceiling", async () => {
+    const failingClient = {
+      responses: {
+        create: vi.fn().mockRejectedValue(
+          new AuthenticationError(401, { message: "invalid_api_key" }, "invalid", new Headers()),
+        ),
+      },
+    } as unknown as OpenAI;
+    const appClient = {
+      responses: { create: vi.fn() },
+    } as unknown as OpenAI;
+
+    mockDb(null, accessTableMock({ rows: [accessRow()] }), spendTableMock({ costUsd: 999 }));
+    const getSpy = vi.spyOn(routing, "getOpenAIForUser").mockResolvedValue({
+      ok: true,
+      client: failingClient,
+      source: "user",
+    });
+    const appSpy = vi.spyOn(routing, "getAppOpenAIClient").mockReturnValue(appClient);
+
+    await expect(
+      openaiModule.runWithOpenAIFallback("user-123", (client) =>
+        client.responses.create({ model: "gpt-5-mini", input: "hi" } as never),
+      ),
+    ).rejects.toMatchObject({ code: "ai_key_invalid", status: 402 });
+    expect(appClient.responses.create).not.toHaveBeenCalled();
+
+    getSpy.mockRestore();
+    appSpy.mockRestore();
   });
 });

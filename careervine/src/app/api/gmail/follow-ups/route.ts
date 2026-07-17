@@ -2,6 +2,7 @@ import { withApiHandler } from "@/lib/api-handler";
 import { gmailFollowUpQuerySchema, gmailFollowUpCreateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
+import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 import { FollowUpStatus } from "@/lib/constants";
 
 /**
@@ -70,10 +71,11 @@ export const POST = withApiHandler({
 
     if (fuError) throw fuError;
 
-    // Create the individual follow-up messages
+    // Create the individual follow-up messages. The cron auto-sends stored
+    // body_html verbatim — sanitize at the storage chokepoint (CAR-143, R5.2).
     const msgRows = buildFollowUpMessageRows(
       followUp.id,
-      messages,
+      messages.map((m) => ({ ...m, bodyHtml: sanitizeStoredEmailHtml(m.bodyHtml) })),
       new Date(originalSentAt),
     );
 

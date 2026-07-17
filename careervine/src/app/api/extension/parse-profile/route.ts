@@ -3,6 +3,7 @@ import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/
 import { extensionParseProfileSchema } from "@/lib/api-schemas";
 import { addIsCurrentToExperience, addIsCurrentToEducation, deriveCurrentRole, deriveContactStatus } from '@/lib/profile-helpers';
 import { handleOptions } from '@/lib/extension-auth';
+import { wrapUntrusted, UNTRUSTED_DATA_CLAUSE } from '@/lib/ai/untrusted';
 
 /**
  * API endpoint for parsing LinkedIn profile text using OpenAI
@@ -20,7 +21,7 @@ export const POST = withApiHandler({
   // Bounds requests per user — every shared-key call spends real OpenAI money
   // (CAR-41). Single tier for everyone; shared-vs-BYO is decided inside
   // runWithOpenAIFallback and can flip mid-request, so it can't gate here.
-  rateLimit: { bucket: "careervine-parse-profile", limit: 60, window: "1 h" },
+  rateLimit: { bucket: "careervine-parse-profile", limit: 60, window: "1 h", failClosed: true },
   handler: async ({ user, body }) => {
     const { cleanedText, profileUrl } = body;
 
@@ -128,7 +129,8 @@ export const POST = withApiHandler({
       "For current roles, set end_month to Present. " +
       "Extract EVERY school in the Education section. Set education end_year to the graduation year or expected graduation year, even when it is in the future (e.g. a current student graduating in 2028). " +
       "Extract a geographic job location for each experience if available (e.g., 'San Francisco, CA'). " +
-      "Ignore work arrangement terms like remote, hybrid, internship, contract, freelance, part-time, full-time, temporary, or self-employed as locations. ";
+      "Ignore work arrangement terms like remote, hybrid, internship, contract, freelance, part-time, full-time, temporary, or self-employed as locations.\n\n" +
+      UNTRUSTED_DATA_CLAUSE;
 
     let response;
     try {
@@ -137,7 +139,8 @@ export const POST = withApiHandler({
           model,
           service_tier: "priority",
           instructions,
-          input: cleanedText,
+          // LinkedIn page text is attacker-authored — fence it (CAR-143)
+          input: wrapUntrusted("linkedin_profile_text", cleanedText),
           max_output_tokens: 4000,
           text: {
             format: {

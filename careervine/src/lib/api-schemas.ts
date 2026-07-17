@@ -13,6 +13,17 @@ import { AiFollowUpDraftStatus } from "@/lib/constants";
 const optionalString = z.string().optional();
 const optionalNumber = z.coerce.number().optional();
 
+/**
+ * CAR-143 (R5.1): strings that get interpolated into MIME headers (recipients,
+ * subjects, threading ids) must never contain CR/LF — a line break would
+ * terminate the header and let the rest of the value inject new headers.
+ * buildMimeMessage strips as defense-in-depth; these reject at the boundary.
+ */
+const NO_LINE_BREAKS = /^[^\r\n]*$/;
+const NO_LINE_BREAKS_MESSAGE = "must not contain line breaks";
+const headerSafeString = z.string().regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE);
+const optionalHeaderSafeString = headerSafeString.optional();
+
 // ── Gmail ──────────────────────────────────────────────────────────────
 
 export const gmailAuthQuerySchema = z.object({
@@ -27,14 +38,14 @@ export const gmailAuthQuerySchema = z.object({
 });
 
 export const gmailSendSchema = z.object({
-  to: z.string().min(1, "to is required"),
-  subject: z.string().min(1, "subject is required"),
-  cc: optionalString,
-  bcc: optionalString,
+  to: headerSafeString.min(1, "to is required"),
+  subject: headerSafeString.min(1, "subject is required"),
+  cc: optionalHeaderSafeString,
+  bcc: optionalHeaderSafeString,
   bodyHtml: optionalString,
   threadId: optionalString,
-  inReplyTo: optionalString,
-  references: optionalString,
+  inReplyTo: optionalHeaderSafeString,
+  references: optionalHeaderSafeString,
   /** Whether the body originated from an AI draft (CAR-38 acceptance metric). */
   aiAssisted: z.boolean().optional(),
 });
@@ -49,14 +60,14 @@ export const gmailEmailMoveSchema = z.object({
 
 export const gmailDraftSchema = z.object({
   id: z.number().optional(),
-  to: optionalString,
-  cc: optionalString,
-  bcc: optionalString,
-  subject: optionalString,
+  to: optionalHeaderSafeString,
+  cc: optionalHeaderSafeString,
+  bcc: optionalHeaderSafeString,
+  subject: optionalHeaderSafeString,
   bodyHtml: optionalString,
   threadId: optionalString,
-  inReplyTo: optionalString,
-  references: optionalString,
+  inReplyTo: optionalHeaderSafeString,
+  references: optionalHeaderSafeString,
   contactName: optionalString,
 });
 
@@ -69,11 +80,11 @@ export const gmailTemplateSchema = z.object({
 
 export const gmailAiWriteSchema = z.object({
   prompt: z.string().min(1, "prompt is required"),
-  recipientEmail: optionalString,
+  recipientEmail: optionalHeaderSafeString,
   contactId: z.number().optional(),
   meetingIds: z.array(z.number()).optional(),
   additionalContext: optionalString,
-  subject: optionalString,
+  subject: optionalHeaderSafeString,
 });
 
 export const gmailAiWriteMeetingsQuerySchema = z.object({
@@ -86,7 +97,7 @@ export const gmailAiWriteResolveContactQuerySchema = z.object({
 
 const followUpMessageSchema = z.object({
   sendAfterDays: z.number().int().min(1, "sendAfterDays must be at least 1"),
-  subject: z.string(),
+  subject: headerSafeString,
   bodyHtml: z.string(),
   sendTime: z.string().regex(/^\d{1,2}:\d{2}$/, "sendTime must be HH:MM format").optional(),
 });
@@ -94,9 +105,9 @@ const followUpMessageSchema = z.object({
 export const gmailFollowUpCreateSchema = z.object({
   originalGmailMessageId: z.string().min(1, "originalGmailMessageId is required"),
   threadId: z.string().min(1, "threadId is required"),
-  recipientEmail: z.string().min(1, "recipientEmail is required"),
+  recipientEmail: headerSafeString.min(1, "recipientEmail is required"),
   contactName: optionalString,
-  originalSubject: optionalString,
+  originalSubject: optionalHeaderSafeString,
   originalSentAt: z.string(),
   scheduledEmailId: z.number().optional(),
   messages: z.array(followUpMessageSchema).min(1, "At least one message is required"),
@@ -111,15 +122,15 @@ export const gmailFollowUpUpdateSchema = z.object({
 });
 
 export const gmailScheduleCreateSchema = z.object({
-  to: z.string().min(1, "to is required"),
-  subject: z.string().min(1, "subject is required"),
+  to: headerSafeString.min(1, "to is required"),
+  subject: headerSafeString.min(1, "subject is required"),
   bodyHtml: optionalString,
   scheduledSendAt: z.string().min(1, "scheduledSendAt is required"),
-  cc: optionalString,
-  bcc: optionalString,
+  cc: optionalHeaderSafeString,
+  bcc: optionalHeaderSafeString,
   threadId: optionalString,
-  inReplyTo: optionalString,
-  references: optionalString,
+  inReplyTo: optionalHeaderSafeString,
+  references: optionalHeaderSafeString,
   contactName: optionalString,
   matchedContactId: z.number().optional(),
 });
@@ -129,10 +140,10 @@ export const gmailScheduleQuerySchema = z.object({
 });
 
 export const gmailScheduleUpdateSchema = z.object({
-  to: optionalString,
-  cc: optionalString,
-  bcc: optionalString,
-  subject: optionalString,
+  to: optionalHeaderSafeString,
+  cc: optionalHeaderSafeString,
+  bcc: optionalHeaderSafeString,
+  subject: optionalHeaderSafeString,
   bodyHtml: optionalString,
   scheduledSendAt: optionalString,
 });
@@ -292,7 +303,7 @@ const aiDraftStatuses = Object.values(AiFollowUpDraftStatus) as [string, ...stri
 
 export const aiFollowUpPatchSchema = z.object({
   status: z.enum(aiDraftStatuses).optional(),
-  subject: z.string().optional(),
+  subject: optionalHeaderSafeString,
   bodyHtml: z.string().optional(),
   sendAsReply: z.boolean().optional(),
   /** Client-computed share of the AI draft that survived to send (CAR-58) —

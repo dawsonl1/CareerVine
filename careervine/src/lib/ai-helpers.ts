@@ -4,6 +4,7 @@
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { wrapUntrusted } from "@/lib/ai/untrusted";
 
 export interface ContactContext {
   contactName: string;
@@ -62,7 +63,9 @@ export async function getContactContext(
     if (contact.met_through) parts.push(`Met through: ${contact.met_through}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     if ((contact as any).intro_goal) parts.push(`Goal: ${(contact as any).intro_goal}`);
-    if (contact.notes) parts.push(`Notes: ${contact.notes}`);
+    // Notes are free text anyone the user meets can influence — fence them so
+    // they read as data, not instructions (CAR-143).
+    if (contact.notes) parts.push(`Notes:\n${wrapUntrusted("contact_notes", contact.notes)}`);
 
     // Location
     const loc = contact.locations as unknown as { city: string | null; state: string | null; country: string } | null;
@@ -129,8 +132,10 @@ export async function getContactContext(
       const meetingParts = meetings.map((m) => {
         const parts: string[] = [];
         parts.push(`Meeting on ${new Date(m.meeting_date).toLocaleDateString()}${m.meeting_type ? ` (${m.meeting_type})` : ""}`);
-        if (m.notes) parts.push(`Notes: ${m.notes}`);
-        if (m.transcript) parts.push(`Transcript: ${m.transcript.substring(0, 3000)}`);
+        if (m.notes) parts.push(`Notes:\n${wrapUntrusted("meeting_notes", m.notes)}`);
+        if (m.transcript) {
+          parts.push(`Transcript:\n${wrapUntrusted("transcript", m.transcript.substring(0, 3000))}`);
+        }
         return parts.join("\n");
       });
       meetingNotes = meetingParts.join("\n\n");

@@ -31,13 +31,19 @@ import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
 import { markdownToHtml } from "../lib/markdown";
 import { handler, contactRefShape } from "../lib/tool-utils";
 
+// CAR-143 (R5.1): MCP args come straight from an LLM — reject CR/LF in any
+// string that gets interpolated into a MIME header (subject, recipient).
+const NO_LINE_BREAKS = /^[^\r\n]*$/;
+const NO_LINE_BREAKS_MESSAGE = "must not contain line breaks";
+
 const composeShape = {
   ...contactRefShape,
-  subject: z.string().min(1),
+  subject: z.string().min(1).regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE),
   body: z.string().min(1).describe("Email body as markdown (converted to HTML) or raw HTML"),
   thread_id: z.string().optional().describe("Gmail thread id to reply into (threads the message)"),
   to_email: z
     .string()
+    .regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE)
     .optional()
     .describe("Override recipient address (defaults to the contact's primary email)"),
 };
@@ -91,7 +97,7 @@ export const followUpSequenceSchema = {
   messages: z
     .array(
       z.object({
-        subject: z.string().min(1),
+        subject: z.string().min(1).regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE),
         body: z.string().min(1).describe("Markdown or HTML"),
         send_after_days: z.number().int().min(1).describe("Days after the original send"),
       }),

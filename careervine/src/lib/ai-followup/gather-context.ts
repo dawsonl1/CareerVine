@@ -6,6 +6,7 @@
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { wrapUntrusted } from "@/lib/ai/untrusted";
 
 export interface ContactContext {
   contactName: string;
@@ -230,17 +231,24 @@ export function formatContextForLLM(ctx: ContactContext): string {
   if (ctx.contactStatus) parts.push(`Status: ${ctx.contactStatus}`);
   if (ctx.expectedGraduation) parts.push(`Expected graduation: ${ctx.expectedGraduation}`);
   if (ctx.metThrough) parts.push(`Met through: ${ctx.metThrough}`);
-  if (ctx.notes) parts.push(`Personal notes: ${ctx.notes}`);
+  // Free-text spans below are untrusted (anyone the user meets writes into
+  // notes/transcripts) — fence them so they read as data, not instructions
+  // (CAR-143).
+  if (ctx.notes) parts.push(`Personal notes:\n${wrapUntrusted("contact_notes", ctx.notes)}`);
 
   // Meetings
   if (ctx.meetings.length > 0) {
     parts.push("\n--- Meeting History ---");
     for (const m of ctx.meetings) {
       const date = new Date(m.date).toLocaleDateString();
-      const label = m.title || m.type;
+      // Titles can arrive from external calendar invites — strip line breaks
+      // so a title can't fake its own context lines.
+      const label = (m.title || m.type || "meeting").replace(/[\r\n]+/g, " ");
       parts.push(`\nMeeting: ${label} (${date})`);
-      if (m.notes) parts.push(`Notes: ${m.notes}`);
-      if (m.transcriptExcerpt) parts.push(`Transcript excerpt:\n${m.transcriptExcerpt}`);
+      if (m.notes) parts.push(`Notes:\n${wrapUntrusted("meeting_notes", m.notes)}`);
+      if (m.transcriptExcerpt) {
+        parts.push(`Transcript excerpt:\n${wrapUntrusted("transcript", m.transcriptExcerpt)}`);
+      }
     }
   }
 
@@ -249,7 +257,8 @@ export function formatContextForLLM(ctx: ContactContext): string {
     parts.push("\n--- Recent Interactions ---");
     for (const i of ctx.interactions) {
       const date = new Date(i.date).toLocaleDateString();
-      parts.push(`${i.type} on ${date}${i.summary ? `: ${i.summary}` : ""}`);
+      parts.push(`${i.type} on ${date}`);
+      if (i.summary) parts.push(wrapUntrusted("interaction_summary", i.summary));
     }
   }
 

@@ -73,3 +73,28 @@ describe("tool input schemas", () => {
     expect(good.messages).toHaveLength(1);
   });
 });
+
+describe("CRLF rejection on header-bound MCP args (CAR-143)", () => {
+  const INJECTED = "Hi\r\nBcc: attacker@evil.com";
+
+  it("send/draft/schedule subjects and to_email reject line breaks", () => {
+    const schema = z.object(scheduleEmailSchema);
+    const base = { contact_id: 1, body: "b", send_at: "2026-08-01T09:00:00Z" };
+    expect(schema.parse({ ...base, subject: "Hi" }).subject).toBe("Hi");
+    expect(() => schema.parse({ ...base, subject: INJECTED })).toThrow();
+    expect(() =>
+      schema.parse({ ...base, subject: "Hi", to_email: "a@x.com\nBcc: e@e.com" }),
+    ).toThrow();
+  });
+
+  it("follow-up sequence step subjects reject line breaks", () => {
+    const schema = z.object(followUpSequenceSchema);
+    expect(() =>
+      schema.parse({
+        contact_id: 1,
+        thread_id: "t",
+        messages: [{ subject: INJECTED, body: "b", send_after_days: 3 }],
+      }),
+    ).toThrow();
+  });
+});

@@ -14,6 +14,13 @@ export interface RateLimitOptions {
   bucket: string;
   limit: number;
   window: RateLimitWindow;
+  /**
+   * CAR-143 (R5.3): buckets that gate real spend (shared-key AI) fail CLOSED
+   * in production — a missing or erroring limiter denies instead of allowing.
+   * Non-production keeps the allow-all degrade so local dev works without
+   * Redis.
+   */
+  failClosed?: boolean;
 }
 
 export interface RateLimitResult {
@@ -57,11 +64,29 @@ export async function checkRateLimit(
   userId: string,
   options: RateLimitOptions,
 ): Promise<RateLimitResult> {
-  const limiter = getLimiter(options);
-  if (!limiter) return { allowed: true, remaining: options.limit, resetAt: null };
+  const failClosed = Boolean(options.failClosed) && process.env.NODE_ENV === "production";
 
-  const { success, remaining, reset } = await limiter.limit(userId);
-  return { allowed: success, remaining, resetAt: reset };
+  const limiter = getLimiter(options);
+  if (!limiter) {
+    if (failClosed) {
+      console.error(`[rate-limit] no limiter for fail-closed bucket ${options.bucket} — denying`);
+      return { allowed: false, remaining: 0, resetAt: null };
+    }
+    return { allowed: true, remaining: options.limit, resetAt: null };
+  }
+
+  try {
+    const { success, remaining, reset } = await limiter.limit(userId);
+    return { allowed: success, remaining, resetAt: reset };
+  } catch (err) {
+    // Fail-open buckets keep the original throw (surfaces as a 500);
+    // fail-closed buckets deny rather than let Redis trouble open the wallet.
+    if (failClosed) {
+      console.error(`[rate-limit] limiter error on fail-closed bucket ${options.bucket} — denying:`, err);
+      return { allowed: false, remaining: 0, resetAt: null };
+    }
+    throw err;
+  }
 }
 
 /** @internal Test hook */

@@ -8,6 +8,8 @@
 
 import OpenAI from "openai";
 import { DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
+import { parseModelJson } from "@/lib/ai/model-json";
+import { wrapUntrusted, UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 import { searchNews, searchWeb, type SerperResult } from "@/lib/serper";
 import type { Interest, ExtractedInterests } from "./extract-interests";
 
@@ -25,16 +27,23 @@ export interface ArticleResult {
 const MAX_TOPICS = 3;
 const MAX_ARTICLES_PER_TOPIC = 3;
 
-const EVAL_SYSTEM_PROMPT = `You are helping someone reconnect with a professional contact by sharing a relevant article. Evaluate whether this article would make a genuinely thoughtful follow-up.`;
+const EVAL_SYSTEM_PROMPT = `You are helping someone reconnect with a professional contact by sharing a relevant article. Evaluate whether this article would make a genuinely thoughtful follow-up.
 
-function buildEvalPrompt(interest: Interest, result: SerperResult): string {
-  return `The contact expressed interest in: ${interest.topic}
-Evidence: "${interest.evidence}"
+${UNTRUSTED_DATA_CLAUSE}`;
 
-Candidate article:
-- Title: ${result.title}
-- Source: ${result.source}
-- Snippet: ${result.snippet}
+/** Exported for prompt-hardening snapshot tests (CAR-143). */
+export function buildEvalPrompt(interest: Interest, result: SerperResult): string {
+  // Interest fields come from notes/transcripts and the candidate article from
+  // web search — all untrusted; fence them (CAR-143).
+  return `The contact expressed interest in:
+${wrapUntrusted("interest_topic", interest.topic)}
+Evidence:
+${wrapUntrusted("evidence", interest.evidence)}
+
+Candidate article (from web search):
+- Title: ${wrapUntrusted("article_title", result.title)}
+- Source: ${wrapUntrusted("article_source", result.source)}
+- Snippet: ${wrapUntrusted("article_snippet", result.snippet)}
 - URL: ${result.url}
 
 Would sharing this article feel genuinely thoughtful and natural?
@@ -95,11 +104,10 @@ async function evaluateArticle(
     max_tokens: 300,
   });
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) return false;
-
-  const parsed = JSON.parse(content);
-  return parsed.verdict === "send";
+  // Malformed/truncated model JSON means "skip this article", never a throw
+  // (CAR-143, R5.4).
+  const parsed = parseModelJson(response.choices[0]?.message?.content);
+  return (parsed as { verdict?: unknown } | null)?.verdict === "send";
 }
 
 /**

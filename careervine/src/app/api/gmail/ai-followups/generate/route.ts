@@ -30,7 +30,7 @@ export const POST = withApiHandler({
   schema: aiFollowUpGenerateSchema,
   // CAR-51: spend cap on shared-key AI — each request covers ≤3 contacts
   // (schema max), so 30 batched generations/hour is far above normal use.
-  rateLimit: { bucket: "careervine-ai-followups", limit: 30, window: "1 h" },
+  rateLimit: { bucket: "careervine-ai-followups", limit: 30, window: "1 h", failClosed: true },
   handler: async ({ user, body }) => {
     const { contactIds } = body;
     const service = createSupabaseServiceClient();
