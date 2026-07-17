@@ -1,0 +1,66 @@
+# Dependabot config (CAR-147). Weekly, grouped updates so routine bumps arrive as
+# one reviewable PR per package manifest instead of a flood of single-package PRs.
+# Minor + patch bumps are batched together; major bumps still open individually so
+# breaking changes get their own review. Each PR triggers the P0 CI gate (CAR-138).
+version: 2
+updates:
+  # ── Main Next.js app ──
+  - package-ecosystem: "npm"
+    directory: "/careervine"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # The per-API Google subpackages and google-auth-library share the
+      # googleapis-common runtime and must move in lockstep, so group them
+      # across ALL update types (majors included) into one PR (CAR-147).
+      careervine-google-apis:
+        patterns:
+          - "@googleapis/*"
+          - "google-auth-library"
+          - "googleapis-common"
+      careervine-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── MCP server ──
+  - package-ecosystem: "npm"
+    directory: "/careervine-mcp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      careervine-mcp-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── Chrome extension side panel ──
+  - package-ecosystem: "npm"
+    directory: "/chrome-extension/panel-app"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      panel-app-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── GitHub Actions workflows ──
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"

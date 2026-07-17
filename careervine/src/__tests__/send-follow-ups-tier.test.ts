@@ -43,8 +43,11 @@ vi.mock("@/lib/user-status", () => ({
   filterActiveUserIds: async () => new Set(state.activeUserIds),
 }));
 
-vi.mock("@/lib/gmail", () => ({
+vi.mock("@/lib/gmail-send-core", () => ({
   getGmailClient: (...a: unknown[]) => getGmailClientSpy(...a),
+}));
+
+vi.mock("@/lib/gmail", () => ({
   activateContactByEmail: async () => {},
 }));
 

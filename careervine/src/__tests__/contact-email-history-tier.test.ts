@@ -11,8 +11,11 @@ let caps = new Set<string>();
 let conn: { gmail_address: string } | null = { gmail_address: "me@gmail.com" };
 const syncSpy = vi.fn<(...a: unknown[]) => Promise<number>>(async () => 3);
 
-vi.mock("@/lib/gmail", () => ({
+vi.mock("@/lib/gmail-send-core", () => ({
   getConnection: vi.fn(async () => conn),
+}));
+
+vi.mock("@/lib/gmail", () => ({
   syncEmailsForContact: (...a: unknown[]) => syncSpy(...a),
 }));
 

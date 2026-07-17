@@ -6,24 +6,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * draft, once opened in Gmail, is byte-identical to what a send would be.
  */
 
-// ── googleapis mock ────────────────────────────────────────────────────
+// ── @googleapis/gmail mock (CAR-147: subpackage swap) ───────────────────
 
 const draftCreateCalls: Array<Record<string, unknown>> = [];
 
-vi.mock("googleapis", () => ({
-  google: {
-    gmail: () => ({
-      users: {
-        drafts: {
-          create: async (args: Record<string, unknown>) => {
-            draftCreateCalls.push(args);
-            return { data: { id: "draft-1", message: { id: "msg-1", threadId: "thr-1" } } };
-          },
+vi.mock("@googleapis/gmail", () => ({
+  gmail: () => ({
+    users: {
+      drafts: {
+        create: async (args: Record<string, unknown>) => {
+          draftCreateCalls.push(args);
+          return { data: { id: "draft-1", message: { id: "msg-1", threadId: "thr-1" } } };
         },
       },
-    }),
-    auth: { OAuth2: class {} },
-  },
+    },
+  }),
 }));
 
 vi.mock("@/lib/oauth-helpers", () => ({
@@ -54,7 +51,8 @@ vi.mock("@/lib/supabase/service-client", () => ({
   }),
 }));
 
-import { buildMimeMessage, createDraft } from "@/lib/gmail";
+import { createDraft } from "@/lib/gmail";
+import { buildMimeMessage } from "@/lib/gmail-send-core";
 
 const decode = (raw: string) => Buffer.from(raw, "base64url").toString("utf-8");
 
