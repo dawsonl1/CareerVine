@@ -9,13 +9,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ResolveChunkResult } from "@/lib/bundle-resolve";
 
 const resolveChunkMock = vi.fn<(...a: unknown[]) => Promise<ResolveChunkResult>>();
-const markResolvedMock = vi.fn(async () => {});
+const markResolvedMock = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
 vi.mock("@/lib/bundle-resolve", () => ({
   resolveBundleChunk: (...a: unknown[]) => resolveChunkMock(...a),
   markBundleResolved: (...a: unknown[]) => markResolvedMock(...a),
 }));
 
-const enqueueDrainMock = vi.fn(async () => true);
+const enqueueDrainMock = vi.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
 vi.mock("@/lib/bundle-queue", () => ({
   enqueueResolveDrain: (...a: unknown[]) => enqueueDrainMock(...a),
   enqueueBundleSyncJobs: vi.fn(async () => 0),

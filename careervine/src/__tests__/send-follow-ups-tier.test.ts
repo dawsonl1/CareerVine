@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  */
 
 const getGmailClientSpy = vi.fn();
-const sendTrackedEmailSpy = vi.fn(async () => {});
+const sendTrackedEmailSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
 
 const state: {
   pendingMessages: unknown[];

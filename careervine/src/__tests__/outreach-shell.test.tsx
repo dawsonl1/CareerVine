@@ -30,6 +30,22 @@ vi.mock("@/components/ui/toast", () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 
+// matched_contact_id and body_html are nullable in the real inbox payload (an
+// email may match no contact and may have no persisted HTML body). The base
+// fixture only carries non-null values, so annotate the element type explicitly
+// or later "no persisted body" cases (null body_html) won't typecheck.
+type FixtureEmail = {
+  gmail_message_id: string;
+  thread_id: string;
+  subject: string;
+  direction: string;
+  to_addresses: string[];
+  date: string;
+  matched_contact_id: number | null;
+  snippet: string;
+  body_html: string | null;
+};
+
 const payload = {
   success: true,
   emails: [
@@ -44,7 +60,7 @@ const payload = {
       snippet: "Hi Jane, coffee next week?",
       body_html: "<p>Hi Jane, coffee next week?</p>",
     },
-  ],
+  ] as FixtureEmail[],
   scheduledEmails: [
     {
       id: 1,

@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * prove claim idempotency, milestone skipping, and the grace set-once guard.
  */
 
-const sendAppEmailSpy = vi.fn(async () => ({ ok: true, id: "e1" }));
+const sendAppEmailSpy = vi.fn<(...a: unknown[]) => Promise<{ ok: boolean; id: string }>>(async () => ({ ok: true, id: "e1" }));
 
 vi.mock("@upstash/qstash", () => ({
   Receiver: class {

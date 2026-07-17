@@ -38,6 +38,7 @@ function person(contact_id: number, roles: Partial<Role>[]): CompanyPerson {
     email: null,
     last_interaction: null,
     adjacency_score: null,
+    current_position: null,
     roles: roles.map(role),
   };
 }

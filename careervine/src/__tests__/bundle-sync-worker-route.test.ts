@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const processMock = vi.fn();
-const enqueueMock = vi.fn(async () => 1);
+const enqueueMock = vi.fn<(...a: unknown[]) => Promise<number>>(async () => 1);
 vi.mock("@/lib/bundle-queue", () => ({
   processSubscriptionsUnderBudget: (...a: unknown[]) => processMock(...a),
   enqueueBundleSyncJobs: (...a: unknown[]) => enqueueMock(...a),
