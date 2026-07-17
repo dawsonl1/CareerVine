@@ -186,6 +186,30 @@ export type Database = {
           },
         ]
       }
+      ai_shared_usage: {
+        Row: {
+          call_count: number
+          estimated_cost_usd: number
+          period_start: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          call_count?: number
+          estimated_cost_usd?: number
+          period_start: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          call_count?: number
+          estimated_cost_usd?: number
+          period_start?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       analytics_events: {
         Row: {
           created_at: string
@@ -2991,6 +3015,10 @@ export type Database = {
       }
       delete_pipeline_cycle: {
         Args: { p_cycle_number: number; p_target_company_id: number }
+        Returns: undefined
+      }
+      increment_ai_shared_usage: {
+        Args: { p_cost: number; p_period_start: string; p_user_id: string }
         Returns: undefined
       }
       is_internal_email: { Args: { p_email: string }; Returns: boolean }

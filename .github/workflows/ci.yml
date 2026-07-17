@@ -35,6 +35,9 @@ jobs:
       - name: Lint
         run: npx eslint . --max-warnings 0
 
+      - name: UI events guard
+        run: node scripts/check-ui-events.mjs
+
       - name: Test
         run: npx vitest run
 
@@ -139,3 +142,45 @@ jobs:
       # generated file) turns this red.
       - name: Fail if committed database.types.ts is stale
         run: git diff --exit-code -- careervine/src/lib/database.types.ts
+
+  extension:
+    name: extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: chrome-extension/panel-app/package-lock.json
+
+      - name: Install
+        working-directory: chrome-extension/panel-app
+        run: npm ci
+
+      # F14: the panel-app's strict tsconfig now actually runs. A PR that
+      # introduces a type error in panel-app/src goes red here.
+      - name: Typecheck (panel-app)
+        working-directory: chrome-extension/panel-app
+        run: npm run typecheck
+
+      - name: Build panel bundle
+        working-directory: chrome-extension/panel-app
+        run: npm run build
+
+      # F33: the committed 212KB runtime bundle can silently drift from source.
+      # Rebuilding and comparing the whole output directory (not just panel.js)
+      # catches a stale bundle (src edited without a rebuild), a hand-edited
+      # bundle, and any added or removed output file — e.g. a future multi-file
+      # split a single-file diff would miss. The build is deterministic across
+      # Node versions and platforms for the lockfile-pinned toolchain.
+      - name: Verify committed panel bundle is fresh
+        run: |
+          CHANGES="$(git status --porcelain -- chrome-extension/src/content/panel-app)"
+          if [ -n "$CHANGES" ]; then
+            echo "::error::Committed panel bundle is stale. Run 'cd chrome-extension/panel-app && npm ci && npm run build' and commit chrome-extension/src/content/panel-app/."
+            echo "$CHANGES"
+            git diff -- chrome-extension/src/content/panel-app
+            exit 1
+          fi

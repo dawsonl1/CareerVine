@@ -1,5 +1,6 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 import { z } from "zod";
 
 const getFollowUpsQuerySchema = z.object({
@@ -42,18 +43,22 @@ export const GET = withApiHandler({
   },
 });
 
+// CAR-143 (R5.1): recipient/subject strings end up interpolated into MIME
+// headers by the send cron — reject CR/LF at the boundary.
+const headerSafeString = z.string().regex(/^[^\r\n]*$/, "must not contain line breaks");
+
 const createFollowUpsSchema = z.object({
   contactId: z.number().int().positive(),
   threadId: z.string().nullable(),
   messageId: z.string().nullable(),
   scheduledEmailId: z.number().nullable().optional(),
-  recipientEmail: z.string(),
+  recipientEmail: headerSafeString,
   contactName: z.string().nullable(),
-  originalSubject: z.string(),
+  originalSubject: headerSafeString,
   originalSentAt: z.string(),
   timezoneOffsetMinutes: z.number(), // client's new Date().getTimezoneOffset()
   followUps: z.array(z.object({
-    subject: z.string(),
+    subject: headerSafeString,
     bodyHtml: z.string(),
     delayDays: z.number().int().positive(),
   })),
@@ -112,7 +117,9 @@ export const POST = withApiHandler({
         sequence_number: i + 1,
         send_after_days: fu.delayDays,
         subject: fu.subject,
-        body_html: fu.bodyHtml,
+        // The cron auto-sends stored body_html verbatim — sanitize at the
+        // storage chokepoint (CAR-143, R5.2)
+        body_html: sanitizeStoredEmailHtml(fu.bodyHtml),
         status: "pending" as const,
         scheduled_send_at: sendAt.toISOString(),
       };

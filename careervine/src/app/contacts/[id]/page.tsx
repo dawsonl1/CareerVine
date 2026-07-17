@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useParams, useRouter } from "next/navigation";
 import { hasInAppBackHistory } from "@/lib/nav-history";
 import { useAuth } from "@/components/auth-provider";
@@ -176,19 +177,15 @@ export default function ContactDetailPage() {
   }, [contact, gmailConn, loadContactEmails]);
 
   useEffect(() => {
-    const handler = () => {
+    return onUiEvent(UI_EVENTS.emailSent, () => {
       if (gmailConn) {
         setTimeout(() => loadContactEmails(), 500);
       }
-    };
-    window.addEventListener("careervine:email-sent", handler);
-    return () => window.removeEventListener("careervine:email-sent", handler);
+    });
   }, [gmailConn, loadContactEmails]);
 
   useEffect(() => {
-    const handler = () => loadRelatedData();
-    window.addEventListener("careervine:conversation-logged", handler);
-    return () => window.removeEventListener("careervine:conversation-logged", handler);
+    return onUiEvent(UI_EVENTS.conversationLogged, () => loadRelatedData());
   }, [loadRelatedData]);
 
   const handleScheduledEmailCancel = async (scheduledId: number) => {

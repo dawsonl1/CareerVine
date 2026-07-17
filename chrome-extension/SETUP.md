@@ -20,6 +20,18 @@
 
 The extension defaults to `env/development.json` (app on `localhost:3000`, Supabase on `127.0.0.1:54321`). For a production build, run `./build-prod.sh` — see README.md.
 
+`supabase start` uses the committed `supabase/config.toml`, so a fresh clone needs no extra setup for local development.
+
+## Applying migrations to the hosted project (maintainers)
+
+Local dev needs no linking. To push migrations to the hosted CareerVine project, link this clone to it once so `supabase db push` can reach the remote:
+
+```bash
+supabase link --project-ref <project-ref>
+```
+
+Then apply migrations with `./scripts/supabase-prod-push.sh` (it checks for the link first).
+
 ## Using it
 
 1. **Sign in**: click the CareerVine toolbar icon and sign in with your CareerVine credentials (or create an account / reset your password via the links).

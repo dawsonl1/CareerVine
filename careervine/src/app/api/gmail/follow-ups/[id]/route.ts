@@ -6,6 +6,7 @@ import {
   reconcileFollowUpEditStatuses,
   type PriorFollowUpMessageSnapshot,
 } from "@/lib/follow-up-helpers";
+import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 import {
   FollowUpStatus,
   FollowUpMessageStatus,
@@ -74,10 +75,12 @@ export const PUT = withApiHandler({
       .eq("follow_up_id", followUpId);
 
     // Insert new messages with sequence numbers after any already-sent ones
+    // The cron auto-sends stored body_html verbatim — sanitize on every write
+    // path into email_follow_up_messages (CAR-143, R5.2).
     const msgRows = reconcileFollowUpEditStatuses(
       buildFollowUpMessageRows(
         followUpId,
-        messages,
+        messages.map((m) => ({ ...m, bodyHtml: sanitizeStoredEmailHtml(m.bodyHtml) })),
         new Date(followUp.original_sent_at),
         sentCount ?? 0,
       ),

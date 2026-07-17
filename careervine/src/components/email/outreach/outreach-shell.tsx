@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { UI_EVENTS, emitUiEvent, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
@@ -159,9 +160,7 @@ export function OutreachShell() {
   }, [user, load, loadDrafts]);
 
   useEffect(() => {
-    const handler = () => void loadDrafts();
-    window.addEventListener("careervine:drafts-changed", handler);
-    return () => window.removeEventListener("careervine:drafts-changed", handler);
+    return onUiEvent(UI_EVENTS.draftsChanged, () => void loadDrafts());
   }, [loadDrafts]);
 
   // Confirm-to-send: the user either sends a parked follow-up now (replied=false)
@@ -180,7 +179,7 @@ export function OutreachShell() {
         toastSuccess(replied ? "Marked as replied" : "Follow-up sent");
         await load();
         // The confirm changed how many follow-ups await review — refresh the nav badge.
-        window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
+        emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
       } catch {
         toastError(replied ? "Could not update this follow-up" : "Could not send the follow-up");
       } finally {

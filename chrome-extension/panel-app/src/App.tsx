@@ -32,8 +32,6 @@ import {
   standardizeMonth,
 } from "./lib/profile-format";
 
-declare const chrome: any;
-
 /** Turn a raw auth error into something a user can act on. */
 function friendlyAuthError(message?: string): string {
   const m = (message || "").toLowerCase();
@@ -705,7 +703,9 @@ const App: React.FC = () => {
     typeof window !== 'undefined' && window.location?.href?.includes('linkedin.com/in/')
   );
   const [savedContactId, setSavedContactId] = useState<number | null>(null);
-  const [webappBaseUrl, setWebappBaseUrl] = useState("https://www.careervine.app");
+  // Null until the env config loads (see the getConfig effect). Never a
+  // hardcoded production default, so a dev build never links to production.
+  const [webappBaseUrl, setWebappBaseUrl] = useState<string | null>(null);
   const [existingContact, setExistingContact] = useState<any>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState(false);
@@ -760,10 +760,11 @@ const App: React.FC = () => {
     chrome?.storage?.local?.get?.(['autoScrapeEnabled'], (result: any) => {
       setAutoScrape(result?.autoScrapeEnabled || false);
     });
-    // Get webapp URL from config (strips /api from apiBaseUrl)
+    // Get webapp URL from config (strips a trailing /api, with or without a
+    // trailing slash, from apiBaseUrl).
     chrome?.runtime?.sendMessage?.({ action: 'getConfig' }, (response: any) => {
       if (response?.apiBaseUrl) {
-        setWebappBaseUrl(response.apiBaseUrl.replace(/\/api$/, ''));
+        setWebappBaseUrl(response.apiBaseUrl.replace(/\/api\/?$/, ''));
       }
     });
   }, []);
@@ -957,6 +958,9 @@ const App: React.FC = () => {
   };
 
   const careervineUrl = useMemo(() => {
+    // Undefined until the env config loads, so the link is inert rather than
+    // pointing at "null/..." or a hardcoded production URL.
+    if (!webappBaseUrl) return undefined;
     if (savedContactId) return `${webappBaseUrl}/contacts/${savedContactId}`;
     // For unsaved contacts, encode profile data in URL hash for the preview page
     if (profile) {
@@ -1040,7 +1044,7 @@ const App: React.FC = () => {
 
                 <div className="cv-forgot-row">
                   <a
-                    href={`${webappBaseUrl}/auth?mode=reset`}
+                    href={webappBaseUrl ? `${webappBaseUrl}/auth?mode=reset` : undefined}
                     target="_blank"
                     rel="noreferrer"
                     className="cv-link"
@@ -1061,7 +1065,7 @@ const App: React.FC = () => {
             <p className="cv-auth-footer">
               New to CareerVine?{" "}
               <a
-                href={`${webappBaseUrl}/auth?mode=signup`}
+                href={webappBaseUrl ? `${webappBaseUrl}/auth?mode=signup` : undefined}
                 target="_blank"
                 rel="noreferrer"
                 className="cv-link cv-link--strong"
@@ -1172,7 +1176,7 @@ const App: React.FC = () => {
                       </button>
                     )}
                     <a
-                      href={`${webappBaseUrl}/settings?tab=ai`}
+                      href={webappBaseUrl ? `${webappBaseUrl}/settings?tab=ai` : undefined}
                       target="_blank"
                       rel="noreferrer"
                       className={AI_FAILURE_COPY[aiFailure].retryable ? "cv-ai-notice-link" : "cv-analyze-btn"}

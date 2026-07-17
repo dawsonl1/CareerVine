@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { UI_EVENTS, emitUiEvent, unreadDeltaFor } from "@/lib/ui-events";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
@@ -38,6 +40,8 @@ export function ContactEmailsTab({
 }: ContactEmailsTabProps) {
   const { openCompose } = useCompose();
   const { error: toastError, success: toastSuccess } = useToast();
+  // Drops a slower email-body fetch when the user expands another message first.
+  const expandReq = useLatestRequest();
 
   const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
@@ -100,6 +104,9 @@ export function ContactEmailsTab({
     }
     setExpandedEmailId(gmailMessageId);
     setExpandedEmailContent(null);
+    // Claim the latest-expand token: a slower body fetch from a previously
+    // expanded message must not overwrite this row's content (CAR-145 / F19).
+    const token = expandReq.begin();
 
     const msg = emails.find((e) => e.gmail_message_id === gmailMessageId);
 
@@ -123,26 +130,27 @@ export function ContactEmailsTab({
 
     setLoadingEmailContent(true);
     if (msg && !msg.is_read) {
-      const delta = msg.direction === "inbound" ? -1 : 0;
-      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta } }));
+      const delta = unreadDeltaFor(msg);
+      emitUiEvent(UI_EVENTS.unreadChanged, { delta });
       try {
         await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
       } catch { /* best-effort */ }
       // Confirm badge count and reload parent email list so read state is reflected
-      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
+      emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
       onReloadEmails();
     }
 
     try {
       const res = await fetch(`/api/gmail/emails/${gmailMessageId}`);
       const data = await res.json();
+      if (!expandReq.isLatest(token)) return;
       if (data.success) {
         setExpandedEmailContent(data.message);
       }
     } catch {
-      toastError("Failed to load email content");
+      if (expandReq.isLatest(token)) toastError("Failed to load email content");
     } finally {
-      setLoadingEmailContent(false);
+      if (expandReq.isLatest(token)) setLoadingEmailContent(false);
     }
   };
 
@@ -188,7 +196,7 @@ export function ContactEmailsTab({
       onReloadEmails();
       loadFollowUpsForThread(threadId);
       // The confirm changed how many follow-ups await review — refresh the nav badge.
-      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
+      emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
     } catch {
       toastError(replied ? "Could not update this follow-up" : "Could not send the follow-up");
     } finally {
@@ -212,7 +220,7 @@ export function ContactEmailsTab({
       onReloadEmails();
       loadFollowUpsForThread(threadId);
       // Cancelling the sequence cleared its awaiting-review items — refresh the nav badge.
-      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
+      emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
     } catch {
       toastError("Could not mark as replied");
     } finally {

@@ -3,8 +3,6 @@
  * Auth + a focused, context-aware signed-in view.
  */
 
-const WEBAPP_BASE = 'https://www.careervine.app';
-
 const ICON_PROFILE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>';
 const ICON_SEARCH =
@@ -14,6 +12,10 @@ class PopupManager {
   constructor() {
     this.api = new CareerVineAPI();
     this.storage = new StorageHelper();
+    // Derived from the active env config (see loadWebappBase). Null until loaded
+    // and if the config can't be read — never a hardcoded production fallback, so
+    // a dev build opens the dev stack, not production.
+    this.webappBase = null;
     this.init();
   }
 
@@ -23,7 +25,21 @@ class PopupManager {
     const versionEl = document.querySelector('.app-version');
     if (versionEl) versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
 
-    await this.checkAuthStatus();
+    // Both round-trip to the background worker; run them together.
+    await Promise.all([this.loadWebappBase(), this.checkAuthStatus()]);
+  }
+
+  async loadWebappBase() {
+    try {
+      const { apiBaseUrl } = await this.api.getConfig();
+      // Same derivation as the LinkedIn panel: strip the trailing /api
+      // (with or without a trailing slash).
+      this.webappBase = apiBaseUrl.replace(/\/api\/?$/, '');
+    } catch (error) {
+      // Fail loud rather than silently defaulting to production.
+      console.error('Failed to load extension config; auth links disabled:', error);
+      this.webappBase = null;
+    }
   }
 
   setupEventListeners() {
@@ -37,16 +53,19 @@ class PopupManager {
 
     document.getElementById('signupLink')?.addEventListener('click', (e) => {
       e.preventDefault();
-      chrome.tabs.create({ url: `${WEBAPP_BASE}/auth?mode=signup` });
+      if (!this.webappBase) return;
+      chrome.tabs.create({ url: `${this.webappBase}/auth?mode=signup` });
     });
     document.getElementById('forgotLink')?.addEventListener('click', (e) => {
       e.preventDefault();
-      chrome.tabs.create({ url: `${WEBAPP_BASE}/auth?mode=reset` });
+      if (!this.webappBase) return;
+      chrome.tabs.create({ url: `${this.webappBase}/auth?mode=reset` });
     });
 
     document.getElementById('openAppBtn')?.addEventListener('click', (e) => {
       e.preventDefault();
-      chrome.tabs.create({ url: WEBAPP_BASE });
+      if (!this.webappBase) return;
+      chrome.tabs.create({ url: this.webappBase });
     });
 
     document.getElementById('importBtn')?.addEventListener('click', () => this.importCurrentProfile());

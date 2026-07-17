@@ -10,6 +10,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import LandingPage from "@/components/landing-page";
 import Navigation from "@/components/navigation";
@@ -84,7 +85,7 @@ export default function Home() {
   const { calendarConnected, loading: gmailLoading } = useGmailConnection();
 
   // ── SWR cache: hydrate from localStorage on mount for instant revisit ──
-  const cacheKey = user ? `careervine:home:${user.id}` : null;
+  const cacheKey = user ? `careervine-home:${user.id}` : null;
   const cachedData = useMemo(() => {
     if (!cacheKey || typeof window === "undefined") return null;
     try {
@@ -378,15 +379,13 @@ export default function Home() {
       loadCoreData();
       loadBand3();
     };
-    window.addEventListener("careervine:conversation-logged", handler);
-    window.addEventListener("careervine:email-sent", handler);
-    // Fired by the CAR-68 flow when it deletes or completes the seeded to-do.
-    window.addEventListener("careervine:onboarding-todo-changed", handler);
-    return () => {
-      window.removeEventListener("careervine:conversation-logged", handler);
-      window.removeEventListener("careervine:email-sent", handler);
-      window.removeEventListener("careervine:onboarding-todo-changed", handler);
-    };
+    const unsubscribers = [
+      onUiEvent(UI_EVENTS.conversationLogged, handler),
+      onUiEvent(UI_EVENTS.emailSent, handler),
+      // Fired by the CAR-68 flow when it deletes or completes the seeded to-do.
+      onUiEvent(UI_EVENTS.onboardingTodoChanged, handler),
+    ];
+    return () => unsubscribers.forEach((off) => off());
   }, [loadCoreData, loadBand3]);
 
   // Background refresh every 5 minutes — only while the tab is visible (CAR-106).

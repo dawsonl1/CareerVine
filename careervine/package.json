@@ -12,7 +12,8 @@
     "gen:types": "bash ../scripts/gen-supabase-types.sh",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "check:ui-events": "node scripts/check-ui-events.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",

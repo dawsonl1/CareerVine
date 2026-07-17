@@ -2,6 +2,8 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { aiDraftIntroSchema } from "@/lib/api-schemas";
 import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
+import { sanitizeAiDraftHtml } from "@/lib/ai/sanitize-email-html";
+import { UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 
 /**
  * POST /api/ai/draft-intro
@@ -10,7 +12,7 @@ import { getContactContext } from "@/lib/ai-helpers";
 export const POST = withApiHandler({
   schema: aiDraftIntroSchema,
   // CAR-51: spend cap on shared-key AI — far above any human drafting pace.
-  rateLimit: { bucket: "careervine-ai-draft-intro", limit: 30, window: "1 h" },
+  rateLimit: { bucket: "careervine-ai-draft-intro", limit: 30, window: "1 h", failClosed: true },
   handler: async ({ user, body, track }) => {
     const { contactId, howMet, goal, notes } = body;
     const startedAt = Date.now();
@@ -20,6 +22,11 @@ export const POST = withApiHandler({
     if (!ctx.contactName) {
       throw new ApiError("Contact not found", 404);
     }
+
+    // The contact name is LinkedIn/user-sourced but sits inside the SYSTEM
+    // prompt — strip line breaks and angle brackets so it can't fake
+    // structure there (CAR-143).
+    const safeContactName = ctx.contactName.replace(/[\r\n<>]+/g, " ").trim();
 
     // Determine tone based on how they met
     const isColdOutreach = howMet?.toLowerCase().includes("haven't met");
@@ -37,7 +44,7 @@ BODY:
 [your email body HTML here]
 
 For the body:
-- Start with a greeting (e.g., "Hi ${ctx.contactName},")
+- Start with a greeting (e.g., "Hi ${safeContactName},")
 - End just before where a signature would go
 - Be concise (3-5 short paragraphs max)
 - Professional but warm — this is a student reaching out, not a corporate email
@@ -45,7 +52,9 @@ For the body:
 - Output clean HTML (use <p> tags for paragraphs)
 - Do not use markdown
 
-${toneInstruction}`;
+${toneInstruction}
+
+${UNTRUSTED_DATA_CLAUSE}`;
 
     const userParts: string[] = [];
 
@@ -85,7 +94,8 @@ ${toneInstruction}`;
     const bodyMatch = output.match(/BODY:\s*([\s\S]+)/);
 
     if (subjectMatch) {
-      subject = subjectMatch[1].trim();
+      // Interior line breaks would corrupt the MIME Subject header (R5.1)
+      subject = subjectMatch[1].replace(/[\r\n]+/g, " ").trim();
     }
     if (bodyMatch) {
       bodyHtml = bodyMatch[1].trim();
@@ -93,6 +103,9 @@ ${toneInstruction}`;
       // Fallback: use entire output as body
       bodyHtml = output.trim();
     }
+
+    // Never return raw model HTML (CAR-143, R5.2)
+    bodyHtml = sanitizeAiDraftHtml(bodyHtml);
 
     track("ai_draft_generated", { kind: "intro", latency_ms: Date.now() - startedAt });
     return { subject, bodyHtml };

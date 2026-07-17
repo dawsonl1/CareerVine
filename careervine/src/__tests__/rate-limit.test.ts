@@ -99,4 +99,53 @@ describe('checkRateLimit', () => {
 
     warn.mockRestore();
   });
+
+  // ── CAR-143 (R5.3): fail-closed AI buckets ───────────────────────────
+
+  const FAIL_CLOSED = { ...OPTIONS, failClosed: true } as const;
+
+  it('failClosed DENIES in production when Upstash env vars are absent', async () => {
+    vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '');
+    vi.stubEnv('NODE_ENV', 'production');
+    resetRateLimitersForTests();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await checkRateLimit('user-1', FAIL_CLOSED);
+
+    expect(result).toEqual({ allowed: false, remaining: 0, resetAt: null });
+    error.mockRestore();
+    warn.mockRestore();
+  });
+
+  it('failClosed DENIES in production when the limiter throws', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    MockRatelimit.limitMock.mockRejectedValue(new Error('redis down'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await checkRateLimit('user-1', FAIL_CLOSED);
+
+    expect(result).toEqual({ allowed: false, remaining: 0, resetAt: null });
+    error.mockRestore();
+  });
+
+  it('failClosed still allows outside production without Redis (local dev)', async () => {
+    vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '');
+    resetRateLimitersForTests();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await checkRateLimit('user-1', FAIL_CLOSED);
+
+    expect(result).toEqual({ allowed: true, remaining: OPTIONS.limit, resetAt: null });
+    warn.mockRestore();
+  });
+
+  it('fail-open buckets still propagate limiter errors (unchanged behavior)', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    MockRatelimit.limitMock.mockRejectedValue(new Error('redis down'));
+
+    await expect(checkRateLimit('user-1', OPTIONS)).rejects.toThrow('redis down');
+  });
 });

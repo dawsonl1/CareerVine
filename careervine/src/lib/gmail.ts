@@ -792,16 +792,59 @@ export interface ComposeEmailOptions {
   references?: string;
 }
 
+/**
+ * Strip CR/LF and other control characters from a value interpolated into a
+ * MIME header, so no value can terminate its header line and inject new
+ * headers (e.g. a subject containing "\r\nBcc: attacker@evil.com") — CAR-143.
+ */
+export function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+}
+
+/**
+ * RFC 2047 encoded-word bytes-per-chunk budget: 45 UTF-8 bytes → 60 base64
+ * chars → 72 chars with the =?UTF-8?B?...?= framing, under the 75-char limit.
+ */
+const ENCODED_WORD_MAX_BYTES = 45;
+
+/**
+ * RFC 2047-encode a header value when it contains non-ASCII characters
+ * (raw UTF-8 in a header is malformed RFC 2822 and renders garbled in
+ * strict clients). ASCII-only values pass through unchanged. Long values
+ * are split across encoded words on code-point boundaries.
+ */
+export function encodeHeaderValue(value: string): string {
+  if (/^[ -~]*$/.test(value)) return value;
+  const chunks: string[] = [];
+  let chunk = "";
+  for (const ch of value) {
+    if (chunk && Buffer.byteLength(chunk + ch, "utf8") > ENCODED_WORD_MAX_BYTES) {
+      chunks.push(chunk);
+      chunk = "";
+    }
+    chunk += ch;
+  }
+  if (chunk) chunks.push(chunk);
+  // Join with CRLF + space: RFC 5322 folding keeps each encoded-word line
+  // under the RFC 2047 76-char limit, and decoders drop folding whitespace
+  // between adjacent encoded words. The continuation line starts with a
+  // space, so this deliberate fold can never start a new header (attacker
+  // CR/LF was already stripped by sanitizeHeaderValue before encoding).
+  return chunks
+    .map((c) => `=?UTF-8?B?${Buffer.from(c, "utf8").toString("base64")}?=`)
+    .join("\r\n ");
+}
+
 /** Build a base64url-encoded RFC 2822 message (shared by send and draft paths). */
 export function buildMimeMessage(fromAddress: string, opts: ComposeEmailOptions): string {
   const mimeLines = [
-    `From: ${fromAddress}`,
-    `To: ${opts.to}`,
-    ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
-    ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
-    `Subject: ${opts.subject}`,
-    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
-    ...(opts.references ? [`References: ${opts.references}`] : []),
+    `From: ${sanitizeHeaderValue(fromAddress)}`,
+    `To: ${sanitizeHeaderValue(opts.to)}`,
+    ...(opts.cc ? [`Cc: ${sanitizeHeaderValue(opts.cc)}`] : []),
+    ...(opts.bcc ? [`Bcc: ${sanitizeHeaderValue(opts.bcc)}`] : []),
+    `Subject: ${encodeHeaderValue(sanitizeHeaderValue(opts.subject))}`,
+    ...(opts.inReplyTo ? [`In-Reply-To: ${sanitizeHeaderValue(opts.inReplyTo)}`] : []),
+    ...(opts.references ? [`References: ${sanitizeHeaderValue(opts.references)}`] : []),
     "MIME-Version: 1.0",
     'Content-Type: text/html; charset="UTF-8"',
     "",

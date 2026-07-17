@@ -10,6 +10,8 @@
 
 import { createOpenAIRunner, DEFAULT_MODEL, AiUnavailableError, type OpenAIRunner } from "@/lib/openai";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { parseModelJson } from "@/lib/ai/model-json";
+import { UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 import { gatherContactContext, formatContextForLLM } from "./gather-context";
 import { SuggestionReasonType, ActionItemSource, ActionDirection } from "@/lib/constants";
 import type { AiFailureCode } from "@/lib/ai-errors";
@@ -330,7 +332,9 @@ Rules:
 - Suggest a concrete action ("ask how the launch went") not a vague reminder ("follow up")
 - If there's genuinely nothing to go on, return null for that contact
 - Headlines: MUST be under 70 characters, conversational tone. This is critical — long headlines break the UI.
-- Suggested actions: MUST be under 80 characters, starts with a verb. Keep it concise.`;
+- Suggested actions: MUST be under 80 characters, starts with a verb. Keep it concise.
+
+${UNTRUSTED_DATA_CLAUSE}`;
 
 const LLM_RESPONSE_SCHEMA = {
   type: "json_schema" as const,
@@ -412,27 +416,24 @@ export async function generateLlmSuggestions(
       }),
     );
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) return [];
-
-    let parsed: { suggestions: Array<{
+    // Missing/malformed/wrong-shaped model JSON degrades to no LLM
+    // suggestions — never a throw (CAR-143, R5.4 convention).
+    type LlmSuggestion = {
       contactId: number;
       headline: string | null;
       detail: string | null;
       suggestedAction: string | null;
       evidence: string | null;
       confidence: number;
-    }> };
-
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      return [];
-    }
+    };
+    const parsed = parseModelJson(response.choices[0]?.message?.content) as
+      | { suggestions?: LlmSuggestion[] }
+      | null;
+    const llmSuggestions = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
 
     const contactMap = new Map(validEntries.map((e) => [e.contact.id, e.contact]));
 
-    return parsed.suggestions
+    return llmSuggestions
       .filter((s) => s.headline && s.confidence > 0.3)
       .map((s) => {
         const contact = contactMap.get(s.contactId);

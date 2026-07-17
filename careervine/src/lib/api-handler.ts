@@ -238,10 +238,12 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
       if (config.rateLimit && rateLimitUserId) {
         const rate = await checkRateLimit(rateLimitUserId, config.rateLimit);
         if (!rate.allowed) {
-          const retryAfterSec = Math.max(
-            1,
-            Math.ceil(((rate.resetAt ?? Date.now()) - Date.now()) / 1000),
-          );
+          // resetAt null = the limiter itself is unavailable (fail-closed
+          // denial, CAR-143) — advertise a conservative retry, not 1s, so
+          // clients don't hammer through an outage.
+          const retryAfterSec = rate.resetAt
+            ? Math.max(1, Math.ceil((rate.resetAt - Date.now()) / 1000))
+            : 60;
           return jsonResponse(
             {
               error: "Rate limit exceeded. Please try again later.",

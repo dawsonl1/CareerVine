@@ -52,6 +52,7 @@ coverage/
 *.zip
 *.bak
 *.tmp
+*.save
 logs/
 
 # ---- Framework Artifacts ----
