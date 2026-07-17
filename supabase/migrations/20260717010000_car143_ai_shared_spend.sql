@@ -44,3 +44,12 @@ AS $$
     call_count = ai_shared_usage.call_count + 1,
     updated_at = now();
 $$;
+
+-- Supabase default-grants EXECUTE on public functions to anon/authenticated
+-- (PostgREST exposes them at /rpc). Only the service client may meter spend:
+-- without this REVOKE the call is blocked merely by the incidental absence of
+-- an INSERT policy on the RLS'd table. Belt and suspenders, matching the
+-- repo convention (apply_bundle_resolutions, user_ai_access hardening).
+REVOKE ALL ON FUNCTION increment_ai_shared_usage(uuid, date, numeric) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION increment_ai_shared_usage(uuid, date, numeric) TO service_role;
+REVOKE INSERT, UPDATE, DELETE ON ai_shared_usage FROM anon, authenticated;

@@ -3,7 +3,7 @@ import { aiDraftFollowUpsSchema } from "@/lib/api-schemas";
 import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
 import { sanitizeAiDraftHtml } from "@/lib/ai/sanitize-email-html";
-import { UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
+import { wrapUntrusted, UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 
 /**
  * POST /api/ai/draft-follow-ups
@@ -18,6 +18,11 @@ export const POST = withApiHandler({
     const startedAt = Date.now();
 
     const ctx = await getContactContext(user.id, contactId);
+
+    // The contact name is LinkedIn/user-sourced but sits inside the SYSTEM
+    // prompt — strip line breaks and angle brackets so it can't fake
+    // structure there (CAR-143).
+    const safeContactName = ctx.contactName.replace(/[\r\n<>]+/g, " ").trim();
 
     const systemPrompt = `You are helping a college student write follow-up emails for a networking outreach sequence.
 
@@ -50,7 +55,7 @@ Each follow-up should:
 - Be a reply in the same thread (Re: subject)
 - Reference the original email naturally
 - Match the tone of the original
-- Start with "Hi ${ctx.contactName}," and end before a signature
+- Start with "Hi ${safeContactName}," and end before a signature
 - Output clean HTML (<p> tags for paragraphs)
 - Not repeat the same opening across follow-ups
 
@@ -58,7 +63,9 @@ ${UNTRUSTED_DATA_CLAUSE}`;
 
     const userParts: string[] = [];
     userParts.push(`ORIGINAL SUBJECT: ${introSubject}`);
-    userParts.push(`\nORIGINAL EMAIL BODY:\n${introBodyHtml}`);
+    // The intro body is user-approved but may embed AI/context-derived text —
+    // fence it like the other free-text spans (CAR-143).
+    userParts.push(`\nORIGINAL EMAIL BODY:\n${wrapUntrusted("prior_email_body", introBodyHtml)}`);
     if (goal) userParts.push(`\nSTUDENT'S GOAL: ${goal}`);
     if (howMet) userParts.push(`\nHOW THEY KNOW EACH OTHER: ${howMet}`);
     if (ctx.contactInfo) userParts.push(`\nRECIPIENT INFO:\n${ctx.contactInfo}`);

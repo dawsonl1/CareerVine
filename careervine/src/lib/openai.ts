@@ -370,15 +370,21 @@ function isQuotaError(err: unknown): boolean {
 }
 
 /**
- * CAR-143 (R5.3): is this user still under the persisted shared-key spend
- * ceiling? Fails CLOSED — a lookup error reads as "no budget" (the spend-safe
- * default, matching resolveSharedAccess's deny-on-error posture).
+ * CAR-143 (R5.3): where does this user stand against the persisted shared-key
+ * spend ceiling? Every non-"available" state fails CLOSED (no shared call),
+ * but "exhausted" (genuinely over the ceiling → trial-expiry UX) is kept
+ * distinct from "unknown" (lookup error → retryable ai_unavailable UX) so a
+ * transient DB blip never tells a user their free AI ended for good.
  */
-async function hasSharedSpendBudget(userId: string): Promise<boolean> {
+type SharedSpendBudget = "available" | "exhausted" | "unknown";
+
+async function checkSharedSpendBudget(userId: string): Promise<SharedSpendBudget> {
   try {
-    return (await getSharedAiSpendUsd(userId)) < SHARED_AI_SPEND_LIMIT_USD;
+    return (await getSharedAiSpendUsd(userId)) < SHARED_AI_SPEND_LIMIT_USD
+      ? "available"
+      : "exhausted";
   } catch {
-    return false;
+    return "unknown";
   }
 }
 
@@ -390,22 +396,30 @@ async function hasSharedSpendBudget(userId: string): Promise<boolean> {
  *
  * CAR-143 (R5.3): entitlement alone is no longer enough — the shared key is
  * only handed out while the user is under the persisted spend ceiling.
- * Over-ceiling (or a failed spend lookup) resolves exactly like an exhausted
- * entitlement: key-specific code when a dead personal key exists, else the
- * trial-expiry UX.
+ * Over-ceiling resolves like an exhausted entitlement (key-specific code when
+ * a dead personal key exists, else the trial-expiry UX); an unreadable spend
+ * state fails closed as the retryable ai_unavailable.
  */
 async function resolveWithoutPersonalKey(
   userId: string,
   keyState: PersonalKeyState,
 ): Promise<OpenAIResolution> {
   const access = await routing.resolveSharedAccess(userId);
-  if (access.granted && (await routing.hasSharedSpendBudget(userId))) {
-    try {
-      return { ok: true, client: getAppOpenAIClient(), source: "app" };
-    } catch {
-      // Shared access granted but the app key isn't configured.
+  if (access.granted) {
+    const budget = await routing.checkSharedSpendBudget(userId);
+    if (budget === "available") {
+      try {
+        return { ok: true, client: getAppOpenAIClient(), source: "app" };
+      } catch {
+        // Shared access granted but the app key isn't configured.
+        return { ok: false, code: "ai_unavailable" };
+      }
+    }
+    if (budget === "unknown") {
+      // Spend state unreadable — deny this call, but as a transient outage.
       return { ok: false, code: "ai_unavailable" };
     }
+    // "exhausted" falls through to the key-specific / trial-expiry codes.
   }
 
   if (keyState === "invalid") return { ok: false, code: "ai_key_invalid" };
@@ -475,7 +489,7 @@ const routing = {
   getOpenAIForUser,
   getAppOpenAIClient,
   resolveSharedAccess,
-  hasSharedSpendBudget,
+  checkSharedSpendBudget,
 };
 
 /**
@@ -491,9 +505,9 @@ async function fallbackToSharedOrFail<T>(
     throw new AiUnavailableError(failCode);
   }
   // CAR-143 (R5.3): no shared-key call without spend budget, on any path.
-  if (!(await routing.hasSharedSpendBudget(userId))) {
-    throw new AiUnavailableError(failCode);
-  }
+  const budget = await routing.checkSharedSpendBudget(userId);
+  if (budget === "unknown") throw new AiUnavailableError("ai_unavailable");
+  if (budget === "exhausted") throw new AiUnavailableError(failCode);
 
   let appClient: OpenAI;
   try {

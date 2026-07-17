@@ -10,6 +10,7 @@
  */
 
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { AiUnavailableError } from "@/lib/openai";
 import { aiFollowUpGenerateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { AiFollowUpDraftStatus } from "@/lib/constants";
@@ -168,6 +169,12 @@ export const POST = withApiHandler({
 
         results.push({ contactId, draft: inserted });
       } catch (err) {
+        // AI availability failures (trial expired, spend ceiling, no key)
+        // apply to the whole batch — rethrow so the client gets the 402
+        // {code} UX instead of a generic per-contact error. Drafts already
+        // generated for earlier contacts are persisted and show up on the
+        // next pending fetch (CAR-143).
+        if (err instanceof AiUnavailableError) throw err;
         console.error(`[AI Follow-Up] Failed to generate draft for contact ${contactId}:`, err);
         results.push({
           contactId,

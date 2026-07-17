@@ -24,10 +24,16 @@ const jsdomWindow = new JSDOM("").window;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const purify = createDOMPurify(jsdomWindow as any);
 
-/** Tight allowlist for model-generated draft HTML. */
+/**
+ * Tight allowlist for model-generated draft HTML. Lists are included even
+ * though the prompts request <p>-only output: models occasionally emit them
+ * anyway, and DOMPurify's KEEP_CONTENT would otherwise flatten
+ * "<ul><li>one</li><li>two</li></ul>" into the run-together text "onetwo".
+ * List tags carry no attributes, so they add no attack surface.
+ */
 export function sanitizeAiDraftHtml(html: string): string {
   return purify.sanitize(html, {
-    ALLOWED_TAGS: ["p", "br", "a", "strong", "em", "b", "i"],
+    ALLOWED_TAGS: ["p", "br", "a", "strong", "em", "b", "i", "ul", "ol", "li"],
     ALLOWED_ATTR: ["href", "target", "rel"],
   });
 }

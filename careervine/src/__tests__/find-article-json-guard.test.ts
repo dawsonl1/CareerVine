@@ -55,4 +55,15 @@ describe("findArticle eval JSON guard (R5.4)", () => {
     );
     expect(result?.article.url).toBe("https://example.com/article");
   });
+
+  it("rethrows AI availability failures instead of burning the eval budget", async () => {
+    const { AiUnavailableError } = await import("@/lib/openai");
+    const failingRunner = (async () => {
+      throw new AiUnavailableError("ai_trial_expired");
+    }) as unknown as OpenAIRunner;
+
+    await expect(findArticle(extracted, failingRunner)).rejects.toMatchObject({
+      code: "ai_trial_expired",
+    });
+  });
 });

@@ -23,6 +23,11 @@ export const POST = withApiHandler({
       throw new ApiError("Contact not found", 404);
     }
 
+    // The contact name is LinkedIn/user-sourced but sits inside the SYSTEM
+    // prompt — strip line breaks and angle brackets so it can't fake
+    // structure there (CAR-143).
+    const safeContactName = ctx.contactName.replace(/[\r\n<>]+/g, " ").trim();
+
     // Determine tone based on how they met
     const isColdOutreach = howMet?.toLowerCase().includes("haven't met");
     const toneInstruction = isColdOutreach
@@ -39,7 +44,7 @@ BODY:
 [your email body HTML here]
 
 For the body:
-- Start with a greeting (e.g., "Hi ${ctx.contactName},")
+- Start with a greeting (e.g., "Hi ${safeContactName},")
 - End just before where a signature would go
 - Be concise (3-5 short paragraphs max)
 - Professional but warm — this is a student reaching out, not a corporate email

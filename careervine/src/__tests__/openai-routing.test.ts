@@ -335,7 +335,9 @@ describe("openai routing", () => {
     const accessSpy = vi
       .spyOn(routing, "resolveSharedAccess")
       .mockResolvedValue({ granted: true, trialExpired: false });
-    const budgetSpy = vi.spyOn(routing, "hasSharedSpendBudget").mockResolvedValue(true);
+    const budgetSpy = vi
+      .spyOn(routing, "checkSharedSpendBudget")
+      .mockResolvedValue("available");
 
     const result = await openaiModule.runWithOpenAIFallback("user-123", (client) =>
       client.responses.create({ model: "gpt-5-mini", input: "hi" } as never),
@@ -527,10 +529,11 @@ describe("openai routing", () => {
     expect(spend.maybeSingle).toHaveBeenCalled();
   });
 
-  it("fails CLOSED to ai_trial_expired when the spend lookup errors", async () => {
+  it("fails CLOSED to the retryable ai_unavailable when the spend lookup errors", async () => {
     mockDb(null, accessTableMock({ rows: [accessRow()] }), spendTableMock({ error: true }));
     const resolved = await openaiModule.getOpenAIForUser("user-123");
-    expect(resolved).toMatchObject({ ok: false, code: "ai_trial_expired" });
+    // Denied (no shared call), but as a transient outage — not trial-expired.
+    expect(resolved).toMatchObject({ ok: false, code: "ai_unavailable" });
   });
 
   it("keeps the key-specific code when over the ceiling with a dead personal key", async () => {

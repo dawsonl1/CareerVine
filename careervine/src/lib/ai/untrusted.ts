@@ -16,6 +16,14 @@
  * XML-style fence around untrusted text. The tag is normalized to a safe
  * identifier and any literal closing tag inside the content is escaped so the
  * content cannot terminate its own fence.
+ *
+ * Known limitation: only the fence's OWN closing tag is escaped, so content
+ * inside one fence can still carry a verbatim tag of a DIFFERENT fence (e.g.
+ * "</transcript>" inside <contact_notes>). That cannot break out of the
+ * enclosing fence — it only plants a stray sibling tag — and
+ * UNTRUSTED_DATA_CLAUSE instructs the model to treat ALL such fenced/tagged
+ * spans as data. Escaping every closing-tag-like sequence would mangle
+ * legitimate HTML inside fenced content, so this trade-off is deliberate.
  */
 export function wrapUntrusted(tag: string, text: string): string {
   const safeTag = tag.replace(/[^a-zA-Z0-9_-]/g, "_") || "untrusted";

@@ -29,10 +29,11 @@ describe("sanitizeAiDraftHtml (tight AI-draft profile)", () => {
     expect(out).not.toContain("javascript:");
   });
 
-  it("drops headings/lists (outside the tight allowlist)", () => {
-    const out = sanitizeAiDraftHtml("<h1>Big</h1><ul><li>item</li></ul><p>ok</p>");
+  it("drops headings but keeps lists (models emit them despite instructions)", () => {
+    const out = sanitizeAiDraftHtml("<h1>Big</h1><ul><li>one</li><li>two</li></ul><p>ok</p>");
     expect(out).not.toContain("<h1>");
-    expect(out).not.toContain("<ul>");
+    // Without list tags, KEEP_CONTENT would flatten "one two" into "onetwo".
+    expect(out).toContain("<ul><li>one</li><li>two</li></ul>");
     expect(out).toContain("<p>ok</p>");
   });
 });

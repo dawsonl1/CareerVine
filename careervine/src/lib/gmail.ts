@@ -825,9 +825,14 @@ export function encodeHeaderValue(value: string): string {
     chunk += ch;
   }
   if (chunk) chunks.push(chunk);
+  // Join with CRLF + space: RFC 5322 folding keeps each encoded-word line
+  // under the RFC 2047 76-char limit, and decoders drop folding whitespace
+  // between adjacent encoded words. The continuation line starts with a
+  // space, so this deliberate fold can never start a new header (attacker
+  // CR/LF was already stripped by sanitizeHeaderValue before encoding).
   return chunks
     .map((c) => `=?UTF-8?B?${Buffer.from(c, "utf8").toString("base64")}?=`)
-    .join(" ");
+    .join("\r\n ");
 }
 
 /** Build a base64url-encoded RFC 2822 message (shared by send and draft paths). */

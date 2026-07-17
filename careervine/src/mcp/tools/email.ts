@@ -28,8 +28,18 @@ import {
   insertFollowUpSequence,
 } from "../lib/db";
 import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
+import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 import { markdownToHtml } from "../lib/markdown";
 import { handler, contactRefShape } from "../lib/tool-utils";
+
+/**
+ * MCP bodies come straight from an LLM, and markdownToHtml passes raw HTML
+ * through untouched — sanitize every body before it is stored or sent, the
+ * same email-safe profile the web write paths apply (CAR-143, R5.2).
+ */
+function toSafeEmailHtml(body: string): string {
+  return sanitizeStoredEmailHtml(markdownToHtml(body));
+}
 
 // CAR-143 (R5.1): MCP args come straight from an LLM — reject CR/LF in any
 // string that gets interpolated into a MIME header (subject, recipient).
@@ -119,7 +129,7 @@ export function registerEmailTools(server: McpServer): void {
     handler(async ({ contact_id, name, subject, body, thread_id, to_email }) => {
       const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
       const reply = await resolveReplyHeaders(thread_id);
-      const bodyHtml = markdownToHtml(body);
+      const bodyHtml = toSafeEmailHtml(body);
 
       // Free tier holds no gmail.modify scope, so a real Gmail draft (drafts.create)
       // would 403. Fall back to an app-side draft (email_drafts), which the user
@@ -174,7 +184,7 @@ export function registerEmailTools(server: McpServer): void {
       const result = await sendTrackedEmail(uid(), {
         to: recipient.email,
         subject,
-        bodyHtml: markdownToHtml(body),
+        bodyHtml: toSafeEmailHtml(body),
         threadId: thread_id,
         inReplyTo: reply.inReplyTo,
         references: reply.references,
@@ -207,7 +217,7 @@ export function registerEmailTools(server: McpServer): void {
       const id = await createScheduledEmail({
         to: recipient.email,
         subject,
-        bodyHtml: markdownToHtml(body),
+        bodyHtml: toSafeEmailHtml(body),
         scheduledSendAt: when.toISOString(),
         threadId: thread_id,
         inReplyTo: reply.inReplyTo,
@@ -262,7 +272,7 @@ export function registerEmailTools(server: McpServer): void {
         messages.map((m) => ({
           sendAfterDays: m.send_after_days,
           subject: m.subject,
-          bodyHtml: markdownToHtml(m.body),
+          bodyHtml: toSafeEmailHtml(m.body),
         })),
         new Date(baseIso),
       );

@@ -7,7 +7,7 @@
  */
 
 import OpenAI from "openai";
-import { DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
+import { AiUnavailableError, DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
 import { parseModelJson } from "@/lib/ai/model-json";
 import { wrapUntrusted, UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 import { searchNews, searchWeb, type SerperResult } from "@/lib/serper";
@@ -58,16 +58,31 @@ Return JSON: { "verdict": "send" or "skip", "reason": "brief explanation" }`;
 }
 
 /**
- * Validate that a URL is a well-formed https:// URL.
- * Rejects javascript:, data:, and non-HTTPS schemes.
+ * Validate that a URL is a well-formed https:// URL and return its WHATWG-
+ * normalized form (null when invalid). Rejects javascript:, data:, and
+ * non-HTTPS schemes. Normalization matters beyond hygiene: `.href`
+ * percent-encodes tag-forming characters (<, >, quotes, whitespace) in the
+ * path/query/fragment, so a crafted search-result URL can't smuggle fence
+ * tags or prompt text into the LLM prompts it gets interpolated into
+ * (CAR-143).
  */
-function isValidArticleUrl(url: string): boolean {
+function normalizeArticleUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:";
+    return parsed.protocol === "https:" ? parsed.href : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Keep only https results, with their URLs WHATWG-normalized. */
+function normalizeResults(results: SerperResult[]): SerperResult[] {
+  const valid: SerperResult[] = [];
+  for (const r of results) {
+    const url = normalizeArticleUrl(r.url);
+    if (url) valid.push({ ...r, url });
+  }
+  return valid;
 }
 
 /**
@@ -117,8 +132,7 @@ async function evaluateArticle(
 async function searchForTopic(query: string): Promise<SerperResult[]> {
   // Try news first — recent articles feel most natural to share
   try {
-    const newsResults = await searchNews(query, 5);
-    const validNews = newsResults.filter((r) => isValidArticleUrl(r.url));
+    const validNews = normalizeResults(await searchNews(query, 5));
     if (validNews.length > 0) return validNews;
   } catch {
     // News endpoint failed, fall through to web search
@@ -126,8 +140,7 @@ async function searchForTopic(query: string): Promise<SerperResult[]> {
 
   // Fall back to web search
   try {
-    const webResults = await searchWeb(query, 5);
-    return webResults.filter((r) => isValidArticleUrl(r.url));
+    return normalizeResults(await searchWeb(query, 5));
   } catch {
     return [];
   }
@@ -176,7 +189,11 @@ export async function findArticle(
             },
           };
         }
-      } catch {
+      } catch (err) {
+        // AI availability failures (trial expired, spend ceiling) apply to
+        // every remaining eval — surface them instead of silently burning
+        // the eval budget (CAR-143).
+        if (err instanceof AiUnavailableError) throw err;
         // Evaluation failed for this article, try next
         continue;
       }
