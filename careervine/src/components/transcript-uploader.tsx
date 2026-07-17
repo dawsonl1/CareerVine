@@ -8,13 +8,15 @@ import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
 /** Debounce a callback by `delay` ms. Returns a stable function ref. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number): T {
   const timer = useRef<ReturnType<typeof setTimeout>>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useCallback(((...args: any[]) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+  const debounced = useCallback((...args: any[]) => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => fn(...args), delay);
-  }) as T, [fn, delay]);
+  }, [fn, delay]);
+  return debounced as T;
 }
 
 type TranscriptMode = "paste" | "file" | "audio";

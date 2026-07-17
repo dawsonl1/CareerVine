@@ -29,7 +29,6 @@ interface AdminContact {
 }
 
 const UNDO_MS = 5000;
-const PAGE_SIZE = 100;
 
 type OpenModal = null | "add" | "bundle";
 type StatusFilter = "all" | "active" | "prospect" | "bench";

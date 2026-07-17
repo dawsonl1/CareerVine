@@ -57,7 +57,9 @@ export const POST = withApiHandler({
           getCalendarList(user.id),
         ]);
         const busyIds = calList
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
           .filter((c: any) => c.accessRole === "owner" || c.accessRole === "writer")
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
           .map((c: any) => c.id);
 
         await service.from("gmail_connections").update({
@@ -71,6 +73,7 @@ export const POST = withApiHandler({
     }
 
     // Fetch events from Google Calendar
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     let events: any[] = [];
     let nextSyncToken: string | null = null;
 
@@ -82,6 +85,7 @@ export const POST = withApiHandler({
       });
       events = result.events;
       nextSyncToken = result.nextSyncToken || null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     } catch (err: any) {
       if (err.message === "SYNC_TOKEN_EXPIRED") {
         await service
@@ -108,6 +112,7 @@ export const POST = withApiHandler({
       if (!startTime || !endTime) continue;
 
       // Extract attendees
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const attendees = event.attendees?.map((a: any) => ({
         email: a.email,
         name: a.displayName || a.email,
@@ -116,6 +121,7 @@ export const POST = withApiHandler({
 
       // Extract Meet link
       const meetLink = event.conferenceData?.entryPoints?.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         (ep: any) => ep.entryPointType === "video"
       )?.uri || null;
 
@@ -124,6 +130,7 @@ export const POST = withApiHandler({
 
       // Match attendees to contacts
       const attendeeEmails = attendees
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         .map((a: any) => a.email)
         .filter((e: string) => e !== conn.data.gmail_address);
 
@@ -143,6 +150,7 @@ export const POST = withApiHandler({
           .eq("contacts.user_id", user.id);
 
         if (matched) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
           const uniqueIds = [...new Set(matched.map((m: any) => m.contact_id))];
           contactIds.push(...uniqueIds);
           contactId = uniqueIds[0] || null;
@@ -200,7 +208,9 @@ export const POST = withApiHandler({
     // lack start/end fields, so they are skipped by the upsert loop above.
     // Explicitly delete them from the local cache.
     const cancelledGoogleIds = events
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       .filter((e: any) => e.status === "cancelled" && e.id)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       .map((e: any) => e.id);
 
     if (cancelledGoogleIds.length > 0) {

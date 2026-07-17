@@ -72,6 +72,9 @@ function formatLastContacted(daysSince: number | null): string {
   return `${daysSince}d ago`;
 }
 
+// SWR cache max age (module scope so it isn't a hook dependency). 5 minutes.
+const CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+
 export default function Home() {
   const { user, loading } = useAuth();
   const { open: openQuickCapture } = useQuickCapture();
@@ -81,7 +84,6 @@ export default function Home() {
   const { calendarConnected, loading: gmailLoading } = useGmailConnection();
 
   // ── SWR cache: hydrate from localStorage on mount for instant revisit ──
-  const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
   const cacheKey = user ? `careervine:home:${user.id}` : null;
   const cachedData = useMemo(() => {
     if (!cacheKey || typeof window === "undefined") return null;
@@ -93,7 +95,6 @@ export default function Home() {
       if (parsed._ts && Date.now() - parsed._ts > CACHE_MAX_AGE_MS) return null;
       return parsed;
     } catch { return null; }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey]);
 
   // ── Data state (hydrated from cache if available) ──
@@ -224,6 +225,7 @@ export default function Home() {
       if (eventsRes.ok) {
         const data = await eventsRes.json();
         setScheduleEvents(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
           (data.events || []).map((e: any) => {
             // Match contact: try attendee emails first, then fall back to contact_id
             const attendees = e.attendees || [];
@@ -610,7 +612,7 @@ export default function Home() {
     items.sort((a, b) => b.priority - a.priority);
 
     return items;
-  }, [actionItems, followUps, suggestions, newContacts, lastTouchLookup]);
+  }, [actionItems, followUps, suggestions, newContacts]);
 
   // ── Unified action list callbacks ──
 

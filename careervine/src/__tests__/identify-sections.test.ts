@@ -4,16 +4,6 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error — plain JS module, no type declarations
 import { identifySections } from '@ext/content/identify-sections';
 
-// Helper to build a fake LinkedIn profile text as an array of lines
-function buildLines(...sectionDefs: { name: string; content: string[] }[]): string[] {
-  const lines: string[] = [];
-  for (const sec of sectionDefs) {
-    lines.push(sec.name);
-    lines.push(...sec.content);
-  }
-  return lines;
-}
-
 describe('identifySections', () => {
   describe('header-only profiles', () => {
     it('returns header spanning all lines when no sections found', () => {

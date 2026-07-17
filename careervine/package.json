@@ -8,9 +8,10 @@
     "postbuild": "node scripts/posthog-annotate.mjs",
     "start": "next start",
     "lint": "eslint",
-    "pretest": "npm install --prefix ../careervine-mcp --no-audit --no-fund --silent",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",
@@ -51,6 +52,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",

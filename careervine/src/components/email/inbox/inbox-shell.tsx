@@ -78,7 +78,7 @@ export function InboxShell() {
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [contactMap, setContactMap] = useState<Record<number, string>>({});
   const [calendarByThread, setCalendarByThread] = useState<Record<string, { id: number; title: string | null; start_at: string; google_event_id: string }>>({});
-  const [gmailAddress, setGmailAddress] = useState("");
+  const [_gmailAddress, setGmailAddress] = useState("");
   const [gmailLabels, setGmailLabels] = useState<GmailLabel[]>([]);
 
   // Thread expansion
@@ -579,7 +579,6 @@ export function InboxShell() {
   // ── Sidebar counts ──
 
   const unreadEmailCount = emails.filter((e) => !e.is_read && e.direction === "inbound").length;
-  const sentCount = sentEmails.length;
   const pendingFollowUpCount = followUps.reduce(
     (sum, fu) => sum + fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length,
     0
@@ -588,13 +587,6 @@ export function InboxShell() {
   // ── Determine tab context for action rendering ──
 
   type TabContext = "inbox" | "sent" | "trash" | "hidden";
-
-  const getTabContext = (): TabContext => {
-    if (activeTab === "trash") return "trash";
-    if (activeTab === "hidden") return "hidden";
-    if (activeTab === "sent") return "sent";
-    return "inbox";
-  };
 
   // ── Inline action icons for collapsed message rows ──
 

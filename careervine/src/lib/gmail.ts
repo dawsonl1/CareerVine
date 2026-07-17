@@ -15,6 +15,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     } catch (err: any) {
       const status = err?.code || err?.response?.status;
       const isRetryable = status === 429 || (status >= 500 && status < 600);

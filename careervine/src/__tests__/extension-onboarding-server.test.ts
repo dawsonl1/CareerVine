@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { advanceExtensionOnboarding } from "@/lib/onboarding/extension-server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 

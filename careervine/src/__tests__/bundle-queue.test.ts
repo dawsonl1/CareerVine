@@ -36,11 +36,11 @@ function mockService(rows: unknown[]): SupabaseClient {
 }
 
 const stepDone = (applied = 1): ApplyStepResult => ({
-  done: true, nextCursor: null, pinnedVersion: 3, applied, removedContacts: 0, orphanedLinks: 0, skipped: [],
+  done: true, nextCursor: null, pinnedVersion: 3, applied, removedContacts: 0, orphanedLinks: 0, skipped: [], path: 'merge',
 });
 const stepMore = (afterId: number): ApplyStepResult => ({
   done: false, nextCursor: { phase: 'apply', afterId }, pinnedVersion: 3, applied: 1,
-  removedContacts: 0, orphanedLinks: 0, skipped: [],
+  removedContacts: 0, orphanedLinks: 0, skipped: [], path: 'merge',
 });
 
 // ── enqueueBundleSyncJobs ──────────────────────────────────────────────

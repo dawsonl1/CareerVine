@@ -26,6 +26,7 @@ function makeRequest(body: unknown) {
     nextUrl: new URL("http://localhost:3000/api/transcripts/parse"),
     headers: new Headers(),
     json: vi.fn().mockResolvedValue(body),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   } as any;
 }
 
@@ -49,6 +50,7 @@ describe("transcripts/parse BYO fallback", () => {
   it("routes OpenAI calls through runWithOpenAIFallback", async () => {
     const response = await POST(
       makeRequest({ rawText: "Alice: Hello" }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       undefined as any,
     );
     const data = await response.json();

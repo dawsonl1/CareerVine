@@ -131,15 +131,16 @@ export default function CalendarPage() {
     return map;
   }, [allContacts, contactEmailsMap]);
 
-  const eventHasContact = (e: CalendarEvent) =>
+  const eventHasContact = useCallback((e: CalendarEvent) =>
     e.contact_id !== null ||
-    e.attendees.some(a => contactEmailToName[a.email?.toLowerCase()] !== undefined);
+    e.attendees.some(a => contactEmailToName[a.email?.toLowerCase()] !== undefined),
+    [contactEmailToName]);
 
   const filteredEvents = useMemo(() => events.filter(e => {
     if (contactFilter === "contacts") return eventHasContact(e);
     if (contactFilter === "no-contacts") return !eventHasContact(e);
     return true;
-  }), [events, contactFilter, contactEmailToName]);
+  }), [events, contactFilter, eventHasContact]);
 
   const weekEvents = useMemo(() => {
     const startStr = dateToStr(weekDays[0]);
@@ -157,7 +158,39 @@ export default function CalendarPage() {
     });
   }, [filteredEvents, weekDays]);
 
-  // ── Mount
+  // ── Mount — loaders are memoized so the mount effect and loadData don't
+  // re-run every render; loadData depends on them explicitly.
+  const loadEvents = useCallback(async () => {
+    const now = new Date();
+    const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
+    const res = await fetch(`/api/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+    const data = await res.json();
+    if (data.events) setEvents(data.events.sort((a: CalendarEvent, b: CalendarEvent) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
+  }, []);
+
+  const loadContacts = useCallback(async () => {
+    if (!user) return;
+    const data = await getContacts(user.id);
+    const em: Record<number, string[]> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+    setAllContacts((data as any[]).map(c => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+      const emails = (c.contact_emails || []).map((e: any) => e.email).filter(Boolean) as string[];
+      em[c.id] = emails;
+      return { id: c.id, name: c.name, email: emails[0], emails };
+    }));
+    setContactEmailsMap(em);
+  }, [user]);
+
+  const loadLinkedMeetings = useCallback(async () => {
+    if (!user) return;
+    const meetings = await getMeetings(user.id) as Meeting[];
+    const map: Record<string, Meeting> = {};
+    meetings.forEach(m => { if (m.calendar_event_id) map[m.calendar_event_id] = m; });
+    setLinkedMeetings(map);
+  }, [user]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -165,38 +198,9 @@ export default function CalendarPage() {
       // Background auto-sync (silent, respects 5-min cooldown)
       fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) loadEvents(); }).catch(() => {});
     } finally { setLoading(false); }
-  }, [user]);
+  }, [loadEvents, loadContacts, loadLinkedMeetings]);
 
   useEffect(() => { if (user) loadData(); }, [user, loadData]);
-
-  const loadEvents = async () => {
-    const now = new Date();
-    const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
-    const res = await fetch(`/api/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
-    const data = await res.json();
-    if (data.events) setEvents(data.events.sort((a: CalendarEvent, b: CalendarEvent) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
-  };
-
-  const loadContacts = async () => {
-    if (!user) return;
-    const data = await getContacts(user.id);
-    const em: Record<number, string[]> = {};
-    setAllContacts((data as any[]).map(c => {
-      const emails = (c.contact_emails || []).map((e: any) => e.email).filter(Boolean) as string[];
-      em[c.id] = emails;
-      return { id: c.id, name: c.name, email: emails[0], emails };
-    }));
-    setContactEmailsMap(em);
-  };
-
-  const loadLinkedMeetings = async () => {
-    if (!user) return;
-    const meetings = await getMeetings(user.id) as Meeting[];
-    const map: Record<string, Meeting> = {};
-    meetings.forEach(m => { if (m.calendar_event_id) map[m.calendar_event_id] = m; });
-    setLinkedMeetings(map);
-  };
 
   const handleSync = async () => {
     setSyncing(true); setError("");
@@ -231,9 +235,12 @@ export default function CalendarPage() {
         meeting_date: dateToStr(d),
         meeting_time: `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`,
         meeting_type: linked.meeting_type || "",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         title: (linked as any).title || "",
         notes: linked.notes || "",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         privateNotes: (linked as any).private_notes || "",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         calendarDescription: (linked as any).calendar_description || "",
         transcript: linked.transcript || "",
       });

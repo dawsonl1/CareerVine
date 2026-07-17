@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 let caps = new Set<string>();
 let conn: { gmail_address: string } | null = { gmail_address: "me@gmail.com" };
-const syncSpy = vi.fn(async () => 3);
+const syncSpy = vi.fn<(...a: unknown[]) => Promise<number>>(async () => 3);
 
 vi.mock("@/lib/gmail", () => ({
   getConnection: vi.fn(async () => conn),

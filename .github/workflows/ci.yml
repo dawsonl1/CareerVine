@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save Actions minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: careervine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: careervine/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint . --max-warnings 0
+
+      - name: Test
+        run: npx vitest run
+
+      - name: Build
+        run: npx next build
+        env:
+          # Placeholder, non-secret values so the production build is
+          # deterministic without real credentials. Next collects page data by
+          # evaluating route modules, some of which validate env at module scope
+          # (e.g. getSupabaseEnv), so every var read at build time needs a dummy.
+          # The build never connects anywhere; real values live in Vercel.
+          # Validated locally by building with .env.local hidden and only these set.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          NEXT_PUBLIC_APP_URL: https://www.careervine.app
+          NEXT_PUBLIC_EXTENSION_STORE_URL: https://chromewebstore.google.com/detail/placeholder
+          NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
+          NEXT_PUBLIC_POSTHOG_KEY: phc_placeholder
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          OPENAI_API_KEY: sk-placeholder
+          OPENAI_MODEL: gpt-4o-mini
+          GOOGLE_CLIENT_ID: placeholder.apps.googleusercontent.com
+          GOOGLE_CLIENT_SECRET: placeholder
+          GOOGLE_REDIRECT_URI: https://www.careervine.app/api/gmail/callback
+          DEEPGRAM_API_KEY: placeholder
+          SERPER_API_KEY: placeholder
+          QSTASH_TOKEN: placeholder
+          QSTASH_CURRENT_SIGNING_KEY: sig_placeholder
+          QSTASH_NEXT_SIGNING_KEY: sig_placeholder
+          UPSTASH_REDIS_REST_URL: https://placeholder.upstash.io
+          UPSTASH_REDIS_REST_TOKEN: placeholder
+          BYOK_ENCRYPTION_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+          BUNDLE_ADMIN_TOKEN: placeholder
+          R2_ACCOUNT_ID: placeholder
+          R2_ACCESS_KEY_ID: placeholder
+          R2_SECRET_ACCESS_KEY: placeholder
+          R2_BUCKET: placeholder-bucket
+          R2_PUBLIC_BASE_URL: https://placeholder.r2.dev
+          RESEND_API_KEY: re_placeholder
+          APIFY_API_TOKEN: placeholder
+          APIFY_WEBHOOK_SECRET: placeholder
+          NUDGE_UNSUBSCRIBE_SECRET: placeholder
+          APP_BASE_URL: https://www.careervine.app
+
+  mcp:
+    name: mcp
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            careervine/package-lock.json
+            careervine-mcp/package-lock.json
+
+      # The MCP tsconfig resolves @modelcontextprotocol/sdk and @/* imports out
+      # of ../careervine (node_modules + src), so its typecheck needs careervine's
+      # dependencies installed as well as its own.
+      - name: Install careervine deps
+        working-directory: careervine
+        run: npm ci
+
+      - name: Install mcp deps
+        working-directory: careervine-mcp
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: careervine-mcp
+        run: npm run typecheck

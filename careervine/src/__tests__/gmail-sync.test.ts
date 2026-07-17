@@ -80,6 +80,7 @@ function makeBuilder(tableName: keyof MockTables) {
     return rows.slice(0, POSTGREST_MAX_ROWS);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const builder: any = {
     select: () => builder,
     eq: () => builder,

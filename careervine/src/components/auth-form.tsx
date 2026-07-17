@@ -230,12 +230,12 @@ export default function AuthForm({ initialMode = "signin", initialError, onBack 
                       <p className="text-sm text-muted-foreground leading-relaxed">
                         We sent a confirmation link to{" "}
                         <span className="font-medium text-foreground">{formData.email}</span>.
-                        Click it and you'll be signed in automatically, with no need to
+                        Click it and you&apos;ll be signed in automatically, with no need to
                         come back to this page.
                       </p>
                       <div className="space-y-2">
                         <p className="text-xs text-muted-foreground">
-                          Don't see it? Check your spam folder, or{" "}
+                          Don&apos;t see it? Check your spam folder, or{" "}
                           <button
                             type="button"
                             onClick={handleResend}

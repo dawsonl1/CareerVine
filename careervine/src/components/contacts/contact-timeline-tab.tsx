@@ -89,7 +89,7 @@ export function ContactTimelineTab({
           <div className="absolute left-[15px] top-4 bottom-4 w-px bg-outline-variant/50" />
 
           <div className="space-y-2.5">
-            {entries.map((item, idx) => {
+            {entries.map((item) => {
               if (item.kind === "meeting") {
                 const m = item.data;
                 return (

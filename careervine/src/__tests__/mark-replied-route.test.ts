@@ -17,8 +17,8 @@ const state: {
   insertError: unknown;
 } = { outbound: null, inbound: null, seqs: [], inserts: [], updates: [], insertError: null };
 
-const activateSpy = vi.fn(async () => {});
-const trackSpy = vi.fn(async () => {});
+const activateSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
+const trackSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
 
 vi.mock("@/lib/supabase/server-client", () => ({
   createSupabaseServerClient: vi.fn(async () => ({

@@ -6,7 +6,7 @@ import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
 import { FollowUpModal } from "@/components/follow-up-modal";
 import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
-import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
+import { buildThreads } from "@/lib/gmail-helpers";
 import { isOpenFollowUpMessage, isActionableFollowUpMessage, FollowUpMessageStatus } from "@/lib/constants";
 import { Inbox, ArrowUpRight, ArrowDownLeft, Reply, Clock, XCircle, Pencil, Check, Send, RotateCcw } from "lucide-react";
 
@@ -26,7 +26,6 @@ interface ContactEmailsTabProps {
 }
 
 export function ContactEmailsTab({
-  contactId,
   contactName,
   contactEmails: contactEmailAddresses,
   emails,
@@ -140,7 +139,7 @@ export function ContactEmailsTab({
       if (data.success) {
         setExpandedEmailContent(data.message);
       }
-    } catch (err) {
+    } catch {
       toastError("Failed to load email content");
     } finally {
       setLoadingEmailContent(false);
@@ -164,7 +163,7 @@ export function ContactEmailsTab({
         loadFollowUpsForThread(threadId);
         toastSuccess("Follow-up cancelled");
       }
-    } catch (err) {
+    } catch {
       toastError("Failed to cancel follow-up");
     }
   };

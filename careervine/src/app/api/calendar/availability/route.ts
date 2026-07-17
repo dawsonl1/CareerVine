@@ -1,4 +1,4 @@
-import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { withApiHandler } from "@/lib/api-handler";
 import { calendarAvailabilityQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { queryFreeBusy, DEFAULT_TIMEZONE, mergeBusyIntervals } from "@/lib/calendar";

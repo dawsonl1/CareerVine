@@ -10,6 +10,7 @@ describe("parseTranscript", () => {
   });
 
   it("returns empty result for null/undefined", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     const result = parseTranscript(null as any);
     expect(result.segments).toEqual([]);
   });

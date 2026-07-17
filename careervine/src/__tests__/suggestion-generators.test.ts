@@ -24,6 +24,7 @@ function makeContact(overrides: Partial<SuggestionContact> = {}): SuggestionCont
     met_through: null,
     last_touch: null,
     days_since_touch: null,
+    days_since_added: null,
     interaction_count: 0,
     ...overrides,
   };

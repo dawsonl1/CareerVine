@@ -66,9 +66,11 @@ function makeRequest(method: string, body?: unknown) {
     json: body !== undefined
       ? vi.fn().mockResolvedValue(body)
       : vi.fn().mockRejectedValue(new Error("No body")),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   } as any;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 async function call(handler: any, request: any) {
   const response = await handler(request);
   const data = await response.json();

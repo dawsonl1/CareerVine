@@ -25,11 +25,16 @@ interface ContactAvatarProps {
 export function ContactAvatar({ name, photoUrl, className = "", ringClassName = "" }: ContactAvatarProps) {
   const [imgError, setImgError] = useState(false);
   const [shouldLoad, setShouldLoad] = useState(false);
+  const [prevPhotoUrl, setPrevPhotoUrl] = useState(photoUrl);
   const holderRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  // Reset error state when the photo URL changes (e.g. after re-import)
-  useEffect(() => setImgError(false), [photoUrl]);
+  // Reset error state when the photo URL changes (e.g. after re-import).
+  // Adjusting state during render is React's pattern for prop-driven resets.
+  if (photoUrl !== prevPhotoUrl) {
+    setPrevPhotoUrl(photoUrl);
+    setImgError(false);
+  }
 
   // Load the photo once the avatar is within the preload window. The
   // pre-paint bounds check runs synchronously so on-screen avatars never
@@ -70,6 +75,9 @@ export function ContactAvatar({ name, photoUrl, className = "", ringClassName = 
 
   if (photoUrl && !imgError && shouldLoad) {
     return (
+      // Avatar URLs are arbitrary remote CDNs (LinkedIn, Google, etc.); next/image
+      // would need a domain allowlist and adds no value for tiny cached avatars.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         ref={imgRef}
         src={photoUrl}

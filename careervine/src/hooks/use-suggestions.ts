@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
 import { isAiFailureCode, type AiFailureCode } from "@/lib/ai-errors";
 

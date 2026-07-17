@@ -55,6 +55,10 @@ interface TodayScheduleProps {
 interface DragState {
   startY: number;
   currentY: number;
+  // Grid-hour positions, converted in the pointer handlers (where reading the
+  // grid ref is allowed) so the render-time preview never touches the ref.
+  startH: number;
+  currentH: number;
   isDragging: boolean;
 }
 
@@ -541,16 +545,17 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
 
     e.preventDefault(); // Prevent browser text-selection / drag that scrolls the page
     setSelectedEventId(null);
-    setDragState({ startY: e.clientY, currentY: e.clientY, isDragging: false });
-  }, [newEventDraft]);
+    const h = yToHour(e.clientY);
+    setDragState({ startY: e.clientY, currentY: e.clientY, startH: h, currentH: h, isDragging: false });
+  }, [newEventDraft, yToHour]);
 
   const handleGridMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragState) return;
     const dy = Math.abs(e.clientY - dragState.startY);
     if (dy > 4) {
-      setDragState({ ...dragState, currentY: e.clientY, isDragging: true });
+      setDragState({ ...dragState, currentY: e.clientY, currentH: yToHour(e.clientY), isDragging: true });
     }
-  }, [dragState]);
+  }, [dragState, yToHour]);
 
   const handleGridMouseUp = useCallback((e: React.MouseEvent) => {
     if (!dragState) return;
@@ -572,20 +577,19 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
     setDragState(null);
   }, [dragState, yToHour, startHour]);
 
-  // Drag preview dimensions
+  // Drag preview dimensions. Hours are precomputed in the pointer handlers, so
+  // this stays a pure render with no ref access.
   const dragPreview = useMemo(() => {
     if (!dragState?.isDragging) return null;
-    const h1 = yToHour(dragState.startY);
-    const h2 = yToHour(dragState.currentY);
-    const s = Math.min(h1, h2);
-    const e = Math.max(h1, h2);
+    const s = Math.min(dragState.startH, dragState.currentH);
+    const e = Math.max(dragState.startH, dragState.currentH);
     const finalEnd = e - s < 0.25 ? s + 0.25 : e;
     return {
       top: (s - startHour) * HOUR_HEIGHT,
       height: (finalEnd - s) * HOUR_HEIGHT,
       label: `${formatTime(s)} – ${formatTime(finalEnd)}`,
     };
-  }, [dragState, yToHour, startHour]);
+  }, [dragState, startHour]);
 
   const handleSaveNewEvent = useCallback(async (title: string, addMeet: boolean) => {
     if (!newEventDraft) return;

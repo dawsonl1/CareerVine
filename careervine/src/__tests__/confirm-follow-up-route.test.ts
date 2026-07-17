@@ -28,8 +28,8 @@ const state: {
   singleCalls: 0,
 };
 
-const recordThreadReplySpy = vi.fn(async () => ({ ok: true, alreadyMarked: false }));
-const sendTrackedEmailSpy = vi.fn(async () => {});
+const recordThreadReplySpy = vi.fn<(...a: unknown[]) => Promise<{ ok: boolean; alreadyMarked: boolean }>>(async () => ({ ok: true, alreadyMarked: false }));
+const sendTrackedEmailSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
 
 vi.mock("@/lib/supabase/server-client", () => ({
   createSupabaseServerClient: vi.fn(async () => ({

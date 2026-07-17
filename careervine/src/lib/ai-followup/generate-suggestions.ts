@@ -220,7 +220,7 @@ export function generateDecayWarningSuggestions(
 
 export function generateFirstTouchSuggestions(
   contacts: SuggestionContact[],
-  today: Date = new Date(),
+  _today: Date = new Date(),
 ): Suggestion[] {
   const suggestions: Suggestion[] = [];
 
@@ -504,6 +504,7 @@ export async function generateSuggestions(userId: string): Promise<SuggestionsRe
     contactsWithEmail.set(row.contact_id, true);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const waitingOnItems = (waitingOnResult.data || []).map((row: any) => ({
     ...row,
     contacts: Array.isArray(row.contacts) ? row.contacts[0] || null : row.contacts,

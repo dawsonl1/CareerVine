@@ -11,7 +11,7 @@ import {
   type PickerCompany,
 } from "@/lib/onboarding/company-picker";
 
-const row = (over: Partial<Parameters<typeof toPickerCompanies>[0][number]> = {}) => ({
+const row = (over: Partial<NonNullable<Parameters<typeof toPickerCompanies>[0]>[number]> = {}) => ({
   company_id: 1,
   name: "Acme",
   logo_url: null,

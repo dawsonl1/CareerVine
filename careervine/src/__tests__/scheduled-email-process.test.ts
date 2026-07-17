@@ -82,7 +82,10 @@ function makeDb(tables: Record<string, Row[]>) {
   >["service"];
 }
 
-const okSend = () => Promise.resolve({ messageId: "m1", threadId: "t1" });
+// Full TrackedSendResult so the mock is assignable to `typeof sendTrackedEmail`;
+// processScheduledEmails only reads messageId/threadId, the rest are inert.
+const okSend = () =>
+  Promise.resolve({ messageId: "m1", threadId: "t1", matchedContactId: null, capRemaining: 1, warnings: [] });
 
 describe("processScheduledEmails claim step (CAR-134)", () => {
   it("two concurrent drivers send a due email exactly once", async () => {
@@ -92,7 +95,7 @@ describe("processScheduledEmails claim step (CAR-134)", () => {
       // Hold the race window open across event-loop ticks, like a real
       // Gmail round trip.
       await new Promise((r) => setTimeout(r, 5));
-      return { messageId: "m1", threadId: "t1" };
+      return { messageId: "m1", threadId: "t1", matchedContactId: null, capRemaining: 1, warnings: [] };
     });
 
     const [a, b] = await Promise.all([

@@ -31,7 +31,6 @@ export function PastMeetingFields({
   userId,
   userName,
   allContacts,
-  onAiActionAccepted,
   onActionCreated,
 }: PastMeetingFieldsProps) {
   const [showTranscript, setShowTranscript] = useState(!!form.transcript);

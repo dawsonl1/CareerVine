@@ -65,10 +65,6 @@ interface SchoolRelRow {
   school_id: number;
 }
 
-interface TagLinkRow {
-  tag_id: number;
-}
-
 // ── Route ──────────────────────────────────────────────────────────────
 
 export async function OPTIONS() {
@@ -252,10 +248,12 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
       .eq('contact_id', contactId);
 
     const existing = (existingEmails || []).find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       (e: any) => e.email.toLowerCase() === profileData.contactInfo!.email!.toLowerCase()
     );
     if (!existing) {
       // If no emails exist yet, make it primary; otherwise add as non-primary
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const hasPrimary = (existingEmails || []).some((e: any) => e.is_primary);
       const { error: emailError } = await supabase.from('contact_emails').insert({
         contact_id: contactId,

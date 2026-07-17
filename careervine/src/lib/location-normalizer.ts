@@ -193,7 +193,7 @@ export function normalizeLocation(input: string | null | undefined): NormalizedL
 
   const isRemote = REMOTE_RE.test(raw);
   REMOTE_RE.lastIndex = 0;
-  let s = raw.replace(REMOTE_RE, " ").replace(/\s+/g, " ").replace(/^[\s,·|-]+|[\s,·|-]+$/g, "").trim();
+  const s = raw.replace(REMOTE_RE, " ").replace(/\s+/g, " ").replace(/^[\s,·|-]+|[\s,·|-]+$/g, "").trim();
   if (!s) return unknown(raw, isRemote);
 
   const lower = s.toLowerCase();

@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
 import { usePortalDropdown } from "@/hooks/use-portal-dropdown";
@@ -54,13 +54,14 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
   const [period, setPeriod] = useState<"AM" | "PM">(
     currentH24 !== null && currentH24 >= 12 ? "PM" : "AM"
   );
+  const [prevH24, setPrevH24] = useState(currentH24);
 
-  // Sync AM/PM toggle when parent changes value externally
-  useEffect(() => {
-    if (currentH24 !== null) {
-      setPeriod(currentH24 >= 12 ? "PM" : "AM");
-    }
-  }, [currentH24]);
+  // Sync AM/PM toggle when the parent changes value externally. Adjusting state
+  // during render (tracking the previous hour) is React's prop-sync pattern.
+  if (currentH24 !== prevH24) {
+    setPrevH24(currentH24);
+    if (currentH24 !== null) setPeriod(currentH24 >= 12 ? "PM" : "AM");
+  }
 
   const selectHour = (h12: number) => {
     const h24 = to24(h12, period);

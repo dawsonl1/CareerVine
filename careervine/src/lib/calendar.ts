@@ -111,6 +111,7 @@ export async function fetchCalendarEvents(
   const calendar = await getCalendarClient(userId);
   const calendarId = options.calendarId || "primary";
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const params: any = {
     calendarId,
     maxResults: 250,
@@ -129,6 +130,7 @@ export async function fetchCalendarEvents(
     const nextSyncToken = res.data.nextSyncToken;
 
     return { events, nextSyncToken };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   } catch (err: any) {
     if (err.code === 410) {
       // Sync token expired — clear it and do a full re-fetch
@@ -200,6 +202,7 @@ export async function createCalendarEvent(
   const calendar = await getCalendarClient(userId);
   const calendarId = options.calendarId || "primary";
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const requestBody: any = {
     summary: options.summary,
     description: options.description || "",

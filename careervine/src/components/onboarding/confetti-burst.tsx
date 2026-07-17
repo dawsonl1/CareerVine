@@ -6,21 +6,21 @@
  * and fade out on their own — mount it when the celebration starts.
  */
 
-import { useMemo } from "react";
+import { useState } from "react";
 
 const CONFETTI_COLORS = ["#4f6f52", "#e8a13c", "#7ca5b8", "#c96f4a", "#8f5aa5"];
 
 export function ConfettiBurst({ className = "" }: { className?: string }) {
-  const pieces = useMemo(
-    () =>
-      Array.from({ length: 48 }, (_, i) => ({
-        left: Math.random() * 100,
-        delay: Math.random() * 0.8,
-        duration: 2.2 + Math.random() * 1.6,
-        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-        rotate: Math.random() * 360,
-      })),
-    [],
+  // Random values are computed once in a lazy state initializer (not during
+  // render) so the pieces stay fixed for the overlay's life and render is pure.
+  const [pieces] = useState(() =>
+    Array.from({ length: 48 }, (_, i) => ({
+      left: Math.random() * 100,
+      delay: Math.random() * 0.8,
+      duration: 2.2 + Math.random() * 1.6,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      rotate: Math.random() * 360,
+    })),
   );
 
   return (

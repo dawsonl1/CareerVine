@@ -211,14 +211,22 @@ export function ExtensionOnboardingModal() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
-  // Staged reveals for the two celebration steps.
+  // Staged reveals for the two celebration steps. Reset the reveal flags during
+  // render when the step changes (React's prop-sync pattern), and let the
+  // effects own only the timers.
+  const [prevRevealState, setPrevRevealState] = useState(state);
+  if (state !== prevRevealState) {
+    setPrevRevealState(state);
+    if (state !== "email_offer") setOfferReveal(false);
+    if (state !== "done") setDoneReveal(false);
+  }
   useEffect(() => {
-    if (state !== "email_offer") return setOfferReveal(false);
+    if (state !== "email_offer") return;
     const t = setTimeout(() => setOfferReveal(true), 4000);
     return () => clearTimeout(t);
   }, [state]);
   useEffect(() => {
-    if (state !== "done") return setDoneReveal(false);
+    if (state !== "done") return;
     const t = setTimeout(() => setDoneReveal(true), 3000);
     return () => clearTimeout(t);
   }, [state]);

@@ -111,10 +111,13 @@ export function Modal({
     };
   }, [isOpen, attemptClose, showConfirm]);
 
-  // Reset confirm dialog when modal closes
-  useEffect(() => {
+  // Reset confirm dialog when the modal closes. Adjusting state during render
+  // (tracking the previous isOpen) is React's pattern for prop-driven resets.
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
     if (!isOpen) setShowConfirm(false);
-  }, [isOpen]);
+  }
 
   if (!isOpen) return null;
 

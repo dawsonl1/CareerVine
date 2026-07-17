@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { suggestionsSaveSchema } from "@/lib/api-schemas";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 function expectValid(schema: any, data: unknown) {
   const result = schema.safeParse(data);
   if (!result.success) {
@@ -8,6 +9,7 @@ function expectValid(schema: any, data: unknown) {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 function expectInvalid(schema: any, data: unknown) {
   const result = schema.safeParse(data);
   expect(result.success).toBe(false);

@@ -3,7 +3,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { google } from "googleapis";
 import { getOAuth2Client, encryptOAuthToken } from "@/lib/oauth-helpers";
 import { deriveGrantedScopeFlags } from "@/lib/gmail";
-import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { withApiHandler } from "@/lib/api-handler";
 
 /**
  * GET /api/gmail/callback
