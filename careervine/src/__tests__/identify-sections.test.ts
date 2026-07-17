@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 // Import the shared function from the chrome extension via @ext alias
-// @ts-expect-error — plain JS module, no type declarations
+// (typed by identify-sections.d.ts — CAR-148 F34).
 import { identifySections } from '@ext/content/identify-sections';
 
 describe('identifySections', () => {
@@ -270,10 +270,11 @@ describe('identifySections', () => {
       const headerContent = lines.slice(result.header.start, result.header.end);
       expect(headerContent).toEqual(['John Smith', 'Engineer']);
 
-      const aboutContent = lines.slice(result.about.start, result.about.end);
+      // Non-null: this fixture includes an About and an Experience section.
+      const aboutContent = lines.slice(result.about!.start, result.about!.end);
       expect(aboutContent).toEqual(['About', 'I build things.']);
 
-      const expContent = lines.slice(result.experience.start, result.experience.end);
+      const expContent = lines.slice(result.experience!.start, result.experience!.end);
       expect(expContent).toEqual(['Experience', 'Acme - Dev', '2020 - Present']);
     });
   });

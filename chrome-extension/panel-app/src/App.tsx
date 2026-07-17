@@ -31,6 +31,7 @@ import {
   standardizeLocation,
   standardizeMonth,
 } from "./lib/profile-format";
+import type { ProfileData } from "./lib/profile-contract";
 
 /** Turn a raw auth error into something a user can act on. */
 function friendlyAuthError(message?: string): string {
@@ -70,23 +71,11 @@ type Education = {
   is_current?: boolean;
 };
 
-type ProfileData = {
-  first_name: string | null;
-  last_name: string | null;
-  name?: string;
-  location: Location;
-  industry: string | null;
-  generated_notes: string | null;
-  suggested_tags: string[];
-  experience: Experience[];
-  education: Education[];
-  contact_status: "student" | "professional" | null;
-  expected_graduation: string | null;
-  linkedin_url?: string | null;
-  follow_up_frequency?: string | null;
-  current_company?: string | null;
-  email?: string | null;
-};
+// CAR-148 (F11): the profile shape is single-sourced. `ProfileData` is imported
+// from the zod-free contract module (which the web app's zod validator derives
+// from), so the wire, the web app, and this panel can never drift apart.
+// (Local `Location`/`Experience`/`Education` above stay panel-internal editing
+// rows; `ProfileData`'s row fields are structurally compatible with them.)
 
 const FOLLOW_UP_OPTIONS = [
   "No follow-up",
@@ -154,7 +143,7 @@ const enrichProfile = (data: Partial<ProfileData> | null): ProfileData | null =>
 };
 
 // Format a date range with duration: "Aug 2024 - Jul 2025 · 1 yr"
-const formatDateRange = (start: string | null, end: string | null): string => {
+const formatDateRange = (start: string | null | undefined, end: string | null | undefined): string => {
   if (!start) return "";
   
   const startFormatted = standardizeMonth(start);
@@ -168,7 +157,7 @@ const formatDateRange = (start: string | null, end: string | null): string => {
 };
 
 // Calculate duration for education (Year only format)
-const calcEducationDuration = (startYear: string | null, endYear: string | null): string => {
+const calcEducationDuration = (startYear: string | null | undefined, endYear: string | null | undefined): string => {
   if (!startYear) return "";
   
   const start = parseInt(startYear);
@@ -183,7 +172,7 @@ const calcEducationDuration = (startYear: string | null, endYear: string | null)
 };
 
 // Format education date range: "2018 - 2024 · 6 yr"
-const formatEducationDateRange = (startYear: string | null, endYear: string | null): string => {
+const formatEducationDateRange = (startYear: string | null | undefined, endYear: string | null | undefined): string => {
   if (!startYear) return "";
   
   const endFormatted = endYear || "Present";
@@ -1564,7 +1553,10 @@ const App: React.FC = () => {
               // Deduplicate education entries - keep entries with most data for each school
               const seen = new Map<string, typeof profile.education[0]>();
               profile.education.forEach((edu) => {
-                const key = edu.school.toLowerCase().trim();
+                // enrichProfile always sets school (defaults to ""), so the
+                // assertion is accurate and, being erased at build, keeps the
+                // tracked panel.js bundle unchanged for this type-only fix.
+                const key = edu.school!.toLowerCase().trim();
                 const existing = seen.get(key);
                 if (!existing) {
                   seen.set(key, edu);

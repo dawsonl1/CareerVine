@@ -13,39 +13,8 @@ import AuthForm from "@/components/auth-form";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { decodeProfileData } from "@/lib/profile-encoding";
 import { deriveCurrentRole } from "@/lib/profile-helpers";
-
-type ProfileData = {
-  first_name?: string;
-  last_name?: string;
-  name?: string;
-  location?: { city?: string; state?: string; country?: string };
-  industry?: string;
-  generated_notes?: string;
-  suggested_tags?: string[];
-  experience?: Array<{
-    company: string;
-    title: string;
-    location?: string;
-    start_month?: string;
-    end_month?: string;
-    is_current?: boolean;
-  }>;
-  education?: Array<{
-    school: string;
-    degree?: string;
-    field_of_study?: string;
-    start_year?: string;
-    end_year?: string;
-  }>;
-  contact_status?: string;
-  expected_graduation?: string;
-  linkedin_url?: string;
-  follow_up_frequency?: string;
-  current_company?: string;
-  photo_url?: string;
-  email?: string | null;
-  contactInfo?: { email?: string };
-};
+// CAR-148 (F11): the profile shape is single-sourced in the extension contract.
+import type { ProfileData } from "@/lib/extension-contract";
 
 export default function ContactPreviewPage() {
   const { user, loading: authLoading } = useAuth();

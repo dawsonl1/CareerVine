@@ -7,6 +7,17 @@
 
 import { z } from "zod";
 import { AiFollowUpDraftStatus } from "@/lib/constants";
+import {
+  extensionImportSchema,
+  extensionCheckDuplicateSchema,
+  extensionParseProfileSchema,
+} from "@/lib/extension-contract";
+
+// CAR-148: the extension-facing request schemas are single-sourced in
+// `extension-contract.ts` (where they sit next to the shared `ProfileData`
+// type and its parity guards). Re-exported here so existing
+// `@/lib/api-schemas` importers keep resolving them unchanged.
+export { extensionParseProfileSchema };
 
 // ── Shared primitives ──────────────────────────────────────────────────
 
@@ -227,16 +238,12 @@ export const contactsSearchQuerySchema = z.object({
   q: z.string().min(1, "Search query is required"),
 });
 
-export const contactsCheckDuplicateSchema = z.object({
-  linkedinUrl: optionalString,
-  name: optionalString,
-  email: optionalString,
-});
-
-export const contactsImportSchema = z.object({
-  profileData: z.record(z.string(), z.unknown()),
-  photoUrl: z.string().url().optional(),
-});
+// Extension request contracts (CAR-148) — sourced from extension-contract.ts.
+// `contactsImportSchema.profileData` is now the real `profileDataSchema`, so a
+// malformed profile payload is rejected 400 at the wire instead of passing
+// through an unvalidated `z.record`.
+export const contactsCheckDuplicateSchema = extensionCheckDuplicateSchema;
+export const contactsImportSchema = extensionImportSchema;
 
 // Pipeline bulk import (plan 24). Chunked ≤50 people per request to stay
 // inside Vercel wall-clock limits — the load script chunks and loops.
@@ -382,16 +389,8 @@ export const aiDraftFollowUpsSchema = z.object({
 });
 
 // ── Extension ──────────────────────────────────────────────────────────
-
-export const extensionParseProfileSchema = z.object({
-  // Cleaned profile text is typically <15k chars; the cap bounds OpenAI cost
-  // if a buggy or malicious client posts raw page dumps.
-  cleanedText: z
-    .string()
-    .min(1, "cleanedText is required")
-    .max(60_000, "cleanedText is too long"),
-  profileUrl: optionalString,
-});
+// `extensionParseProfileSchema` is single-sourced in extension-contract.ts and
+// re-exported at the top of this file.
 
 // ── Settings / BYO OpenAI key ──────────────────────────────────────────
 
