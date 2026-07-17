@@ -47,8 +47,9 @@ vi.mock("@/lib/gmail-send-core", () => ({
   getGmailClient: (...a: unknown[]) => getGmailClientSpy(...a),
 }));
 
+const activateContactSpy = vi.fn(async () => {});
 vi.mock("@/lib/gmail", () => ({
-  activateContactByEmail: async () => {},
+  activateContactByEmail: (...a: unknown[]) => activateContactSpy(...(a as [])),
 }));
 
 vi.mock("@/lib/email-send", () => ({
@@ -249,6 +250,85 @@ describe("send-follow-ups cron — tier branch (CAR-102)", () => {
     expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
     expect(state.updates.some((u) => u.patch.status === "awaiting_review")).toBe(false);
     expect(data.awaitingReview).toBe(0);
+  });
+});
+
+describe("send-follow-ups cron — alias-aware reply detection (CAR-153/R2.5)", () => {
+  const threadWithFroms = (...froms: string[]) => ({
+    users: {
+      threads: {
+        get: async () => ({
+          data: {
+            messages: froms.map((value) => ({
+              payload: { headers: [{ name: "From", value }] },
+            })),
+          },
+        }),
+      },
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    state.pendingMessages = [dueMessage("prem-1")];
+    state.connections = [
+      {
+        user_id: "prem-1",
+        gmail_address: "prem@x.com",
+        send_as_aliases: ["prem@alias.dev"],
+        modify_scope_granted: true,
+        automatic_features_enabled: true,
+        premium_enabled: true,
+      },
+    ];
+    state.activeUserIds = ["prem-1"];
+    state.updates = [];
+    state.claimCount = 1;
+    state.staleRows = [];
+    state.sweepReadError = null;
+    state.dueReadError = null;
+    getGmailClientSpy.mockReset();
+  });
+
+  it("the user's own alias-From thread message is NOT a reply: no cancel, no activation, send proceeds", async () => {
+    getGmailClientSpy.mockResolvedValue(
+      threadWithFroms("Me <prem@x.com>", "Me <Prem@Alias.DEV>"),
+    );
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(state.updates.some((u) => u.patch.status === "cancelled_reply")).toBe(false);
+    expect(activateContactSpy).not.toHaveBeenCalled();
+    expect(sendTrackedEmailSpy).toHaveBeenCalledTimes(1);
+    expect(data.cancelled).toBe(0);
+  });
+
+  it("a genuine contact reply still cancels the sequence and activates the contact", async () => {
+    getGmailClientSpy.mockResolvedValue(
+      threadWithFroms("Me <prem@x.com>", "Amy <Amy@Y.com>"),
+    );
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(state.updates.some((u) => u.table === "email_follow_ups" && u.patch.status === "cancelled_reply")).toBe(true);
+    expect(activateContactSpy).toHaveBeenCalledWith("prem-1", "amy@y.com");
+    expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
+    expect(data.cancelled).toBeGreaterThan(0);
+  });
+
+  it("a From header that fails to parse to an address is not treated as a reply", async () => {
+    // The old substring test flagged EVERY message as "someone else" when the
+    // stored user address was empty; the set test must not have the inverse
+    // failure of counting a headerless/blank From as a contact reply.
+    getGmailClientSpy.mockResolvedValue(threadWithFroms("prem@x.com", ""));
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(state.updates.some((u) => u.patch.status === "cancelled_reply")).toBe(false);
+    expect(data.cancelled).toBe(0);
   });
 });
 

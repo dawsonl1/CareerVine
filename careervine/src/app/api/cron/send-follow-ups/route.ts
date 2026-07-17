@@ -4,6 +4,7 @@ import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getGmailClient } from "@/lib/gmail-send-core";
 import { activateContactByEmail } from "@/lib/gmail";
+import { buildOwnAddressSet, parseEmailAddress } from "@/lib/gmail-helpers";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { filterActiveUserIds } from "@/lib/user-status";
 import { capabilitiesFor } from "@/lib/capabilities/map";
@@ -137,9 +138,17 @@ async function runJob(): Promise<NextResponse> {
   const activeUserIds = await filterActiveUserIds(service, userIds);
   const { data: connections } = await service
     .from("gmail_connections")
-    .select("user_id, gmail_address, modify_scope_granted, automatic_features_enabled, premium_enabled")
+    .select("user_id, gmail_address, send_as_aliases, modify_scope_granted, automatic_features_enabled, premium_enabled")
     .in("user_id", [...activeUserIds]);
-  const emailByUser = new Map((connections || []).map((c): [string, string] => [c.user_id, c.gmail_address?.toLowerCase() || ""]));
+  // Own-address set per user (CAR-153/R2.5): primary + send-as aliases,
+  // lowercased — a user replying manually from an alias must not read as the
+  // contact replying.
+  const ownAddressesByUser = new Map(
+    (connections || []).map((c): [string, Set<string>] => [
+      c.user_id,
+      buildOwnAddressSet(c.gmail_address, c.send_as_aliases),
+    ]),
+  );
   // Resolve each connected user's capabilities from the SAME pre-fetch (no extra
   // round-trips). followups:auto gates auto-send; a connected user without it is
   // on the free (or opted-out) tier and gets confirm-to-send instead.
@@ -240,9 +249,13 @@ async function runJob(): Promise<NextResponse> {
       });
 
       const threadMessages = thread.data.messages || [];
-      // If there are more messages than just the original, check if any are from someone else
+      // If there are more messages than just the original, check if any are
+      // from someone else. Membership in the own-address set (primary +
+      // send-as aliases, CAR-153/R2.5) replaces the old substring test, which
+      // both misread alias-sent mail as a contact reply AND treated every
+      // message as "someone else" when the stored address was empty.
       if (threadMessages.length > 1) {
-        const userEmail = emailByUser.get(userId) || "";
+        const ownAddresses = ownAddressesByUser.get(userId) ?? new Set<string>();
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         hasReply = threadMessages.some((m: any) => {
@@ -250,8 +263,8 @@ async function runJob(): Promise<NextResponse> {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
             (h: any) => h.name?.toLowerCase() === "from"
           );
-          const from = fromHeader?.value?.toLowerCase() || "";
-          return !from.includes(userEmail);
+          const fromAddr = parseEmailAddress(fromHeader?.value || "");
+          return Boolean(fromAddr) && !ownAddresses.has(fromAddr);
         });
       }
     } catch {
