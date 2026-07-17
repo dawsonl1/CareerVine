@@ -5,7 +5,7 @@
  * calendar event fetching, syncing, and free/busy queries.
  */
 
-import { google } from "googleapis";
+import { calendar as calendarClientFactory } from "@googleapis/calendar";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getOAuth2Client, refreshTokenIfNeeded, decryptOAuthToken } from "@/lib/oauth-helpers";
 import { trackServer } from "@/lib/analytics/server";
@@ -63,7 +63,7 @@ export async function getCalendarClient(userId: string) {
 
   await refreshTokenIfNeeded(supabase, oauth2Client, userId, new Date(conn.token_expires_at).getTime(), "Calendar");
 
-  return google.calendar({ version: "v3", auth: oauth2Client });
+  return calendarClientFactory({ version: "v3", auth: oauth2Client });
 }
 
 /**

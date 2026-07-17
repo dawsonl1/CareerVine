@@ -36,8 +36,11 @@ vi.mock("@/lib/supabase/service-client", () => ({
   })),
 }));
 
-vi.mock("@/lib/gmail", () => ({
+vi.mock("@/lib/gmail-send-core", () => ({
   getConnection: vi.fn(async () => ({ gmail_address: "me@gmail.com", last_gmail_sync_at: null })),
+}));
+
+vi.mock("@/lib/gmail", () => ({
   syncEmailsForContact: (...a: unknown[]) => {
     syncSpy(...a);
     return Promise.resolve();

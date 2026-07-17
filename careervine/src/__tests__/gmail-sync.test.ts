@@ -21,24 +21,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const listCalls: string[] = [];
 const failAddresses = new Set<string>();
 
-vi.mock('googleapis', () => ({
-  google: {
-    gmail: () => ({
-      users: {
-        messages: {
-          list: async (args: { q: string }) => {
-            listCalls.push(args.q);
-            for (const addr of failAddresses) {
-              if (args.q.includes(addr)) throw new Error(`simulated Gmail failure for ${addr}`);
-            }
-            return { data: { messages: [] } };
-          },
-          get: async () => ({ data: {} }),
+vi.mock('@googleapis/gmail', () => ({
+  gmail: () => ({
+    users: {
+      messages: {
+        list: async (args: { q: string }) => {
+          listCalls.push(args.q);
+          for (const addr of failAddresses) {
+            if (args.q.includes(addr)) throw new Error(`simulated Gmail failure for ${addr}`);
+          }
+          return { data: { messages: [] } };
         },
+        get: async () => ({ data: {} }),
       },
-    }),
-    auth: { OAuth2: class {} },
-  },
+    },
+  }),
 }));
 
 vi.mock('@/lib/oauth-helpers', () => ({

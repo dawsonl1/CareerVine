@@ -13,11 +13,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  *      never written (reply-based graduation policy).
  */
 
-// ── Gmail lib mock ─────────────────────────────────────────────────────
+// ── Gmail send-core mock (CAR-147: primitives moved to gmail-send-core) ──
 
 const sendEmailMock = vi.fn(async () => ({ messageId: "msg-1", threadId: "thr-1" }));
 
-vi.mock("@/lib/gmail", () => ({
+vi.mock("@/lib/gmail-send-core", () => ({
   sendEmail: (...args: unknown[]) => sendEmailMock(...(args as [])),
   getConnection: async () => ({ gmail_address: "Me@Example.com" }),
 }));

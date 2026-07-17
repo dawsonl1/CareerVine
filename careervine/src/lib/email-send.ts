@@ -1,12 +1,16 @@
 /**
  * Shared tracked-send path (plan 26).
  *
- * Interactive sends — the app's /api/gmail/send route and the MCP server's
- * send_email tool — flow through sendTrackedEmail() so send policy can't
- * drift between those surfaces. (Cron-driven deliveries — scheduled emails
- * and follow-up sequences — call sendEmail() directly and are NOT counted
- * against the daily cap or interaction-logged; recipient bounce is enforced
- * at schedule/sequence creation time instead.) sendTrackedEmail() applies:
+ * EVERY outbound email flows through sendTrackedEmail() so send policy can't
+ * drift between surfaces. All four callers use it: the app's /api/gmail/send
+ * route, the MCP server's send_email tool, the scheduled-email cron
+ * (processScheduledEmails), and the follow-up cron (/api/cron/send-follow-ups).
+ * The crons are NOT exempt from the cap: they call sendTrackedEmail() like the
+ * interactive paths and catch SendPolicyError to DEFER rather than bypass. A
+ * 429 (daily cap reached) stops that cron tick and retries next run; a 422
+ * (recipient has bounced) leaves the row for the bounce path to resolve
+ * (detectBounces cancels the sequence once the NDR lands). sendTrackedEmail()
+ * applies:
  *   - daily cap (deliverability guardrail)
  *   - bounced-address refusal
  *   - pattern-guessed-address warning
@@ -18,7 +22,7 @@
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { sendEmail, getConnection, type ComposeEmailOptions } from "@/lib/gmail";
+import { sendEmail, getConnection, type ComposeEmailOptions } from "@/lib/gmail-send-core";
 import { EmailDirection, GmailLabel } from "@/lib/constants";
 import { trackServer, checkCompaniesEmailedMilestone } from "@/lib/analytics/server";
 

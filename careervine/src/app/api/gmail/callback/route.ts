@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { google } from "googleapis";
+import { oauth2 as oauth2ClientFactory } from "@googleapis/oauth2";
 import { getOAuth2Client, encryptOAuthToken } from "@/lib/oauth-helpers";
 import { deriveGrantedScopeFlags } from "@/lib/gmail";
 import { withApiHandler } from "@/lib/api-handler";
@@ -90,7 +90,7 @@ export const GET = withApiHandler({
       }
       if (!gmailAddress) {
         try {
-          const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+          const oauth2 = oauth2ClientFactory({ version: "v2", auth: oauth2Client });
           const info = await oauth2.userinfo.get();
           gmailAddress = info.data.email?.toLowerCase() || "";
         } catch (e) {

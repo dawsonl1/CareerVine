@@ -3,13 +3,12 @@
  * Both services share the same gmail_connections row.
  */
 
-import { google } from "googleapis";
-import type { OAuth2Client } from "google-auth-library";
+import { OAuth2Client } from "google-auth-library";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 /** Create a Google OAuth2 client from env vars. */
 export function getOAuth2Client() {
-  return new google.auth.OAuth2(
+  return new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
     process.env.GOOGLE_REDIRECT_URI
