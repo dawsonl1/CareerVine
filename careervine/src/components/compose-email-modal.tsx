@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
+import { useToast } from "@/components/ui/toast";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Button } from "@/components/ui/button";
 import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock, Sparkles, AlertTriangle } from "lucide-react";
@@ -18,8 +19,17 @@ import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { track } from "@/lib/analytics/client";
 import { editRatio } from "@/lib/analytics/edit-ratio";
+import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 
 type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
+
+type FollowUpSendOpts = {
+  threadId: string;
+  messageId: string;
+  scheduledEmailId?: number;
+  sendTime: Date;
+};
 
 function formatProjectedDate(delayDays: number, fromDate = new Date()): string {
   const sendDate = new Date(fromDate.getTime() + delayDays * 24 * 60 * 60 * 1000);
@@ -41,17 +51,42 @@ function toLocalDateString(date: Date): string {
 }
 
 export function ComposeEmailModal() {
+  // Remount the body on every open so all state resets by construction, instead
+  // of hand-resetting ~25 fields in an effect (CAR-145 / F23).
+  const { isOpen, composeSessionId } = useCompose();
+  if (!isOpen) return null;
+  return <ComposeEmailModalBody key={composeSessionId} />;
+}
+
+function ComposeEmailModalBody() {
   const {
-    isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml,
+    prefillTo, prefillName, prefillSubject, prefillBodyHtml,
     replyThreadId, replyInReplyTo, replyReferences, replyQuotedHtml,
     aiDraftContext, existingDraftId, isIntro, contactId, templateFollowUps, gmailAddress, closeCompose,
   } = useCompose();
+  const { toast: pushToast } = useToast();
 
   const [showAiContext, setShowAiContext] = useState(false);
-  const [introPhase, setIntroPhase] = useState<IntroPhase>("context");
+  const [introPhase, setIntroPhase] = useState<IntroPhase>(
+    isIntro && templateFollowUps?.length
+      ? "ready"
+      : isIntro && !prefillBodyHtml
+        ? "context"
+        : "editing",
+  );
 
   // Follow-up plan state (intro flow only)
-  const [followUps, setFollowUps] = useState<FollowUpDraft[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUpDraft[]>(() =>
+    isIntro && templateFollowUps?.length
+      ? templateFollowUps.map((fu, i) => ({
+          id: `fu-${i}`,
+          subject: fu.subject,
+          bodyHtml: fu.bodyHtml,
+          delayDays: fu.delayDays,
+          projectedDate: formatProjectedDate(fu.delayDays),
+        }))
+      : [],
+  );
   const [followUpsEnabled, setFollowUpsEnabled] = useState(true);
   // Regular (non-intro) compose: whether the user opened the follow-up planner (CAR-120).
   const [showFollowUps, setShowFollowUps] = useState(false);
@@ -62,19 +97,25 @@ export function ComposeEmailModal() {
   const introContextRef = useRef<{ howMet: string; goal: string }>({ howMet: "", goal: "" });
   // Last AI-generated body in this compose session — the baseline for the
   // ai_draft_outcome acceptance metric (CAR-38). Null = human-only draft.
-  const aiBodyRef = useRef<string | null>(null);
+  // AI-followup drafts arrive pre-filled with AI content; anything else starts
+  // as a human draft until an AI generation lands in the body.
+  const aiBodyRef = useRef<string | null>(
+    aiDraftContext && prefillBodyHtml ? prefillBodyHtml : null,
+  );
   // Which AI surface generated the current draft — carried on the outcome
   // event so per-kind acceptance rates are computable (CAR-58).
-  const aiKindRef = useRef<"intro" | "follow_up" | "write" | null>(null);
+  const aiKindRef = useRef<"intro" | "follow_up" | "write" | null>(
+    aiDraftContext && prefillBodyHtml ? "follow_up" : null,
+  );
 
 
   const isReply = !!replyThreadId;
 
-  const [to, setTo] = useState("");
+  const [to, setTo] = useState(prefillTo);
   const [cc, setCc] = useState("");
   const [bcc, setBcc] = useState("");
-  const [subject, setSubject] = useState("");
-  const [bodyHtml, setBodyHtml] = useState("");
+  const [subject, setSubject] = useState(prefillSubject || (prefillName ? `Hi ${prefillName}` : ""));
+  const [bodyHtml, setBodyHtml] = useState(prefillBodyHtml || "");
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [showQuoted, setShowQuoted] = useState(false);
   const [sending, setSending] = useState(false);
@@ -87,16 +128,22 @@ export function ComposeEmailModal() {
   // Provenance warning for scraped/pattern-guessed/bounced addresses (plan 24)
   const [emailMeta, setEmailMeta] = useState<{ id: number; source: string; bounced_at: string | null } | null>(null);
 
+  // A bounce/pattern-guess banner must never attach to a recipient the user has
+  // already changed away from, so a slower provenance lookup can't win (F19).
+  const provenanceReq = useLatestRequest();
   useEffect(() => {
     if (!to.trim() || !to.includes("@")) {
       setEmailMeta(null);
       return;
     }
+    const token = provenanceReq.begin();
     const t = setTimeout(() => {
-      getEmailProvenance(to).then(setEmailMeta).catch(() => setEmailMeta(null));
+      getEmailProvenance(to)
+        .then((meta) => { if (provenanceReq.isLatest(token)) setEmailMeta(meta); })
+        .catch(() => { if (provenanceReq.isLatest(token)) setEmailMeta(null); });
     }, 300);
     return () => clearTimeout(t);
-  }, [to]);
+  }, [to, provenanceReq]);
 
   // Schedule send state — custom date + time pickers (CAR-120)
   const [showSchedule, setShowSchedule] = useState(false);
@@ -104,23 +151,29 @@ export function ComposeEmailModal() {
   const [scheduleTime, setScheduleTime] = useState(""); // HH:MM (24h)
 
   const toRef = useRef<HTMLInputElement>(null);
-  const draftIdRef = useRef<number | null>(null);
+  const draftIdRef = useRef<number | null>(existingDraftId);
   // Monotonic id source for manually-added follow-up steps (CAR-120).
   const followUpIdRef = useRef(0);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sentOrScheduledRef = useRef(false);
+  // Synchronous re-entrancy guard for send/schedule: a second click can fire
+  // before `sending` re-renders the button disabled, so the state flag alone
+  // can't stop a double-submit. The ref is read+set in the same tick (F42).
+  const submittingRef = useRef(false);
 
   // Contact autocomplete
   const [, setContactQuery] = useState("");
   const [contactSuggestions, setContactSuggestions] = useState<Array<{ id: number; name: string; email: string; emails: string[] }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedContactName, setSelectedContactName] = useState("");
+  const [selectedContactName, setSelectedContactName] = useState(prefillName || "");
   // Contact resolved from the recipient autocomplete — lets Outreach's blank compose
   // attach follow-ups without an explicit contactId prop (CAR-120).
   const [matchedContactId, setMatchedContactId] = useState<number | null>(null);
   const [contactEmailOptions, setContactEmailOptions] = useState<string[]>([]);
   const contactSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  // Drops a slower contact-search response when a newer query has been issued (F19).
+  const searchReq = useLatestRequest();
 
   // Combined scheduled-send time from the custom date + time pickers (CAR-120).
   const scheduledAt = scheduleDate && scheduleTime ? new Date(`${scheduleDate}T${scheduleTime}`) : null;
@@ -152,8 +205,18 @@ export function ComposeEmailModal() {
         }),
       });
       const data = await res.json();
-      if (data.draft?.id) draftIdRef.current = data.draft.id;
-      window.dispatchEvent(new CustomEvent("careervine:drafts-changed"));
+      if (data.draft?.id) {
+        // Ghost-draft guard: if the message was sent/scheduled while this
+        // autosave was in flight, deleteDraft already ran (against a stale or
+        // absent id) and would never remove the row this POST just created.
+        // Delete it now instead of recording its id (CAR-145 / F42).
+        if (sentOrScheduledRef.current) {
+          fetch(`/api/gmail/drafts/${data.draft.id}`, { method: "DELETE" }).catch(() => {});
+        } else {
+          draftIdRef.current = data.draft.id;
+        }
+      }
+      emitUiEvent(UI_EVENTS.draftsChanged);
     } catch {
       // silent — draft save is best-effort
     }
@@ -164,101 +227,51 @@ export function ComposeEmailModal() {
     try {
       await fetch(`/api/gmail/drafts/${draftIdRef.current}`, { method: "DELETE" });
       draftIdRef.current = null;
-      window.dispatchEvent(new CustomEvent("careervine:drafts-changed"));
+      emitUiEvent(UI_EVENTS.draftsChanged);
     } catch {
       // silent
     }
   }, []);
 
+  // The body is key-remounted on every openCompose, so every useState/useRef
+  // above already initialised to this session's values — no manual reset needed
+  // (CAR-145 / F23). This mount-once effect just fires the open analytics and
+  // moves focus to the recipient field when it starts empty.
   useEffect(() => {
-    if (isOpen) {
-      setTo(prefillTo);
-      setCc("");
-      setBcc("");
-      setSubject(prefillSubject || (prefillName ? `Hi ${prefillName}` : ""));
-      setBodyHtml(prefillBodyHtml || "");
-      setShowCcBcc(false);
-      setShowQuoted(false);
-      setSending(false);
-      setSent(false);
-      setScheduled(false);
-      setError("");
-      setShowSchedule(false);
-      setScheduleDate("");
-      setScheduleTime("");
-      setConfirmedSendAt(null);
-      setShowAiContext(false);
-      // Pre-written follow-ups (onboarding templates) skip the AI generate
-      // gate entirely: the plan arrives ready and stays fully editable.
-      if (isIntro && templateFollowUps?.length) {
-        setIntroPhase("ready");
-        setFollowUps(
-          templateFollowUps.map((fu, i) => ({
-            id: `fu-${i}`,
-            subject: fu.subject,
-            bodyHtml: fu.bodyHtml,
-            delayDays: fu.delayDays,
-            projectedDate: formatProjectedDate(fu.delayDays),
-          })),
-        );
-      } else {
-        setIntroPhase(isIntro && !prefillBodyHtml ? "context" : "editing");
-        setFollowUps([]);
-      }
-      setFollowUpsEnabled(true);
-      setShowFollowUps(false);
-      setFollowUpError(null);
-      setIntroError(null);
-      setIntroAiFailure(null);
-      setFollowUpAiFailure(null);
-      introContextRef.current = { howMet: "", goal: "" };
-      // Resume an existing email_drafts row when opened from Drafts (CAR-127).
-      draftIdRef.current = existingDraftId;
-      sentOrScheduledRef.current = false;
-      setContactSuggestions([]);
-      setShowSuggestions(false);
-      setSelectedContactName(prefillName || "");
-      setContactQuery("");
-      setContactEmailOptions([]);
-      setMatchedContactId(null);
-      // AI-followup drafts arrive pre-filled with AI content; anything else
-      // starts as a human draft until an AI generation lands in the body.
-      aiBodyRef.current = aiDraftContext && prefillBodyHtml ? prefillBodyHtml : null;
-      aiKindRef.current = aiBodyRef.current != null ? "follow_up" : null;
-      track("compose_opened", {
-        source: aiDraftContext
-          ? "ai_followup"
-          : templateFollowUps?.length
-            ? "onboarding"
-            : isIntro
-              ? "intro"
-              : isReply
-                ? "reply"
-                : "blank",
-      });
-      setTimeout(() => {
-        if (prefillTo) {
-          // Focus subject if To is pre-filled
-        } else {
-          toRef.current?.focus();
-        }
-      }, 100);
-    }
-  }, [isOpen, prefillTo, prefillName, prefillSubject, prefillBodyHtml, templateFollowUps, existingDraftId, aiDraftContext, isIntro, isReply]);
+    track("compose_opened", {
+      source: aiDraftContext
+        ? "ai_followup"
+        : templateFollowUps?.length
+          ? "onboarding"
+          : isIntro
+            ? "intro"
+            : isReply
+              ? "reply"
+              : "blank",
+    });
+    const t = setTimeout(() => {
+      if (!prefillTo) toRef.current?.focus();
+    }, 100);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per open
+  }, []);
 
   // Contact autocomplete: debounced search
   const searchContacts = useCallback(async (query: string) => {
     if (query.length < 1) { setContactSuggestions([]); setShowSuggestions(false); return; }
+    const token = searchReq.begin();
     try {
       const res = await fetch(`/api/contacts/search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
+      if (!searchReq.isLatest(token)) return;
       setContactSuggestions(data.contacts || []);
       setShowSuggestions((data.contacts || []).length > 0);
     } catch {
+      if (!searchReq.isLatest(token)) return;
       setContactSuggestions([]);
       setShowSuggestions(false);
     }
-  }, []);
+  }, [searchReq]);
 
   const handleToChange = (value: string) => {
     setTo(value);
@@ -292,7 +305,7 @@ export function ComposeEmailModal() {
 
   // Auto-save draft on content change (debounced 2s)
   useEffect(() => {
-    if (!isOpen || sent || scheduled) return;
+    if (sent || scheduled) return;
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(async () => {
       await saveDraft({ to, cc, bcc, subject, bodyHtml });
@@ -306,7 +319,7 @@ export function ComposeEmailModal() {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
       if (draftSavedTimer.current) clearTimeout(draftSavedTimer.current);
     };
-  }, [isOpen, to, cc, bcc, subject, bodyHtml, sent, scheduled, saveDraft]);
+  }, [to, cc, bcc, subject, bodyHtml, sent, scheduled, saveDraft]);
 
   const validate = (): boolean => {
     if (!to.trim()) {
@@ -320,41 +333,49 @@ export function ComposeEmailModal() {
     return true;
   };
 
-  // Create follow-up sequence records after sending the intro
-  const createFollowUpRecords = useCallback(async (opts: {
-    threadId: string;
-    messageId: string;
-    scheduledEmailId?: number;
-    sendTime: Date;
-  }) => {
+  // Create follow-up sequence records after sending the intro. Throws on a
+  // non-ok response so the caller can surface the failure instead of swallowing
+  // it (CAR-145 / F21).
+  const createFollowUpRecords = useCallback(async (opts: FollowUpSendOpts) => {
     // Fire for the intro flow OR a regular compose where the user opened the planner,
     // as long as follow-ups are enabled, non-empty, and a contact is resolved (CAR-120).
     if ((!isIntro && !showFollowUps) || !followUpsEnabled || followUps.length === 0 || !activeContactId) return;
-    try {
-      await fetch("/api/email-follow-ups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contactId: activeContactId,
-          threadId: opts.threadId || null,
-          messageId: opts.messageId || null,
-          scheduledEmailId: opts.scheduledEmailId || null,
-          recipientEmail: to.trim(),
-          contactName: selectedContactName || prefillName || null,
-          originalSubject: subject.trim(),
-          originalSentAt: opts.sendTime.toISOString(),
-          timezoneOffsetMinutes: new Date().getTimezoneOffset(),
-          followUps: followUps.map((fu) => ({
-            subject: fu.subject,
-            bodyHtml: fu.bodyHtml,
-            delayDays: fu.delayDays,
-          })),
-        }),
-      });
-    } catch (err) {
-      console.warn("[follow-ups] Failed to create follow-up records:", err);
-    }
+    const res = await fetch("/api/email-follow-ups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contactId: activeContactId,
+        threadId: opts.threadId || null,
+        messageId: opts.messageId || null,
+        scheduledEmailId: opts.scheduledEmailId || null,
+        recipientEmail: to.trim(),
+        contactName: selectedContactName || prefillName || null,
+        originalSubject: subject.trim(),
+        originalSentAt: opts.sendTime.toISOString(),
+        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        followUps: followUps.map((fu) => ({
+          subject: fu.subject,
+          bodyHtml: fu.bodyHtml,
+          delayDays: fu.delayDays,
+        })),
+      }),
+    });
+    if (!res.ok) throw new Error("Failed to create follow-up records");
   }, [isIntro, showFollowUps, followUpsEnabled, followUps, activeContactId, to, selectedContactName, prefillName, subject]);
+
+  // The send itself already succeeded, so a follow-up failure is soft: keep the
+  // sent confirmation but toast a retry rather than dropping the sequence
+  // silently. Recursive on retry so a repeated failure re-offers the retry.
+  async function runFollowUps(opts: FollowUpSendOpts): Promise<void> {
+    try {
+      await createFollowUpRecords(opts);
+    } catch {
+      pushToast("Email sent, but follow-ups could not be scheduled", {
+        variant: "error",
+        actions: [{ label: "Retry", onClick: () => void runFollowUps(opts) }],
+      });
+    }
+  }
 
   // Shared follow-up generation logic (used by approve button + retry)
   const generateFollowUps = useCallback(async () => {
@@ -437,7 +458,9 @@ export function ComposeEmailModal() {
   }, [subject]);
 
   const handleSendNow = async () => {
+    if (submittingRef.current) return;
     if (!validate()) return;
+    submittingRef.current = true;
 
     setError("");
     setSending(true);
@@ -475,9 +498,10 @@ export function ComposeEmailModal() {
         });
       }
 
-      // Create follow-up records for intro emails
+      // Create follow-up records for intro emails (awaited so a failure is
+      // surfaced via toast instead of silently dropped).
       if (data.messageId && data.threadId) {
-        createFollowUpRecords({
+        await runFollowUps({
           threadId: data.threadId,
           messageId: data.messageId,
           sendTime: new Date(),
@@ -502,20 +526,18 @@ export function ComposeEmailModal() {
       // onboardingIntro marks the guided flow's templated first outreach so
       // the finale doesn't fire on unrelated sends (isIntro is too broad —
       // it's also true for regular intro composes).
-      window.dispatchEvent(
-        new CustomEvent("careervine:email-sent", {
-          detail: { onboardingIntro: !!templateFollowUps?.length },
-        }),
-      );
+      emitUiEvent(UI_EVENTS.emailSent, { onboardingIntro: !!templateFollowUps?.length });
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send email");
     } finally {
       setSending(false);
+      submittingRef.current = false;
     }
   };
 
   const handleScheduleSend = async (sendAtOverride?: Date) => {
+    if (submittingRef.current) return;
     if (!validate()) return;
     const sendAt = sendAtOverride || scheduledAt;
     if (!sendAt) {
@@ -526,6 +548,7 @@ export function ComposeEmailModal() {
       setError("Scheduled time must be in the future");
       return;
     }
+    submittingRef.current = true;
 
     setError("");
     setSending(true);
@@ -554,9 +577,10 @@ export function ComposeEmailModal() {
       sentOrScheduledRef.current = true;
       deleteDraft();
 
-      // Create follow-up records for scheduled intro emails
+      // Create follow-up records for scheduled intro emails (awaited so a
+      // failure is surfaced via toast instead of silently dropped).
       if (data.scheduledEmail?.id) {
-        createFollowUpRecords({
+        await runFollowUps({
           threadId: "",
           messageId: "",
           scheduledEmailId: data.scheduledEmail.id,
@@ -582,16 +606,13 @@ export function ComposeEmailModal() {
       // onboardingIntro marks the guided flow's templated first outreach so
       // the finale doesn't fire on unrelated sends (isIntro is too broad —
       // it's also true for regular intro composes).
-      window.dispatchEvent(
-        new CustomEvent("careervine:email-sent", {
-          detail: { onboardingIntro: !!templateFollowUps?.length },
-        }),
-      );
+      emitUiEvent(UI_EVENTS.emailSent, { onboardingIntro: !!templateFollowUps?.length });
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to schedule email");
     } finally {
       setSending(false);
+      submittingRef.current = false;
     }
   };
 
@@ -618,15 +639,12 @@ export function ComposeEmailModal() {
 
   // Close on Escape
   useEffect(() => {
-    if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, handleClose]);
-
-  if (!isOpen) return null;
+  }, [handleClose]);
 
   const isDone = sent || scheduled;
 

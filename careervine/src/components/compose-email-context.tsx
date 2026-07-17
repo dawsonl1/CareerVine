@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { UI_EVENTS, onUiEvent, type UnreadChangedDetail } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { useCapabilities } from "@/hooks/use-capabilities";
 import { getGmailConnection } from "@/lib/queries";
@@ -42,6 +43,9 @@ type ComposeOptions = {
 
 type ComposeContextValue = {
   isOpen: boolean;
+  /** Increments on every openCompose so the modal body can key-remount to a
+   *  clean slate instead of hand-resetting ~25 fields (CAR-145 / F23). */
+  composeSessionId: number;
   prefillTo: string;
   prefillName: string;
   prefillSubject: string;
@@ -68,6 +72,7 @@ type ComposeContextValue = {
 
 const ComposeContext = createContext<ComposeContextValue>({
   isOpen: false,
+  composeSessionId: 0,
   prefillTo: "",
   prefillName: "",
   prefillSubject: "",
@@ -102,6 +107,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
+  const [composeSessionId, setComposeSessionId] = useState(0);
   const [prefillTo, setPrefillTo] = useState("");
   const [prefillName, setPrefillName] = useState("");
   const [prefillSubject, setPrefillSubject] = useState("");
@@ -142,27 +148,25 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
 
   // Update badge when emails are read or sent
   useEffect(() => {
-    const handleUnread = (e: Event) => {
-      const detail = (e as CustomEvent).detail || {};
-      if (typeof detail.delta === "number") {
-        setUnreadCount((prev) => Math.max(0, prev + detail.delta));
+    const handleUnread = (detail: UnreadChangedDetail | undefined) => {
+      const delta = detail?.delta;
+      if (typeof delta === "number") {
+        setUnreadCount((prev) => Math.max(0, prev + delta));
       }
       // Explicit refetch (fired after API completes): fetch immediately
       // Delta-only events: trust the optimistic delta, skip auto-refetch
       // Generic events (no delta, no refetch): delayed refetch
-      if (detail.refetch) {
+      if (detail?.refetch) {
         fetchUnreadCount();
-      } else if (typeof detail.delta !== "number") {
+      } else if (typeof delta !== "number") {
         setTimeout(fetchUnreadCount, 600);
       }
     };
-    const handleSent = () => setTimeout(fetchUnreadCount, 600);
-    window.addEventListener("careervine:unread-changed", handleUnread);
-    window.addEventListener("careervine:email-sent", handleSent);
-    return () => {
-      window.removeEventListener("careervine:unread-changed", handleUnread);
-      window.removeEventListener("careervine:email-sent", handleSent);
-    };
+    const unsubscribers = [
+      onUiEvent(UI_EVENTS.unreadChanged, handleUnread),
+      onUiEvent(UI_EVENTS.emailSent, () => setTimeout(fetchUnreadCount, 600)),
+    ];
+    return () => unsubscribers.forEach((off) => off());
   }, [fetchUnreadCount]);
 
   const openCompose = useCallback((opts?: ComposeOptions) => {
@@ -179,6 +183,9 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     setIsIntro(opts?.isIntro || false);
     setContactId(opts?.contactId || 0);
     setTemplateFollowUps(opts?.templateFollowUps?.length ? opts.templateFollowUps : null);
+    // New session id on every open (even open-while-open) so the modal body
+    // remounts fresh — no stale field can leak from a previous recipient.
+    setComposeSessionId((n) => n + 1);
     setIsOpen(true);
   }, []);
 
@@ -203,6 +210,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     <ComposeContext.Provider
       value={{
         isOpen,
+        composeSessionId,
         prefillTo,
         prefillName,
         prefillSubject,

@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 import { useRouter } from "next/navigation";
 import { Chrome, Download, Linkedin, Mail, Sparkles, Trash2, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
@@ -241,7 +242,7 @@ export function ExtensionOnboardingModal() {
         is_completed: true,
         completed_at: new Date().toISOString(),
       });
-      window.dispatchEvent(new CustomEvent("careervine:onboarding-todo-changed"));
+      emitUiEvent(UI_EVENTS.onboardingTodoChanged);
     } catch {
       // The row staying open is harmless; the flow state is already terminal.
     }
@@ -280,7 +281,7 @@ export function ExtensionOnboardingModal() {
       const id = actionItemId ?? (user ? await getOnboardingActionItemId(user.id) : null);
       if (id) {
         await deleteActionItem(id);
-        window.dispatchEvent(new CustomEvent("careervine:onboarding-todo-changed"));
+        emitUiEvent(UI_EVENTS.onboardingTodoChanged);
       }
     } catch {
       // Leave the row; the user can delete it again from the list.

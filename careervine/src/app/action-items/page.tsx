@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
@@ -106,9 +107,7 @@ export default function ActionItemsPage() {
 
   // Refresh when a conversation is logged via the unified modal
   useEffect(() => {
-    const handler = () => loadActionItems();
-    window.addEventListener("careervine:conversation-logged", handler);
-    return () => window.removeEventListener("careervine:conversation-logged", handler);
+    return onUiEvent(UI_EVENTS.conversationLogged, () => loadActionItems());
   }, [loadActionItems]);
 
   // Load suggestions once after initial data loads

@@ -35,6 +35,9 @@ jobs:
       - name: Lint
         run: npx eslint . --max-warnings 0
 
+      - name: UI events guard
+        run: node scripts/check-ui-events.mjs
+
       - name: Test
         run: npx vitest run
 
