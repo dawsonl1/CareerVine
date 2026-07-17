@@ -4,6 +4,13 @@ Generated for [CAR-161](https://linear.app/career-vine/issue/CAR-161). Read-only
 Dependabot triage, and trivial cold-zone fixes. Nothing here touches hot files or the
 Straight A's critical path; no PR was merged.
 
+## At a glance
+
+- **7 reports**, ~**118 findings** across them: coverage 40 · vulns 20 · dead-code 20 · a11y 19 · copy 8 · perf 4 · Dependabot 14 (as verdicts).
+- **1 cold-zone fix applied** (reset-password label association); 2 further cold-zone findings deliberately left report-only (judgment calls).
+- **Dependabot:** 14 PRs triaged, a verdict comment posted on each — 4 SAFE · 2 NOTE · 8 HOLD. **None merged.**
+- **0 hot files touched. 0 PRs merged. 0 migrations / schema / secrets / dependency-version changes.**
+
 | # | Report | Scope | Headline findings |
 |---|--------|-------|-------------------|
 | 1 | [coverage-gaps.md](coverage-gaps.md) | Test-coverage gap map | 59.5% stmt coverage; 201/400 modules have zero tests. 40 risk-ranked gaps (Apify billing, Google Calendar, MCP tool handlers near-dark; crypto/BYOK well covered). |
@@ -37,4 +44,5 @@ judgment or in a hot file is report-only.
 ## Notes
 
 - Report location mandated by the ticket: `careervine/docs/audit-reports/2026-07-17/`.
-- This INDEX is appended to as each report lands, then finalized in Task 8.
+- Each task landed in its own commit; the draft PR (#130) stayed pushed after every task for resumability.
+- Bundle finalized 2026-07-17. See PR #130's description for the full guardrail checklist.
