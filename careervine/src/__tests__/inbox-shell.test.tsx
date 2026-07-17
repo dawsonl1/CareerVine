@@ -304,4 +304,25 @@ describe("InboxShell — extracted child tabs render their own data", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Follow-ups/ })[0]);
     expect(screen.getByText("Intro sequence")).toBeTruthy();
   });
+
+  it("restores a draft at its original position (not the top) when the delete fails", async () => {
+    const mk = (id: number, subject: string, updated_at: string) => ({ id, subject, recipient_email: "x@x.com", contact_name: null, body_html: "", thread_id: null, in_reply_to: null, references_header: null, updated_at });
+    installFetch({
+      inbox: inboxPayload(),
+      drafts: { drafts: [mk(1, "Draft A", "2026-07-14T12:00:00Z"), mk(2, "Draft B", "2026-07-13T12:00:00Z"), mk(3, "Draft C", "2026-07-12T12:00:00Z")] },
+      mutationOk: false,
+    });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Drafts/ })[0]);
+    await waitFor(() => expect(screen.getByText("Draft B")).toBeTruthy());
+
+    // Delete the middle draft; the failed request rolls it back in place.
+    fireEvent.click(screen.getAllByTitle("Delete draft")[1]);
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+
+    const [a, b, c] = ["Draft A", "Draft B", "Draft C"].map((s) => screen.getByText(s));
+    expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(b.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

@@ -311,14 +311,22 @@ export function InboxShell() {
   // ── Draft actions ──
 
   const deleteDraft = async (draftId: number) => {
-    const removed = drafts.find((d) => d.id === draftId);
-    if (!removed) return;
+    // Unlike the email lists (re-sorted by buildThreads), DraftsTab renders the
+    // drafts array verbatim, so a failed-delete rollback must restore the draft
+    // at its original index to preserve updated_at order.
+    const removedIndex = drafts.findIndex((d) => d.id === draftId);
+    if (removedIndex === -1) return;
+    const removed = drafts[removedIndex];
     setDrafts((prev) => prev.filter((d) => d.id !== draftId));
     try {
       const res = await fetch(`/api/gmail/drafts/${draftId}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`draft delete failed: ${res.status}`);
     } catch {
-      setDrafts((prev) => [removed, ...prev]);
+      setDrafts((prev) => {
+        const next = [...prev];
+        next.splice(Math.min(removedIndex, next.length), 0, removed);
+        return next;
+      });
       toastError("Couldn't delete that draft. Please try again.");
     }
   };
