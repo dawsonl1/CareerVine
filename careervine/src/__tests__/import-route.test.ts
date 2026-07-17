@@ -367,5 +367,16 @@ describe('Import flow integration', () => {
       expect(id).toBeNull();
       expect(ops).toHaveLength(0);
     });
+
+    it('tolerates a non-string location field instead of 500ing the import (CAR-139)', async () => {
+      // profileData.location subfields are schema-`unknown`; a numeric ZIP or a
+      // nested object must be treated as absent, not crash normalizeParsedLocation.
+      const { supabase } = createMockSupabase({ locations: [] });
+      const id = await resolveProfileLocationId(supabase as any, {
+        city: 12345, state: 'CA', country: 'US',
+      } as any);
+      // city coerced away, state 'CA' -> 'California' still resolves to a row.
+      expect(id).not.toBeNull();
+    });
   });
 });

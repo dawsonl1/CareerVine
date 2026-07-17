@@ -77,8 +77,9 @@ export function isActionableFollowUpMessage(status: string | null | undefined): 
 
 // ── Scheduled email statuses ───────────────────────────────────────────
 
-/** Statuses for scheduled_emails. The DB CHECK allows exactly these three —
- * there is no 'cancelled_user' here (that's email_follow_ups vocabulary; a
+/** Statuses for scheduled_emails. The DB CHECK allows exactly these five
+ * (pending/sending/sent/cancelled/failed; 'sending' + 'failed' added by CAR-134).
+ * There is no 'cancelled_user' here (that's email_follow_ups vocabulary; a
  * stray CancelledUser entry in this enum led db.ts to write it, and every MCP
  * scheduled-email cancel failed on the CHECK until CAR-132). */
 export const ScheduledEmailStatus = {

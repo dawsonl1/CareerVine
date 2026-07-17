@@ -39,7 +39,11 @@ export function renderNudgeDigest(
     n === 1
       ? "You have a follow-up awaiting your review"
       : `You have ${n} follow-ups awaiting your review`;
-  const portalUrl = `${appUrl}/outreach`;
+  // The follow-up review UI (Send now / They replied) lives at /inbox via
+  // EmailExperience (OutreachShell for free tier; the Follow-ups tab for
+  // premium). /outreach is the separate company-stepping queue and shows none
+  // of these messages, so the CTA must target /inbox (CAR-139 review fix).
+  const portalUrl = `${appUrl}/inbox`;
 
   const rows = items
     .map((it, i) => {

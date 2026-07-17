@@ -60,6 +60,17 @@ Silently-swallowed `{data: null, error}` reads become throws:
 - Tier filter: both queries filter on `network_status = 'active'`.
 - Repo greps (exit criteria): zero `.update(...).select()` on a filter-tested column; zero `/api/gmail/schedule/process` refs outside route+cron; zero `"sending"` DB-status literals outside constants.ts.
 
+## Review-driven additions (deep-review-pr on PR #102, folded in per Dawson)
+
+A Tier-2 agent-team review (7 discovery + 4 verification) confirmed the committed scope correct and resolved the premium-stranding crux as safe. Everything it surfaced was folded into this PR rather than deferred:
+
+- **Two pre-existing HIGH data-loss reads** on the bundle-sync removal→commit path (the exact class this ticket hardens) now throw: `findSiblingLinkedContacts` (the only cross-subscription delete guard) and `fetchTouchSignals`' hard-signal reads (which fail toward deleting a contact with real activity). Both were swallowing `{data:null,error}` and letting a wrong deletion reach the `synced_version` commit.
+- **Sweep parent-guard**: the stale-claim sweep now reads first and partitions — rows under an **active** parent are parked `awaiting_review`; rows whose parent died mid-`sending` (teardown skips `sending` rows) are **cancelled** to match the dead parent, so they can't become invisible orphans behind the parent-active-gated surfaces. (PostgREST can't filter an UPDATE by a joined column, hence select-then-partition.) The sweep read is fail-loud.
+- **F50 completeness**: `database.types.ts` gains `claimed_at` on `email_follow_up_messages` (mirroring CAR-134's `scheduled_emails`); `processScheduledEmails` finishes enum-izing its `pending`/`sent` literals; `constants.ts` "exactly these three" comment corrected to five.
+- **Nudge digest CTA** repointed from `/outreach` (the company-stepping queue, shows no follow-ups) to `/inbox` (where the review UI lives) — this backs the swept-row recovery story.
+- **Non-string location coercion**: `normalizeParsedLocation` treats a non-string field as absent instead of throwing (the import payload is schema-`unknown`, so a numeric/object field would 500 the import).
+- **Cleanup**: deleted the orphaned `POST /api/gmail/schedule/process` route (zero callers after the trigger removal) and fixed the stale `retry/route.ts` "page-load trigger" docstring.
+
 ## Landing
 
 `npm run test` + `npm run build` green → PR `(CAR-139)` → on Dawson's merge go-ahead: migration per rule 27 (dry-run, rule-32 BEGIN/ROLLBACK rehearsal against prod, `supabase db push`). Docs page checked for drift (rule 34) — the page describes follow-up/scheduled-email behavior at user level; verify whether page-load-triggered sending is mentioned.

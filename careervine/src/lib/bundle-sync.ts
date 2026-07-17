@@ -254,6 +254,18 @@ export async function fetchTouchSignals(
         .in("contact_id", contactIds),
     ]);
 
+  // Fail loud (CAR-139): touched-detection drives the removal-phase delete
+  // decision, and the hard-signal reads (interactions/meetings/follow-ups) fail
+  // TOWARD deletion — a swallowed `{data:null, error}` reads as "no activity,"
+  // so a contact with real history could be deleted. Any read erroring makes the
+  // whole signal set unreliable, so throw and let the caller abort before the
+  // synced_version commit (recovery routes to the daily stale-scan).
+  for (const [name, res] of Object.entries({
+    contacts, manualEmp, manualEmails, tagRows, interactions, meetings, followUps, states,
+  })) {
+    if (res.error) throw new Error(`Touch-signal read failed (${name}): ${res.error.message}`);
+  }
+
   for (const row of (contacts.data as Array<Record<string, unknown>> | null) ?? []) {
     result.snapshots.set(row.id as number, {
       id: row.id as number,
@@ -304,13 +316,19 @@ export async function findSiblingLinkedContacts(
   contactIds: number[],
 ): Promise<Set<number>> {
   if (contactIds.length === 0) return new Set();
-  const { data } = await client
+  const { data, error } = await client
     .from("bundle_subscription_contacts")
     .select("contact_id, bundle_subscriptions!inner(user_id, status)")
     .neq("subscription_id", excludeSubscriptionId)
     .in("contact_id", contactIds)
     .eq("bundle_subscriptions.user_id", userId)
     .eq("bundle_subscriptions.status", "active");
+  // Fail loud (CAR-139): this is the ONLY cross-subscription delete guard. A
+  // swallowed error would empty the set, so a contact still linked by another
+  // active subscription would look unlinked and be deleted (cascading the
+  // sibling's linkage). Throw so the caller aborts before the synced_version
+  // commit rather than committing a wrong deletion.
+  if (error) throw new Error(`Sibling-linkage read failed: ${error.message}`);
   return new Set(((data as Array<{ contact_id: number }> | null) ?? []).map((r) => r.contact_id));
 }
 

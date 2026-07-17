@@ -46,17 +46,41 @@ async function runJob(): Promise<NextResponse> {
   // may extend this once). Stamped alongside the awaiting_review flip below.
   const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Sweep stale claims (CAR-139): a row stuck in 'sending' longer than any
-  // send driver can live was orphaned by a crash. The crash may have happened
-  // after the Gmail send but before the mark-sent write, so park it as
-  // 'awaiting_review' (with the full CAR-105 parking stamp, so the portal,
-  // contact-page buttons, and nudge emails all surface it) instead of
-  // re-queueing it — an automatic retry could double-send a real email.
+  // Sweep stale claims (CAR-139): a row stuck in 'sending' longer than any send
+  // driver can live was orphaned by a crash. The crash may have happened after
+  // the Gmail send but before the mark-sent write, so never auto-resend (an
+  // automatic retry could double-send a real email). Recovery splits on the
+  // parent's status, which is why this reads first (PostgREST can't filter an
+  // UPDATE by a joined table's column):
+  //   - active parent   -> park 'awaiting_review' with the full CAR-105 stamp,
+  //                        so the portal, contact page, and nudge emails surface
+  //                        it for the user to resolve.
+  //   - inactive parent -> the sequence was torn down (cancel/reply) while this
+  //                        row was mid-'sending' (teardown message-cancels skip
+  //                        'sending' rows), so cancel it to match its dead
+  //                        parent. Parking it would strand it behind the
+  //                        parent-active-gated surfaces as an invisible orphan.
   const staleCutoff = new Date(Date.now() - SEND_STALE_CLAIM_MINUTES * 60_000).toISOString();
-  const { count: sweptStale } = await service
+  const { data: staleRows, error: staleError } = await service
     .from("email_follow_up_messages")
-    .update(
-      {
+    .select("id, email_follow_ups!inner(status)")
+    .eq("status", FollowUpMessageStatus.Sending)
+    .lt("claimed_at", staleCutoff);
+  if (staleError) throw new Error(`Stale-claim sweep read failed: ${staleError.message}`);
+
+  const staleActiveIds: number[] = [];
+  const staleDeadIds: number[] = [];
+  type StaleRow = { id: number; email_follow_ups: { status: string } | { status: string }[] | null };
+  for (const r of (staleRows ?? []) as StaleRow[]) {
+    const parent = Array.isArray(r.email_follow_ups) ? r.email_follow_ups[0] : r.email_follow_ups;
+    (parent?.status === "active" ? staleActiveIds : staleDeadIds).push(r.id);
+  }
+  // Both writes re-assert `.eq(status, 'sending')` so a row that a concurrent
+  // driver resolved between the read and here is left untouched.
+  if (staleActiveIds.length > 0) {
+    await service
+      .from("email_follow_up_messages")
+      .update({
         status: FollowUpMessageStatus.AwaitingReview,
         parked_at: now,
         expires_at: expiresAt,
@@ -64,13 +88,21 @@ async function runJob(): Promise<NextResponse> {
         last_reminder_at: null,
         seen_during_window: false,
         claimed_at: null,
-      },
-      { count: "exact" },
-    )
-    .eq("status", FollowUpMessageStatus.Sending)
-    .lt("claimed_at", staleCutoff);
-  if (sweptStale) {
-    console.warn(`[cron] Swept ${sweptStale} stale 'sending' follow-up claim(s) to awaiting_review`);
+      })
+      .in("id", staleActiveIds)
+      .eq("status", FollowUpMessageStatus.Sending);
+  }
+  if (staleDeadIds.length > 0) {
+    await service
+      .from("email_follow_up_messages")
+      .update({ status: FollowUpMessageStatus.Cancelled, claimed_at: null })
+      .in("id", staleDeadIds)
+      .eq("status", FollowUpMessageStatus.Sending);
+  }
+  if (staleActiveIds.length > 0 || staleDeadIds.length > 0) {
+    console.warn(
+      `[cron] Swept stale 'sending' follow-up claim(s): ${staleActiveIds.length} parked, ${staleDeadIds.length} cancelled`,
+    );
   }
 
   // Query pending follow-up messages that are due. Fail loud (F6): a read

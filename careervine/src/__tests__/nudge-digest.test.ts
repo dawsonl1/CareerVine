@@ -49,11 +49,15 @@ describe("renderNudgeDigest (CAR-105)", () => {
     expect(html).toContain("&quot;");
   });
 
-  it("includes the portal CTA and the unsubscribe link", () => {
+  it("points the review CTA at /inbox (where the follow-up review UI lives), not /outreach", () => {
     const { html, text } = renderNudgeDigest(items(1), APP, UNSUB);
-    expect(html).toContain(`${APP}/outreach`);
+    // /inbox renders the follow-up review UI (OutreachShell / Follow-ups tab);
+    // /outreach is the company-stepping queue and shows none of these (CAR-139).
+    expect(html).toContain(`${APP}/inbox`);
+    expect(html).not.toContain(`${APP}/outreach`);
     expect(html).toContain(UNSUB);
-    expect(text).toContain(`${APP}/outreach`);
+    expect(text).toContain(`${APP}/inbox`);
+    expect(text).not.toContain(`${APP}/outreach`);
     expect(text).toContain(UNSUB);
   });
 

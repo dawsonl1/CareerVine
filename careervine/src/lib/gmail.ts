@@ -892,7 +892,7 @@ export async function processScheduledEmails(
     .from("scheduled_emails")
     .select("*")
     .eq("user_id", userId)
-    .eq("status", "pending")
+    .eq("status", ScheduledEmailStatus.Pending)
     .lte("scheduled_send_at", now);
 
   if (!pending || pending.length === 0) return { sent: 0, errors: 0 };
@@ -914,7 +914,7 @@ export async function processScheduledEmails(
         { count: "exact" },
       )
       .eq("id", email.id)
-      .eq("status", "pending");
+      .eq("status", ScheduledEmailStatus.Pending);
     if (claimed !== 1) continue;
 
     // Release the claim so a later tick retries. Guarded on 'sending' as
@@ -922,7 +922,7 @@ export async function processScheduledEmails(
     const releaseClaim = async () => {
       await supabase
         .from("scheduled_emails")
-        .update({ status: "pending", claimed_at: null, updated_at: new Date().toISOString() })
+        .update({ status: ScheduledEmailStatus.Pending, claimed_at: null, updated_at: new Date().toISOString() })
         .eq("id", email.id)
         .eq("status", ScheduledEmailStatus.Sending);
     };
@@ -966,7 +966,7 @@ export async function processScheduledEmails(
       await supabase
         .from("scheduled_emails")
         .update({
-          status: "sent",
+          status: ScheduledEmailStatus.Sent,
           sent_at: now,
           gmail_message_id: result.messageId,
           sent_thread_id: result.threadId,
