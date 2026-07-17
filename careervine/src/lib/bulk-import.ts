@@ -42,12 +42,11 @@ import {
   locationLookupKey,
   companyFallbackName,
   isNameOnlyCompanyInput,
-  chunkList,
-  escapeIlike,
   COMPANY_COLS,
   type CompanyInput,
   type CompanyRecord,
 } from "./company-helpers";
+import { chunkList, escapeIlike } from "@/lib/data/postgrest";
 import {
   computeEmploymentMerge,
   computeEmailMerge,

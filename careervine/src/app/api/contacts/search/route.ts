@@ -1,6 +1,6 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { contactsSearchQuerySchema } from "@/lib/api-schemas";
-import { escapeIlikePattern } from "@/lib/search-helpers";
+import { escapeIlike } from "@/lib/data/postgrest";
 
 /**
  * GET /api/contacts/search?q=...
@@ -13,7 +13,7 @@ export const GET = withApiHandler({
     if (q.length < 1) return { contacts: [] };
 
     // Sanitize input for PostgREST ilike filter
-    const sanitized = escapeIlikePattern(q);
+    const sanitized = escapeIlike(q);
 
     // Use the authenticated client (RLS enforced) instead of service role
     const { data, error } = await supabase

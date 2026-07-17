@@ -9,7 +9,7 @@
  * pipeline data survives.
  */
 
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
+import { db } from "@/lib/data/client";
 import type { Database, Json } from "@/lib/database.types";
 import {
   type CycleFormState,
@@ -19,15 +19,6 @@ import {
   PIPELINE_STAGES,
   normalizeCycleFormState,
 } from "@/lib/pipeline-state";
-
-type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
-
-let browserClient: QueryClient | null = null;
-
-function db(): QueryClient {
-  if (!browserClient) browserClient = createSupabaseBrowserClient();
-  return browserClient;
-}
 
 export const APPLICATION_FILES_BUCKET = "application-files";
 export const APPLICATION_PDF_MAX_BYTES = 5 * 1024 * 1024;

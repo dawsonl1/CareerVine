@@ -5,7 +5,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { chunkList } from "@/lib/company-helpers";
+import { chunkList } from "@/lib/data/postgrest";
 import { makePhotoThumb } from "@/lib/photo-thumb";
 import {
   userPhotoKey,

@@ -9,10 +9,8 @@
  * error instead of a silent no-op.
  *
  * A CI guard (`scripts/check-ui-events.mjs`) forbids the raw `careervine:`
- * string literal anywhere in `src` outside this file, its test, and
- * `inbox-shell.tsx` (exempt until the InboxShell ticket converts it). The event
- * string VALUES must stay stable so raw dispatches still interoperate with
- * typed subscribers during that gap.
+ * string literal anywhere in `src` outside this file and its test, so every
+ * dispatch/subscription is forced through the typed helpers.
  */
 
 export const UI_EVENTS = {

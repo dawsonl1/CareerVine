@@ -6,6 +6,33 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { findOrCreateLocation } from '@/lib/company-helpers';
 import { normalizeParsedLocation } from '@/lib/location-normalizer';
+import type { ProfileData } from '@/lib/extension-contract';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase insert/update payloads are untyped column maps until the typed-Supabase-boundary rollout (CAR-142).
+type ColumnMap = Record<string, any>;
+
+/**
+ * Single source of contact-email validity for the import route. Both the
+ * create and the update path gate the primary-email insert through this so
+ * they can't drift (CAR-148 F11): basic RFC-ish shape + Postgres varchar-safe
+ * length cap.
+ */
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export function isValidContactEmail(email: string | null | undefined): email is string {
+  return typeof email === 'string' && EMAIL_REGEX.test(email) && email.length <= 320;
+}
+
+/**
+ * Resolve the tag list from a profile payload: prefer `suggested_tags`, fall back
+ * to a legacy `tags` array. `suggested_tags` is schema-defaulted to `[]` on the
+ * import wire (CAR-148), so a bare `suggested_tags || tags` would let the empty
+ * default (truthy) mask the fallback and silently drop a legacy `tags`-only
+ * payload's tags. Checking for a non-empty array preserves the fallback. Shared
+ * by both import paths so they can't drift.
+ */
+export function resolveImportTags(profileData: Partial<ProfileData>): string[] | undefined {
+  return profileData.suggested_tags?.length ? profileData.suggested_tags : profileData.tags;
+}
 
 /** Convert follow-up frequency string to days */
 export function parseFollowUpFrequency(freq: string | null | undefined): number | null {
@@ -38,9 +65,12 @@ export function stripPostgrestOrMetachars(s: string): string {
   return s.replace(/[,(){}]/g, '');
 }
 
+// The builders defensively read only a handful of scalar profile fields (never
+// location/experience/education/suggested_tags — those are handled by the route
+// itself), so they accept a Partial: the route passes a full parsed ProfileData,
+// tests pass focused fixtures, and both are valid input.
 /** Build the contact data object for insert from extension profile data */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-export function buildContactData(profileData: any, userId: string, locationId: number | null): Record<string, any> {
+export function buildContactData(profileData: Partial<ProfileData>, userId: string, locationId: number | null): ColumnMap {
   let notes = profileData.generated_notes || profileData.notes || null;
   if (!notes) {
     notes = `Imported from LinkedIn on ${new Date().toLocaleDateString()}`;
@@ -61,10 +91,8 @@ export function buildContactData(profileData: any, userId: string, locationId: n
 }
 
 /** Build the update data object for an existing contact */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-export function buildUpdateData(profileData: any): Record<string, any> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const updateData: Record<string, any> = {};
+export function buildUpdateData(profileData: Partial<ProfileData>): ColumnMap {
+  const updateData: ColumnMap = {};
 
   if (profileData.name) updateData.name = profileData.name;
   if (profileData.industry) updateData.industry = profileData.industry;

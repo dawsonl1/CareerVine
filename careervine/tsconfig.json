@@ -18,9 +18,20 @@
         "name": "next"
       }
     ],
+    // ── Cross-project path aliases (CAR-148 F34) ─────────────────────────
+    // @panel and @ext pull sibling-package source INTO this web app's
+    // typecheck (and the vitest suite). Only React-free, chrome-free, pure
+    // modules may cross — shared types, format helpers, the analytics-events
+    // registry — because anything imported here is compiled by the Next build;
+    // importing a module that pulls React or chrome APIs drags them in. The
+    // careervine-mcp project has the mirror-image coupling (it compiles
+    // ../careervine/src); run its typecheck after editing shared src/ modules.
+    //   @panel/* → chrome-extension/panel-app/src (extension panel app)
+    //   @ext/*   → chrome-extension/src           (extension content + worker)
     "paths": {
       "@/*": ["./src/*"],
-      "@panel/*": ["../chrome-extension/panel-app/src/*"]
+      "@panel/*": ["../chrome-extension/panel-app/src/*"],
+      "@ext/*": ["../chrome-extension/src/*"]
     }
   },
   "include": [

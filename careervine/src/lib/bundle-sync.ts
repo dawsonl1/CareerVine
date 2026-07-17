@@ -32,7 +32,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payload";
-import { chunkList } from "./company-helpers";
+import { chunkList } from "@/lib/data/postgrest";
 import { importPeopleChunk, type PersonImportResult } from "./bulk-import";
 import {
   computeContactFingerprint,

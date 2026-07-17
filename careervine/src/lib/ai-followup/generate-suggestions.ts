@@ -57,8 +57,8 @@ export async function fetchSuggestionCandidates(userId: string): Promise<Suggest
   const contactIds = contacts.map((c) => c.id);
 
   // Last touch = most recent interaction OR meeting. Computed in TS from the same
-  // source tables as buildLastTouchMap (queries.ts) so the suggestion path shares
-  // one source of truth with the rest of the app — rather than the phantom
+  // source tables as buildLastTouchMap (src/lib/data/follow-ups.ts) so the
+  // suggestion path shares one source of truth with the app — rather than the phantom
   // `get_contacts_with_last_touch` RPC this used to call, which never existed in
   // production and silently left every contact "never contacted" (CAR-119).
   const [{ data: interactionRows }, { data: meetingLinks }] = await Promise.all([

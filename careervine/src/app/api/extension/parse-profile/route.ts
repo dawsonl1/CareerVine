@@ -1,6 +1,12 @@
+// ── FIELD CONTRACT — shipped extensions call this; changes must be
+// backward-compatible. Request body: `extensionParseProfileSchema`; the OpenAI
+// structured-output schema (`parseProfileJsonSchema`) is a strict subset of the
+// import wire's `profileDataSchema`, so parse output feeds import unchanged.
+// Never rename a field on one side without the other (a parity test guards it).
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { extensionParseProfileSchema } from "@/lib/api-schemas";
+import { parseProfileJsonSchema } from "@/lib/extension-contract";
 import { addIsCurrentToExperience, addIsCurrentToEducation, deriveCurrentRole, deriveContactStatus } from '@/lib/profile-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { wrapUntrusted, UNTRUSTED_DATA_CLAUSE } from '@/lib/ai/untrusted';
@@ -27,96 +33,9 @@ export const POST = withApiHandler({
 
     const model = DEFAULT_MODEL;
 
-    // Optimized schema - only request what we actually need from AI
-    const linkedinProfileSchema = {
-      name: "linkedin_profile",
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "first_name",
-          "last_name",
-          "location",
-          "industry",
-          "generated_notes",
-          "suggested_tags",
-          "experience",
-          "education"
-        ],
-        properties: {
-          first_name: { type: "string", maxLength: 40 },
-          last_name: { type: "string", maxLength: 60 },
-          location: {
-            type: "object",
-            additionalProperties: false,
-            required: ["city", "state", "country"],
-            properties: {
-              city: { type: ["string", "null"], maxLength: 60 },
-              state: { type: ["string", "null"], maxLength: 60 },
-              country: { type: "string", default: "United States", maxLength: 60 }
-            }
-          },
-          industry: { type: ["string", "null"], maxLength: 60 },
-          generated_notes: { type: "string", maxLength: 420 },
-          suggested_tags: {
-            type: "array",
-            minItems: 2,
-            maxItems: 5,
-            items: { type: "string", maxLength: 32 }
-          },
-          experience: {
-            type: "array",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: [
-                "company",
-                "title",
-                "location",
-                "start_month",
-                "end_month"
-              ],
-              properties: {
-                company: { type: "string", maxLength: 120 },
-                title: { type: "string", maxLength: 120 },
-                location: { type: ["string", "null"], maxLength: 120 },
-                start_month: { type: ["string", "null"], maxLength: 12 },
-                end_month: { type: ["string", "null"], maxLength: 12 }
-              }
-            }
-          },
-          education: {
-            // Raised from 2 (CAR-95): capping at 2 could drop the entry that
-            // drives student/professional classification when a person lists
-            // several schools.
-            type: "array",
-            maxItems: 4,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: [
-                "school",
-                "degree",
-                "field_of_study",
-                "start_year",
-                "end_year"
-              ],
-              properties: {
-                school: { type: "string", maxLength: 140 },
-                degree: {
-                  type: ["string", "null"],
-                  enum: [null, "Bachelor's", "Master's", "PhD", "Associate's", "Certificate", "Diploma"]
-                },
-                field_of_study: { type: ["string", "null"], maxLength: 80 },
-                start_year: { type: ["string", "null"], maxLength: 10 },
-                end_year: { type: ["string", "null"], maxLength: 10 }
-              }
-            }
-          }
-        }
-      },
-      strict: true
-    };
+    // OpenAI structured-output schema — single-sourced in extension-contract.ts
+    // (kept a strict subset of the import wire's profileDataSchema).
+    const linkedinProfileSchema = parseProfileJsonSchema;
 
     // Shorter instructions: rely on schema, keep only logic rules you truly need
     const instructions =

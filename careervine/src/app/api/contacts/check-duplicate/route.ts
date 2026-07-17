@@ -1,3 +1,8 @@
+// ── FIELD CONTRACT — shipped extensions call this; changes must be
+// backward-compatible. Request body: `contactsCheckDuplicateSchema`
+// (= `extensionCheckDuplicateSchema` in extension-contract.ts). The response
+// `duplicates[]` shape is also consumed by installed extensions — do not remove
+// or rename its fields without a backward-compatible path.
 import { withApiHandler } from "@/lib/api-handler";
 import { contactsCheckDuplicateSchema } from "@/lib/api-schemas";
 import { calculateNameMatchConfidence } from '@/lib/duplicate-helpers';

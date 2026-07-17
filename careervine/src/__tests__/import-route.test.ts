@@ -163,7 +163,7 @@ describe('Import flow integration', () => {
         linkedin_url: 'https://linkedin.com/in/jane-doe',
         industry: 'Finance',
         generated_notes: 'Expert in investment banking',
-        contact_status: 'professional',
+        contact_status: 'professional' as const,
         expected_graduation: null,
         follow_up_frequency: '3 months',
       };
@@ -177,7 +177,7 @@ describe('Import flow integration', () => {
         industry: 'Finance',
         location_id: 42,
         notes: 'Expert in investment banking',
-        contact_status: 'professional',
+        contact_status: 'professional' as const,
         expected_graduation: null,
         follow_up_frequency_days: 90,
       });

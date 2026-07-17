@@ -15,10 +15,11 @@ interface QueryState {
   filters: Array<{ method: string; args: unknown[] }>;
 }
 
-// ── Chained-builder mock over the module-level browser client ──
-// queries.ts binds `const supabase = createSupabaseBrowserClient()` once at
-// import, so the mock returns a stable client whose `from()` records every
-// filter in shared hoisted state that each test resets.
+// ── Chained-builder mock over the lazily-created browser client ──
+// The data layer resolves its client via db() (src/lib/data/client.ts),
+// which calls the mocked createSupabaseBrowserClient factory once on first
+// use and caches it, so the mock returns a stable client whose `from()`
+// records every filter in shared hoisted state that each test resets.
 const h = vi.hoisted(() => {
   const state: {
     calls: QueryState[];
