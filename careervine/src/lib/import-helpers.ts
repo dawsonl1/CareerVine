@@ -3,6 +3,10 @@
  * Extracted for testability.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { findOrCreateLocation } from '@/lib/company-helpers';
+import { normalizeParsedLocation } from '@/lib/location-normalizer';
+
 /** Convert follow-up frequency string to days */
 export function parseFollowUpFrequency(freq: string | null | undefined): number | null {
   if (!freq) return null;
@@ -65,4 +69,24 @@ export function buildUpdateData(profileData: any): Record<string, any> {
   if (freqDays !== null) updateData.follow_up_frequency_days = freqDays;
 
   return updateData;
+}
+
+/**
+ * Resolve a contact-level profile location ({city, state, country}) to a
+ * locations row. Normalizes first (CAR-139 / F27) so raw variants ('CA' vs
+ * 'California', metro aliases) collapse onto one canonical row, matching the
+ * experience-row import path.
+ */
+export async function resolveProfileLocationId(
+  supabase: SupabaseClient,
+  profileLocation: { city?: string | null; state?: string | null; country?: string | null },
+): Promise<number | null> {
+  const norm = normalizeParsedLocation(profileLocation);
+  if (!norm.city && !norm.state && !norm.country) return null;
+  const location = await findOrCreateLocation(supabase, {
+    city: norm.city,
+    state: norm.state,
+    country: norm.country || 'United States',
+  });
+  return location.id;
 }

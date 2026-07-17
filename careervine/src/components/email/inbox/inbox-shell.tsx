@@ -512,8 +512,8 @@ export function InboxShell() {
     try {
       const res = await fetch(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
       if (res.ok) {
-        // Kick the send driver so it goes out now, not on the next cron tick.
-        fetch("/api/gmail/schedule/process", { method: "POST" }).catch(() => {});
+        // The cron is the sole send driver (CAR-139); the requeued email goes
+        // out on the next tick (within ~15 minutes).
         setScheduledEmails((prev) =>
           prev.map((e) => (e.id === id ? { ...e, status: "pending" } : e)),
         );

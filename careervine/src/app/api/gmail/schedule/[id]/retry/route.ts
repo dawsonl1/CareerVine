@@ -7,8 +7,8 @@ import { ScheduledEmailStatus } from "@/lib/constants";
  * Re-queues a failed scheduled email (CAR-134). Failed rows come from the
  * staleness sweeper — the send process died mid-flight and the email may or
  * may not have actually gone out, so retrying is an explicit user decision,
- * never automatic. Resets the send time to now so the next process pass
- * (page-load trigger or cron tick) picks it up immediately.
+ * never automatic. Resets the send time to now so the next send-scheduled-emails
+ * cron tick (the sole send driver, ~15 min) picks it up.
  */
 export const POST = withApiHandler({
   handler: async ({ user, params }) => {

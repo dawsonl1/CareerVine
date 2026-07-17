@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { processScheduledEmails } from "@/lib/gmail";
 import { filterActiveUserIds } from "@/lib/user-status";
-import { SCHEDULED_SEND_STALE_CLAIM_MINUTES } from "@/lib/constants";
+import { ScheduledEmailStatus, SEND_STALE_CLAIM_MINUTES } from "@/lib/constants";
 
 export interface ScheduledEmailCronResult {
   dueRows: number;
@@ -48,21 +48,24 @@ export async function processDueScheduledEmails(
   // (surfaced in the UI with a Retry action) instead of re-queueing it — an
   // automatic retry could double-send a real email.
   const staleCutoff = new Date(
-    nowMs - SCHEDULED_SEND_STALE_CLAIM_MINUTES * 60_000,
+    nowMs - SEND_STALE_CLAIM_MINUTES * 60_000,
   ).toISOString();
   const { count: sweptFailed } = await service
     .from("scheduled_emails")
-    .update({ status: "failed", updated_at: nowIso }, { count: "exact" })
-    .eq("status", "sending")
+    .update({ status: ScheduledEmailStatus.Failed, updated_at: nowIso }, { count: "exact" })
+    .eq("status", ScheduledEmailStatus.Sending)
     .lt("claimed_at", staleCutoff);
 
-  const { data } = await service
+  // Fail loud (F6): a read error must surface as a cron failure via
+  // withCronGuard, not a healthy zero-row result that hides missed sends.
+  const { data, error: dueError } = await service
     .from("scheduled_emails")
     .select("user_id,scheduled_send_at")
     .eq("status", "pending")
     .lte("scheduled_send_at", nowIso)
     .order("scheduled_send_at", { ascending: true })
     .limit(200);
+  if (dueError) throw new Error(`Due scheduled-email query failed: ${dueError.message}`);
 
   const allRows = (data as DueUserRow[] | null) ?? [];
   // Suspended accounts are frozen: their due emails stay pending (held, not

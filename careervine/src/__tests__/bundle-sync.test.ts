@@ -361,6 +361,110 @@ describe('applyBundleDelta — removal phase', () => {
   });
 });
 
+// ── Fail-loud reads (F6, CAR-139) ──────────────────────────────────────
+// A swallowed read error must never let the step reach the synced_version
+// commit — a throw leaves the checkpoint for the daily stale-scan instead of
+// silently committing past an unapplied delta.
+
+describe('applyBundleDelta — fail-loud reads (CAR-139)', () => {
+  const commitCall = (calls: QueryState[]) =>
+    calls.find((c) => c.table === 'bundle_subscriptions' && c.op === 'update');
+
+  it('throws on an apply-phase prospect read error and never commits', async () => {
+    const base = responder({});
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === 'bundle_prospects' && state.op === 'select') {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Apply-phase prospect read failed/);
+    expect(commitCall(calls)).toBeUndefined();
+  });
+
+  it('throws on a pre-apply fingerprint contact read error and never commits', async () => {
+    const base = responder({ prospects: [PROSPECT_ROW] });
+    const { client, calls } = createMockClient((state) => {
+      const wantsSnapshot = filterArgs(state, 'select').some((a) => String(a[0]).includes('stage_override'));
+      if (state.table === 'contacts' && state.op === 'select' && !wantsSnapshot) {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Pre-apply fingerprint read failed/);
+    expect(commitCall(calls)).toBeUndefined();
+  });
+
+  it('throws on a removal-phase prospect read error and never commits', async () => {
+    const base = responder({ prospects: [] });
+    const { client, calls } = createMockClient((state) => {
+      const isRemovalQuery = filterArgs(state, 'gt').some((a) => a[0] === 'removed_in_version');
+      if (state.table === 'bundle_prospects' && state.op === 'select' && isRemovalQuery) {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Removal-phase prospect read failed/);
+    expect(commitCall(calls)).toBeUndefined();
+  });
+
+  it('throws on a removal linkage read error and never commits', async () => {
+    const base = responder({
+      prospects: [],
+      removedProspects: [{ id: 301, linkedin_url: 'https://www.linkedin.com/in/jane-analyst' }],
+    });
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === 'bundle_subscription_contacts' && state.op === 'select') {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Removal linkage read failed/);
+    expect(commitCall(calls)).toBeUndefined();
+  });
+
+  it('throws on a sibling-linkage read error and never deletes or commits (cross-subscription guard)', async () => {
+    // The sibling read is the ONLY cross-subscription delete guard. A swallowed
+    // error would empty the set and let a contact still linked elsewhere be
+    // deleted — so it must throw before the delete.
+    const base = responder({
+      prospects: [],
+      removedProspects: [{ id: 301, linkedin_url: 'https://www.linkedin.com/in/jane-analyst' }],
+      links: [{ id: 1, contact_id: 50, created_by_bundle: true, bundle_prospect_id: 301 }],
+    });
+    const { client, calls } = createMockClient((state) => {
+      const isSibling = state.filters.some((f) => f.method === 'neq');
+      if (state.table === 'bundle_subscription_contacts' && state.op === 'select' && isSibling) {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Sibling-linkage read failed/);
+    expect(calls.find((c) => c.table === 'contacts' && c.op === 'delete')).toBeUndefined();
+    expect(commitCall(calls)).toBeUndefined();
+  });
+
+  it('throws on a touch-signal read error and never deletes or commits (touched-detection guard)', async () => {
+    // The hard-signal reads (interactions/meetings/follow-ups) fail TOWARD
+    // deletion: a swallowed error reads as "no activity," so a contact with real
+    // history could be deleted. The read must throw before the delete.
+    const base = responder({
+      prospects: [],
+      removedProspects: [{ id: 301, linkedin_url: 'https://www.linkedin.com/in/jane-analyst' }],
+      links: [{ id: 1, contact_id: 50, created_by_bundle: true, bundle_prospect_id: 301 }],
+    });
+    const { client, calls } = createMockClient((state) => {
+      if (state.table === 'interactions' && state.op === 'select') {
+        return { data: null, error: { message: 'connection reset' } };
+      }
+      return base(state);
+    });
+    await expect(applyBundleDelta(client, SUB, BUNDLE, {})).rejects.toThrow(/Touch-signal read failed \(interactions\)/);
+    expect(calls.find((c) => c.table === 'contacts' && c.op === 'delete')).toBeUndefined();
+    expect(commitCall(calls)).toBeUndefined();
+  });
+});
+
 // ── Claims ─────────────────────────────────────────────────────────────
 
 describe('claimSubscriptionSync', () => {

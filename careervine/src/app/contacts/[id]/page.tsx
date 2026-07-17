@@ -160,13 +160,7 @@ export default function ContactDetailPage() {
     if (user) {
       loadContact();
       getGmailConnection(user.id)
-        .then((conn) => {
-          setGmailConn(conn as GmailConnection | null);
-          if (conn) {
-            fetch("/api/gmail/schedule/process", { method: "POST" }).catch(() => {});
-            // Follow-up processing is now handled by QStash cron (/api/cron/send-follow-ups)
-          }
-        })
+        .then((conn) => setGmailConn(conn as GmailConnection | null))
         .catch(() => {});
 
       getContacts(user.id).then((data) => setAllContacts(data as Contact[])).catch(() => {});

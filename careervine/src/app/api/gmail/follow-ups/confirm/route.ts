@@ -5,6 +5,7 @@ import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { recordThreadReply } from "@/lib/follow-up-reply";
 import {
   ACTIONABLE_FOLLOW_UP_MESSAGE_STATUSES,
+  FollowUpMessageStatus,
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
 
@@ -95,7 +96,10 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
         : msg.status;
     const { count: claimedCount } = await service
       .from("email_follow_up_messages")
-      .update({ status: "sending" }, { count: "exact" })
+      .update(
+        { status: FollowUpMessageStatus.Sending, claimed_at: new Date().toISOString() },
+        { count: "exact" },
+      )
       .eq("id", messageId)
       .in("status", CONFIRMABLE_STATUSES);
     if (!claimedCount) {
@@ -134,7 +138,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
         (freshParent as { status?: string } | null)?.status === "active" ? revertStatus : "cancelled";
       await service
         .from("email_follow_up_messages")
-        .update({ status: revertTo })
+        .update({ status: revertTo, claimed_at: null })
         .eq("id", messageId);
       const capped = err instanceof SendPolicyError && err.status === 429;
       throw new ApiError(
@@ -156,7 +160,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
       .from("email_follow_up_messages")
       .select("id", { count: "exact", head: true })
       .eq("follow_up_id", msg.follow_up_id)
-      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, "sending"]);
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, FollowUpMessageStatus.Sending]);
     if (count === 0) {
       await service
         .from("email_follow_ups")
