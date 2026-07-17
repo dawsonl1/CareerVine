@@ -6,8 +6,8 @@
  * `@/lib/ui-events`, so a stray literal means an un-migrated call site or a
  * typo that would silently no-op (the wrong string never matches a listener).
  *
- * `inbox-shell.tsx` is exempt until the InboxShell ticket (CAR-150) converts it
- * to the module; tighten this list (drop that entry) when it lands.
+ * (CAR-150 converted `inbox-shell.tsx`, the last exempt call site, so only the
+ * module and its test carry the raw literal now.)
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +17,6 @@ const NEEDLE = "careervine:";
 const EXEMPT = new Set([
   "src/lib/ui-events.ts",
   "src/__tests__/ui-events.test.ts",
-  "src/components/email/inbox/inbox-shell.tsx",
 ]);
 const EXTENSIONS = [".ts", ".tsx"];
 

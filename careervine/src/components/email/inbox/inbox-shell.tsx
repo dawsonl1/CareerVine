@@ -11,7 +11,6 @@ import Navigation from "@/components/navigation";
 import { FollowUpModal } from "@/components/follow-up-modal";
 import type {
   EmailMessage,
-  EmailMessageFull,
   EmailFollowUp,
   ScheduledEmail,
   EmailDraft,
@@ -45,11 +44,15 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCursorTooltip } from "@/components/ui/cursor-tooltip";
+import { useToast } from "@/components/ui/toast";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 import { isOpenFollowUpMessage } from "@/lib/constants";
 import { runFullGmailSync } from "@/lib/gmail-sync-client";
 import { trackBeforeNavigate } from "@/lib/analytics/client";
+import { UI_EVENTS, emitUiEvent, onUiEvent, unreadDeltaFor } from "@/lib/ui-events";
+import { useLatestRequest } from "@/hooks/use-latest-request";
+import { useThreadExpansion } from "./use-thread-expansion";
 
 // ── Types ──
 
@@ -63,6 +66,7 @@ export function InboxShell() {
   const { user } = useAuth();
   const router = useRouter();
   const { gmailConnected, gmailLoading, openCompose } = useCompose();
+  const { error: toastError } = useToast();
 
   const [activeTab, setActiveTab] = useState<SidebarTab>("inbox");
   const [loading, setLoading] = useState(true);
@@ -81,11 +85,21 @@ export function InboxShell() {
   const [_gmailAddress, setGmailAddress] = useState("");
   const [gmailLabels, setGmailLabels] = useState<GmailLabel[]>([]);
 
-  // Thread expansion
-  const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
-  const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
-  const [expandedEmailContent, setExpandedEmailContent] = useState<EmailMessageFull | null>(null);
+  // Thread expansion — one reducer owns the 3-field invariant (CAR-150 / F22).
+  const {
+    expandedThreadId,
+    expandedEmailId,
+    expandedEmailContent,
+    collapseAll,
+    expandThread,
+    expandEmail,
+    collapseEmail,
+    setContent: setExpandedContent,
+  } = useThreadExpansion();
   const [loadingEmailContent, setLoadingEmailContent] = useState(false);
+  // Drops a slower email-body fetch when the user expands another message,
+  // collapses, or switches tabs before it resolves (CAR-145 / F19).
+  const expandReq = useLatestRequest();
 
   // Search + filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -169,16 +183,15 @@ export function InboxShell() {
   }, [user, gmailConnected, loadInbox, loadDrafts]);
 
   useEffect(() => {
-    const handler = () => { setTimeout(() => loadInbox(), 500); loadDrafts(); };
-    window.addEventListener("careervine:email-sent", handler);
-    return () => window.removeEventListener("careervine:email-sent", handler);
+    return onUiEvent(UI_EVENTS.emailSent, () => {
+      setTimeout(() => loadInbox(), 500);
+      loadDrafts();
+    });
   }, [loadInbox, loadDrafts]);
 
   // Refresh drafts when compose saves/deletes a draft
   useEffect(() => {
-    const handler = () => loadDrafts();
-    window.addEventListener("careervine:drafts-changed", handler);
-    return () => window.removeEventListener("careervine:drafts-changed", handler);
+    return onUiEvent(UI_EVENTS.draftsChanged, () => loadDrafts());
   }, [loadDrafts]);
 
   // Close dropdowns on outside click
@@ -326,13 +339,15 @@ export function InboxShell() {
 
   const handleExpandEmail = async (gmailMessageId: string) => {
     if (expandedEmailId === gmailMessageId) {
-      setExpandedEmailId(null);
-      setExpandedEmailContent(null);
+      collapseEmail();
       return;
     }
-    setExpandedEmailId(gmailMessageId);
-    setExpandedEmailContent(null);
+    expandEmail(gmailMessageId);
     setLoadingEmailContent(true);
+    // Claim the latest-expand token so a slower body fetch from a message the
+    // user has since collapsed or switched away from can't overwrite this row
+    // or clear the wrong spinner (CAR-145 / F19).
+    const token = expandReq.begin();
 
     const allMsgs = [...emails, ...trashedEmails, ...hiddenEmails];
     const msg = allMsgs.find((e) => e.gmail_message_id === gmailMessageId);
@@ -342,141 +357,190 @@ export function InboxShell() {
 
     if (msg && !msg.is_read) {
       setEmails((prev) => prev.map((e) => (e.gmail_message_id === gmailMessageId ? { ...e, is_read: true } : e)));
-      if (msg.direction === "inbound") {
-        window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta: -1 } }));
-      }
+      // Only unread inbound mail decrements the nav badge (F18).
+      emitUiEvent(UI_EVENTS.unreadChanged, { delta: unreadDeltaFor(msg) });
       try {
         await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
       } catch (err) {
         console.error("Failed to mark as read:", err);
       }
       // Confirm badge count from server now that DB is updated
-      window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { refetch: true } }));
+      emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
     }
 
     if (isSimulated) {
       // Render simulated email content directly from the DB snippet
-      setExpandedEmailContent({
-        subject: msg?.subject ?? "",
-        from: msg?.from_address ?? "",
-        to: msg?.to_addresses?.[0] ?? "",
-        date: msg?.date ?? "",
-        bodyHtml: `<p>${msg?.snippet ?? ""}</p>`,
-        bodyText: msg?.snippet ?? "",
-        messageId: gmailMessageId,
-        threadId: msg?.thread_id ?? "",
-      });
-      setLoadingEmailContent(false);
+      if (expandReq.isLatest(token)) {
+        setExpandedContent({
+          subject: msg?.subject ?? "",
+          from: msg?.from_address ?? "",
+          to: msg?.to_addresses?.[0] ?? "",
+          date: msg?.date ?? "",
+          bodyHtml: `<p>${msg?.snippet ?? ""}</p>`,
+          bodyText: msg?.snippet ?? "",
+          messageId: gmailMessageId,
+          threadId: msg?.thread_id ?? "",
+        });
+        setLoadingEmailContent(false);
+      }
       return;
     }
 
     try {
       const res = await fetch(`/api/gmail/emails/${gmailMessageId}`);
       const data = await res.json();
-      if (data.success) setExpandedEmailContent(data.message);
+      if (!expandReq.isLatest(token)) return;
+      if (data.success) setExpandedContent(data.message);
     } catch (err) {
       console.error("Error loading email:", err);
     } finally {
-      setLoadingEmailContent(false);
+      if (expandReq.isLatest(token)) setLoadingEmailContent(false);
     }
   };
 
   const handleThreadClick = (thread: EmailThread) => {
-    const isExpanded = expandedThreadId === thread.threadId;
-    if (isExpanded) {
-      setExpandedThreadId(null);
-      setExpandedEmailId(null);
-      setExpandedEmailContent(null);
+    if (expandedThreadId === thread.threadId) {
+      collapseAll();
       setMoveDropdownMsgId(null);
       return;
     }
 
-    setExpandedThreadId(thread.threadId);
+    expandThread(thread.threadId);
     setMoveDropdownMsgId(null);
 
-    // Single message => auto-expand its content
+    // Single message => auto-expand its content. Multi-message threads stay at
+    // the message list (expandThread already cleared any prior selection).
     if (thread.messages.length === 1) {
       handleExpandEmail(thread.messages[0].gmail_message_id);
-    } else {
-      setExpandedEmailId(null);
-      setExpandedEmailContent(null);
     }
   };
 
   // ── Email actions ──
 
+  // Each mutation is optimistic: it mutates local lists immediately, then
+  // reconciles with the server. On failure it restores the captured item to its
+  // original list, reverses any badge adjustment, and toasts (CAR-150 / F21).
+
   const handleTrashEmail = async (gmailMessageId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const trashed = emails.find((em) => em.gmail_message_id === gmailMessageId);
+    if (!trashed) return;
     setEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
-    if (trashed) setTrashedEmails((prev) => [{ ...trashed, is_trashed: true }, ...prev]);
-    if (expandedEmailId === gmailMessageId) {
-      setExpandedEmailId(null);
-      setExpandedEmailContent(null);
+    setTrashedEmails((prev) => [{ ...trashed, is_trashed: true }, ...prev]);
+    if (expandedEmailId === gmailMessageId) collapseEmail();
+    const delta = unreadDeltaFor(trashed);
+    emitUiEvent(UI_EVENTS.unreadChanged, { delta });
+    try {
+      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/trash`, { method: "POST" });
+      if (!res.ok) throw new Error(`trash failed: ${res.status}`);
+    } catch {
+      setTrashedEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
+      setEmails((prev) => [trashed, ...prev]);
+      if (delta !== 0) emitUiEvent(UI_EVENTS.unreadChanged, { delta: -delta });
+      toastError("Couldn't move that email to trash. Please try again.");
     }
-    fetch(`/api/gmail/emails/${gmailMessageId}/trash`, { method: "POST" }).catch(() => {});
-    const delta = trashed && !trashed.is_read && trashed.direction === "inbound" ? -1 : 0;
-    window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta } }));
   };
 
   const handleRestoreEmail = async (gmailMessageId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const restored = trashedEmails.find((em) => em.gmail_message_id === gmailMessageId);
+    if (!restored) return;
     setTrashedEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
-    if (restored) setEmails((prev) => [{ ...restored, is_trashed: false }, ...prev]);
-    if (expandedEmailId === gmailMessageId) {
-      setExpandedEmailId(null);
-      setExpandedEmailContent(null);
+    setEmails((prev) => [{ ...restored, is_trashed: false }, ...prev]);
+    if (expandedEmailId === gmailMessageId) collapseEmail();
+    // Restoring unread inbound mail brings its unread count back — the inverse
+    // of the trash decrement (F18: this path emitted nothing before).
+    const delta = -unreadDeltaFor(restored);
+    emitUiEvent(UI_EVENTS.unreadChanged, { delta });
+    try {
+      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/trash`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`restore failed: ${res.status}`);
+    } catch {
+      setEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
+      setTrashedEmails((prev) => [restored, ...prev]);
+      if (delta !== 0) emitUiEvent(UI_EVENTS.unreadChanged, { delta: -delta });
+      toastError("Couldn't restore that email. Please try again.");
     }
-    fetch(`/api/gmail/emails/${gmailMessageId}/trash`, { method: "DELETE" }).catch(() => {});
   };
 
   const handleHideEmail = async (gmailMessageId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const hidden = emails.find((em) => em.gmail_message_id === gmailMessageId);
+    if (!hidden) return;
     setEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
-    if (hidden) setHiddenEmails((prev) => [{ ...hidden, is_hidden: true }, ...prev]);
-    if (expandedEmailId === gmailMessageId) {
-      setExpandedEmailId(null);
-      setExpandedEmailContent(null);
+    setHiddenEmails((prev) => [{ ...hidden, is_hidden: true }, ...prev]);
+    if (expandedEmailId === gmailMessageId) collapseEmail();
+    const delta = unreadDeltaFor(hidden);
+    emitUiEvent(UI_EVENTS.unreadChanged, { delta });
+    try {
+      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/hide`, { method: "POST" });
+      if (!res.ok) throw new Error(`hide failed: ${res.status}`);
+    } catch {
+      setHiddenEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
+      setEmails((prev) => [hidden, ...prev]);
+      if (delta !== 0) emitUiEvent(UI_EVENTS.unreadChanged, { delta: -delta });
+      toastError("Couldn't hide that email. Please try again.");
     }
-    fetch(`/api/gmail/emails/${gmailMessageId}/hide`, { method: "POST" }).catch(() => {});
-    const delta = hidden && !hidden.is_read && hidden.direction === "inbound" ? -1 : 0;
-    window.dispatchEvent(new CustomEvent("careervine:unread-changed", { detail: { delta } }));
   };
 
   const handleUnhideEmail = async (gmailMessageId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const unhidden = hiddenEmails.find((em) => em.gmail_message_id === gmailMessageId);
+    if (!unhidden) return;
     setHiddenEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
-    if (unhidden) setEmails((prev) => [{ ...unhidden, is_hidden: false }, ...prev]);
-    if (expandedEmailId === gmailMessageId) {
-      setExpandedEmailId(null);
-      setExpandedEmailContent(null);
+    setEmails((prev) => [{ ...unhidden, is_hidden: false }, ...prev]);
+    if (expandedEmailId === gmailMessageId) collapseEmail();
+    // Unhiding unread inbound mail brings its unread count back (F18: this path
+    // emitted nothing before).
+    const delta = -unreadDeltaFor(unhidden);
+    emitUiEvent(UI_EVENTS.unreadChanged, { delta });
+    try {
+      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/hide`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`unhide failed: ${res.status}`);
+    } catch {
+      setEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
+      setHiddenEmails((prev) => [unhidden, ...prev]);
+      if (delta !== 0) emitUiEvent(UI_EVENTS.unreadChanged, { delta: -delta });
+      toastError("Couldn't unhide that email. Please try again.");
     }
-    fetch(`/api/gmail/emails/${gmailMessageId}/hide`, { method: "DELETE" }).catch(() => {});
   };
 
   const handleMoveEmail = async (gmailMessageId: string, labelId: string) => {
+    const moved = emails.find((em) => em.gmail_message_id === gmailMessageId);
+    if (!moved) return;
     setEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
     setMoveDropdownMsgId(null);
-    if (expandedEmailId === gmailMessageId) {
-      setExpandedEmailId(null);
-      setExpandedEmailContent(null);
+    if (expandedEmailId === gmailMessageId) collapseEmail();
+    // Moving out of the inbox may change the unread count; let the badge re-pull
+    // the authoritative number.
+    emitUiEvent(UI_EVENTS.unreadChanged);
+    try {
+      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelId }),
+      });
+      if (!res.ok) throw new Error(`move failed: ${res.status}`);
+    } catch {
+      setEmails((prev) => [moved, ...prev]);
+      emitUiEvent(UI_EVENTS.unreadChanged);
+      toastError("Couldn't move that email. Please try again.");
     }
-    fetch(`/api/gmail/emails/${gmailMessageId}/move`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ labelId }),
-    }).catch(() => {});
-    window.dispatchEvent(new CustomEvent("careervine:unread-changed"));
   };
 
   // ── Draft actions ──
 
   const deleteDraft = async (draftId: number) => {
+    const removed = drafts.find((d) => d.id === draftId);
+    if (!removed) return;
     setDrafts((prev) => prev.filter((d) => d.id !== draftId));
-    fetch(`/api/gmail/drafts/${draftId}`, { method: "DELETE" }).catch(() => {});
+    try {
+      const res = await fetch(`/api/gmail/drafts/${draftId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`draft delete failed: ${res.status}`);
+    } catch {
+      setDrafts((prev) => [removed, ...prev]);
+      toastError("Couldn't delete that draft. Please try again.");
+    }
   };
 
   const openDraft = (draft: EmailDraft) => {
@@ -1059,9 +1123,9 @@ export function InboxShell() {
 
   const switchTab = (key: SidebarTab) => {
     setActiveTab(key);
-    setExpandedThreadId(null);
-    setExpandedEmailId(null);
-    setExpandedEmailContent(null);
+    // Collapsing on tab change is the single reset path — a behavioral test
+    // guards this line (CAR-150).
+    collapseAll();
     setMoveDropdownMsgId(null);
   };
 
@@ -1513,7 +1577,7 @@ export function InboxShell() {
                                     )}
                                   </div>
                                   <div className="flex flex-wrap gap-2 mt-2.5">
-                                    {fu.email_follow_up_messages.sort((a, b) => a.sequence_number - b.sequence_number).map((m) => (
+                                    {[...fu.email_follow_up_messages].sort((a, b) => a.sequence_number - b.sequence_number).map((m) => (
                                       <span key={m.id} className={`text-[11px] px-2 py-0.5 rounded-full ${m.status === "sent" ? "bg-primary/15 text-primary" : m.status === "cancelled" ? "bg-surface-container-low text-muted-foreground line-through" : m.status === "expired" ? "bg-surface-container-low text-muted-foreground" : m.status === "awaiting_review" ? "bg-primary/15 text-primary font-medium" : "bg-tertiary-container/50 text-on-tertiary-container"}`}>
                                         #{m.sequence_number}: Day {m.send_after_days}
                                         {m.status === "sent" && " (sent)"}
