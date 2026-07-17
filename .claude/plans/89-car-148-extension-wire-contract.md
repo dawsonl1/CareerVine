@@ -33,23 +33,29 @@ Therefore:
   React-free): the **single** `ProfileData` declaration + `ProfileExperience`,
   `ProfileEducation`, `ProfileLocation`. This is the one declaration `rg` will find.
 - **`careervine/src/lib/extension-contract.ts`** (NEW): imports the pure type via
-  `@panel/lib/profile-contract`, builds the real `profileDataSchema` (zod 4
-  `z.looseObject` + `.default()` so unknown keys survive and partial payloads fill
-  defaults — backward-compatible — while malformed known fields reject), and exports the
-  four extension-endpoint request schemas + `z.infer` types + the parse-profile OpenAI
-  JSON schema. Re-exports `ProfileData` for webapp consumers.
+  `@panel/lib/profile-contract`, builds the real `profileDataSchema` (zod 4 `z.object`
+  strip + `.default()` — the full shipped field set is declared so malformed KNOWN fields
+  reject 400 while unknown/legacy keys are tolerated (stripped, not rejected) and partial
+  payloads fill defaults — backward-compatible), and exports the four extension-endpoint
+  request schemas + `z.infer` types + the parse-profile OpenAI JSON schema. Re-exports
+  `ProfileData` for webapp consumers.
 - A careervine parity test asserts `z.infer<typeof profileDataSchema>` ≡ `ProfileData`,
   so schema/type drift on either side turns CI red.
 
-### Why `z.looseObject` + `.default()`
+### Why `z.object` (strip) + `.default()`
 
-The shipped extension POSTs a superset (`first_name`, `id` on rows, `photo_url`, …).
-`looseObject` keeps unknown keys (backward-compat, FIELD CONTRACT). `.default([])`/
-`.default({})`/`.default(null)` on `experience`/`education`/`suggested_tags`/`location`/
-`contact_status` make the **output** type carry them as present — matching the panel's
-post-`enrichProfile` invariants — so the panel uses the wire type with no guard churn,
-while the **input** stays lenient. Malformed known fields (e.g. `experience:"x"`,
-`location:"USA"`) reject → 400 at the wire.
+The shipped extension POSTs a superset (`first_name`, `id` on rows, `photo_url`, …). We
+declare the FULL shipped field set and use strip mode (zod's default), so unknown/legacy
+keys are tolerated (stripped, never rejected — backward-compat, FIELD CONTRACT) while
+malformed KNOWN fields (e.g. `experience:"x"`, `location:"USA"`) reject → 400 at the wire.
+`.default([])`/`.default({})`/`.default(null)` on `experience`/`education`/`suggested_tags`/
+`location`/`contact_status` make the **output** type carry them as present — matching the
+panel's post-`enrichProfile` invariants — so the panel uses the wire type with no guard
+churn, while the **input** stays lenient. (Because `suggested_tags` is defaulted to `[]`,
+the import route resolves tags via the shared `resolveImportTags` helper — a bare
+`suggested_tags || tags` would let the empty default mask the legacy `tags` fallback.)
+Strip (not `looseObject`) keeps the inferred type free of an index signature, so it equals
+`ProfileData` exactly for the parity assertion.
 
 ## Scope / file-by-file
 

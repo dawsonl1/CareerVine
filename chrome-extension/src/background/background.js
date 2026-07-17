@@ -6,6 +6,9 @@
 // Analytics event-name registry (CAR-148 F59) — single source shared with the
 // web app's AnalyticsEvents type via a parity test. Loaded synchronously at
 // worker init so EXTENSION_ANALYTICS_EVENTS is set before any handler runs.
+// NOTE: importScripts only works while this stays a CLASSIC service worker — do
+// not add "type": "module" to the manifest's background block without first
+// switching this to an ES import (and adding "type":"module").
 /* global EXTENSION_ANALYTICS_EVENTS */
 importScripts('../analytics-events.js');
 

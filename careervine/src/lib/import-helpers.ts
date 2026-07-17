@@ -22,6 +22,18 @@ export function isValidContactEmail(email: string | null | undefined): email is 
   return typeof email === 'string' && EMAIL_REGEX.test(email) && email.length <= 320;
 }
 
+/**
+ * Resolve the tag list from a profile payload: prefer `suggested_tags`, fall back
+ * to a legacy `tags` array. `suggested_tags` is schema-defaulted to `[]` on the
+ * import wire (CAR-148), so a bare `suggested_tags || tags` would let the empty
+ * default (truthy) mask the fallback and silently drop a legacy `tags`-only
+ * payload's tags. Checking for a non-empty array preserves the fallback. Shared
+ * by both import paths so they can't drift.
+ */
+export function resolveImportTags(profileData: Partial<ProfileData>): string[] | undefined {
+  return profileData.suggested_tags?.length ? profileData.suggested_tags : profileData.tags;
+}
+
 /** Convert follow-up frequency string to days */
 export function parseFollowUpFrequency(freq: string | null | undefined): number | null {
   if (!freq) return null;

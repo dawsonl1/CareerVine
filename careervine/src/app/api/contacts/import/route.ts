@@ -7,7 +7,7 @@ import { withApiHandler } from "@/lib/api-handler";
 import { contactsImportSchema } from "@/lib/api-schemas";
 import { checkContactMilestone } from "@/lib/analytics/server";
 import { advanceExtensionOnboarding } from "@/lib/onboarding/extension-server";
-import { sanitizeForPostgrest, buildUpdateData, buildContactData, resolveProfileLocationId, isValidContactEmail } from '@/lib/import-helpers';
+import { sanitizeForPostgrest, buildUpdateData, buildContactData, resolveProfileLocationId, isValidContactEmail, resolveImportTags } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
 import { syncContactEmailHistoryIfPaid } from "@/lib/contact-email-history";
@@ -73,9 +73,12 @@ export const POST = withApiHandler({
       contact = await createNewContact(supabase, profileData, user.id);
     }
 
-    // Surface prior correspondence on the contact (CAR-109 #1).
-    if (profileData.contactInfo?.email) {
-      const email = profileData.contactInfo.email;
+    // Surface prior correspondence on the contact (CAR-109 #1). Gate on the same
+    // validity check the primary-email insert uses (CAR-148), so a malformed
+    // address that never gets stored also doesn't drive a no-op backfill/sync.
+    const priorEmail = profileData.contactInfo?.email;
+    if (isValidContactEmail(priorEmail)) {
+      const email = priorEmail;
       // Cheap, every tier: re-link any already-cached orphan rows for this address.
       backfillEmailsForContact(user.id, contact.id, [email])
         .catch((err) => console.warn("[import] Email backfill failed:", err));
@@ -105,7 +108,7 @@ export const POST = withApiHandler({
 
     // CAR-68: advance the extension-onboarding flow when its waited-on import
     // arrives. Best-effort — a failed advance must never fail the import.
-    await advanceExtensionOnboarding(supabase, user.id, contact.id, !!profileData.contactInfo?.email);
+    await advanceExtensionOnboarding(supabase, user.id, contact.id, isValidContactEmail(profileData.contactInfo?.email));
 
     // Auto-enrich (plan 29): kick off an Apify scrape that fills photo, real
     // employment history, and a verified email. Async — the run completes via
@@ -242,7 +245,7 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
     }
   }
 
-  const tags = profileData.suggested_tags || profileData.tags;
+  const tags = resolveImportTags(profileData);
   if (tags && tags.length > 0) {
     await addTagsToContact(supabase, contactId, tags, userId);
   }
@@ -287,7 +290,7 @@ async function createNewContact(supabase: SupabaseClient, profileData: ProfileDa
     await addEducationToContact(supabase, (contact as ContactRow).id, profileData.education);
   }
 
-  const tags = profileData.suggested_tags || profileData.tags;
+  const tags = resolveImportTags(profileData);
   if (tags && tags.length > 0) {
     await addTagsToContact(supabase, (contact as ContactRow).id, tags, userId);
   }

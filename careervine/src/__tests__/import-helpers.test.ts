@@ -5,7 +5,29 @@ import {
   buildContactData,
   buildUpdateData,
   isValidContactEmail,
+  resolveImportTags,
 } from '@/lib/import-helpers';
+
+// CAR-148: suggested_tags is schema-defaulted to [] on the import wire, so the
+// tag resolution must not let the empty default (truthy) mask the legacy `tags`
+// fallback. resolveImportTags is shared by both import paths.
+describe('resolveImportTags', () => {
+  it('prefers non-empty suggested_tags over legacy tags', () => {
+    expect(resolveImportTags({ suggested_tags: ['a', 'b'], tags: ['x'] })).toEqual(['a', 'b']);
+  });
+
+  it('falls back to legacy tags when suggested_tags is the empty default', () => {
+    expect(resolveImportTags({ suggested_tags: [], tags: ['vip'] })).toEqual(['vip']);
+  });
+
+  it('falls back to legacy tags when suggested_tags is absent', () => {
+    expect(resolveImportTags({ tags: ['vip'] })).toEqual(['vip']);
+  });
+
+  it('returns undefined when neither is present', () => {
+    expect(resolveImportTags({})).toBeUndefined();
+  });
+});
 
 // CAR-148 (F11): both the create and the update path in the import route gate the
 // primary-email insert through this single helper, so they accept/reject the same

@@ -18,6 +18,15 @@ describe("extension analytics event-name parity", () => {
     );
   });
 
+  it("exposes exactly the keys background.js reads", () => {
+    // background.js consumes EXTENSION_ANALYTICS_EVENTS.PROFILE_SCRAPED /
+    // .EXTENSION_LOGGED_IN / .EXTENSION_INSTALLED by key; renaming a key here
+    // (without updating background.js) would emit undefined at runtime — guard it.
+    expect(Object.keys(EXTENSION_ANALYTICS_EVENTS).sort()).toEqual(
+      ["EXTENSION_INSTALLED", "EXTENSION_LOGGED_IN", "PROFILE_SCRAPED"],
+    );
+  });
+
   it("every emitted name is a key of AnalyticsEvents (compile-time)", () => {
     // Fails to compile if any emitted name is not a registered analytics event.
     expectTypeOf<EmittedEventName>().toMatchTypeOf<AnalyticsEvent>();

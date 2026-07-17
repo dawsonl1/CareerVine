@@ -18,10 +18,11 @@
     // this project's typecheck even though the files live in another package.
     // After editing anything the server imports from src/ (notably src/mcp and
     // its transitive deps), run this project's typecheck, not just the web
-    // app's. @panel/@ext MIRROR the web app's aliases (careervine/tsconfig.json):
-    // shared src/ modules (e.g. extension-contract.ts) import across them, so
-    // this project must resolve them too. The SDK aliases point at
-    // careervine/node_modules so both projects resolve the same SDK build.
+    // app's. @panel is load-bearing here: this project compiles
+    // extension-contract.ts, which imports @panel/lib/profile-contract. @ext
+    // mirrors the web app's alias for parity (not reached by this project today,
+    // but kept in sync so a future shared @ext module resolves). The SDK aliases
+    // point at careervine/node_modules so both projects resolve the same build.
     "paths": {
       "@/*": ["../careervine/src/*"],
       "@panel/*": ["../chrome-extension/panel-app/src/*"],
