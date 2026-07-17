@@ -16,8 +16,8 @@ import {
   prefetchCompanies,
   prefetchLocations,
   ensureCompanyLocations,
-  chunkList,
 } from "@/lib/company-helpers";
+import { chunkList } from "@/lib/data/postgrest";
 import { addTagsToContacts } from "@/lib/import-db-helpers";
 
 // ── Programmable chained-builder mock (same shape as bundle-sync.test.ts) ──

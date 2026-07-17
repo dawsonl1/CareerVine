@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
+import { chunked } from "@/lib/data/postgrest";
 
 export type ContactEmployment = {
   id: number;
@@ -37,17 +38,6 @@ function officeLabel(row: {
     (row.location?.trim() || null) ||
     (row.workplace_type === "remote" ? "Remote" : null)
   );
-}
-
-async function chunkedQuery<T>(
-  ids: number[],
-  fn: (chunk: number[]) => Promise<T[]>,
-): Promise<T[]> {
-  const out: T[] = [];
-  for (let i = 0; i < ids.length; i += 200) {
-    out.push(...(await fn(ids.slice(i, i + 200))));
-  }
-  return out;
 }
 
 /** Resolve recipient emails → contact ids for this user (case-insensitive). */
@@ -97,7 +87,7 @@ export async function loadContactEmploymentMap(
   const out: Record<number, ContactEmployment> = {};
   if (unique.length === 0) return out;
 
-  const contacts = await chunkedQuery(unique, async (chunk) => {
+  const contacts = await chunked(unique, async (chunk) => {
     const { data, error } = await service
       .from("contacts")
       .select("id, name")
@@ -118,7 +108,7 @@ export async function loadContactEmploymentMap(
     };
   }
 
-  const jobs = await chunkedQuery(unique, async (chunk) => {
+  const jobs = await chunked(unique, async (chunk) => {
     const { data, error } = await service
       .from("contact_companies")
       .select(

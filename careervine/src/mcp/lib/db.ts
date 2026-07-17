@@ -15,7 +15,8 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import type { TablesInsert } from "@/lib/database.types";
 import { setCompanyQueriesClient } from "@/lib/company-queries";
-import { escapeIlike, findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
+import { findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
+import { chunked, escapeIlike } from "@/lib/data/postgrest";
 import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
@@ -55,15 +56,6 @@ export function uid(): string {
   if (requestUser) return requestUser;
   if (stdioUserId) return stdioUserId;
   throw new Error("db not initialized — call initDb() or run inside runWithUser()");
-}
-
-/** Chunk .in() filters — PostgREST URLs blow up past a few hundred ids. */
-async function chunked<T>(ids: number[], fn: (chunk: number[]) => Promise<T[]>): Promise<T[]> {
-  const out: T[] = [];
-  for (let i = 0; i < ids.length; i += 200) {
-    out.push(...(await fn(ids.slice(i, i + 200))));
-  }
-  return out;
 }
 
 // ── Contact resolution ─────────────────────────────────────────────────

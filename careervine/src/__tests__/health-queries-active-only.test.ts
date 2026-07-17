@@ -47,7 +47,9 @@ vi.mock("@/lib/supabase/browser-client", () => ({
   createSupabaseBrowserClient: () => ({ from: (t: string) => h.makeBuilder(t) }),
 }));
 
-import { getContactsWithLastTouch, getRelationshipsOnTrack } from "@/lib/queries";
+// getContactsWithLastTouch is internal to the data layer (not re-exported
+// from the queries barrel since CAR-146), so it's imported from its module.
+import { getContactsWithLastTouch, getRelationshipsOnTrack } from "@/lib/data/follow-ups";
 
 const hasActiveFilter = (q: QueryState) =>
   q.filters.some((f) => f.method === "eq" && JSON.stringify(f.args) === JSON.stringify(["network_status", "active"]));

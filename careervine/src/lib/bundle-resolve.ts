@@ -35,10 +35,10 @@ import {
   locationLookupKey,
   companyFallbackName,
   isNameOnlyCompanyInput,
-  chunkList,
   type CompanyInput,
   type CompanyRecord,
 } from "./company-helpers";
+import { chunkList } from "@/lib/data/postgrest";
 import {
   normalizeLocation,
   normalizeParsedLocation,

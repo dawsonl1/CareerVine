@@ -122,7 +122,7 @@ export type ContactMeeting = {
   transcript: string | null;
 };
 
-/** Follow-up reminder as returned by getContactsDueForFollowUp() */
+/** Follow-up reminder as returned in getHomeCoreData().followUps */
 export type FollowUpReminder = {
   id: number;
   name: string;
