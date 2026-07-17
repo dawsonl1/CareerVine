@@ -276,6 +276,27 @@ describe("InboxShell — optimistic mutations + nav badge", () => {
   });
 });
 
+describe("InboxShell — honest load-failure state (CAR-154 / F21)", () => {
+  it("renders a retryable error state when the inbox payload reports failure", async () => {
+    // success:false is the DB-payload failure signal; the shell must not fall
+    // through to the "No emails synced yet." empty state.
+    installFetch({ inbox: { success: false } });
+    render(<InboxShell />);
+
+    await waitFor(() => expect(screen.getByText("We could not load your inbox")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
+    expect(screen.queryByText("No emails synced yet.")).toBeNull();
+  });
+
+  it("shows the empty state (not the error state) on a successful empty load", async () => {
+    installFetch({ inbox: inboxPayload() });
+    render(<InboxShell />);
+
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+    expect(screen.queryByText("We could not load your inbox")).toBeNull();
+  });
+});
+
 describe("InboxShell — extracted child tabs render their own data", () => {
   const drafts = { drafts: [{ id: 42, subject: "Half-written note", recipient_email: "leo@x.com", contact_name: "Leo", body_html: "<p>draft</p>", thread_id: null, in_reply_to: null, references_header: null, updated_at: "2026-07-14T12:00:00Z" }] };
   const scheduled = [{ id: 7, subject: "Following up soon", recipient_email: "bob@x.com", contact_name: "Bob", matched_contact_id: null, status: "pending", scheduled_send_at: "2026-07-20T09:00:00Z", thread_id: null }];

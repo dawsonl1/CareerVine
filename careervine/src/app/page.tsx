@@ -14,6 +14,7 @@ import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import LandingPage from "@/components/landing-page";
 import Navigation from "@/components/navigation";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 import {
   getHomeCoreData,
   getActionListCounts,
@@ -103,6 +104,9 @@ export default function Home() {
   const [followUps, setFollowUps] = useState<FollowUpContact[]>(cachedData?.followUps ?? []);
   const [contactHealth, setContactHealth] = useState<{ id: number; name: string; days_since_touch: number | null; follow_up_frequency_days: number | null }[]>(cachedData?.contactHealth ?? []);
   const [dataLoaded, setDataLoaded] = useState(!!cachedData);
+  // Distinguish a failed core-data fetch from a genuinely empty account, so a
+  // failed first load renders a retryable error instead of the new-user state.
+  const [coreError, setCoreError] = useState(false);
 
   // Band 2 right data
   const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>([]);
@@ -170,6 +174,7 @@ export default function Home() {
 
   const loadCoreData = useCallback(async () => {
     if (!user) return;
+    setCoreError(false);
     try {
       const data = await getHomeCoreData(user.id);
       const items = (data.actionItems as ActionItem[]).slice(0, 15);
@@ -198,7 +203,7 @@ export default function Home() {
         } catch { /* storage full — ignore */ }
       }
     } catch {
-      // silent
+      setCoreError(true);
     }
     setDataLoaded(true);
   }, [user, cacheKey]);
@@ -780,6 +785,27 @@ export default function Home() {
   }
 
   if (!user) return <LandingPage />;
+
+  // A failed core-data load with nothing cached to fall back on renders a
+  // retryable error, not the misleading getting-started/new-user state.
+  const hasCoreData =
+    actionItems.length > 0 ||
+    followUps.length > 0 ||
+    contactHealth.length > 0 ||
+    newContacts.length > 0;
+  if (coreError && !hasCoreData) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <LoadErrorState
+            message="We could not load your dashboard"
+            onRetry={() => { loadCounts(); loadCoreData(); loadBand3(); }}
+          />
+        </main>
+      </div>
+    );
+  }
 
   // The seeded onboarding to-do (CAR-68) doesn't count toward "has real
   // items": a brand-new account still gets the getting-started checklist,

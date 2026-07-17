@@ -41,6 +41,8 @@ import { useQuickCapture } from "@/components/quick-capture-context";
 
 import { inputClasses } from "@/lib/form-styles";
 import { getRsvpDisplay } from "@/lib/constants";
+import { withToastOnError } from "@/lib/with-toast-on-error";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 
 export default function MeetingsPage() {
   const { user } = useAuth();
@@ -49,6 +51,7 @@ export default function MeetingsPage() {
   const { open: openConversationModal, openEdit: openEditModal } = useQuickCapture();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [allContacts, setAllContacts] = useState<SimpleContact[]>([]);
   const [meetingActions, setMeetingActions] = useState<MeetingActionsMap>({});
   const [cardEditActionId, setCardEditActionId] = useState<number | null>(null);
@@ -103,6 +106,7 @@ export default function MeetingsPage() {
 
   const loadMeetings = useCallback(async () => {
     if (!user) return;
+    setLoadError(false);
     try {
       const data = await getMeetings(user.id);
       setMeetings(data as unknown as Meeting[]);
@@ -132,7 +136,10 @@ export default function MeetingsPage() {
             }
             setMeetingCalendarMap(calMap);
           }
-        } catch {}
+        } catch {
+          // Calendar RSVP badges are enrichment; the meetings list already
+          // rendered, so a failed lookup just leaves the badges off.
+        }
       }
       // Load action items, attachments, and transcript segments for each meeting
       const actionsMap: MeetingActionsMap = {};
@@ -153,13 +160,16 @@ export default function MeetingsPage() {
           if (items.length > 0) actionsMap[m.id] = items as ActionItemWithContacts[];
           if (atts.length > 0) attMap[m.id] = atts as typeof meetingAttachments[number];
           if (segs?.length > 0) segMap[m.id] = segs as TranscriptSegment[];
-        } catch {}
+        } catch {
+          // Per-meeting action items/attachments/segments are enrichment; one
+          // meeting failing must not blank the others.
+        }
       }));
       setMeetingActions(actionsMap);
       setMeetingAttachments(attMap);
       setMeetingSegments(segMap);
     }
-    catch (e) { console.error("Error loading meetings:", e); }
+    catch (e) { console.error("Error loading meetings:", e); setLoadError(true); }
     finally { setLoading(false); }
   }, [user]);
 
@@ -184,7 +194,10 @@ export default function MeetingsPage() {
     try {
       const items = await getActionItemsForMeeting(meetingId);
       setMeetingActions(prev => ({ ...prev, [meetingId]: items as ActionItemWithContacts[] }));
-    } catch {}
+    } catch {
+      // Best-effort refresh after a mutation; the write already succeeded and a
+      // stale list self-heals on the next reload.
+    }
   };
 
   const handleMeetingAttachmentUpload = async (meetingId: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -241,6 +254,20 @@ export default function MeetingsPage() {
             <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
             <span className="text-base">Loading meetings…</span>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError && meetings.length === 0 && allInteractions.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <LoadErrorState
+            message="We could not load your activity"
+            onRetry={() => { setLoading(true); loadMeetings(); loadInteractions(); loadContacts(); }}
+          />
         </div>
       </div>
     );
@@ -375,10 +402,10 @@ export default function MeetingsPage() {
                     <button
                       onClick={async () => {
                         if (!confirm("Delete this interaction?")) return;
-                        try {
+                        await withToastOnError(async () => {
                           await deleteInteraction((item.data as InteractionWithContact).id);
                           await loadInteractions();
-                        } catch {}
+                        }, toastError, "Couldn't delete that interaction. Please try again.");
                       }}
                       className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
                     >
@@ -575,15 +602,15 @@ export default function MeetingsPage() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
                               {action.is_completed ? (
-                                <button type="button" onClick={async () => { try { await updateActionItem(action.id, { is_completed: false, completed_at: null }); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Restore">
+                                <button type="button" onClick={() => withToastOnError(async () => { await updateActionItem(action.id, { is_completed: false, completed_at: null }); await reloadMeetingActions(meeting.id); }, toastError, "Couldn't restore that action item. Please try again.")} className="p-1.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Restore">
                                   <RotateCcw className="h-3.5 w-3.5" />
                                 </button>
                               ) : (
-                                <button type="button" onClick={async () => { try { await updateActionItem(action.id, { is_completed: true, completed_at: new Date().toISOString() }); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Mark done">
+                                <button type="button" onClick={() => withToastOnError(async () => { await updateActionItem(action.id, { is_completed: true, completed_at: new Date().toISOString() }); await reloadMeetingActions(meeting.id); }, toastError, "Couldn't update that action item. Please try again.")} className="p-1.5 rounded-full text-muted-foreground hover:text-primary cursor-pointer" title="Mark done">
                                   <Check className="h-3.5 w-3.5" />
                                 </button>
                               )}
-                              <button type="button" onClick={async () => { if (!confirm("Delete this action item?")) return; try { await deleteActionItem(action.id); await reloadMeetingActions(meeting.id); } catch {} }} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
+                              <button type="button" onClick={async () => { if (!confirm("Delete this action item?")) return; await withToastOnError(async () => { await deleteActionItem(action.id); await reloadMeetingActions(meeting.id); }, toastError, "Couldn't delete that action item. Please try again."); }} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </div>

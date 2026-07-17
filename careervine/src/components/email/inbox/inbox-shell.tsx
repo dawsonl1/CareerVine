@@ -26,6 +26,7 @@ import { InboxFilterBar } from "./inbox-filter-bar";
 import { InboxSidebar, InboxMobileTabs } from "./inbox-nav";
 import { useInboxFilters } from "./use-inbox-filters";
 import { useInboxData } from "./use-inbox-data";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 import type { FollowUpModalPayload, SidebarItem, SidebarTab } from "./inbox-types";
 
 // ── Inbox shell (the premium paid experience; selected by EmailExperience, CAR-103) ──
@@ -43,6 +44,7 @@ export function InboxShell() {
   const {
     loading,
     syncing,
+    error: loadError,
     emails, setEmails,
     trashedEmails, setTrashedEmails,
     hiddenEmails, setHiddenEmails,
@@ -424,6 +426,28 @@ export function InboxShell() {
             <Mail className="h-5 w-5 mr-2" />
             Connect Gmail & Calendar
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Connected, but the inbox fetch failed and there is nothing to fall back on:
+  // render a retryable error instead of the empty "No emails synced yet." state.
+  if (
+    loadError &&
+    !loading &&
+    emails.length === 0 &&
+    trashedEmails.length === 0 &&
+    hiddenEmails.length === 0 &&
+    scheduledEmails.length === 0 &&
+    followUps.length === 0 &&
+    drafts.length === 0
+  ) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+          <LoadErrorState message="We could not load your inbox" onRetry={() => { void loadInbox(); }} />
         </div>
       </div>
     );

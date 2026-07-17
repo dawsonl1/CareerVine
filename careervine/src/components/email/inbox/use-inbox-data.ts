@@ -18,6 +18,9 @@ interface UseInboxDataParams {
 export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  // Distinguish a failed inbox fetch from a genuinely empty mailbox, so the
+  // shell renders a retryable error instead of "No emails synced yet." (CAR-154).
+  const [error, setError] = useState(false);
 
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [trashedEmails, setTrashedEmails] = useState<EmailMessage[]>([]);
@@ -31,6 +34,7 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
   const [gmailLabels, setGmailLabels] = useState<GmailLabel[]>([]);
 
   const loadInbox = useCallback(async () => {
+    setError(false);
     try {
       const res = await fetch("/api/gmail/inbox");
       const data = await res.json();
@@ -43,9 +47,12 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
         setContactMap(data.contactMap || {});
         setCalendarByThread(data.calendarByThread || {});
         setGmailAddress(data.gmailAddress || "");
+      } else {
+        setError(true);
       }
     } catch (err) {
       console.error("Failed to load inbox:", err);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -102,6 +109,7 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
   return {
     loading,
     syncing,
+    error,
     emails, setEmails,
     trashedEmails, setTrashedEmails,
     hiddenEmails, setHiddenEmails,

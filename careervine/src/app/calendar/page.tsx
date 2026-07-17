@@ -18,6 +18,7 @@ import { CONVERSATION_TYPE_OPTIONS, getRsvpDisplay } from "@/lib/constants";
 import { packOverlappingEvents, slotStyle } from "@/lib/calendar-layout";
 import { resolveCalendarSaveMode } from "@/lib/calendar-save-mode";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -67,6 +68,7 @@ export default function CalendarPage() {
   const [syncing, setSyncing] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState<"list" | "week">("list");
   const [weekOffset, setWeekOffset] = useState(0);
   const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
@@ -193,10 +195,13 @@ export default function CalendarPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       await Promise.all([loadEvents(), loadContacts(), loadLinkedMeetings()]);
       // Background auto-sync (silent, respects 5-min cooldown)
       fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) loadEvents(); }).catch(() => {});
+    } catch {
+      setLoadError(true);
     } finally { setLoading(false); }
   }, [loadEvents, loadContacts, loadLinkedMeetings]);
 
@@ -422,6 +427,20 @@ export default function CalendarPage() {
             <span className="text-base">Loading calendar…</span>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (loadError && events.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <LoadErrorState
+            message="We could not load your calendar"
+            onRetry={() => loadData()}
+          />
+        </main>
       </div>
     );
   }
