@@ -7,7 +7,9 @@
  */
 
 import OpenAI from "openai";
-import { DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
+import { AiUnavailableError, DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
+import { parseModelJson } from "@/lib/ai/model-json";
+import { wrapUntrusted, UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 import { searchNews, searchWeb, type SerperResult } from "@/lib/serper";
 import type { Interest, ExtractedInterests } from "./extract-interests";
 
@@ -25,16 +27,23 @@ export interface ArticleResult {
 const MAX_TOPICS = 3;
 const MAX_ARTICLES_PER_TOPIC = 3;
 
-const EVAL_SYSTEM_PROMPT = `You are helping someone reconnect with a professional contact by sharing a relevant article. Evaluate whether this article would make a genuinely thoughtful follow-up.`;
+const EVAL_SYSTEM_PROMPT = `You are helping someone reconnect with a professional contact by sharing a relevant article. Evaluate whether this article would make a genuinely thoughtful follow-up.
 
-function buildEvalPrompt(interest: Interest, result: SerperResult): string {
-  return `The contact expressed interest in: ${interest.topic}
-Evidence: "${interest.evidence}"
+${UNTRUSTED_DATA_CLAUSE}`;
 
-Candidate article:
-- Title: ${result.title}
-- Source: ${result.source}
-- Snippet: ${result.snippet}
+/** Exported for prompt-hardening snapshot tests (CAR-143). */
+export function buildEvalPrompt(interest: Interest, result: SerperResult): string {
+  // Interest fields come from notes/transcripts and the candidate article from
+  // web search — all untrusted; fence them (CAR-143).
+  return `The contact expressed interest in:
+${wrapUntrusted("interest_topic", interest.topic)}
+Evidence:
+${wrapUntrusted("evidence", interest.evidence)}
+
+Candidate article (from web search):
+- Title: ${wrapUntrusted("article_title", result.title)}
+- Source: ${wrapUntrusted("article_source", result.source)}
+- Snippet: ${wrapUntrusted("article_snippet", result.snippet)}
 - URL: ${result.url}
 
 Would sharing this article feel genuinely thoughtful and natural?
@@ -49,16 +58,31 @@ Return JSON: { "verdict": "send" or "skip", "reason": "brief explanation" }`;
 }
 
 /**
- * Validate that a URL is a well-formed https:// URL.
- * Rejects javascript:, data:, and non-HTTPS schemes.
+ * Validate that a URL is a well-formed https:// URL and return its WHATWG-
+ * normalized form (null when invalid). Rejects javascript:, data:, and
+ * non-HTTPS schemes. Normalization matters beyond hygiene: `.href`
+ * percent-encodes tag-forming characters (<, >, quotes, whitespace) in the
+ * path/query/fragment, so a crafted search-result URL can't smuggle fence
+ * tags or prompt text into the LLM prompts it gets interpolated into
+ * (CAR-143).
  */
-function isValidArticleUrl(url: string): boolean {
+function normalizeArticleUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:";
+    return parsed.protocol === "https:" ? parsed.href : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Keep only https results, with their URLs WHATWG-normalized. */
+function normalizeResults(results: SerperResult[]): SerperResult[] {
+  const valid: SerperResult[] = [];
+  for (const r of results) {
+    const url = normalizeArticleUrl(r.url);
+    if (url) valid.push({ ...r, url });
+  }
+  return valid;
 }
 
 /**
@@ -95,11 +119,10 @@ async function evaluateArticle(
     max_tokens: 300,
   });
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) return false;
-
-  const parsed = JSON.parse(content);
-  return parsed.verdict === "send";
+  // Malformed/truncated model JSON means "skip this article", never a throw
+  // (CAR-143, R5.4).
+  const parsed = parseModelJson(response.choices[0]?.message?.content);
+  return (parsed as { verdict?: unknown } | null)?.verdict === "send";
 }
 
 /**
@@ -109,8 +132,7 @@ async function evaluateArticle(
 async function searchForTopic(query: string): Promise<SerperResult[]> {
   // Try news first — recent articles feel most natural to share
   try {
-    const newsResults = await searchNews(query, 5);
-    const validNews = newsResults.filter((r) => isValidArticleUrl(r.url));
+    const validNews = normalizeResults(await searchNews(query, 5));
     if (validNews.length > 0) return validNews;
   } catch {
     // News endpoint failed, fall through to web search
@@ -118,8 +140,7 @@ async function searchForTopic(query: string): Promise<SerperResult[]> {
 
   // Fall back to web search
   try {
-    const webResults = await searchWeb(query, 5);
-    return webResults.filter((r) => isValidArticleUrl(r.url));
+    return normalizeResults(await searchWeb(query, 5));
   } catch {
     return [];
   }
@@ -168,7 +189,11 @@ export async function findArticle(
             },
           };
         }
-      } catch {
+      } catch (err) {
+        // AI availability failures (trial expired, spend ceiling) apply to
+        // every remaining eval — surface them instead of silently burning
+        // the eval budget (CAR-143).
+        if (err instanceof AiUnavailableError) throw err;
         // Evaluation failed for this article, try next
         continue;
       }

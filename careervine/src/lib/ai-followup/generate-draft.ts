@@ -6,24 +6,19 @@
  */
 
 import { DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
-import createDOMPurify from "dompurify";
-// @ts-expect-error -- jsdom has no bundled types; @types/jsdom is a devDep
-import { JSDOM } from "jsdom";
+import { sanitizeAiDraftHtml } from "@/lib/ai/sanitize-email-html";
+import { wrapUntrusted, UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 import type { ContactContext } from "./gather-context";
 import type { Interest } from "./extract-interests";
 import type { ArticleResult } from "./find-article";
-
-// Server-side DOMPurify (Node.js doesn't have window.document)
-const jsdomWindow = new JSDOM("").window;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const purify = createDOMPurify(jsdomWindow as any);
 
 export interface DraftResult {
   subject: string;
   bodyHtml: string;
 }
 
-function buildDraftPrompt(params: {
+/** Exported for prompt-hardening snapshot tests (CAR-143). */
+export function buildDraftPrompt(params: {
   senderFirstName: string;
   contact: ContactContext;
   interest: Interest;
@@ -50,11 +45,13 @@ function buildDraftPrompt(params: {
   if (contact.schools.length) contextLines.push(`Education: ${contact.schools[0]}`);
   if (timeParts.length) contextLines.push(timeParts[0]);
 
-  const interestLine = `They mentioned: ${interest.topic}\nEvidence: "${interest.evidence}"`;
+  // Topic/evidence come from notes+transcripts and the article title from web
+  // search — all untrusted; fence them (CAR-143).
+  const interestLine = `They mentioned:\n${wrapUntrusted("interest_topic", interest.topic)}\nEvidence:\n${wrapUntrusted("evidence", interest.evidence)}`;
 
   let articleLine = "";
   if (articleTitle && articleUrl) {
-    articleLine = `\nArticle to share:\n- Title: ${articleTitle}\n- URL: ${articleUrl}`;
+    articleLine = `\nArticle to share:\n- Title: ${wrapUntrusted("article_title", articleTitle)}\n- URL: ${articleUrl}`;
   }
 
   return `Write a brief, warm follow-up email from ${senderFirstName} to ${contact.contactName}.
@@ -95,7 +92,8 @@ export async function generateDraft(params: {
         {
           role: "system",
           content:
-            "You are an expert email writer helping a professional reconnect with contacts. Write natural, concise emails that feel genuine — not templated.",
+            "You are an expert email writer helping a professional reconnect with contacts. Write natural, concise emails that feel genuine — not templated.\n\n" +
+            UNTRUSTED_DATA_CLAUSE,
         },
         {
           role: "user",
@@ -114,11 +112,8 @@ export async function generateDraft(params: {
 
   let bodyHtml = bodyResponse.choices[0]?.message?.content || "";
 
-  // Sanitize the HTML to prevent XSS
-  bodyHtml = purify.sanitize(bodyHtml, {
-    ALLOWED_TAGS: ["p", "br", "a", "strong", "em", "b", "i"],
-    ALLOWED_ATTR: ["href", "target", "rel"],
-  });
+  // Sanitize the HTML to prevent XSS (shared tight AI-draft profile)
+  bodyHtml = sanitizeAiDraftHtml(bodyHtml);
 
   // Generate subject line
   const subjectResponse = await runAI((openai) =>
@@ -136,7 +131,11 @@ export async function generateDraft(params: {
     }),
   );
 
-  const subject = subjectResponse.choices[0]?.message?.content?.trim() || "Thinking of you";
+  // Strip interior line breaks — the subject is interpolated into a MIME
+  // header at send time, so a model-emitted newline must never survive (R5.1).
+  const subject =
+    subjectResponse.choices[0]?.message?.content?.replace(/[\r\n]+/g, " ").trim() ||
+    "Thinking of you";
 
   return { subject, bodyHtml };
 }

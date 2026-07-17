@@ -28,16 +28,32 @@ import {
   insertFollowUpSequence,
 } from "../lib/db";
 import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
+import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 import { markdownToHtml } from "../lib/markdown";
 import { handler, contactRefShape } from "../lib/tool-utils";
 
+/**
+ * MCP bodies come straight from an LLM, and markdownToHtml passes raw HTML
+ * through untouched — sanitize every body before it is stored or sent, the
+ * same email-safe profile the web write paths apply (CAR-143, R5.2).
+ */
+function toSafeEmailHtml(body: string): string {
+  return sanitizeStoredEmailHtml(markdownToHtml(body));
+}
+
+// CAR-143 (R5.1): MCP args come straight from an LLM — reject CR/LF in any
+// string that gets interpolated into a MIME header (subject, recipient).
+const NO_LINE_BREAKS = /^[^\r\n]*$/;
+const NO_LINE_BREAKS_MESSAGE = "must not contain line breaks";
+
 const composeShape = {
   ...contactRefShape,
-  subject: z.string().min(1),
+  subject: z.string().min(1).regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE),
   body: z.string().min(1).describe("Email body as markdown (converted to HTML) or raw HTML"),
   thread_id: z.string().optional().describe("Gmail thread id to reply into (threads the message)"),
   to_email: z
     .string()
+    .regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE)
     .optional()
     .describe("Override recipient address (defaults to the contact's primary email)"),
 };
@@ -91,7 +107,7 @@ export const followUpSequenceSchema = {
   messages: z
     .array(
       z.object({
-        subject: z.string().min(1),
+        subject: z.string().min(1).regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE),
         body: z.string().min(1).describe("Markdown or HTML"),
         send_after_days: z.number().int().min(1).describe("Days after the original send"),
       }),
@@ -113,7 +129,7 @@ export function registerEmailTools(server: McpServer): void {
     handler(async ({ contact_id, name, subject, body, thread_id, to_email }) => {
       const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
       const reply = await resolveReplyHeaders(thread_id);
-      const bodyHtml = markdownToHtml(body);
+      const bodyHtml = toSafeEmailHtml(body);
 
       // Free tier holds no gmail.modify scope, so a real Gmail draft (drafts.create)
       // would 403. Fall back to an app-side draft (email_drafts), which the user
@@ -168,7 +184,7 @@ export function registerEmailTools(server: McpServer): void {
       const result = await sendTrackedEmail(uid(), {
         to: recipient.email,
         subject,
-        bodyHtml: markdownToHtml(body),
+        bodyHtml: toSafeEmailHtml(body),
         threadId: thread_id,
         inReplyTo: reply.inReplyTo,
         references: reply.references,
@@ -201,7 +217,7 @@ export function registerEmailTools(server: McpServer): void {
       const id = await createScheduledEmail({
         to: recipient.email,
         subject,
-        bodyHtml: markdownToHtml(body),
+        bodyHtml: toSafeEmailHtml(body),
         scheduledSendAt: when.toISOString(),
         threadId: thread_id,
         inReplyTo: reply.inReplyTo,
@@ -256,7 +272,7 @@ export function registerEmailTools(server: McpServer): void {
         messages.map((m) => ({
           sendAfterDays: m.send_after_days,
           subject: m.subject,
-          bodyHtml: markdownToHtml(m.body),
+          bodyHtml: toSafeEmailHtml(m.body),
         })),
         new Date(baseIso),
       );

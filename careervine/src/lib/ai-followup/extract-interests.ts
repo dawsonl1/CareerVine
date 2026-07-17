@@ -5,6 +5,8 @@
  */
 
 import { DEFAULT_MODEL, type OpenAIRunner } from "@/lib/openai";
+import { parseModelJson } from "@/lib/ai/model-json";
+import { UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 import { formatContextForLLM, type ContactContext } from "./gather-context";
 
 export interface Interest {
@@ -34,7 +36,9 @@ For each interest found, provide:
 If no meetings, transcripts, or notes exist, derive interests from their profile: industry trends, role-specific topics, or education-related content.
 
 Return interests sorted by confidence (highest first).
-Do NOT fabricate interests — only extract what is clearly supported by the context.`;
+Do NOT fabricate interests — only extract what is clearly supported by the context.
+
+${UNTRUSTED_DATA_CLAUSE}`;
 
 const INTEREST_ITEM_SCHEMA = {
   type: "object",
@@ -86,22 +90,22 @@ export async function extractInterests(
     }),
   );
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    return { interests: [], profileFallbacks: [] };
-  }
+  // Missing, truncated, malformed, or wrong-shaped output all degrade to
+  // empty results — this path must never throw (CAR-143, R5.4).
+  const parsed = parseModelJson(response.choices[0]?.message?.content) as
+    | Partial<ExtractedInterests>
+    | null;
 
-  let parsed: ExtractedInterests;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    // Truncated or malformed response (e.g., max_tokens hit)
-    return { interests: [], profileFallbacks: [] };
-  }
+  const interests = Array.isArray(parsed?.interests) ? parsed.interests : [];
+  const profileFallbacks = Array.isArray(parsed?.profileFallbacks)
+    ? parsed.profileFallbacks
+    : [];
 
-  // Sort by confidence descending
-  parsed.interests.sort((a, b) => b.confidence - a.confidence);
-  parsed.profileFallbacks.sort((a, b) => b.confidence - a.confidence);
+  // Sort by confidence descending (tolerating non-numeric confidence values)
+  const byConfidence = (a: Interest, b: Interest) =>
+    (Number(b?.confidence) || 0) - (Number(a?.confidence) || 0);
+  interests.sort(byConfidence);
+  profileFallbacks.sort(byConfidence);
 
-  return parsed;
+  return { interests, profileFallbacks };
 }

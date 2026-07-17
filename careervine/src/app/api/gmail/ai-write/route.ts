@@ -2,6 +2,8 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailAiWriteSchema } from "@/lib/api-schemas";
 import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
+import { sanitizeAiDraftHtml } from "@/lib/ai/sanitize-email-html";
+import { UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 
 /**
  * POST /api/gmail/ai-write
@@ -10,7 +12,7 @@ import { getContactContext } from "@/lib/ai-helpers";
 export const POST = withApiHandler({
   schema: gmailAiWriteSchema,
   // CAR-51: spend cap on shared-key AI — far above any human drafting pace.
-  rateLimit: { bucket: "careervine-ai-write", limit: 40, window: "1 h" },
+  rateLimit: { bucket: "careervine-ai-write", limit: 40, window: "1 h", failClosed: true },
   handler: async ({ user, body, track }) => {
     const { prompt, contactId, meetingIds, additionalContext, subject } = body;
     const startedAt = Date.now();
@@ -31,7 +33,9 @@ Write the email body only — do NOT include a subject line, greeting preamble l
 Start directly with the greeting (e.g., "Hi [Name],") and end just before where a signature would go.
 Write in a natural, professional tone. Be concise but warm. Avoid being overly formal or stiff.
 Use the contact's information to personalize the email meaningfully — reference their work, background, shared connections, or recent meetings where relevant.
-Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> for line breaks within paragraphs). Do not use markdown.`;
+Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> for line breaks within paragraphs). Do not use markdown.
+
+${UNTRUSTED_DATA_CLAUSE}`;
 
     const userParts: string[] = [];
     userParts.push(`EMAIL TYPE/INSTRUCTIONS: ${prompt}`);
@@ -66,7 +70,8 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
       throw new ApiError("Failed to generate email. Please try again.", 500);
     }
 
-    const emailHtml = response.output_text || "";
+    // Never return raw model HTML (CAR-143, R5.2)
+    const emailHtml = sanitizeAiDraftHtml(response.output_text || "");
 
     if (!emailHtml.trim()) {
       throw new ApiError("AI returned an empty response. Please try again.", 500);
@@ -84,7 +89,9 @@ Output clean HTML suitable for an email body (use <p> tags for paragraphs, <br> 
             max_output_tokens: 100,
           }),
         );
-        generatedSubject = subjectResponse.output_text?.trim() || null;
+        // Interior line breaks would corrupt the MIME Subject header (R5.1)
+        generatedSubject =
+          subjectResponse.output_text?.replace(/[\r\n]+/g, " ").trim() || null;
       } catch {
         // Subject generation is best-effort; use null if it fails
       }

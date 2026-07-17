@@ -17,6 +17,12 @@ import { decryptSecret, CryptoError } from "@/lib/crypto";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { trackServer } from "@/lib/analytics/server";
 import {
+  estimateCallCostUsd,
+  getSharedAiSpendUsd,
+  recordSharedAiSpend,
+  SHARED_AI_SPEND_LIMIT_USD,
+} from "@/lib/ai/spend";
+import {
   AI_FAILURE_COPY,
   AI_UNAVAILABLE_STATUS,
   type AiFailureCode,
@@ -364,10 +370,35 @@ function isQuotaError(err: unknown): boolean {
 }
 
 /**
+ * CAR-143 (R5.3): where does this user stand against the persisted shared-key
+ * spend ceiling? Every non-"available" state fails CLOSED (no shared call),
+ * but "exhausted" (genuinely over the ceiling → trial-expiry UX) is kept
+ * distinct from "unknown" (lookup error → retryable ai_unavailable UX) so a
+ * transient DB blip never tells a user their free AI ended for good.
+ */
+type SharedSpendBudget = "available" | "exhausted" | "unknown";
+
+async function checkSharedSpendBudget(userId: string): Promise<SharedSpendBudget> {
+  try {
+    return (await getSharedAiSpendUsd(userId)) < SHARED_AI_SPEND_LIMIT_USD
+      ? "available"
+      : "exhausted";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
  * No usable personal key: return the shared client if entitled, otherwise a
  * typed failure whose code reflects why the personal key was unusable. A dead
  * personal key keeps its key-specific code (more actionable than the trial
  * state); only keyless users get ai_trial_expired.
+ *
+ * CAR-143 (R5.3): entitlement alone is no longer enough — the shared key is
+ * only handed out while the user is under the persisted spend ceiling.
+ * Over-ceiling resolves like an exhausted entitlement (key-specific code when
+ * a dead personal key exists, else the trial-expiry UX); an unreadable spend
+ * state fails closed as the retryable ai_unavailable.
  */
 async function resolveWithoutPersonalKey(
   userId: string,
@@ -375,17 +406,28 @@ async function resolveWithoutPersonalKey(
 ): Promise<OpenAIResolution> {
   const access = await routing.resolveSharedAccess(userId);
   if (access.granted) {
-    try {
-      return { ok: true, client: getAppOpenAIClient(), source: "app" };
-    } catch {
-      // Shared access granted but the app key isn't configured.
+    const budget = await routing.checkSharedSpendBudget(userId);
+    if (budget === "available") {
+      try {
+        return { ok: true, client: getAppOpenAIClient(), source: "app" };
+      } catch {
+        // Shared access granted but the app key isn't configured.
+        return { ok: false, code: "ai_unavailable" };
+      }
+    }
+    if (budget === "unknown") {
+      // Spend state unreadable — deny this call, but as a transient outage.
       return { ok: false, code: "ai_unavailable" };
     }
+    // "exhausted" falls through to the key-specific / trial-expiry codes.
   }
 
   if (keyState === "invalid") return { ok: false, code: "ai_key_invalid" };
   if (keyState === "quota_exceeded") return { ok: false, code: "ai_quota_exhausted" };
-  if (access.trialExpired) return { ok: false, code: "ai_trial_expired" };
+  if (access.granted || access.trialExpired) {
+    // Entitled but out of budget, or trial over — both are "your free AI ended".
+    return { ok: false, code: "ai_trial_expired" };
+  }
   return { ok: false, code: "ai_no_key" };
 }
 
@@ -447,6 +489,7 @@ const routing = {
   getOpenAIForUser,
   getAppOpenAIClient,
   resolveSharedAccess,
+  checkSharedSpendBudget,
 };
 
 /**
@@ -461,6 +504,10 @@ async function fallbackToSharedOrFail<T>(
   if (!(await routing.resolveSharedAccess(userId)).granted) {
     throw new AiUnavailableError(failCode);
   }
+  // CAR-143 (R5.3): no shared-key call without spend budget, on any path.
+  const budget = await routing.checkSharedSpendBudget(userId);
+  if (budget === "unknown") throw new AiUnavailableError("ai_unavailable");
+  if (budget === "exhausted") throw new AiUnavailableError(failCode);
 
   let appClient: OpenAI;
   try {
@@ -470,7 +517,9 @@ async function fallbackToSharedOrFail<T>(
   }
 
   try {
-    return await fn(appClient);
+    const result = await fn(appClient);
+    void recordSharedAiSpend(userId, estimateCallCostUsd(result));
+    return result;
   } catch (retryErr) {
     // The shared key itself is dead — nothing left to fall back to.
     if (isAuthError(retryErr) || isQuotaError(retryErr)) {
@@ -499,6 +548,9 @@ export async function runWithOpenAIFallback<T>(
     const result = await fn(resolved.client);
     if (resolved.source === "user") {
       void markKeyStatus(userId, "active");
+    } else {
+      // CAR-143 (R5.3): meter every successful shared-key call.
+      void recordSharedAiSpend(userId, estimateCallCostUsd(result));
     }
     return result;
   } catch (err) {

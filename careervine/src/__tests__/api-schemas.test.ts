@@ -490,3 +490,58 @@ describe('extensionParseProfileSchema', () => {
     expectInvalid(extensionParseProfileSchema, { cleanedText: 'a'.repeat(60_001) });
   });
 });
+
+// ── CAR-143 (R5.1): CRLF rejection on header-bound strings ─────────────
+
+describe('header-safe strings reject CR/LF (CAR-143)', () => {
+  const INJECTED = 'Hello\r\nBcc: attacker@evil.com';
+
+  it('gmailSendSchema rejects CRLF in to/subject/cc/bcc/threading headers', () => {
+    const base = { to: 'a@example.com', subject: 'Hi' };
+    expectValid(gmailSendSchema, base);
+    expectInvalid(gmailSendSchema, { ...base, subject: INJECTED });
+    expectInvalid(gmailSendSchema, { ...base, to: 'a@x.com\nBcc: e@e.com' });
+    expectInvalid(gmailSendSchema, { ...base, cc: INJECTED });
+    expectInvalid(gmailSendSchema, { ...base, bcc: INJECTED });
+    expectInvalid(gmailSendSchema, { ...base, inReplyTo: '<id@x>\r\nX-Evil: 1' });
+    expectInvalid(gmailSendSchema, { ...base, references: '<id@x>\nX-Evil: 1' });
+  });
+
+  it('gmailDraftSchema rejects CRLF in header-bound fields', () => {
+    expectValid(gmailDraftSchema, { to: 'a@x.com', subject: 'Hi' });
+    expectInvalid(gmailDraftSchema, { subject: INJECTED });
+    expectInvalid(gmailDraftSchema, { to: 'a@x.com\r\nCc: e@e.com' });
+  });
+
+  it('gmailScheduleCreateSchema rejects CRLF in header-bound fields', () => {
+    const base = { to: 'a@x.com', subject: 'Hi', scheduledSendAt: '2026-08-01T09:00:00Z' };
+    expectValid(gmailScheduleCreateSchema, base);
+    expectInvalid(gmailScheduleCreateSchema, { ...base, subject: INJECTED });
+    expectInvalid(gmailScheduleCreateSchema, { ...base, bcc: INJECTED });
+  });
+
+  it('follow-up message subjects reject CRLF', () => {
+    const base = {
+      originalGmailMessageId: 'm1',
+      threadId: 't1',
+      recipientEmail: 'a@x.com',
+      originalSentAt: '2026-07-01T12:00:00Z',
+    };
+    expectValid(gmailFollowUpCreateSchema, {
+      ...base,
+      messages: [{ sendAfterDays: 3, subject: 'Hi', bodyHtml: '<p>x</p>' }],
+    });
+    expectInvalid(gmailFollowUpCreateSchema, {
+      ...base,
+      messages: [{ sendAfterDays: 3, subject: INJECTED, bodyHtml: '<p>x</p>' }],
+    });
+    expectInvalid(gmailFollowUpCreateSchema, {
+      ...base,
+      recipientEmail: 'a@x.com\nBcc: e@e.com',
+      messages: [{ sendAfterDays: 3, subject: 'Hi', bodyHtml: '<p>x</p>' }],
+    });
+    expectInvalid(gmailFollowUpUpdateSchema, {
+      messages: [{ sendAfterDays: 3, subject: INJECTED, bodyHtml: '<p>x</p>' }],
+    });
+  });
+});
