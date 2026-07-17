@@ -1004,6 +1004,9 @@ export async function cacheCalendarEvent(input: {
   attendeeEmails: string[];
   contactId: number;
 }): Promise<void> {
+  // Ownership assertion for the contact link below (calendar_event_contacts
+  // has no user_id column) — don't trust the caller chain.
+  await assertContactOwned(input.contactId);
   const { data, error } = await db()
     .from("calendar_events")
     .insert({
