@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getHeader, parseEmailAddress, buildThreads } from '@/lib/gmail-helpers';
+import { getHeader, parseEmailAddress, buildThreads, buildOwnAddressSet, ownAddressesFromConnection } from '@/lib/gmail-helpers';
 import type { ParsedHeader } from '@/lib/gmail-helpers';
 import type { EmailMessage } from '@/lib/types';
 
@@ -126,5 +126,25 @@ describe('buildThreads', () => {
 
   it('returns an empty array for no messages', () => {
     expect(buildThreads([])).toEqual([]);
+  });
+});
+
+describe('buildOwnAddressSet (CAR-153/R2.5)', () => {
+  it('lowercases and trims the primary plus aliases, deduped', () => {
+    const set = buildOwnAddressSet(' Me@Gmail.COM ', ['me@gmail.com', ' Alias@X.dev ']);
+    expect([...set].sort()).toEqual(['alias@x.dev', 'me@gmail.com']);
+  });
+
+  it('degrades to primary-only on null/malformed alias payloads (raw jsonb)', () => {
+    expect([...buildOwnAddressSet('me@gmail.com', null)]).toEqual(['me@gmail.com']);
+    expect([...buildOwnAddressSet('me@gmail.com', 'not-an-array')]).toEqual(['me@gmail.com']);
+    expect([...buildOwnAddressSet('me@gmail.com', [42, null, ' '])]).toEqual(['me@gmail.com']);
+  });
+
+  it('ownAddressesFromConnection flattens the connection row', () => {
+    expect(
+      ownAddressesFromConnection({ gmail_address: 'Me@Gmail.com', send_as_aliases: ['alias@x.dev'] })
+    ).toEqual(['me@gmail.com', 'alias@x.dev']);
+    expect(ownAddressesFromConnection({ gmail_address: 'me@gmail.com' })).toEqual(['me@gmail.com']);
   });
 });

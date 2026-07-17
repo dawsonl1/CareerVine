@@ -2,6 +2,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { calendarSyncQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { fetchCalendarEvents, getCalendarTimezone, getCalendarList, DEFAULT_TIMEZONE } from "@/lib/calendar";
+import { buildOwnAddressSet } from "@/lib/gmail-helpers";
 import type { Json } from "@/lib/database.types";
 
 
@@ -31,13 +32,18 @@ export const POST = withApiHandler({
     const service = createSupabaseServiceClient();
     const conn = await service
       .from("gmail_connections")
-      .select("calendar_scopes_granted, calendar_last_synced_at, calendar_sync_token, gmail_address")
+      .select("calendar_scopes_granted, calendar_last_synced_at, calendar_sync_token, gmail_address, send_as_aliases")
       .eq("user_id", user.id)
       .single();
 
     if (!conn.data || !conn.data.calendar_scopes_granted) {
       throw new ApiError("Calendar not connected", 400);
     }
+
+    // Self-filter set (CAR-153/R2.5): the user's primary address plus their
+    // send-as aliases, lowercased — an alias attendee is the user, not a
+    // contact. The old strict primary-equality filter was also case-sensitive.
+    const ownAddresses = buildOwnAddressSet(conn.data.gmail_address, conn.data.send_as_aliases);
 
     // Rate limiting
     const force = query.force === "true";
@@ -134,11 +140,13 @@ export const POST = withApiHandler({
       // Check if private
       const isPrivate = event.visibility === "private" || event.visibility === "confidential";
 
-      // Match attendees to contacts
+      // Match attendees to contacts. Lowercased both for the self-filter and
+      // for the contact_emails match — the column is normalized to lowercase
+      // (CAR-153/R2.8), so `.in` is exact.
       const attendeeEmails = attendees
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        .map((a: any) => a.email)
-        .filter((e: string) => e !== conn.data.gmail_address);
+        .map((a: any) => (typeof a.email === "string" ? a.email.toLowerCase().trim() : ""))
+        .filter((e: string) => Boolean(e) && !ownAddresses.has(e));
 
       let contactId: number | null = null;
       const contactIds: number[] = [];
