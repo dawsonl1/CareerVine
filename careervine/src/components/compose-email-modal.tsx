@@ -132,11 +132,15 @@ function ComposeEmailModalBody() {
   // already changed away from, so a slower provenance lookup can't win (F19).
   const provenanceReq = useLatestRequest();
   useEffect(() => {
+    // Claim the token first, so clearing the field (or typing a non-email) also
+    // invalidates any in-flight lookup — otherwise a slower response could
+    // reattach a bounce/pattern banner to an address the field no longer holds
+    // (CAR-145 / F19).
+    const token = provenanceReq.begin();
     if (!to.trim() || !to.includes("@")) {
       setEmailMeta(null);
       return;
     }
-    const token = provenanceReq.begin();
     const t = setTimeout(() => {
       getEmailProvenance(to)
         .then((meta) => { if (provenanceReq.isLatest(token)) setEmailMeta(meta); })
@@ -258,8 +262,11 @@ function ComposeEmailModalBody() {
 
   // Contact autocomplete: debounced search
   const searchContacts = useCallback(async (query: string) => {
-    if (query.length < 1) { setContactSuggestions([]); setShowSuggestions(false); return; }
+    // Claim the token first, so clearing the field (empty query) also invalidates
+    // any in-flight search — otherwise a slower non-empty response could
+    // repopulate suggestions over the now-empty field (CAR-145 / F19).
     const token = searchReq.begin();
+    if (query.length < 1) { setContactSuggestions([]); setShowSuggestions(false); return; }
     try {
       const res = await fetch(`/api/contacts/search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
@@ -372,6 +379,9 @@ function ComposeEmailModalBody() {
     } catch {
       pushToast("Email sent, but follow-ups could not be scheduled", {
         variant: "error",
+        // Sticky (no auto-dismiss): this is the only recovery affordance for a
+        // dropped follow-up sequence, so it must not vanish on a timer (F21).
+        duration: 0,
         actions: [{ label: "Retry", onClick: () => void runFollowUps(opts) }],
       });
     }
