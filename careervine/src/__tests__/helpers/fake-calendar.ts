@@ -127,6 +127,27 @@ export function makeRecurringInstance(
 }
 
 /**
+ * An all-day event: date-only start/end (no dateTime), the shape Google sends
+ * for all-day and multi-day events. Drives the route's date-only branch
+ * (start.date fallback + all_day flag).
+ */
+export function makeAllDayEvent(
+  id: string,
+  startDate: string,
+  endDate: string,
+  overrides: FakeCalendarEvent = {}
+): FakeCalendarEvent {
+  return {
+    id,
+    status: "confirmed",
+    summary: `All day ${id}`,
+    start: { date: startDate },
+    end: { date: endDate },
+    ...overrides,
+  };
+}
+
+/**
  * A cancelled instance skeleton: status "cancelled", no start/end — the shape
  * Google sends for deleted occurrences and deleted events under singleEvents.
  */

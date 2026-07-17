@@ -9,6 +9,7 @@ import { NextRequest } from "next/server";
 import {
   createFakeCalendarApi,
   makeEvent,
+  makeAllDayEvent,
   makeRecurringInstance,
   makeCancelledInstance,
   type FakeCalendarApi,
@@ -62,6 +63,9 @@ let contactEmailRows: Array<{ email: string; contact_id: number; user_id: string
 let deletedLinkEventIds: number[][] = [];
 let deletedEventIds: number[][] = [];
 let cancelledLookups: string[][] = [];
+// When true, every calendar_events bulk upsert fails — drives the
+// token-must-not-advance-on-partial-failure test.
+let failEventUpserts = false;
 
 // Deterministic numeric id per google_event_id, mimicking the bulk
 // upsert's RETURNING rows.
@@ -95,14 +99,17 @@ function createServiceClient() {
           upsert: (rows: any[], _opts: Record<string, unknown>) => {
             eventUpsertBatches.push(rows);
             return {
-              select: async () => ({
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test recorder mirrors the route's any-typed rows (CAR-142)
-                data: rows.map((r: any) => ({
-                  id: idFor(r.google_event_id),
-                  google_event_id: r.google_event_id,
-                })),
-                error: null,
-              }),
+              select: async () =>
+                failEventUpserts
+                  ? { data: null, error: { message: "chunk failed" } }
+                  : {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test recorder mirrors the route's any-typed rows (CAR-142)
+                      data: rows.map((r: any) => ({
+                        id: idFor(r.google_event_id),
+                        google_event_id: r.google_event_id,
+                      })),
+                      error: null,
+                    },
             };
           },
           select: () => ({
@@ -198,6 +205,7 @@ describe("calendar sync batching (CAR-152)", () => {
     deletedLinkEventIds = [];
     deletedEventIds = [];
     cancelledLookups = [];
+    failEventUpserts = false;
     rowIdByGoogleId.clear();
     nextRowId = 100;
     state.connection = {
@@ -373,6 +381,93 @@ describe("calendar sync batching (CAR-152)", () => {
     const rows = allUpsertedRows().filter((r) => r.google_event_id === "evt-dup");
     expect(rows).toHaveLength(1);
     expect(rows[0].title).toBe("new title");
+  });
+
+  it("links ALL same-tenant contacts sharing one attendee email", async () => {
+    // contact_emails is unique on (contact_id, email), so one email can
+    // belong to several of the user's contacts (shared team inbox, duplicate
+    // contacts). Every one of them must keep its link.
+    contactEmailRows = [
+      { email: "team@acme.com", contact_id: 7, user_id: "user-1" },
+      { email: "team@acme.com", contact_id: 11, user_id: "user-1" },
+    ];
+
+    fakeApi = createFakeCalendarApi([
+      { items: [makeEvent("evt-shared", { attendees: [{ email: "team@acme.com" }] })] },
+    ]);
+
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+
+    const eventId = rowIdByGoogleId.get("evt-shared")!;
+    expect(linkUpsertBatches).toHaveLength(1);
+    expect(linkUpsertBatches[0]).toEqual([
+      { calendar_event_id: eventId, contact_id: 7 },
+      { calendar_event_id: eventId, contact_id: 11 },
+    ]);
+    // The denormalized scalar stays single-valued (first match).
+    expect(allUpsertedRows()[0].contact_id).toBe(7);
+  });
+
+  it("ingests all-day events with date-only bounds and all_day set", async () => {
+    fakeApi = createFakeCalendarApi([
+      { items: [makeAllDayEvent("evt-allday", "2026-07-10", "2026-07-11")] },
+    ]);
+
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+
+    const rows = allUpsertedRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      google_event_id: "evt-allday",
+      all_day: true,
+      start_at: new Date("2026-07-10").toISOString(),
+      end_at: new Date("2026-07-11").toISOString(),
+    });
+  });
+
+  it("recovers from a real 410: clears the token and re-fetches windowed (end-to-end)", async () => {
+    // Drives the REAL calendar.ts err.code === 410 -> SYNC_TOKEN_EXPIRED
+    // mapping, not a mocked rejection.
+    state.connection = { ...state.connection, calendar_sync_token: "expired-tok" };
+    fakeApi = createFakeCalendarApi(
+      [{ items: [makeEvent("evt-recovered")] }],
+      { expiredSyncToken: "expired-tok", nextSyncToken: "fresh-token" }
+    );
+
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+
+    // First call carried the expired token and 410'd; the retry is windowed.
+    expect(fakeApi.listCalls[0].syncToken).toBe("expired-tok");
+    expect(fakeApi.listCalls[1].syncToken).toBeUndefined();
+    expect(fakeApi.listCalls[1].timeMin).toBeTruthy();
+
+    // The route nulled the stored token before retrying, ingested the
+    // windowed result, and persisted the fresh token.
+    expect(gmailUpdates).toContainEqual({ calendar_sync_token: null });
+    expect(allUpsertedRows().map((r) => r.google_event_id)).toEqual(["evt-recovered"]);
+    expect(gmailUpdates.at(-1)).toMatchObject({ calendar_sync_token: "fresh-token" });
+  });
+
+  it("does NOT advance the sync token when an upsert chunk fails", async () => {
+    // Advancing the cursor past events that never persisted would drop them
+    // permanently — Google only sends deltas after the stored token.
+    failEventUpserts = true;
+    fakeApi = createFakeCalendarApi(
+      [{ items: [makeEvent("evt-lost")] }],
+      { nextSyncToken: "must-not-persist" }
+    );
+
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+
+    const finalUpdate = gmailUpdates.at(-1)!;
+    expect(finalUpdate).not.toHaveProperty("calendar_sync_token");
+    expect(finalUpdate.calendar_last_synced_at).toBeTruthy();
+    // No links were written for the failed chunk.
+    expect(linkUpsertBatches).toHaveLength(0);
   });
 
   it("issues a constant number of Supabase calls regardless of event count", async () => {

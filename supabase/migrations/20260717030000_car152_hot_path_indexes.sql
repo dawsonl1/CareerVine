@@ -26,9 +26,10 @@ CREATE INDEX IF NOT EXISTS idx_meeting_contacts_contact_id
 CREATE INDEX IF NOT EXISTS idx_email_messages_user_date
   ON email_messages (user_id, date DESC);
 
--- .in("email", ...) — calendar sync attendee matching,
--- lib/gmail.ts activateContactByEmail, ai-write/resolve-contact. The unique
--- index leads with contact_id, so email-first lookups scan.
+-- .in("email", ...) — calendar sync attendee matching — and .eq("email", ...)
+-- in ai-write/resolve-contact. The unique index leads with contact_id, so
+-- email-first lookups scan. (activateContactByEmail uses ILIKE, which a
+-- plain btree cannot serve; it is NOT a beneficiary of this index.)
 CREATE INDEX IF NOT EXISTS idx_contact_emails_email
   ON contact_emails (email);
 

@@ -113,6 +113,13 @@ export const POST = withApiHandler({
     // chunk instead of 3-5 round trips per event (CAR-152 / R3.2).
     const ownAddress = (conn.data.gmail_address || "").toLowerCase();
 
+    // Set when any persistence step below fails. The sync cursor must NOT
+    // advance past events that never persisted — Google only sends deltas
+    // after the stored token, so skipped events would be permanently absent
+    // from the cache. Leaving the token untouched re-fetches the same delta
+    // next run; every write here is idempotent, so the retry is safe.
+    let syncIncomplete = false;
+
     // Cancelled events (recurring instances included) arrive as status
     // "cancelled" skeletons, often without start/end. They are excluded from
     // the upsert set — writing then deleting them would be wasted work.
@@ -131,8 +138,11 @@ export const POST = withApiHandler({
         (e.end?.dateTime || e.end?.date)
     );
 
-    // Attendee emails are matched lowercased; Gmail-side column normalization
-    // is a separate ticket, but local lowercasing has no dependency on it.
+    // Attendee emails are matched lowercased. Note: contact_emails.email may
+    // still hold mixed-case values (several write paths store verbatim), so
+    // this is an exact-on-lowercase match, not case-insensitive — a stored
+    // mixed-case email will not match until the Gmail-ingestion ticket
+    // normalizes the column at write time and backfills.
     const allAttendeeEmails = new Set<string>();
     for (const event of upsertable) {
       for (const a of event.attendees || []) {
@@ -147,7 +157,12 @@ export const POST = withApiHandler({
     // (CAR-133 / R2.1). Join through contacts.user_id, exactly like
     // activateContactByEmail in src/lib/gmail.ts. One query per email chunk —
     // .in() rides the request URL, so keep chunks well under URL limits.
-    const contactIdByEmail = new Map<string, number>();
+    // One email can legitimately belong to several of this user's contacts
+    // (the unique index is (contact_id, email) — shared team inboxes,
+    // duplicate contacts), so the map accumulates ALL contact ids per email;
+    // collapsing to one would silently drop links the per-event code wrote
+    // before this rewrite.
+    const contactIdsByEmail = new Map<string, number[]>();
     const emailList = [...allAttendeeEmails];
     for (let i = 0; i < emailList.length; i += 200) {
       const { data: matched } = await service
@@ -158,9 +173,11 @@ export const POST = withApiHandler({
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       for (const m of (matched as any[]) || []) {
-        if (m.email && !contactIdByEmail.has(m.email.toLowerCase())) {
-          contactIdByEmail.set(m.email.toLowerCase(), m.contact_id);
-        }
+        if (!m.email) continue;
+        const key = m.email.toLowerCase();
+        const list = contactIdsByEmail.get(key) ?? [];
+        if (!list.includes(m.contact_id)) list.push(m.contact_id);
+        contactIdsByEmail.set(key, list);
       }
     }
 
@@ -190,8 +207,7 @@ export const POST = withApiHandler({
 
       const matchedIds: number[] = (event.attendees || [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        .map((a: any) => (a.email ? contactIdByEmail.get(a.email.toLowerCase()) : undefined))
-        .filter((id: number | undefined): id is number => typeof id === "number");
+        .flatMap((a: any) => (a.email ? contactIdsByEmail.get(a.email.toLowerCase()) ?? [] : []));
       const contactIds = [...new Set(matchedIds)];
       contactIdsByGoogleId.set(event.id, contactIds);
 
@@ -233,6 +249,7 @@ export const POST = withApiHandler({
 
       if (upsertErr) {
         console.error("Error upserting events:", upsertErr);
+        syncIncomplete = true;
         continue;
       }
 
@@ -247,33 +264,65 @@ export const POST = withApiHandler({
         const { error: linkErr } = await service
           .from("calendar_event_contacts")
           .upsert(linkRows, { onConflict: "calendar_event_id,contact_id" });
-        if (linkErr) console.error("Error upserting event contact links:", linkErr);
+        if (linkErr) {
+          console.error("Error upserting event contact links:", linkErr);
+          syncIncomplete = true;
+        }
       }
     }
 
-    // Delete cancelled events from the local cache — one lookup and one
-    // delete per table instead of two deletes per event.
+    // Delete cancelled events from the local cache. Chunked like the email
+    // match — a deleted recurring series arrives as one cancelled skeleton
+    // per occurrence under singleEvents, so this list can run to hundreds of
+    // long ids, and .in() rides the request URL.
     if (cancelledGoogleIds.length > 0) {
-      const { data: toDelete } = await service
-        .from("calendar_events")
-        .select("id")
-        .eq("user_id", user.id)
-        .in("google_event_id", cancelledGoogleIds);
+      const deleteIds: number[] = [];
+      for (let i = 0; i < cancelledGoogleIds.length; i += 200) {
+        const { data: toDelete, error: lookupErr } = await service
+          .from("calendar_events")
+          .select("id")
+          .eq("user_id", user.id)
+          .in("google_event_id", cancelledGoogleIds.slice(i, i + 200));
 
-      const deleteIds = (toDelete || []).map((row) => row.id);
-      if (deleteIds.length > 0) {
-        await service.from("calendar_event_contacts").delete().in("calendar_event_id", deleteIds);
-        await service.from("calendar_events").delete().in("id", deleteIds);
+        if (lookupErr) {
+          console.error("Error looking up cancelled events:", lookupErr);
+          syncIncomplete = true;
+          continue;
+        }
+        deleteIds.push(...(toDelete || []).map((row) => row.id));
+      }
+
+      for (let i = 0; i < deleteIds.length; i += 200) {
+        const chunk = deleteIds.slice(i, i + 200);
+        const { error: linkDelErr } = await service
+          .from("calendar_event_contacts")
+          .delete()
+          .in("calendar_event_id", chunk);
+        const { error: eventDelErr } = await service
+          .from("calendar_events")
+          .delete()
+          .in("id", chunk);
+        if (linkDelErr || eventDelErr) {
+          console.error("Error deleting cancelled events:", linkDelErr || eventDelErr);
+          syncIncomplete = true;
+        }
       }
     }
 
-    // Update sync token and timestamp
+    // Advance the sync cursor only when every write above succeeded; on a
+    // partial failure keep the old token so the next run re-fetches the same
+    // delta (see syncIncomplete above). The timestamp still updates so the
+    // cooldown paces retries.
     await service
       .from("gmail_connections")
-      .update({
-        calendar_sync_token: nextSyncToken,
-        calendar_last_synced_at: new Date().toISOString(),
-      })
+      .update(
+        syncIncomplete
+          ? { calendar_last_synced_at: new Date().toISOString() }
+          : {
+              calendar_sync_token: nextSyncToken,
+              calendar_last_synced_at: new Date().toISOString(),
+            }
+      )
       .eq("user_id", user.id);
 
     return {

@@ -25,3 +25,18 @@ USING calendar_events ce, contacts c
 WHERE calendar_event_contacts.calendar_event_id = ce.id
   AND calendar_event_contacts.contact_id = c.id
   AND c.user_id <> ce.user_id;
+
+-- 3) Purge the sync window so the forced windowed re-sync rebuilds it clean.
+--    Pre-singleEvents caches hold recurring-series MASTER rows
+--    (google_event_id = the bare series id). Under singleEvents Google
+--    returns only expanded instances ({seriesId}_{ts}) and never the master
+--    again, and the sync route deletes only events that arrive with status
+--    "cancelled" — so an in-window master would linger as a phantom
+--    duplicate next to its own instances. Masters are indistinguishable
+--    in-schema from legitimate one-off events, so the safe repair is to
+--    clear exactly the window the re-sync repopulates (-7d/+60d, matching
+--    the route's INITIAL_SYNC_PAST_DAYS / SYNC_FUTURE_DAYS). Out-of-window
+--    history is preserved; calendar_event_contacts rows cascade via FK.
+DELETE FROM calendar_events
+WHERE start_at >= now() - interval '7 days'
+  AND start_at <  now() + interval '60 days';
