@@ -2,10 +2,10 @@
 /**
  * QStash schedule source-of-truth + audit/reconcile (CAR-107).
  *
- * The six CareerVine cron schedules used to live only in the Upstash console.
- * This file is the repo record: the SCHEDULES array below is authoritative,
- * and the script diffs it against what's actually live so drift is visible and
- * the schedules can be recreated if the account is ever lost.
+ * The CareerVine cron schedules used to live only in the Upstash console. This
+ * file is the repo record: the SCHEDULES array below is authoritative, and the
+ * script diffs it against what's actually live so drift is visible and the
+ * schedules can be recreated if the account is ever lost.
  *
  * Usage:
  *   node scripts/qstash-schedules.mjs list   # (default) read-only diff; exits 1 on drift
@@ -15,7 +15,14 @@
  * generic qstash.upstash.io geo-routes and rejects this account. Destinations
  * use the www host on purpose: the apex 307-redirects and undici strips the
  * signature header on the cross-origin hop (learned rule 29).
+ *
+ * SCHEDULES is exported and this file is import-safe: the CLI (token check +
+ * network diff) runs only when the script is executed directly, so a test can
+ * import the array to assert every `src/app/api/cron/*` route is registered
+ * (CAR-140 / R3.5 / F12).
  */
+
+import { fileURLToPath } from "node:url";
 
 const QSTASH_API = "https://qstash-us-east-1.upstash.io/v2";
 const DEST_HOST = "https://www.careervine.app";
@@ -24,9 +31,11 @@ const DEST_HOST = "https://www.careervine.app";
  * Authoritative schedule set. Seeded from the live state on 2026-07-12 so a
  * fresh `list` reports everything in sync. To change a cadence: edit here, then
  * run `sync`. `body` is always {} — the cron routes read req.text() but act on
- * their own logic, not the payload.
+ * their own logic, not the payload. Every entry here must have a matching
+ * `src/app/api/cron/<name>/route.ts`, and vice-versa — the registry test
+ * (cron-schedules-registry.test.ts) enforces that both directions stay in sync.
  */
-const SCHEDULES = [
+export const SCHEDULES = [
   { name: "send-follow-ups", path: "/api/cron/send-follow-ups", cron: "*/10 * * * *", retries: 3 },
   { name: "send-scheduled-emails", path: "/api/cron/send-scheduled-emails", cron: "*/15 * * * *", retries: 3 },
   { name: "sync-bundles", path: "/api/cron/sync-bundles", cron: "0 12 * * *", retries: 3 },
@@ -34,41 +43,30 @@ const SCHEDULES = [
   { name: "discovery", path: "/api/cron/discovery", cron: "0 10 * * 1", retries: 3 },
   { name: "storage-sweep", path: "/api/cron/storage-sweep", cron: "0 10 * * *", retries: 3 },
   { name: "data-retention", path: "/api/cron/data-retention", cron: "30 10 * * *", retries: 3 },
+  { name: "follow-up-nudges", path: "/api/cron/follow-up-nudges", cron: "0 15 * * *", retries: 3 },
 ];
 
-const token = process.env.QSTASH_TOKEN;
-if (!token) {
-  console.error("QSTASH_TOKEN is not set");
-  process.exit(1);
-}
-
-const mode = process.argv[2] ?? "list";
-if (!["list", "sync"].includes(mode)) {
-  console.error(`Unknown mode "${mode}" — use "list" or "sync"`);
-  process.exit(1);
-}
-
-const auth = { Authorization: `Bearer ${token}` };
+const auth = (token) => ({ Authorization: `Bearer ${token}` });
 const destOf = (path) => `${DEST_HOST}${path}`;
 
-async function qstash(method, path, headers = {}) {
-  const res = await fetch(`${QSTASH_API}${path}`, { method, headers: { ...auth, ...headers } });
+async function qstash(token, method, path, headers = {}) {
+  const res = await fetch(`${QSTASH_API}${path}`, { method, headers: { ...auth(token), ...headers } });
   const text = await res.text();
   if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${text}`);
   return text ? JSON.parse(text) : null;
 }
 
 /** Map live schedules by their destination URL. */
-async function fetchLive() {
-  const live = await qstash("GET", "/schedules");
+async function fetchLive(token) {
+  const live = await qstash(token, "GET", "/schedules");
   const byDest = new Map();
   for (const s of live) byDest.set(s.destination, s);
   return byDest;
 }
 
-async function createSchedule(s) {
+async function createSchedule(token, s) {
   // QStash appends the raw destination URL to the path (documented curl form).
-  const out = await qstash("POST", `/schedules/${destOf(s.path)}`, {
+  const out = await qstash(token, "POST", `/schedules/${destOf(s.path)}`, {
     "Upstash-Cron": s.cron,
     "Upstash-Retries": String(s.retries),
     "Content-Type": "application/json",
@@ -76,8 +74,8 @@ async function createSchedule(s) {
   return out?.scheduleId;
 }
 
-async function deleteSchedule(scheduleId) {
-  await qstash("DELETE", `/schedules/${scheduleId}`);
+async function deleteSchedule(token, scheduleId) {
+  await qstash(token, "DELETE", `/schedules/${scheduleId}`);
 }
 
 /** Compare one declared schedule against live; returns a status descriptor. */
@@ -89,8 +87,8 @@ function diff(decl, live) {
   return reasons.length ? { status: "drift", reasons, scheduleId: live.scheduleId } : { status: "ok", scheduleId: live.scheduleId };
 }
 
-async function main() {
-  const byDest = await fetchLive();
+async function main(token, mode) {
+  const byDest = await fetchLive(token);
   const declaredDests = new Set(SCHEDULES.map((s) => destOf(s.path)));
 
   const rows = SCHEDULES.map((s) => ({ s, d: diff(s, byDest.get(destOf(s.path))) }));
@@ -123,18 +121,33 @@ async function main() {
   }
   console.log(`\nApplying: ${missing.length} to create, ${drifted.length} to recreate. (Undeclared extras are never deleted.)`);
   for (const { s } of missing) {
-    const id = await createSchedule(s);
+    const id = await createSchedule(token, s);
     console.log(`  + created ${s.name} (${id})`);
   }
   for (const { s, d } of drifted) {
-    const id = await createSchedule(s); // create new before deleting old — never leave the destination unscheduled
-    await deleteSchedule(d.scheduleId);
+    const id = await createSchedule(token, s); // create new before deleting old — never leave the destination unscheduled
+    await deleteSchedule(token, d.scheduleId);
     console.log(`  ~ recreated ${s.name} (${d.scheduleId} → ${id})`);
   }
   console.log("Done.");
 }
 
-main().catch((err) => {
-  console.error(err.message ?? err);
-  process.exit(1);
-});
+// CLI entrypoint — runs only when executed directly (`node scripts/qstash-schedules.mjs …`),
+// not when imported by a test. Keeps the module import-safe (no env read, no network).
+const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (invokedDirectly) {
+  const token = process.env.QSTASH_TOKEN;
+  if (!token) {
+    console.error("QSTASH_TOKEN is not set");
+    process.exit(1);
+  }
+  const mode = process.argv[2] ?? "list";
+  if (!["list", "sync"].includes(mode)) {
+    console.error(`Unknown mode "${mode}" — use "list" or "sync"`);
+    process.exit(1);
+  }
+  main(token, mode).catch((err) => {
+    console.error(err.message ?? err);
+    process.exit(1);
+  });
+}
