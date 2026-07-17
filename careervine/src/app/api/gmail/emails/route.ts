@@ -1,7 +1,8 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailEmailsQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { getConnection, syncEmailsForContact, backfillEmailsForContact } from "@/lib/gmail";
+import { getConnection } from "@/lib/gmail-send-core";
+import { syncEmailsForContact, backfillEmailsForContact } from "@/lib/gmail";
 import { resolveCapabilities } from "@/lib/capabilities/resolve";
 
 /**
