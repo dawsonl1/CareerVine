@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { getHeader, parseEmailAddress } from '@/lib/gmail-helpers';
+import { getHeader, parseEmailAddress, buildThreads } from '@/lib/gmail-helpers';
 import type { ParsedHeader } from '@/lib/gmail-helpers';
+import type { EmailMessage } from '@/lib/types';
+
+// buildThreads only reads six fields; cast a minimal shape rather than
+// hand-building a full email_messages row.
+function mkMsg(partial: Partial<EmailMessage>): EmailMessage {
+  return partial as unknown as EmailMessage;
+}
 
 describe('getHeader', () => {
   const headers: ParsedHeader[] = [
@@ -67,5 +74,57 @@ describe('parseEmailAddress', () => {
 
   it('handles nested angle brackets (takes first match)', () => {
     expect(parseEmailAddress('<first@test.com> and <second@test.com>')).toBe('first@test.com');
+  });
+});
+
+describe('buildThreads', () => {
+  it('groups messages that share a thread_id and orders messages oldest → newest', () => {
+    const threads = buildThreads([
+      mkMsg({ gmail_message_id: 'b', thread_id: 't1', subject: 'Hi', date: '2026-07-02T10:00:00Z', direction: 'inbound', matched_contact_id: 5 }),
+      mkMsg({ gmail_message_id: 'a', thread_id: 't1', subject: 'Hi', date: '2026-07-01T10:00:00Z', direction: 'outbound', matched_contact_id: 5 }),
+      mkMsg({ gmail_message_id: 'c', thread_id: 't1', subject: 'Hi', date: '2026-07-03T10:00:00Z', direction: 'inbound', matched_contact_id: 5 }),
+    ]);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].messages.map((m) => m.gmail_message_id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('sorts threads newest-first by their latest message date', () => {
+    const threads = buildThreads([
+      mkMsg({ gmail_message_id: 'old', thread_id: 't-old', subject: 'Old', date: '2026-01-01T00:00:00Z', direction: 'inbound', matched_contact_id: null }),
+      mkMsg({ gmail_message_id: 'new', thread_id: 't-new', subject: 'New', date: '2026-07-01T00:00:00Z', direction: 'inbound', matched_contact_id: null }),
+      mkMsg({ gmail_message_id: 'mid', thread_id: 't-mid', subject: 'Mid', date: '2026-04-01T00:00:00Z', direction: 'inbound', matched_contact_id: null }),
+    ]);
+    expect(threads.map((t) => t.threadId)).toEqual(['t-new', 't-mid', 't-old']);
+  });
+
+  it('derives subject and contactId from the earliest message, and latest fields from the newest', () => {
+    const threads = buildThreads([
+      mkMsg({ gmail_message_id: 'm2', thread_id: 't1', subject: 'Reply', date: '2026-07-02T10:00:00Z', direction: 'outbound', matched_contact_id: 9 }),
+      mkMsg({ gmail_message_id: 'm1', thread_id: 't1', subject: 'First', date: '2026-07-01T10:00:00Z', direction: 'inbound', matched_contact_id: 7 }),
+    ]);
+    expect(threads[0].subject).toBe('First');
+    expect(threads[0].contactId).toBe(7);
+    expect(threads[0].latestDate).toBe('2026-07-02T10:00:00Z');
+    expect(threads[0].latestDirection).toBe('outbound');
+  });
+
+  it('falls back to "(no subject)" when the first message has no subject', () => {
+    const threads = buildThreads([
+      mkMsg({ gmail_message_id: 'm1', thread_id: 't1', subject: null, date: '2026-07-01T10:00:00Z', direction: 'inbound', matched_contact_id: null }),
+    ]);
+    expect(threads[0].subject).toBe('(no subject)');
+  });
+
+  it('keys a message with no thread_id by its gmail_message_id', () => {
+    const threads = buildThreads([
+      mkMsg({ gmail_message_id: 'solo', thread_id: null, subject: 'Lonely', date: '2026-07-01T10:00:00Z', direction: 'inbound', matched_contact_id: null }),
+    ]);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].threadId).toBe('solo');
+    expect(threads[0].messages).toHaveLength(1);
+  });
+
+  it('returns an empty array for no messages', () => {
+    expect(buildThreads([])).toEqual([]);
   });
 });
