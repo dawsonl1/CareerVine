@@ -12,7 +12,7 @@ Straight A's critical path; no PR was merged.
 | 4 | [accessibility-audit.md](accessibility-audit.md) | Accessibility audit | 19 findings (7 serious): no dialog semantics/focus mgmt, unlabeled icon controls, keyboard-dead custom Select, placeholder-only auth inputs. Color/alt/lang layer solid. 4 cold fixes applied. |
 | 5 | [copy-sweep.md](copy-sweep.md) | User-facing copy sweep | 8 findings, none critical. Top: oauth consent hardcodes "Claude"; one pipeline-stage label split ("Outreach active" vs "Active outreach"). No em dashes, no broken doc anchors, no typos. Cold edits report-only (judgment calls). |
 | 6 | [public-pages-perf.md](public-pages-perf.md) | Public-pages performance | Docs page already well-optimized: 0 external requests, ~20KB gzip, 0 raster images, ~0% unused CSS. Only 4 minor hygiene fixes (minify, SVG dedupe, delete 5 unused starter SVGs). Static analysis (no dev server). |
-| 7 | [dependabot-triage.md](dependabot-triage.md) | Dependabot backlog triage | _pending_ |
+| 7 | [dependabot-triage.md](dependabot-triage.md) | Dependabot backlog triage | 14 open PRs triaged, verdict comment posted on each (none merged). 4 SAFE (#125/#117/#115/#114), 2 NOTE (#113, #120 bundle-drift), 8 HOLD (TS7 ×3, eslint 10, lucide v1, react/vite/sdk peer conflicts). |
 
 ## Cold-zone fixes applied
 
