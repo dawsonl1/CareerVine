@@ -950,6 +950,7 @@ export default function ContactsPage() {
                           <button type="button" onClick={async () => {
                             if (!user) return;
                             try {
+                              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
                               const newTag = await createTag({ user_id: user.id, name: tagSearch.trim() } as any);
                               setAllTags([...allTags, newTag]);
                               setSelectedTagIds([...selectedTagIds, newTag.id]);

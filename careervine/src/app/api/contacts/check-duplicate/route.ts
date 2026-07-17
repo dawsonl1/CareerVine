@@ -73,7 +73,9 @@ export const POST = withApiHandler({
   },
 });
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 async function findPotentialDuplicates(supabase: any, userId: string, searchData: { linkedinUrl?: string, name?: string, email?: string }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const matches: any[] = [];
 
   // Check for exact LinkedIn URL match
@@ -85,6 +87,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       .eq('linkedin_url', searchData.linkedinUrl);
 
     if (data && data.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       matches.push(...data.map((contact: any) => ({
         ...contact,
         matchType: 'exact_linkedin',
@@ -105,6 +108,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       .eq('contacts.user_id', userId);
 
     if (data && data.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       matches.push(...data.map((item: any) => ({
         ...item.contacts,
         matchType: 'exact_email',
@@ -127,6 +131,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
         .or(`name.ilike.%${first}%,name.ilike.%${last}%`);
 
       if (data && data.length > 0 && searchData.name) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         data.filter((contact: any) => contact.name).forEach((contact: any) => {
           const confidence = calculateNameMatchConfidence(searchData.name!, contact.name as string);
 

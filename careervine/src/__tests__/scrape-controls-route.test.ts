@@ -41,9 +41,11 @@ function makeRequest(body: unknown) {
     nextUrl: new URL("http://localhost:3000/api/admin/users/u-1/scrape-controls"),
     headers: new Headers(),
     json: vi.fn().mockResolvedValue(body),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   } as any;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 async function call(handler: any, body: unknown, params: Record<string, string> = { id: "u-1" }) {
   const response = await handler(makeRequest(body), { params: Promise.resolve(params) });
   return { status: response.status, data: await response.json() };

@@ -9,21 +9,26 @@ import { describe, it, expect, vi } from 'vitest';
 
 // ── Mock Supabase builder ──
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 type MockRow = Record<string, any>;
 
 function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
   // Track all operations for assertions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const ops: { table: string; op: string; data?: any; filters?: any }[] = [];
 
   function makeQueryBuilder(tableName: string) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     const filters: Record<string, any> = {};
     let _selectFields = '*';
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     const builder: any = {
       select(fields?: string) {
         _selectFields = fields || '*';
         return builder;
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       eq(col: string, val: any) {
         filters[col] = val;
         return builder;
@@ -36,10 +41,12 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
         filters.__or = expr;
         return builder;
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       is(col: string, val: any) {
         filters[`${col}__is`] = val;
         return builder;
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       in(col: string, vals: any[]) {
         filters[`${col}__in`] = vals;
         return builder;
@@ -58,6 +65,7 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
       maybeSingle() {
         return builder.single();
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       async then(resolve: any) {
         const rows = tables[tableName] || [];
         resolve({ data: rows, error: null });
@@ -67,6 +75,7 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
     return builder;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   function makeInsertBuilder(tableName: string, data: any) {
     ops.push({ table: tableName, op: 'insert', data });
 
@@ -81,6 +90,7 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
     if (!tables[tableName]) tables[tableName] = [];
     tables[tableName].push(...inserted);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     const builder: any = {
       select() { return builder; },
       single() {
@@ -90,9 +100,12 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
     return builder;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   function makeUpdateBuilder(tableName: string, data: any) {
     ops.push({ table: tableName, op: 'update', data });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     const builder: any = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       eq(_col: string, _val: any) { return builder; },
       select() { return builder; },
       single() {
@@ -104,7 +117,9 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
 
   function makeDeleteBuilder(tableName: string) {
     ops.push({ table: tableName, op: 'delete' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     const builder: any = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       eq(_col: string, _val: any) { return builder; },
     };
     return builder;
@@ -114,7 +129,9 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
     from(table: string) {
       return {
         select: (fields?: string) => makeQueryBuilder(table).select(fields),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         insert: (data: any) => makeInsertBuilder(table, data),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         update: (data: any) => makeUpdateBuilder(table, data),
         delete: () => makeDeleteBuilder(table),
       };

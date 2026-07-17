@@ -214,6 +214,7 @@ export default function SpeakerResolver({
     return allContactsList.map((c) => ({
       id: c.id,
       name: c.name,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       industry: (c as any).industry || undefined,
       emails: [...(c.emails || []), ...(c.email ? [c.email] : [])].filter(Boolean),
     }));

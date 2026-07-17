@@ -1061,8 +1061,11 @@ export async function getActionItemsForContact(contactId: number) {
   if (error) throw error;
   // Flatten: extract the action items and filter to incomplete
   const items = (data || [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     .map((row) => (row as any).follow_up_action_items)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     .filter((item: any) => item && !item.is_completed)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     .sort((a: any, b: any) => {
       if (!a.due_at) return 1;
       if (!b.due_at) return -1;
@@ -1119,8 +1122,11 @@ export async function getCompletedActionItemsForContact(contactId: number) {
 
   if (error) throw error;
   const items = (data || [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     .map((row) => (row as any).follow_up_action_items)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     .filter((item: any) => item && item.is_completed)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     .sort((a: any, b: any) => {
       if (!a.completed_at || !b.completed_at) return 0;
       return new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime();
@@ -1499,6 +1505,7 @@ export async function getContactsDueForFollowUp(userId: string) {
             days_overdue: 0,
             never_contacted: neverContacted,
             no_cadence: true,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
             emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
           };
         }
@@ -1529,6 +1536,7 @@ export async function getContactsDueForFollowUp(userId: string) {
         days_overdue: daysOverdue,
         never_contacted: neverContacted,
         no_cadence: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
       };
     })
@@ -1689,6 +1697,7 @@ export async function getAttachmentsForContact(contactId: number) {
     .select("attachment_id, attachments(*)")
     .eq("contact_id", contactId);
   if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   return (data || []).map((row: any) => row.attachments).filter(Boolean);
 }
 
@@ -1705,6 +1714,7 @@ export async function getAttachmentsForMeeting(meetingId: number) {
     .select("attachment_id, attachments(*)")
     .eq("meeting_id", meetingId);
   if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   return (data || []).map((row: any) => row.attachments).filter(Boolean);
 }
 
@@ -2021,6 +2031,7 @@ export async function getHomeCoreData(userId: string) {
             id: c.id, name: c.name, industry: c.industry, photo_url: c.photo_url,
             follow_up_frequency_days: 0, last_touch: lastTouch || null,
             days_overdue: 0, never_contacted: neverContacted, no_cadence: true,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
             emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
           };
         }
@@ -2043,6 +2054,7 @@ export async function getHomeCoreData(userId: string) {
         id: c.id, name: c.name, industry: c.industry, photo_url: c.photo_url,
         follow_up_frequency_days: freqDays, last_touch: lastTouch || null,
         days_overdue: daysOverdue, never_contacted: neverContacted, no_cadence: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
       };
     })
@@ -2073,6 +2085,7 @@ export async function getHomeCoreData(userId: string) {
       photo_url: c.photo_url,
       industry: c.industry,
       created_at: c.created_at,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       emails: ((c as any).contact_emails || []).map((e: { email: string }) => e.email) as string[],
     }));
 

@@ -20,6 +20,7 @@ type PickerMode = "standard" | "priority" | "custom";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 function profileToPickerState(profile: any) {
   let daysOfWeek = [1, 2, 3, 4, 5];
   let windowStart = "09:00";
@@ -27,7 +28,9 @@ function profileToPickerState(profile: any) {
   let bufferBefore = 10;
   let bufferAfter = 10;
   if (profile?.workingDays) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     const enabled = profile.workingDays.filter((d: any) => d.enabled);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     if (enabled.length) daysOfWeek = enabled.map((d: any) => d.day + 1);
     const first = enabled[0];
     if (first) {
@@ -74,8 +77,10 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
   const [savedDefault, setSavedDefault] = useState(false);
 
   // Profile data keyed by type
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const profileData = useRef<Record<"standard" | "priority", any>>({ standard: null, priority: null });
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const formatProfileSummary = (profile: any): string => {
     if (!profile) return "Not configured";
     const dayAbbr = ["M","T","W","Th","F","Sa","Su"];
@@ -85,6 +90,7 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
     };
 
     if (profile.workingDays) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const enabled: any[] = profile.workingDays.filter((d: any) => d.enabled);
       if (!enabled.length) return "No days configured";
 
@@ -214,6 +220,7 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
 
       if (p.workingDays) {
         // Per-day settings: group working days by their time window
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         const enabled: any[] = p.workingDays.filter((d: any) => d.enabled);
         if (!enabled.length) { setError("No working days configured in this profile."); return; }
 
@@ -245,6 +252,7 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       if (allDays.length === 0) { setError("No availability found for the next 7 days."); return; }
       onInsert(allDays.map((d) => `${d.label}: ${d.slots.join(", ")}`).join("\n"));
       setOpen(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     } catch (err: any) {
       setError(err.message || "Failed to load availability");
     } finally {
@@ -261,6 +269,7 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       if (days.length === 0) { setError("No availability found for the selected range."); return; }
       onInsert(days.map((d) => `${d.label}: ${d.slots.join(", ")}`).join("\n"));
       setOpen(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     } catch (err: any) {
       setError(err.message || "Failed to load availability");
     } finally {

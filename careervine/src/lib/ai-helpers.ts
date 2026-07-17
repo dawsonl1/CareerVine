@@ -60,6 +60,7 @@ export async function getContactContext(
     if (contact.contact_status) parts.push(`Status: ${contact.contact_status}`);
     if (contact.expected_graduation) parts.push(`Expected graduation: ${contact.expected_graduation}`);
     if (contact.met_through) parts.push(`Met through: ${contact.met_through}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     if ((contact as any).intro_goal) parts.push(`Goal: ${(contact as any).intro_goal}`);
     if (contact.notes) parts.push(`Notes: ${contact.notes}`);
 

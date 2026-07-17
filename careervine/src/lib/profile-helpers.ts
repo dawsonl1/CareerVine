@@ -15,6 +15,7 @@ const MONTH_ABBREVS: Record<string, number> = {
 };
 
 /** Add is_current flag to experience entries based on end_month. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 export function addIsCurrentToExperience(experience: any[]): any[] {
   return experience.map(exp => ({
     ...exp,
@@ -23,6 +24,7 @@ export function addIsCurrentToExperience(experience: any[]): any[] {
 }
 
 /** Add is_current flag to education entries based on end_year. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 export function addIsCurrentToEducation(education: any[]): any[] {
   return education.map(edu => ({
     ...edu,
@@ -31,6 +33,7 @@ export function addIsCurrentToEducation(education: any[]): any[] {
 }
 
 /** Derive current_company and current_title from experience list. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 export function deriveCurrentRole(experience: any[]): { current_company: string | null; current_title: string | null } {
   const current = experience.find(exp => exp.is_current);
   return {
@@ -87,6 +90,7 @@ function parseEducationEnd(endYear: string | null | undefined, isCurrent?: boole
  * - Year-only end (e.g. "2027") → student if before July of that year
  */
 export function deriveContactStatus(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   education: any[],
   now: Date = new Date()
 ): { contact_status: 'student' | 'professional'; expected_graduation: string | null } {

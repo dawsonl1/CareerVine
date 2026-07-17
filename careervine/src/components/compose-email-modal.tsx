@@ -376,6 +376,7 @@ export function ComposeEmailModal() {
       const data = await res.json();
       if (res.ok && data.followUps) {
         setFollowUps(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
           data.followUps.map((fu: any, i: number) => ({
             id: `fu-${i}`,
             subject: fu.subject,

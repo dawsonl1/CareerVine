@@ -173,7 +173,9 @@ export default function CalendarPage() {
     if (!user) return;
     const data = await getContacts(user.id);
     const em: Record<number, string[]> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     setAllContacts((data as any[]).map(c => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const emails = (c.contact_emails || []).map((e: any) => e.email).filter(Boolean) as string[];
       em[c.id] = emails;
       return { id: c.id, name: c.name, email: emails[0], emails };
@@ -233,9 +235,12 @@ export default function CalendarPage() {
         meeting_date: dateToStr(d),
         meeting_time: `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`,
         meeting_type: linked.meeting_type || "",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         title: (linked as any).title || "",
         notes: linked.notes || "",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         privateNotes: (linked as any).private_notes || "",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         calendarDescription: (linked as any).calendar_description || "",
         transcript: linked.transcript || "",
       });

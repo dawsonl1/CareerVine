@@ -5,6 +5,7 @@
  */
 
 /** Encode a profile data object to a URL-safe base64 string. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 export function encodeProfileData(data: Record<string, any>): string {
   const jsonStr = JSON.stringify(data);
   const bytes = new TextEncoder().encode(jsonStr);
@@ -13,6 +14,7 @@ export function encodeProfileData(data: Record<string, any>): string {
 }
 
 /** Decode a URL-safe base64 string back to a profile data object. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 export function decodeProfileData(encoded: string): Record<string, any> {
   const binStr = atob(decodeURIComponent(encoded));
   const bytes = Uint8Array.from(binStr, (c) => c.charCodeAt(0));

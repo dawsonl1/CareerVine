@@ -225,6 +225,7 @@ export default function Home() {
       if (eventsRes.ok) {
         const data = await eventsRes.json();
         setScheduleEvents(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
           (data.events || []).map((e: any) => {
             // Match contact: try attendee emails first, then fall back to contact_id
             const attendees = e.attendees || [];

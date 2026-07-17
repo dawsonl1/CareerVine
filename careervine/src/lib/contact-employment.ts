@@ -14,6 +14,7 @@ export type ContactEmployment = {
 };
 
 type ServiceClient = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   from: (table: string) => any;
 };
 

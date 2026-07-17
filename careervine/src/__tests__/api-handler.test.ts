@@ -49,9 +49,11 @@ function makeRequest(method: string, body?: unknown, searchParams?: Record<strin
     nextUrl: url,
     headers: new Headers(),
     json: body !== undefined ? vi.fn().mockResolvedValue(body) : vi.fn().mockRejectedValue(new Error('No body')),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   } as any;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 async function callHandler(handler: any, request: any, params?: Record<string, string>) {
   const context = params ? { params: Promise.resolve(params) } : undefined;
   const response = await handler(request, context);
@@ -69,6 +71,7 @@ describe('withApiHandler', () => {
   describe('authentication', () => {
     it('returns 401 when user is not authenticated', async () => {
       const { createSupabaseServerClient } = await import('@/lib/supabase/server-client');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       (createSupabaseServerClient as any).mockResolvedValueOnce({
         auth: {
           getUser: vi.fn().mockResolvedValue({
@@ -301,6 +304,7 @@ describe('withApiHandler', () => {
   describe('authOptional', () => {
     it('passes null user to handler when not authenticated and authOptional is true', async () => {
       const { createSupabaseServerClient } = await import('@/lib/supabase/server-client');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       (createSupabaseServerClient as any).mockResolvedValueOnce({
         auth: {
           getUser: vi.fn().mockResolvedValue({
@@ -337,6 +341,7 @@ describe('withApiHandler', () => {
 
     it('returns 429 with rate_limited code, resetAt, Retry-After and CORS headers when exceeded', async () => {
       const resetAt = Date.now() + 10 * 60_000;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       (checkRateLimit as any).mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt });
 
       const handlerFn = vi.fn(async () => ({ ok: true }));
@@ -377,6 +382,7 @@ describe('withApiHandler', () => {
     });
 
     it('checks the limit before parsing the body', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       (checkRateLimit as any).mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt: Date.now() });
 
       const request = makeRequest('POST', { some: 'body' });
@@ -393,6 +399,7 @@ describe('withApiHandler', () => {
 
     it('skips the check when authOptional resolves no user', async () => {
       const { createSupabaseServerClient } = await import('@/lib/supabase/server-client');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       (createSupabaseServerClient as any).mockResolvedValueOnce({
         auth: {
           getUser: vi.fn().mockResolvedValue({
@@ -439,6 +446,7 @@ describe('withApiHandler', () => {
   describe('requireAdmin', () => {
     async function mockUser(user: unknown) {
       const { createSupabaseServerClient } = await import('@/lib/supabase/server-client');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       (createSupabaseServerClient as any).mockResolvedValueOnce({
         auth: {
           getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
@@ -509,6 +517,7 @@ describe('extension last-seen stamp (CAR-68)', () => {
     vi.mocked(getExtensionAuth).mockResolvedValueOnce({
       user: { id: 'user-123', email: 'test@example.com' },
       supabase: { from, auth: { getUser: vi.fn() } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     } as any);
     return { from, update, eq };
   }
@@ -552,6 +561,7 @@ describe('extension last-seen stamp (CAR-68)', () => {
     vi.mocked(getExtensionAuth).mockResolvedValueOnce({
       user: { id: 'user-123', email: 'test@example.com' },
       supabase: { from, auth: { getUser: vi.fn() } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     } as any);
 
     const handler = withApiHandler({
@@ -586,6 +596,7 @@ describe('extension last-seen stamp (CAR-68)', () => {
     vi.mocked(getExtensionAuth).mockResolvedValueOnce({
       user: { id: 'user-123', email: 'test@example.com' },
       supabase: { from, auth: { getUser: vi.fn() } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     } as any);
 
     const handler = withApiHandler({

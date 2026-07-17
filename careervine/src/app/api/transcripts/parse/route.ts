@@ -92,6 +92,7 @@ export const POST = withApiHandler({
       throw new ApiError("Failed to parse transcript. Please try again.", 500);
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     const segments = (parsed.segments || []).map((s: any, i: number) => ({
       speaker_label: s.speaker_label || "Unknown",
       started_at: typeof s.started_at === "number" ? s.started_at : null,

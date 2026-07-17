@@ -22,6 +22,7 @@ export function sanitizeForPostgrest(s: string): string {
 }
 
 /** Build the contact data object for insert from extension profile data */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 export function buildContactData(profileData: any, userId: string, locationId: number | null): Record<string, any> {
   let notes = profileData.generated_notes || profileData.notes || null;
   if (!notes) {
@@ -43,7 +44,9 @@ export function buildContactData(profileData: any, userId: string, locationId: n
 }
 
 /** Build the update data object for an existing contact */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
 export function buildUpdateData(profileData: any): Record<string, any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const updateData: Record<string, any> = {};
 
   if (profileData.name) updateData.name = profileData.name;

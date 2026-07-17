@@ -63,6 +63,7 @@ function makeRequest(qs = "") {
     method: "GET",
     nextUrl: new URL(`http://localhost:3000/api/admin/users/u-1/contacts${qs}`),
     headers: new Headers(),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   } as any;
 }
 

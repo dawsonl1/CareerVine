@@ -71,6 +71,7 @@ export const POST = withApiHandler({
 
       // Map Deepgram utterances to our segment format
       const utterances = ("results" in result ? result.results?.utterances : undefined) ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const segs = utterances.map((u: any, i: number) => ({
         speaker_label: `Speaker ${u.speaker}`,
         started_at: u.start ?? null,
@@ -92,6 +93,7 @@ export const POST = withApiHandler({
       // Atomic replace via Postgres function (transaction-safe)
       const { error: rpcError } = await serviceClient.rpc("replace_transcript_segments", {
         p_meeting_id: meetingId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         p_segments: segments.map((s: any) => ({
           ordinal: s.ordinal,
           speaker_label: s.speaker_label,

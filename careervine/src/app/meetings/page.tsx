@@ -77,7 +77,9 @@ export default function MeetingsPage() {
     if (!user) return;
     try {
       const data = await getContacts(user.id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const contacts = (data as any[]).map((c) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         const emails = (c.contact_emails || []).map((e: any) => e.email).filter(Boolean) as string[];
         return {
           id: c.id,
@@ -119,6 +121,7 @@ export default function MeetingsPage() {
           if (calEvents) {
             const calMap: Record<number, { google_event_id: string; attendees: Array<{ email: string; name: string; responseStatus: string }> }> = {};
             for (const m of typedMeetings) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
               const ce = calEvents.find((c: any) => c.google_event_id === m.calendar_event_id);
               if (ce) calMap[m.id] = { google_event_id: ce.google_event_id, attendees: ce.attendees || [] };
             }
@@ -132,6 +135,7 @@ export default function MeetingsPage() {
       const segMap: Record<number, TranscriptSegment[]> = {};
       await Promise.all(data.map(async (m) => {
         try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
           const promises: Promise<any>[] = [
             getActionItemsForMeeting(m.id),
             getAttachmentsForMeeting(m.id),
@@ -315,13 +319,15 @@ export default function MeetingsPage() {
             const q = searchQuery.toLowerCase().trim();
             const matchesMeeting = (m: Meeting) => {
               if (!q) return true;
-              const title = (m as any).title || "";
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+              const mAny = m as any;
+              const title = mAny.title || "";
               const names = m.meeting_contacts.map(mc => mc.contacts?.name || "").join(" ");
               return (
                 title.toLowerCase().includes(q) ||
                 m.meeting_type?.toLowerCase().includes(q) ||
                 (m.notes || "").toLowerCase().includes(q) ||
-                ((m as any).private_notes || "").toLowerCase().includes(q) ||
+                (mAny.private_notes || "").toLowerCase().includes(q) ||
                 names.toLowerCase().includes(q)
               );
             };
@@ -389,6 +395,9 @@ export default function MeetingsPage() {
               </div>
             ) : (() => {
               const meeting = item.data as Meeting;
+              // title/private_notes live on the DB row but not yet on the Meeting type.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+              const mx = meeting as any;
               return (
             <div key={`m-${meeting.id}`} className="rounded-[16px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all duration-200">
               <div className="p-6">
@@ -398,7 +407,7 @@ export default function MeetingsPage() {
                       <Calendar className="h-7 w-7 text-on-secondary-container" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-lg font-medium text-foreground">{(meeting as any).title || <span className="capitalize">{meeting.meeting_type || "Meeting"}</span>}</h3>
+                      <h3 className="text-lg font-medium text-foreground">{mx.title || <span className="capitalize">{meeting.meeting_type || "Meeting"}</span>}</h3>
                       <p className="text-base text-muted-foreground">
                         {new Date(meeting.meeting_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         {" · "}
@@ -453,10 +462,10 @@ export default function MeetingsPage() {
                   </div>
                 )}
 
-                {(meeting as any).private_notes && (
+                {mx.private_notes && (
                   <div className="mt-4 ml-[60px]">
                     <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2">Private reminders</h4>
-                    <p className="text-base text-foreground leading-relaxed whitespace-pre-wrap">{(meeting as any).private_notes}</p>
+                    <p className="text-base text-foreground leading-relaxed whitespace-pre-wrap">{mx.private_notes}</p>
                   </div>
                 )}
 
@@ -487,7 +496,7 @@ export default function MeetingsPage() {
                           segments={meetingSegments[meeting.id]}
                           meetingContacts={meeting.meeting_contacts.map(mc => ({ id: mc.contacts.id, name: mc.contacts.name }))}
                           allContacts={allContacts}
-                          meetingTitle={(meeting as any).title || undefined}
+                          meetingTitle={mx.title || undefined}
                           onResolve={async (mappings) => {
                             try {
                               await Promise.all(mappings.map(m =>

@@ -47,6 +47,7 @@ const refreshLocks = new Map<string, Promise<void>>();
  * Uses a per-user lock to prevent concurrent refresh races.
  */
 export async function refreshTokenIfNeeded(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   supabase: any,
   oauth2Client: OAuth2Client,
   userId: string,
@@ -85,6 +86,7 @@ export async function refreshTokenIfNeeded(
 }
 
 async function doRefresh(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   supabase: any,
   oauth2Client: OAuth2Client,
   userId: string,
@@ -93,6 +95,7 @@ async function doRefresh(
   let credentials;
   try {
     ({ credentials } = await oauth2Client.refreshAccessToken());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   } catch (err: any) {
     // Only delete the connection for permanent auth failures (revoked/expired refresh token).
     // Transient errors (network, 5xx) should not destroy the user's connection.

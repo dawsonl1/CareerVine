@@ -22,49 +22,54 @@ export function ContactExperienceCard({ contact }: ContactExperienceCardProps) {
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2.5">
             Experience
           </h3>
-          {contact.contact_companies.map((cc) => (
-            <div
-              key={cc.id}
-              className="flex gap-3 py-2"
-            >
-              <Briefcase className={`h-5 w-5 shrink-0 mt-0.5 ${cc.is_current ? "text-primary" : "text-muted-foreground"}`} />
-              <div className="min-w-0">
-                <p className="text-base text-foreground font-medium leading-tight">
-                  {cc.title || (
-                    <Link
-                      href={`/companies/${cc.companies.id}`}
-                      className="hover:text-primary hover:underline"
-                    >
-                      {cc.companies.name}
-                    </Link>
-                  )}
-                </p>
-                {cc.title && (
-                  <p className="text-sm text-muted-foreground">
-                    <Link
-                      href={`/companies/${cc.companies.id}`}
-                      className="hover:text-primary hover:underline"
-                    >
-                      {cc.companies.name}
-                    </Link>
+          {contact.contact_companies.map((cc) => {
+            // start_month/end_month/location live on the DB row but not yet on the type.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+            const ccx = cc as any;
+            return (
+              <div
+                key={cc.id}
+                className="flex gap-3 py-2"
+              >
+                <Briefcase className={`h-5 w-5 shrink-0 mt-0.5 ${cc.is_current ? "text-primary" : "text-muted-foreground"}`} />
+                <div className="min-w-0">
+                  <p className="text-base text-foreground font-medium leading-tight">
+                    {cc.title || (
+                      <Link
+                        href={`/companies/${cc.companies.id}`}
+                        className="hover:text-primary hover:underline"
+                      >
+                        {cc.companies.name}
+                      </Link>
+                    )}
                   </p>
-                )}
-                <p className="text-sm text-muted-foreground">
-                  {(cc as any).start_month && (
-                    <>
-                      {(cc as any).start_month} – {cc.is_current ? "Present" : (cc as any).end_month || ""}
-                    </>
+                  {cc.title && (
+                    <p className="text-sm text-muted-foreground">
+                      <Link
+                        href={`/companies/${cc.companies.id}`}
+                        className="hover:text-primary hover:underline"
+                      >
+                        {cc.companies.name}
+                      </Link>
+                    </p>
                   )}
-                  {(cc as any).location && (
-                    <>
-                      {(cc as any).start_month && " · "}
-                      {(cc as any).location}
-                    </>
-                  )}
-                </p>
+                  <p className="text-sm text-muted-foreground">
+                    {ccx.start_month && (
+                      <>
+                        {ccx.start_month} – {cc.is_current ? "Present" : ccx.end_month || ""}
+                      </>
+                    )}
+                    {ccx.location && (
+                      <>
+                        {ccx.start_month && " · "}
+                        {ccx.location}
+                      </>
+                    )}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
