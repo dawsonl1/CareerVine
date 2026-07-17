@@ -38,7 +38,7 @@ export interface RecordedQuery {
   returned?: unknown;
 }
 
-export interface RouteCtx extends RecordedQuery {}
+export type RouteCtx = RecordedQuery;
 
 export type FixtureRouter = (ctx: RouteCtx) => unknown | undefined;
 

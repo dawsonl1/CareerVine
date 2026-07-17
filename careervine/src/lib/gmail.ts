@@ -281,10 +281,13 @@ export async function syncEmailsForContact(
         // what graduates imported prospects/bench into the active network
         // (plan 24 tier transition). Outbound-only threads never graduate.
         if (inserted.some((r) => r.direction === "inbound")) {
+          // Inline user_id scoping (CAR-151): contactId comes from this
+          // user's sync loop, but a service-role write carries its own scope.
           const { error: actError } = await supabase
             .from("contacts")
             .update({ network_status: "active" })
             .eq("id", contactId)
+            .eq("user_id", userId)
             .in("network_status", ["prospect", "bench"]);
           if (actError) console.error("Failed to activate contact on reply:", actError);
 
