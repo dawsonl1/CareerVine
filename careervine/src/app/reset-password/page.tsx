@@ -16,42 +16,25 @@ export default function ResetPasswordPage() {
   const [sessionError, setSessionError] = useState(false);
 
   useEffect(() => {
-    // Supabase automatically handles the token from the URL hash
-    // and establishes a session via onAuthStateChange
+    // Every recovery entry point (branded email + admin-generated link) lands
+    // here via /auth/confirm, which verifies the token server-side and mints
+    // session cookies before this page loads — so one session check suffices.
     const supabase = createSupabaseBrowserClient();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setSessionReady(true);
-      }
-    });
-
-    // Also check if session is already established
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setSessionReady(true);
       } else {
-        // Give a moment for the token exchange to complete
-        setTimeout(() => {
-          supabase.auth.getSession().then(({ data: { session: s } }) => {
-            if (s) {
-              setSessionReady(true);
-            } else {
-              setSessionError(true);
-            }
-          });
-        }, 2000);
+        setSessionError(true);
       }
     });
-
-    return () => subscription.unsubscribe();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
     if (password !== confirmPassword) {
@@ -117,9 +100,9 @@ export default function ResetPasswordPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={inputClasses}
-                placeholder="At least 6 characters"
+                placeholder="At least 8 characters"
                 required
-                minLength={6}
+                minLength={8}
                 autoFocus
               />
             </div>

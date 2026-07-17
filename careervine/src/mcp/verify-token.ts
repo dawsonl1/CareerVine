@@ -44,6 +44,11 @@ export async function verifyMcpToken(
     return {
       token: bearerToken,
       clientId,
+      // INVARIANT: scopes gate nothing — every verified token gets full
+      // act-as-the-user access, and the consent screen + docs say exactly
+      // that. Introducing granular scopes means changing the Supabase
+      // authorization-server config AND this check together, then updating
+      // the consent copy (oauth/consent/page.tsx) and docs to match.
       scopes: [],
       extra: { userId: payload.sub },
     };
