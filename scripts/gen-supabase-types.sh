@@ -22,11 +22,26 @@ cd "$ROOT"
 
 OUT="careervine/src/lib/database.types.ts"
 
+# The CI `types-drift` job pins this exact CLI version; the committed file must
+# be byte-identical to its output. A different local CLI can produce a
+# byte-different (but still correct) file that turns CI red, so warn early.
+EXPECTED_CLI="2.109.1"
+actual_cli="$(supabase --version 2>/dev/null)"
+if [[ "$actual_cli" != *"$EXPECTED_CLI"* ]]; then
+  echo "Warning: supabase CLI is '${actual_cli:-unknown}', but the committed types + CI expect $EXPECTED_CLI." >&2
+  echo "         A version mismatch can generate a byte-different file that fails the CI types-drift job." >&2
+fi
+
 if ! supabase status >/dev/null 2>&1; then
   echo "Error: local Supabase stack is not running." >&2
   echo "Start it and rebuild from migrations first:  supabase start && supabase db reset" >&2
   exit 1
 fi
+
+# Types come from the CURRENT local schema, not the migration files directly. If
+# migrations changed since the stack was last built, run `supabase db reset`
+# first or the generated types will silently reflect stale schema.
+echo "Generating from the running local stack's current schema (run 'supabase db reset' first if migrations changed)." >&2
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT

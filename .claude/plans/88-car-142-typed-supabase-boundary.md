@@ -59,3 +59,8 @@ Fix tsc fallout **per factory** (`npx tsc --noEmit` after each). Delete `as unkn
 
 ## Working baseline (measured on this branch, non-test src)
 - `as any`: 30 · `as unknown as`: 48 · `CAR-142` markers: 97
+
+## Update (post-merge)
+- The "91 migrations" figures above were accurate at plan time. Merging `main` brought CAR-143's `20260717010000_car143_ai_shared_spend.sql`, so the chain is now **92 migrations**; `database.types.ts` was regenerated to include `ai_shared_usage` + `increment_ai_shared_usage`.
+- The offset ports (54341/54342) were only a temporary local-coexistence detail while another stack held the defaults. The committed `supabase/config.toml` and the CI `types-drift` job both use the **default** ports (54321/54322); the reproducible path never depends on the offset ports.
+- Final non-test cast counts: `as any` 30 → **21**, `as unknown as` 48 → **28** (both under the exit targets, strictly down).
