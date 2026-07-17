@@ -1163,6 +1163,7 @@ export type Database = {
         Row: {
           contact_status: string | null
           created_at: string
+          email_synced_through: string | null
           expected_graduation: string | null
           first_outreach_skipped: boolean
           follow_up_frequency_days: number | null
@@ -1198,6 +1199,7 @@ export type Database = {
         Insert: {
           contact_status?: string | null
           created_at?: string
+          email_synced_through?: string | null
           expected_graduation?: string | null
           first_outreach_skipped?: boolean
           follow_up_frequency_days?: number | null
@@ -1233,6 +1235,7 @@ export type Database = {
         Update: {
           contact_status?: string | null
           created_at?: string
+          email_synced_through?: string | null
           expected_graduation?: string | null
           first_outreach_skipped?: boolean
           follow_up_frequency_days?: number | null
@@ -1809,6 +1812,7 @@ export type Database = {
           modify_scope_granted: boolean
           premium_enabled: boolean
           refresh_token: string
+          send_as_aliases: Json | null
           send_scope_granted: boolean
           token_expires_at: string
           updated_at: string | null
@@ -1832,6 +1836,7 @@ export type Database = {
           modify_scope_granted?: boolean
           premium_enabled?: boolean
           refresh_token: string
+          send_as_aliases?: Json | null
           send_scope_granted?: boolean
           token_expires_at: string
           updated_at?: string | null
@@ -1855,6 +1860,7 @@ export type Database = {
           modify_scope_granted?: boolean
           premium_enabled?: boolean
           refresh_token?: string
+          send_as_aliases?: Json | null
           send_scope_granted?: boolean
           token_expires_at?: string
           updated_at?: string | null

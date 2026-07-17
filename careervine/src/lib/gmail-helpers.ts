@@ -53,6 +53,37 @@ export function parseEmailAddress(raw: string): string {
 }
 
 /**
+ * The set of addresses that count as "the user themself": the primary Gmail
+ * address plus any send-as aliases (CAR-153 / R2.5). Mail From any of these is
+ * outbound; calendar attendees matching any of these are self, not contacts.
+ * `aliases` is the raw jsonb value from gmail_connections.send_as_aliases —
+ * typed unknown because a NULL/malformed value must degrade to primary-only,
+ * never throw mid-sync.
+ */
+export function buildOwnAddressSet(
+  primary: string | null | undefined,
+  aliases?: unknown
+): Set<string> {
+  const set = new Set<string>();
+  const add = (v: unknown) => {
+    if (typeof v !== "string") return;
+    const clean = v.toLowerCase().trim();
+    if (clean) set.add(clean);
+  };
+  add(primary);
+  if (Array.isArray(aliases)) for (const a of aliases) add(a);
+  return set;
+}
+
+/** Flatten a gmail_connections row into the own-address list for sync calls. */
+export function ownAddressesFromConnection(conn: {
+  gmail_address: string;
+  send_as_aliases?: unknown;
+}): string[] {
+  return [...buildOwnAddressSet(conn.gmail_address, conn.send_as_aliases)];
+}
+
+/**
  * True if `dateStr` is a valid timestamp within the last `days` days. Wraps the
  * `Date.now()` recency check so render code (e.g. the "Follow-up" affordance on
  * recent outbound mail) stays free of impure calls — the time read lives here.

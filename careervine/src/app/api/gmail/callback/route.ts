@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { oauth2 as oauth2ClientFactory } from "@googleapis/oauth2";
+import { gmail as gmailClientFactory } from "@googleapis/gmail";
 import { getOAuth2Client, encryptOAuthToken } from "@/lib/oauth-helpers";
-import { deriveGrantedScopeFlags } from "@/lib/gmail";
+import { deriveGrantedScopeFlags, fetchSendAsAliases } from "@/lib/gmail";
 import { withApiHandler } from "@/lib/api-handler";
 
 /**
@@ -101,6 +102,21 @@ export const GET = withApiHandler({
         return errorRedirect("Could not read your Google email address");
       }
 
+      // Send-as aliases (CAR-153/R2.5): mail sent From an alias must classify
+      // as outbound, so capture the alias set at connect time. sendAs.list is
+      // covered by gmail.modify; send-only grants skip it (primary-only).
+      // Best-effort — a fetch failure must never block connecting, and we
+      // don't overwrite a previously stored set with nothing.
+      let sendAsAliases: string[] | null = null;
+      if (modifyGranted) {
+        try {
+          const gmail = gmailClientFactory({ version: "v1", auth: oauth2Client });
+          sendAsAliases = await fetchSendAsAliases(gmail);
+        } catch (e) {
+          console.warn("[gmail/callback] sendAs alias fetch failed:", e);
+        }
+      }
+
       const serviceClient = createSupabaseServiceClient();
       // Brand-new free connects must land with premium_enabled=false so they do
       // not see inbox:upgrade / cannot self-serve into gmail.modify (CAR-131).
@@ -121,6 +137,7 @@ export const GET = withApiHandler({
           calendar_scopes_granted: calendarGranted,
           send_scope_granted: sendGranted,
           modify_scope_granted: modifyGranted,
+          ...(sendAsAliases ? { send_as_aliases: sendAsAliases } : {}),
           ...(!existing && !modifyGranted ? { premium_enabled: false } : {}),
           updated_at: new Date().toISOString(),
         },

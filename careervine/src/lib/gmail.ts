@@ -8,22 +8,35 @@
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
-import { getHeader, parseEmailAddress } from "@/lib/gmail-helpers";
+import { getHeader, parseEmailAddress, buildOwnAddressSet } from "@/lib/gmail-helpers";
 import type { ParsedHeader } from "@/lib/gmail-helpers";
+import type { gmail_v1 } from "@googleapis/gmail";
 import { getOAuth2Client, decryptOAuthToken } from "@/lib/oauth-helpers";
 import { getGmailClient, getConnection, buildMimeMessage, type ComposeEmailOptions } from "@/lib/gmail-send-core";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { trackServer } from "@/lib/analytics/server";
 
-/** Retry a function with exponential backoff on rate-limit (429) or server errors (5xx). */
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+/**
+ * Retry a function with exponential backoff on rate-limit (429), server errors
+ * (5xx), or Gmail's 403-shaped rate limits (`rateLimitExceeded` /
+ * `userRateLimitExceeded` — CAR-153/R2.2: the likeliest way a multi-page
+ * backfill gets interrupted). Non-rate-limit 403s (missing scope, policy)
+ * still throw immediately.
+ */
+export async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
     } catch (err: any) {
       const status = err?.code || err?.response?.status;
-      const isRetryable = status === 429 || (status >= 500 && status < 600);
+      const reason: unknown =
+        err?.errors?.[0]?.reason ?? err?.response?.data?.error?.errors?.[0]?.reason;
+      const isRateLimited403 =
+        status === 403 &&
+        typeof reason === "string" &&
+        /ratelimitexceeded/i.test(reason);
+      const isRetryable = status === 429 || isRateLimited403 || (status >= 500 && status < 600);
       if (!isRetryable || attempt === maxRetries) throw err;
       const delay = Math.min(1000 * 2 ** attempt + Math.random() * 500, 10000);
       await new Promise(r => setTimeout(r, delay));
@@ -153,33 +166,63 @@ export async function revokeAccess(userId: string) {
 /**
  * Sync emails for a specific contact by querying Gmail for messages
  * to/from the contact's known email addresses.
+ *
+ * `ownAddresses` is the user's primary Gmail address plus their send-as
+ * aliases (see ownAddressesFromConnection) — mail From any of them is
+ * classified outbound (CAR-153/R2.5).
+ *
+ * Resume point (CAR-153/R2.2): `contacts.email_synced_through` is a
+ * completion-gated watermark — it advances to this sync's start time only
+ * when the pagination loop finishes without throwing. It must NEVER be
+ * derived from max(cached message date): Gmail lists newest-first, so an
+ * interrupted backfill caches the newest page and a max-date resume would
+ * skip the older uncached span forever.
  */
 export async function syncEmailsForContact(
   userId: string,
   contactId: number,
   contactEmails: string[],
-  gmailAddress: string,
-  sinceDays = 90
+  ownAddresses: string[] | string,
+  sinceDays = 90,
+  opts: {
+    /**
+     * Pre-fetched contacts.email_synced_through (null = never completed).
+     * Pass it when the caller already has the row (syncAllContactEmails
+     * batches it per page); leave undefined to fetch here.
+     */
+    syncedThrough?: string | null;
+  } = {}
 ) {
   if (contactEmails.length === 0) return 0;
 
   const gmail = await getGmailClient(userId);
   const supabase = createSupabaseServiceClient();
+  const ownAddressSet = buildOwnAddressSet(
+    typeof ownAddresses === "string" ? ownAddresses : null,
+    typeof ownAddresses === "string" ? undefined : ownAddresses
+  );
 
-  // Use the latest cached email date to avoid re-fetching everything.
-  // Subtract 1 day buffer to catch any messages that arrived around the same time.
-  const { data: latestRow } = await supabase
-    .from("email_messages")
-    .select("date")
-    .eq("user_id", userId)
-    .eq("matched_contact_id", contactId)
-    .order("date", { ascending: false })
-    .limit(1)
-    .single();
+  // Capture the watermark candidate BEFORE listing: messages that arrive
+  // while the loop runs are covered by the next pass's 1-day overlap.
+  const syncStartedAt = new Date();
 
+  let syncedThrough: string | null;
+  if (opts.syncedThrough !== undefined) {
+    syncedThrough = opts.syncedThrough;
+  } else {
+    const { data: contactRow } = await supabase
+      .from("contacts")
+      .select("email_synced_through")
+      .eq("id", contactId)
+      .maybeSingle();
+    syncedThrough = contactRow?.email_synced_through ?? null;
+  }
+
+  // 1-day overlap buffer against clock skew and same-moment arrivals;
+  // re-fetches dedupe via the ignoreDuplicates upsert below.
   let afterEpoch: number;
-  if (latestRow?.date) {
-    afterEpoch = Math.floor((new Date(latestRow.date).getTime() - 86400_000) / 1000);
+  if (syncedThrough) {
+    afterEpoch = Math.floor((new Date(syncedThrough).getTime() - 86400_000) / 1000);
   } else {
     afterEpoch = Math.floor((Date.now() - sinceDays * 86400_000) / 1000);
   }
@@ -223,7 +266,11 @@ export async function syncEmailsForContact(
         const to = getHeader(headers, "To");
         const fromAddr = parseEmailAddress(from);
         const toAddrs = to.split(",").map(parseEmailAddress).filter(Boolean);
-        const isOutbound = fromAddr === gmailAddress.toLowerCase();
+        // Alias-aware direction (R2.5): From any own address (primary or
+        // send-as alias) is outbound. Strict primary-equality misread
+        // alias-sent mail as inbound — false prospect activations and
+        // false reply_received events downstream.
+        const isOutbound = ownAddressSet.has(fromAddr);
 
         return {
           user_id: userId,
@@ -340,7 +387,32 @@ export async function syncEmailsForContact(
     pageToken = listRes.data.nextPageToken || undefined;
   } while (pageToken);
 
+  // Completion gate: only a pass that drained every page moves the watermark.
+  // A throw anywhere above leaves it untouched, so the next sync re-covers
+  // the whole span instead of hiding the hole. Failure to stamp is non-fatal
+  // (worst case: the next pass re-fetches and dedupes).
+  const { error: watermarkError } = await supabase
+    .from("contacts")
+    .update({ email_synced_through: syncStartedAt.toISOString() })
+    .eq("id", contactId);
+  if (watermarkError) {
+    console.error(`Failed to advance email watermark for contact ${contactId}:`, watermarkError);
+  }
+
   return totalSynced;
+}
+
+/**
+ * List the user's send-as aliases (lowercased), primary included.
+ * users.settings.sendAs.list is covered by the gmail.modify scope; free
+ * (send-only) connections cannot call it — callers must gate on
+ * modify_scope_granted and fall back to the primary address.
+ */
+export async function fetchSendAsAliases(gmail: gmail_v1.Gmail): Promise<string[]> {
+  const res = await withRetry(() => gmail.users.settings.sendAs.list({ userId: "me" }));
+  return (res.data.sendAs || [])
+    .map((s) => s.sendAsEmail?.toLowerCase().trim())
+    .filter((e): e is string => Boolean(e));
 }
 
 export interface SyncAllResult {
@@ -354,20 +426,27 @@ export interface SyncAllResult {
   nextCursor: number | null;
 }
 
-// One serial Gmail query per contact means a full pass can outlast a single
+// One Gmail query per contact means a full pass can outlast a single
 // serverless invocation. The loop stops before the route's maxDuration and
 // hands back a cursor so the client can immediately continue where it left off.
 const SYNC_TIME_BUDGET_MS = 45_000;
 const SYNC_CONTACT_PAGE = 1000;
+// Small pool (CAR-153/R3.4): parallel enough to matter, small enough to stay
+// far from Gmail per-user rate limits (each contact costs 1 list + N gets).
+const SYNC_CONCURRENCY = 4;
 
 /**
  * Full sync: iterate through all contacts with email addresses
  * and sync Gmail messages for each, in contact-id order.
  *
- * Contacts are fetched in pages (a single query is capped at 1000 rows)
- * and processed until the time budget runs out; `nextCursor` resumes the
- * pass. `last_gmail_sync_at` is only stamped when a pass reaches the end,
- * so a partial or all-failed pass never masquerades as a completed sync.
+ * Contacts are fetched in pages (a single query is capped at 1000 rows) and
+ * processed through a bounded pool (SYNC_CONCURRENCY) until the time budget
+ * runs out; `nextCursor` resumes the pass. The budget gates LAUNCHING only —
+ * every launched sync is awaited before returning, and the cursor is the
+ * highest CONTIGUOUS settled contact id, so out-of-order completion can never
+ * skip a contact. `last_gmail_sync_at` is only stamped when a pass reaches
+ * the end, so a partial or all-failed pass never masquerades as a completed
+ * sync.
  */
 export async function syncAllContactEmails(
   userId: string,
@@ -382,16 +461,36 @@ export async function syncAllContactEmails(
   const budgetMs = opts.budgetMs ?? SYNC_TIME_BUDGET_MS;
   const startedAt = Date.now();
 
+  // Opportunistic alias refresh (R2.5): keeps direction classification
+  // current as users add/remove send-as addresses. Best-effort — a failure
+  // falls back to the stored set — and modify-gated, since send-only
+  // connections cannot read Gmail settings.
+  let ownAddresses: string[] = [...buildOwnAddressSet(conn.gmail_address, conn.send_as_aliases)];
+  if (conn.modify_scope_granted) {
+    try {
+      const gmail = await getGmailClient(userId);
+      const aliases = await fetchSendAsAliases(gmail);
+      ownAddresses = [...buildOwnAddressSet(conn.gmail_address, aliases)];
+      await supabase
+        .from("gmail_connections")
+        .update({ send_as_aliases: aliases, updated_at: new Date().toISOString() })
+        .eq("user_id", userId);
+    } catch (err) {
+      console.warn("Send-as alias refresh failed (using stored set):", err);
+    }
+  }
+
   let lastDoneId = opts.cursor ?? 0;
   let totalSynced = 0;
   let processedContacts = 0;
   let failedContacts = 0;
+  let launchedContacts = 0;
   let nextCursor: number | null = null;
 
   paging: while (true) {
     const { data: contacts, error } = await supabase
       .from("contacts")
-      .select("id, contact_emails(email)")
+      .select("id, email_synced_through, contact_emails(email)")
       .eq("user_id", userId)
       .gt("id", lastDoneId)
       .order("id", { ascending: true })
@@ -400,36 +499,79 @@ export async function syncAllContactEmails(
     if (error) throw error;
     if (!contacts || contacts.length === 0) break;
 
-    for (const contact of contacts) {
+    // Contiguous-cursor bookkeeping: a contact is "settled" when its sync
+    // finished (success OR failure) or it had no emails. The cursor only
+    // advances across an unbroken settled prefix, so contact N+1 finishing
+    // before contact N can never make the resume skip N.
+    const settled: boolean[] = new Array(contacts.length).fill(false);
+    let contiguousIdx = 0;
+    const advanceCursor = () => {
+      while (contiguousIdx < contacts.length && settled[contiguousIdx]) {
+        lastDoneId = contacts[contiguousIdx].id;
+        contiguousIdx++;
+      }
+    };
+
+    const inFlight = new Set<Promise<void>>();
+    let budgetExhausted = false;
+
+    for (let idx = 0; idx < contacts.length; idx++) {
+      const contact = contacts[idx];
       const emails = (contact.contact_emails || [])
         .map((e: { email: string | null }) => e.email)
         .filter(Boolean) as string[];
 
       if (emails.length === 0) {
-        lastDoneId = contact.id;
+        settled[idx] = true;
+        advanceCursor();
         continue;
       }
 
-      // Always make progress: only yield after at least one contact synced.
-      if (processedContacts > 0 && Date.now() - startedAt >= budgetMs) {
-        nextCursor = lastDoneId;
-        break paging;
+      // Always make progress: only stop launching after ≥1 contact launched.
+      if (launchedContacts > 0 && Date.now() - startedAt >= budgetMs) {
+        budgetExhausted = true;
+        break;
       }
 
-      try {
-        totalSynced += await syncEmailsForContact(
-          userId,
-          contact.id,
-          emails,
-          conn.gmail_address,
-          sinceDays
-        );
-      } catch (err) {
-        failedContacts++;
-        console.error(`Sync failed for contact ${contact.id}:`, err);
+      launchedContacts++;
+      const task = (async () => {
+        try {
+          totalSynced += await syncEmailsForContact(
+            userId,
+            contact.id,
+            emails,
+            ownAddresses,
+            sinceDays,
+            // Batched watermark (R3.4): the page query above already carries
+            // email_synced_through, so the per-contact lookup is skipped.
+            { syncedThrough: contact.email_synced_through ?? null }
+          );
+        } catch (err) {
+          failedContacts++;
+          console.error(`Sync failed for contact ${contact.id}:`, err);
+        }
+        processedContacts++;
+        settled[idx] = true;
+        advanceCursor();
+      })();
+      const tracked: Promise<void> = task.then(() => {
+        inFlight.delete(tracked);
+      });
+      inFlight.add(tracked);
+
+      if (inFlight.size >= SYNC_CONCURRENCY) {
+        await Promise.race(inFlight);
       }
-      processedContacts++;
-      lastDoneId = contact.id;
+    }
+
+    // Drain: never abandon a launched sync — the serverless freeze after the
+    // response would kill it mid-pagination, and the cursor math relies on
+    // every launched contact being settled.
+    await Promise.all(inFlight);
+
+    if (budgetExhausted) {
+      nextCursor = lastDoneId;
+      break paging;
     }
 
     if (contacts.length < SYNC_CONTACT_PAGE) break;
@@ -693,13 +835,16 @@ export async function checkForReplyInThread(
 
     const messages = res.data.messages || [];
     const sinceTime = new Date(sinceDate).getTime();
+    // Alias-aware self-filter (CAR-153/R2.5): a message the user sent from a
+    // send-as alias must not read as the contact replying.
+    const ownAddressSet = buildOwnAddressSet(conn.gmail_address, conn.send_as_aliases);
 
     for (const msg of messages) {
       const headers = (msg.payload?.headers || []) as ParsedHeader[];
       const from = getHeader(headers, "From");
       const fromAddr = parseEmailAddress(from);
       const msgDate = Number(msg.internalDate || 0);
-      if (fromAddr !== conn.gmail_address.toLowerCase() && msgDate >= sinceTime) {
+      if (!ownAddressSet.has(fromAddr) && msgDate >= sinceTime) {
         return true;
       }
     }
@@ -725,10 +870,13 @@ export async function checkForReplyInThread(
  */
 export async function activateContactByEmail(userId: string, email: string) {
   const supabase = createSupabaseServiceClient();
+  // contact_emails.email is normalized to lower(trim()) by a DB trigger
+  // (CAR-153/R2.8), so an exact match on the lowercased input replaces the
+  // old unescaped ILIKE (whose _ and % wildcards could cross-match).
   const { data, error } = await supabase
     .from("contact_emails")
     .select("contact_id, contacts!inner(user_id)")
-    .ilike("email", email)
+    .eq("email", email.toLowerCase().trim())
     .eq("contacts.user_id", userId)
     .limit(1)
     .maybeSingle();
