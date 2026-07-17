@@ -11,7 +11,7 @@ Straight A's critical path; no PR was merged.
 | 3 | [dead-code-inventory.md](dead-code-inventory.md) | Dead code / unused exports | 20 fully-dead exports safe to delete now (non-hot); ~30 more over-exported (un-export only). knip advisory (no config). No deletions made. |
 | 4 | [accessibility-audit.md](accessibility-audit.md) | Accessibility audit | 19 findings (7 serious): no dialog semantics/focus mgmt, unlabeled icon controls, keyboard-dead custom Select, placeholder-only auth inputs. Color/alt/lang layer solid. 4 cold fixes applied. |
 | 5 | [copy-sweep.md](copy-sweep.md) | User-facing copy sweep | 8 findings, none critical. Top: oauth consent hardcodes "Claude"; one pipeline-stage label split ("Outreach active" vs "Active outreach"). No em dashes, no broken doc anchors, no typos. Cold edits report-only (judgment calls). |
-| 6 | [public-pages-perf.md](public-pages-perf.md) | Public-pages performance | _pending_ |
+| 6 | [public-pages-perf.md](public-pages-perf.md) | Public-pages performance | Docs page already well-optimized: 0 external requests, ~20KB gzip, 0 raster images, ~0% unused CSS. Only 4 minor hygiene fixes (minify, SVG dedupe, delete 5 unused starter SVGs). Static analysis (no dev server). |
 | 7 | [dependabot-triage.md](dependabot-triage.md) | Dependabot backlog triage | _pending_ |
 
 ## Cold-zone fixes applied
