@@ -51,3 +51,15 @@ export function parseEmailAddress(raw: string): string {
   const match = raw.match(/<(.+?)>/);
   return (match ? match[1] : raw).toLowerCase().trim();
 }
+
+/**
+ * True if `dateStr` is a valid timestamp within the last `days` days. Wraps the
+ * `Date.now()` recency check so render code (e.g. the "Follow-up" affordance on
+ * recent outbound mail) stays free of impure calls — the time read lives here.
+ */
+export function isWithinDays(dateStr: string | null | undefined, days: number): boolean {
+  if (!dateStr) return false;
+  const t = new Date(dateStr).getTime();
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t < days * 86400_000;
+}

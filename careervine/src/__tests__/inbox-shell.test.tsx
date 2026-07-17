@@ -85,6 +85,7 @@ function inboxPayload(over: Record<string, unknown> = {}) {
 type FetchCfg = {
   inbox: Record<string, unknown>;
   drafts?: { drafts: unknown[] };
+  labels?: { id: string; name: string; type: string }[];
   bodyFor?: (id: string) => Promise<unknown> | { ok: boolean; json: () => Promise<unknown> };
   mutationOk?: boolean;
 };
@@ -105,7 +106,7 @@ function installFetch(cfg: FetchCfg) {
       return cfg.bodyFor(bodyMatch[1]);
     }
     if (path.includes("/api/gmail/drafts")) return { ok: true, json: async () => drafts };
-    if (path.includes("/api/gmail/labels")) return { ok: true, json: async () => ({ labels: [] }) };
+    if (path.includes("/api/gmail/labels")) return { ok: true, json: async () => ({ labels: cfg.labels ?? [] }) };
     return { ok: true, json: async () => cfg.inbox };
   }) as unknown as typeof fetch;
 }
@@ -255,5 +256,52 @@ describe("InboxShell — optimistic mutations + nav badge", () => {
     // Optimistically removed, then the failed request restores it and toasts.
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(screen.getByText("Coffee chat")).toBeTruthy();
+  });
+
+  it("moves an email to a Gmail label from the thread action menu", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [makeEmail({ is_read: true })] }), labels: [{ id: "Label_1", name: "Recruiters", type: "user" }] });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat")).toBeTruthy());
+
+    openActionMenu();
+    fireEvent.click(screen.getByText("Move to"));
+    fireEvent.click(screen.getByText("Recruiters"));
+
+    await waitFor(() => expect(screen.queryByText("Coffee chat")).toBeNull());
+    expect(
+      (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+        (c) => typeof c[0] === "string" && String(c[0]).includes("/move"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("InboxShell — extracted child tabs render their own data", () => {
+  const drafts = { drafts: [{ id: 42, subject: "Half-written note", recipient_email: "leo@x.com", contact_name: "Leo", body_html: "<p>draft</p>", thread_id: null, in_reply_to: null, references_header: null, updated_at: "2026-07-14T12:00:00Z" }] };
+  const scheduled = [{ id: 7, subject: "Following up soon", recipient_email: "bob@x.com", contact_name: "Bob", matched_contact_id: null, status: "pending", scheduled_send_at: "2026-07-20T09:00:00Z", thread_id: null }];
+  const fups = [{ id: 3, original_subject: "Intro sequence", recipient_email: "amy@x.com", contact_name: "Amy", original_sent_at: "2026-07-01T12:00:00Z", original_gmail_message_id: "o1", thread_id: "th1", scheduled_email_id: null, email_follow_up_messages: [{ id: 1, status: "pending", subject: "Nudge", sequence_number: 1, send_after_days: 7, scheduled_send_at: "2026-07-08T09:00:00Z" }] }];
+
+  it("renders the Drafts tab via DraftsTab", async () => {
+    installFetch({ inbox: inboxPayload(), drafts });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Drafts/ })[0]);
+    expect(screen.getByText("Half-written note")).toBeTruthy();
+  });
+
+  it("renders the Scheduled tab via ScheduledTab", async () => {
+    installFetch({ inbox: inboxPayload({ scheduledEmails: scheduled }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Scheduled/ })[0]);
+    expect(screen.getByText("Following up soon")).toBeTruthy();
+  });
+
+  it("renders the Follow-ups tab via FollowUpsTab", async () => {
+    installFetch({ inbox: inboxPayload({ followUps: fups }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Follow-ups/ })[0]);
+    expect(screen.getByText("Intro sequence")).toBeTruthy();
   });
 });

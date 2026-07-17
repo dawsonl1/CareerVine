@@ -1,64 +1,32 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { useClickOutside } from "@/hooks/use-click-outside";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import DOMPurify from "dompurify";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import Navigation from "@/components/navigation";
 import { FollowUpModal } from "@/components/follow-up-modal";
-import type {
-  EmailMessage,
-  EmailFollowUp,
-  ScheduledEmail,
-  EmailDraft,
-} from "@/lib/types";
-import {
-  Inbox,
-  Clock,
-  Send,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Reply,
-  Search,
-  RefreshCw,
-  PenSquare,
-  XCircle,
-  Pencil,
-  Mail,
-  Trash2,
-  EyeOff,
-  Eye,
-  FolderInput,
-  RotateCcw,
-  ChevronDown,
-  Filter,
-  X,
-  PanelLeftClose,
-  PanelLeftOpen,
-  FileText,
-  MoreVertical,
-  Calendar as CalendarIcon,
-} from "lucide-react";
+import type { EmailFollowUp, EmailDraft } from "@/lib/types";
+import { Inbox, Clock, Send, Mail, Trash2, EyeOff, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useCursorTooltip } from "@/components/ui/cursor-tooltip";
 import { useToast } from "@/components/ui/toast";
 import { OAuthWarning } from "@/components/oauth-warning";
 import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
 import { isOpenFollowUpMessage } from "@/lib/constants";
-import { runFullGmailSync } from "@/lib/gmail-sync-client";
 import { trackBeforeNavigate } from "@/lib/analytics/client";
-import { UI_EVENTS, emitUiEvent, onUiEvent, unreadDeltaFor } from "@/lib/ui-events";
+import { UI_EVENTS, emitUiEvent, unreadDeltaFor } from "@/lib/ui-events";
 import { useLatestRequest } from "@/hooks/use-latest-request";
 import { useThreadExpansion } from "./use-thread-expansion";
-
-// ── Types ──
-
-type GmailLabel = { id: string; name: string; type: string };
-
-type SidebarTab = "inbox" | "sent" | "scheduled" | "followups" | "drafts" | "trash" | "hidden";
+import { ThreadListTab } from "./thread-list-tab";
+import { DraftsTab } from "./drafts-tab";
+import { ScheduledTab } from "./scheduled-tab";
+import { FollowUpsTab } from "./followups-tab";
+import { InboxTopBar } from "./inbox-top-bar";
+import { InboxFilterBar } from "./inbox-filter-bar";
+import { InboxSidebar, InboxMobileTabs } from "./inbox-nav";
+import { useInboxFilters } from "./use-inbox-filters";
+import { useInboxData } from "./use-inbox-data";
+import type { FollowUpModalPayload, SidebarItem, SidebarTab } from "./inbox-types";
 
 // ── Inbox shell (the premium paid experience; selected by EmailExperience, CAR-103) ──
 
@@ -69,21 +37,24 @@ export function InboxShell() {
   const { error: toastError } = useToast();
 
   const [activeTab, setActiveTab] = useState<SidebarTab>("inbox");
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Data
-  const [emails, setEmails] = useState<EmailMessage[]>([]);
-  const [trashedEmails, setTrashedEmails] = useState<EmailMessage[]>([]);
-  const [hiddenEmails, setHiddenEmails] = useState<EmailMessage[]>([]);
-  const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
-  const [followUps, setFollowUps] = useState<EmailFollowUp[]>([]);
-  const [drafts, setDrafts] = useState<EmailDraft[]>([]);
-  const [contactMap, setContactMap] = useState<Record<number, string>>({});
-  const [calendarByThread, setCalendarByThread] = useState<Record<string, { id: number; title: string | null; start_at: string; google_event_id: string }>>({});
-  const [_gmailAddress, setGmailAddress] = useState("");
-  const [gmailLabels, setGmailLabels] = useState<GmailLabel[]>([]);
+  // Server-backed data + loaders (CAR-150).
+  const {
+    loading,
+    syncing,
+    emails, setEmails,
+    trashedEmails, setTrashedEmails,
+    hiddenEmails, setHiddenEmails,
+    scheduledEmails, setScheduledEmails,
+    followUps, setFollowUps,
+    drafts, setDrafts,
+    contactMap,
+    calendarByThread,
+    gmailLabels,
+    loadInbox,
+    handleSync,
+  } = useInboxData({ user, gmailConnected });
 
   // Thread expansion — one reducer owns the 3-field invariant (CAR-150 / F22).
   const {
@@ -101,115 +72,8 @@ export function InboxShell() {
   // collapses, or switches tabs before it resolves (CAR-145 / F19).
   const expandReq = useLatestRequest();
 
-  // Search + filters
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
-  const [contactSearchQuery, setContactSearchQuery] = useState("");
-  const [filterDirection, setFilterDirection] = useState<"all" | "inbound" | "outbound">("all");
-  const [filterDays, setFilterDays] = useState<number | null>(null);
-  const [filterThreadType, setFilterThreadType] = useState<"all" | "threads" | "single">("all");
-  const [filterFollowUp, setFilterFollowUp] = useState<"all" | "with" | "without">("all");
-  const [showFilters, setShowFilters] = useState(false);
-
-  // Move-to-folder dropdown
-  const [moveDropdownMsgId, setMoveDropdownMsgId] = useState<string | null>(null);
-  const moveDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Thread action menu (3-dot)
-  const [threadActionMenuId, setThreadActionMenuId] = useState<string | null>(null);
-  const [threadActionMoveOpen, setThreadActionMoveOpen] = useState(false);
-
-  // Direction-arrow hover tooltip (shared across thread rows + expanded messages)
-  const [hoveredArrow, setHoveredArrow] = useState<"inbound" | "outbound" | null>(null);
-  const { posRef: arrowPosRef, tooltipRef: arrowTooltipRef, handleMouseMove: handleArrowMouseMove } = useCursorTooltip();
-  const threadActionRef = useRef<HTMLDivElement>(null);
-
   // Follow-up modal
-  const [followUpModal, setFollowUpModal] = useState<{
-    recipientEmail: string;
-    contactName: string | null;
-    originalSubject: string;
-    originalSentAt: string;
-    originalGmailMessageId: string;
-    threadId: string;
-    scheduledEmailId?: number | null;
-    existingFollowUp?: EmailFollowUp | null;
-  } | null>(null);
-
-  // ── Data loading ──
-
-  const loadInbox = useCallback(async () => {
-    try {
-      const res = await fetch("/api/gmail/inbox");
-      const data = await res.json();
-      if (data.success) {
-        setEmails(data.emails || []);
-        setTrashedEmails(data.trashedEmails || []);
-        setHiddenEmails(data.hiddenEmails || []);
-        setScheduledEmails(data.scheduledEmails || []);
-        setFollowUps(data.followUps || []);
-        setContactMap(data.contactMap || {});
-        setCalendarByThread(data.calendarByThread || {});
-        setGmailAddress(data.gmailAddress || "");
-      }
-    } catch (err) {
-      console.error("Failed to load inbox:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadDrafts = useCallback(async () => {
-    try {
-      const res = await fetch("/api/gmail/drafts");
-      const data = await res.json();
-      setDrafts(data.drafts || []);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    if (user && gmailConnected) {
-      loadInbox();
-      loadDrafts();
-      fetch("/api/gmail/labels")
-        .then((r) => r.json())
-        .then((d) => setGmailLabels(d.labels || []))
-        .catch(() => {});
-    } else {
-      setLoading(false);
-    }
-  }, [user, gmailConnected, loadInbox, loadDrafts]);
-
-  useEffect(() => {
-    return onUiEvent(UI_EVENTS.emailSent, () => {
-      setTimeout(() => loadInbox(), 500);
-      loadDrafts();
-    });
-  }, [loadInbox, loadDrafts]);
-
-  // Refresh drafts when compose saves/deletes a draft
-  useEffect(() => {
-    return onUiEvent(UI_EVENTS.draftsChanged, () => loadDrafts());
-  }, [loadDrafts]);
-
-  // Close dropdowns on outside click
-  useClickOutside(moveDropdownRef, useCallback(() => setMoveDropdownMsgId(null), []), !!moveDropdownMsgId);
-  useClickOutside(threadActionRef, useCallback(() => { setThreadActionMenuId(null); setThreadActionMoveOpen(false); }, []), !!threadActionMenuId);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      await runFullGmailSync();
-    } catch (err) {
-      console.error("Gmail sync failed:", err);
-    } finally {
-      // Show whatever did land, even after a partial or failed sync.
-      await loadInbox().catch(() => {});
-      setSyncing(false);
-    }
-  };
+  const [followUpModal, setFollowUpModal] = useState<FollowUpModalPayload | null>(null);
 
   // ── Thread grouping ──
 
@@ -218,23 +82,6 @@ export function InboxShell() {
   const sentThreads = useMemo(() => buildThreads(sentEmails), [sentEmails]);
   const trashThreads = useMemo(() => buildThreads(trashedEmails), [trashedEmails]);
   const hiddenThreads = useMemo(() => buildThreads(hiddenEmails), [hiddenEmails]);
-
-  // Contact list for filter (search-based)
-  const contactsInEmails = useMemo(() => {
-    const ids = new Set<number>();
-    for (const e of emails) {
-      if (e.matched_contact_id) ids.add(e.matched_contact_id);
-    }
-    return Array.from(ids)
-      .map((id) => ({ id, name: contactMap[id] || `Contact #${id}` }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [emails, contactMap]);
-
-  const filteredContactOptions = useMemo(() => {
-    if (!contactSearchQuery.trim()) return contactsInEmails;
-    const q = contactSearchQuery.toLowerCase();
-    return contactsInEmails.filter((c) => c.name.toLowerCase().includes(q));
-  }, [contactsInEmails, contactSearchQuery]);
 
   // ── Follow-up lookup ──
 
@@ -248,92 +95,28 @@ export function InboxShell() {
     return map;
   }, [followUps]);
 
-  // ── Advanced filtering ──
+  // ── Search + advanced filtering (state + derived thread lists) ──
 
-  const filterThreads = useCallback(
-    (threads: EmailThread[]) => {
-      let filtered = threads;
-
-      // Contact filter
-      if (selectedContactId !== null) {
-        filtered = filtered.filter((t) => t.contactId === selectedContactId);
-      }
-
-      // Direction filter
-      if (filterDirection !== "all") {
-        filtered = filtered.filter((t) =>
-          t.messages.some((m) => m.direction === filterDirection)
-        );
-      }
-
-      // Recent activity (days) filter
-      if (filterDays !== null) {
-        const cutoff = Date.now() - filterDays * 86400_000;
-        filtered = filtered.filter((t) => new Date(t.latestDate).getTime() >= cutoff);
-      }
-
-      // Thread type filter
-      if (filterThreadType === "threads") {
-        filtered = filtered.filter((t) => t.messages.length > 1);
-      } else if (filterThreadType === "single") {
-        filtered = filtered.filter((t) => t.messages.length === 1);
-      }
-
-      // Follow-up filter
-      if (filterFollowUp === "with") {
-        filtered = filtered.filter((t) => {
-          const fus = followUpsByThread[t.threadId];
-          return fus && fus.length > 0;
-        });
-      } else if (filterFollowUp === "without") {
-        filtered = filtered.filter((t) => {
-          const fus = followUpsByThread[t.threadId];
-          return !fus || fus.length === 0;
-        });
-      }
-
-      // Text search
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        filtered = filtered.filter(
-          (t) =>
-            t.subject.toLowerCase().includes(q) ||
-            t.messages.some(
-              (m) =>
-                m.snippet?.toLowerCase().includes(q) ||
-                m.from_address?.toLowerCase().includes(q) ||
-                m.to_addresses?.some((a) => a.toLowerCase().includes(q))
-            ) ||
-            (t.contactId && contactMap[t.contactId]?.toLowerCase().includes(q))
-        );
-      }
-
-      return filtered;
-    },
-    [searchQuery, selectedContactId, contactMap, filterDirection, filterDays, filterThreadType, filterFollowUp, followUpsByThread]
-  );
-
-  const filteredInboxThreads = useMemo(() => filterThreads(inboxThreads), [filterThreads, inboxThreads]);
-  const filteredSentThreads = useMemo(() => filterThreads(sentThreads), [filterThreads, sentThreads]);
-  const filteredTrashThreads = useMemo(() => filterThreads(trashThreads), [filterThreads, trashThreads]);
-  const filteredHiddenThreads = useMemo(() => filterThreads(hiddenThreads), [filterThreads, hiddenThreads]);
-
-  const activeFilterCount = [
-    filterDirection !== "all",
-    filterDays !== null,
-    filterThreadType !== "all",
-    filterFollowUp !== "all",
-    selectedContactId !== null,
-  ].filter(Boolean).length;
-
-  const clearAllFilters = () => {
-    setFilterDirection("all");
-    setFilterDays(null);
-    setFilterThreadType("all");
-    setFilterFollowUp("all");
-    setSelectedContactId(null);
-    setContactSearchQuery("");
-  };
+  const filters = useInboxFilters({
+    inboxThreads,
+    sentThreads,
+    trashThreads,
+    hiddenThreads,
+    emails,
+    contactMap,
+    followUpsByThread,
+  });
+  const {
+    searchQuery,
+    selectedContactId,
+    showFilters,
+    setShowFilters,
+    filteredInboxThreads,
+    filteredSentThreads,
+    filteredTrashThreads,
+    filteredHiddenThreads,
+    activeFilterCount,
+  } = filters;
 
   // ── Email expand (handles single-message auto-expand) ──
 
@@ -401,12 +184,10 @@ export function InboxShell() {
   const handleThreadClick = (thread: EmailThread) => {
     if (expandedThreadId === thread.threadId) {
       collapseAll();
-      setMoveDropdownMsgId(null);
       return;
     }
 
     expandThread(thread.threadId);
-    setMoveDropdownMsgId(null);
 
     // Single message => auto-expand its content. Multi-message threads stay at
     // the message list (expandThread already cleared any prior selection).
@@ -509,7 +290,6 @@ export function InboxShell() {
     const moved = emails.find((em) => em.gmail_message_id === gmailMessageId);
     if (!moved) return;
     setEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
-    setMoveDropdownMsgId(null);
     if (expandedEmailId === gmailMessageId) collapseEmail();
     // Moving out of the inbox may change the unread count; let the badge re-pull
     // the authoritative number.
@@ -649,469 +429,10 @@ export function InboxShell() {
     0
   );
 
-  // ── Determine tab context for action rendering ──
-
-  type TabContext = "inbox" | "sent" | "trash" | "hidden";
-
-  // ── Inline action icons for collapsed message rows ──
-
-  const renderMsgRowActions = (msg: EmailMessage, tabCtx: TabContext) => (
-    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/msg:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-      {tabCtx === "trash" && (
-        <button type="button" onClick={(e) => handleRestoreEmail(msg.gmail_message_id, e)} className="p-1.5 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer" title="Restore">
-          <RotateCcw className="h-4 w-4" />
-        </button>
-      )}
-      {tabCtx === "hidden" && (
-        <button type="button" onClick={(e) => handleUnhideEmail(msg.gmail_message_id, e)} className="p-1.5 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer" title="Unhide">
-          <Eye className="h-4 w-4" />
-        </button>
-      )}
-      {(tabCtx === "inbox" || tabCtx === "sent") && (
-        <>
-          {gmailLabels.length > 0 && (
-            <div className="relative" ref={moveDropdownMsgId === msg.gmail_message_id ? moveDropdownRef : undefined}>
-              <button
-                type="button"
-                className="p-1.5 rounded-full text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                title="Move to folder"
-                onClick={(e) => { e.stopPropagation(); setMoveDropdownMsgId(moveDropdownMsgId === msg.gmail_message_id ? null : msg.gmail_message_id); }}
-              >
-                <FolderInput className="h-4 w-4" />
-              </button>
-              {moveDropdownMsgId === msg.gmail_message_id && (
-                <div className="absolute right-0 top-8 z-50 w-52 max-h-60 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
-                  {gmailLabels.map((label) => (
-                    <button key={label.id} type="button" className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); handleMoveEmail(msg.gmail_message_id, label.id); }}>
-                      {label.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          <button type="button" onClick={(e) => handleHideEmail(msg.gmail_message_id, e)} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground transition-colors cursor-pointer" title="Hide from app">
-            <EyeOff className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={(e) => handleTrashEmail(msg.gmail_message_id, e)} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive transition-colors cursor-pointer" title="Trash">
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </>
-      )}
-    </div>
-  );
-
-  // ── Full action bar for expanded email content ──
-
-  const renderEmailActions = (msg: EmailMessage, thread: EmailThread, contactName: string | null, tabCtx: TabContext) => (
-    <div className="mt-4 pt-4 border-t border-outline-variant/50 flex items-center gap-4 flex-wrap">
-      {tabCtx !== "trash" && tabCtx !== "hidden" && (
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
-          onClick={() => {
-            if (!expandedEmailContent) return;
-            const replyTo = msg.direction === "outbound" ? (msg.to_addresses?.[0] || "") : (msg.from_address || "");
-            const subj = expandedEmailContent.subject || "";
-            const reSubj = subj.replace(/^(Re:\s*)+/i, "");
-            openCompose({
-              to: replyTo,
-              name: contactName || undefined,
-              subject: `Re: ${reSubj}`,
-              threadId: expandedEmailContent.threadId,
-              inReplyTo: expandedEmailContent.messageId,
-              references: expandedEmailContent.messageId,
-              quotedHtml: expandedEmailContent.bodyHtml || expandedEmailContent.bodyText || "",
-            });
-          }}
-        >
-          <Reply className="h-4 w-4" />
-          Reply
-        </button>
-      )}
-      {tabCtx !== "trash" && tabCtx !== "hidden" && msg.direction === "outbound" && msg.date && (Date.now() - new Date(msg.date).getTime()) < 14 * 86400_000 && (
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 text-sm font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
-          onClick={() => {
-            setFollowUpModal({
-              recipientEmail: msg.to_addresses?.[0] || "",
-              contactName: contactName || null,
-              originalSubject: expandedEmailContent?.subject || thread.subject,
-              originalSentAt: msg.date!,
-              originalGmailMessageId: msg.gmail_message_id,
-              threadId: thread.threadId,
-            });
-          }}
-        >
-          <Clock className="h-4 w-4" />
-          Follow-up
-        </button>
-      )}
-      {contactName && thread.contactId && (
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-          onClick={() => router.push(`/contacts/${thread.contactId}`)}
-        >
-          View contact
-        </button>
-      )}
-
-      <div className="flex-1" />
-
-      {/* Move to folder */}
-      {(tabCtx === "inbox" || tabCtx === "sent") && gmailLabels.length > 0 && (
-        <div className="relative" ref={moveDropdownMsgId === msg.gmail_message_id ? moveDropdownRef : undefined}>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-            onClick={(e) => { e.stopPropagation(); setMoveDropdownMsgId(moveDropdownMsgId === msg.gmail_message_id ? null : msg.gmail_message_id); }}
-          >
-            <FolderInput className="h-4 w-4" />
-            Move to
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-          {moveDropdownMsgId === msg.gmail_message_id && (
-            <div className="absolute right-0 bottom-7 z-50 w-52 max-h-60 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
-              {gmailLabels.map((label) => (
-                <button key={label.id} type="button" className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); handleMoveEmail(msg.gmail_message_id, label.id); }}>
-                  {label.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Hide / Unhide */}
-      {tabCtx === "hidden" ? (
-        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 cursor-pointer transition-colors" onClick={() => handleUnhideEmail(msg.gmail_message_id)}>
-          <Eye className="h-4 w-4" />
-          Unhide
-        </button>
-      ) : tabCtx !== "trash" ? (
-        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground cursor-pointer transition-colors" onClick={() => handleHideEmail(msg.gmail_message_id)} title="Hide from webapp (keeps in Gmail)">
-          <EyeOff className="h-4 w-4" />
-          Hide
-        </button>
-      ) : null}
-
-      {/* Trash / Restore */}
-      {tabCtx === "trash" ? (
-        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 cursor-pointer transition-colors" onClick={() => handleRestoreEmail(msg.gmail_message_id)}>
-          <RotateCcw className="h-4 w-4" />
-          Restore
-        </button>
-      ) : tabCtx !== "hidden" ? (
-        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive cursor-pointer transition-colors" onClick={() => handleTrashEmail(msg.gmail_message_id)} title="Move to trash (Gmail + webapp)">
-          <Trash2 className="h-4 w-4" />
-          Trash
-        </button>
-      ) : null}
-    </div>
-  );
-
-  // ── Render expanded email body ──
-
-  const renderExpandedContent = (msg: EmailMessage, thread: EmailThread, contactName: string | null, tabCtx: TabContext) => (
-    <div className="p-5 rounded-lg bg-surface-container-low border border-outline-variant/50">
-      {loadingEmailContent ? (
-        <div className="flex items-center gap-2.5 text-muted-foreground text-sm py-5">
-          <div className="animate-spin rounded-full h-4 w-4 border border-primary border-t-transparent" />
-          Loading email…
-        </div>
-      ) : expandedEmailContent ? (
-        <div>
-          <div className="text-sm text-muted-foreground space-y-1 mb-4">
-            <p><span className="font-medium">From:</span> {expandedEmailContent.from}</p>
-            <p><span className="font-medium">To:</span> {expandedEmailContent.to}</p>
-            <p><span className="font-medium">Date:</span> {expandedEmailContent.date ? new Date(expandedEmailContent.date).toLocaleString() : ""}</p>
-          </div>
-          {expandedEmailContent.bodyHtml ? (
-            <div className="text-base prose prose-base max-w-none [&_*]:!text-foreground [&_a]:!text-primary overflow-auto" style={{ maxHeight: "calc(100vh - 380px)", minHeight: "200px" }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(expandedEmailContent.bodyHtml) }} />
-          ) : (
-            <pre className="text-base text-foreground whitespace-pre-wrap overflow-auto" style={{ maxHeight: "calc(100vh - 380px)", minHeight: "200px" }}>{expandedEmailContent.bodyText || "No content available"}</pre>
-          )}
-          {renderEmailActions(msg, thread, contactName, tabCtx)}
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">Failed to load email content.</p>
-      )}
-    </div>
-  );
-
-  // ── Render thread list ──
-
-  const renderThreadList = (threadList: EmailThread[], tabCtx: TabContext) => {
-    if (threadList.length === 0) {
-      const iconMap: Record<string, typeof Inbox> = { inbox: Inbox, sent: Send, trash: Trash2, hidden: EyeOff };
-      const EmptyIcon = iconMap[tabCtx] || Inbox;
-      const msgMap: Record<string, string> = {
-        inbox: searchQuery || selectedContactId || activeFilterCount > 0 ? "No emails match your filters." : "No emails synced yet.",
-        sent: "No sent emails yet.",
-        trash: "Trash is empty.",
-        hidden: "No hidden emails.",
-      };
-      return (
-        <div className="text-center py-16">
-          <EmptyIcon className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
-          <p className="text-base text-muted-foreground">{msgMap[tabCtx]}</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
-        {threadList.map((thread) => {
-          const isExpanded = expandedThreadId === thread.threadId;
-          const latest = thread.messages[thread.messages.length - 1];
-          const contactName = thread.contactId ? contactMap[thread.contactId] : null;
-          const isUnread = tabCtx === "inbox" && thread.messages.some((m) => !m.is_read && m.direction === "inbound");
-          const threadFUs = followUpsByThread[thread.threadId] || [];
-          const pendingFUCount = threadFUs.reduce((sum, fu) => sum + fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length, 0);
-          const linkedCalEvent = calendarByThread[thread.threadId] || null;
-          const isSingle = thread.messages.length === 1;
-
-          return (
-            <div key={thread.threadId} className={isExpanded ? "bg-surface-container-low/30" : ""}>
-              {/* Thread row */}
-              <button
-                type="button"
-                className={`group/thread w-full text-left px-5 py-3.5 hover:bg-surface-container-low transition-colors cursor-pointer ${isUnread ? "bg-primary/[0.04]" : ""}`}
-                onClick={() => handleThreadClick(thread)}
-              >
-                <div className="flex items-center gap-3.5">
-                  <div
-                    className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
-                      tabCtx === "trash" ? "bg-surface-container-low" :
-                      tabCtx === "hidden" ? "bg-surface-container-low" :
-                      latest.direction === "outbound" ? "bg-primary-container" : "bg-tertiary-container"
-                    }`}
-                    onMouseEnter={tabCtx !== "trash" && tabCtx !== "hidden" ? () => setHoveredArrow(latest.direction as "inbound" | "outbound") : undefined}
-                    onMouseLeave={tabCtx !== "trash" && tabCtx !== "hidden" ? () => setHoveredArrow(null) : undefined}
-                    onMouseMove={tabCtx !== "trash" && tabCtx !== "hidden" ? handleArrowMouseMove : undefined}
-                  >
-                    {tabCtx === "trash" ? <Trash2 className="h-4 w-4 text-muted-foreground" /> :
-                     tabCtx === "hidden" ? <EyeOff className="h-4 w-4 text-muted-foreground" /> :
-                     latest.direction === "outbound" ? <ArrowUpRight className="h-4 w-4 text-on-primary-container" /> :
-                     <ArrowDownLeft className="h-4 w-4 text-on-tertiary-container" />}
-                  </div>
-                  <div className="w-40 shrink-0 truncate">
-                    <span className={`text-base ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>
-                      {contactName || (latest.direction === "outbound" ? `To: ${latest.to_addresses?.[0] || "Unknown"}` : latest.from_address || "Unknown")}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0 flex items-center gap-2.5">
-                    <span className={`text-base truncate ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>{thread.subject}</span>
-                    {thread.messages.length > 1 && (
-                      <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-secondary-container text-[10px] font-medium text-on-secondary-container shrink-0">{thread.messages.length}</span>
-                    )}
-                    {pendingFUCount > 0 && (
-                      <span className="inline-flex items-center gap-0.5 h-4 px-1.5 rounded-full bg-tertiary-container/50 text-[10px] font-medium text-on-tertiary-container shrink-0">
-                        <Clock className="h-2.5 w-2.5" />{pendingFUCount}
-                      </span>
-                    )}
-                    {linkedCalEvent && (
-                      <span
-                        className="inline-flex items-center gap-0.5 h-4 px-1.5 rounded-full bg-primary/10 text-[10px] font-medium text-primary shrink-0"
-                        title={`Meeting scheduled: ${linkedCalEvent.title || "Untitled"} · ${new Date(linkedCalEvent.start_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
-                      >
-                        <CalendarIcon className="h-2.5 w-2.5" />
-                      </span>
-                    )}
-                    <span className="text-sm text-muted-foreground truncate hidden sm:inline">{latest.snippet || ""}</span>
-                  </div>
-                  <span className={`text-sm shrink-0 ${isUnread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                    {thread.latestDate ? formatDate(thread.latestDate) : ""}
-                  </span>
-                  {/* 3-dot action menu */}
-                  <div className="relative shrink-0" ref={threadActionMenuId === thread.threadId ? threadActionRef : undefined}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className="p-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-container-low transition-colors cursor-pointer opacity-0 group-hover/thread:opacity-100"
-                      title="Actions"
-                      onClick={(e) => { e.stopPropagation(); setThreadActionMenuId(threadActionMenuId === thread.threadId ? null : thread.threadId); setThreadActionMoveOpen(false); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setThreadActionMenuId(thread.threadId); } }}
-                    >
-                      <MoreVertical className="h-5 w-5" />
-                    </div>
-                    {threadActionMenuId === thread.threadId && (
-                      <div className="absolute right-0 top-9 z-50 w-48 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1" onClick={(e) => e.stopPropagation()}>
-                        {/* Reply */}
-                        {tabCtx !== "trash" && tabCtx !== "hidden" && (
-                          <button
-                            type="button"
-                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
-                            onClick={() => {
-                              const lastMsg = thread.messages[thread.messages.length - 1];
-                              const replyTo = lastMsg.direction === "outbound" ? (lastMsg.to_addresses?.[0] || "") : (lastMsg.from_address || "");
-                              const subj = thread.subject.replace(/^(Re:\s*)+/i, "");
-                              openCompose({ to: replyTo, name: contactName || undefined, subject: `Re: ${subj}`, threadId: thread.threadId, inReplyTo: lastMsg.gmail_message_id, references: lastMsg.gmail_message_id });
-                              setThreadActionMenuId(null);
-                            }}
-                          >
-                            <Reply className="h-4 w-4 text-muted-foreground" /> Reply
-                          </button>
-                        )}
-                        {/* Move to */}
-                        {(tabCtx === "inbox" || tabCtx === "sent") && gmailLabels.length > 0 && (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
-                              onClick={() => setThreadActionMoveOpen(!threadActionMoveOpen)}
-                            >
-                              <FolderInput className="h-4 w-4 text-muted-foreground" /> Move to
-                              <ChevronDown className={`h-3.5 w-3.5 ml-auto text-muted-foreground transition-transform ${threadActionMoveOpen ? "rotate-180" : ""}`} />
-                            </button>
-                            {threadActionMoveOpen && (
-                              <div className="border-t border-outline-variant/50 max-h-44 overflow-y-auto">
-                                {gmailLabels.map((label) => (
-                                  <button
-                                    key={label.id}
-                                    type="button"
-                                    className="w-full text-left px-4 pl-11 py-2 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors"
-                                    onClick={() => { handleMoveEmail(latest.gmail_message_id, label.id); setThreadActionMenuId(null); setThreadActionMoveOpen(false); }}
-                                  >
-                                    {label.name}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {/* Hide */}
-                        {tabCtx === "hidden" ? (
-                          <button
-                            type="button"
-                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
-                            onClick={() => { handleUnhideEmail(latest.gmail_message_id); setThreadActionMenuId(null); }}
-                          >
-                            <Eye className="h-4 w-4 text-muted-foreground" /> Unhide
-                          </button>
-                        ) : tabCtx !== "trash" ? (
-                          <button
-                            type="button"
-                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
-                            onClick={() => { handleHideEmail(latest.gmail_message_id); setThreadActionMenuId(null); }}
-                          >
-                            <EyeOff className="h-4 w-4 text-muted-foreground" /> Hide
-                          </button>
-                        ) : null}
-                        {/* Trash / Restore */}
-                        {tabCtx === "trash" ? (
-                          <button
-                            type="button"
-                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
-                            onClick={() => { handleRestoreEmail(latest.gmail_message_id); setThreadActionMenuId(null); }}
-                          >
-                            <RotateCcw className="h-4 w-4 text-muted-foreground" /> Restore
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="w-full text-left px-4 py-2.5 text-sm text-destructive hover:bg-surface-container-low cursor-pointer transition-colors flex items-center gap-3"
-                            onClick={() => { handleTrashEmail(latest.gmail_message_id); setThreadActionMenuId(null); }}
-                          >
-                            <Trash2 className="h-4 w-4" /> Trash
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </button>
-
-              {/* Expanded view */}
-              {isExpanded && (
-                <div className="px-5 pb-4">
-                  {isSingle ? (
-                    /* Single message: content shown directly */
-                    <div className="ml-5 pl-5 pt-1">
-                      {renderExpandedContent(thread.messages[0], thread, contactName, tabCtx)}
-                    </div>
-                  ) : (
-                    /* Multi-message thread */
-                    <div className="ml-5 border-l-2 border-outline-variant/50 pl-5 space-y-2 pt-1">
-                      {thread.messages.map((msg) => {
-                        const isMsgExpanded = expandedEmailId === msg.gmail_message_id;
-                        return (
-                          <div key={msg.gmail_message_id} className="rounded-lg border border-outline-variant/40 overflow-hidden">
-                            {/* Message header row */}
-                            <div className="group/msg flex items-center gap-2.5 p-3 hover:bg-surface-container-low/80 transition-colors cursor-pointer" onClick={() => handleExpandEmail(msg.gmail_message_id)}>
-                              <span
-                                className="shrink-0 flex items-center"
-                                onMouseEnter={() => setHoveredArrow(msg.direction as "inbound" | "outbound")}
-                                onMouseLeave={() => setHoveredArrow(null)}
-                                onMouseMove={handleArrowMouseMove}
-                              >
-                                {msg.direction === "outbound" ? (
-                                  <ArrowUpRight className="h-3.5 w-3.5 text-primary" />
-                                ) : (
-                                  <ArrowDownLeft className="h-3.5 w-3.5 text-tertiary" />
-                                )}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2.5">
-                                  <span className={`text-sm font-medium truncate ${!msg.is_read && msg.direction === "inbound" ? "text-foreground font-semibold" : "text-foreground"}`}>
-                                    {msg.direction === "outbound" ? "You" : (contactName || msg.from_address || "Unknown")}
-                                  </span>
-                                  <span className="text-xs text-muted-foreground shrink-0">{msg.date ? formatDateFull(msg.date) : ""}</span>
-                                </div>
-                                {!isMsgExpanded && <p className="text-sm text-muted-foreground truncate mt-0.5">{msg.snippet || ""}</p>}
-                              </div>
-                              {!isMsgExpanded && renderMsgRowActions(msg, tabCtx)}
-                            </div>
-
-                            {/* Expanded message content */}
-                            {isMsgExpanded && (
-                              <div className="px-3 pb-3">
-                                {renderExpandedContent(msg, thread, contactName, tabCtx)}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      {/* Quick reply at thread bottom */}
-                      {tabCtx !== "trash" && tabCtx !== "hidden" && (
-                        <div className="pl-2.5 pt-1.5 pb-1.5 flex items-center gap-5">
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
-                            onClick={() => {
-                              const lastMsg = thread.messages[thread.messages.length - 1];
-                              const replyTo = lastMsg.direction === "outbound" ? (lastMsg.to_addresses?.[0] || "") : (lastMsg.from_address || "");
-                              const subj = thread.subject.replace(/^(Re:\s*)+/i, "");
-                              openCompose({ to: replyTo, name: contactName || undefined, subject: `Re: ${subj}`, threadId: thread.threadId, inReplyTo: lastMsg.gmail_message_id, references: lastMsg.gmail_message_id });
-                            }}
-                          >
-                            <Reply className="h-4 w-4" />
-                            Reply
-                          </button>
-                          {thread.contactId && (
-                            <button type="button" className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors" onClick={() => router.push(`/contacts/${thread.contactId}`)}>
-                              View contact
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
 
   // ── Sidebar items ──
 
-  const sidebarItems: { key: SidebarTab; label: string; icon: typeof Inbox; count: number }[] = [
+  const sidebarItems: SidebarItem[] = [
     { key: "inbox", label: "Inbox", icon: Inbox, count: unreadEmailCount },
     { key: "sent", label: "Sent", icon: Send, count: 0 },
     { key: "drafts", label: "Drafts", icon: FileText, count: drafts.length },
@@ -1124,9 +445,36 @@ export function InboxShell() {
   const switchTab = (key: SidebarTab) => {
     setActiveTab(key);
     // Collapsing on tab change is the single reset path — a behavioral test
-    // guards this line (CAR-150).
+    // guards this line (CAR-150). The child tab's transient UI state (open
+    // dropdowns/menus) resets on its own because it unmounts here.
     collapseAll();
-    setMoveDropdownMsgId(null);
+  };
+
+  // Props every ThreadListTab instance shares (the four mailbox views differ
+  // only by their thread list + tabCtx).
+  const threadListProps = {
+    expandedThreadId,
+    expandedEmailId,
+    expandedEmailContent,
+    loadingEmailContent,
+    onThreadClick: handleThreadClick,
+    onExpandEmail: handleExpandEmail,
+    contactMap,
+    gmailLabels,
+    followUpsByThread,
+    calendarByThread,
+    onTrash: handleTrashEmail,
+    onRestore: handleRestoreEmail,
+    onHide: handleHideEmail,
+    onUnhide: handleUnhideEmail,
+    onMove: handleMoveEmail,
+    onViewContact: (contactId: number) => router.push(`/contacts/${contactId}`),
+    onOpenFollowUp: setFollowUpModal,
+    searchQuery,
+    selectedContactId,
+    activeFilterCount,
+    formatDate,
+    formatDateFull,
   };
 
   return (
@@ -1134,254 +482,45 @@ export function InboxShell() {
       <Navigation />
 
       <div className="px-4 sm:px-6 lg:px-8 py-5">
-        {/* Top bar */}
-        <div className="flex items-center gap-3.5 mb-5">
-          {/* Sidebar toggle */}
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="hidden md:flex h-11 w-11 rounded-full items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-container-low transition-colors cursor-pointer"
-            title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-          >
-            {sidebarOpen ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
-          </button>
+        <InboxTopBar
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          searchQuery={searchQuery}
+          onSearchChange={filters.setSearchQuery}
+          onToggleFilters={() => setShowFilters(!showFilters)}
+          activeFilterCount={activeFilterCount}
+          syncing={syncing}
+          onSync={handleSync}
+          onCompose={() => openCompose()}
+        />
 
-          <div className="flex-1 relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search emails..."
-              className="w-full h-11 pl-11 pr-5 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-base"
-            />
-          </div>
-
-          {/* Filter toggle */}
-          <button
-            type="button"
-            onClick={() => setShowFilters(!showFilters)}
-            className={`h-11 px-4 rounded-full flex items-center gap-2 text-base font-medium transition-colors cursor-pointer border ${
-              activeFilterCount > 0
-                ? "bg-primary-container text-on-primary-container border-primary/30"
-                : "bg-surface-container-low text-muted-foreground border-outline-variant hover:text-foreground"
-            }`}
-          >
-            <Filter className="h-4 w-4" />
-            <span className="hidden sm:inline">Filters</span>
-            {activeFilterCount > 0 && (
-              <span className="min-w-[20px] h-[20px] px-1 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[11px] font-bold">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleSync}
-            disabled={syncing}
-            className="h-11 w-11 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-container-low transition-colors cursor-pointer disabled:opacity-50"
-            title="Sync emails"
-          >
-            <RefreshCw className={`h-5 w-5 ${syncing ? "animate-spin" : ""}`} />
-          </button>
-          <Button onClick={() => openCompose()} size="sm">
-            <PenSquare className="h-5 w-5 mr-2" />
-            Compose
-          </Button>
-        </div>
-
-        {/* ── Advanced filter bar ── */}
         {showFilters && (
-          <div className="mb-5 p-4 bg-surface-container-low rounded-xl border border-outline-variant/50">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Direction */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground">Direction:</span>
-                <div className="flex rounded-lg border border-outline-variant overflow-hidden">
-                  {(["all", "inbound", "outbound"] as const).map((dir) => (
-                    <button
-                      key={dir}
-                      type="button"
-                      onClick={() => setFilterDirection(dir)}
-                      className={`px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
-                        filterDirection === dir ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
-                      }`}
-                    >
-                      {dir === "all" ? "All" : dir === "inbound" ? "Incoming" : "Outgoing"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Days */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground">Activity:</span>
-                <div className="flex rounded-lg border border-outline-variant overflow-hidden">
-                  {([null, 7, 14, 30, 90] as const).map((d) => (
-                    <button
-                      key={d ?? "all"}
-                      type="button"
-                      onClick={() => setFilterDays(d)}
-                      className={`px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
-                        filterDays === d ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
-                      }`}
-                    >
-                      {d === null ? "All" : `${d}d`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Thread type */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground">Type:</span>
-                <div className="flex rounded-lg border border-outline-variant overflow-hidden">
-                  {(["all", "threads", "single"] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setFilterThreadType(t)}
-                      className={`px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
-                        filterThreadType === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
-                      }`}
-                    >
-                      {t === "all" ? "All" : t === "threads" ? "Threads" : "Single"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Follow-ups */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground">Follow-ups:</span>
-                <div className="flex rounded-lg border border-outline-variant overflow-hidden">
-                  {(["all", "with", "without"] as const).map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => setFilterFollowUp(f)}
-                      className={`px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
-                        filterFollowUp === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-container-low"
-                      }`}
-                    >
-                      {f === "all" ? "All" : f === "with" ? "With" : "Without"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Contact search */}
-              <div className="flex items-center gap-2 relative">
-                <span className="text-sm font-medium text-muted-foreground">Contact:</span>
-                {selectedContactId !== null ? (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-container text-on-primary-container text-sm font-medium">
-                    <span className="max-w-36 truncate">{contactMap[selectedContactId]}</span>
-                    <button
-                      type="button"
-                      className="p-0.5 rounded-full hover:bg-primary/20 cursor-pointer"
-                      onClick={() => { setSelectedContactId(null); setContactSearchQuery(""); }}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={contactSearchQuery}
-                      onChange={(e) => setContactSearchQuery(e.target.value)}
-                      placeholder="Search by name..."
-                      className="w-44 h-8 px-3 text-sm bg-transparent border border-outline-variant rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-                    />
-                    {contactSearchQuery.trim() && filteredContactOptions.length > 0 && (
-                      <div className="absolute left-0 top-9 z-50 w-60 max-h-52 overflow-y-auto bg-surface-container-high rounded-xl shadow-lg border border-outline-variant py-1">
-                        {filteredContactOptions.map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container-low cursor-pointer transition-colors"
-                            onClick={() => { setSelectedContactId(c.id); setContactSearchQuery(""); }}
-                          >
-                            {c.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Clear all */}
-              {activeFilterCount > 0 && (
-                <button
-                  type="button"
-                  onClick={clearAllFilters}
-                  className="ml-auto text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
-                >
-                  Clear all
-                </button>
-              )}
-            </div>
-          </div>
+          <InboxFilterBar
+            filterDirection={filters.filterDirection}
+            setFilterDirection={filters.setFilterDirection}
+            filterDays={filters.filterDays}
+            setFilterDays={filters.setFilterDays}
+            filterThreadType={filters.filterThreadType}
+            setFilterThreadType={filters.setFilterThreadType}
+            filterFollowUp={filters.filterFollowUp}
+            setFilterFollowUp={filters.setFilterFollowUp}
+            selectedContactId={selectedContactId}
+            setSelectedContactId={filters.setSelectedContactId}
+            contactSearchQuery={filters.contactSearchQuery}
+            setContactSearchQuery={filters.setContactSearchQuery}
+            contactMap={contactMap}
+            filteredContactOptions={filters.filteredContactOptions}
+            activeFilterCount={activeFilterCount}
+            clearAllFilters={filters.clearAllFilters}
+          />
         )}
 
         <div className="flex gap-5">
-          {/* ── Sidebar ── */}
-          <div className={`shrink-0 hidden md:block transition-all duration-200 ${sidebarOpen ? "w-52" : "w-14"}`}>
-            <nav className="space-y-1 sticky top-20">
-              {sidebarItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.key;
-                const isBadge = item.key === "inbox" && item.count > 0;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => switchTab(item.key)}
-                    title={!sidebarOpen ? item.label : undefined}
-                    className={`w-full flex items-center gap-3.5 ${sidebarOpen ? "px-4" : "px-0 justify-center"} py-3 rounded-full text-base font-medium transition-colors cursor-pointer ${
-                      isActive ? "bg-secondary-container text-on-secondary-container" : "text-muted-foreground hover:text-foreground hover:bg-surface-container-low"
-                    }`}
-                  >
-                    <Icon className="h-5 w-5 shrink-0" />
-                    {sidebarOpen && (
-                      <>
-                        <span className="flex-1 text-left">{item.label}</span>
-                        {item.count > 0 && (
-                          <span className={`text-sm font-medium ${
-                            isBadge ? "bg-destructive text-destructive-foreground rounded-full min-w-[20px] h-[20px] px-1 flex items-center justify-center text-xs" : isActive ? "text-on-secondary-container" : "text-muted-foreground"
-                          }`}>
-                            {item.count}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
+          <InboxSidebar items={sidebarItems} activeTab={activeTab} onSwitchTab={switchTab} sidebarOpen={sidebarOpen} />
 
           {/* ── Main content ── */}
           <div className="flex-1 min-w-0">
-            {/* Mobile tabs */}
-            <div className="flex md:hidden gap-1.5 border-b border-outline-variant mb-5 overflow-x-auto">
-              {sidebarItems.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => switchTab(item.key)}
-                  className={`px-4 py-3 text-base font-medium transition-colors relative cursor-pointer whitespace-nowrap ${
-                    activeTab === item.key ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {item.label}
-                  {item.count > 0 && ` (${item.count})`}
-                  {activeTab === item.key && <div className="absolute bottom-0 left-2 right-2 h-[3px] rounded-full bg-primary" />}
-                </button>
-              ))}
-            </div>
+            <InboxMobileTabs items={sidebarItems} activeTab={activeTab} onSwitchTab={switchTab} />
 
             {loading ? (
               <div className="flex items-center justify-center gap-3.5 text-muted-foreground py-16">
@@ -1390,223 +529,34 @@ export function InboxShell() {
               </div>
             ) : (
               <>
-                {activeTab === "inbox" && renderThreadList(filteredInboxThreads, "inbox")}
-                {activeTab === "sent" && renderThreadList(filteredSentThreads, "sent")}
-                {activeTab === "trash" && renderThreadList(filteredTrashThreads, "trash")}
-                {activeTab === "hidden" && renderThreadList(filteredHiddenThreads, "hidden")}
+                {activeTab === "inbox" && <ThreadListTab threads={filteredInboxThreads} tabCtx="inbox" {...threadListProps} />}
+                {activeTab === "sent" && <ThreadListTab threads={filteredSentThreads} tabCtx="sent" {...threadListProps} />}
+                {activeTab === "trash" && <ThreadListTab threads={filteredTrashThreads} tabCtx="trash" {...threadListProps} />}
+                {activeTab === "hidden" && <ThreadListTab threads={filteredHiddenThreads} tabCtx="hidden" {...threadListProps} />}
 
-                {/* Direction-arrow cursor tooltip */}
-                {hoveredArrow && createPortal(
-                  <div
-                    ref={arrowTooltipRef}
-                    className="fixed z-[9999] px-4 py-2.5 rounded-xl bg-surface-container-highest border border-outline-variant shadow-lg pointer-events-none"
-                    style={{ left: arrowPosRef.current.x + 14, top: arrowPosRef.current.y - 44 }}
-                  >
-                    <p className="text-sm text-foreground whitespace-nowrap">
-                      {hoveredArrow === "outbound" ? "Outgoing: you sent this" : "Incoming: sent to you"}
-                    </p>
-                  </div>,
-                  document.body
-                )}
-
-                {/* ─── DRAFTS TAB ─── */}
                 {activeTab === "drafts" && (
-                  <div>
-                    <div className="flex items-center justify-between mb-5">
-                      <h2 className="text-base font-medium text-foreground">
-                        Drafts
-                        {drafts.length > 0 && <span className="ml-2 text-muted-foreground font-normal">({drafts.length})</span>}
-                      </h2>
-                    </div>
-                    {drafts.length === 0 ? (
-                      <div className="text-center py-16">
-                        <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
-                        <p className="text-base text-muted-foreground">No drafts.</p>
-                        <p className="text-sm text-muted-foreground mt-1.5">Emails you start composing but don&apos;t send will be saved here.</p>
-                      </div>
-                    ) : (
-                      <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
-                        {drafts.map((draft) => (
-                          <div key={draft.id} className="px-5 py-3.5 hover:bg-surface-container-low/50 transition-colors cursor-pointer" onClick={() => openDraft(draft)}>
-                            <div className="flex items-center gap-3.5">
-                              <div className="w-9 h-9 rounded-full bg-surface-container flex items-center justify-center shrink-0">
-                                <FileText className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2.5">
-                                  <span className="text-base font-medium text-foreground truncate">{draft.subject || "(no subject)"}</span>
-                                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface-container text-muted-foreground shrink-0">Draft</span>
-                                </div>
-                                <div className="flex items-center gap-2.5 mt-1">
-                                  <span className="text-sm text-muted-foreground truncate">
-                                    {draft.recipient_email ? `To: ${draft.contact_name || draft.recipient_email}` : "No recipient"}
-                                  </span>
-                                  <span className="text-sm text-muted-foreground">·</span>
-                                  <span className="text-sm text-muted-foreground shrink-0">{formatDate(draft.updated_at)}</span>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); deleteDraft(draft.id); }}
-                                className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
-                                title="Delete draft"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <DraftsTab drafts={drafts} onOpenDraft={openDraft} onDeleteDraft={deleteDraft} formatDate={formatDate} />
                 )}
 
-                {/* ─── SCHEDULED TAB ─── */}
                 {activeTab === "scheduled" && (
-                  <div>
-                    <div className="flex items-center justify-between mb-5">
-                      <h2 className="text-base font-medium text-foreground">
-                        Scheduled emails
-                        {scheduledEmails.length > 0 && <span className="ml-2 text-muted-foreground font-normal">({scheduledEmails.length})</span>}
-                      </h2>
-                    </div>
-                    {scheduledEmails.length === 0 ? (
-                      <div className="text-center py-16">
-                        <Send className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
-                        <p className="text-base text-muted-foreground">No scheduled emails.</p>
-                        <p className="text-sm text-muted-foreground mt-1.5">Use the &quot;Schedule&quot; option in Compose to queue emails for later.</p>
-                      </div>
-                    ) : (
-                      <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
-                        {scheduledEmails.map((se) => {
-                          const contactName = se.matched_contact_id ? contactMap[se.matched_contact_id] : null;
-                          const linkedFU = followUps.find((fu) => fu.scheduled_email_id === se.id);
-                          return (
-                            <div key={se.id} className="px-5 py-3.5 hover:bg-surface-container-low/50 transition-colors">
-                              <div className="flex items-center gap-3.5">
-                                <div className="w-9 h-9 rounded-full bg-tertiary-container flex items-center justify-center shrink-0">
-                                  <Clock className="h-4 w-4 text-on-tertiary-container" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2.5">
-                                    <span className="text-base font-medium text-foreground truncate">{se.subject}</span>
-                                    {se.status === "failed" ? (
-                                      <span
-                                        className="text-[11px] px-2 py-0.5 rounded-full bg-destructive/10 text-destructive shrink-0"
-                                        title="Sending was interrupted, so this email may not have gone out. Check your Gmail Sent folder, then retry or cancel it."
-                                      >
-                                        Didn&apos;t send
-                                      </span>
-                                    ) : (
-                                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">Scheduled</span>
-                                    )}
-                                    {linkedFU && (
-                                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/30 text-on-tertiary-container shrink-0">
-                                        + {linkedFU.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length} follow-up(s)
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2.5 mt-1">
-                                    <span className="text-sm text-muted-foreground truncate">To: {contactName || se.recipient_email}</span>
-                                    <span className="text-sm text-muted-foreground">·</span>
-                                    <span className="text-sm text-muted-foreground shrink-0">
-                                      {se.status === "failed" ? `Was due ${formatDateFull(se.scheduled_send_at)}` : `Sends ${formatDateFull(se.scheduled_send_at)}`}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  {se.status === "failed" && (
-                                    <button type="button" onClick={() => retryScheduledEmail(se.id)} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Retry sending this email">
-                                      <RotateCcw className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                  <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: se.recipient_email, contactName: se.contact_name, originalSubject: se.subject, originalSentAt: se.scheduled_send_at, originalGmailMessageId: `scheduled_${se.id}`, threadId: se.thread_id || `pending_scheduled_${se.id}`, scheduledEmailId: se.id, existingFollowUp: linkedFU || null }); }} className="p-2 rounded-full text-muted-foreground hover:text-tertiary cursor-pointer transition-colors" title="Schedule follow-up">
-                                    <Clock className="h-4 w-4" />
-                                  </button>
-                                  <button type="button" onClick={() => cancelScheduledEmail(se.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Cancel scheduled email">
-                                    <XCircle className="h-4 w-4" />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                  <ScheduledTab
+                    scheduledEmails={scheduledEmails}
+                    followUps={followUps}
+                    contactMap={contactMap}
+                    onRetry={retryScheduledEmail}
+                    onCancel={cancelScheduledEmail}
+                    onOpenFollowUp={setFollowUpModal}
+                    formatDateFull={formatDateFull}
+                  />
                 )}
 
-                {/* ─── FOLLOW-UPS TAB ─── */}
                 {activeTab === "followups" && (
-                  <div>
-                    <div className="flex items-center justify-between mb-5">
-                      <h2 className="text-base font-medium text-foreground">
-                        Active follow-ups
-                        {followUps.length > 0 && <span className="ml-2 text-muted-foreground font-normal">({followUps.length} sequence{followUps.length !== 1 ? "s" : ""})</span>}
-                      </h2>
-                    </div>
-                    {followUps.length === 0 ? (
-                      <div className="text-center py-16">
-                        <Clock className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
-                        <p className="text-base text-muted-foreground">No active follow-ups.</p>
-                        <p className="text-sm text-muted-foreground mt-1.5">Schedule follow-ups from sent emails to automate reminders.</p>
-                      </div>
-                    ) : (
-                      <div className="border border-outline-variant/50 rounded-xl overflow-hidden divide-y divide-outline-variant/50">
-                        {followUps.map((fu) => {
-                          const pendingMsgs = fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).sort((a, b) => a.sequence_number - b.sequence_number);
-                          const nextMsg = pendingMsgs[0];
-                          return (
-                            <div key={fu.id} className="px-5 py-3.5 hover:bg-surface-container-low/50 transition-colors">
-                              <div className="flex items-center gap-3.5">
-                                <div className="w-9 h-9 rounded-full bg-tertiary-container/50 flex items-center justify-center shrink-0">
-                                  <Clock className="h-4 w-4 text-on-tertiary-container" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2.5">
-                                    <span className="text-base font-medium text-foreground truncate">{fu.original_subject || "(no subject)"}</span>
-                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-tertiary-container/50 text-on-tertiary-container shrink-0">{pendingMsgs.length} pending</span>
-                                  </div>
-                                  <div className="flex items-center gap-2.5 mt-1">
-                                    <span className="text-sm text-muted-foreground truncate">To: {fu.contact_name || fu.recipient_email}</span>
-                                    {nextMsg && (
-                                      <>
-                                        <span className="text-sm text-muted-foreground">·</span>
-                                        <span className="text-sm text-muted-foreground shrink-0">Next: {formatDateFull(nextMsg.scheduled_send_at)}</span>
-                                      </>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-wrap gap-2 mt-2.5">
-                                    {[...fu.email_follow_up_messages].sort((a, b) => a.sequence_number - b.sequence_number).map((m) => (
-                                      <span key={m.id} className={`text-[11px] px-2 py-0.5 rounded-full ${m.status === "sent" ? "bg-primary/15 text-primary" : m.status === "cancelled" ? "bg-surface-container-low text-muted-foreground line-through" : m.status === "expired" ? "bg-surface-container-low text-muted-foreground" : m.status === "awaiting_review" ? "bg-primary/15 text-primary font-medium" : "bg-tertiary-container/50 text-on-tertiary-container"}`}>
-                                        #{m.sequence_number}: Day {m.send_after_days}
-                                        {m.status === "sent" && " (sent)"}
-                                        {m.status === "cancelled" && " (cancelled)"}
-                                        {m.status === "expired" && " (expired)"}
-                                        {m.status === "awaiting_review" && " (awaiting review)"}
-                                        {m.status === "pending" && ` (${new Date(m.scheduled_send_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}
-                                      </span>
-                                    ))}
-                                  </div>
-                                  {!fu.email_follow_up_messages.some((m) => m.status === "awaiting_review") && (
-                                    <p className="text-[11px] text-muted-foreground mt-1.5">Auto-cancels if they reply</p>
-                                  )}
-                                </div>
-                                <div className="flex flex-col gap-1.5 shrink-0">
-                                  <button type="button" onClick={() => { setFollowUpModal({ recipientEmail: fu.recipient_email, contactName: fu.contact_name, originalSubject: fu.original_subject || "", originalSentAt: fu.original_sent_at, originalGmailMessageId: fu.original_gmail_message_id ?? "", threadId: fu.thread_id ?? "", existingFollowUp: fu}); }} className="p-2 rounded-full text-muted-foreground hover:text-primary cursor-pointer transition-colors" title="Edit follow-ups">
-                                    <Pencil className="h-4 w-4" />
-                                  </button>
-                                  <button type="button" onClick={() => cancelFollowUp(fu.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Cancel all follow-ups">
-                                    <XCircle className="h-4 w-4" />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                  <FollowUpsTab
+                    followUps={followUps}
+                    onCancel={cancelFollowUp}
+                    onOpenFollowUp={setFollowUpModal}
+                    formatDateFull={formatDateFull}
+                  />
                 )}
               </>
             )}
