@@ -1,21 +1,24 @@
 /**
  * Service-role data layer for the MCP server.
  *
- * The app's queries.ts is built on the browser client (anon key + user
- * session + RLS) and can't run in a Node process, so the reads/writes
- * the tools need are reimplemented here — compact, and with EVERY query
- * explicitly scoped to the single operating user (plan 26). Contact- and
- * item-referencing writes verify ownership first: the service role
- * bypasses RLS, so scoping is this module's job.
+ * The app's data layer (src/lib/data/*, behind the lib/queries barrel)
+ * relies on RLS for tenant isolation, so its queries can't run on the
+ * service-role client as-is; the reads/writes the tools need are
+ * reimplemented here — compact, and with EVERY query explicitly scoped to
+ * the single operating user (plan 26). Contact- and item-referencing
+ * writes verify ownership first: the service role bypasses RLS, so scoping
+ * is this module's job. (Collapsing this fork onto src/lib/data via its
+ * setDataClient() seam — with explicit scoping preserved — is CAR-151.)
  *
- * company-queries.ts is reused directly (its queries are all
- * userId-parameterized) via setCompanyQueriesClient() injection.
+ * company-queries.ts is reused directly (the entry points MCP calls are
+ * all userId-parameterized) via setCompanyQueriesClient() injection.
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import type { TablesInsert } from "@/lib/database.types";
 import { setCompanyQueriesClient } from "@/lib/company-queries";
-import { escapeIlike, findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
+import { findOrCreateCompany, findOrCreateLocation } from "@/lib/company-helpers";
+import { chunked, escapeIlike, paginateAll } from "@/lib/data/postgrest";
 import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
@@ -55,15 +58,6 @@ export function uid(): string {
   if (requestUser) return requestUser;
   if (stdioUserId) return stdioUserId;
   throw new Error("db not initialized — call initDb() or run inside runWithUser()");
-}
-
-/** Chunk .in() filters — PostgREST URLs blow up past a few hundred ids. */
-async function chunked<T>(ids: number[], fn: (chunk: number[]) => Promise<T[]>): Promise<T[]> {
-  const out: T[] = [];
-  for (let i = 0; i < ids.length; i += 200) {
-    out.push(...(await fn(ids.slice(i, i + 200))));
-  }
-  return out;
 }
 
 // ── Contact resolution ─────────────────────────────────────────────────
@@ -210,22 +204,34 @@ export async function buildLastTouchMap(contactIds: number[]): Promise<Map<numbe
   const map = new Map<number, string>();
   if (contactIds.length === 0) return map;
 
+  // Chunk rows are paginated too: 200 contacts can carry >1000 touches and
+  // PostgREST truncates silently. meeting_contacts has no id column, so its
+  // (contact_id, meeting_id) composite is the stable pagination order.
   const [meetingLinks, interactions] = await Promise.all([
-    chunked(contactIds, async (chunk) => {
-      const { data } = await db()
-        .from("meeting_contacts")
-        .select("contact_id, meetings!inner(user_id, meeting_date)")
-        .eq("meetings.user_id", uid())
-        .in("contact_id", chunk);
-      return data ?? [];
-    }),
-    chunked(contactIds, async (chunk) => {
-      const { data } = await db()
-        .from("interactions")
-        .select("contact_id, interaction_date")
-        .in("contact_id", chunk);
-      return (data as Array<{ contact_id: number; interaction_date: string | null }>) ?? [];
-    }),
+    chunked(contactIds, async (chunk) =>
+      paginateAll(async (from, to) => {
+        const { data } = await db()
+          .from("meeting_contacts")
+          .select("contact_id, meetings!inner(user_id, meeting_date)")
+          .eq("meetings.user_id", uid())
+          .in("contact_id", chunk)
+          .order("contact_id")
+          .order("meeting_id")
+          .range(from, to);
+        return data ?? [];
+      }),
+    ),
+    chunked(contactIds, async (chunk) =>
+      paginateAll(async (from, to) => {
+        const { data } = await db()
+          .from("interactions")
+          .select("contact_id, interaction_date")
+          .in("contact_id", chunk)
+          .order("id")
+          .range(from, to);
+        return (data as Array<{ contact_id: number; interaction_date: string | null }>) ?? [];
+      }),
+    ),
   ]);
 
   for (const ml of meetingLinks) {

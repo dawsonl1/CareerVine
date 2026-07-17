@@ -20,11 +20,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-/** Escape %, _ and \ so user data can't act as ilike wildcards. */
-export function escapeIlike(s: string): string {
-  return s.replace(/([\\%_])/g, "\\$1");
-}
+import { chunkList, escapeIlike } from "@/lib/data/postgrest";
 
 /**
  * Normalized company-name key: lowercase, every non-alphanumeric run
@@ -93,13 +89,6 @@ export function companyFallbackName(input: CompanyInput): string | null {
   if (input.universal_name) return input.universal_name;
   if (input.linkedin_company_id) return `linkedin:${input.linkedin_company_id}`;
   return null;
-}
-
-/** PostgREST selects are GETs — chunk .in() lists so URLs stay bounded. */
-export function chunkList<T>(items: T[], size = 100): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
 }
 
 /** True when a company input carries nothing but a display name — the only

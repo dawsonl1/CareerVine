@@ -15,7 +15,7 @@ import {
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
-import { escapeIlikePattern } from "./search-helpers";
+import { chunked, escapeIlike } from "@/lib/data/postgrest";
 import { findOrCreateCompany } from "./company-helpers";
 import { nextActionForCompany } from "./company-next-action";
 
@@ -39,15 +39,6 @@ function db(): QueryClient {
 }
 
 // ── Shared helpers ─────────────────────────────────────────────────────
-
-/** Chunk .in() filters — PostgREST URLs blow up past a few hundred ids. */
-async function chunked<T>(ids: number[], fn: (chunk: number[]) => Promise<T[]>): Promise<T[]> {
-  const out: T[] = [];
-  for (let i = 0; i < ids.length; i += 200) {
-    out.push(...(await fn(ids.slice(i, i + 200))));
-  }
-  return out;
-}
 
 /** Pipeline personas that count as "in a product role" for the product-alum signal. */
 export const PRODUCT_PERSONAS = new Set(["product_leader", "alum_product", "product_peer"]);
@@ -519,7 +510,7 @@ export async function getCompanies(
       .select("id, name, logo_url, linkedin_url")
       .in("id", chunk);
     if (opts.search?.trim()) {
-      q = q.ilike("name", `%${escapeIlikePattern(opts.search.trim())}%`);
+      q = q.ilike("name", `%${escapeIlike(opts.search.trim())}%`);
     }
     const { data, error } = await q;
     if (error) throw error;

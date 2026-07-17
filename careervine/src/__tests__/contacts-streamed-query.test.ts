@@ -11,13 +11,15 @@ vi.mock("@/lib/supabase/browser-client", () => ({
     from: () => ({
       select: (columns: string) => {
         mockSelect(columns);
+        // order() chains (name + id tiebreak), so the chain object returns
+        // itself until range() resolves the page.
+        const chain = {
+          order: () => chain,
+          range: (from: number, to: number) => mockRange(from, to),
+        };
         return {
           eq: () => ({
-            in: () => ({
-              order: () => ({
-                range: (from: number, to: number) => mockRange(from, to),
-              }),
-            }),
+            in: () => chain,
           }),
         };
       },

@@ -63,7 +63,8 @@ careervine/
 │   │
 │   └── lib/
 │       ├── database.types.ts       # TypeScript types matching Supabase schema
-│       ├── queries.ts              # All database operations (Supabase client)
+│       ├── queries.ts              # Frozen re-export barrel over lib/data/ (CAR-146)
+│       ├── data/                   # Domain query modules + db()/must() client seam
 │       ├── types.ts                # Shared app-level TypeScript types
 │       └── supabase/
 │           ├── config.ts           # Env-based config (auto-switches local/prod)
@@ -124,8 +125,15 @@ careervine/
 
 ### Data Fetching
 
-- All queries live in `src/lib/queries.ts` (single file, ~890 lines)
-- Uses browser-side Supabase client (not server components)
+- Queries live in domain modules under `src/lib/data/` (contacts, interactions,
+  meetings, action-items, follow-ups, home, attachments, users); `src/lib/queries.ts`
+  is a frozen compatibility barrel that re-exports them (CAR-146) — new queries go
+  in the domain modules, not the barrel
+- The Supabase client is resolved lazily via `db()` from `src/lib/data/client.ts`
+  (browser singleton by default, injectable via `setDataClient()`); control-flow-bearing
+  reads use the `must()` throw-on-error convention documented there
+- Shared PostgREST scale utilities (`escapeIlike`, `chunkList`, `chunked`,
+  `paginateAll`) live in `src/lib/data/postgrest.ts`
 - Pages call queries in `useEffect` on mount
 - Pattern: `useState` + `useEffect` + `loadData()` async function
 
@@ -198,7 +206,7 @@ Action items can be edited inline on meeting cards and contact detail views:
 
 ---
 
-## 7. Queries Reference (`src/lib/queries.ts`)
+## 7. Queries Reference (`src/lib/data/*`, re-exported by the `src/lib/queries.ts` barrel)
 
 ### Contacts
 
@@ -235,7 +243,7 @@ Action items can be edited inline on meeting cards and contact detail views:
 
 ### Tags
 
-- `getTags(userId)` / `createTag()` / `deleteTag()`
+- `getTags(userId)` / `createTag()`
 
 ### User Profile
 
@@ -243,7 +251,7 @@ Action items can be edited inline on meeting cards and contact detail views:
 
 ### Follow-up Reminders
 
-- `getContactsDueForFollowUp(userId)` — contacts overdue for follow-up with days_overdue
+- `getHomeCoreData(userId).followUps` — contacts overdue for follow-up with days_overdue
 
 ---
 

@@ -35,7 +35,7 @@ import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payl
 import { readProspectResolution } from "./bundle-resolve";
 import { buildContactInsertRow, educationDedupeKey, type ImportChunkOptions } from "./bulk-import";
 import { addTagsToContacts, isValidImportEmail } from "./import-db-helpers";
-import { chunkList } from "./company-helpers";
+import { chunkList } from "@/lib/data/postgrest";
 import { normalizeLocation } from "./location-normalizer";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 
