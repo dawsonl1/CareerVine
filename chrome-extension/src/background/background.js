@@ -3,6 +3,12 @@
  * Handles API communication and authentication
  */
 
+// Analytics event-name registry (CAR-148 F59) — single source shared with the
+// web app's AnalyticsEvents type via a parity test. Loaded synchronously at
+// worker init so EXTENSION_ANALYTICS_EVENTS is set before any handler runs.
+/* global EXTENSION_ANALYTICS_EVENTS */
+importScripts('../analytics-events.js');
+
 // Load environment configuration
 // Change this to 'production' before building for Chrome Web Store
 const ENV = 'development';
@@ -246,7 +252,7 @@ async function handleParseProfile(data, sendResponse) {
     // caches it per-profile and hands it to its own panel over the bus.
     // Nothing is written to global storage — that's what let one tab's
     // scrape overwrite another tab's panel.
-    trackEvent('profile_scraped');
+    trackEvent(EXTENSION_ANALYTICS_EVENTS.PROFILE_SCRAPED);
     sendResponse({ success: true, profileData: result.profileData });
   } catch (error) {
     sendResponse({ error: error.message, code: error.code, status: error.status, resetAt: error.resetAt });
@@ -318,7 +324,7 @@ async function handleAuthentication(credentials, sendResponse) {
     if (anonId && storedSession.user?.id) {
       await trackEvent('$create_alias', { distinct_id: storedSession.user.id, alias: anonId }, storedSession.user.id);
     }
-    await trackEvent('extension_logged_in', {}, storedSession.user?.id);
+    await trackEvent(EXTENSION_ANALYTICS_EVENTS.EXTENSION_LOGGED_IN, {}, storedSession.user?.id);
 
     // Announce the connection so the web app's extension-onboarding step
     // (CAR-68) advances immediately. Fire-and-forget — login must not fail
@@ -417,7 +423,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     try {
       await ensureConfig();
       // Onboarding funnel start (CAR-38) — anonymous until first login
-      await trackEvent('extension_installed');
+      await trackEvent(EXTENSION_ANALYTICS_EVENTS.EXTENSION_INSTALLED);
     } catch (error) {
       console.error('CareerVine: config load failed during install:', error.message);
     }

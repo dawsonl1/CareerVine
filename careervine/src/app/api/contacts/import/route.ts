@@ -1,8 +1,13 @@
+// ── FIELD CONTRACT — shipped extensions call this; changes must be
+// backward-compatible. The request body is validated by `contactsImportSchema`
+// (= `extensionImportSchema` in extension-contract.ts); the profile shape is the
+// shared `ProfileData`. Never tighten a field or rename a wire key without a
+// backward-compatible path — older installed extensions still POST the old shape.
 import { withApiHandler } from "@/lib/api-handler";
 import { contactsImportSchema } from "@/lib/api-schemas";
 import { checkContactMilestone } from "@/lib/analytics/server";
 import { advanceExtensionOnboarding } from "@/lib/onboarding/extension-server";
-import { sanitizeForPostgrest, buildUpdateData, buildContactData, resolveProfileLocationId } from '@/lib/import-helpers';
+import { sanitizeForPostgrest, buildUpdateData, buildContactData, resolveProfileLocationId, isValidContactEmail } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
 import { syncContactEmailHistoryIfPaid } from "@/lib/contact-email-history";
@@ -12,44 +17,14 @@ import { addTagsToContact, downloadAndStorePhoto } from "@/lib/import-db-helpers
 import { triggerEnrichOnSave } from "@/lib/apify/scrape-service";
 import { normalizeLocation, normalizeParsedLocation, locationMatchKey } from "@/lib/location-normalizer";
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-// ── Types for the Chrome extension's profile payload ───────────────────
-
-interface ProfileLocation {
-  city: string | null;
-  state: string | null;
-  country: string;
-}
-
-interface ProfileExperience {
-  company: string;
-  title?: string;
-  location?: string | null;
-  workplace_type?: string | null;
-  start_month?: string | null;
-  end_month?: string | null;
-  is_current?: boolean;
-}
-
-interface ProfileEducation {
-  school: string;
-  degree?: string | null;
-  field_of_study?: string | null;
-  start_year?: string | null;
-  end_year?: string | null;
-}
-
-interface ProfileData {
-  name?: string;
-  linkedin_url?: string;
-  location?: ProfileLocation;
-  experience?: ProfileExperience[];
-  education?: ProfileEducation[];
-  suggested_tags?: string[];
-  tags?: string[];
-  contactInfo?: { email?: string };
-  [key: string]: unknown;
-}
+// CAR-148 (F11): the profile payload shape is single-sourced. `ProfileData` and
+// its row types come from the extension contract — do not re-declare them here.
+import type {
+  ProfileData,
+  ProfileLocation,
+  ProfileExperience,
+  ProfileEducation,
+} from "@/lib/extension-contract";
 
 interface ContactRow {
   id: number;
@@ -76,11 +51,11 @@ export const POST = withApiHandler({
   extensionAuth: true,
   cors: true,
   handler: async ({ supabase, user, body, track }) => {
-    const { profileData, photoUrl } = body as { profileData: ProfileData; photoUrl?: string };
+    const { profileData, photoUrl } = body;
 
     // Canonicalize before any dedupe — trailing slash / www / case
     // variants must land on the same contact row.
-    const canonical = canonicalizeLinkedinUrl(profileData.linkedin_url ?? (profileData.profileUrl as string | undefined));
+    const canonical = canonicalizeLinkedinUrl(profileData.linkedin_url ?? profileData.profileUrl);
     if (canonical) {
       profileData.linkedin_url = canonical;
       profileData.profileUrl = canonical;
@@ -239,9 +214,10 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
     }
   }
 
-  // Upsert primary email if provided (basic format check)
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (profileData.contactInfo?.email && emailRegex.test(profileData.contactInfo.email) && profileData.contactInfo.email.length <= 320) {
+  // Upsert primary email if provided. Shared validity gate with the create
+  // path (isValidContactEmail) so both paths accept/reject identically.
+  const primaryEmail = profileData.contactInfo?.email;
+  if (isValidContactEmail(primaryEmail)) {
     const { data: existingEmails } = await supabase
       .from('contact_emails')
       .select('id, email, is_primary')
@@ -249,7 +225,7 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
 
     const existing = (existingEmails || []).find(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      (e: any) => e.email.toLowerCase() === profileData.contactInfo!.email!.toLowerCase()
+      (e: any) => e.email.toLowerCase() === primaryEmail.toLowerCase()
     );
     if (!existing) {
       // If no emails exist yet, make it primary; otherwise add as non-primary
@@ -257,7 +233,7 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
       const hasPrimary = (existingEmails || []).some((e: any) => e.is_primary);
       const { error: emailError } = await supabase.from('contact_emails').insert({
         contact_id: contactId,
-        email: profileData.contactInfo.email,
+        email: primaryEmail,
         is_primary: !hasPrimary,
       });
       if (emailError) {
@@ -290,12 +266,15 @@ async function createNewContact(supabase: SupabaseClient, profileData: ProfileDa
 
   if (insertError || !contact) throw new Error(insertError?.message || 'Failed to create contact');
 
-  if (profileData.contactInfo?.email) {
+  // Same validity gate as the update path — a malformed email is skipped, not
+  // inserted raw on first import (CAR-148 F11).
+  const newEmail = profileData.contactInfo?.email;
+  if (isValidContactEmail(newEmail)) {
     await supabase
       .from('contact_emails')
       .insert({
         contact_id: (contact as ContactRow).id,
-        email: profileData.contactInfo.email,
+        email: newEmail,
         is_primary: true
       });
   }
@@ -335,7 +314,9 @@ async function addExperienceToContact(
   profileLocation?: ProfileLocation,
   skipDedup = false,
 ) {
-  const validExps = experience.filter(exp => exp.company);
+  const validExps = experience.filter(
+    (exp): exp is ProfileExperience & { company: string } => Boolean(exp.company),
+  );
   if (validExps.length === 0) return;
 
   // Consolidated find-or-create (escaped ilike — company names containing
@@ -467,7 +448,9 @@ async function addExperienceToContact(
 }
 
 async function addEducationToContact(supabase: SupabaseClient, contactId: number, education: ProfileEducation[], skipDedup = false) {
-  const validEdus = education.filter(edu => edu.school);
+  const validEdus = education.filter(
+    (edu): edu is ProfileEducation & { school: string } => Boolean(edu.school),
+  );
   if (validEdus.length === 0) return;
 
   const schoolNames = [...new Set(validEdus.map(edu => edu.school))];

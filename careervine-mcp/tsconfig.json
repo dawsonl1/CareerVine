@@ -12,8 +12,20 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "baseUrl": ".",
+    // ── Cross-project coupling (CAR-148 F34) ─────────────────────────────
+    // @/* resolves to ../careervine/src: this MCP server compiles the web
+    // app's source tree directly, so a change under careervine/src can break
+    // this project's typecheck even though the files live in another package.
+    // After editing anything the server imports from src/ (notably src/mcp and
+    // its transitive deps), run this project's typecheck, not just the web
+    // app's. @panel/@ext MIRROR the web app's aliases (careervine/tsconfig.json):
+    // shared src/ modules (e.g. extension-contract.ts) import across them, so
+    // this project must resolve them too. The SDK aliases point at
+    // careervine/node_modules so both projects resolve the same SDK build.
     "paths": {
       "@/*": ["../careervine/src/*"],
+      "@panel/*": ["../chrome-extension/panel-app/src/*"],
+      "@ext/*": ["../chrome-extension/src/*"],
       "@modelcontextprotocol/sdk": ["../careervine/node_modules/@modelcontextprotocol/sdk/dist/esm/index.js"],
       "@modelcontextprotocol/sdk/*": ["../careervine/node_modules/@modelcontextprotocol/sdk/dist/esm/*"]
     }

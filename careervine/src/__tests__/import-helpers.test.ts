@@ -4,7 +4,32 @@ import {
   sanitizeForPostgrest,
   buildContactData,
   buildUpdateData,
+  isValidContactEmail,
 } from '@/lib/import-helpers';
+
+// CAR-148 (F11): both the create and the update path in the import route gate the
+// primary-email insert through this single helper, so they accept/reject the same
+// addresses. Previously the create path inserted the email raw with no check.
+describe('isValidContactEmail (create/update email parity)', () => {
+  it('accepts well-formed addresses', () => {
+    expect(isValidContactEmail('jane@example.com')).toBe(true);
+    expect(isValidContactEmail('a.b+tag@sub.example.co.uk')).toBe(true);
+  });
+
+  it('rejects malformed addresses', () => {
+    for (const bad of ['', 'nope', 'a@b', 'no-at.com', 'has space@x.com', 'a@b .com']) {
+      expect(isValidContactEmail(bad)).toBe(false);
+    }
+    expect(isValidContactEmail(null)).toBe(false);
+    expect(isValidContactEmail(undefined)).toBe(false);
+  });
+
+  it('rejects addresses over the 320-char column cap', () => {
+    const long = `${'a'.repeat(315)}@x.com`;
+    expect(long.length).toBeGreaterThan(320);
+    expect(isValidContactEmail(long)).toBe(false);
+  });
+});
 
 describe('parseFollowUpFrequency', () => {
   it('converts "2 weeks" to 14', () => {
@@ -97,7 +122,7 @@ describe('buildContactData', () => {
       linkedin_url: 'https://linkedin.com/in/john-smith',
       industry: 'Technology',
       generated_notes: 'Met at conference',
-      contact_status: 'professional',
+      contact_status: 'professional' as const,
       expected_graduation: null,
       follow_up_frequency: '3 months',
     };
@@ -173,7 +198,7 @@ describe('buildUpdateData', () => {
       name: 'Updated Name',
       industry: 'Finance',
       linkedin_url: 'https://linkedin.com/in/updated',
-      contact_status: 'student',
+      contact_status: 'student' as const,
       expected_graduation: 'May 2026',
       generated_notes: 'Updated notes',
       follow_up_frequency: '6 months',
