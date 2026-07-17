@@ -109,15 +109,71 @@ export const POST = withApiHandler({
       }
     }
 
-    // Process and upsert events
-    for (const event of events) {
-      if (!event.id || !event.start) continue;
+    // Process events as one batch: a constant number of Supabase calls per
+    // chunk instead of 3-5 round trips per event (CAR-152 / R3.2).
+    const ownAddress = (conn.data.gmail_address || "").toLowerCase();
 
+    // Cancelled events (recurring instances included) arrive as status
+    // "cancelled" skeletons, often without start/end. They are excluded from
+    // the upsert set — writing then deleting them would be wasted work.
+    const cancelledGoogleIds: string[] = events
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+      .filter((e: any) => e.status === "cancelled" && e.id)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+      .map((e: any) => e.id);
+
+    const upsertable = events.filter(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+      (e: any) =>
+        e.id &&
+        e.status !== "cancelled" &&
+        (e.start?.dateTime || e.start?.date) &&
+        (e.end?.dateTime || e.end?.date)
+    );
+
+    // Attendee emails are matched lowercased; Gmail-side column normalization
+    // is a separate ticket, but local lowercasing has no dependency on it.
+    const allAttendeeEmails = new Set<string>();
+    for (const event of upsertable) {
+      for (const a of event.attendees || []) {
+        const email = a.email?.toLowerCase();
+        if (email && email !== ownAddress) allAttendeeEmails.add(email);
+      }
+    }
+
+    // Scope the match to THIS user's contacts. contact_emails has no user_id
+    // column, so an unscoped service-client match is global across all tenants
+    // and would write a foreign contact_id onto this user's calendar rows
+    // (CAR-133 / R2.1). Join through contacts.user_id, exactly like
+    // activateContactByEmail in src/lib/gmail.ts. One query per email chunk —
+    // .in() rides the request URL, so keep chunks well under URL limits.
+    const contactIdByEmail = new Map<string, number>();
+    const emailList = [...allAttendeeEmails];
+    for (let i = 0; i < emailList.length; i += 200) {
+      const { data: matched } = await service
+        .from("contact_emails")
+        .select("contact_id, email, contacts!inner(user_id)")
+        .in("email", emailList.slice(i, i + 200))
+        .eq("contacts.user_id", user.id);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+      for (const m of (matched as any[]) || []) {
+        if (m.email && !contactIdByEmail.has(m.email.toLowerCase())) {
+          contactIdByEmail.set(m.email.toLowerCase(), m.contact_id);
+        }
+      }
+    }
+
+    // Build all rows up front; contactIdsByGoogleId feeds the link upserts.
+    const contactIdsByGoogleId = new Map<string, number[]>();
+    const syncedAt = new Date().toISOString();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+    const rowByGoogleId = new Map<string, any>();
+
+    for (const event of upsertable) {
       const startTime = event.start.dateTime || event.start.date;
-      const endTime = event.end?.dateTime || event.end?.date;
-      if (!startTime || !endTime) continue;
+      const endTime = event.end.dateTime || event.end.date;
 
-      // Extract attendees
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
       const attendees = event.attendees?.map((a: any) => ({
         email: a.email,
@@ -125,48 +181,24 @@ export const POST = withApiHandler({
         responseStatus: a.responseStatus || "needsAction",
       })) || [];
 
-      // Extract Meet link
       const meetLink = event.conferenceData?.entryPoints?.find(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
         (ep: any) => ep.entryPointType === "video"
       )?.uri || null;
 
-      // Check if private
       const isPrivate = event.visibility === "private" || event.visibility === "confidential";
 
-      // Match attendees to contacts
-      const attendeeEmails = attendees
+      const matchedIds: number[] = (event.attendees || [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        .map((a: any) => a.email)
-        .filter((e: string) => e !== conn.data.gmail_address);
+        .map((a: any) => (a.email ? contactIdByEmail.get(a.email.toLowerCase()) : undefined))
+        .filter((id: number | undefined): id is number => typeof id === "number");
+      const contactIds = [...new Set(matchedIds)];
+      contactIdsByGoogleId.set(event.id, contactIds);
 
-      let contactId: number | null = null;
-      const contactIds: number[] = [];
-
-      if (attendeeEmails.length > 0) {
-        // Scope the match to THIS user's contacts. contact_emails has no
-        // user_id column, so an unscoped service-client match is global across
-        // all tenants and would write a foreign contact_id onto this user's
-        // calendar rows (CAR-133 / R2.1). Join through contacts.user_id, exactly
-        // like activateContactByEmail in src/lib/gmail.ts.
-        const { data: matched } = await service
-          .from("contact_emails")
-          .select("contact_id, contacts!inner(user_id)")
-          .in("email", attendeeEmails)
-          .eq("contacts.user_id", user.id);
-
-        if (matched) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          const uniqueIds = [...new Set(matched.map((m: any) => m.contact_id))];
-          contactIds.push(...uniqueIds);
-          contactId = uniqueIds[0] || null;
-        }
-      }
-
-      // Upsert on the (user_id, google_event_id) natural key: the row carries no
-      // bigserial id, so a default (PK) conflict target INSERTs every time and
-      // trips the unique constraint (23505), silently dropping event edits (CAR-113).
-      const { error: upsertErr } = await service.from("calendar_events").upsert({
+      // Duplicate ids within one batch (an event updated twice across pages)
+      // must collapse before the bulk upsert — Postgres rejects ON CONFLICT
+      // touching the same row twice. Map insertion keeps the LAST occurrence.
+      rowByGoogleId.set(event.id, {
         user_id: user.id,
         google_event_id: event.id,
         calendar_id: "primary",
@@ -181,44 +213,46 @@ export const POST = withApiHandler({
         attendees,
         is_private: isPrivate,
         recurring_event_id: event.recurringEventId || null,
-        contact_id: contactId,
-        synced_at: new Date().toISOString(),
-      }, { onConflict: "user_id,google_event_id" });
+        contact_id: contactIds[0] ?? null,
+        synced_at: syncedAt,
+      });
+    }
+
+    const rows = [...rowByGoogleId.values()];
+    for (let i = 0; i < rows.length; i += 500) {
+      const chunk = rows.slice(i, i + 500);
+
+      // Upsert on the (user_id, google_event_id) natural key: the row carries no
+      // bigserial id, so a default (PK) conflict target INSERTs every time and
+      // trips the unique constraint (23505), silently dropping event edits
+      // (CAR-113). .select() returns the ids, replacing the per-event re-select.
+      const { data: upserted, error: upsertErr } = await service
+        .from("calendar_events")
+        .upsert(chunk, { onConflict: "user_id,google_event_id" })
+        .select("id, google_event_id");
 
       if (upsertErr) {
-        console.error("Error upserting event:", upsertErr);
+        console.error("Error upserting events:", upsertErr);
         continue;
       }
 
-      // Upsert contact links
-      if (contactIds.length > 0) {
-        const { data: ceData } = await service
-          .from("calendar_events")
-          .select("id")
-          .eq("google_event_id", event.id)
-          .eq("user_id", user.id)
-          .single();
-
-        if (ceData) {
-          for (const cid of contactIds) {
-            await service.from("calendar_event_contacts").upsert({
-              calendar_event_id: ceData.id,
-              contact_id: cid,
-            });
-          }
+      const linkRows: Array<{ calendar_event_id: number; contact_id: number }> = [];
+      for (const row of upserted || []) {
+        for (const cid of contactIdsByGoogleId.get(row.google_event_id) || []) {
+          linkRows.push({ calendar_event_id: row.id, contact_id: cid });
         }
+      }
+
+      if (linkRows.length > 0) {
+        const { error: linkErr } = await service
+          .from("calendar_event_contacts")
+          .upsert(linkRows, { onConflict: "calendar_event_id,contact_id" });
+        if (linkErr) console.error("Error upserting event contact links:", linkErr);
       }
     }
 
-    // Handle cancelled events — these arrive with status "cancelled" and often
-    // lack start/end fields, so they are skipped by the upsert loop above.
-    // Explicitly delete them from the local cache.
-    const cancelledGoogleIds = events
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      .filter((e: any) => e.status === "cancelled" && e.id)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      .map((e: any) => e.id);
-
+    // Delete cancelled events from the local cache — one lookup and one
+    // delete per table instead of two deletes per event.
     if (cancelledGoogleIds.length > 0) {
       const { data: toDelete } = await service
         .from("calendar_events")
@@ -226,9 +260,10 @@ export const POST = withApiHandler({
         .eq("user_id", user.id)
         .in("google_event_id", cancelledGoogleIds);
 
-      for (const row of toDelete || []) {
-        await service.from("calendar_event_contacts").delete().eq("calendar_event_id", row.id);
-        await service.from("calendar_events").delete().eq("id", row.id);
+      const deleteIds = (toDelete || []).map((row) => row.id);
+      if (deleteIds.length > 0) {
+        await service.from("calendar_event_contacts").delete().in("calendar_event_id", deleteIds);
+        await service.from("calendar_events").delete().in("id", deleteIds);
       }
     }
 
