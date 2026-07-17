@@ -32,8 +32,6 @@ import {
   standardizeMonth,
 } from "./lib/profile-format";
 
-declare const chrome: any;
-
 /** Turn a raw auth error into something a user can act on. */
 function friendlyAuthError(message?: string): string {
   const m = (message || "").toLowerCase();

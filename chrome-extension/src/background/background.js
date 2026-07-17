@@ -10,20 +10,32 @@ const ENV = 'development';
 let config = {};
 let configPromise = null;
 
-// Initialize configuration (singleton — safe to call concurrently)
+// Initialize configuration (singleton — safe to call concurrently).
+// The packaged env file (env/<ENV>.json) is the single source of truth for
+// every endpoint and key. There is no inline fallback: a missing or unreadable
+// env file is a broken build, so we fail loudly rather than silently connecting
+// to a hardcoded production stack (which once let dev builds hit prod).
 function ensureConfig() {
   if (!configPromise) {
     configPromise = (async () => {
+      const url = chrome.runtime.getURL(`env/${ENV}.json`);
+      let response;
       try {
-        const response = await fetch(chrome.runtime.getURL(`env/${ENV}.json`));
+        response = await fetch(url);
+      } catch (error) {
+        // Reset so a transient failure can be retried on the next call.
+        configPromise = null;
+        throw new Error(`CareerVine: failed to load packaged env config (${url}): ${error.message}`);
+      }
+      if (!response.ok) {
+        configPromise = null;
+        throw new Error(`CareerVine: packaged env config missing or unreadable (${url}): HTTP ${response.status}`);
+      }
+      try {
         config = await response.json();
       } catch (error) {
-        config = {
-          apiBaseUrl: 'https://www.careervine.app/api',
-          supabaseUrl: 'https://iycrlwqjetkwaauzxrhd.supabase.co',
-          supabaseAnonKey: 'sb_publishable_1WPOaIis1MzOM3SUuW1wMw_l5ZGr3n3',
-          environment: 'production'
-        };
+        configPromise = null;
+        throw new Error(`CareerVine: packaged env config is not valid JSON (${url}): ${error.message}`);
       }
     })();
   }

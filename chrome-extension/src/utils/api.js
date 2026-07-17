@@ -45,6 +45,27 @@ class CareerVineAPI {
   }
 
   /**
+   * Fetch the active environment config from the background worker.
+   * Resolves { apiBaseUrl, environment } — the popup derives its webapp base
+   * URL from apiBaseUrl so dev builds never link to production.
+   */
+  async getConfig() {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action: 'getConfig' }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (response?.error) {
+          reject(new Error(response.error));
+        } else if (response?.apiBaseUrl) {
+          resolve(response);
+        } else {
+          reject(new Error('Config unavailable'));
+        }
+      });
+    });
+  }
+
+  /**
    * Log out user
    */
   async logout() {
