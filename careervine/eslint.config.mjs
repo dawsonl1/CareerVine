@@ -13,6 +13,21 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // The React Compiler static-analysis rules target shipped components. Test
+  // harnesses legitimately reassign module-scoped mocks and poke refs from test
+  // helpers, which trips these rules without indicating a real component bug.
+  // Scope them off for test files only; rules-of-hooks and the rest stay on.
+  {
+    files: ["src/**/*.test.ts", "src/**/*.test.tsx", "src/__tests__/**"],
+    rules: {
+      "react-hooks/globals": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/immutability": "off",
+      "react-hooks/preserve-manual-memoization": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
