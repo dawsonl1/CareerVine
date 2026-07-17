@@ -123,7 +123,7 @@ describe("POST /api/gmail/follow-ups/mark-replied (CAR-102)", () => {
   it("cancels the sequence, activates the contact, records a simulated reply, and fires reply_received once", async () => {
     const { status, data } = await call({ threadId: "t-1", recipientEmail: "jane@corp.com" });
     expect(status).toBe(200);
-    expect(data.ok).toBe(true);
+    expect(data.success).toBe(true);
     expect(data.alreadyMarked).toBe(false);
     expect(state.updates.some((u) => u.table === "email_follow_ups" && u.patch.status === "cancelled_reply")).toBe(true);
     expect(state.updates.some((u) => u.table === "email_follow_up_messages" && u.patch.status === "cancelled")).toBe(true);

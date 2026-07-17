@@ -37,6 +37,10 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
       throw new ApiError("No sent message found on this thread.", 404);
     }
 
-    return recordThreadReply(user.id, threadId, recipientEmail);
+    // One success shape (CAR-149): map the helper's `{ ok, alreadyMarked }` to
+    // the app-wide `{ success: true, ... }` convention — matches the sibling
+    // confirm route, which calls the same helper.
+    const result = await recordThreadReply(user.id, threadId, recipientEmail);
+    return { success: true, alreadyMarked: result.alreadyMarked };
   },
 });
