@@ -44,8 +44,8 @@
     "openai": "^6.22.0",
     "posthog-js": "^1.399.1",
     "posthog-node": "^5.40.0",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "sharp": "^0.35.3",
     "zod": "^4.3.6"
   },
