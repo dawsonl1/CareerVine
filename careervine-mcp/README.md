@@ -64,5 +64,5 @@ npx tsx scripts/e2e.ts "google"                        # production
 ### Architecture notes
 
 - Runs via `tsx` with a `paths` alias mapping `@/*` → `../careervine/src/*`, so it reuses the app's source directly: `gmail.ts` (send/drafts/sync), `calendar.ts`, `email-send.ts` (shared send policy), `company-queries.ts` (service client injected via `setCompanyQueriesClient`), `stage-derivation.ts`, `outreach-queue.ts`, `follow-up-helpers.ts`.
-- The app's `queries.ts` is browser-client based and can't run in Node; the compact service-role equivalents the tools need live in `lib/db.ts`, every query explicitly user-scoped (the service role bypasses RLS, so scoping is the code's job).
+- The app's data layer (`src/lib/data/*` behind the `queries.ts` barrel) relies on RLS for tenant isolation, so it can't run on the service-role client as-is (its `setDataClient()` seam plus explicit scoping is CAR-151's collapse path); the compact service-role equivalents the tools need live in `lib/db.ts`, every query explicitly user-scoped (the service role bypasses RLS, so scoping is the code's job).
 - stdout is the MCP protocol channel — diagnostics go to stderr only.

@@ -434,7 +434,9 @@ export async function getActivityHeatmap(userId: string) {
     if (d) getDay(d).actions++;
   }
   for (const i of interactions) {
-    const d = i.interaction_date;
+    // interaction_date is timestamptz — trim to the YYYY-MM-DD bucket key
+    // like every other source (untrimmed, interactions never matched a day).
+    const d = i.interaction_date?.split("T")[0];
     if (d) getDay(d).conversations++;
   }
 

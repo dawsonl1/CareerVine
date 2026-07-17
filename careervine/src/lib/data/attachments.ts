@@ -5,7 +5,7 @@
  * Client resolution is lazy via db(); functions throw on failure.
  */
 
-import { db, must } from "./client";
+import { db } from "./client";
 
 /**
  * Upload a file to Supabase Storage and create an attachment record.
@@ -120,8 +120,10 @@ export async function getAttachmentUrl(objectPath: string, expiresIn = 3600) {
 }
 
 /**
- * Delete an attachment: removes the storage object, the attachment row,
- * and any junction table links.
+ * Delete an attachment: removes the storage object and the attachment row.
+ * Junction links (contact/meeting/interaction_attachments) are cleaned up
+ * by their ON DELETE CASCADE foreign keys (migration 20260711130000), so no
+ * client-side unlink round-trips are needed.
  *
  * @param attachmentId - The attachment's ID
  * @param objectPath - The storage object path to delete
@@ -134,13 +136,7 @@ export async function deleteAttachment(attachmentId: number, objectPath: string)
     .remove([objectPath]);
   if (storageError) throw storageError;
 
-  // Remove junction table links. must(): a silently-failed unlink either
-  // orphans junction rows or makes the record delete below fail unexplained.
-  must(await db().from("contact_attachments").delete().eq("attachment_id", attachmentId));
-  must(await db().from("meeting_attachments").delete().eq("attachment_id", attachmentId));
-  must(await db().from("interaction_attachments").delete().eq("attachment_id", attachmentId));
-
-  // Remove attachment record
+  // Remove attachment record (junction rows cascade)
   const { error } = await db().from("attachments").delete().eq("id", attachmentId);
   if (error) throw error;
 }

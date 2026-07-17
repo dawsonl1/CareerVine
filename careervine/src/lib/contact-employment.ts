@@ -5,7 +5,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
-import { chunked } from "@/lib/data/postgrest";
+import { chunked, chunkList } from "@/lib/data/postgrest";
 
 export type ContactEmployment = {
   id: number;
@@ -56,9 +56,7 @@ export async function resolveEmailsToContactIds(
   const map = new Map<string, number>();
   if (variants.size === 0) return map;
 
-  const list = [...variants];
-  for (let i = 0; i < list.length; i += 200) {
-    const chunk = list.slice(i, i + 200);
+  for (const chunk of chunkList([...variants], 200)) {
     const { data, error } = await service
       .from("contact_emails")
       .select("email, contact_id, contacts!inner(user_id)")

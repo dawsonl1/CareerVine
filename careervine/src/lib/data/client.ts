@@ -2,10 +2,17 @@
  * Shared Supabase client seam for the src/lib/data query modules (CAR-146).
  *
  * The client is resolved lazily so these modules can run outside the
- * browser: a server or MCP context injects its own client via
- * setDataClient() (all queries are user-scoped, mirroring the
- * company-queries seam); the app falls back to the usual browser
- * singleton on first use. Nothing is created at import time.
+ * browser without creating anything at import time; the app falls back to
+ * the usual browser singleton on first db() call.
+ *
+ * Injection trust model: most queries in src/lib/data rely on RLS (anon
+ * key + user session) for tenant isolation — many filter only by row id,
+ * not user_id — so setDataClient() may only receive a client that
+ * preserves per-user authorization. NEVER inject the service-role client
+ * without first adding explicit ownership scoping at every call site (see
+ * src/mcp/lib/db.ts for that model; the MCP collapse is CAR-151's scope).
+ * The slot is also a module-global singleton, not per-request state — in a
+ * multi-user server process a per-user client must not be parked here.
  */
 
 import type { PostgrestSingleResponse } from "@supabase/supabase-js";

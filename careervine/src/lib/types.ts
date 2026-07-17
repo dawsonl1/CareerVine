@@ -122,16 +122,6 @@ export type ContactMeeting = {
   transcript: string | null;
 };
 
-/** Follow-up reminder as returned in getHomeCoreData().followUps */
-export type FollowUpReminder = {
-  id: number;
-  name: string;
-  industry: string | null;
-  follow_up_frequency_days: number;
-  last_touch: string | null;
-  days_overdue: number;
-};
-
 // ── Gmail types ──
 
 /** Gmail connection status (safe projection without tokens) */

@@ -39,21 +39,34 @@ function getSuggestionCooldownTimestamp(): string {
 export async function buildLastTouchMap(contactIds: number[]): Promise<Map<number, string>> {
   if (contactIds.length === 0) return new Map();
 
+  // Each chunk's rows are paginated too: 200 contacts can carry well over
+  // 1000 touches between them, and PostgREST truncates silently at its row
+  // cap. meeting_contacts has no id column — (contact_id, meeting_id) is
+  // its unique composite, so that pair is the stable pagination order.
   const [meetingLinks, interactions] = await Promise.all([
     chunked(contactIds, async (chunk) =>
-      must(
-        await db()
-          .from("meeting_contacts")
-          .select("contact_id, meetings(meeting_date)")
-          .in("contact_id", chunk),
+      paginateAll(async (from, to) =>
+        must(
+          await db()
+            .from("meeting_contacts")
+            .select("contact_id, meetings(meeting_date)")
+            .in("contact_id", chunk)
+            .order("contact_id")
+            .order("meeting_id")
+            .range(from, to),
+        ),
       ),
     ),
     chunked(contactIds, async (chunk) =>
-      must(
-        await db()
-          .from("interactions")
-          .select("contact_id, interaction_date")
-          .in("contact_id", chunk),
+      paginateAll(async (from, to) =>
+        must(
+          await db()
+            .from("interactions")
+            .select("contact_id, interaction_date")
+            .in("contact_id", chunk)
+            .order("id")
+            .range(from, to),
+        ),
       ),
     ),
   ]);

@@ -115,7 +115,8 @@ export async function getContacts(
   const statuses = opts.networkStatuses ?? ["active", "prospect"];
 
   // Paginate: bulk imports push contact counts past PostgREST's row cap,
-  // and the old limit(500) silently truncated.
+  // and the old limit(500) silently truncated. id breaks name ties so the
+  // range windows stay stable between requests.
   return await paginateAll<unknown>(async (from, to) =>
     must(
       await db()
@@ -124,6 +125,7 @@ export async function getContacts(
         .eq("user_id", userId)
         .in("network_status", statuses)
         .order("name")
+        .order("id")
         .range(from, to),
     ),
   );
@@ -136,8 +138,9 @@ export async function getContacts(
  *
  * The first page is deliberately small (`FIRST_PAGE`) for a fast first paint;
  * subsequent pages are large to minimise round-trips on big networks. Pages
- * are contiguous ranges over a stable `order("name")`, so appending them in
- * call order yields the same name-sorted list `getContacts` returns.
+ * are contiguous ranges over `order("name")` with `id` as the tiebreak (a
+ * stable total order), so appending them in call order yields the same
+ * name-sorted list `getContacts` returns.
  *
  * Uses the lean CONTACTS_LIST_SELECT (row shape = `ContactListItem`), not the
  * full CONTACTS_SELECT — the list view doesn't need the wide leaf-table columns.
@@ -164,6 +167,7 @@ export async function getContactsStreamed(
       .eq("user_id", userId)
       .in("network_status", statuses)
       .order("name")
+      .order("id")
       .range(from, from + size - 1);
 
     if (error) throw error;
@@ -324,31 +328,38 @@ export async function deleteContact(id: number) {
   // (pipeline tranches, bundle syncs) can't silently resurrect a contact
   // the user deleted. Manual contacts skip this — nothing re-imports them,
   // and a tombstone would block a future intentional import of the person.
+  // The whole block is best-effort: the contact row is already gone, so
+  // tombstone bookkeeping must never fail the delete itself.
   if (contact?.import_source && contact.linkedin_url && contact.user_id) {
     const canonical = canonicalizeLinkedinUrl(contact.linkedin_url);
     if (canonical) {
-      // A surviving duplicate contact with the same URL still wants import
-      // refreshes — suppressing it would silently freeze that contact.
-      // must(): an errored probe must not be mistaken for "no survivor".
-      const survivor = must(
-        await db()
-          .from("contacts")
-          .select("id")
-          .eq("user_id", contact.user_id)
-          .eq("linkedin_url", canonical)
-          .limit(1)
-          .maybeSingle(),
-      );
-      if (!survivor) {
-        const { error: tombstoneError } = await db()
-          .from("suppressed_imports")
-          .upsert(
-            { user_id: contact.user_id, linkedin_url: canonical },
-            { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
-          );
-        if (tombstoneError) {
-          console.warn(`[deleteContact] Tombstone write failed for contact ${id}:`, tombstoneError);
+      try {
+        // A surviving duplicate contact with the same URL still wants import
+        // refreshes — suppressing it would silently freeze that contact.
+        // must(): an errored probe must not be mistaken for "no survivor";
+        // the catch below skips the tombstone instead of writing a wrong one.
+        const survivor = must(
+          await db()
+            .from("contacts")
+            .select("id")
+            .eq("user_id", contact.user_id)
+            .eq("linkedin_url", canonical)
+            .limit(1)
+            .maybeSingle(),
+        );
+        if (!survivor) {
+          const { error: tombstoneError } = await db()
+            .from("suppressed_imports")
+            .upsert(
+              { user_id: contact.user_id, linkedin_url: canonical },
+              { onConflict: "user_id,linkedin_url", ignoreDuplicates: true },
+            );
+          if (tombstoneError) {
+            console.warn(`[deleteContact] Tombstone write failed for contact ${id}:`, tombstoneError);
+          }
         }
+      } catch (probeError) {
+        console.warn(`[deleteContact] Survivor probe failed for contact ${id}; skipping tombstone:`, probeError);
       }
     }
   }
@@ -423,6 +434,8 @@ export async function markEmailVerified(emailId: number) {
 export async function activateContacts(contactIds: number[]) {
   if (contactIds.length === 0) return;
   for (const chunk of chunkList(contactIds, 200)) {
+    // error-tolerated: deliberate fire-and-forget — activation piggybacks on
+    // the user's real action (logging a touch), which must never fail on it.
     const { error } = await db()
       .from("contacts")
       .update({ network_status: "active" })
@@ -446,6 +459,8 @@ export async function getNetworkTierCounts() {
   // network_tier_counts isn't in the generated types, so the row comes back as
   // {}; the function returns one row of bigint counts (serialized as numbers).
   const row = data as { active: number; prospect: number; bench: number } | null;
+  // error-tolerated: the tier chips render 0s and correct themselves when
+  // the full contact payload lands moments later.
   if (error || !row) return { active: 0, prospect: 0, bench: 0 };
   return {
     active: Number(row.active) || 0,
@@ -570,13 +585,23 @@ export async function findOrCreateSchool(name: string) {
   );
   if (existing) return existing;
 
-  // Create new
+  // Create new. Concurrent saves of the same new name race here: schools.name
+  // is UNIQUE, so the loser refetches the winner's row instead of failing the
+  // whole contact save (same recovery as company-helpers' find-or-creates).
   const { data, error } = await db()
     .from("schools")
     .insert({ name })
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23505") {
+      const winner = must(
+        await db().from("schools").select("*").eq("name", name).maybeSingle(),
+      );
+      if (winner) return winner;
+    }
+    throw error;
+  }
   return data;
 }
 
@@ -589,29 +614,25 @@ export async function findOrCreateSchool(name: string) {
  * @throws Error if creation fails
  */
 export async function findOrCreateLocation(location: { city: string | null; state: string | null; country: string }) {
-  // Try to find existing with exact match
-  let query = db().from("locations").select("*");
-
-  if (location.city) {
-    query = query.eq("city", location.city);
-  } else {
-    query = query.is("city", null);
-  }
-
-  if (location.state) {
-    query = query.eq("state", location.state);
-  } else {
-    query = query.is("state", null);
-  }
-
-  query = query.eq("country", location.country);
+  // Probe for an existing exact match. limit(1) keeps maybeSingle() from
+  // erroring when historical duplicates exist — UNIQUE(city,state,country)
+  // is NULLS DISTINCT, so NULL-component tuples can legitimately hold more
+  // than one row; any one of them is the right answer.
+  const probe = () => {
+    let query = db().from("locations").select("*");
+    query = location.city ? query.eq("city", location.city) : query.is("city", null);
+    query = location.state ? query.eq("state", location.state) : query.is("state", null);
+    return query.eq("country", location.country).order("id").limit(1).maybeSingle();
+  };
 
   // must(): an errored probe must not fall through to the insert and
   // create a duplicate row.
-  const existing = must(await query.maybeSingle());
+  const existing = must(await probe());
   if (existing) return existing;
 
-  // Create new
+  // Create new. Concurrent saves of the same non-NULL tuple race on the
+  // unique constraint: the loser refetches the winner's row instead of
+  // failing the whole contact save.
   const { data, error } = await db()
     .from("locations")
     .insert({
@@ -621,7 +642,13 @@ export async function findOrCreateLocation(location: { city: string | null; stat
     })
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23505") {
+      const winner = must(await probe());
+      if (winner) return winner;
+    }
+    throw error;
+  }
   return data;
 }
 

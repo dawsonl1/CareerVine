@@ -30,8 +30,8 @@ Done. `ToastProvider` + `useToast()` hook mounted at the layout level. Supports 
 ### CI/CD Pipeline (GitHub Actions)
 No automated checks on push or PR. Set up: TypeScript type-check, ESLint, Vitest run, and build verification on every PR. Prevents regressions and enforces quality without manual effort.
 
-### Split queries.ts by Domain
-queries.ts is 1,238 lines with 50+ functions covering contacts, meetings, gmail, calendar, and action items. Split into `queries/contacts.ts`, `queries/meetings.ts`, etc. Easier to navigate, smaller imports, clearer ownership.
+### Split queries.ts by Domain — ✅ done (CAR-146, 2026-07-17)
+Shipped as `src/lib/data/{contacts,interactions,meetings,action-items,follow-ups,home,attachments,users}.ts` behind a lazy `db()` client seam, with `queries.ts` kept as a frozen re-export barrel for existing importers.
 
 ---
 
