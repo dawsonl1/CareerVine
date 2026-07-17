@@ -1,5 +1,10 @@
 /**
- * Zod validation schemas for all API routes.
+ * Shared Zod validation schemas for API routes.
+ *
+ * This is the shared/default home for cross-route and non-trivial request
+ * schemas. Route-specific schemas MAY colocate in their own route.ts when they
+ * aren't reused elsewhere (admin routes and a few follow-up routes do this) —
+ * colocation is a blessed choice, not a violation (CAR-149).
  *
  * Naming convention:  <domain><Action>Schema
  * e.g. gmailSendSchema, calendarCreateEventSchema
@@ -23,6 +28,15 @@ export { extensionParseProfileSchema };
 
 const optionalString = z.string().optional();
 const optionalNumber = z.coerce.number().optional();
+
+/**
+ * Params schema for `[id]` dynamic routes (CAR-149, F47). Coerces the string
+ * path segment to a positive integer; a non-numeric or absent id becomes a 400
+ * via the wrapper's `paramsSchema`, replacing per-route Number()+isNaN guards.
+ */
+export const idParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
 
 /**
  * CAR-143 (R5.1): strings that get interpolated into MIME headers (recipients,
@@ -103,7 +117,10 @@ export const gmailAiWriteMeetingsQuerySchema = z.object({
 });
 
 export const gmailAiWriteResolveContactQuerySchema = z.object({
-  email: z.string().min(1, "email is required"),
+  // Validate as an email (CAR-149, F48): the value is interpolated into a
+  // PostgREST `.or()` filter, so rejecting non-emails at the boundary — paired
+  // with sanitizeForPostgrest in the route — closes that injection surface.
+  email: z.string().email(),
 });
 
 const followUpMessageSchema = z.object({

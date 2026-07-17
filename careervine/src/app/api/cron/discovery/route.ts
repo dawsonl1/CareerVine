@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Receiver } from "@upstash/qstash";
+import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { triggerDiscoveryBatch } from "@/lib/apify/discovery";
 import { isApifyConfigured } from "@/lib/apify/client";
-
-const receiver = new Receiver({
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
-  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY || "",
-});
 
 export const maxDuration = 60;
 
@@ -23,15 +18,9 @@ export const maxDuration = 60;
  * index) and both spend caps fail closed.
  */
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.text();
-    const signature = req.headers.get("upstash-signature") || "";
-    await receiver.verify({ body, signature, url: req.url });
-  } catch {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
-
-  return withCronGuard("/api/cron/discovery", () => runJob());
+  return withQStashVerification(req, () =>
+    withCronGuard("/api/cron/discovery", () => runJob()),
+  );
 }
 
 async function runJob(): Promise<NextResponse> {

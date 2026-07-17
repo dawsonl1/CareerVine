@@ -13,6 +13,7 @@
  */
 
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { idParamSchema } from "@/lib/api-schemas";
 import { validateContactPhotoFile } from "@/lib/contact-photo";
 import { makePhotoThumb } from "@/lib/photo-thumb";
 import { userPhotoKey, putPhotoObject, r2PublicUrl } from "@/lib/r2";
@@ -38,11 +39,9 @@ async function getOwnedContactPhoto(
 }
 
 export const POST = withApiHandler({
+  paramsSchema: idParamSchema,
   handler: async ({ request, user, supabase, params }) => {
-    const contactId = Number(params.id);
-    if (!Number.isInteger(contactId) || contactId <= 0) {
-      throw new ApiError("Invalid contact id", 400);
-    }
+    const contactId = params.id;
 
     let form: FormData;
     try {
@@ -84,11 +83,9 @@ export const POST = withApiHandler({
 });
 
 export const DELETE = withApiHandler({
+  paramsSchema: idParamSchema,
   handler: async ({ user, supabase, params }) => {
-    const contactId = Number(params.id);
-    if (!Number.isInteger(contactId) || contactId <= 0) {
-      throw new ApiError("Invalid contact id", 400);
-    }
+    const contactId = params.id;
 
     const prevUrl = await getOwnedContactPhoto(supabase, user.id, contactId);
     if (prevUrl) {

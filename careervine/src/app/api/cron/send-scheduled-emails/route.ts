@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Receiver } from "@upstash/qstash";
+import { withQStashVerification } from "@/lib/qstash-verify";
 import { processDueScheduledEmails } from "@/lib/scheduled-email-cron";
 import { withCronGuard } from "@/lib/cron-guard";
 
 export const maxDuration = 60;
-
-const receiver = new Receiver({
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
-  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY || "",
-});
 
 /**
  * POST /api/cron/send-scheduled-emails
@@ -16,16 +11,8 @@ const receiver = new Receiver({
  * across users so delivery does not depend on UI activity.
  */
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.text();
-    const signature = req.headers.get("upstash-signature") || "";
-    await receiver.verify({ body, signature, url: req.url });
-  } catch {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
-
-  return withCronGuard("/api/cron/send-scheduled-emails", async () => {
+  return withQStashVerification(req, () => withCronGuard("/api/cron/send-scheduled-emails", async () => {
     const result = await processDueScheduledEmails();
     return NextResponse.json(result);
-  });
+  }));
 }

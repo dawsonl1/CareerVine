@@ -21,5 +21,5 @@ export const POST = withApiHandler({
   schema: extensionPingSchema,
   extensionAuth: true,
   cors: true,
-  handler: async () => ({ ok: true }),
+  handler: async () => ({ success: true }),
 });

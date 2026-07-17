@@ -6,6 +6,7 @@
 
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import { trackServer } from "@/lib/analytics/server";
 
 export type RateLimitWindow = Parameters<typeof Ratelimit.slidingWindow>[1];
 
@@ -32,16 +33,31 @@ export interface RateLimitResult {
 
 let redis: Redis | null | undefined;
 const limiters = new Map<string, Ratelimit>();
+/** Buckets that have already emitted the fail-open guardrail (once per process). */
+const degradedBuckets = new Set<string>();
 
 function getRedis(): Redis | null {
   if (redis !== undefined) return redis;
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    console.warn("[rate-limit] Upstash env vars not set — rate limiting disabled");
+    // Error-level (CAR-149): a missing limiter silently removes protection from
+    // every fail-open bucket. Loud so a misconfigured deploy is not invisible.
+    console.error("[rate-limit] Upstash env vars not set — rate limiting disabled (fail-open buckets are unthrottled)");
     redis = null;
     return null;
   }
   redis = Redis.fromEnv();
   return redis;
+}
+
+/**
+ * Fire the fail-open guardrail once per bucket (CAR-149): a protected route lost
+ * its limiter and is now unthrottled. Fire-and-forget under a system distinct id
+ * (no acting user), mirroring trackCronError; never blocks or throws.
+ */
+function reportDegradeOnce(bucket: string): void {
+  if (degradedBuckets.has(bucket)) return;
+  degradedBuckets.add(bucket);
+  void trackServer("system:rate-limit", "rate_limit_degraded", { bucket }).catch(() => {});
 }
 
 function getLimiter(options: RateLimitOptions): Ratelimit | null {
@@ -72,6 +88,9 @@ export async function checkRateLimit(
       console.error(`[rate-limit] no limiter for fail-closed bucket ${options.bucket} — denying`);
       return { allowed: false, remaining: 0, resetAt: null };
     }
+    // Fail open: allowed through with no limit. Surface it as a guardrail so a
+    // misconfigured Upstash doesn't quietly strip protection off this bucket.
+    reportDegradeOnce(options.bucket);
     return { allowed: true, remaining: options.limit, resetAt: null };
   }
 
@@ -93,4 +112,5 @@ export async function checkRateLimit(
 export function resetRateLimitersForTests(): void {
   redis = undefined;
   limiters.clear();
+  degradedBuckets.clear();
 }

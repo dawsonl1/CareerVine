@@ -8,6 +8,24 @@
  *       return { myData: 123 };
  *     },
  *   });
+ *
+ * ── Route conventions this wrapper settles (CAR-149) ─────────────────────
+ *
+ * • authOptional typing: `authOptional: true` handlers receive `user: User |
+ *   null` at compile time; every other route receives a non-null `User`. This
+ *   is enforced by the two overloads below — no `as User` casts needed.
+ *
+ * • paramsSchema: validate dynamic `[id]` params declaratively (a bad param is
+ *   a 400) instead of hand-rolling `Number(params.x)` + isNaN in each route.
+ *
+ * • One success shape: JSON success responses use `{ success: true, ... }` (not
+ *   `ok: true`). Callers that need a boolean should read the HTTP status. Admin
+ *   routes keep their own internally consistent convention.
+ *
+ * • Curated errors only: never interpolate a raw DB/driver `error.message` into
+ *   an ApiError message or a client-visible `errors[]` entry — those can leak
+ *   schema/internal detail. Throw a curated, user-safe message and log the raw
+ *   error with console.error for diagnosis.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -28,19 +46,31 @@ export class ApiError extends Error {
     public status: number = 400,
     /** Optional machine-readable code so clients can map errors to UX copy. */
     public code?: string,
+    /**
+     * Optional response headers to attach when this error becomes a response
+     * (e.g. Retry-After on a 429). The wrapper's catch merges these over the
+     * base headers — the only way a thrown ApiError can carry a header out
+     * through the uniform catch path (CAR-149).
+     */
+    public headers?: Record<string, string>,
   ) {
     super(message);
     this.name = "ApiError";
   }
 }
 
-interface HandlerContext<TBody = unknown, TQuery = unknown> {
+interface HandlerContext<
+  TBody = unknown,
+  TQuery = unknown,
+  TParams = Record<string, string>,
+  TUser = User,
+> {
   request: NextRequest;
-  user: User;
+  user: TUser;
   supabase: SupabaseClient;
   body: TBody;
   query: TQuery;
-  params: Record<string, string>;
+  params: TParams;
   /**
    * Record a product-analytics event for the authenticated user (CAR-38).
    * Fire-and-forget from the handler's perspective — the wrapper awaits all
@@ -57,11 +87,20 @@ interface HandlerContext<TBody = unknown, TQuery = unknown> {
   defer: (p: Promise<unknown>) => void;
 }
 
-interface RouteConfig<TBody = unknown, TQuery = unknown> {
+/** Config shared by both overloads — everything except the auth-typed handler. */
+interface BaseRouteConfig<TBody, TQuery, TParams> {
   /** Zod schema for the JSON request body (POST/PUT/PATCH). */
   schema?: ZodSchema<TBody>;
   /** Zod schema for URL search params. Values arrive as strings. */
   querySchema?: ZodSchema<TQuery>;
+  /**
+   * Zod schema for the dynamic route params (`context.params`, e.g. `[id]`).
+   * Values arrive as strings; use `z.coerce` for numeric ids. A parse failure
+   * is a 400 — the single declarative place to reject a malformed `[id]`
+   * instead of a hand-rolled `Number()` + isNaN in every route (CAR-149, F47).
+   * When unset, `params` stays `Record<string, string>`.
+   */
+  paramsSchema?: ZodSchema<TParams>;
   /** Use Chrome-extension auth (Bearer token or cookie). */
   extensionAuth?: boolean;
   /**
@@ -74,8 +113,6 @@ interface RouteConfig<TBody = unknown, TQuery = unknown> {
   stampExtensionSeen?: boolean;
   /** Include CORS headers on the response. */
   cors?: boolean;
-  /** When true, auth is attempted but handler runs even if user is null. Handler receives user as User | null. */
-  authOptional?: boolean;
   /** When true, the authenticated user must carry app_metadata.role === 'admin' or the request is rejected with 403. */
   requireAdmin?: boolean;
   /**
@@ -91,9 +128,12 @@ interface RouteConfig<TBody = unknown, TQuery = unknown> {
    * returns 429 `{ error, code: 'rate_limited', resetAt }` with Retry-After.
    */
   rateLimit?: RateLimitOptions;
-  /** The actual route logic. Return data to send as JSON. */
-  handler: (ctx: HandlerContext<TBody, TQuery>) => Promise<unknown>;
 }
+
+type RouteHandler = (
+  request: NextRequest,
+  context?: { params?: Promise<Record<string, string>> },
+) => Promise<NextResponse>;
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -118,14 +158,64 @@ function jsonResponse(
 }
 
 // ── Core wrapper ───────────────────────────────────────────────────────
+//
+// Two overloads key the handler's `user` type on the `authOptional` literal so
+// the compiler tells the truth about nullability (CAR-149, F20): an authOptional
+// route may see `null`; every other route is guaranteed a non-null `User`.
 
-export function withApiHandler<TBody = unknown, TQuery = unknown>(
-  config: RouteConfig<TBody, TQuery>,
-) {
+/** authOptional: true → the handler receives `user: User | null` (may be null). */
+export function withApiHandler<
+  TBody = unknown,
+  TQuery = unknown,
+  TParams = Record<string, string>,
+>(
+  config: BaseRouteConfig<TBody, TQuery, TParams> & {
+    /** Auth is attempted but the handler runs even if no user resolves. */
+    authOptional: true;
+    handler: (
+      ctx: HandlerContext<TBody, TQuery, TParams, User | null>,
+    ) => Promise<unknown>;
+  },
+): RouteHandler;
+
+/** Default: an authenticated route → the handler receives a non-null `User`. */
+export function withApiHandler<
+  TBody = unknown,
+  TQuery = unknown,
+  TParams = Record<string, string>,
+>(
+  config: BaseRouteConfig<TBody, TQuery, TParams> & {
+    authOptional?: false;
+    handler: (
+      ctx: HandlerContext<TBody, TQuery, TParams, User>,
+    ) => Promise<unknown>;
+  },
+): RouteHandler;
+
+// The implementation signature must be assignable-from BOTH overloads, whose
+// handler `user` types (User vs User | null) are mutually incompatible under
+// strictFunctionTypes — so the handler ctx here is intentionally `any` (which
+// is bivariant and unifies both). Only the two overloads above are callable
+// externally; they carry all the real type safety. Inside, `user` is narrowed
+// to `User | null` by hand.
+export function withApiHandler(config: {
+  schema?: ZodSchema<unknown>;
+  querySchema?: ZodSchema<unknown>;
+  paramsSchema?: ZodSchema<unknown>;
+  extensionAuth?: boolean;
+  stampExtensionSeen?: boolean;
+  cors?: boolean;
+  authOptional?: boolean;
+  requireAdmin?: boolean;
+  requireCapability?: Capability;
+  rateLimit?: RateLimitOptions;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-149: `any` user makes the ctx param bivariant so both overloads (User vs User|null) unify
+  handler: (ctx: HandlerContext<any, any, any, any>) => Promise<unknown>;
+}): RouteHandler {
   return async (
     request: NextRequest,
     context?: { params?: Promise<Record<string, string>> },
-  ) => {
+  ): Promise<NextResponse> => {
     const headers = config.cors ? corsHeaders : undefined;
 
     // Analytics captures started during this request; awaited (never thrown)
@@ -135,7 +225,9 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
 
     try {
       // ── Auth ────────────────────────────────────────────────────
-      let user: User;
+      // Null only when authOptional resolves no user (an early 401 otherwise),
+      // so the overloads above hand a non-null User to every other route.
+      let user: User | null;
       let supabase: SupabaseClient;
 
       if (config.extensionAuth) {
@@ -168,7 +260,7 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
         } = await supabase.auth.getUser();
         if (!u || authError) {
           if (config.authOptional) {
-            user = null as unknown as User;
+            user = null;
           } else {
             return jsonResponse({ error: "Unauthorized" }, 401, headers);
           }
@@ -206,7 +298,7 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
       // The admin claim lives in auth.users.app_metadata.role (service-role
       // writable only), so it cannot be spoofed by the client.
       if (config.requireAdmin) {
-        const role = (user as User | null)?.app_metadata?.role;
+        const role = user?.app_metadata?.role;
         if (role !== "admin") {
           return jsonResponse({ error: "Forbidden" }, 403, headers);
         }
@@ -217,7 +309,7 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
       // resolved server-side; a missing capability is a 403. Null-guarded so
       // an authOptional route with no user fails closed to 403, not a 500.
       if (config.requireCapability) {
-        const capUserId = (user as User | null)?.id;
+        const capUserId = user?.id;
         const caps = capUserId
           ? await resolveCapabilities(capUserId)
           : new Set<Capability>();
@@ -232,9 +324,9 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
 
       // ── Rate limit ──────────────────────────────────────────────
       // Runs before body parse so over-limit requests stay cheap. The 429
-      // is returned directly (not thrown as ApiError) because the catch
-      // path cannot carry the Retry-After header.
-      const rateLimitUserId = (user as User | null)?.id;
+      // is returned directly (not thrown as ApiError) because it needs the
+      // Retry-After header on the response.
+      const rateLimitUserId = user?.id;
       if (config.rateLimit && rateLimitUserId) {
         const rate = await checkRateLimit(rateLimitUserId, config.rateLimit);
         if (!rate.allowed) {
@@ -257,10 +349,22 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
       }
 
       // ── Path params ─────────────────────────────────────────────
-      const params = context?.params ? await context.params : {};
+      const rawParams = context?.params ? await context.params : {};
+      let params: unknown = rawParams;
+      if (config.paramsSchema) {
+        const result = config.paramsSchema.safeParse(rawParams);
+        if (!result.success) {
+          return jsonResponse(
+            { error: formatZodErrors(result.error) },
+            400,
+            headers,
+          );
+        }
+        params = result.data;
+      }
 
       // ── Body validation ─────────────────────────────────────────
-      let body = {} as TBody;
+      let body: unknown = {};
       if (config.schema) {
         let raw: unknown;
         try {
@@ -284,7 +388,7 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
       }
 
       // ── Query validation ────────────────────────────────────────
-      let query = {} as TQuery;
+      let query: unknown = {};
       if (config.querySchema) {
         const raw = Object.fromEntries(request.nextUrl.searchParams.entries());
         const result = config.querySchema.safeParse(raw);
@@ -299,7 +403,7 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
       }
 
       // ── Handler ─────────────────────────────────────────────────
-      trackUserId = (user as User | null)?.id ?? null;
+      trackUserId = user?.id ?? null;
       const data = await config.handler({
         request,
         user,
@@ -327,7 +431,7 @@ export function withApiHandler<TBody = unknown, TQuery = unknown>(
             ? { error: error.message, code: error.code }
             : { error: error.message },
           error.status,
-          headers,
+          error.headers ? { ...headers, ...error.headers } : headers,
         );
       }
 

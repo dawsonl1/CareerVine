@@ -52,6 +52,19 @@ export function sanitizeForPostgrest(s: string): string {
   return s.replace(/[%_\\.,()'"]/g, '');
 }
 
+/**
+ * Strip only the STRUCTURAL metacharacters of a PostgREST `.or()` / array
+ * literal (`,`, `(`, `)`, `{`, `}`) from a value interpolated into one. Unlike
+ * sanitizeForPostgrest it preserves `.`, `@`, `-`, `+`, so it is SAFE for exact
+ * eq/email values (sanitizeForPostgrest would strip the domain dots and break
+ * the match). Defense-in-depth behind schema validation (CAR-149, F48) — a
+ * value already validated as an email has none of these, so it passes through
+ * unchanged, but a schema regression can't reopen the injection surface.
+ */
+export function stripPostgrestOrMetachars(s: string): string {
+  return s.replace(/[,(){}]/g, '');
+}
+
 // The builders defensively read only a handful of scalar profile fields (never
 // location/experience/education/suggested_tags — those are handled by the route
 // itself), so they accept a Partial: the route passes a full parsed ProfileData,

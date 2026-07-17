@@ -12,7 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { Receiver } from "@upstash/qstash";
+import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
@@ -92,21 +92,10 @@ async function resolveStaleBundles(
   return { resolved, stillBehind };
 }
 
-const receiver = new Receiver({
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || "",
-  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY || "",
-});
-
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.text();
-    const signature = req.headers.get("upstash-signature") || "";
-    await receiver.verify({ body, signature, url: req.url });
-  } catch {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
-
-  return withCronGuard("/api/cron/sync-bundles", () => runJob(req));
+  return withQStashVerification(req, () =>
+    withCronGuard("/api/cron/sync-bundles", () => runJob(req)),
+  );
 }
 
 async function runJob(req: NextRequest): Promise<NextResponse> {

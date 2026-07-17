@@ -58,8 +58,8 @@ export async function POST(req: NextRequest) {
     // (minutes) instead of waiting on the 24h sweep. The row stays 'pending'
     // for that backstop either way.
     console.error("[apify-callback] ingest failed:", err);
-    return NextResponse.json({ ok: false }, { status: 503 });
+    return NextResponse.json({ success: false }, { status: 503 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ success: true });
 }

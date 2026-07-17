@@ -91,7 +91,10 @@ export async function resolveContactLinkedin(userId: string, contactId: number):
     cost_usd: RESOLVE_COST_USD,
     finished_at: new Date().toISOString(),
   });
-  if (ledgerError) throw new ApiError(`Could not record the search: ${ledgerError.message}`, 500);
+  if (ledgerError) {
+    console.error("[apify/resolver] scrape_runs ledger insert failed:", ledgerError);
+    throw new ApiError("Could not record the search. Please try again.", 500);
+  }
 
   const items = await searchProfilesByName({
     firstName,

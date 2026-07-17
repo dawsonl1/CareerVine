@@ -24,6 +24,15 @@ vi.mock('@upstash/ratelimit', () => {
   return { Ratelimit: MockRatelimit };
 });
 
+// Guardrail emitter is mocked so the fail-open path can be asserted without a
+// real analytics/Supabase round-trip. hoisted so the vi.mock factory can use it.
+const { trackServerSpy } = vi.hoisted(() => ({
+  trackServerSpy: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@/lib/analytics/server', () => ({
+  trackServer: trackServerSpy,
+}));
+
 import { Ratelimit } from '@upstash/ratelimit';
 import { checkRateLimit, resetRateLimitersForTests } from '@/lib/rate-limit';
 
@@ -81,11 +90,11 @@ describe('checkRateLimit', () => {
     expect(MockRatelimit.slidingWindow).toHaveBeenCalledWith(5, '1 h');
   });
 
-  it('allows everything (graceful no-op) when Upstash env vars are absent', async () => {
+  it('allows (fail-open) when Upstash env is absent, logs error once, and fires the guardrail once per bucket', async () => {
     vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
     vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '');
     resetRateLimitersForTests();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const result = await checkRateLimit('user-1', OPTIONS);
 
@@ -93,11 +102,17 @@ describe('checkRateLimit', () => {
     expect(MockRatelimit.instances).toHaveLength(0);
     expect(MockRatelimit.limitMock).not.toHaveBeenCalled();
 
-    // Disabled state is logged once, not per call
+    // Fail-open guardrail: escalated to error-level, emitted once per bucket
+    // (not per call), so a misconfigured Upstash surfaces instead of silently
+    // stripping protection (CAR-149).
     await checkRateLimit('user-1', OPTIONS);
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(trackServerSpy).toHaveBeenCalledTimes(1);
+    expect(trackServerSpy).toHaveBeenCalledWith('system:rate-limit', 'rate_limit_degraded', {
+      bucket: 'test-bucket',
+    });
 
-    warn.mockRestore();
+    error.mockRestore();
   });
 
   // ── CAR-143 (R5.3): fail-closed AI buckets ───────────────────────────

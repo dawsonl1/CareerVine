@@ -1,4 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { idParamSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { REDACTED_CANDIDATE_FIELDS } from "@/lib/data-retention";
 
@@ -10,9 +11,9 @@ import { REDACTED_CANDIDATE_FIELDS } from "@/lib/data-retention";
  * needed, only the identity tombstone that keeps the dismiss sticky.
  */
 export const POST = withApiHandler({
+  paramsSchema: idParamSchema,
   handler: async ({ user, params }) => {
-    const candidateId = Number(params.id);
-    if (!Number.isFinite(candidateId)) throw new ApiError("Invalid candidate id", 400);
+    const candidateId = params.id;
 
     const service = createSupabaseServiceClient();
     const { count, error } = await service
