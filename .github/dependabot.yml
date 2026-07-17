@@ -1,7 +1,14 @@
-# Dependabot config (CAR-147). Weekly, grouped updates so routine bumps arrive as
-# one reviewable PR per package manifest instead of a flood of single-package PRs.
-# Minor + patch bumps are batched together; major bumps still open individually so
-# breaking changes get their own review. Each PR triggers the P0 CI gate (CAR-138).
+# Dependabot config. Weekly, grouped updates so routine bumps arrive as a few
+# reviewable PRs instead of a flood. Minor + patch bumps are batched; majors open
+# individually so breaking changes get their own review. Each PR triggers the P0
+# CI gate (CAR-138). Auto-merge + email routing lives in
+# .github/workflows/dependabot-auto-merge.yml (CAR-163): patch/minor merge
+# themselves once CI is green; anything that can't auto-merge (a major, or a
+# patch/minor whose CI fails) emails dawsonlpitcher@gmail.com.
+#
+# Group precedence note: a dependency joins the FIRST matching group in file
+# order, so specific groups (google-apis, react) are listed before the catch-all
+# minor-patch group.
 version: 2
 updates:
   # ── Main Next.js app ──
@@ -10,15 +17,30 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # @modelcontextprotocol/sdk is pinned to an EXACT version because
+      # mcp-handler declares an exact peer on it; any bump breaks `npm ci`
+      # (this is what blocked the whole #122 group). Hold all SDK updates until
+      # mcp-handler widens its peer range, then remove this ignore.
+      - dependency-name: "@modelcontextprotocol/sdk"
     groups:
-      # The per-API Google subpackages and google-auth-library share the
-      # googleapis-common runtime and must move in lockstep, so group them
-      # across ALL update types (majors included) into one PR (CAR-147).
+      # Per-API Google subpackages + google-auth-library share the
+      # googleapis-common runtime and must move in lockstep, majors included
+      # (CAR-147).
       careervine-google-apis:
         patterns:
           - "@googleapis/*"
           - "google-auth-library"
           - "googleapis-common"
+      # React + its DOM + type packages must move together across ALL update
+      # types, or Dependabot splits a React major (react/@types/react bumped,
+      # react-dom left behind) into a PR whose `npm ci` fails (this was #119).
+      careervine-react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
       careervine-minor-patch:
         patterns:
           - "*"
@@ -47,6 +69,13 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
+      # Same React lockstep as the app (this is exactly where #119 happened).
+      panel-app-react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
       panel-app-minor-patch:
         patterns:
           - "*"
