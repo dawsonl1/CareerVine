@@ -34,11 +34,18 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
       const { data, error } = await service.auth.admin.generateLink({
         type: "recovery",
         email: targetEmail,
-        options: {
-          redirectTo: `${request.nextUrl.origin}/reset-password`,
-        },
       });
       if (error) throw new ApiError(`Couldn't generate link: ${error.message}`, 400);
+
+      // Build the same /auth/confirm URL shape as the branded recovery email
+      // (scripts/configure-auth-emails.mjs): verifyOtp runs server-side and
+      // mints real session cookies before /reset-password loads. GoTrue's
+      // action_link uses the legacy implicit-grant hash-token flow, which
+      // depends on client-side token exchange — don't return it.
+      const hashedToken = data.properties?.hashed_token;
+      const actionLink = hashedToken
+        ? `${request.nextUrl.origin}/auth/confirm?token_hash=${encodeURIComponent(hashedToken)}&type=recovery&next=/reset-password`
+        : null;
 
       await writeAudit(service, {
         adminId: admin.id,
@@ -46,7 +53,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
         action: "password_reset_link",
       });
 
-      return { actionLink: data.properties?.action_link ?? null };
+      return { actionLink };
     }
 
     // mode 'set'

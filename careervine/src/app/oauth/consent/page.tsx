@@ -12,7 +12,6 @@ type AuthDetails = {
   redirect_url?: string;
   client: { name: string };
   user: { email: string };
-  scope: string;
 };
 
 export default function OAuthConsentPage() {
@@ -153,9 +152,9 @@ function OAuthConsentContent() {
           Signed in as <span className="text-foreground font-medium">{details.user.email}</span>
         </p>
         <ul className="list-disc pl-5 space-y-1">
-          <li>Read and manage your contacts, outreach queue, and company intel</li>
-          <li>Create Gmail drafts and send email (100/day cap; drafts are the default)</li>
-          <li>Log interactions, action items, and calendar events</li>
+          <li>While connected, {clientName} can act as you across your whole CareerVine account: contacts, outreach, company intel, interactions, action items, and calendar</li>
+          <li>It can create Gmail drafts and send email as you (100 sends per day; drafts are the default)</li>
+          <li>Access is all or nothing: there are no per-feature permissions while the connection is active</li>
         </ul>
         <p>You can disconnect anytime from Claude&apos;s connector settings.</p>
       </div>
