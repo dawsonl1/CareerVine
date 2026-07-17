@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent, act } from "@testing-library/react";
+import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 
 /**
  * CAR-154 / F21: a failed core-data load with nothing cached must render a
@@ -44,7 +45,11 @@ vi.mock("@/hooks/use-suggestions", () => ({
   useSuggestions: () => ({ suggestions: [], loading: false, save: vi.fn(), complete: vi.fn(), dismiss: vi.fn(), triggerOnce: vi.fn() }),
 }));
 vi.mock("@/components/home/log-conversation-fab", () => ({ LogConversationFab: () => <div /> }));
-vi.mock("@/components/home/unified-action-list", () => ({ UnifiedActionList: () => <div data-testid="unified-action-list" /> }));
+vi.mock("@/components/home/unified-action-list", () => ({
+  UnifiedActionList: ({ loading }: { loading: boolean }) => (
+    <div data-testid="unified-action-list" data-loading={String(loading)} />
+  ),
+}));
 vi.mock("@/components/home/today-schedule", () => ({ TodaySchedule: () => <div /> }));
 vi.mock("@/components/home/discovery-digest", () => ({ DiscoveryDigest: () => <div /> }));
 vi.mock("@/components/home/networking-stats", () => ({ NetworkingStats: () => <div /> }));
@@ -85,6 +90,39 @@ describe("Home — honest load-failure state (F21)", () => {
 
     render(<Home />);
     await waitFor(() => expect(screen.getByTestId("unified-action-list")).toBeTruthy());
+    expect(screen.queryByText("We could not load your dashboard")).toBeNull();
+  });
+
+  it("keeps the workspace when a background refresh fails after a successful empty load", async () => {
+    // An empty account whose first load succeeded must not have its
+    // getting-started view replaced by the error card when a later background
+    // refresh transiently blips (CAR-154 review).
+    q.getHomeCoreData.mockResolvedValue({ actionItems: [], recentlyAdded: [], followUps: [], contactHealth: [] });
+
+    render(<Home />);
+    await waitFor(() => expect(screen.getByTestId("unified-action-list")).toBeTruthy());
+
+    q.getHomeCoreData.mockRejectedValue(new Error("blip"));
+    await act(async () => {
+      emitUiEvent(UI_EVENTS.conversationLogged);
+    });
+    await waitFor(() => expect(q.getHomeCoreData).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByText("We could not load your dashboard")).toBeNull();
+    expect(screen.getByTestId("unified-action-list")).toBeTruthy();
+  });
+
+  it("shows the action-list skeleton (not the getting-started view) while Retry is in flight", async () => {
+    q.getHomeCoreData.mockRejectedValueOnce(new Error("boom"));
+    q.getHomeCoreData.mockImplementationOnce(() => new Promise(() => {}));
+
+    render(<Home />);
+    await waitFor(() => expect(screen.getByText("We could not load your dashboard")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+    await waitFor(() => expect(screen.getByTestId("unified-action-list")).toBeTruthy());
+    // dataLoaded was reset, so the interim render is the loading skeleton.
+    expect(screen.getByTestId("unified-action-list").getAttribute("data-loading")).toBe("true");
     expect(screen.queryByText("We could not load your dashboard")).toBeNull();
   });
 });

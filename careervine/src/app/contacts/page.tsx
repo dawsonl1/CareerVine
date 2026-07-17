@@ -103,7 +103,9 @@ export default function ContactsPage() {
   };
 
   const loadContacts = useCallback(async () => {
-    if (!user) return;
+    // Clear the spinner on the guard path too, so a retry clicked after auth
+    // is lost can't strand `loading` at true forever (CAR-154 review).
+    if (!user) { setLoading(false); return; }
     setLoadError(false);
     try {
       // Stream every tier in parallel. getContactsStreamed pulls a small first

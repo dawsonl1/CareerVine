@@ -88,6 +88,19 @@ describe("MeetingsPage — mutation failure contract (F21)", () => {
     fireEvent.click(screen.getByTitle("Restore"));
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
   });
+
+  it("toasts when saving an inline action-item edit fails", async () => {
+    primeHappyQueries();
+    q.updateActionItem.mockRejectedValue(new Error("500"));
+    render(<MeetingsPage />);
+    await waitFor(() => expect(screen.getByText("Follow up with Jane")).toBeTruthy());
+
+    fireEvent.click(screen.getByTitle("Edit"));
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    // The edit form stays open so nothing typed is lost.
+    expect(screen.getByText("Save")).toBeTruthy();
+  });
 });
 
 describe("MeetingsPage — honest load-failure state (F21)", () => {
@@ -101,5 +114,25 @@ describe("MeetingsPage — honest load-failure state (F21)", () => {
     expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
     // Never the empty-list copy on a failed load.
     expect(screen.queryByText("No activity yet")).toBeNull();
+  });
+
+  it("shows an inline banner (not a full-screen error) when meetings fail but interactions loaded", async () => {
+    q.getMeetings.mockRejectedValue(new Error("boom"));
+    q.getContacts.mockResolvedValue([]);
+    q.getAllInteractions.mockResolvedValue([
+      {
+        id: 5,
+        interaction_type: "coffee chat",
+        interaction_date: "2026-07-08T12:00:00Z",
+        summary: "Caught up over coffee",
+        contacts: { name: "Jane Doe" },
+      },
+    ]);
+    render(<MeetingsPage />);
+
+    // The surviving interactions stay on screen with the failure flagged inline.
+    await waitFor(() => expect(screen.getByText("Some of your activity could not be loaded.")).toBeTruthy());
+    expect(screen.getByText("Caught up over coffee")).toBeTruthy();
+    expect(screen.queryByText("We could not load your activity")).toBeNull();
   });
 });

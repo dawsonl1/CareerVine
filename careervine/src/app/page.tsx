@@ -107,6 +107,10 @@ export default function Home() {
   // Distinguish a failed core-data fetch from a genuinely empty account, so a
   // failed first load renders a retryable error instead of the new-user state.
   const [coreError, setCoreError] = useState(false);
+  // True once ANY core-data load has succeeded (even empty). Gates the error
+  // screen so a transient background-refresh failure over a known-good empty
+  // account can't replace the getting-started view (CAR-154 review).
+  const [coreLoadedOnce, setCoreLoadedOnce] = useState(!!cachedData);
 
   // Band 2 right data
   const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>([]);
@@ -189,6 +193,7 @@ export default function Home() {
       setFollowUps(data.followUps);
       setContactHealth(data.contactHealth);
       setNewContacts(nc);
+      setCoreLoadedOnce(true);
 
       // Cache for instant revisit
       if (cacheKey) {
@@ -788,19 +793,24 @@ export default function Home() {
 
   // A failed core-data load with nothing cached to fall back on renders a
   // retryable error, not the misleading getting-started/new-user state.
+  // `!coreLoadedOnce` scopes this to the INITIAL load: once any load has
+  // succeeded (even empty), a transient background-refresh failure keeps the
+  // known-good view instead of blanking it. The retry resets `dataLoaded` so
+  // the in-flight window shows the action-list skeleton, not the empty
+  // getting-started state (CAR-154 review).
   const hasCoreData =
     actionItems.length > 0 ||
     followUps.length > 0 ||
     contactHealth.length > 0 ||
     newContacts.length > 0;
-  if (coreError && !hasCoreData) {
+  if (coreError && !hasCoreData && !coreLoadedOnce) {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <LoadErrorState
             message="We could not load your dashboard"
-            onRetry={() => { loadCounts(); loadCoreData(); loadBand3(); }}
+            onRetry={() => { setDataLoaded(false); loadCounts(); loadCoreData(); loadBand3(); }}
           />
         </main>
       </div>

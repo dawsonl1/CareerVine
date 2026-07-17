@@ -59,4 +59,12 @@ describe("ContactsPage — honest load-failure state (F21)", () => {
     // Never the new-user empty state on a failed load.
     expect(screen.queryByText("Your network starts here")).toBeNull();
   });
+
+  it("shows the empty state (not the error state) on a successful empty load", async () => {
+    q.getContactsStreamed.mockResolvedValue(undefined);
+
+    render(<ContactsPage />);
+    await waitFor(() => expect(screen.getByText("Your network starts here")).toBeTruthy());
+    expect(screen.queryByText("We could not load your contacts")).toBeNull();
+  });
 });

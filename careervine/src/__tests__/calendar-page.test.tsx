@@ -35,7 +35,7 @@ beforeEach(() => {
   q.getContacts.mockResolvedValue([]);
   q.getMeetings.mockResolvedValue([]);
 });
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("CalendarPage — honest load-failure state (F21)", () => {
   it("renders a retryable error state when the events fetch fails", async () => {
@@ -57,5 +57,54 @@ describe("CalendarPage — honest load-failure state (F21)", () => {
     const callsBefore = fetchMock.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  it("renders the error state when the events API returns an HTTP error with a JSON body", async () => {
+    // fetch does NOT reject on 4xx/5xx; the route returns {error} with no
+    // `events` key. Without the res.ok check this read as load-empty.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    global.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "An unexpected error occurred" }),
+    })) as unknown as typeof fetch;
+
+    render(<CalendarPage />);
+    await waitFor(() => expect(screen.getByText("We could not load your calendar")).toBeTruthy());
+    expect(screen.queryByText("No events")).toBeNull();
+  });
+
+  it("shows the empty state (not the error state) on a successful empty load", async () => {
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      const path = typeof url === "string" ? url : url.toString();
+      if (path.includes("/api/calendar/sync")) return { ok: false, status: 429, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ events: [] }) };
+    }) as unknown as typeof fetch;
+
+    render(<CalendarPage />);
+    await waitFor(() => expect(screen.getByText("No events")).toBeTruthy());
+    expect(screen.queryByText("We could not load your calendar")).toBeNull();
+  });
+
+  it("keeps the calendar usable when only enrichment loaders fail", async () => {
+    // Events succeed; contacts (enrichment) reject. The error state must not
+    // show, and no stale flag may strand a later spurious error.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    q.getContacts.mockRejectedValue(new Error("rls"));
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      const path = typeof url === "string" ? url : url.toString();
+      if (path.includes("/api/calendar/sync")) return { ok: false, status: 429, json: async () => ({}) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          events: [{ id: 1, google_event_id: "g1", title: "Standup", description: null, start_at: "2026-07-17T15:00:00Z", end_at: "2026-07-17T15:30:00Z", all_day: false, location: null, meet_link: null, is_private: false, recurring_event_id: null, contact_id: null, attendees: [] }],
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    render(<CalendarPage />);
+    await waitFor(() => expect(screen.getByText("Standup")).toBeTruthy());
+    expect(screen.queryByText("We could not load your calendar")).toBeNull();
   });
 });

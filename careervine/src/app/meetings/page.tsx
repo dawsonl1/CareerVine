@@ -42,7 +42,7 @@ import { useQuickCapture } from "@/components/quick-capture-context";
 import { inputClasses } from "@/lib/form-styles";
 import { getRsvpDisplay } from "@/lib/constants";
 import { withToastOnError } from "@/lib/with-toast-on-error";
-import { LoadErrorState } from "@/components/ui/load-error-state";
+import { LoadErrorState, LoadErrorBanner } from "@/components/ui/load-error-state";
 
 export default function MeetingsPage() {
   const { user } = useAuth();
@@ -105,7 +105,9 @@ export default function MeetingsPage() {
   }, [user]);
 
   const loadMeetings = useCallback(async () => {
-    if (!user) return;
+    // Clear the spinner on the guard path too, so a retry clicked after auth
+    // is lost can't strand `loading` at true forever (CAR-154 review).
+    if (!user) { setLoading(false); return; }
     setLoadError(false);
     try {
       const data = await getMeetings(user.id);
@@ -308,6 +310,17 @@ export default function MeetingsPage() {
               </p>
             </div>
           </div>
+        )}
+
+        {/* Partial failure: the meetings loader failed but interactions (an
+            independent loader) or prior data are on screen. Flag it inline
+            instead of silently masking the failure (CAR-154 review F4). */}
+        {loadError && (meetings.length > 0 || allInteractions.length > 0) && (
+          <LoadErrorBanner
+            message="Some of your activity could not be loaded."
+            onRetry={() => { loadMeetings(); loadInteractions(); loadContacts(); }}
+            className="mb-6"
+          />
         )}
 
         {/* Search bar */}
@@ -577,14 +590,12 @@ export default function MeetingsPage() {
                             <DatePicker value={cardEditDueDate} onChange={setCardEditDueDate} placeholder="No due date" />
                             <div className="flex justify-end gap-2">
                               <Button type="button" variant="text" size="sm" onClick={() => setCardEditActionId(null)}>Cancel</Button>
-                              <Button type="button" size="sm" onClick={async () => {
-                                try {
-                                  await updateActionItem(action.id, { title: cardEditTitle.trim(), description: cardEditDescription.trim() || null, due_at: cardEditDueDate || null });
-                                  await replaceContactsForActionItem(action.id, cardEditContactIds);
-                                  await reloadMeetingActions(meeting.id);
-                                  setCardEditActionId(null);
-                                } catch (err) { console.error("Error updating action:", err); }
-                              }}>Save</Button>
+                              <Button type="button" size="sm" onClick={() => withToastOnError(async () => {
+                                await updateActionItem(action.id, { title: cardEditTitle.trim(), description: cardEditDescription.trim() || null, due_at: cardEditDueDate || null });
+                                await replaceContactsForActionItem(action.id, cardEditContactIds);
+                                await reloadMeetingActions(meeting.id);
+                                setCardEditActionId(null);
+                              }, toastError, "Couldn't save that action item. Please try again.")}>Save</Button>
                             </div>
                           </div>
                         ) : (

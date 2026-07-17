@@ -167,6 +167,10 @@ export default function CalendarPage() {
     const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
     const res = await fetch(`/api/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+    // fetch only rejects on network failures; an HTTP 401/500 resolves with a
+    // JSON error body and no `events` key, which used to read as load-empty.
+    // Throw so callers' catches see the failure (CAR-154).
+    if (!res.ok) throw new Error(`Failed to load calendar events: ${res.status}`);
     const data = await res.json();
     if (data.events) setEvents(data.events.sort((a: CalendarEvent, b: CalendarEvent) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
   }, []);
@@ -196,13 +200,23 @@ export default function CalendarPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
-    try {
-      await Promise.all([loadEvents(), loadContacts(), loadLinkedMeetings()]);
-      // Background auto-sync (silent, respects 5-min cooldown)
-      fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) loadEvents(); }).catch(() => {});
-    } catch {
+    // Events are this page's primary data; contacts and linked meetings only
+    // enrich them (attendee names, "Logged in Activity" links). Only a failed
+    // events load renders the error state: allSettled keeps an enrichment
+    // failure from rejecting the whole load, which both keeps the calendar
+    // usable and prevents a stale loadError flag from surfacing a spurious
+    // full-screen error after the view later empties (CAR-154 review).
+    const [eventsResult, contactsResult, meetingsResult] = await Promise.allSettled([loadEvents(), loadContacts(), loadLinkedMeetings()]);
+    if (contactsResult.status === "rejected") console.error("Error loading calendar contacts:", contactsResult.reason);
+    if (meetingsResult.status === "rejected") console.error("Error loading linked meetings:", meetingsResult.reason);
+    if (eventsResult.status === "rejected") {
+      console.error("Error loading calendar events:", eventsResult.reason);
       setLoadError(true);
-    } finally { setLoading(false); }
+    } else {
+      // Background auto-sync (silent, respects 5-min cooldown)
+      fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) return loadEvents(); }).catch(() => {});
+    }
+    setLoading(false);
   }, [loadEvents, loadContacts, loadLinkedMeetings]);
 
   useEffect(() => { if (user) loadData(); }, [user, loadData]);

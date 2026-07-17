@@ -108,6 +108,11 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
 
   return {
     loading,
+    // Exposed so the shell's error-state Retry can re-assert the spinner before
+    // re-fetching; loadInbox itself must not set loading=true (the emailSent
+    // refresh reuses it and would flash a full-screen spinner over a working
+    // inbox). CAR-154 review.
+    setLoading,
     syncing,
     error,
     emails, setEmails,
