@@ -175,7 +175,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
           state: formData.location_state || null,
           country: formData.location_country || "United States",
         });
-        contactData.location_id = location.id;
+        contactData.location_id = location?.id ?? null;
       }
 
       await updateContact(contact.id, contactData);

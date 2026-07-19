@@ -32,7 +32,7 @@ import {
 } from "@/lib/data/contacts";
 import {
   buildLastTouchMap as buildLastTouchMapShared,
-  getContactsDueForFollowUp,
+  getDueFollowUps,
   getNeglectedContacts,
   getRelationshipsOnTrack,
 } from "@/lib/data/follow-ups";
@@ -45,7 +45,6 @@ import {
   insertFollowUpSequenceRows,
   insertScheduledEmail,
 } from "@/lib/data/emails";
-import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
@@ -239,20 +238,14 @@ export async function createContactFull(input: NewContactInput): Promise<number>
   const userId = uid();
   let locationId: number | null = null;
   if (input.location) {
-    const rawState = input.location.state ?? null;
-    // Canonicalize US state to the full name ("CA" -> "California") so an
-    // agent-added location matches the web dropdown + scrape/import pipeline;
-    // findOrCreateLocation matches on exact state equality, so "CA" and
-    // "California" would otherwise become two rows. Non-US passes through.
-    const state = isUnitedStates(input.location.country)
-      ? (canonicalUsState(rawState) ?? rawState)
-      : rawState;
+    // Normalization ("CA" -> "California", metro aliases) happens inside
+    // findOrCreateLocation itself (CAR-155), matching every other writer.
     const loc = await findOrCreateLocation({
       city: input.location.city ?? null,
-      state,
+      state: input.location.state ?? null,
       country: input.location.country,
     });
-    locationId = loc.id;
+    locationId = loc?.id ?? null;
   }
 
   const contact = await createContact({
@@ -570,7 +563,7 @@ export interface DueFollowUp {
 
 /** The app's reach-out list (shared derivation), projected to the MCP tool shape. */
 export async function listDueFollowUps(): Promise<DueFollowUp[]> {
-  const entries = await getContactsDueForFollowUp(uid());
+  const entries = await getDueFollowUps(uid());
   return entries.map((e) => ({
     id: e.id,
     name: e.name,

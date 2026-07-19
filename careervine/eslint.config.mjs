@@ -141,6 +141,12 @@ const IMPLICIT_DB_ALLOWED_IN_APP = [
   "src/app/page.tsx",
   // API route passing its own request-scoped client explicitly
   "src/app/api/suggestions/save/route.ts",
+  // CAR-155 contact-write chokepoint consumers: both pass their own client
+  // ({ client }) to createContact/updateContact and never resolve db()
+  // implicitly — the extension-auth request client and the admin service
+  // client respectively.
+  "src/app/api/contacts/import/route.ts",
+  "src/app/api/admin/users/\\[id\\]/contacts/route.ts",
 ];
 
 /**

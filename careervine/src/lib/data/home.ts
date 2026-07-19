@@ -9,11 +9,14 @@
 
 import { db, must } from "./client";
 import { paginateAll } from "./postgrest";
-import { buildLastTouchMap, deriveDueFollowUps, getRecentCutoff } from "./follow-ups";
+import { buildLastTouchMap } from "./follow-ups";
+import { getRecentCutoff } from "@/lib/rules/clock";
+import { deriveDueFollowUps } from "@/lib/rules/due-follow-ups";
+import { deriveNetworkingStreak } from "@/lib/rules/streak";
 
 /**
  * Combined home page data fetch — loads action items + all contact-derived data
- * in minimal queries. Replaces separate calls to getActionItems, getContactsDueForFollowUp,
+ * in minimal queries. Replaces separate calls to getActionItems, getDueFollowUps,
  * getContactsWithLastTouch, and getRecentUncontactedContacts.
  *
  * Query breakdown:
@@ -46,9 +49,9 @@ export async function getHomeCoreData(userId: string) {
       must(
         await db()
           .from("contacts")
-          .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, reach_out_snoozed_until, contact_emails(email)")
+          .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped, reach_out_snoozed_until, network_status, contact_emails(email)")
           .eq("user_id", userId)
-          .eq("network_status", "active") // network health + reach-out prompts cover the real network only
+          .eq("network_status", "active") // network health + reach-out prompts cover the real network only (the rule re-enforces this)
           .order("name")
           .order("id")
           .range(from, to),
@@ -78,8 +81,8 @@ export async function getHomeCoreData(userId: string) {
   });
 
   // ── Derive followUps (reach out contacts) ──
-  // Shared derivation (CAR-151): the same policy backs the standalone
-  // getContactsDueForFollowUp and the MCP list_due_follow_ups tool.
+  // Shared rule (CAR-155): the same policy backs the standalone
+  // getDueFollowUps fetch and the MCP list_due_followups tool.
   const followUps = deriveDueFollowUps(allContacts, lastTouchMap, now);
 
   // Filter snoozed contacts for recentlyAdded (but not contactHealth)
@@ -222,30 +225,8 @@ export async function getNetworkingStreak(userId: string) {
     if (i.interaction_date) activeDays.add(i.interaction_date.split("T")[0]);
   }
 
-  // Count consecutive days backward from yesterday
-  let streak = 0;
-  const checkDate = new Date(today);
-  // Include today if there's activity
-  const todayStr = today.toISOString().split("T")[0];
-  if (activeDays.has(todayStr)) {
-    streak = 1;
-    checkDate.setDate(checkDate.getDate() - 1);
-  } else {
-    // Start from yesterday
-    checkDate.setDate(checkDate.getDate() - 1);
-  }
-
-  while (true) {
-    const dateStr = checkDate.toISOString().split("T")[0];
-    if (activeDays.has(dateStr)) {
-      streak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    } else {
-      break;
-    }
-  }
-
-  return { streak };
+  // Counting policy lives in src/lib/rules/streak.ts (CAR-155).
+  return { streak: deriveNetworkingStreak(activeDays, today.toISOString()) };
 }
 
 /**

@@ -122,6 +122,42 @@ describe('normalizeParsedLocation', () => {
   it('empty parse is unknown', () => {
     expect(normalizeParsedLocation({})).toMatchObject({ granularity: 'unknown' });
   });
+
+  it("keeps a homonym city when the supplied state contradicts the metro alias (CAR-155)", () => {
+    // applyMetroAlias keys on the city name alone; a user who explicitly
+    // picked a different state means the name is a homonym (Manhattan,
+    // Kansas), not the metro member — the alias must not override them.
+    expect(normalizeParsedLocation({ city: 'Manhattan', state: 'Kansas', country: 'United States' }))
+      .toMatchObject({ city: 'Manhattan', state: 'Kansas' });
+    expect(normalizeParsedLocation({ city: 'Hollywood', state: 'Florida', country: 'United States' }))
+      .toMatchObject({ city: 'Hollywood', state: 'Florida' });
+    // Free-text scrape input benefits from the same guard.
+    expect(normalizeLocation('Manhattan, KS')).toMatchObject({ city: 'Manhattan', state: 'Kansas' });
+    // A matching state still collapses (the intended suburb→metro behavior).
+    expect(normalizeParsedLocation({ city: 'Brooklyn', state: 'New York', country: 'United States' }))
+      .toMatchObject({ city: 'New York', state: 'New York' });
+    // No state supplied: alias still applies.
+    expect(normalizeParsedLocation({ city: 'Brooklyn', state: null, country: null }))
+      .toMatchObject({ city: 'New York', state: 'New York' });
+  });
+
+  it("never applies a US metro alias under a non-US country (CAR-155)", () => {
+    expect(normalizeParsedLocation({ city: 'Cambridge', state: 'England', country: 'United Kingdom' }))
+      .toMatchObject({ city: 'Cambridge', state: 'England', country: 'United Kingdom' });
+    expect(normalizeLocation('Cambridge, United Kingdom'))
+      .toMatchObject({ city: 'Cambridge', country: 'United Kingdom' });
+  });
+
+  it("full-name and abbreviation inputs agree on the canonical DC form (CAR-155)", () => {
+    // titleCase would capitalize the lowercase "of", so full-name input used
+    // to emit "District Of Columbia" while "DC" emitted "District of
+    // Columbia" — splitting one metro across two locations rows (found by
+    // the CAR-155 production audit).
+    expect(normalizeParsedLocation({ city: 'Washington', state: 'District of Columbia', country: 'United States' }))
+      .toMatchObject({ state: 'District of Columbia' });
+    expect(normalizeParsedLocation({ city: 'Washington', state: 'DC', country: 'United States' }))
+      .toMatchObject({ state: 'District of Columbia' });
+  });
 });
 
 describe('locationMatchKey — rule-2 string-level matching', () => {

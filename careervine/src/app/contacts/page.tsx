@@ -314,7 +314,7 @@ export default function ContactsPage() {
           state: formData.location_state || null,
           country: formData.location_country || "United States",
         });
-        contactData.location_id = location.id;
+        contactData.location_id = location?.id ?? null;
       }
 
       const created = await createContact(contactData);

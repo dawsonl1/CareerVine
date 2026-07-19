@@ -36,6 +36,8 @@ import { readProspectResolution } from "./bundle-resolve";
 import { buildContactInsertRow, educationDedupeKey, type ImportChunkOptions } from "./bulk-import";
 import { addTagsToContacts, isValidImportEmail } from "./import-db-helpers";
 import { chunkList } from "@/lib/data/postgrest";
+import { createContacts } from "@/lib/data/contacts";
+import type { QueryClient } from "@/lib/data/client";
 import { normalizeLocation } from "./location-normalizer";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 
@@ -188,13 +190,19 @@ export async function runFastApplyStep(
   // concurrently (CAR-78) — a failure in any batch still throws.
   await Promise.all(
     chunkList(pending, INSERT_BATCH).map(async (batch) => {
-      const { data: created, error } = await client
-        .from("contacts")
-        .insert(batch.map((p) => p.contactRow))
-        .select("id, linkedin_url");
-      const createdRows = (created as Array<{ id: number; linkedin_url: string | null }> | null) ?? [];
-      if (error || createdRows.length !== batch.length) {
-        throw new Error(`Fast apply contact insert failed: ${error?.message ?? "short RETURNING"}`);
+      // Shared write chokepoint (CAR-155): canonicalization runs inside.
+      let createdRows: Array<{ id: number; linkedin_url: string | null }>;
+      try {
+        createdRows = (await createContacts(
+          batch.map((p) => p.contactRow) as unknown as Parameters<typeof createContacts>[0],
+          { client: client as unknown as QueryClient },
+        )) as Array<{ id: number; linkedin_url: string | null }>;
+      } catch (err) {
+        // PostgREST errors are message-bearing objects, not Error instances.
+        throw new Error(`Fast apply contact insert failed: ${(err as { message?: string })?.message ?? String(err)}`);
+      }
+      if (createdRows.length !== batch.length) {
+        throw new Error(`Fast apply contact insert failed: short RETURNING`);
       }
       // RETURNING preserves VALUES order in Postgres; the URL cross-check
       // guards the assumption (URLs are unique within a bundle).
@@ -305,6 +313,10 @@ export async function runFastApplyStep(
   }
 
   const bulkInsert = async (table: string, tableRows: Record<string, unknown>[]) => {
+    // Dynamic table names are invisible to the contact-write-chokepoint
+    // source scan, so refuse the contacts table here: those writes must go
+    // through createContact/createContacts (CAR-155).
+    if (table === "contacts") throw new Error("bulkInsert must not write contacts — use createContacts");
     for (const batch of chunkList(tableRows, INSERT_BATCH)) {
       const { error } = await client.from(table).insert(batch);
       if (error) throw new Error(`Fast apply ${table} insert failed: ${error.message}`);

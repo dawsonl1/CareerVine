@@ -1,10 +1,14 @@
 /**
  * LinkedIn URL canonicalization.
  *
- * The contacts table dedupes on exact linkedin_url string equality, so every
- * write path must funnel URLs through canonicalizeLinkedinUrl first —
+ * The contacts table dedupes on exact linkedin_url string equality —
  * trailing slashes, www variants, uppercase hosts, and query strings would
- * otherwise create duplicate contacts.
+ * otherwise create duplicate contacts. Since CAR-155 this invariant is
+ * enforced at the write chokepoint: createContact/updateContact in
+ * src/lib/data/contacts.ts run canonicalizeLinkedinUrl on every contacts
+ * write, so no caller can skip it (guarded by the out-of-band-write scan in
+ * src/__tests__/contact-write-chokepoint.test.ts). Read-side callers
+ * (dedupe probes, scrape matching) still canonicalize before comparing.
  *
  * Canonical form: https://www.linkedin.com/in/<slug>
  */

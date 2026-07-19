@@ -21,6 +21,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { chunkList, escapeIlike } from "@/lib/data/postgrest";
+import type { QueryClient } from "@/lib/data/client";
+import { findOrCreateLocation as findOrCreateLocationShared } from "@/lib/data/locations";
 
 /**
  * Normalized company-name key: lowercase, every non-alphanumeric run
@@ -408,33 +410,17 @@ export async function prefetchLocations(
 
 /**
  * NULL-aware find-or-create on locations (city+state+country unique).
- * Consolidates the copies that lived in queries.ts and the import route.
+ * Thin delegate to the canonical implementation in src/lib/data/locations.ts
+ * (CAR-155), which also normalizes internally — already-normalized inputs
+ * from the import/bulk pipelines pass through unchanged (idempotent).
  */
 export async function findOrCreateLocation(
   supabase: SupabaseClient,
   location: LocationInput,
 ): Promise<{ id: number }> {
-  function buildLookup() {
-    let q = supabase.from("locations").select("id");
-    q = location.city ? q.eq("city", location.city) : q.is("city", null);
-    q = location.state ? q.eq("state", location.state) : q.is("state", null);
-    return q.eq("country", location.country);
-  }
-
-  const { data: existing } = await buildLookup().maybeSingle();
-  if (existing) return existing as { id: number };
-
-  const { data, error } = await supabase
-    .from("locations")
-    .insert({ city: location.city, state: location.state, country: location.country })
-    .select("id")
-    .single();
-  if (error) {
-    const { data: retry } = await buildLookup().maybeSingle();
-    if (retry) return retry as { id: number };
-    throw error;
-  }
-  return data as { id: number };
+  const row = await findOrCreateLocationShared(location, { client: supabase as unknown as QueryClient });
+  if (!row) throw new Error("findOrCreateLocation: input normalized to no location");
+  return { id: row.id };
 }
 
 /**

@@ -80,8 +80,12 @@ describe("add_contact location state normalization", () => {
       .toBe("Freedonia");
   });
 
-  it("leaves a non-US state untouched", async () => {
+  it("title-cases a non-US state (pipeline normalizer behavior since CAR-155)", async () => {
+    // Pre-CAR-155 the MCP path passed non-US states through raw ("ON") while
+    // the import pipeline title-cased them ("On"). Normalization now lives
+    // inside findOrCreateLocation, so every writer shares the pipeline's
+    // behavior — "ON", "on" and "On" collapse onto one row.
     expect(await stateWrittenFor({ city: "Toronto", state: "ON", country: "Canada" }))
-      .toBe("ON");
+      .toBe("On");
   });
 });
