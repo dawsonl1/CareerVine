@@ -35,7 +35,7 @@ export default function PrivacyPolicyPage() {
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">Google Account Data (optional)</h3>
-                <p>If you connect Gmail or Google Calendar, we access your emails and calendar events to display them in-app and sync meetings. For messages we read from your inbox, we store only metadata and a short preview (sender, subject, date, and a snippet), not the full body. Calendar events are cached in your CareerVine account to enable filtering and syncing features. Emails you write and send through CareerVine are handled separately, as described next. Section 6 describes exactly with whom this Google data is and is not shared.</p>
+                <p>If you connect your Google account, CareerVine requests only the permissions it needs: your basic account email address (to identify the account you connected), permission to send email on your behalf, and access to read your calendar and create or update events. We use these to send the emails you compose, schedule, or automate from your Gmail address, and to display and sync your calendar; calendar events are cached in your CareerVine account to enable filtering and syncing features. We also store your Gmail address (and, where available, its send-as aliases) so messages are sent from the right identity. The standard connection does not include permission to read your Gmail inbox. If your account has been granted optional inbox access, we store only metadata and a short preview of messages we read (sender, subject, date, and a snippet), never the full body. Emails you write and send through CareerVine are handled separately, as described next. Section 6 describes exactly with whom this Google data is and is not shared.</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">Emails You Send Through CareerVine</h3>
@@ -71,7 +71,7 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-lg font-medium mb-3">3. How We Use Your Data</h2>
             <ul className="list-disc list-inside space-y-2 text-muted-foreground leading-relaxed">
               <li>To provide and operate the CareerVine service</li>
-              <li>To sync and display your Gmail and Google Calendar data within the app</li>
+              <li>To display and sync your Google Calendar and your CareerVine email history within the app</li>
               <li>To send emails from your Gmail address on your behalf when you compose, schedule, or set up automated follow-ups in CareerVine</li>
               <li>To parse LinkedIn profiles using AI when you use the Chrome extension</li>
               <li>To enrich your contacts with public profile details and suggest new people to add, using publicly available LinkedIn data collected through Apify</li>
@@ -160,7 +160,7 @@ export default function PrivacyPolicyPage() {
               All data is stored with row-level security policies so that only your account can access your data. We use HTTPS for all data transmission. Google OAuth tokens are encrypted before storage and used only to make API calls on your behalf.
 </p>
             <p className="text-muted-foreground leading-relaxed mt-3">
-              We retain your data for as long as your account is active. If you disconnect Gmail without deleting your account, we revoke our access token with Google and delete the email messages we synced from your inbox at that time; if you disconnect Google Calendar, we delete your cached calendar events. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network. We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
+              We retain your data for as long as your account is active. If you disconnect Gmail without deleting your account, we revoke our access token with Google and delete the Gmail message history stored for your account at that time; if you disconnect Google Calendar, we delete your cached calendar events. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network. We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
             </p>
           </section>
 
