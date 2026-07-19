@@ -122,6 +122,17 @@ describe('normalizeParsedLocation', () => {
   it('empty parse is unknown', () => {
     expect(normalizeParsedLocation({})).toMatchObject({ granularity: 'unknown' });
   });
+
+  it("full-name and abbreviation inputs agree on the canonical DC form (CAR-155)", () => {
+    // titleCase would capitalize the lowercase "of", so full-name input used
+    // to emit "District Of Columbia" while "DC" emitted "District of
+    // Columbia" — splitting one metro across two locations rows (found by
+    // the CAR-155 production audit).
+    expect(normalizeParsedLocation({ city: 'Washington', state: 'District of Columbia', country: 'United States' }))
+      .toMatchObject({ state: 'District of Columbia' });
+    expect(normalizeParsedLocation({ city: 'Washington', state: 'DC', country: 'United States' }))
+      .toMatchObject({ state: 'District of Columbia' });
+  });
 });
 
 describe('locationMatchKey — rule-2 string-level matching', () => {

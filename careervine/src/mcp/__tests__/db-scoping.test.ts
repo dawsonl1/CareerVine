@@ -69,7 +69,8 @@ vi.mock("@/lib/analytics/server", () => ({
 
 import * as db from "@/mcp/lib/db";
 import { getContactStages, getCompanies, getCompanyDetail } from "@/lib/company-queries";
-import { deriveDueFollowUps, getNeglectedContacts, getRelationshipsOnTrack } from "@/lib/data/follow-ups";
+import { getNeglectedContacts, getRelationshipsOnTrack } from "@/lib/data/follow-ups";
+import { deriveDueFollowUps } from "@/lib/rules/due-follow-ups";
 import { getNetworkingStreak as getStreakShared } from "@/lib/data/home";
 
 const USER = "user-1";
@@ -97,6 +98,7 @@ const ACTIVE_CONTACT = {
   created_at: "2026-01-01T00:00:00.000Z",
   first_outreach_skipped: false,
   reach_out_snoozed_until: null,
+  network_status: "active",
   contact_emails: [{ email: "jane@x.com" }],
 };
 
@@ -369,6 +371,7 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     getContactEmailLookup: { kind: "mcp-covered", coveredBy: "listCalendarEvents", touches: "contact_emails" },
     getContactById: { kind: "mcp-covered", coveredBy: "getContactFull", touches: "contacts" },
     createContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contacts" },
+    createContacts: { kind: "web-only" },
     appendContactNote: { kind: "mcp-covered", coveredBy: "appendNote", touches: "rpc:append_contact_note" },
     findOrCreateCompany: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "companies" },
     findOrCreateSchool: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "schools" },
@@ -433,10 +436,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     snoozeActionItem: { kind: "web-only" },
   },
   "@/lib/data/follow-ups": {
-    getRecentCutoff: { kind: "context" },
-    deriveDueFollowUps: { kind: "context" },
     buildLastTouchMap: { kind: "mcp-covered", coveredBy: "buildLastTouchMap", touches: "meeting_contacts" },
-    getContactsDueForFollowUp: { kind: "mcp-covered", coveredBy: "listDueFollowUps", touches: "contacts" },
+    getDueFollowUps: { kind: "mcp-covered", coveredBy: "listDueFollowUps", touches: "contacts" },
     getContactsWithLastTouch: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "contacts" },
     getRelationshipsOnTrack: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "contacts" },
     getNeglectedContacts: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "contacts" },

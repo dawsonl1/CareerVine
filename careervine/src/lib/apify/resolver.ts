@@ -12,6 +12,8 @@
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalizeLinkedinUrl, extractPublicIdentifier } from "@/lib/linkedin-url";
+import { updateContact } from "@/lib/data/contacts";
+import type { QueryClient } from "@/lib/data/client";
 import { ApiError } from "@/lib/api-handler";
 import {
   MONTHLY_SCRAPE_CAP_USD,
@@ -154,20 +156,23 @@ export async function linkContactLinkedin(
     .maybeSingle();
   if (holder) throw new ApiError("Another contact already uses that LinkedIn profile", 409);
 
-  const { data: updated, error } = await service
-    .from("contacts")
-    .update({
-      linkedin_url: canonical,
-      public_identifier: extractPublicIdentifier(canonical),
-      // A fresh link invalidates the old failure streak.
-      scrape_failure_count: 0,
-      scrape_failed_at: null,
-    })
-    .eq("id", contactId)
-    .eq("user_id", userId)
-    .select("id")
-    .single();
-  if (error || !updated) throw new ApiError("Contact not found", 404);
+  // Shared write chokepoint (CAR-155); throws when no row matches, which
+  // keeps the historical 404 semantics for a missing/foreign contact.
+  try {
+    await updateContact(
+      contactId,
+      {
+        linkedin_url: canonical,
+        public_identifier: extractPublicIdentifier(canonical),
+        // A fresh link invalidates the old failure streak.
+        scrape_failure_count: 0,
+        scrape_failed_at: null,
+      },
+      { client: service as unknown as QueryClient, userId },
+    );
+  } catch {
+    throw new ApiError("Contact not found", 404);
+  }
 
   const enrich = await triggerEnrichOnSave(userId, contactId);
   return { linkedinUrl: canonical, enrich: enrich.status };

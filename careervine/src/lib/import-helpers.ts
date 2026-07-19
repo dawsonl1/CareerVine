@@ -4,8 +4,8 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { findOrCreateLocation } from '@/lib/company-helpers';
-import { normalizeParsedLocation } from '@/lib/location-normalizer';
+import { findOrCreateLocation as findOrCreateLocationCanonical } from '@/lib/data/locations';
+import type { QueryClient } from '@/lib/data/client';
 import type { ProfileData } from '@/lib/extension-contract';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase insert/update payloads are untyped column maps until the typed-Supabase-boundary rollout (CAR-142).
@@ -117,20 +117,16 @@ export function buildUpdateData(profileData: Partial<ProfileData>): ColumnMap {
 
 /**
  * Resolve a contact-level profile location ({city, state, country}) to a
- * locations row. Normalizes first (CAR-139 / F27) so raw variants ('CA' vs
- * 'California', metro aliases) collapse onto one canonical row, matching the
- * experience-row import path.
+ * locations row. Normalization ('CA' vs 'California', metro aliases) runs
+ * inside the canonical findOrCreateLocation itself (CAR-155, completing
+ * CAR-139 / F27 structurally), so this is a thin resolve.
  */
 export async function resolveProfileLocationId(
   supabase: SupabaseClient,
   profileLocation: { city?: string | null; state?: string | null; country?: string | null },
 ): Promise<number | null> {
-  const norm = normalizeParsedLocation(profileLocation);
-  if (!norm.city && !norm.state && !norm.country) return null;
-  const location = await findOrCreateLocation(supabase, {
-    city: norm.city,
-    state: norm.state,
-    country: norm.country || 'United States',
+  const location = await findOrCreateLocationCanonical(profileLocation, {
+    client: supabase as unknown as QueryClient,
   });
-  return location.id;
+  return location?.id ?? null;
 }

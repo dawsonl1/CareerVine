@@ -51,6 +51,15 @@ function createMockSupabase(tables: Record<string, MockRow[]> = {}) {
         filters[`${col}__in`] = vals;
         return builder;
       },
+      // Ordering/limits don't change which single row the filter-based mock
+      // returns — no-op chainers so the canonical findOrCreateLocation's
+      // order("id").limit(1).maybeSingle() probe works (CAR-155).
+      order() {
+        return builder;
+      },
+      limit() {
+        return builder;
+      },
       single() {
         const rows = tables[tableName] || [];
         const matching = rows.filter(row => {

@@ -9,13 +9,16 @@
  * is safe to import from server and MCP contexts.
  */
 
-import { db, must } from "./client";
+import { db, must, type QueryClient } from "./client";
 import { chunked, chunkList, escapeIlike, paginateAll } from "./postgrest";
 import { parseManualLocation } from "@/lib/location-normalizer";
 import type { Database } from "@/lib/database.types";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { validateContactPhotoFile } from "@/lib/contact-photo";
+import { findOrCreateLocation } from "./locations";
+
+export { findOrCreateLocation } from "./locations";
 
 /**
  * Build a lookup map of email address → contact info.
@@ -216,18 +219,45 @@ export async function getContactById(contactId: number, userId: string) {
 }
 
 /**
- * Create a new contact for the authenticated user
+ * CAR-155 chokepoint invariant: the contacts table dedupes on exact
+ * linkedin_url string equality (see src/lib/linkedin-url.ts), so the URL is
+ * canonicalized HERE, inside the write module — no caller can skip it.
+ * Parseable LinkedIn profile URLs land in canonical form; anything else is
+ * stored trimmed as typed (no silent data loss), with empty collapsing to
+ * null. An explicit null still clears the column.
+ */
+function canonicalizeContactPayload<T extends { linkedin_url?: string | null }>(payload: T): T {
+  if (payload.linkedin_url == null) return payload;
+  const canonical = canonicalizeLinkedinUrl(payload.linkedin_url);
+  return { ...payload, linkedin_url: canonical ?? (payload.linkedin_url.trim() || null) };
+}
+
+/** Options accepted by the contact write chokepoint (CAR-155). */
+interface ContactWriteOptions {
+  /**
+   * Explicit client for server contexts (extension-auth route, service
+   * role). Callers passing a service client are responsible for ownership
+   * scoping — pass userId on updates.
+   */
+  client?: QueryClient;
+}
+
+/**
+ * Create a new contact — THE insert chokepoint for the contacts table
+ * (CAR-155): every surface (web forms, extension import, MCP, admin) funnels
+ * through here so linkedin_url canonicalization cannot be skipped.
  *
  * @param contact - Contact data matching the contacts table schema (without id)
  * @returns Promise<Contact> - The created contact with generated id
  * @throws Error if creation fails
  */
 export async function createContact(
-  contact: Database["public"]["Tables"]["contacts"]["Insert"]
+  contact: Database["public"]["Tables"]["contacts"]["Insert"],
+  opts: ContactWriteOptions = {},
 ) {
-  const { data, error } = await db()
+  const { data, error } = await (opts.client ?? db())
     .from("contacts")
-    .insert(contact)
+    .insert(canonicalizeContactPayload(contact))
     .select()
     .single();  // Return the single created record
 
@@ -236,24 +266,60 @@ export async function createContact(
 }
 
 /**
- * Update an existing contact
+ * Bulk-create contacts through the same chokepoint (canonicalization per
+ * row). Returns the created rows in VALUES order (Postgres RETURNING
+ * preserves it). Used by the bulk import pipeline.
+ */
+export async function createContacts(
+  contacts: Database["public"]["Tables"]["contacts"]["Insert"][],
+  opts: ContactWriteOptions = {},
+) {
+  const { data, error } = await (opts.client ?? db())
+    .from("contacts")
+    .insert(contacts.map(canonicalizeContactPayload))
+    .select();
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Update an existing contact — THE update chokepoint for the contacts table
+ * (CAR-155), same canonicalization guarantee as createContact.
  *
  * @param id - The contact's ID
  * @param updates - Partial contact data to update
- * @returns Promise<Contact> - The updated contact
- * @throws Error if update fails
+ * @returns Promise<Contact> - The updated contact (null with minimal: true)
+ * @throws Error if update fails (with the default returning read, also when
+ *   no row matched)
  */
 export async function updateContact(
   id: number,
-  updates: Database["public"]["Tables"]["contacts"]["Update"]
+  updates: Database["public"]["Tables"]["contacts"]["Update"],
+  opts: ContactWriteOptions & {
+    /** Ownership scoping for non-RLS clients: adds .eq("user_id", userId). */
+    userId?: string;
+    /**
+     * Skip the returning .select().single() read. For bulk/pipeline callers
+     * that must not fail when the row vanished mid-run; a no-match update is
+     * then silently zero rows, matching their historical semantics.
+     */
+    minimal?: boolean;
+  } = {},
 ) {
-  const { data, error } = await db()
+  let query = (opts.client ?? db())
     .from("contacts")
-    .update(updates)
-    .eq("id", id)
-    .select()
-    .single();
+    .update(canonicalizeContactPayload(updates))
+    .eq("id", id);
+  if (opts.userId) query = query.eq("user_id", opts.userId);
 
+  if (opts.minimal) {
+    const { error } = await query;
+    if (error) throw error;
+    return null;
+  }
+
+  const { data, error } = await query.select().single();
   if (error) throw error;
   return data;
 }
@@ -614,52 +680,9 @@ export async function findOrCreateSchool(name: string) {
   return data;
 }
 
-/**
- * Find or create a normalized location entry
- * Checks for existing location by city+state+country to avoid duplicates.
- *
- * @param location - Object with city, state, country
- * @returns Promise<Location> - The existing or newly created location
- * @throws Error if creation fails
- */
-export async function findOrCreateLocation(location: { city: string | null; state: string | null; country: string }) {
-  // Probe for an existing exact match. limit(1) keeps maybeSingle() from
-  // erroring when historical duplicates exist — UNIQUE(city,state,country)
-  // is NULLS DISTINCT, so NULL-component tuples can legitimately hold more
-  // than one row; any one of them is the right answer.
-  const probe = () => {
-    let query = db().from("locations").select("*");
-    query = location.city ? query.eq("city", location.city) : query.is("city", null);
-    query = location.state ? query.eq("state", location.state) : query.is("state", null);
-    return query.eq("country", location.country).order("id").limit(1).maybeSingle();
-  };
-
-  // must(): an errored probe must not fall through to the insert and
-  // create a duplicate row.
-  const existing = must(await probe());
-  if (existing) return existing;
-
-  // Create new. Concurrent saves of the same non-NULL tuple race on the
-  // unique constraint: the loser refetches the winner's row instead of
-  // failing the whole contact save.
-  const { data, error } = await db()
-    .from("locations")
-    .insert({
-      city: location.city,
-      state: location.state,
-      country: location.country,
-    })
-    .select()
-    .single();
-  if (error) {
-    if (error.code === "23505") {
-      const winner = must(await probe());
-      if (winner) return winner;
-    }
-    throw error;
-  }
-  return data;
-}
+// findOrCreateLocation lives in ./locations (CAR-155) and is re-exported at
+// the top of this module: normalization now runs inside the shared
+// implementation, so every writer collapses onto canonical rows.
 
 /**
  * Resolve a manually-entered work-experience location string into the
@@ -683,7 +706,7 @@ export async function resolveManualCompanyLocation(raw: string | null | undefine
     return { location: parsed.display, location_id: null, location_source: "manual", location_raw: parsed.display };
   }
   const location = await findOrCreateLocation({ city: parsed.city, state: parsed.state, country: parsed.country });
-  return { location: parsed.display, location_id: location.id, location_source: "manual", location_raw: (raw ?? "").trim() };
+  return { location: parsed.display, location_id: location?.id ?? null, location_source: "manual", location_raw: (raw ?? "").trim() };
 }
 
 /**

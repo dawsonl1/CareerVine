@@ -34,6 +34,8 @@ export interface NormalizedLocation {
 // source shared with the manual contact-entry state dropdown.
 
 const US_STATE_NAMES = new Set(Object.values(US_STATES).map((s) => s.toLowerCase()));
+/** Lowercase full name → canonical form (preserves "District of Columbia"). */
+const US_STATE_BY_NAME = new Map(Object.values(US_STATES).map((s) => [s.toLowerCase(), s]));
 
 /** Country synonyms → canonical name (matches locations.country conventions). */
 const COUNTRY_ALIASES: Record<string, string> = {
@@ -156,9 +158,12 @@ function titleCase(s: string): string {
 function lookupState(token: string): string | null {
   const upper = token.trim().toUpperCase().replace(/\./g, "");
   if (US_STATES[upper]) return US_STATES[upper];
+  // Return the canonical US_STATES value, not titleCase(name): they differ
+  // exactly for "District of Columbia", whose lowercase "of" titleCase would
+  // capitalize — splitting "DC" and full-name inputs onto two locations rows
+  // (found by the CAR-155 production locations audit).
   const lower = token.trim().toLowerCase();
-  if (US_STATE_NAMES.has(lower)) return titleCase(lower);
-  return null;
+  return US_STATE_BY_NAME.get(lower) ?? null;
 }
 
 function lookupCountry(token: string): string | null {

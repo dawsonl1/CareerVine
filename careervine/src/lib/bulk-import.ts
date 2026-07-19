@@ -47,6 +47,8 @@ import {
   type CompanyRecord,
 } from "./company-helpers";
 import { chunkList, escapeIlike } from "@/lib/data/postgrest";
+import { createContact, createContacts, updateContact } from "@/lib/data/contacts";
+import type { QueryClient } from "@/lib/data/client";
 import {
   computeEmploymentMerge,
   computeEmailMerge,
@@ -831,11 +833,19 @@ async function bulkCreatePersons(
 ) {
   if (pending.length === 0) return;
 
-  const { data: created, error } = await supabase
-    .from("contacts")
-    .insert(pending.map((p) => p.row))
-    .select("id, linkedin_url");
-  const createdRows = (created as Array<{ id: number; linkedin_url: string | null }> | null) ?? [];
+  // Shared write chokepoint (CAR-155): per-row canonicalization inside.
+  // The throw is converted back to this path's historical error-branch flow
+  // (per-row fallback), which must keep running for the other rows.
+  let createdRows: Array<{ id: number; linkedin_url: string | null }> = [];
+  let error: unknown = null;
+  try {
+    createdRows = (await createContacts(
+      pending.map((p) => p.row) as unknown as Parameters<typeof createContacts>[0],
+      { client: supabase as unknown as QueryClient },
+    )) as Array<{ id: number; linkedin_url: string | null }>;
+  } catch (err) {
+    error = err;
+  }
 
   if (!error && createdRows.length === pending.length) {
     // RETURNING preserves VALUES order in Postgres; the linkedin_url
@@ -858,14 +868,18 @@ async function bulkCreatePersons(
     // as an update when found.
     for (const p of pending) {
       try {
-        const { data: contact, error: rowError } = await supabase
-          .from("contacts")
-          .insert(p.row)
-          .select("id")
-          .single();
-        if (!rowError && contact) {
+        let rowError: Error | null = null;
+        try {
+          const contact = await createContact(
+            p.row as unknown as Parameters<typeof createContact>[0],
+            { client: supabase as unknown as QueryClient },
+          );
           markCreated(p.w, (contact as { id: number }).id);
           continue;
+        } catch (err) {
+          // PostgREST errors are message-bearing objects, not Error instances.
+          const message = err instanceof Error ? err.message : (err as { message?: string })?.message;
+          rowError = new Error(message ?? String(err));
         }
         const existing = await refetchExistingContact(supabase, userId, p.w.mapped);
         if (!existing) throw new Error(rowError?.message ?? "Failed to create contact");
@@ -985,8 +999,14 @@ async function updateExistingPerson(
   if (bundlePhotoOverwriteAllowed(existing.photo_url, mapped.photo_url)) {
     patch.photo_url = mapped.photo_url;
   }
-  const { error: patchError } = await supabase.from("contacts").update(patch).eq("id", contactId);
-  if (patchError) throw new Error(`Contact update failed: ${patchError.message}`);
+  // Shared write chokepoint (CAR-155): canonicalization inside; minimal
+  // keeps the historical no-returning-read semantics for this bulk path.
+  try {
+    await updateContact(contactId, patch, { client: supabase as unknown as QueryClient, minimal: true });
+  } catch (err) {
+    // PostgREST errors are message-bearing objects, not Error instances.
+    throw new Error(`Contact update failed: ${(err as { message?: string })?.message ?? String(err)}`);
+  }
   w.result.applied_patch = patch;
   w.result.network_status = (patch.network_status as string | undefined) ?? existing.network_status;
 
@@ -1185,8 +1205,10 @@ async function applyTrackerState(
   const stage = tracker.stage?.trim();
 
   if (stage && stage !== "not_contacted") {
-    // Manual override so the derived stage reflects pre-CareerVine outreach
-    await supabase.from("contacts").update({ stage_override: stage }).eq("id", contactId);
+    // Manual override so the derived stage reflects pre-CareerVine outreach.
+    // error-tolerated historically (no error check) — minimal chokepoint
+    // write, swallow to preserve that.
+    await updateContact(contactId, { stage_override: stage }, { client: supabase as unknown as QueryClient, minimal: true }).catch(() => {});
     // A logged interaction so timeline + derived stages work naturally
     await supabase.from("interactions").insert({
       contact_id: contactId,

@@ -14,6 +14,8 @@ import { syncContactEmailHistoryIfPaid } from "@/lib/contact-email-history";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { findOrCreateCompany, findOrCreateLocation, ensureCompanyLocation } from "@/lib/company-helpers";
 import { addTagsToContact, downloadAndStorePhoto } from "@/lib/import-db-helpers";
+import { createContact, updateContact } from "@/lib/data/contacts";
+import type { QueryClient } from "@/lib/data/client";
 import { triggerEnrichOnSave } from "@/lib/apify/scrape-service";
 import { normalizeLocation, normalizeParsedLocation, locationMatchKey } from "@/lib/location-normalizer";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -171,15 +173,17 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
     if (locationId != null) updateData.location_id = locationId;
   }
 
-  const { data: contact, error: updateError } = await supabase
-    .from('contacts')
-    .update(updateData)
-    .eq('id', contactId)
-    .eq('user_id', userId)
-    .select()
-    .single();
-
-  if (updateError || !contact) throw new Error(updateError?.message || 'Failed to update contact');
+  // Shared write chokepoint (CAR-155): canonicalization runs inside.
+  let contact: ContactRow;
+  try {
+    contact = (await updateContact(contactId, updateData, {
+      client: supabase as unknown as QueryClient,
+      userId,
+    })) as ContactRow;
+  } catch (err) {
+    // PostgREST errors are message-bearing objects, not Error instances.
+    throw new Error((err as { message?: string })?.message ?? 'Failed to update contact');
+  }
 
   // Replace experience — but only the rows THIS path owns (source='extension').
   // Scraped rows carry provenance (location_id, scraped_at) the AI parse can't
@@ -261,13 +265,17 @@ async function createNewContact(supabase: SupabaseClient, profileData: ProfileDa
 
   const contactData = buildContactData(profileData, userId, locationId);
 
-  const { data: contact, error: insertError } = await supabase
-    .from('contacts')
-    .insert(contactData)
-    .select()
-    .single();
-
-  if (insertError || !contact) throw new Error(insertError?.message || 'Failed to create contact');
+  // Shared write chokepoint (CAR-155): canonicalization runs inside.
+  let contact: ContactRow;
+  try {
+    contact = (await createContact(
+      contactData as unknown as Parameters<typeof createContact>[0],
+      { client: supabase as unknown as QueryClient },
+    )) as ContactRow;
+  } catch (err) {
+    // PostgREST errors are message-bearing objects, not Error instances.
+    throw new Error((err as { message?: string })?.message ?? 'Failed to create contact');
+  }
 
   // Same validity gate as the update path — a malformed email is skipped, not
   // inserted raw on first import (CAR-148 F11).

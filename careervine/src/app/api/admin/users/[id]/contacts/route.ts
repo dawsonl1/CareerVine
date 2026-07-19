@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { createContact } from "@/lib/data/contacts";
+import type { QueryClient } from "@/lib/data/client";
 import { writeAudit } from "@/lib/admin";
 import { processSubscriptionsUnderBudget } from "@/lib/bundle-queue";
 
@@ -161,17 +163,24 @@ export const POST = withApiHandler<z.infer<typeof postSchema>>({
     if (!target) throw new ApiError("User not found", 404);
 
     if (body.mode === "manual") {
-      const { data: contact, error } = await service
-        .from("contacts")
-        .insert({
-          user_id: id,
-          name: body.name,
-          linkedin_url: body.linkedin_url ?? null,
-          notes: body.notes ?? null,
-        })
-        .select("id, name")
-        .single();
-      if (error) throw new ApiError(`Couldn't add contact: ${error.message}`, 400);
+      // Shared write chokepoint (CAR-155): linkedin_url canonicalization
+      // runs inside createContact — the admin path must not be an escape
+      // hatch for formatting-variant duplicates.
+      let contact: { id: number; name: string };
+      try {
+        contact = (await createContact(
+          {
+            user_id: id,
+            name: body.name,
+            linkedin_url: body.linkedin_url ?? null,
+            notes: body.notes ?? null,
+          },
+          { client: service as unknown as QueryClient },
+        )) as { id: number; name: string };
+      } catch (err) {
+        // PostgREST errors are message-bearing objects, not Error instances.
+        throw new ApiError(`Couldn't add contact: ${(err as { message?: string })?.message ?? String(err)}`, 400);
+      }
 
       if (body.email) {
         const { error: emailError } = await service.from("contact_emails").insert({
