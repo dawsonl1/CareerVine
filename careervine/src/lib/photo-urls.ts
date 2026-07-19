@@ -50,6 +50,30 @@ export function isUserPhotoUrl(url: string | null | undefined): boolean {
 }
 
 /**
+ * Host-agnostic user-photo key extraction, for the R2 orphan sweep's live set
+ * ONLY (CAR-156). Unlike r2KeyFromPublicUrl it ignores the current
+ * R2_PUBLIC_BASE_URL and accepts any absolute URL whose path is one of our
+ * user-photo keys — so photo_url rows written under a previous public domain
+ * (or during a partial domain migration) still register as live. For a live
+ * set, over-matching is the safe direction: a too-broad set only preserves
+ * extra objects, while the exact-current-base predicate would silently drop
+ * old-domain rows and let the sweep delete their still-referenced objects.
+ * Never use this for write-side policy checks (bundle overwrite, cleanup
+ * routing) — those must stay on the strict predicates above.
+ */
+export function userPhotoKeyFromAnyUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+  const key = pathname.replace(/^\/+/, "");
+  return key.startsWith(USER_PHOTO_PREFIX) ? key : null;
+}
+
+/**
  * Bundle-sync photo policy: a shared bundle photo may land on a contact
  * only when it changes something and never over a photo the user put there
  * themselves (manual upload / direct import mirror) — those aren't bundle

@@ -1,10 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  listUserPhotoObjects,
-  deletePhotoObjectsBatch,
-  r2KeyFromPublicUrl,
-  isUserPhotoUrl,
-} from "@/lib/r2";
+import { listUserPhotoObjects, deletePhotoObjectsBatch } from "@/lib/r2";
+import { photoPublicBaseUrl, userPhotoKeyFromAnyUrl } from "@/lib/photo-urls";
 
 /**
  * Storage orphan reconciliation (CAR-69).
@@ -221,14 +217,27 @@ export async function sweepStorageOrphans(opts: SweepOptions): Promise<SweepResu
 const R2_REMOVE_BATCH_SIZE = 1000;
 
 /**
- * All live contact-photo R2 keys: every contacts.photo_url that points at an
- * object we host under the user-photo prefix. Completeness contract is the
- * same as the Supabase fetchers above — stable order, any read error throws
- * and aborts the pass (a missed live key is a live photo deleted). Deleted
- * users need no separate existence check: their contacts rows cascade away,
- * so their keys simply never enter the live set.
+ * All live contact-photo R2 keys: every contacts.photo_url whose path is a
+ * user-photo key. Completeness contract is the same as the Supabase fetchers
+ * above — stable order, any read error throws and aborts the pass (a missed
+ * live key is a live photo deleted) — plus two hazards specific to this
+ * fetcher, both fail-open unless guarded (deep-review finding on CAR-156):
+ * - The env assertion: key extraction used to go through r2KeyFromPublicUrl,
+ *   which swallows an unset R2_PUBLIC_BASE_URL and returns null — an absent
+ *   env var would have silently produced an EMPTY live set while the S3-side
+ *   listing (different env vars) still succeeded, classifying every photo as
+ *   an orphan. photoPublicBaseUrl() is asserted here eagerly so a missing
+ *   base URL throws and aborts the pass instead.
+ * - Host-agnostic matching: keys are extracted with userPhotoKeyFromAnyUrl,
+ *   which ignores the URL's host, so photo_url rows written under an old
+ *   public domain (full or partial domain migration) still count as live.
+ *   Exact-current-base matching would drop them and delete live objects.
+ * Deleted users need no separate existence check: their contacts rows
+ * cascade away, so their keys simply never enter the live set.
  */
 async function fetchLiveContactPhotoKeys(service: SupabaseClient): Promise<Set<string>> {
+  // Config sanity gate — see the env-assertion note above. Throws when unset.
+  photoPublicBaseUrl();
   const keys = new Set<string>();
   for (let from = 0; ; from += DB_PAGE_SIZE) {
     const { data, error } = await service
@@ -239,8 +248,7 @@ async function fetchLiveContactPhotoKeys(service: SupabaseClient): Promise<Set<s
       .range(from, from + DB_PAGE_SIZE - 1);
     if (error) throw new Error(`contacts query: ${error.message}`);
     for (const row of (data as { photo_url: string | null }[] | null) ?? []) {
-      if (!isUserPhotoUrl(row.photo_url)) continue;
-      const key = r2KeyFromPublicUrl(row.photo_url);
+      const key = userPhotoKeyFromAnyUrl(row.photo_url);
       if (key) keys.add(key);
     }
     if (!data || data.length < DB_PAGE_SIZE) break;
@@ -253,10 +261,13 @@ async function fetchLiveContactPhotoKeys(service: SupabaseClient): Promise<Set<s
  * key no contacts.photo_url references are orphans (photo replaced, contact
  * deleted, or account deleted with the best-effort inline cleanup missed).
  * Reuses the Supabase sweep's safety properties: R2 listed BEFORE the DB
- * snapshot, complete-live-set-or-abort, exact-key matching only, and the
- * min-age guard (an object is written before contacts.photo_url starts
- * pointing at it, so a young unreferenced key may be a pointer swap still in
- * flight — and an unknown age fails safe as too-recent).
+ * snapshot, complete-live-set-or-abort, exact-key matching only (host-agnostic
+ * — see fetchLiveContactPhotoKeys), and the min-age guard (an object is
+ * written before contacts.photo_url starts pointing at it, so a young
+ * unreferenced key may be a pointer swap still in flight — and an unknown age
+ * fails safe as too-recent). Two additional guards close the fail-open modes
+ * a deep review found here: the eager R2_PUBLIC_BASE_URL assertion and the
+ * zero-live-set tripwire below.
  */
 export async function sweepR2PhotoOrphans(opts: SweepOptions): Promise<BucketSweepResult> {
   const { service, dryRun = false, minAgeMs = DEFAULT_MIN_AGE_MS, now = Date.now } = opts;
@@ -279,6 +290,18 @@ export async function sweepR2PhotoOrphans(opts: SweepOptions): Promise<BucketSwe
   }
 
   result.scanned = objects.length;
+
+  // Tripwire: objects exist but not a single live key resolved. In any real
+  // deployment that is a misconfiguration or parsing regression (an
+  // all-orphans bucket would require every photo-holding contact to be gone),
+  // and the failure mode of proceeding is deleting every user's photos.
+  // Refuse to sweep; leaving orphans is benign and self-heals next run.
+  if (objects.length > 0 && liveKeys.size === 0) {
+    result.errors.push(
+      `live set resolved to 0 keys while ${objects.length} objects exist — refusing to sweep (likely misconfiguration)`,
+    );
+    return result;
+  }
   const cutoff = now() - minAgeMs;
   const orphans: string[] = [];
   for (const obj of objects) {

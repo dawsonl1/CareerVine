@@ -126,9 +126,12 @@ describe("sweepR2PhotoOrphans", () => {
 
   it("treats an unknown LastModified as too recent to delete (fails safe)", async () => {
     const { deletedBatches } = programR2({
-      keys: [{ key: orphanKey, lastModified: null }],
+      keys: [
+        { key: liveKey, lastModified: OLD },
+        { key: orphanKey, lastModified: null },
+      ],
     });
-    const service = mockService({ photoUrls: [] });
+    const service = mockService({ photoUrls: [url(liveKey)] });
 
     const result = await sweepR2PhotoOrphans({ service, now: () => NOW });
 
@@ -164,9 +167,12 @@ describe("sweepR2PhotoOrphans", () => {
 
   it("reports orphans without deleting in dry-run mode", async () => {
     const { deletedBatches } = programR2({
-      keys: [{ key: orphanKey, lastModified: OLD }],
+      keys: [
+        { key: liveKey, lastModified: OLD },
+        { key: orphanKey, lastModified: OLD },
+      ],
     });
-    const service = mockService({ photoUrls: [] });
+    const service = mockService({ photoUrls: [url(liveKey)] });
 
     const result = await sweepR2PhotoOrphans({ service, dryRun: true, now: () => NOW });
 
@@ -177,9 +183,12 @@ describe("sweepR2PhotoOrphans", () => {
   it("honors a custom minAgeMs cutoff", async () => {
     const justOverDefault = new Date(NOW - DEFAULT_MIN_AGE_MS - 60_000);
     const { deletedBatches } = programR2({
-      keys: [{ key: orphanKey, lastModified: justOverDefault }],
+      keys: [
+        { key: liveKey, lastModified: OLD },
+        { key: orphanKey, lastModified: justOverDefault },
+      ],
     });
-    const service = mockService({ photoUrls: [] });
+    const service = mockService({ photoUrls: [url(liveKey)] });
 
     // Double the window: the same object is now inside the guard.
     const result = await sweepR2PhotoOrphans({
@@ -189,6 +198,68 @@ describe("sweepR2PhotoOrphans", () => {
     });
 
     expect(result.skippedRecent).toBe(1);
+    expect(deletedBatches).toEqual([]);
+  });
+
+  // ── Fail-open guards (deep-review finding on CAR-156) ─────────────────
+  // The live set is built by URL-parsing contacts.photo_url, which can
+  // silently produce an EMPTY set (unset base URL, domain migration) while
+  // the S3 listing — which uses different env vars — still succeeds. Without
+  // these guards that state mass-deletes every user's photos as "orphans".
+
+  it("aborts without deleting when R2_PUBLIC_BASE_URL is unset (env assertion)", async () => {
+    const { deletedBatches } = programR2({
+      keys: [{ key: liveKey, lastModified: OLD }],
+    });
+    const service = mockService({ photoUrls: [url(liveKey)] });
+
+    const saved = process.env.R2_PUBLIC_BASE_URL;
+    delete process.env.R2_PUBLIC_BASE_URL;
+    try {
+      const result = await sweepR2PhotoOrphans({ service, now: () => NOW });
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain("R2_PUBLIC_BASE_URL");
+      expect(result.removed).toEqual([]);
+      expect(deletedBatches).toEqual([]);
+    } finally {
+      process.env.R2_PUBLIC_BASE_URL = saved;
+    }
+  });
+
+  it("counts a photo_url from a previous public domain as live (host-agnostic match)", async () => {
+    const { deletedBatches } = programR2({
+      keys: [
+        { key: liveKey, lastModified: OLD },
+        { key: orphanKey, lastModified: OLD },
+      ],
+    });
+    // Same key, but the stored URL predates a domain migration.
+    const service = mockService({
+      photoUrls: [`https://old-cdn.example.com/${liveKey}`],
+    });
+
+    const result = await sweepR2PhotoOrphans({ service, now: () => NOW });
+
+    expect(result.live).toBe(1);
+    expect(result.removed).toEqual([orphanKey]);
+    expect(deletedBatches).toEqual([[orphanKey]]);
+  });
+
+  it("refuses to sweep when objects exist but zero live keys resolved (tripwire)", async () => {
+    const { deletedBatches } = programR2({
+      keys: [{ key: orphanKey, lastModified: OLD }],
+    });
+    // Rows exist but none parse to a user-photo key: an external CDN URL and
+    // a malformed value — the exact shape of a config/parsing regression.
+    const service = mockService({
+      photoUrls: ["https://media.licdn.com/dms/image/abc.jpg", "not-a-url"],
+    });
+
+    const result = await sweepR2PhotoOrphans({ service, now: () => NOW });
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain("refusing to sweep");
+    expect(result.removed).toEqual([]);
     expect(deletedBatches).toEqual([]);
   });
 });
