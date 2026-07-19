@@ -3,7 +3,7 @@
  *
  * The MCP data layer runs with the service-role key (RLS bypassed), so every
  * query it can reach MUST hand-scope to the operating user. This suite is
- * table-driven and exhaustive:
+ * table-driven:
  *
  *  1. Every value export of src/mcp/lib/db.ts and of every src/lib/data
  *     module has a classification entry. A NEW export without an entry fails
@@ -11,12 +11,27 @@
  *  2. Every MCP-consumable entry is driven through a recording query-builder
  *     client wired via the REAL injection path (initDb -> setDataClient /
  *     setCompanyQueriesClient), and every recorded operation must carry
- *     .eq(user_id) / an embedded *.user_id filter / a user_id payload, hit a
- *     justified global table, or be covered by an in-invocation ownership
- *     assertion. Deleting one .eq("user_id") from any driven function turns
- *     this suite red.
+ *     .eq(user_id) / an embedded *.user_id filter backed by an !inner embed /
+ *     a user_id payload, hit a justified global table, or key exclusively on
+ *     ids the same invocation PROVED it owns (a scoped read that returned the
+ *     row, or a scoped mutation that matched it).
  *  3. Classifications marked web-only are enforced mechanically: no file
  *     under src/mcp may import them (fs scan, route-auth-inventory style).
+ *
+ * What this gate does and does not guarantee — read before trusting it.
+ * It IS a regression detector for the scoping of the code paths it drives:
+ * removing a user_id filter, or dropping an !inner from an embed that a
+ * user_id filter depends on, fails the corresponding drive. It is NOT a proof
+ * of tenant isolation. Its reach is bounded by three things, each of which has
+ * bitten before (see the CAR-151 deep review, which found the original version
+ * green under 7 of 8 hand-injected scoping regressions):
+ *   - a function is only checked through the fixtures its drive supplies, so a
+ *     code path the fixture never exercises is unverified (mcp-covered entries
+ *     therefore declare `touches`, asserting the driver really reaches them);
+ *   - `context` entries are not driven at all, so that classification is
+ *     separately guarded against smuggling in queries;
+ *   - the import closure is a source scan, not a call graph.
+ * Extend the table when you add a surface; do not assume silence means safety.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -54,7 +69,7 @@ vi.mock("@/lib/analytics/server", () => ({
 
 import * as db from "@/mcp/lib/db";
 import { getContactStages, getCompanies, getCompanyDetail } from "@/lib/company-queries";
-import { deriveDueFollowUps, getRelationshipsOnTrack } from "@/lib/data/follow-ups";
+import { deriveDueFollowUps, getNeglectedContacts, getRelationshipsOnTrack } from "@/lib/data/follow-ups";
 import { getNetworkingStreak as getStreakShared } from "@/lib/data/home";
 
 const USER = "user-1";
@@ -104,6 +119,14 @@ interface Entry {
   ownership?: OwnershipSpec;
   /** For mcp-covered: the driven db.ts entry that exercises it. */
   coveredBy?: string;
+  /**
+   * For mcp-covered: a table this function queries. The coveredBy drive must
+   * actually hit it, which is what makes coverage real rather than aspirational
+   * — several of these are reached only because the createContactFull fixture
+   * happens to supply phones/company/school/location, and trimming one line
+   * from that literal silently un-covered a function before (CAR-151 review).
+   */
+  touches?: string;
   /** For global: justification. */
   why?: string;
 }
@@ -343,17 +366,17 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     paginateAll: { kind: "context" },
   },
   "@/lib/data/contacts": {
-    getContactEmailLookup: { kind: "mcp-covered", coveredBy: "listCalendarEvents" },
-    getContactById: { kind: "mcp-covered", coveredBy: "getContactFull" },
-    createContact: { kind: "mcp-covered", coveredBy: "createContactFull" },
-    appendContactNote: { kind: "mcp-covered", coveredBy: "appendNote" },
-    findOrCreateCompany: { kind: "mcp-covered", coveredBy: "createContactFull" },
-    findOrCreateSchool: { kind: "mcp-covered", coveredBy: "createContactFull" },
-    findOrCreateLocation: { kind: "mcp-covered", coveredBy: "createContactFull" },
-    addEmailToContact: { kind: "mcp-covered", coveredBy: "createContactFull" },
-    addPhoneToContact: { kind: "mcp-covered", coveredBy: "createContactFull" },
-    addCompanyToContact: { kind: "mcp-covered", coveredBy: "createContactFull" },
-    addSchoolToContact: { kind: "mcp-covered", coveredBy: "createContactFull" },
+    getContactEmailLookup: { kind: "mcp-covered", coveredBy: "listCalendarEvents", touches: "contact_emails" },
+    getContactById: { kind: "mcp-covered", coveredBy: "getContactFull", touches: "contacts" },
+    createContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contacts" },
+    appendContactNote: { kind: "mcp-covered", coveredBy: "appendNote", touches: "rpc:append_contact_note" },
+    findOrCreateCompany: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "companies" },
+    findOrCreateSchool: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "schools" },
+    findOrCreateLocation: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "locations" },
+    addEmailToContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contact_emails" },
+    addPhoneToContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contact_phones" },
+    addCompanyToContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contact_companies" },
+    addSchoolToContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contact_schools" },
     getContacts: { kind: "web-only" },
     getContactsStreamed: { kind: "web-only" },
     updateContact: { kind: "web-only" },
@@ -397,8 +420,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     deleteTranscriptSegments: { kind: "web-only" },
   },
   "@/lib/data/action-items": {
-    createActionItem: { kind: "mcp-covered", coveredBy: "createActionItem" },
-    getActionItems: { kind: "mcp-covered", coveredBy: "listActionItems" },
+    createActionItem: { kind: "mcp-covered", coveredBy: "createActionItem", touches: "follow_up_action_items" },
+    getActionItems: { kind: "mcp-covered", coveredBy: "listActionItems", touches: "follow_up_action_items" },
     getActionItemsForMeeting: { kind: "web-only" },
     getActionItemsForContact: { kind: "web-only" },
     getCompletedActionItems: { kind: "web-only" },
@@ -412,18 +435,18 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
   "@/lib/data/follow-ups": {
     getRecentCutoff: { kind: "context" },
     deriveDueFollowUps: { kind: "context" },
-    buildLastTouchMap: { kind: "mcp-covered", coveredBy: "buildLastTouchMap" },
-    getContactsDueForFollowUp: { kind: "mcp-covered", coveredBy: "listDueFollowUps" },
-    getContactsWithLastTouch: { kind: "mcp-covered", coveredBy: "getNetworkHealth" },
-    getRelationshipsOnTrack: { kind: "mcp-covered", coveredBy: "getNetworkHealth" },
-    getNeglectedContacts: { kind: "mcp-covered", coveredBy: "getNetworkHealth" },
+    buildLastTouchMap: { kind: "mcp-covered", coveredBy: "buildLastTouchMap", touches: "meeting_contacts" },
+    getContactsDueForFollowUp: { kind: "mcp-covered", coveredBy: "listDueFollowUps", touches: "contacts" },
+    getContactsWithLastTouch: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "contacts" },
+    getRelationshipsOnTrack: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "contacts" },
+    getNeglectedContacts: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "contacts" },
     getNetworkHealthSummary: { kind: "web-only" },
     snoozeContact: { kind: "web-only" },
     skipContactFirstOutreach: { kind: "web-only" },
     setSuggestionCooldown: { kind: "web-only" },
   },
   "@/lib/data/home": {
-    getNetworkingStreak: { kind: "mcp-covered", coveredBy: "getNetworkHealth" },
+    getNetworkingStreak: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "meetings" },
     getHomeCoreData: { kind: "web-only" },
     getActionListCounts: { kind: "web-only" },
     getHomeStats: { kind: "web-only" },
@@ -446,11 +469,11 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     deleteAttachment: { kind: "web-only" },
   },
   "@/lib/data/emails": {
-    insertScheduledEmail: { kind: "mcp-covered", coveredBy: "createScheduledEmail" },
-    insertEmailDraft: { kind: "mcp-covered", coveredBy: "createAppDraft" },
-    insertFollowUpSequenceRows: { kind: "mcp-covered", coveredBy: "insertFollowUpSequence" },
-    cancelScheduledEmailCascade: { kind: "mcp-covered", coveredBy: "cancelScheduledEmail" },
-    cancelFollowUpSequenceCascade: { kind: "mcp-covered", coveredBy: "cancelFollowUpSequence" },
+    insertScheduledEmail: { kind: "mcp-covered", coveredBy: "createScheduledEmail", touches: "scheduled_emails" },
+    insertEmailDraft: { kind: "mcp-covered", coveredBy: "createAppDraft", touches: "email_drafts" },
+    insertFollowUpSequenceRows: { kind: "mcp-covered", coveredBy: "insertFollowUpSequence", touches: "email_follow_ups" },
+    cancelScheduledEmailCascade: { kind: "mcp-covered", coveredBy: "cancelScheduledEmail", touches: "scheduled_emails" },
+    cancelFollowUpSequenceCascade: { kind: "mcp-covered", coveredBy: "cancelFollowUpSequence", touches: "email_follow_ups" },
   },
 };
 
@@ -516,8 +539,69 @@ describe("export enumeration", () => {
         if (entry.kind !== "mcp-covered") continue;
         const target = DB_TABLE[entry.coveredBy ?? ""];
         expect(target?.drive, `${name} coveredBy "${entry.coveredBy}" must be a driven db.ts entry`).toBeTypeOf("function");
+        expect(entry.touches, `${name} must declare the table it queries, so coverage can be proven`).toBeTruthy();
       }
     }
+  });
+
+  // Without this, "covered" means only that a driver exists — not that it
+  // reaches the covered function. A real cross-tenant write bug survived the
+  // suite after one line was trimmed from the createContactFull fixture
+  // (CAR-151 review), because nothing noticed the function stopped running.
+  for (const [modPath, table] of Object.entries(DATA_TABLES)) {
+    for (const [name, entry] of Object.entries(table)) {
+      if (entry.kind !== "mcp-covered") continue;
+      it(`${modPath}: ${name} is actually reached by its ${entry.coveredBy} drive`, async () => {
+        const target = DB_TABLE[entry.coveredBy!];
+        await runDrive(entry.coveredBy!, target);
+        const tables = recorded().map((q) => q.table);
+        expect(
+          tables,
+          `${name} declares touches:"${entry.touches}" but the ${entry.coveredBy} drive never queried it — the fixture no longer exercises this function`,
+        ).toContain(entry.touches);
+      });
+    }
+  }
+
+  // `context` is the only classification that is never driven, which makes it
+  // the one place an unscoped query could hide behind a label. Every other kind
+  // has mechanical enforcement (web-only via the import scan, global via a
+  // required justification, mcp-covered via the touches assertion above), so
+  // this closes the asymmetry (CAR-151 review).
+  it("context-classified exports issue no queries of their own", () => {
+    const bodyOf = (src: string, name: string): string | null => {
+      const decl = new RegExp(`export (?:async )?function ${name}\\b`).exec(src);
+      if (!decl) return null;
+      const open = src.indexOf("{", decl.index);
+      if (open === -1) return null;
+      let depth = 0;
+      for (let i = open; i < src.length; i++) {
+        if (src[i] === "{") depth++;
+        else if (src[i] === "}" && --depth === 0) return src.slice(open, i + 1);
+      }
+      return null;
+    };
+
+    const modules: Array<[string, Record<string, Entry>, string]> = [
+      ["src/mcp/lib/db.ts", DB_TABLE, path.resolve(__dirname, "../lib/db.ts")],
+      ...Object.entries(DATA_TABLES).map(([modPath, table]) =>
+        [modPath, table, path.resolve(__dirname, "../../lib", `${modPath.replace("@/lib/", "")}.ts`)] as [string, Record<string, Entry>, string],
+      ),
+    ];
+
+    const violations: string[] = [];
+    for (const [label, table, file] of modules) {
+      const src = readFileSync(file, "utf8");
+      for (const [name, entry] of Object.entries(table)) {
+        if (entry.kind !== "context") continue;
+        const body = bodyOf(src, name);
+        if (body == null) continue; // not a function declaration (const/type) — nothing to smuggle
+        if (/\.from\(|\.rpc\(/.test(body)) {
+          violations.push(`${label}: ${name} is classified "context" but issues queries — classify and drive it instead`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 
   it("global classifications carry justifications", () => {
@@ -566,6 +650,32 @@ describe("MCP import closure", () => {
       const names = importedNames(src, (s, f) => resolvesTo(s, f, "queries"), file);
       expect(names, `${file} imports @/lib/queries — import the data module directly`).toEqual([]);
     }
+  });
+
+  // The named-import scan above reads only `import { x } from "..."`. These
+  // three forms reach the same modules while presenting no braced name list,
+  // so they would silently bypass the web-only classification (CAR-151 review).
+  // None exist today; this keeps it that way rather than relying on that.
+  it("never reaches the data layer through namespace, dynamic, or re-export forms", () => {
+    const EVASIONS: Array<[RegExp, string]> = [
+      [/import\s+\*\s+as\s+\w+\s+from\s+["']([^"']+)["']/g, "namespace import"],
+      [/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g, "dynamic import"],
+      [/export\s+(?:\*|{[^}]*})\s+from\s+["']([^"']+)["']/g, "re-export"],
+    ];
+    const REACHES = /(?:@\/lib\/(?:queries|data\/|company-queries)|(?:\.\.?\/)+(?:lib\/)?(?:queries|data\/|company-queries))/;
+
+    const violations: string[] = [];
+    for (const file of files) {
+      const src = readFileSync(path.join(mcpDir, file), "utf8");
+      for (const [re, label] of EVASIONS) {
+        for (const m of src.matchAll(re)) {
+          if (REACHES.test(m[1])) {
+            violations.push(`${file}: ${label} of "${m[1]}" bypasses the web-only classification scan`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 
   it("only imports data-layer names classified as MCP-consumable", () => {
@@ -671,6 +781,58 @@ describe("checker self-tests (a dropped user_id filter turns the suite red)", ()
     };
     expect(() => assertAllScoped([q], USER)).toThrow(/ownership assertion/);
   });
+
+  // The three below pin the holes the CAR-151 deep review found, each of which
+  // let a real scoping regression ship green. Do not relax them without
+  // re-running the mutation battery in that review.
+
+  it("rejects a query constrained only by non-id columns, even after ownership exists", () => {
+    // The vacuous-ownership hole: `usesOnlyOwnedKeys` used to return true when
+    // it found no id to object to, so any query filtered purely on status/dates
+    // passed once the owned set was non-empty.
+    const scoped: RecordedQuery = {
+      table: "contacts", op: "select", resolution: "maybeSingle",
+      filters: [["eq", "user_id", USER], ["eq", "id", 5]], orFilters: [],
+      countRequested: false, headRequested: false, orders: [], returned: { id: 5 },
+    };
+    const vacuous: RecordedQuery = {
+      table: "email_follow_ups", op: "select", resolution: "await",
+      filters: [["eq", "status", "active"]], orFilters: [],
+      countRequested: false, headRequested: false, orders: [],
+    };
+    expect(() => assertAllScoped([scoped, vacuous], USER)).toThrow(/not user-scoped/);
+  });
+
+  it("does not treat a filtered id as owned unless the query returned or matched it", () => {
+    // The circular-ownership hole: filtering `.in("contact_id", ids)` under a
+    // scoped query used to mark those ids owned even when nothing came back,
+    // blessing an unscoped sibling query keyed on the same caller-supplied ids.
+    const scopedButEmpty: RecordedQuery = {
+      table: "meeting_contacts", op: "select", resolution: "await",
+      filters: [["eq", "meetings.user_id", USER], ["in", "contact_id", [1, 2]]], orFilters: [],
+      selectCols: "contact_id, meetings!inner(meeting_date)",
+      countRequested: false, headRequested: false, orders: [], returned: [],
+    };
+    const unscopedSibling: RecordedQuery = {
+      table: "interactions", op: "select", resolution: "await",
+      filters: [["in", "contact_id", [1, 2]]], orFilters: [],
+      countRequested: false, headRequested: false, orders: [],
+    };
+    expect(() => assertAllScoped([scopedButEmpty, unscopedSibling], USER)).toThrow(/not user-scoped/);
+  });
+
+  it("rejects an embedded user_id filter whose embed is not an inner join", () => {
+    // Without !inner, PostgREST returns the parent row anyway with the embed
+    // nulled, so the filter restricts nothing. Same filters, one character of
+    // difference in the select, opposite security properties.
+    const base = {
+      table: "interactions", op: "select", resolution: "await",
+      filters: [["eq", "contacts.user_id", USER]] as Array<[string, string, unknown]>,
+      orFilters: [], countRequested: false, headRequested: false, orders: [],
+    };
+    expect(() => assertAllScoped([{ ...base, selectCols: "contact_id, contacts!inner()" } as RecordedQuery], USER)).not.toThrow();
+    expect(() => assertAllScoped([{ ...base, selectCols: "contact_id, contacts(user_id)" } as RecordedQuery], USER)).toThrow(/not user-scoped/);
+  });
 });
 
 // ── 5. Web-vs-MCP parity: the MCP projections track the shared logic ───
@@ -719,7 +881,7 @@ describe("web-vs-MCP parity (contacts due / on-track / streak)", () => {
     expect(mcp.length).toBeGreaterThan(0); // the fixture really is overdue
   });
 
-  it("get_network_health serves the shared on-track and streak numbers verbatim", async () => {
+  it("get_network_health serves the shared on-track, streak and neglected data verbatim", async () => {
     resetRecorder();
     db.initDb(USER);
     state.route = (q) => parityRoute(q as RouteCtx);
@@ -730,6 +892,7 @@ describe("web-vs-MCP parity (contacts due / on-track / streak)", () => {
     state.route = (q) => parityRoute(q as RouteCtx);
     const onTrack = await getRelationshipsOnTrack(USER);
     const streak = await getStreakShared(USER);
+    const neglected = await getNeglectedContacts(USER);
 
     expect(health.onTrack).toEqual({
       percentage: onTrack.percentage,
@@ -737,6 +900,20 @@ describe("web-vs-MCP parity (contacts due / on-track / streak)", () => {
       total: onTrack.total,
     });
     expect(health.streakDays).toBe(streak.streak);
+    // neglectedContacts was deliberately left unasserted when this suite was
+    // first written, which is precisely where an undocumented behavior change
+    // hid (CAR-151 review). It is the shared list, renamed and truncated —
+    // pin it so any future divergence between the two surfaces is loud.
+    expect(health.neglectedContacts).toEqual(
+      neglected
+        .map((n) => ({
+          id: n.id,
+          name: n.name,
+          days_since_touch: n.days_since_touch,
+          cadence_days: n.follow_up_frequency_days,
+        }))
+        .slice(0, 15),
+    );
     expect(health.onTrack.total).toBeGreaterThan(0); // fixture flowed through
   });
 });

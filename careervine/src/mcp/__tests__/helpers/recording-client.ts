@@ -34,8 +34,16 @@ export interface RecordedQuery {
   headRequested: boolean;
   /** order() columns in call order. */
   orders: string[];
+  /**
+   * The raw select() column string. Load-bearing for scoping: a filter on an
+   * embedded column only restricts PARENT rows when the embed is declared
+   * !inner, so the checker has to read this to tell real scoping from a no-op.
+   */
+  selectCols?: string;
   /** The data this query resolved with (fixture or default). */
   returned?: unknown;
+  /** Row count the query resolved with (count-based CAS proves a match). */
+  returnedCount?: number | null;
 }
 
 export type RouteCtx = RecordedQuery;
@@ -56,6 +64,7 @@ function resolveQuery(state: RecordingState, q: RecordedQuery) {
   state.recorded.push(q);
   const finish = (result: { data: unknown; error: null; count: number | null }) => {
     q.returned = result.data;
+    q.returnedCount = result.count;
     return result;
   };
   const routed = state.route(q);
@@ -93,7 +102,8 @@ function makeBuilder(state: RecordingState, table: string, op: string, payload?:
     return builder;
   };
   const builder: Record<string, unknown> = {
-    select: (_cols?: string, selOpts?: { count?: string; head?: boolean }) => {
+    select: (cols?: string, selOpts?: { count?: string; head?: boolean }) => {
+      if (cols != null) q.selectCols = cols;
       if (selOpts?.count === "exact") q.countRequested = true;
       if (selOpts?.head) q.headRequested = true;
       return builder;
@@ -112,7 +122,10 @@ function makeBuilder(state: RecordingState, table: string, op: string, payload?:
     delete: () => { q.op = "delete"; return builder; },
     eq: filter("eq"), neq: filter("neq"), gt: filter("gt"), gte: filter("gte"),
     lt: filter("lt"), lte: filter("lte"), like: filter("like"), ilike: filter("ilike"),
-    is: filter("is"), in: filter("in"), not: filter("not"), contains: filter("contains"),
+    is: filter("is"), in: filter("in"), contains: filter("contains"),
+    // PostgREST's .not() is (column, operator, value) — record the VALUE, not
+    // the operator, so an id referenced through .not() is still checkable.
+    not: (col: string, _op: string, val?: unknown) => { q.filters.push(["not", col, val]); return builder; },
     or: (expr: string) => { q.orFilters.push(expr); return builder; },
     order: (col: string) => { q.orders.push(col); return builder; },
     limit: () => builder,
@@ -166,18 +179,58 @@ export const GLOBAL_TABLES: Record<string, string> = {
   locations: "global normalization table — canonical city/state/country rows shared across users",
 };
 
+/**
+ * Tables that carry their own user_id column (derived from the migration
+ * history, not from constants.ts). Embedding one of these from a parent that
+ * is NOT itself user-scoped means the embed is the only thing standing between
+ * the query and another tenant's rows — the CAR-133 / R2.1 case, where a bad
+ * calendar_event_contacts link would have surfaced a foreign contact's name.
+ * Child and junction tables are absent by design: they have no user_id and are
+ * scoped transitively by an already-scoped parent row.
+ */
+const USER_OWNED_TABLES = new Set([
+  "ai_follow_up_drafts", "attachments", "bundle_contact_state", "bundle_subscriptions",
+  "calendar_events", "contact_change_events", "contact_scrape_snapshots", "contacts",
+  "discovery_candidates", "email_drafts", "email_follow_ups", "email_messages",
+  "email_templates", "follow_up_action_items", "gmail_connections", "meetings",
+  "referrals", "scheduled_emails", "suppressed_imports", "tags", "target_companies",
+  "user_companies", "user_schools",
+]);
+
+/** Relations embedded by a select string, e.g. "a, contacts!inner(id), tags(*)" -> [contacts, tags]. */
+function embeddedRelations(selectCols: string | undefined): string[] {
+  if (!selectCols) return [];
+  const rels: string[] = [];
+  for (const m of selectCols.matchAll(/(\w+)(!inner)?\s*\(/g)) rels.push(m[1]);
+  return rels;
+}
+
 function payloadCarriesUser(payload: unknown, userId: string): boolean {
   if (payload == null) return false;
   const rows = Array.isArray(payload) ? payload : [payload];
   return rows.length > 0 && rows.every((r) => (r as Record<string, unknown>).user_id === userId);
 }
 
-/** Directly user-scoped: .eq on user_id / an embedded *.user_id, or a payload stamped with user_id. */
+/**
+ * Directly user-scoped: .eq on user_id, an embedded <rel>.user_id backed by a
+ * `<rel>!inner` embed, or a payload stamped with user_id.
+ *
+ * The !inner requirement is not pedantry. In PostgREST a filter on an embedded
+ * column restricts the PARENT rows only when the embed is an inner join;
+ * without it the parent row is still returned with the embed nulled, so
+ * `.eq("contacts.user_id", uid)` silently becomes a no-op and the query reads
+ * every tenant's rows. Dropping `!inner` from a select string produces no type
+ * error and no lint error, so this check is the only thing standing between
+ * that edit and a cross-tenant read (CAR-151 review).
+ */
 export function isDirectlyScoped(q: RecordedQuery, userId: string): boolean {
-  const scopedFilter = q.filters.some(
-    ([method, col, val]) =>
-      method === "eq" && (col === "user_id" || col.endsWith(".user_id")) && val === userId,
-  );
+  const scopedFilter = q.filters.some(([method, col, val]) => {
+    if (method !== "eq" || val !== userId) return false;
+    if (col === "user_id") return true;
+    if (!col.endsWith(".user_id")) return false;
+    const rel = col.slice(0, -".user_id".length);
+    return (q.selectCols ?? "").includes(`${rel}!inner`);
+  });
   if (scopedFilter) return true;
   if ((q.op === "insert" || q.op === "upsert") && payloadCarriesUser(q.payload, userId)) return true;
   return false;
@@ -192,27 +245,62 @@ export interface OwnershipSpec {
   allowedRpcs?: string[];
 }
 
+// user_id is deliberately excluded: it identifies the TENANT, not a row this
+// invocation proved it owns. Counting it as an "id" was what let the owned set
+// become non-empty after any scoped query and opened the vacuous-pass hole.
 const ID_COLUMNS = /(^|_)id$/;
+const isRowIdColumn = (col: string) => ID_COLUMNS.test(col) && col !== "user_id" && !col.endsWith(".user_id");
 
+/** Ids an .or() expression constrains, e.g. "contact_id.eq.5,contact_id.eq.9". */
+function orExpressionIds(orFilters: string[]): Array<{ col: string; val: string }> {
+  const refs: Array<{ col: string; val: string }> = [];
+  for (const expr of orFilters) {
+    for (const clause of expr.split(",")) {
+      const m = clause.trim().match(/^([A-Za-z0-9_.]+)\.(?:eq|in)\.(.+)$/);
+      if (m && isRowIdColumn(m[1])) refs.push({ col: m[1], val: m[2] });
+    }
+  }
+  return refs;
+}
+
+/**
+ * True when EVERY row-id this operation references is an owned id, AND it
+ * references at least one. The "at least one" requirement is the point: an
+ * operation constrained only by non-id columns (status, dates, booleans) proves
+ * nothing about tenancy, and previously passed vacuously because both loops
+ * below simply found nothing to reject (CAR-151 review).
+ */
 function usesOnlyOwnedKeys(q: RecordedQuery, owned: Set<number | string>): boolean {
-  // A child operation is ownership-covered when every id-bearing filter or
-  // payload reference points at an owned id. Non-id filters (status, dates,
-  // booleans, snooze windows) are unconstrained.
+  let sawOwnedKey = false;
+  const check = (val: unknown): boolean => {
+    for (const v of Array.isArray(val) ? val : [val]) {
+      if (v == null) continue;
+      if (!owned.has(v as number | string)) return false;
+      sawOwnedKey = true;
+    }
+    return true;
+  };
+
   for (const [, col, val] of q.filters) {
-    if (!ID_COLUMNS.test(col)) continue;
-    const vals = Array.isArray(val) ? val : [val];
-    if (!vals.every((v) => owned.has(v as number | string))) return false;
+    if (!isRowIdColumn(col)) continue;
+    if (!check(val)) return false;
+  }
+  // Ids hidden inside .or() are checked too — leaving them unexamined made them
+  // pass silently, which is the unsafe direction.
+  for (const ref of orExpressionIds(q.orFilters)) {
+    const parsed: number | string = /^\d+$/.test(ref.val) ? Number(ref.val) : ref.val;
+    if (!check(parsed)) return false;
   }
   if (q.payload != null) {
     const rows = Array.isArray(q.payload) ? q.payload : [q.payload];
     for (const row of rows) {
       for (const [key, val] of Object.entries(row as Record<string, unknown>)) {
-        if (!ID_COLUMNS.test(key) || key === "user_id" || val == null) continue;
-        if (!owned.has(val as number | string)) return false;
+        if (!isRowIdColumn(key) || val == null) continue;
+        if (!check(val)) return false;
       }
     }
   }
-  return true;
+  return sawOwnedKey;
 }
 
 function returnedIds(returned: unknown): Array<number | string> {
@@ -223,27 +311,35 @@ function returnedIds(returned: unknown): Array<number | string> {
     .filter((id): id is number | string => id != null);
 }
 
-function filteredIds(q: RecordedQuery): Array<number | string> {
+/**
+ * Row ids a directly-scoped MUTATION proved it owns. A scoped update/delete
+ * that matched (count > 0) is proof the filtered row belongs to the user, which
+ * is how count-based CAS flows (rule 17) establish ownership without a
+ * read-back. Reads do NOT get this treatment: filtering on an id proves nothing
+ * unless a row actually came back, and treating filters as proof made ownership
+ * circular for any function handed ids by its caller (CAR-151 review).
+ */
+function matchedMutationIds(q: RecordedQuery): Array<number | string> {
+  const isMutation = q.op === "update" || q.op === "delete" || q.op === "upsert";
+  if (!isMutation || !(q.returnedCount ?? 0)) return [];
   const ids: Array<number | string> = [];
   for (const [, col, val] of q.filters) {
-    if (!ID_COLUMNS.test(col)) continue;
-    for (const v of Array.isArray(val) ? val : [val]) {
-      if (v != null) ids.push(v as number | string);
-    }
+    if (!isRowIdColumn(col)) continue;
+    for (const v of Array.isArray(val) ? val : [val]) if (v != null) ids.push(v as number | string);
   }
   return ids;
 }
 
 /**
  * Assert every recorded query is user-scoped: directly (user_id filter /
- * payload), via a global-table allowlist entry, or keyed exclusively on
- * OWNED ids.
+ * payload), via a global-table allowlist entry, or keyed exclusively on ids
+ * this invocation PROVED it owns.
  *
- * The owned set is built as the invocation runs — membership IS the
- * ownership assertion:
- *  - ids a directly user-scoped query filtered on or returned (a scoped
- *    read/write proves those rows are the user's), and
- *  - ids returned by global-table queries (they carry no tenant data).
+ * The owned set is built as the invocation runs, and only from evidence:
+ *  - rows a directly user-scoped query actually RETURNED,
+ *  - rows a directly user-scoped mutation actually MATCHED (count > 0), and
+ *  - ids from global-table queries (those rows carry no tenant data).
+ * Filtering on an id is deliberately NOT evidence — see matchedMutationIds.
  *
  * Deleting a .eq("user_id") upstream therefore cascades: the op itself is
  * flagged, and every child op that depended on it for ownership is too.
@@ -269,11 +365,25 @@ export function assertAllScoped(
       continue;
     }
     if (isDirectlyScoped(q, userId)) {
-      for (const id of filteredIds(q)) owned.add(id);
       for (const id of returnedIds(q.returned)) owned.add(id);
+      for (const id of matchedMutationIds(q)) owned.add(id);
       continue;
     }
-    if (owned.size > 0 && usesOnlyOwnedKeys(q, owned)) {
+    if (usesOnlyOwnedKeys(q, owned)) {
+      // Ownership by key covers the PARENT rows, but says nothing about a
+      // user-owned table pulled in through an embed: the junction row that
+      // links them may itself be bad. Each such embed needs its own scoping.
+      const unscopedEmbeds = embeddedRelations(q.selectCols).filter(
+        (rel) =>
+          USER_OWNED_TABLES.has(rel) &&
+          !q.filters.some(([m, col, val]) => m === "eq" && col === `${rel}.user_id` && val === userId),
+      );
+      if (unscopedEmbeds.length > 0) {
+        failures.push(
+          `${q.op} on "${q.table}" is keyed on owned ids but embeds user-owned ${unscopedEmbeds.join(", ")} without .eq("<rel>.user_id") — a bad link row would surface another tenant's data`,
+        );
+        continue;
+      }
       // Ownership-covered — and any rows it returned are the user's too
       // (they were reached exclusively through owned keys).
       for (const id of returnedIds(q.returned)) owned.add(id);

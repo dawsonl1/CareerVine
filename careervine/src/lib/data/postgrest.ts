@@ -7,7 +7,17 @@
  * (PostgREST caps a response at 1000 rows and truncates silently).
  */
 
-/** Escape %, _ and \ so user data can't act as ilike wildcards. */
+/**
+ * Escape %, _ and \ so user data can't act as ilike wildcards.
+ *
+ * Deliberately does NOT handle `*`, which PostgREST also treats as a wildcard
+ * (it rewrites `*` to `%` in like/ilike patterns). That rewrite is a blind
+ * substitution, so escaping it here would produce `\%` — a literal-percent
+ * match, not a literal asterisk. PostgREST cannot express a literal `*` in a
+ * pattern at all, so callers doing equality-style matching must treat the
+ * ilike as a narrowing only and verify the match in JS (see
+ * findOrCreateSchool in ./contacts).
+ */
 export function escapeIlike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }

@@ -6,6 +6,7 @@
  */
 
 import { db, must, type QueryClient } from "./client";
+import { paginateAll } from "./postgrest";
 import type { Database } from "@/lib/database.types";
 
 /**
@@ -55,21 +56,29 @@ export async function createActionItem(
  */
 export async function getActionItems(userId: string) {
   const now = new Date().toISOString();
-  const { data, error } = await db()
-    .from("follow_up_action_items")
-    .select(`
-      *,
-      contacts(*),
-      meetings(*),
-      action_item_contacts(contact_id, contacts(id, name))
-    `)
-    .eq("user_id", userId)
-    .eq("is_completed", false)
-    .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
-    .order("due_at", { ascending: true, nullsFirst: false });
-
-  if (error) throw error;
-  return data;
+  // paginateAll: this is the unfiltered pending set for both the web action
+  // list and MCP's listActionItems, which narrows by direction/contact/due in
+  // memory — a 1000-row truncation here would silently under-return whole
+  // slices of those views. .order("id") is the stable tiebreaker range
+  // pagination needs (due_at is nullable and heavily duplicated).
+  return await paginateAll(async (from, to) =>
+    must(
+      await db()
+        .from("follow_up_action_items")
+        .select(`
+          *,
+          contacts(*),
+          meetings(*),
+          action_item_contacts(contact_id, contacts(id, name))
+        `)
+        .eq("user_id", userId)
+        .eq("is_completed", false)
+        .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
+        .order("due_at", { ascending: true, nullsFirst: false })
+        .order("id")
+        .range(from, to),
+    ),
+  );
 }
 
 /**

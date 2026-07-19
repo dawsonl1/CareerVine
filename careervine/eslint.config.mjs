@@ -112,6 +112,79 @@ const SERVICE_CLIENT_GRANDFATHERED = [
   "src/mcp/lib/db.ts",
 ];
 
+/**
+ * Implicit-db() importers allowed under src/app (CAR-151 guardrail).
+ *
+ * The src/lib/data modules resolve their client through db() in
+ * src/lib/data/client.ts, a process-global slot that MCP fills with the
+ * service-role client via setDataClient(). Those modules are safe there only
+ * because they are also scoped by uid() in src/mcp/lib/db.ts; several of them
+ * (getInteractions(contactId), getActionItemsForMeeting(meetingId)) filter by
+ * row id alone. So any server-executed file under src/app that resolves the
+ * implicit db() would read whatever client that slot happens to hold, and
+ * bypass RLS. The rule below fences that direction; the categories:
+ *  - "use client" pages   browser bundle, own module instance, db() is always
+ *                         the anon browser client — not the seam at risk
+ *  - explicit-client API  passes its own request-scoped client to every call
+ * Adding a NEW entry to the first category is routine; adding one to the
+ * second means proving the file never resolves db() implicitly.
+ */
+const IMPLICIT_DB_ALLOWED_IN_APP = [
+  // "use client" pages (browser-executed)
+  "src/app/action-items/page.tsx",
+  "src/app/calendar/page.tsx",
+  "src/app/companies/\\[id\\]/page.tsx",
+  "src/app/contacts/\\[id\\]/page.tsx",
+  "src/app/contacts/page.tsx",
+  "src/app/interactions/page.tsx",
+  "src/app/meetings/page.tsx",
+  "src/app/page.tsx",
+  // API route passing its own request-scoped client explicitly
+  "src/app/api/suggestions/save/route.ts",
+];
+
+/**
+ * The src/lib/data modules that resolve the implicit db() seam, restricted
+ * under src/app by the rule above. Deliberately excluded:
+ *  - @/lib/data/emails     takes an explicit client on every function
+ *  - @/lib/data/postgrest  pure helpers, no client at all
+ * The 7 email routes and api/contacts/search depend on those two.
+ */
+const IMPLICIT_DB_MODULES = [
+  "action-items",
+  "attachments",
+  "contacts",
+  "follow-ups",
+  "home",
+  "interactions",
+  "meetings",
+  "users",
+].map((m) => `@/lib/data/${m}`);
+
+/**
+ * no-restricted-imports is one rule id, and flat config resolves a rule to the
+ * LAST matching config object rather than merging — so every block below that
+ * re-declares it for a subset of src/** must restate this path, or it silently
+ * un-restricts the service-role client for those files.
+ */
+const SERVICE_CLIENT_PATH = {
+  name: "@/lib/supabase/service-client",
+  message:
+    "The service-role client bypasses RLS. Prefer the request-scoped client from withApiHandler, or a userId-parameterized helper that already holds one. If this file genuinely needs it, add it to SERVICE_CLIENT_GRANDFATHERED in eslint.config.mjs with a justification (CAR-151).",
+};
+
+/** The src/app entries of SERVICE_CLIENT_GRANDFATHERED (see the two app blocks). */
+const SERVICE_CLIENT_GRANDFATHERED_IN_APP = SERVICE_CLIENT_GRANDFATHERED.filter(
+  (p) => p.startsWith("src/app/"),
+);
+
+const IMPLICIT_DB_MESSAGE =
+  "This module resolves the shared db() seam (src/lib/data/client.ts), a process-global slot MCP fills with the service-role client — a server-executed file here would read through it and bypass RLS. Use the request-scoped client from withApiHandler, or a src/lib/data function that takes a client explicitly (@/lib/data/emails). If this file provably never resolves db() implicitly, add it to IMPLICIT_DB_ALLOWED_IN_APP in eslint.config.mjs (CAR-151).";
+
+const IMPLICIT_DB_PATHS = [...IMPLICIT_DB_MODULES, "@/lib/queries"].map(
+  (name) => ({ name, message: IMPLICIT_DB_MESSAGE }),
+);
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -169,13 +242,7 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": [
         "error",
         {
-          paths: [
-            {
-              name: "@/lib/supabase/service-client",
-              message:
-                "The service-role client bypasses RLS. Prefer the request-scoped client from withApiHandler, or a userId-parameterized helper that already holds one. If this file genuinely needs it, add it to SERVICE_CLIENT_GRANDFATHERED in eslint.config.mjs with a justification (CAR-151).",
-            },
-          ],
+          paths: [SERVICE_CLIENT_PATH],
         },
       ],
     },
@@ -197,10 +264,15 @@ const eslintConfig = defineConfig([
               message:
                 "Only src/mcp/lib/db.ts may touch the shared data-client seam (CAR-151).",
             },
+            SERVICE_CLIENT_PATH,
           ],
           patterns: [
             {
-              group: ["**/mcp/lib/db", "./db", "../lib/db"],
+              // ESLint 9 matches these with the `ignore` package, not
+              // minimatch: "./db"/"../lib/db" cover only two of the relative
+              // forms a file under src/mcp can write, so "**/lib/db" carries
+              // the rest ("./lib/db", "../../lib/db", …).
+              group: ["**/mcp/lib/db", "**/lib/db", "./db", "../lib/db"],
               importNames: ["db"],
               message:
                 "Don't take the raw client in MCP tools — add a uid()-scoped helper to src/mcp/lib/db.ts instead (CAR-151).",
@@ -216,11 +288,49 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         {
-          selector: "CallExpression[callee.property.name='from'][callee.object.callee.name='db']",
+          // Banning the call itself, rather than db().from(), covers every
+          // client surface (.rpc/.storage/.auth) and the two-step binding
+          // `const c = db(); c.from(...)` that a shape-specific selector
+          // misses. Nothing outside src/mcp/lib/db.ts calls db().
+          selector: "CallExpression[callee.name='db']",
           message:
-            "No raw db().from() outside src/mcp/lib/db.ts — add a uid()-scoped helper there so the db-scoping gate covers it (CAR-151).",
+            "No raw db() client outside src/mcp/lib/db.ts — add a uid()-scoped helper there so the db-scoping gate covers it (CAR-151).",
         },
       ],
+    },
+  },
+  // CAR-151 guardrail, web direction: MCP parks the service-role client in the
+  // process-global db() slot, which is only safe while no server-executed web
+  // path resolves that slot implicitly. This fences that invariant.
+  // Scoped to src/app because the src/lib/data modules and the @/lib/queries
+  // barrel import each other by relative specifier, so a src/lib rule would
+  // fire ~18 times inside the data layer itself without adding any coverage.
+  {
+    files: ["src/app/**/*.ts", "src/app/**/*.tsx"],
+    ignores: [
+      "src/app/**/__tests__/**",
+      "src/app/**/*.test.ts",
+      "src/app/**/*.test.tsx",
+      ...IMPLICIT_DB_ALLOWED_IN_APP,
+      // Handled by the next block, which keeps the implicit-db restriction
+      // while dropping the service-client one these files are exempt from.
+      ...SERVICE_CLIENT_GRANDFATHERED_IN_APP,
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { paths: [...IMPLICIT_DB_PATHS, SERVICE_CLIENT_PATH] },
+      ],
+    },
+  },
+  // Same fence for the src/app files already grandfathered on the service-role
+  // client: being allowed to hold that client is not a licence to read through
+  // the process-global db() slot as well.
+  {
+    files: SERVICE_CLIENT_GRANDFATHERED_IN_APP,
+    ignores: IMPLICIT_DB_ALLOWED_IN_APP,
+    rules: {
+      "no-restricted-imports": ["error", { paths: IMPLICIT_DB_PATHS }],
     },
   },
 ]);
