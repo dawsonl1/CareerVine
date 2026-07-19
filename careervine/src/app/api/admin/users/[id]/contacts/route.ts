@@ -203,7 +203,9 @@ export const POST = withApiHandler<z.infer<typeof postSchema>>({
         detail: { contactId: (contact as { id: number }).id, name: body.name },
       });
 
-      return { contact };
+      // createContact returns the full row; keep the pre-CAR-155 response
+      // contract of exactly {id, name}.
+      return { contact: { id: contact.id, name: contact.name } };
     }
 
     // mode 'bundle'

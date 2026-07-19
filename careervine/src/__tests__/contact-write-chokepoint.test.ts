@@ -81,6 +81,38 @@ describe("contacts write chokepoint scan", () => {
     });
     expect(stale, "remove allowlist entries whose direct writes no longer exist").toEqual([]);
   });
+
+  // A write through a VARIABLE table name (.from(table).insert) is invisible
+  // to the literal scan above, so dynamic-table writers are enumerated
+  // separately and must carry their own runtime refusal of the contacts
+  // table (CAR-155 deep-review fix).
+  const DYNAMIC_WRITE = /(?<!Array)(?<!Buffer)\.from\(\s*[^"'`\s)][^)]*\)\s*\.\s*(insert|update|upsert)/;
+  const DYNAMIC_ALLOWLIST: Record<string, string> = {
+    "lib/bundle-fast-apply.ts":
+      "generic child-row bulkInsert (contact_companies/emails/bundle link+state); runtime-asserts table !== 'contacts'",
+  };
+
+  it("every dynamic-table write is enumerated and runtime-guards the contacts table", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      if (!DYNAMIC_WRITE.test(readFileSync(f, "utf8"))) continue;
+      const rel = path.relative(srcDir, f);
+      if (!(rel in DYNAMIC_ALLOWLIST)) offenders.push(rel);
+    }
+    expect(
+      offenders,
+      "dynamic-table Postgres writes evade the literal contacts scan — add a runtime table !== 'contacts' assertion and a justified DYNAMIC_ALLOWLIST entry",
+    ).toEqual([]);
+
+    for (const rel of Object.keys(DYNAMIC_ALLOWLIST)) {
+      const content = readFileSync(path.join(srcDir, rel), "utf8");
+      expect(DYNAMIC_WRITE.test(content), `${rel}: stale DYNAMIC_ALLOWLIST entry`).toBe(true);
+      expect(
+        /table === "contacts"/.test(content),
+        `${rel}: dynamic writer must runtime-refuse the contacts table`,
+      ).toBe(true);
+    }
+  });
 });
 
 // ── 2 + 3. Chokepoint behavior on a recording client ───────────────────
@@ -178,9 +210,15 @@ describe("linkedin_url canonicalization inside the chokepoint", () => {
     ]);
   });
 
-  it("keeps non-LinkedIn input trimmed as typed, collapses empty to null, passes explicit null through", async () => {
+  it("keeps non-LinkedIn input trimmed + slash-stripped (matching the DB tidy trigger), collapses empty to null, passes explicit null through", async () => {
     await createContact({ user_id: "u1", name: "X", linkedin_url: "  not a linkedin url  " });
     expect((writeArg("contacts", "insert") as { linkedin_url: string }).linkedin_url).toBe("not a linkedin url");
+
+    // Trailing slashes are stripped so the app-computed value always equals
+    // what the BEFORE INSERT tidy trigger stores (CAR-155 deep-review fix).
+    h.state.calls = [];
+    await createContact({ user_id: "u1", name: "X", linkedin_url: "https://example.com/foo/" });
+    expect((writeArg("contacts", "insert") as { linkedin_url: string }).linkedin_url).toBe("https://example.com/foo");
 
     h.state.calls = [];
     await createContact({ user_id: "u1", name: "Y", linkedin_url: "   " });

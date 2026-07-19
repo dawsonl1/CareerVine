@@ -170,9 +170,24 @@ function lookupCountry(token: string): string | null {
   return COUNTRY_ALIASES[token.trim().toLowerCase()] ?? null;
 }
 
-function applyMetroAlias(city: string, state: string | null): { city: string; state: string | null } {
+function applyMetroAlias(
+  city: string,
+  state: string | null,
+  country: string | null = null,
+): { city: string; state: string | null } {
   const alias = METRO_ALIASES[city.trim().toLowerCase()];
-  if (alias) return { city: alias.city, state: alias.state };
+  // A suburb→metro alias keys on the city name alone, so it only applies
+  // when it doesn't contradict what the caller already knows: an explicit
+  // DIFFERENT state means the name is a homonym, not the metro member
+  // (Manhattan, Kansas is not New York), and a non-US country can never be
+  // a US metro (Cambridge under the United Kingdom is not Boston). Callers
+  // pass canonicalized state/country; null means "unknown", which permits
+  // the alias (bare "Brooklyn" still collapses). (CAR-155 deep-review fix.)
+  const aliasApplies =
+    alias &&
+    (state === null || state === alias.state) &&
+    (country === null || country === "United States");
+  if (aliasApplies) return { city: alias.city, state: alias.state };
   return { city: titleCase(city.trim()), state };
 }
 
@@ -238,7 +253,7 @@ export function normalizeLocation(input: string | null | undefined): NormalizedL
     const [cityPart, statePart, countryPart] = parts.slice(-3);
     const country = lookupCountry(countryPart) ?? titleCase(countryPart);
     const state = lookupState(statePart) ?? (titleCase(statePart) || null);
-    const collapsed = applyMetroAlias(cityPart, state);
+    const collapsed = applyMetroAlias(cityPart, state, country);
     return cityResult(raw, isRemote, collapsed.city, collapsed.state, country);
   }
 
@@ -254,17 +269,18 @@ export function normalizeLocation(input: string | null | undefined): NormalizedL
     }
     // "City, ST" / "City, State" → city grain (US)
     if (secondAsState) {
-      const collapsed = applyMetroAlias(first, secondAsState);
+      const collapsed = applyMetroAlias(first, secondAsState, "United States");
       return cityResult(raw, isRemote, collapsed.city, collapsed.state, "United States");
     }
     // "City, Country"
     if (secondAsCountry) {
-      const collapsed = applyMetroAlias(first, null);
+      const collapsed = applyMetroAlias(first, null, secondAsCountry);
       return cityResult(raw, isRemote, collapsed.city, collapsed.state, secondAsCountry);
     }
     // "City, Region-we-don't-know" — treat second as country-ish text
-    const collapsed = applyMetroAlias(first, null);
-    return cityResult(raw, isRemote, collapsed.city, collapsed.state, titleCase(second));
+    const countryish = titleCase(second);
+    const collapsed = applyMetroAlias(first, null, countryish);
+    return cityResult(raw, isRemote, collapsed.city, collapsed.state, countryish);
   }
 
   // Single token
@@ -320,8 +336,8 @@ export function normalizeParsedLocation(parsed: {
 
   if (city) {
     const canonicalState = state ? (lookupState(state) ?? titleCase(state)) : null;
-    const collapsed = applyMetroAlias(city, canonicalState);
     const canonicalCountry = country ? (lookupCountry(country) ?? titleCase(country)) : (canonicalState && US_STATE_NAMES.has(canonicalState.toLowerCase()) ? "United States" : null);
+    const collapsed = applyMetroAlias(city, canonicalState, canonicalCountry ?? "United States");
     return cityResult(raw, false, collapsed.city, collapsed.state, canonicalCountry ?? "United States");
   }
   if (state) {

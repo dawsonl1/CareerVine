@@ -132,12 +132,21 @@ export const POST = withApiHandler({
 async function findDuplicateContacts(supabase: SupabaseClient, userId: string, profileData: ProfileData) {
   let exactMatch: ContactRow | null = null;
   if (profileData.linkedin_url) {
+    // limit(1).maybeSingle(), not .single(): contacts has no UNIQUE on
+    // (user_id, linkedin_url), so legacy duplicate rows can share one
+    // canonical URL — .single() errors (PGRST116) on >1 row, which read as
+    // "no match" here and minted yet another duplicate on every re-import.
+    // order('id') makes the surviving match deterministic. (CAR-155
+    // deep-review fix; the write-side canonicalization makes converged
+    // duplicates more common, the fragility itself predates it.)
     const { data } = await supabase
       .from('contacts')
       .select('*')
       .eq('user_id', userId)
       .eq('linkedin_url', profileData.linkedin_url)
-      .single();
+      .order('id')
+      .limit(1)
+      .maybeSingle();
 
     exactMatch = data as ContactRow | null;
   }

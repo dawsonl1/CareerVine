@@ -313,6 +313,10 @@ export async function runFastApplyStep(
   }
 
   const bulkInsert = async (table: string, tableRows: Record<string, unknown>[]) => {
+    // Dynamic table names are invisible to the contact-write-chokepoint
+    // source scan, so refuse the contacts table here: those writes must go
+    // through createContact/createContacts (CAR-155).
+    if (table === "contacts") throw new Error("bulkInsert must not write contacts — use createContacts");
     for (const batch of chunkList(tableRows, INSERT_BATCH)) {
       const { error } = await client.from(table).insert(batch);
       if (error) throw new Error(`Fast apply ${table} insert failed: ${error.message}`);

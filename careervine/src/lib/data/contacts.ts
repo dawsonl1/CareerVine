@@ -223,13 +223,15 @@ export async function getContactById(contactId: number, userId: string) {
  * linkedin_url string equality (see src/lib/linkedin-url.ts), so the URL is
  * canonicalized HERE, inside the write module — no caller can skip it.
  * Parseable LinkedIn profile URLs land in canonical form; anything else is
- * stored trimmed as typed (no silent data loss), with empty collapsing to
- * null. An explicit null still clears the column.
+ * stored as typed minus trim + trailing slashes (no silent data loss), with
+ * empty collapsing to null — exactly the transform the DB tidy trigger
+ * (20260719120000) applies, so the value the app computes is always the
+ * value the row stores. An explicit null still clears the column.
  */
 function canonicalizeContactPayload<T extends { linkedin_url?: string | null }>(payload: T): T {
   if (payload.linkedin_url == null) return payload;
   const canonical = canonicalizeLinkedinUrl(payload.linkedin_url);
-  return { ...payload, linkedin_url: canonical ?? (payload.linkedin_url.trim() || null) };
+  return { ...payload, linkedin_url: canonical ?? (payload.linkedin_url.trim().replace(/\/+$/, "") || null) };
 }
 
 /** Options accepted by the contact write chokepoint (CAR-155). */

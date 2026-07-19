@@ -4,12 +4,14 @@
 -- careervine/src/lib/data/contacts.ts) canonicalizes every linkedin_url via
 -- canonicalizeLinkedinUrl. Reimplementing that full canonicalization in SQL
 -- would create a second rule implementation that could drift — the exact
--- anti-pattern CAR-155 retires — so this trigger enforces only the cheap
--- invariants the TS canonicalizer already guarantees about its own output
--- (it is a strict no-op for canonical values): trim whitespace, strip
--- trailing slashes, collapse empty to NULL. Out-of-band SQL (psql, future
--- scripts) can no longer introduce the most common formatting-variant
--- duplicates.
+-- anti-pattern CAR-155 retires — so this trigger applies only the cheap
+-- tidy transform: trim whitespace, strip trailing slashes, collapse empty
+-- to NULL. It is a strict no-op for canonical LinkedIn values, and for
+-- non-LinkedIn strings it matches the chokepoint's own fallback
+-- (canonicalizeContactPayload applies the same trim + trailing-slash strip),
+-- so app-computed and stored values never diverge. Out-of-band SQL (psql,
+-- future scripts) can no longer introduce the most common
+-- formatting-variant duplicates.
 
 CREATE OR REPLACE FUNCTION public.tidy_contact_linkedin_url()
 RETURNS trigger
