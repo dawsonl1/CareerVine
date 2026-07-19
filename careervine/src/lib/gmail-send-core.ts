@@ -43,7 +43,7 @@ export async function getConnection(userId: string) {
   const supabase = createSupabaseServiceClient();
   const { data } = await supabase
     .from("gmail_connections")
-    .select("id, gmail_address, last_gmail_sync_at, created_at")
+    .select("id, gmail_address, send_as_aliases, modify_scope_granted, last_gmail_sync_at, created_at")
     .eq("user_id", userId)
     .maybeSingle();
   return data;

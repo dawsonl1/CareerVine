@@ -1,5 +1,6 @@
 import { getConnection } from "@/lib/gmail-send-core";
 import { syncEmailsForContact } from "@/lib/gmail";
+import { ownAddressesFromConnection } from "@/lib/gmail-helpers";
 import { resolveCapabilities } from "@/lib/capabilities/resolve";
 
 /**
@@ -36,5 +37,5 @@ export async function syncContactEmailHistoryIfPaid(
   const conn = await getConnection(userId);
   if (!conn) return 0; // Gmail not connected — nothing to fetch from.
 
-  return syncEmailsForContact(userId, contactId, contactEmails, conn.gmail_address, 90);
+  return syncEmailsForContact(userId, contactId, contactEmails, ownAddressesFromConnection(conn), 90);
 }

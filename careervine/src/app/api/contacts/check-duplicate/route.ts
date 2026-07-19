@@ -101,7 +101,9 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
     }
   }
 
-  // Check for email match
+  // Check for email match. contact_emails.email is normalized to
+  // lower(trim()) by a DB trigger (CAR-153/R2.8), so the input must be
+  // normalized identically or a mixed-case scrape never matches.
   if (searchData.email && matches.length === 0) {
     const { data } = await supabase
       .from('contact_emails')
@@ -109,7 +111,7 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
         contact_id,
         contacts!inner(id, name, linkedin_url, contact_status, status_derived_at, industry, notes)
       `)
-      .eq('email', searchData.email)
+      .eq('email', searchData.email.trim().toLowerCase())
       .eq('contacts.user_id', userId);
 
     if (data && data.length > 0) {

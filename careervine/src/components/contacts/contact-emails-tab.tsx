@@ -161,7 +161,10 @@ export function ContactEmailsTab({
       if (data.followUps) {
         setThreadFollowUps((prev) => ({ ...prev, [threadId]: data.followUps }));
       }
-    } catch {}
+    } catch {
+      // Follow-up chips are enrichment; a failed lookup just leaves them off
+      // this thread and the emails still render.
+    }
   };
 
   const cancelFollowUp = async (followUpId: number, threadId: string) => {

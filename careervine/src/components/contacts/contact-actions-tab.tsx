@@ -81,7 +81,11 @@ export function ContactActionsTab({
         getCompletedActionItemsForContact(contactId),
       ]);
       onActionsChange(acts as ActionItem[], completed as CompletedAction[]);
-    } catch {}
+    } catch {
+      // Best-effort refresh after a mutation; the write already succeeded and a
+      // stale list self-heals on the next reload. Mutation failures surface via
+      // the useDeferredAction onError toast below.
+    }
   };
 
   const { execute: deferDelete } = useDeferredAction<ActionItem>({

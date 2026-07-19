@@ -11,6 +11,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  *   3. The loop must stop at its time budget and hand back a cursor,
  *      and must NOT stamp last_gmail_sync_at on a partial pass.
  *   4. Per-contact failures are counted and reported, not swallowed.
+ *   5. CAR-153/R3.4: the per-contact pool is capped at 4 concurrent syncs,
+ *      and the resume cursor stays CONTIGUOUS under out-of-order completion
+ *      so a yield can never skip a contact.
  *
  * The mock Supabase client simulates the PostgREST behavior that matters:
  * filters, ordering, and the 1000-row response cap.
@@ -20,6 +23,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const listCalls: string[] = [];
 const failAddresses = new Set<string>();
+// Awaitable gates keyed by an address substring: a matching list call holds
+// until the gate resolves — how the pool tests control completion order.
+const listGates = new Map<string, Promise<void>>();
+let inFlightListCalls = 0;
+let maxInFlightListCalls = 0;
+let sendAsRows: { sendAsEmail?: string }[] = [];
 
 vi.mock('@googleapis/gmail', () => ({
   gmail: () => ({
@@ -27,12 +36,26 @@ vi.mock('@googleapis/gmail', () => ({
       messages: {
         list: async (args: { q: string }) => {
           listCalls.push(args.q);
-          for (const addr of failAddresses) {
-            if (args.q.includes(addr)) throw new Error(`simulated Gmail failure for ${addr}`);
+          inFlightListCalls++;
+          maxInFlightListCalls = Math.max(maxInFlightListCalls, inFlightListCalls);
+          try {
+            for (const [addr, gate] of listGates) {
+              if (args.q.includes(addr)) await gate;
+            }
+            for (const addr of failAddresses) {
+              if (args.q.includes(addr)) throw new Error(`simulated Gmail failure for ${addr}`);
+            }
+            return { data: { messages: [] } };
+          } finally {
+            inFlightListCalls--;
           }
-          return { data: { messages: [] } };
         },
         get: async () => ({ data: {} }),
+      },
+      settings: {
+        sendAs: {
+          list: async () => ({ data: { sendAs: sendAsRows } }),
+        },
       },
     },
   }),
@@ -136,11 +159,24 @@ describe('/api/gmail/sync route config', () => {
   });
 });
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+const flush = () => new Promise<void>((r) => setTimeout(r, 10));
+
 describe('syncAllContactEmails', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     listCalls.length = 0;
     updateOps.length = 0;
     failAddresses.clear();
+    listGates.clear();
+    inFlightListCalls = 0;
+    maxInFlightListCalls = 0;
+    sendAsRows = [];
     tables.gmail_connections = [
       {
         id: 1,
@@ -210,5 +246,93 @@ describe('syncAllContactEmails', () => {
     const stamps = updateOps.filter((op) => op.table === 'gmail_connections');
     expect(stamps).toHaveLength(1);
     expect(stamps[0].values).toHaveProperty('last_gmail_sync_at');
+  });
+
+  // ── CAR-153/R3.4: bounded pool + contiguous cursor ────────────────────
+
+  it('caps concurrent per-contact syncs at the pool size (4)', async () => {
+    seedContacts(10);
+    const gate = deferred();
+    for (let i = 1; i <= 10; i++) listGates.set(`person${i}@example.com`, gate.promise);
+
+    const { syncAllContactEmails } = await import('@/lib/gmail');
+    const resultPromise = syncAllContactEmails('user-1');
+    await flush();
+
+    // All 10 gated: exactly the pool size may be in flight, never more.
+    expect(inFlightListCalls).toBe(4);
+
+    gate.resolve();
+    const result = await resultPromise;
+
+    expect(result.processedContacts).toBe(10);
+    expect(result.nextCursor).toBeNull();
+    expect(maxInFlightListCalls).toBe(4);
+  });
+
+  it('keeps the resume cursor contiguous under out-of-order completion', async () => {
+    // Invariant note (deep-review): because the pool launches strictly in id
+    // order AND drains every launched task before computing the cursor, the
+    // settled set is always the contiguous launched prefix — so on every
+    // reachable path "highest contiguous settled" equals "highest settled".
+    // This test pins the reachable contract (out-of-order completion never
+    // yields a cursor past an unlaunched contact, each contact attempted
+    // exactly once); the contiguity bookkeeping itself is defense-in-depth
+    // that only diverges if the drain guarantee is ever broken.
+    // Only Date is faked (budget math); timers stay real so the pool's
+    // awaits and the test's flushes run normally.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const T0 = new Date('2026-07-17T10:00:00Z').getTime();
+    vi.setSystemTime(T0);
+
+    seedContacts(6);
+    const gates = Array.from({ length: 6 }, () => deferred());
+    for (let i = 1; i <= 6; i++) listGates.set(`person${i}@example.com`, gates[i - 1].promise);
+
+    const { syncAllContactEmails } = await import('@/lib/gmail');
+    const resultPromise = syncAllContactEmails('user-1', 90, { budgetMs: 10_000 });
+    await flush();
+
+    // Pool filled: contacts 1-4 in flight.
+    expect(inFlightListCalls).toBe(4);
+
+    // Contact 2 completes FIRST (out of order) and the budget expires before
+    // the pool considers launching contact 5.
+    vi.setSystemTime(T0 + 11_000);
+    gates[1].resolve();
+    await flush();
+
+    // Budget gate stops launching; the drain still awaits contacts 1, 3, 4.
+    gates[0].resolve();
+    gates[2].resolve();
+    gates[3].resolve();
+    const result = await resultPromise;
+
+    // The cursor is the highest CONTIGUOUS settled contact — 4, with every
+    // contact ≤ 4 attempted exactly once and 5/6 untouched for the resume.
+    expect(result.nextCursor).toBe(4);
+    expect(result.processedContacts).toBe(4);
+    for (let i = 1; i <= 4; i++) {
+      expect(listCalls.filter((q) => q.includes(`person${i}@example.com`))).toHaveLength(1);
+    }
+    expect(listCalls.some((q) => q.includes('person5@example.com'))).toBe(false);
+    expect(listCalls.some((q) => q.includes('person6@example.com'))).toBe(false);
+    // Partial pass: last_gmail_sync_at untouched.
+    expect(updateOps.filter((op) => op.table === 'gmail_connections')).toHaveLength(0);
+  });
+
+  it('opportunistically refreshes the send-as alias set when modify scope is granted', async () => {
+    seedContacts(1);
+    tables.gmail_connections[0].modify_scope_granted = true;
+    sendAsRows = [{ sendAsEmail: 'Me@Gmail.com' }, { sendAsEmail: ' Alias@X.dev ' }];
+
+    const { syncAllContactEmails } = await import('@/lib/gmail');
+    await syncAllContactEmails('user-1');
+
+    const aliasWrites = updateOps.filter(
+      (op) => op.table === 'gmail_connections' && 'send_as_aliases' in op.values
+    );
+    expect(aliasWrites).toHaveLength(1);
+    expect(aliasWrites[0].values.send_as_aliases).toEqual(['me@gmail.com', 'alias@x.dev']);
   });
 });

@@ -111,23 +111,43 @@ export async function fetchCalendarEvents(
   const calendar = await getCalendarClient(userId);
   const calendarId = options.calendarId || "primary";
 
+  // singleEvents expands recurring series into individual instances (ids like
+  // "{seriesId}_{occurrenceTs}", unique under the (user_id, google_event_id)
+  // key); cancelled instances arrive as status:"cancelled" skeletons. A sync
+  // token is only valid under the settings that established it, so flipping
+  // this required nulling all stored tokens (CAR-152 repair migration).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
   const params: any = {
     calendarId,
     maxResults: 250,
+    singleEvents: true,
   };
 
   if (options.syncToken) {
     params.syncToken = options.syncToken;
   } else {
+    // orderBy is rejected alongside syncToken, so windowed fetches only.
+    params.orderBy = "startTime";
     if (options.timeMin) params.timeMin = options.timeMin;
     if (options.timeMax) params.timeMax = options.timeMax;
   }
 
   try {
-    const res = await calendar.events.list(params);
-    const events = res.data.items || [];
-    const nextSyncToken = res.data.nextSyncToken;
+    // Google returns nextSyncToken ONLY on the final page; single-shot fetches
+    // both dropped events past page 1 and persisted a null token (R2.3).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+    const events: any[] = [];
+    let nextSyncToken: string | null | undefined;
+    let pageToken: string | undefined;
+
+    do {
+      const res = await calendar.events.list(
+        pageToken ? { ...params, pageToken } : params
+      );
+      events.push(...(res.data.items || []));
+      nextSyncToken = res.data.nextSyncToken;
+      pageToken = res.data.nextPageToken || undefined;
+    } while (pageToken);
 
     return { events, nextSyncToken };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout

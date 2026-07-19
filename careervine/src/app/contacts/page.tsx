@@ -33,6 +33,8 @@ import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Tooltip } from "@/components/ui/tooltip";
 import { EXTENSION_STORE_URL } from "@/lib/extension-store";
+import { LoadErrorState } from "@/components/ui/load-error-state";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 
@@ -49,6 +51,7 @@ export default function ContactsPage() {
   const { success: toastSuccess, error: toastError } = useToast();
   const [contacts, setContacts] = useState<ContactListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTagFilter] = useState<number | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -100,7 +103,10 @@ export default function ContactsPage() {
   };
 
   const loadContacts = useCallback(async () => {
-    if (!user) return;
+    // Clear the spinner on the guard path too, so a retry clicked after auth
+    // is lost can't strand `loading` at true forever (CAR-154 review).
+    if (!user) { setLoading(false); return; }
+    setLoadError(false);
     try {
       // Stream every tier in parallel. getContactsStreamed pulls a small first
       // page (50) then large pages, in name order, so each tier paints its
@@ -138,6 +144,7 @@ export default function ContactsPage() {
         `Error loading contacts: ${e?.message || String(error)}`,
         JSON.stringify({ code: e?.code, details: e?.details, hint: e?.hint })
       );
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -384,6 +391,20 @@ export default function ContactsPage() {
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
             <span className="text-base">Loading contacts…</span>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError && contacts.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <LoadErrorState
+            message="We could not load your contacts"
+            onRetry={() => { setLoading(true); loadContacts(); }}
+          />
         </div>
       </div>
     );
@@ -949,13 +970,13 @@ export default function ContactsPage() {
                         {!allTags.some((t) => t.name.toLowerCase() === tagSearch.trim().toLowerCase()) && (
                           <button type="button" onClick={async () => {
                             if (!user) return;
-                            try {
+                            await withToastOnError(async () => {
                               // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
                               const newTag = await createTag({ user_id: user.id, name: tagSearch.trim() } as any);
                               setAllTags([...allTags, newTag]);
                               setSelectedTagIds([...selectedTagIds, newTag.id]);
                               setTagSearch(""); setShowTagDropdown(false);
-                            } catch {}
+                            }, toastError, "Couldn't create that tag. Please try again.");
                           }} className="w-full text-left px-4 py-2.5 text-sm text-primary font-medium hover:bg-surface-container cursor-pointer">
                             Create &ldquo;{tagSearch.trim()}&rdquo;
                           </button>

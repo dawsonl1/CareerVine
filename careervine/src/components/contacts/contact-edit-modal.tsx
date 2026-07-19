@@ -24,6 +24,7 @@ import {
   Tag, Briefcase, GraduationCap, Trash2,
 } from "lucide-react";
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
@@ -481,16 +482,14 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
                 {!allTags.some((t) => t.name.toLowerCase() === tagSearch.trim().toLowerCase()) && (
                   <button
                     type="button"
-                    onClick={async () => {
-                      try {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-                        const newTag = await createTag({ user_id: userId, name: tagSearch.trim() } as any);
-                        setAllTags([...allTags, newTag]);
-                        setSelectedTagIds([...selectedTagIds, newTag.id]);
-                        setTagSearch("");
-                        setShowTagDropdown(false);
-                      } catch {}
-                    }}
+                    onClick={() => withToastOnError(async () => {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
+                      const newTag = await createTag({ user_id: userId, name: tagSearch.trim() } as any);
+                      setAllTags([...allTags, newTag]);
+                      setSelectedTagIds([...selectedTagIds, newTag.id]);
+                      setTagSearch("");
+                      setShowTagDropdown(false);
+                    }, toastError, "Couldn't create that tag. Please try again.")}
                     className="w-full text-left px-4 py-2.5 text-sm text-primary font-medium hover:bg-surface-container cursor-pointer"
                   >
                     Create &ldquo;{tagSearch.trim()}&rdquo;

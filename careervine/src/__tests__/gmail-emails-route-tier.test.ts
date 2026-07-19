@@ -37,7 +37,18 @@ vi.mock("@/lib/supabase/service-client", () => ({
 }));
 
 vi.mock("@/lib/gmail-send-core", () => ({
-  getConnection: vi.fn(async () => ({ gmail_address: "me@gmail.com", last_gmail_sync_at: null })),
+  getConnection: vi.fn(async () => ({
+    gmail_address: "me@gmail.com",
+    send_as_aliases: ["me@myalias.dev"],
+    last_gmail_sync_at: null,
+  })),
+}));
+
+// CAR-153/R3.4: the route must hand its fire-and-forget work to waitUntil so
+// Vercel keeps the invocation alive after the response is sent.
+const waitUntilSpy = vi.fn();
+vi.mock("@vercel/functions", () => ({
+  waitUntil: (p: Promise<unknown>) => waitUntilSpy(p),
 }));
 
 vi.mock("@/lib/gmail", () => ({
@@ -86,6 +97,25 @@ describe("GET /api/gmail/emails — tier-aware background sync (CAR-102)", () =>
     expect(status).toBe(200);
     expect(data.emails).toHaveLength(1);
     expect(syncSpy).toHaveBeenCalled();
+  });
+
+  it("wraps BOTH background calls (backfill + live sync) in waitUntil (CAR-153/R3.4)", async () => {
+    caps = new Set(["mailbox:read"]);
+    await call();
+    expect(backfillSpy).toHaveBeenCalled();
+    expect(syncSpy).toHaveBeenCalled();
+    // One waitUntil per background call, each handed a promise.
+    expect(waitUntilSpy).toHaveBeenCalledTimes(2);
+    for (const [arg] of waitUntilSpy.mock.calls) {
+      expect(arg).toBeInstanceOf(Promise);
+    }
+  });
+
+  it("passes the alias-aware own-address list to the background sync (CAR-153/R2.5)", async () => {
+    caps = new Set(["mailbox:read"]);
+    await call();
+    const ownAddresses = syncSpy.mock.calls[0][3];
+    expect(ownAddresses).toEqual(["me@gmail.com", "me@myalias.dev"]);
   });
 
   it("free (no mailbox:read) -> serves cached history but NO live sync", async () => {
