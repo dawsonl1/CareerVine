@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 import { updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
 import type { ContactMeeting, InteractionRow, EmailMessage, CompletedActionEntry, TimelineEntry } from "@/lib/types";
 import { Calendar, MessageSquare, Pencil, Trash2, ArrowUpRight, ArrowDownLeft, CheckCircle } from "lucide-react";
@@ -30,6 +32,7 @@ export function ContactTimelineTab({
   onMeetingClick,
   onInteractionsChange,
 }: ContactTimelineTabProps) {
+  const { error: toastError } = useToast();
   const [editingInteraction, setEditingInteraction] = useState<InteractionRow | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [interactionForm, setInteractionForm] = useState({ interaction_date: "", interaction_type: "", summary: "" });
@@ -45,10 +48,10 @@ export function ContactTimelineTab({
 
   const handleDeleteInteraction = async (id: number) => {
     if (!confirm("Delete this interaction?")) return;
-    try {
+    await withToastOnError(async () => {
       await deleteInteraction(id);
       onInteractionsChange(interactions.filter((x) => x.id !== id));
-    } catch {}
+    }, toastError, "Couldn't delete that interaction. Please try again.");
   };
 
   const handleSaveInteraction = async () => {

@@ -26,6 +26,7 @@ import { InboxFilterBar } from "./inbox-filter-bar";
 import { InboxSidebar, InboxMobileTabs } from "./inbox-nav";
 import { useInboxFilters } from "./use-inbox-filters";
 import { useInboxData } from "./use-inbox-data";
+import { LoadErrorState, LoadErrorBanner } from "@/components/ui/load-error-state";
 import type { FollowUpModalPayload, SidebarItem, SidebarTab } from "./inbox-types";
 
 // ── Inbox shell (the premium paid experience; selected by EmailExperience, CAR-103) ──
@@ -42,7 +43,9 @@ export function InboxShell() {
   // Server-backed data + loaders (CAR-150).
   const {
     loading,
+    setLoading,
     syncing,
+    error: loadError,
     emails, setEmails,
     trashedEmails, setTrashedEmails,
     hiddenEmails, setHiddenEmails,
@@ -429,6 +432,30 @@ export function InboxShell() {
     );
   }
 
+  // Connected, but the inbox fetch failed. With nothing on screen to fall back
+  // on, render a full-screen retryable error instead of the empty "No emails
+  // synced yet." state; when an independently-loaded list (drafts, or prior
+  // data) survived, a banner below flags the failure without wiping it out.
+  const anyInboxData =
+    emails.length > 0 ||
+    trashedEmails.length > 0 ||
+    hiddenEmails.length > 0 ||
+    scheduledEmails.length > 0 ||
+    followUps.length > 0 ||
+    drafts.length > 0;
+  if (loadError && !loading && !anyInboxData) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+          {/* Retry re-asserts the spinner so the in-flight window doesn't
+              render the misleading empty state (CAR-154 review). */}
+          <LoadErrorState message="We could not load your inbox" onRetry={() => { setLoading(true); void loadInbox(); }} />
+        </div>
+      </div>
+    );
+  }
+
   // ── Sidebar counts ──
 
   const unreadEmailCount = emails.filter((e) => !e.is_read && e.direction === "inbound").length;
@@ -529,6 +556,18 @@ export function InboxShell() {
           {/* ── Main content ── */}
           <div className="flex-1 min-w-0">
             <InboxMobileTabs items={sidebarItems} activeTab={activeTab} onSwitchTab={switchTab} />
+
+            {/* Partial failure: the inbox payload failed but an independent
+                list (drafts, or previously loaded data) is on screen. Flag it
+                inline instead of silently masking the failure behind the
+                surviving content (CAR-154 review F4). */}
+            {loadError && !loading && anyInboxData && (
+              <LoadErrorBanner
+                message="Some of your inbox could not be loaded."
+                onRetry={() => { void loadInbox(); }}
+                className="mb-4"
+              />
+            )}
 
             {loading ? (
               <div className="flex items-center justify-center gap-3.5 text-muted-foreground py-16">

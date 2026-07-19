@@ -276,6 +276,53 @@ describe("InboxShell — optimistic mutations + nav badge", () => {
   });
 });
 
+describe("InboxShell — honest load-failure state (CAR-154 / F21)", () => {
+  it("renders a retryable error state when the inbox payload reports failure", async () => {
+    // success:false is the DB-payload failure signal; the shell must not fall
+    // through to the "No emails synced yet." empty state.
+    installFetch({ inbox: { success: false } });
+    render(<InboxShell />);
+
+    await waitFor(() => expect(screen.getByText("We could not load your inbox")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
+    expect(screen.queryByText("No emails synced yet.")).toBeNull();
+  });
+
+  it("shows the empty state (not the error state) on a successful empty load", async () => {
+    installFetch({ inbox: inboxPayload() });
+    render(<InboxShell />);
+
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+    expect(screen.queryByText("We could not load your inbox")).toBeNull();
+  });
+
+  it("shows an inline banner (not the full-screen error) when the inbox fails but drafts loaded", async () => {
+    // Drafts load from an independent endpoint; a surviving drafts list must
+    // not silently mask the failed inbox fetch (CAR-154 review F4).
+    installFetch({
+      inbox: { success: false },
+      drafts: { drafts: [{ id: 42, subject: "Half-written note", recipient_email: "leo@x.com", contact_name: "Leo", body_html: "<p>draft</p>", thread_id: null, in_reply_to: null, references_header: null, updated_at: "2026-07-14T12:00:00Z" }] },
+    });
+    render(<InboxShell />);
+
+    await waitFor(() => expect(screen.getByText("Some of your inbox could not be loaded.")).toBeTruthy());
+    expect(screen.queryByText("We could not load your inbox")).toBeNull();
+  });
+
+  it("re-shows the loading spinner while Retry is in flight", async () => {
+    installFetch({ inbox: { success: false } });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("We could not load your inbox")).toBeTruthy());
+
+    // Make the retry fetch hang so the in-flight state is observable.
+    global.fetch = vi.fn(() => new Promise(() => {})) as unknown as typeof fetch;
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+
+    await waitFor(() => expect(screen.getByText("Loading inbox…")).toBeTruthy());
+    expect(screen.queryByText("No emails synced yet.")).toBeNull();
+  });
+});
+
 describe("InboxShell — extracted child tabs render their own data", () => {
   const drafts = { drafts: [{ id: 42, subject: "Half-written note", recipient_email: "leo@x.com", contact_name: "Leo", body_html: "<p>draft</p>", thread_id: null, in_reply_to: null, references_header: null, updated_at: "2026-07-14T12:00:00Z" }] };
   const scheduled = [{ id: 7, subject: "Following up soon", recipient_email: "bob@x.com", contact_name: "Bob", matched_contact_id: null, status: "pending", scheduled_send_at: "2026-07-20T09:00:00Z", thread_id: null }];

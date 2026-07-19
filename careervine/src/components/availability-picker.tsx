@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { Calendar, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 
 interface AvailabilityDay {
   date: string;
@@ -50,6 +52,7 @@ function profileToPickerState(profile: any) {
 }
 
 export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPickerProps) {
+  const { error: toastError } = useToast();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -150,7 +153,10 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
                 isPriority = tags?.some((t: string) => t.toLowerCase() === "priority") ?? false;
               }
             }
-          } catch {}
+          } catch {
+            // Priority-contact detection is best-effort; on failure the picker
+            // falls back to the standard profile below.
+          }
         }
 
         const detected: PickerMode = isPriority && conn.availability_priority ? "priority" : "standard";
@@ -167,7 +173,10 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
           setBufferBefore(s.bufferBefore);
           setBufferAfter(s.bufferAfter);
         }
-      } catch {}
+      } catch {
+        // Best-effort load; on failure the picker falls back to its default
+        // controls and the user can still pick availability manually.
+      }
       setProfileLoading(false);
     };
 
@@ -436,8 +445,8 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
                       type="button"
                       onClick={async () => {
                         setSavingDefault(true);
-                        try {
-                          await fetch("/api/calendar/availability-profile", {
+                        await withToastOnError(async () => {
+                          const res = await fetch("/api/calendar/availability-profile", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
@@ -451,9 +460,10 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
                               },
                             }),
                           });
+                          if (!res.ok) throw new Error(`save failed: ${res.status}`);
                           setSavedDefault(true);
                           setTimeout(() => setSavedDefault(false), 2000);
-                        } catch {}
+                        }, toastError, "Couldn't save your default availability. Please try again.");
                         setSavingDefault(false);
                       }}
                       disabled={savingDefault}

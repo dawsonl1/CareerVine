@@ -18,6 +18,7 @@ import { CONVERSATION_TYPE_OPTIONS, getRsvpDisplay } from "@/lib/constants";
 import { packOverlappingEvents, slotStyle } from "@/lib/calendar-layout";
 import { resolveCalendarSaveMode } from "@/lib/calendar-save-mode";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -67,6 +68,7 @@ export default function CalendarPage() {
   const [syncing, setSyncing] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState<"list" | "week">("list");
   const [weekOffset, setWeekOffset] = useState(0);
   const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
@@ -165,6 +167,10 @@ export default function CalendarPage() {
     const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
     const res = await fetch(`/api/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+    // fetch only rejects on network failures; an HTTP 401/500 resolves with a
+    // JSON error body and no `events` key, which used to read as load-empty.
+    // Throw so callers' catches see the failure (CAR-154).
+    if (!res.ok) throw new Error(`Failed to load calendar events: ${res.status}`);
     const data = await res.json();
     if (data.events) setEvents(data.events.sort((a: CalendarEvent, b: CalendarEvent) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
   }, []);
@@ -193,11 +199,24 @@ export default function CalendarPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    try {
-      await Promise.all([loadEvents(), loadContacts(), loadLinkedMeetings()]);
+    setLoadError(false);
+    // Events are this page's primary data; contacts and linked meetings only
+    // enrich them (attendee names, "Logged in Activity" links). Only a failed
+    // events load renders the error state: allSettled keeps an enrichment
+    // failure from rejecting the whole load, which both keeps the calendar
+    // usable and prevents a stale loadError flag from surfacing a spurious
+    // full-screen error after the view later empties (CAR-154 review).
+    const [eventsResult, contactsResult, meetingsResult] = await Promise.allSettled([loadEvents(), loadContacts(), loadLinkedMeetings()]);
+    if (contactsResult.status === "rejected") console.error("Error loading calendar contacts:", contactsResult.reason);
+    if (meetingsResult.status === "rejected") console.error("Error loading linked meetings:", meetingsResult.reason);
+    if (eventsResult.status === "rejected") {
+      console.error("Error loading calendar events:", eventsResult.reason);
+      setLoadError(true);
+    } else {
       // Background auto-sync (silent, respects 5-min cooldown)
-      fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) loadEvents(); }).catch(() => {});
-    } finally { setLoading(false); }
+      fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) return loadEvents(); }).catch(() => {});
+    }
+    setLoading(false);
   }, [loadEvents, loadContacts, loadLinkedMeetings]);
 
   useEffect(() => { if (user) loadData(); }, [user, loadData]);
@@ -422,6 +441,20 @@ export default function CalendarPage() {
             <span className="text-base">Loading calendar…</span>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (loadError && events.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <LoadErrorState
+            message="We could not load your calendar"
+            onRetry={() => loadData()}
+          />
+        </main>
       </div>
     );
   }
