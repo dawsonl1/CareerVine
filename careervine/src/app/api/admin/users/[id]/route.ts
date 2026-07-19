@@ -4,6 +4,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { writeAudit } from "@/lib/admin";
 import { removeUserStorageObjects } from "@/lib/storage-sweep";
 import { deleteUserPhotoObjects } from "@/lib/r2";
+import { revokeAccess } from "@/lib/gmail";
 import {
   shapeAdminUser,
   keyStatusFor,
@@ -145,10 +146,15 @@ export const PATCH = withApiHandler<z.infer<typeof patchSchema>>({
 /**
  * DELETE /api/admin/users/[id] — permanently delete an account. Admin only.
  *
- * auth.admin.deleteUser cascades through public.users (FK) into all of the
- * user's data. Guards: no self-delete, and admins must be demoted first so a
- * privileged account can't vanish in one click. The audit row is written after
- * deletion (admin_audit_log has no FKs by design) with the email preserved.
+ * auth.admin.deleteUser cascades through public.users (FK) into the user's
+ * relational data, including analytics_events and user_milestones (FKs added
+ * in 20260719000000). Three things do NOT cascade and are handled explicitly
+ * here: the Google OAuth grant (revoked BEFORE deleteUser — the encrypted
+ * token is destroyed by the cascade, after which the grant could never be
+ * revoked at Google), Supabase Storage objects, and R2 photo objects.
+ * Guards: no self-delete, and admins must be demoted first so a privileged
+ * account can't vanish in one click. The audit row is written after deletion
+ * (admin_audit_log has no FKs by design) with the email preserved.
  */
 export const DELETE = withApiHandler({
   requireAdmin: true,
@@ -168,6 +174,16 @@ export const DELETE = withApiHandler({
     }
 
     const email = authData.user.email ?? null;
+
+    // Revoke the Google OAuth grant while the encrypted token still exists
+    // (CAR-156 / R4.3). Best-effort: a revocation failure must not block the
+    // deletion the admin asked for — revokeAccess already tolerates dead
+    // tokens, and the DB rows it clears are cascade-deleted below anyway.
+    try {
+      await revokeAccess(id);
+    } catch (err) {
+      console.error(`[user-delete] Google revoke failed for ${id}:`, err);
+    }
 
     const { error } = await service.auth.admin.deleteUser(id);
     if (error) throw new ApiError(`Delete failed: ${error.message}`, 400);

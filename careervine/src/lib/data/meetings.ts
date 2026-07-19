@@ -8,6 +8,7 @@
 import { db, must } from "./client";
 import type { Database } from "@/lib/database.types";
 import { activateContacts } from "./contacts";
+import { deleteAttachment } from "./attachments";
 
 /**
  * Fetch all meetings for a user with attendee information
@@ -111,12 +112,93 @@ export async function updateMeeting(
 }
 
 /**
- * Delete a meeting and its associated meeting_contacts rows
+ * Attachment ids referenced by this meeting (meeting_attachments links plus
+ * the transcript recording) that no OTHER record still points at. Shared
+ * attachments — linked to a contact, an interaction, or another meeting —
+ * must survive the meeting's deletion.
+ */
+async function exclusiveAttachmentIds(meetingId: number): Promise<number[]> {
+  const meeting = must(
+    await db()
+      .from("meetings")
+      .select("transcript_attachment_id")
+      .eq("id", meetingId)
+      .maybeSingle(),
+  );
+  const links = must(
+    await db()
+      .from("meeting_attachments")
+      .select("attachment_id")
+      .eq("meeting_id", meetingId),
+  );
+
+  const candidates = new Set<number>((links ?? []).map((r) => r.attachment_id));
+  if (meeting?.transcript_attachment_id != null) {
+    candidates.add(meeting.transcript_attachment_id);
+  }
+  if (candidates.size === 0) return [];
+
+  const ids = [...candidates];
+  const shared = new Set<number>();
+
+  const contactRefs = must(
+    await db().from("contact_attachments").select("attachment_id").in("attachment_id", ids),
+  );
+  for (const r of contactRefs ?? []) shared.add(r.attachment_id);
+
+  const interactionRefs = must(
+    await db().from("interaction_attachments").select("attachment_id").in("attachment_id", ids),
+  );
+  for (const r of interactionRefs ?? []) shared.add(r.attachment_id);
+
+  const otherMeetingLinks = must(
+    await db()
+      .from("meeting_attachments")
+      .select("attachment_id")
+      .in("attachment_id", ids)
+      .neq("meeting_id", meetingId),
+  );
+  for (const r of otherMeetingLinks ?? []) shared.add(r.attachment_id);
+
+  const otherTranscripts = must(
+    await db()
+      .from("meetings")
+      .select("transcript_attachment_id")
+      .in("transcript_attachment_id", ids)
+      .neq("id", meetingId),
+  );
+  for (const r of otherTranscripts ?? []) {
+    if (r.transcript_attachment_id != null) shared.add(r.transcript_attachment_id);
+  }
+
+  return ids.filter((attachmentId) => !shared.has(attachmentId));
+}
+
+/**
+ * Delete a meeting along with its meeting_contacts rows and any attachments
+ * that belong exclusively to it (CAR-156 / R4.7). Cascade deletes only remove
+ * junction rows — without this, the attachment rows and storage objects
+ * (including raw meeting audio, the largest PII objects we hold) survive
+ * forever: the storage sweep can't reclaim an object whose row still exists.
  *
  * @param id - The meeting's ID
  * @throws Error if operation fails
  */
 export async function deleteMeeting(id: number) {
+  // Reclaim exclusively-owned attachments before the meeting row (and its
+  // junction rows) disappear. deleteAttachment removes storage + row; the
+  // junction rows cascade and meetings.transcript_attachment_id is
+  // ON DELETE SET NULL, so ordering is safe.
+  const reclaimable = await exclusiveAttachmentIds(id);
+  if (reclaimable.length > 0) {
+    const rows = must(
+      await db().from("attachments").select("id, object_path").in("id", reclaimable),
+    );
+    for (const row of rows ?? []) {
+      await deleteAttachment(row.id, row.object_path);
+    }
+  }
+
   // Delete associated contacts first
   const { error: mcError } = await db()
     .from("meeting_contacts")

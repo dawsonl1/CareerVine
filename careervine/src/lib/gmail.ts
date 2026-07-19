@@ -138,7 +138,13 @@ export function getAuthUrl(
   });
 }
 
-/** Revoke Google token and delete all Gmail data for a user. */
+/**
+ * Revoke the Google token and delete all Google-derived data for a user.
+ * The OAuth grant covers Gmail AND Calendar, so a full revoke must clear the
+ * cached calendar_events too (CAR-156 / R4.6) — otherwise event titles and
+ * attendee lists outlive the connection that justified caching them. The
+ * calendar-only disconnect route clears the same table but keeps the grant.
+ */
 export async function revokeAccess(userId: string) {
   const supabase = createSupabaseServiceClient();
 
@@ -158,6 +164,7 @@ export async function revokeAccess(userId: string) {
   }
 
   await supabase.from("email_messages").delete().eq("user_id", userId);
+  await supabase.from("calendar_events").delete().eq("user_id", userId);
   await supabase.from("gmail_connections").delete().eq("user_id", userId);
 }
 
