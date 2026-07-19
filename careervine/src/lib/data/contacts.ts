@@ -575,20 +575,25 @@ export async function removeCompaniesFromContact(contactId: number) {
  */
 export async function findOrCreateSchool(name: string) {
   const clean = name.trim();
-  // Case-insensitive escaped-ilike probe (CAR-151), matching company-helpers'
-  // find-or-create semantics so "byu" reuses an existing "BYU" instead of
-  // duplicating it. limit(1) keeps maybeSingle() safe if historical
-  // case-variant duplicates already exist. must(): an errored probe must not
-  // fall through to the insert and create a duplicate row.
-  const probe = () =>
-    db()
-      .from("schools")
-      .select("*")
-      .ilike("name", escapeIlike(clean))
-      .order("id")
-      .limit(1)
-      .maybeSingle();
-  const existing = must(await probe());
+  // Case-insensitive probe (CAR-151), matching company-helpers' find-or-create
+  // semantics so "byu" reuses an existing "BYU" instead of duplicating it.
+  //
+  // The ilike is only an index-friendly narrowing; the match is decided in JS.
+  // PostgREST treats `*` as an alias for `%` and offers no way to express a
+  // literal `*` in a like pattern (escapeIlike deliberately leaves it alone,
+  // since `\*` is rewritten to `\%` and would match nothing), so the probe for
+  // "A*M" also returns rows like "ATM". Any stored literal `*` still matches
+  // its own wildcarded pattern, so the true row is guaranteed to be among the
+  // candidates. must(): an errored probe must not fall through to the insert
+  // and create a duplicate row. order("id") keeps the choice deterministic
+  // when historical case-variant duplicates exist.
+  const probe = async () => {
+    const candidates = await paginateAll(async (from, to) =>
+      must(await db().from("schools").select("*").ilike("name", escapeIlike(clean)).order("id").range(from, to)),
+    );
+    return candidates.find((c) => c.name.trim().toLowerCase() === clean.toLowerCase()) ?? null;
+  };
+  const existing = await probe();
   if (existing) return existing;
 
   // Create new. Concurrent saves of the same new name race here: schools.name
@@ -601,7 +606,7 @@ export async function findOrCreateSchool(name: string) {
     .single();
   if (error) {
     if (error.code === "23505") {
-      const winner = must(await probe());
+      const winner = await probe();
       if (winner) return winner;
     }
     throw error;

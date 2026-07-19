@@ -22,9 +22,12 @@ import { buildLastTouchMap, deriveDueFollowUps, getRecentCutoff } from "./follow
  * 3. Last-touch map from meeting_contacts + interactions (2 queries in parallel)
  */
 export async function getHomeCoreData(userId: string) {
+  // One instant for the whole response: contactHealth, followUps and
+  // recentlyAdded must not be evaluated against clocks that drifted apart
+  // across the awaits between them.
   const now = new Date().toISOString();
-  const recentCutoff = getRecentCutoff();
-  const today = new Date();
+  const recentCutoff = getRecentCutoff(now);
+  const today = new Date(now);
   today.setHours(0, 0, 0, 0);
 
   // Fetch action items + all contacts in parallel. The contacts read

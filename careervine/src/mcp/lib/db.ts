@@ -889,12 +889,18 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       .eq("is_simulated", false),
     db()
       .from("action_item_contacts")
-      .select("follow_up_action_items(id, title, description, due_at, is_completed, completed_at, direction, snoozed_until)")
-      .eq("contact_id", contactId),
+      // Defense-in-depth: scope the embedded action item to this user. action_item_contacts
+      // has no user_id, so keying only on the owned contact_id would let a bad junction row
+      // surface another user's action item inside the dossier the model reads before drafting
+      // outreach (same shape as the CAR-133 calendar-link defense above). The inner join drops it.
+      .select("follow_up_action_items!inner(id, title, description, due_at, is_completed, completed_at, direction, snoozed_until, user_id)")
+      .eq("contact_id", contactId)
+      .eq("follow_up_action_items.user_id", uid()),
     db()
       .from("action_item_contacts")
-      .select("follow_up_action_items(id, title, completed_at, is_completed)")
-      .eq("contact_id", contactId),
+      .select("follow_up_action_items!inner(id, title, completed_at, is_completed, user_id)")
+      .eq("contact_id", contactId)
+      .eq("follow_up_action_items.user_id", uid()),
     db()
       .from("scheduled_emails")
       .select("id, subject, scheduled_send_at, recipient_email")
@@ -979,7 +985,9 @@ export async function listCalendarEvents(timeMin: string, timeMax: string) {
   for (const l of linkRows) {
     if (!l.contacts) continue;
     const list = linksByEvent.get(l.calendar_event_id) ?? [];
-    list.push(l.contacts);
+    // Project away the user_id the inner join required, so both match sources
+    // (link rows and attendee lookup) contribute the same {id, name} shape.
+    list.push({ id: l.contacts.id, name: l.contacts.name });
     linksByEvent.set(l.calendar_event_id, list);
   }
 

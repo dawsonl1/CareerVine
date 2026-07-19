@@ -13,10 +13,12 @@ import { RECENTLY_ADDED_DAYS, SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 
 /**
  * Get the ISO cutoff string for the "Recently Added" window.
+ * Takes an optional instant so a caller can pin every derived surface in one
+ * response to a single clock; defaults to wall-clock now for the rest.
  * Internal to src/lib/data (not re-exported from the queries barrel).
  */
-export function getRecentCutoff(): string {
-  const d = new Date();
+export function getRecentCutoff(nowIso?: string): string {
+  const d = nowIso ? new Date(nowIso) : new Date();
   d.setDate(d.getDate() - RECENTLY_ADDED_DAYS);
   return d.toISOString();
 }
@@ -131,11 +133,15 @@ export function deriveDueFollowUps(
   lastTouchMap: Map<number, string>,
   nowIso: string,
 ): DueFollowUpEntry[] {
-  const recentCutoff = getRecentCutoff();
-  const today = new Date();
+  // Every instant below comes off nowIso: within one getHomeCoreData response
+  // followUps must be evaluated against the same clock as its sibling outputs,
+  // and the derivation stays deterministic under test.
+  const now = new Date(nowIso);
+  const recentCutoff = getRecentCutoff(nowIso);
+  const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const isSnoozed = (c: DueFollowUpSourceRow) =>
-    Boolean(c.reach_out_snoozed_until && new Date(c.reach_out_snoozed_until) > new Date(nowIso));
+    Boolean(c.reach_out_snoozed_until && new Date(c.reach_out_snoozed_until) > now);
 
   return contacts
     .map((c) => {
@@ -272,15 +278,23 @@ export async function setSuggestionCooldown(contactId: number) {
  * @returns Promise<ContactHealth[]> - All contacts with recency data
  */
 export async function getContactsWithLastTouch(userId: string) {
-  const { data: contacts, error: cErr } = await db()
-    .from("contacts")
-    .select("id, name, industry, follow_up_frequency_days, photo_url")
-    .eq("user_id", userId)
-    .eq("network_status", "active") // health grid covers the real network only (matches getHomeCoreData)
-    .order("name")
-    .limit(500);
-  if (cErr) throw cErr;
-  if (!contacts || contacts.length === 0) return [];
+  // Paginated, not capped: its sibling getRelationshipsOnTrack is unbounded and
+  // getNetworkHealth composes both, so a cap here would pair a whole-network
+  // on-track ratio with an alphabetically-truncated neglected list. Name order
+  // drives display; id is the tiebreak that keeps range windows stable.
+  const contacts = await paginateAll(async (from, to) =>
+    must(
+      await db()
+        .from("contacts")
+        .select("id, name, industry, follow_up_frequency_days, photo_url, created_at, first_outreach_skipped")
+        .eq("user_id", userId)
+        .eq("network_status", "active") // health grid covers the real network only (matches getHomeCoreData)
+        .order("name")
+        .order("id")
+        .range(from, to),
+    ),
+  );
+  if (contacts.length === 0) return [];
 
   const lastTouchMap = await buildLastTouchMap(userId, contacts.map((c) => c.id));
 
@@ -298,6 +312,8 @@ export async function getContactsWithLastTouch(userId: string) {
       industry: c.industry,
       photo_url: c.photo_url,
       follow_up_frequency_days: c.follow_up_frequency_days,
+      created_at: c.created_at,
+      first_outreach_skipped: c.first_outreach_skipped,
       last_touch: lastTouch,
       days_since_touch: daysSinceTouch,
     };
@@ -447,7 +463,11 @@ export async function getNeglectedContacts(userId: string) {
   return contacts
     .filter((c) => {
       if (!c.follow_up_frequency_days || c.follow_up_frequency_days <= 0) return false;
-      if (c.days_since_touch === null) return true; // Never contacted with cadence set
+      // Never contacted with cadence set, unless the user explicitly silenced
+      // the first-outreach nag. The flag gates never-contacted people only
+      // (matching deriveDueFollowUps), so someone already contacted stays
+      // legitimately neglectable.
+      if (c.days_since_touch === null) return !c.first_outreach_skipped;
       return c.days_since_touch >= c.follow_up_frequency_days * 2;
     })
     .sort((a, b) => {
