@@ -4,7 +4,16 @@ import { NextRequest } from "next/server";
 const mockFetchCalendarEvents = vi.fn();
 const mockGetCalendarTimezone = vi.fn();
 const mockGetCalendarList = vi.fn();
-const calendarEventUpsert = vi.fn(async () => ({ error: null }));
+// CAR-152: the route bulk-upserts row arrays and chains .select() for the
+// RETURNING ids, so the mock returns a builder instead of a bare result.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock mirrors the route's any-typed rows (CAR-142)
+const calendarEventUpsert = vi.fn((rows: any[], _opts: Record<string, unknown>) => ({
+  select: async () => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock mirrors the route's any-typed rows (CAR-142)
+    data: rows.map((r: any, i: number) => ({ id: 42 + i, google_event_id: r.google_event_id })),
+    error: null,
+  }),
+}));
 
 const state = {
   connection: {
@@ -24,9 +33,6 @@ let contactEmailRows: Array<{ email: string; contact_id: number; user_id: string
 // Records the (column, value) passed to the tenant-scoping .eq() so a test can
 // prove the route actually filters by contacts.user_id.
 const contactEmailFilters: Array<{ col: string; val: unknown }> = [];
-// Row returned by the post-upsert calendar_events lookup that drives the
-// contact-link upsert; null skips linking (matches the pre-existing tests).
-let calendarEventRow: { id: number } | null = null;
 
 vi.mock("@/lib/calendar", () => ({
   fetchCalendarEvents: (...args: unknown[]) => mockFetchCalendarEvents(...args),
@@ -63,27 +69,29 @@ function createServiceClient() {
       if (table === "calendar_events") {
         return {
           upsert: calendarEventUpsert,
+          // Cancellation lookup: select("id").eq(user).in(google_event_ids).
           select: () => ({
             eq: () => ({
-              eq: () => ({
-                single: async () => ({ data: calendarEventRow, error: null }),
-              }),
+              in: async () => ({ data: [], error: null }),
             }),
           }),
           delete: () => ({
-            eq: async () => ({ error: null }),
+            in: async () => ({ error: null }),
           }),
         };
       }
 
       if (table === "calendar_event_contacts") {
         return {
-          upsert: async (payload: Record<string, unknown>) => {
-            calendarEventContactUpserts.push(payload);
+          upsert: async (
+            rows: Array<Record<string, unknown>>,
+            _opts: Record<string, unknown>
+          ) => {
+            calendarEventContactUpserts.push(...rows);
             return { error: null };
           },
           delete: () => ({
-            eq: async () => ({ error: null }),
+            in: async () => ({ error: null }),
           }),
         };
       }
@@ -99,7 +107,11 @@ function createServiceClient() {
                 const data = contactEmailRows
                   .filter((r) => emails.includes(r.email))
                   .filter((r) => r.user_id === val)
-                  .map((r) => ({ contact_id: r.contact_id, contacts: { user_id: r.user_id } }));
+                  .map((r) => ({
+                    contact_id: r.contact_id,
+                    email: r.email,
+                    contacts: { user_id: r.user_id },
+                  }));
                 return { data };
               },
             }),
@@ -137,7 +149,6 @@ describe("/api/calendar/sync", () => {
     calendarEventContactUpserts.length = 0;
     contactEmailFilters.length = 0;
     contactEmailRows = [];
-    calendarEventRow = null;
     state.connection = {
       calendar_scopes_granted: true,
       calendar_last_synced_at: null,
@@ -227,7 +238,9 @@ describe("/api/calendar/sync", () => {
     const res = await POST(makeRequest());
     expect(res.status).toBe(200);
     expect(calendarEventUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({ user_id: "user-1", google_event_id: "evt-1" }),
+      expect.arrayContaining([
+        expect.objectContaining({ user_id: "user-1", google_event_id: "evt-1" }),
+      ]),
       { onConflict: "user_id,google_event_id" },
     );
   });
@@ -239,7 +252,6 @@ describe("/api/calendar/sync", () => {
     contactEmailRows = [
       { email: "attendee@corp.com", contact_id: 999, user_id: "user-2" },
     ];
-    calendarEventRow = { id: 42 };
 
     mockFetchCalendarEvents.mockResolvedValue({
       events: [
@@ -263,7 +275,9 @@ describe("/api/calendar/sync", () => {
 
     // No foreign contact_id reaches the event row...
     expect(calendarEventUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({ google_event_id: "evt-foreign", contact_id: null }),
+      expect.arrayContaining([
+        expect.objectContaining({ google_event_id: "evt-foreign", contact_id: null }),
+      ]),
       { onConflict: "user_id,google_event_id" },
     );
     // ...and no cross-tenant link row is written.
@@ -274,7 +288,6 @@ describe("/api/calendar/sync", () => {
     contactEmailRows = [
       { email: "attendee@corp.com", contact_id: 7, user_id: "user-1" },
     ];
-    calendarEventRow = { id: 42 };
 
     mockFetchCalendarEvents.mockResolvedValue({
       events: [
@@ -294,9 +307,13 @@ describe("/api/calendar/sync", () => {
     expect(res.status).toBe(200);
 
     expect(calendarEventUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({ google_event_id: "evt-own", contact_id: 7 }),
+      expect.arrayContaining([
+        expect.objectContaining({ google_event_id: "evt-own", contact_id: 7 }),
+      ]),
       { onConflict: "user_id,google_event_id" },
     );
+    // The link uses the id returned by the bulk upsert's RETURNING rows
+    // (the mock assigns 42 to the first row).
     expect(calendarEventContactUpserts).toContainEqual({
       calendar_event_id: 42,
       contact_id: 7,
