@@ -112,6 +112,10 @@ export default function PrivacyPolicyPage() {
                 <h3 className="text-sm font-medium text-foreground mb-1">PostHog</h3>
                 <p>We use PostHog for product analytics and, on the web app, session replay (with all inputs masked). Usage data is processed on PostHog&apos;s infrastructure. See <a href="https://posthog.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">PostHog&apos;s Privacy Policy</a>.</p>
               </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Cloudflare R2</h3>
+                <p>Contact photos are stored on Cloudflare R2 and served through Cloudflare&apos;s content delivery network. These photos are removed when you replace them, delete the contact, or delete your account, and a daily cleanup removes any copies that are no longer referenced. See <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Cloudflare&apos;s Privacy Policy</a>.</p>
+              </div>
             </div>
           </section>
 
@@ -160,7 +164,7 @@ export default function PrivacyPolicyPage() {
               All data is stored with row-level security policies so that only your account can access your data. We use HTTPS for all data transmission. Google OAuth tokens are encrypted before storage and used only to make API calls on your behalf.
 </p>
             <p className="text-muted-foreground leading-relaxed mt-3">
-              We retain your data for as long as your account is active. If you disconnect Gmail without deleting your account, we revoke our access token with Google and delete the Gmail message history stored for your account at that time; if you disconnect Google Calendar, we delete your cached calendar events. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network. We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
+              We retain your data for as long as your account is active. If you disconnect Gmail without deleting your account, we revoke our access token with Google and delete the Gmail message history stored for your account at that time; if you disconnect Google Calendar, we delete your cached calendar events. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network (Cloudflare R2, see Section 4). We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
             </p>
           </section>
 

@@ -1,4 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  listUserPhotoObjects,
+  deletePhotoObjectsBatch,
+  r2KeyFromPublicUrl,
+  isUserPhotoUrl,
+} from "@/lib/r2";
 
 /**
  * Storage orphan reconciliation (CAR-69).
@@ -206,6 +212,102 @@ export async function sweepStorageOrphans(opts: SweepOptions): Promise<SweepResu
       }
       bucketResult.removed.push(...batch);
     }
+  }
+
+  return result;
+}
+
+/** Max keys per S3 DeleteObjects request (mirrored in lib/r2). */
+const R2_REMOVE_BATCH_SIZE = 1000;
+
+/**
+ * All live contact-photo R2 keys: every contacts.photo_url that points at an
+ * object we host under the user-photo prefix. Completeness contract is the
+ * same as the Supabase fetchers above — stable order, any read error throws
+ * and aborts the pass (a missed live key is a live photo deleted). Deleted
+ * users need no separate existence check: their contacts rows cascade away,
+ * so their keys simply never enter the live set.
+ */
+async function fetchLiveContactPhotoKeys(service: SupabaseClient): Promise<Set<string>> {
+  const keys = new Set<string>();
+  for (let from = 0; ; from += DB_PAGE_SIZE) {
+    const { data, error } = await service
+      .from("contacts")
+      .select("photo_url")
+      .not("photo_url", "is", null)
+      .order("id")
+      .range(from, from + DB_PAGE_SIZE - 1);
+    if (error) throw new Error(`contacts query: ${error.message}`);
+    for (const row of (data as { photo_url: string | null }[] | null) ?? []) {
+      if (!isUserPhotoUrl(row.photo_url)) continue;
+      const key = r2KeyFromPublicUrl(row.photo_url);
+      if (key) keys.add(key);
+    }
+    if (!data || data.length < DB_PAGE_SIZE) break;
+  }
+  return keys;
+}
+
+/**
+ * R2 pass of the daily sweep (CAR-156): contact photos on the public CDN whose
+ * key no contacts.photo_url references are orphans (photo replaced, contact
+ * deleted, or account deleted with the best-effort inline cleanup missed).
+ * Reuses the Supabase sweep's safety properties: R2 listed BEFORE the DB
+ * snapshot, complete-live-set-or-abort, exact-key matching only, and the
+ * min-age guard (an object is written before contacts.photo_url starts
+ * pointing at it, so a young unreferenced key may be a pointer swap still in
+ * flight — and an unknown age fails safe as too-recent).
+ */
+export async function sweepR2PhotoOrphans(opts: SweepOptions): Promise<BucketSweepResult> {
+  const { service, dryRun = false, minAgeMs = DEFAULT_MIN_AGE_MS, now = Date.now } = opts;
+  const result: BucketSweepResult = {
+    scanned: 0,
+    live: 0,
+    skippedRecent: 0,
+    removed: [],
+    errors: [],
+  };
+
+  let objects: Awaited<ReturnType<typeof listUserPhotoObjects>>;
+  let liveKeys: Set<string>;
+  try {
+    objects = await listUserPhotoObjects();
+    liveKeys = await fetchLiveContactPhotoKeys(service);
+  } catch (err) {
+    result.errors.push(err instanceof Error ? err.message : String(err));
+    return result;
+  }
+
+  result.scanned = objects.length;
+  const cutoff = now() - minAgeMs;
+  const orphans: string[] = [];
+  for (const obj of objects) {
+    if (liveKeys.has(obj.key)) {
+      result.live++;
+      continue;
+    }
+    const ageTs = obj.lastModified ? obj.lastModified.getTime() : NaN;
+    if (Number.isNaN(ageTs) || ageTs > cutoff) {
+      result.skippedRecent++;
+    } else {
+      orphans.push(obj.key);
+    }
+  }
+
+  for (let i = 0; i < orphans.length; i += R2_REMOVE_BATCH_SIZE) {
+    const batch = orphans.slice(i, i + R2_REMOVE_BATCH_SIZE);
+    if (!dryRun) {
+      try {
+        await deletePhotoObjectsBatch(batch);
+      } catch (err) {
+        result.errors.push(err instanceof Error ? err.message : String(err));
+        continue;
+      }
+    }
+    for (const key of batch) {
+      console.log(`[storage-sweep] ${dryRun ? "orphan (dry-run)" : "removed"} r2/${key}`);
+    }
+    result.removed.push(...batch);
   }
 
   return result;

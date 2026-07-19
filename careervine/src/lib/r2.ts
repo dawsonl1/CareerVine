@@ -107,6 +107,65 @@ export async function deletePhotoByUrl(url: string | null | undefined): Promise<
 /** Max keys per S3 DeleteObjects request. */
 const DELETE_BATCH_SIZE = 1000;
 
+export interface R2PhotoObject {
+  key: string;
+  /** S3 LastModified; null when the listing omits it (treated as too-recent by the sweep). */
+  lastModified: Date | null;
+}
+
+/**
+ * List every contact-photo object across all users (the whole
+ * `careervine/contact-photos/` prefix) with its age, for the daily orphan
+ * sweep (CAR-156). Throws on any listing error — the sweep must abort rather
+ * than reason from a partial view. Bundle photos live under a different
+ * prefix and are never listed.
+ */
+export async function listUserPhotoObjects(): Promise<R2PhotoObject[]> {
+  const bucket = requireEnv("R2_BUCKET");
+  const s3 = getR2Client();
+  const objects: R2PhotoObject[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const listed = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: USER_PHOTO_PREFIX,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    for (const obj of listed.Contents ?? []) {
+      if (!obj.Key) continue;
+      objects.push({ key: obj.Key, lastModified: obj.LastModified ?? null });
+    }
+    continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return objects;
+}
+
+/**
+ * Delete one batch of keys (max 1000 — the S3 DeleteObjects limit). Throws on
+ * failure, including per-key errors reported inside a 200 response; the sweep
+ * records the error and moves on to the next batch.
+ */
+export async function deletePhotoObjectsBatch(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  if (keys.length > DELETE_BATCH_SIZE) {
+    throw new Error(`deletePhotoObjectsBatch: ${keys.length} keys exceeds the ${DELETE_BATCH_SIZE}-key limit`);
+  }
+  const result = await getR2Client().send(
+    new DeleteObjectsCommand({
+      Bucket: requireEnv("R2_BUCKET"),
+      Delete: { Objects: keys.map((Key) => ({ Key })) },
+    }),
+  );
+  const failed = result.Errors ?? [];
+  if (failed.length > 0) {
+    throw new Error(
+      `deletePhotoObjectsBatch: ${failed.length} keys failed (first: ${failed[0].Key}: ${failed[0].Message})`,
+    );
+  }
+}
+
 /**
  * Best-effort removal of every per-user contact photo under a deleted account's
  * R2 prefix (`careervine/contact-photos/{userId}/`). DB rows cascade on account
