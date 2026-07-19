@@ -25,7 +25,9 @@ const state: {
   sweepReadError: { message: string } | null;
   /** error injected into the due-messages read (fail-loud coverage, CAR-139). */
   dueReadError: { message: string } | null;
-} = { pendingMessages: [], connections: [], activeUserIds: [], updates: [], claimCount: 1, staleRows: [], sweepReadError: null, dueReadError: null };
+  /** error injected into the gmail_connections prefetch (fail-loud, CAR-153). */
+  connectionsReadError: { message: string } | null;
+} = { pendingMessages: [], connections: [], activeUserIds: [], updates: [], claimCount: 1, staleRows: [], sweepReadError: null, dueReadError: null, connectionsReadError: null };
 
 vi.mock("@upstash/qstash", () => ({
   Receiver: class {
@@ -47,8 +49,9 @@ vi.mock("@/lib/gmail-send-core", () => ({
   getGmailClient: (...a: unknown[]) => getGmailClientSpy(...a),
 }));
 
+const activateContactSpy = vi.fn(async () => {});
 vi.mock("@/lib/gmail", () => ({
-  activateContactByEmail: async () => {},
+  activateContactByEmail: (...a: unknown[]) => activateContactSpy(...(a as [])),
 }));
 
 vi.mock("@/lib/email-send", () => ({
@@ -98,7 +101,10 @@ vi.mock("@/lib/supabase/service-client", () => ({
             if (state.dueReadError) return resolve({ data: null, error: state.dueReadError });
             return resolve({ data: state.pendingMessages, error: null });
           }
-          if (table === "gmail_connections") return resolve({ data: state.connections });
+          if (table === "gmail_connections") {
+            if (state.connectionsReadError) return resolve({ data: null, error: state.connectionsReadError });
+            return resolve({ data: state.connections, error: null });
+          }
           return resolve({ data: [] });
         },
       };
@@ -146,6 +152,7 @@ describe("send-follow-ups cron — tier branch (CAR-102)", () => {
     state.staleRows = [];
     state.sweepReadError = null;
     state.dueReadError = null;
+    state.connectionsReadError = null;
     getGmailClientSpy.mockReset();
   });
 
@@ -252,6 +259,128 @@ describe("send-follow-ups cron — tier branch (CAR-102)", () => {
   });
 });
 
+describe("send-follow-ups cron — alias-aware reply detection (CAR-153/R2.5)", () => {
+  const threadWithFroms = (...froms: string[]) => ({
+    users: {
+      threads: {
+        get: async () => ({
+          data: {
+            messages: froms.map((value) => ({
+              payload: { headers: [{ name: "From", value }] },
+            })),
+          },
+        }),
+      },
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    state.pendingMessages = [dueMessage("prem-1")];
+    state.connections = [
+      {
+        user_id: "prem-1",
+        gmail_address: "prem@x.com",
+        send_as_aliases: ["prem@alias.dev"],
+        modify_scope_granted: true,
+        automatic_features_enabled: true,
+        premium_enabled: true,
+      },
+    ];
+    state.activeUserIds = ["prem-1"];
+    state.updates = [];
+    state.claimCount = 1;
+    state.staleRows = [];
+    state.sweepReadError = null;
+    state.dueReadError = null;
+    state.connectionsReadError = null;
+    getGmailClientSpy.mockReset();
+  });
+
+  it("the user's own alias-From thread message is NOT a reply: no cancel, no activation, send proceeds", async () => {
+    getGmailClientSpy.mockResolvedValue(
+      threadWithFroms("Me <prem@x.com>", "Me <Prem@Alias.DEV>"),
+    );
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(state.updates.some((u) => u.patch.status === "cancelled_reply")).toBe(false);
+    expect(activateContactSpy).not.toHaveBeenCalled();
+    expect(sendTrackedEmailSpy).toHaveBeenCalledTimes(1);
+    expect(data.cancelled).toBe(0);
+  });
+
+  it("a genuine contact reply still cancels the sequence and activates the contact", async () => {
+    getGmailClientSpy.mockResolvedValue(
+      threadWithFroms("Me <prem@x.com>", "Amy <Amy@Y.com>"),
+    );
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(state.updates.some((u) => u.table === "email_follow_ups" && u.patch.status === "cancelled_reply")).toBe(true);
+    expect(activateContactSpy).toHaveBeenCalledWith("prem-1", "amy@y.com");
+    expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
+    expect(data.cancelled).toBeGreaterThan(0);
+  });
+
+  it("a From header that fails to parse to an address is not treated as a reply", async () => {
+    // Old substring quirk: `!"".includes(userEmail)` was TRUE for a blank
+    // From against a non-empty stored address, so a headerless message was
+    // falsely flagged as a reply. The set test must not repeat that: an
+    // unparseable From proves nothing about who wrote it.
+    getGmailClientSpy.mockResolvedValue(threadWithFroms("prem@x.com", ""));
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(state.updates.some((u) => u.patch.status === "cancelled_reply")).toBe(false);
+    expect(data.cancelled).toBe(0);
+  });
+
+  it("an NDR (mailer-daemon) in the thread is NOT a reply: no cancel, no activation, send proceeds", async () => {
+    // A bounce is a delivery failure — treating it as "they replied" would
+    // cancel the sequence AND activate the very contact whose address just
+    // bounced. detectBounces owns NDRs (cancelled_bounce).
+    getGmailClientSpy.mockResolvedValue(
+      threadWithFroms("prem@x.com", "Mail Delivery Subsystem <mailer-daemon@googlemail.com>"),
+    );
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(state.updates.some((u) => u.patch.status === "cancelled_reply")).toBe(false);
+    expect(activateContactSpy).not.toHaveBeenCalled();
+    expect(sendTrackedEmailSpy).toHaveBeenCalledTimes(1);
+    expect(data.cancelled).toBe(0);
+  });
+
+  it("a user missing from the connections prefetch (empty own-set) is conservative: no cancel", async () => {
+    // Ownership unknown must NOT invert into "every message is a reply" —
+    // that would terminally cancel and falsely activate. (The old code's
+    // degenerate case was equally conservative: it flagged nothing.)
+    state.connections = [];
+
+    getGmailClientSpy.mockResolvedValue(threadWithFroms("prem@x.com", "prem@x.com"));
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(state.updates.some((u) => u.patch.status === "cancelled_reply")).toBe(false);
+    expect(activateContactSpy).not.toHaveBeenCalled();
+    expect(data.cancelled).toBe(0);
+  });
+
+  it("a connections prefetch read error fails the run loud (no silent empty-set pass)", async () => {
+    state.connectionsReadError = { message: "connection reset" };
+
+    await expect(POST(req)).rejects.toThrow(/Gmail connections prefetch failed/);
+    expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
+    expect(state.updates.some((u) => u.patch.status === "cancelled_reply")).toBe(false);
+  });
+});
+
 describe("send-follow-ups cron — claim lifecycle + fail-loud (CAR-139)", () => {
   // A sweep write targeting stale 'sending' rows re-asserts the sending guard.
   const sweepWrite = (statusVal: string) =>
@@ -271,6 +400,7 @@ describe("send-follow-ups cron — claim lifecycle + fail-loud (CAR-139)", () =>
     state.staleRows = [];
     state.sweepReadError = null;
     state.dueReadError = null;
+    state.connectionsReadError = null;
     getGmailClientSpy.mockReset();
   });
 

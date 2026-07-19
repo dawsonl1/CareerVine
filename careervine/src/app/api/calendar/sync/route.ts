@@ -2,6 +2,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { calendarSyncQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { fetchCalendarEvents, getCalendarTimezone, getCalendarList, DEFAULT_TIMEZONE } from "@/lib/calendar";
+import { buildOwnAddressSet } from "@/lib/gmail-helpers";
 import type { Json } from "@/lib/database.types";
 
 
@@ -31,13 +32,18 @@ export const POST = withApiHandler({
     const service = createSupabaseServiceClient();
     const conn = await service
       .from("gmail_connections")
-      .select("calendar_scopes_granted, calendar_last_synced_at, calendar_sync_token, gmail_address")
+      .select("calendar_scopes_granted, calendar_last_synced_at, calendar_sync_token, gmail_address, send_as_aliases")
       .eq("user_id", user.id)
       .single();
 
     if (!conn.data || !conn.data.calendar_scopes_granted) {
       throw new ApiError("Calendar not connected", 400);
     }
+
+    // Self-filter set (CAR-153/R2.5): the user's primary address plus their
+    // send-as aliases, lowercased — an alias attendee is the user, not a
+    // contact. The old strict primary-equality filter was also case-sensitive.
+    const ownAddresses = buildOwnAddressSet(conn.data.gmail_address, conn.data.send_as_aliases);
 
     // Rate limiting
     const force = query.force === "true";
@@ -111,7 +117,6 @@ export const POST = withApiHandler({
 
     // Process events as one batch: a constant number of Supabase calls per
     // chunk instead of 3-5 round trips per event (CAR-152 / R3.2).
-    const ownAddress = (conn.data.gmail_address || "").toLowerCase();
 
     // Set when any persistence step below fails. The sync cursor must NOT
     // advance past events that never persisted — Google only sends deltas
@@ -138,16 +143,15 @@ export const POST = withApiHandler({
         (e.end?.dateTime || e.end?.date)
     );
 
-    // Attendee emails are matched lowercased. Note: contact_emails.email may
-    // still hold mixed-case values (several write paths store verbatim), so
-    // this is an exact-on-lowercase match, not case-insensitive — a stored
-    // mixed-case email will not match until the Gmail-ingestion ticket
-    // normalizes the column at write time and backfills.
+    // Attendee emails are matched lowercase+trimmed — exact against
+    // contact_emails.email, which CAR-153/R2.8 normalizes (write-time trigger
+    // + backfill). Self-filtering uses the ownAddresses set (primary + send-as
+    // aliases, CAR-153/R2.5): an alias attendee is the user, not a contact.
     const allAttendeeEmails = new Set<string>();
     for (const event of upsertable) {
       for (const a of event.attendees || []) {
-        const email = a.email?.toLowerCase();
-        if (email && email !== ownAddress) allAttendeeEmails.add(email);
+        const email = typeof a.email === "string" ? a.email.toLowerCase().trim() : "";
+        if (email && !ownAddresses.has(email)) allAttendeeEmails.add(email);
       }
     }
 
@@ -207,7 +211,11 @@ export const POST = withApiHandler({
 
       const matchedIds: number[] = (event.attendees || [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        .flatMap((a: any) => (a.email ? contactIdsByEmail.get(a.email.toLowerCase()) ?? [] : []));
+        .flatMap((a: any) =>
+          typeof a.email === "string"
+            ? contactIdsByEmail.get(a.email.toLowerCase().trim()) ?? []
+            : []
+        );
       const contactIds = [...new Set(matchedIds)];
       contactIdsByGoogleId.set(event.id, contactIds);
 

@@ -69,7 +69,7 @@ Replace the per-event loop with one batched pass over the fetched set:
 
 Net: a constant number of Supabase calls per event batch, independent of event count.
 
-### 3. Repair migration — `20260717020000_car152_calendar_sync_repair.sql`
+### 3. Repair migration — `20260717040000_car152_calendar_sync_repair.sql`
 
 - `UPDATE gmail_connections SET calendar_sync_token = NULL` (all rows): tokens
   re-establish under `singleEvents: true` on next sync (route already falls back to
@@ -82,7 +82,7 @@ Net: a constant number of Supabase calls per event batch, independent of event c
     WHERE calendar_event_id = ce.id AND calendar_event_contacts.contact_id = c.id
     AND c.user_id <> ce.user_id;`
 
-### 4. Index migration — `20260717030000_car152_hot_path_indexes.sql`
+### 4. Index migration — `20260717050000_car152_hot_path_indexes.sql`
 
 Each verified against live query shapes (existing indexes checked for overlap):
 

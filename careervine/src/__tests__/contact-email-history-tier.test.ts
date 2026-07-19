@@ -35,7 +35,8 @@ describe("syncContactEmailHistoryIfPaid — paid-tier gating (CAR-109)", () => {
   it("paid tier (mailbox:read) + connected -> fetches the contact's history", async () => {
     caps = new Set(["mailbox:read"]);
     const n = await syncContactEmailHistoryIfPaid("u-1", 5, ["jane@corp.com"]);
-    expect(syncSpy).toHaveBeenCalledWith("u-1", 5, ["jane@corp.com"], "me@gmail.com", 90);
+    // 4th arg is the alias-aware own-address list (CAR-153/R2.5).
+    expect(syncSpy).toHaveBeenCalledWith("u-1", 5, ["jane@corp.com"], ["me@gmail.com"], 90);
     expect(n).toBe(3);
   });
 

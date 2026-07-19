@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { oauth2 as oauth2ClientFactory } from "@googleapis/oauth2";
+import { gmail as gmailClientFactory } from "@googleapis/gmail";
 import { getOAuth2Client, encryptOAuthToken } from "@/lib/oauth-helpers";
-import { deriveGrantedScopeFlags } from "@/lib/gmail";
+import { deriveGrantedScopeFlags, fetchSendAsAliases } from "@/lib/gmail";
 import { withApiHandler } from "@/lib/api-handler";
 
 /**
@@ -130,6 +131,31 @@ export const GET = withApiHandler({
       if (error) {
         console.error("Error upserting gmail connection:", error);
         return errorRedirect("Failed to store connection");
+      }
+
+      // Send-as aliases (CAR-153/R2.5): mail sent From an alias must classify
+      // as outbound, so capture the alias set at connect time. Deliberately
+      // AFTER the token upsert — the tokens are the point of the callback,
+      // and alias enrichment must never sit between exchange and persistence
+      // (a retry-backoff stall there could get the function killed with the
+      // fresh refresh_token unstored). Single fast-fail attempt, no retries:
+      // sendAs.list is covered by gmail.modify (send-only grants skip it),
+      // and the sync path refreshes aliases opportunistically anyway. An
+      // empty result is skipped so a previously stored set is never wiped.
+      if (modifyGranted) {
+        try {
+          const gmail = gmailClientFactory({ version: "v1", auth: oauth2Client });
+          const sendAsAliases = await fetchSendAsAliases(gmail, 0);
+          if (sendAsAliases.length > 0) {
+            const { error: aliasError } = await serviceClient
+              .from("gmail_connections")
+              .update({ send_as_aliases: sendAsAliases, updated_at: new Date().toISOString() })
+              .eq("user_id", user.id);
+            if (aliasError) console.warn("[gmail/callback] alias persist failed:", aliasError);
+          }
+        } catch (e) {
+          console.warn("[gmail/callback] sendAs alias fetch failed:", e);
+        }
       }
 
       if (sendGranted) track("gmail_connected", {});

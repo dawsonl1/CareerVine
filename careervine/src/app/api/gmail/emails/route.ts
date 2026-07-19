@@ -1,8 +1,10 @@
+import { waitUntil } from "@vercel/functions";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailEmailsQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getConnection } from "@/lib/gmail-send-core";
 import { syncEmailsForContact, backfillEmailsForContact } from "@/lib/gmail";
+import { ownAddressesFromConnection } from "@/lib/gmail-helpers";
 import { resolveCapabilities } from "@/lib/capabilities/resolve";
 
 /**
@@ -61,9 +63,14 @@ export const GET = withApiHandler({
     const isStale = Date.now() - lastSync > STALE_MS;
 
     if (emails.length > 0) {
-      // Claim any orphaned emails that match this contact's addresses
-      backfillEmailsForContact(user.id, numericContactId, emails)
-        .catch((err) => console.error("Email backfill error:", err));
+      // Claim any orphaned emails that match this contact's addresses.
+      // waitUntil (CAR-153/R3.4): a bare floating promise can be frozen by
+      // Vercel the moment the response is sent — waitUntil keeps the
+      // invocation alive until the background work settles.
+      waitUntil(
+        backfillEmailsForContact(user.id, numericContactId, emails)
+          .catch((err) => console.error("Email backfill error:", err))
+      );
 
       if (isStale) {
         // Live re-sync is premium only (CAR-102) — it needs the gmail.modify
@@ -72,13 +79,15 @@ export const GET = withApiHandler({
         const caps = await resolveCapabilities(user.id);
         if (caps.has("mailbox:read")) {
           // Sync in the background — don't block the response
-          syncEmailsForContact(
-            user.id,
-            numericContactId,
-            emails,
-            conn.gmail_address,
-            90
-          ).catch((err) => console.error("Background sync error:", err));
+          waitUntil(
+            syncEmailsForContact(
+              user.id,
+              numericContactId,
+              emails,
+              ownAddressesFromConnection(conn),
+              90
+            ).catch((err) => console.error("Background sync error:", err))
+          );
         }
       }
     }
