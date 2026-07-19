@@ -72,6 +72,7 @@ export default function PrivacyPolicyPage() {
             <ul className="list-disc list-inside space-y-2 text-muted-foreground leading-relaxed">
               <li>To provide and operate the CareerVine service</li>
               <li>To sync and display your Gmail and Google Calendar data within the app</li>
+              <li>To send emails from your Gmail address on your behalf when you compose, schedule, or set up automated follow-ups in CareerVine</li>
               <li>To parse LinkedIn profiles using AI when you use the Chrome extension</li>
               <li>To enrich your contacts with public profile details and suggest new people to add, using publicly available LinkedIn data collected through Apify</li>
               <li>To generate AI-written emails, parse transcripts, and power follow-up suggestions using OpenAI</li>
@@ -141,7 +142,11 @@ export default function PrivacyPolicyPage() {
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">Business transfers</h3>
-                <p>If CareerVine is involved in a merger, acquisition, or sale of assets, Google user data may be transferred as part of that transaction. We will notify you before your Google user data becomes subject to a different privacy policy.</p>
+                <p>If CareerVine is involved in a merger, acquisition, or sale of assets, we will notify you and obtain your explicit consent before your Google user data is transferred as part of that transaction or becomes subject to a different privacy policy.</p>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Human access</h3>
+                <p>No person at CareerVine reads your Gmail data or calendar events except with your explicit permission (for example, if you ask us to look at a specific issue while helping you with support), when necessary for security purposes such as investigating abuse, to comply with applicable law, or as part of aggregated and anonymized internal operations.</p>
               </div>
               <p>
                 No one else receives your Google user data. In particular, we do not send your Gmail message content or calendar events to OpenAI or any other AI provider, they are not included in the analytics data we send to PostHog, and they are never used for advertising or model training.
@@ -152,10 +157,10 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-lg font-medium mb-3">7. Data Storage, Security &amp; Retention</h2>
             <p className="text-muted-foreground leading-relaxed">
-              All data is stored with row-level security policies so that only your account can access your data. We use HTTPS for all data transmission. Google OAuth tokens are stored securely and used only to make API calls on your behalf.
-            </p>
+              All data is stored with row-level security policies so that only your account can access your data. We use HTTPS for all data transmission. Google OAuth tokens are encrypted before storage and used only to make API calls on your behalf.
+</p>
             <p className="text-muted-foreground leading-relaxed mt-3">
-              We retain your data for as long as your account is active. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network. We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
+              We retain your data for as long as your account is active. If you disconnect Gmail without deleting your account, we revoke our access token with Google and delete the email messages we synced from your inbox at that time; if you disconnect Google Calendar, we delete your cached calendar events. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network. We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
             </p>
           </section>
 
@@ -163,7 +168,7 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-lg font-medium mb-3">8. Your Rights</h2>
             <ul className="list-disc list-inside space-y-2 text-muted-foreground leading-relaxed">
               <li>You can delete your account and all associated data at any time by contacting us</li>
-              <li>You can disconnect Google at any time from your account settings, which will revoke our access to your Gmail and Calendar</li>
+              <li>You can disconnect Google at any time from your account settings, which revokes our access to your Gmail and Calendar and deletes the synced email messages and cached calendar events we hold (see Section 7)</li>
               <li>You can uninstall the Chrome extension at any time from your browser, which stops all collection by the extension and clears the data it stored locally</li>
               <li>You can request an export of your data, or ask us to stop using your data for product analytics, by contacting us</li>
             </ul>
@@ -190,7 +195,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-lg font-medium mb-3">10. Changes to This Policy</h2>
             <p className="text-muted-foreground leading-relaxed">
-              We may update this policy from time to time. We will post the updated policy on this page with a new &quot;Last updated&quot; date. Continued use of CareerVine after changes constitutes acceptance of the updated policy.
+              We may update this policy from time to time. We will post the updated policy on this page with a new &quot;Last updated&quot; date, and continued use of CareerVine after changes constitutes acceptance of the updated policy. There is one exception: if a change means we would use your Google user data in a way this policy does not already describe, we will notify you and ask for your consent before applying that new practice to your data.
             </p>
           </section>
 
