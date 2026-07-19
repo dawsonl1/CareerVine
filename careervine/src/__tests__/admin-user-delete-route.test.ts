@@ -14,7 +14,7 @@ const getUserById = vi.fn(async () => ({
   data: { user: { id: "u-1", email: "target@example.com", app_metadata: {} } },
   error: null,
 }));
-const deleteUser = vi.fn(async () => {
+const deleteUser = vi.fn(async (): Promise<{ error: { message: string } | null }> => {
   order.push("deleteUser");
   return { error: null };
 });
