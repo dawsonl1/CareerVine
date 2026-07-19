@@ -3,7 +3,7 @@ import { registerAllTools } from "@/mcp/register-tools";
 import { initDb } from "@/mcp/lib/db";
 import { runWithUserAsync } from "@/mcp/user-context";
 import { verifyMcpToken } from "@/mcp/verify-token";
-import { getMcpResourceUrl } from "@/mcp/auth-config";
+import { getAppOrigin } from "@/mcp/auth-config";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 // Service client singleton — user id comes from ALS per request.
@@ -44,7 +44,10 @@ const authedHandler = withMcpAuth(
   {
     required: true,
     resourceMetadataPath: "/.well-known/oauth-protected-resource/api/mcp",
-    resourceUrl: getMcpResourceUrl(),
+    // Despite the name, mcp-handler uses this value as the ORIGIN prefix when
+    // advertising the metadata URL (resourceUrl + resourceMetadataPath) — pass
+    // the origin, not the full resource URL, or the /api/mcp path doubles in.
+    resourceUrl: getAppOrigin(),
   },
 );
 
