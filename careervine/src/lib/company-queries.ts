@@ -98,7 +98,13 @@ export async function getContactStages(
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await db().from("interactions").select("contact_id").in("contact_id", chunk);
+      // Explicitly user-scoped (CAR-151): this also runs under the MCP
+      // service-role client, where RLS doesn't filter foreign interactions.
+      const { data } = await db()
+        .from("interactions")
+        .select("contact_id, contacts!inner()")
+        .eq("contacts.user_id", userId)
+        .in("contact_id", chunk);
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
@@ -110,9 +116,11 @@ export async function getContactStages(
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
+      // Explicitly user-scoped (CAR-151), same reason as the interactions leg.
       const { data } = await db()
         .from("contact_emails")
-        .select("contact_id")
+        .select("contact_id, contacts!inner()")
+        .eq("contacts.user_id", userId)
         .not("bounced_at", "is", null)
         .in("contact_id", chunk);
       return data ?? [];

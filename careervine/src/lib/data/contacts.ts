@@ -10,7 +10,7 @@
  */
 
 import { db, must } from "./client";
-import { chunked, chunkList, paginateAll } from "./postgrest";
+import { chunked, chunkList, escapeIlike, paginateAll } from "./postgrest";
 import { parseManualLocation } from "@/lib/location-normalizer";
 import type { Database } from "@/lib/database.types";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
@@ -574,15 +574,26 @@ export async function removeCompaniesFromContact(contactId: number) {
  * @throws Error if creation fails
  */
 export async function findOrCreateSchool(name: string) {
-  // Try to find existing. must(): an errored probe must not fall through
-  // to the insert and create a duplicate row.
-  const existing = must(
-    await db()
-      .from("schools")
-      .select("*")
-      .eq("name", name)
-      .maybeSingle(),
-  );
+  const clean = name.trim();
+  // Case-insensitive probe (CAR-151), matching company-helpers' find-or-create
+  // semantics so "byu" reuses an existing "BYU" instead of duplicating it.
+  //
+  // The ilike is only an index-friendly narrowing; the match is decided in JS.
+  // PostgREST treats `*` as an alias for `%` and offers no way to express a
+  // literal `*` in a like pattern (escapeIlike deliberately leaves it alone,
+  // since `\*` is rewritten to `\%` and would match nothing), so the probe for
+  // "A*M" also returns rows like "ATM". Any stored literal `*` still matches
+  // its own wildcarded pattern, so the true row is guaranteed to be among the
+  // candidates. must(): an errored probe must not fall through to the insert
+  // and create a duplicate row. order("id") keeps the choice deterministic
+  // when historical case-variant duplicates exist.
+  const probe = async () => {
+    const candidates = await paginateAll(async (from, to) =>
+      must(await db().from("schools").select("*").ilike("name", escapeIlike(clean)).order("id").range(from, to)),
+    );
+    return candidates.find((c) => c.name.trim().toLowerCase() === clean.toLowerCase()) ?? null;
+  };
+  const existing = await probe();
   if (existing) return existing;
 
   // Create new. Concurrent saves of the same new name race here: schools.name
@@ -590,14 +601,12 @@ export async function findOrCreateSchool(name: string) {
   // whole contact save (same recovery as company-helpers' find-or-creates).
   const { data, error } = await db()
     .from("schools")
-    .insert({ name })
+    .insert({ name: clean })
     .select()
     .single();
   if (error) {
     if (error.code === "23505") {
-      const winner = must(
-        await db().from("schools").select("*").eq("name", name).maybeSingle(),
-      );
+      const winner = await probe();
       if (winner) return winner;
     }
     throw error;

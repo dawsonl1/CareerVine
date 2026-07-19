@@ -1,6 +1,7 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { gmailDraftSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { insertEmailDraft } from "@/lib/data/emails";
 import {
   loadContactEmploymentMap,
   resolveEmailsToContactIds,
@@ -83,13 +84,19 @@ export const POST = withApiHandler({
       if (error) throw error;
       return { success: true, draft: data };
     } else {
-      // Create new draft
-      const { data, error } = await service
-        .from("email_drafts")
-        .insert(draftData)
-        .select()
-        .single();
-      if (error) throw error;
+      // Create new draft — shared insert (CAR-151): same rows the MCP
+      // free-tier create_email_draft fallback writes.
+      const data = await insertEmailDraft(service, user.id, {
+        to: body.to,
+        cc: body.cc,
+        bcc: body.bcc,
+        subject: body.subject,
+        bodyHtml: body.bodyHtml,
+        threadId: body.threadId,
+        inReplyTo: body.inReplyTo,
+        references: body.references,
+        contactName: body.contactName,
+      });
       return { success: true, draft: data };
     }
   },

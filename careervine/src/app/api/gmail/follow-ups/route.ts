@@ -2,8 +2,8 @@ import { withApiHandler } from "@/lib/api-handler";
 import { gmailFollowUpQuerySchema, gmailFollowUpCreateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
+import { insertFollowUpSequenceRows } from "@/lib/data/emails";
 import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
-import { FollowUpStatus } from "@/lib/constants";
 
 /**
  * GET /api/gmail/follow-ups?threadId=xxx
@@ -52,44 +52,38 @@ export const POST = withApiHandler({
 
     const service = createSupabaseServiceClient();
 
-    // Create the follow-up sequence
-    const { data: followUp, error: fuError } = await service
-      .from("email_follow_ups")
-      .insert({
-        user_id: user.id,
-        original_gmail_message_id: originalGmailMessageId,
-        thread_id: threadId,
-        recipient_email: recipientEmail,
-        contact_name: contactName || null,
-        original_subject: originalSubject || null,
-        original_sent_at: originalSentAt,
-        status: FollowUpStatus.Active,
-        scheduled_email_id: scheduledEmailId || null,
-      })
-      .select()
-      .single();
-
-    if (fuError) throw fuError;
-
-    // Create the individual follow-up messages. The cron auto-sends stored
-    // body_html verbatim — sanitize at the storage chokepoint (CAR-143, R5.2).
+    // Build the message rows first (follow_up_id is stamped by the shared
+    // insert). The cron auto-sends stored body_html verbatim — sanitize at
+    // the storage chokepoint (CAR-143, R5.2).
     const msgRows = buildFollowUpMessageRows(
-      followUp.id,
+      0,
       messages.map((m) => ({ ...m, bodyHtml: sanitizeStoredEmailHtml(m.bodyHtml) })),
       new Date(originalSentAt),
     );
 
-    const { error: msgError } = await service
-      .from("email_follow_up_messages")
-      .insert(msgRows);
-
-    if (msgError) throw msgError;
+    // Shared parent+messages insert with parent rollback on message failure
+    // (CAR-151): same rows the MCP schedule_follow_ups tool writes.
+    const followUpId = await insertFollowUpSequenceRows(
+      service,
+      user.id,
+      {
+        originalGmailMessageId,
+        threadId,
+        recipientEmail,
+        contactName: contactName || null,
+        originalSubject: originalSubject || null,
+        originalSentAt,
+        scheduledEmailId: scheduledEmailId || null,
+      },
+      msgRows,
+    );
 
     // Fetch the complete follow-up with messages
     const { data: complete } = await service
       .from("email_follow_ups")
       .select("*, email_follow_up_messages(*)")
-      .eq("id", followUp.id)
+      .eq("id", followUpId)
+      .eq("user_id", user.id)
       .single();
 
     track("follow_up_sequence_created", { steps: messages.length });

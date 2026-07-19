@@ -7,6 +7,9 @@
  *   insert race (23505) by refetching the winner instead of failing the save.
  * - findOrCreateLocation's probe is limit(1)-guarded so historical duplicate
  *   NULL-tuple rows can't turn maybeSingle() into a permanent error.
+ * - findOrCreateSchool reuses case variants ("byu" → "BYU") but verifies the
+ *   ilike probe's candidates in JS, so a `*` in the name (a PostgREST
+ *   wildcard that cannot be escaped) can't resolve to a different school.
  * - deleteAttachment issues no junction-table round-trips (ON DELETE CASCADE
  *   owns them since migration 20260711130000).
  */
@@ -32,7 +35,7 @@ const h = vi.hoisted(() => {
       call.ops.push({ m, args });
       return builder;
     };
-    for (const m of ["select", "insert", "update", "upsert", "delete", "eq", "is", "in", "order", "limit", "range", "or", "not", "gte", "lt"]) {
+    for (const m of ["select", "insert", "update", "upsert", "delete", "eq", "ilike", "is", "in", "order", "limit", "range", "or", "not", "gte", "lt"]) {
       builder[m] = chain(m);
     }
     builder.single = async () => {
@@ -125,15 +128,19 @@ describe("deleteContact tombstone bookkeeping (post-delete, best-effort)", () =>
 });
 
 describe("find-or-create insert races", () => {
+  // The school probe is a paginated ilike narrowing (rows array), not a
+  // maybeSingle — the literal-name match is decided in JS.
+  const isSchoolProbe = (c: Call) => c.table === "schools" && ops(c).includes("ilike");
+
   it("findOrCreateSchool refetches the winner on a 23505 unique violation", async () => {
     let probes = 0;
     h.state.respond = (c) => {
-      if (c.table === "schools" && ops(c).includes("maybeSingle")) {
+      if (isSchoolProbe(c)) {
         probes++;
         // First probe: no row yet. Refetch after the lost race: winner row.
         return probes === 1
-          ? { data: null, error: null }
-          : { data: { id: 7, name: "BYU Marriott" }, error: null };
+          ? { data: [], error: null }
+          : { data: [{ id: 7, name: "BYU Marriott" }], error: null };
       }
       if (c.table === "schools" && ops(c).includes("insert"))
         return { data: null, error: { code: "23505", message: "duplicate key" } };
@@ -146,13 +153,40 @@ describe("find-or-create insert races", () => {
 
   it("findOrCreateSchool rethrows non-unique-violation insert errors", async () => {
     h.state.respond = (c) => {
-      if (c.table === "schools" && ops(c).includes("maybeSingle")) return { data: null, error: null };
+      if (isSchoolProbe(c)) return { data: [], error: null };
       if (c.table === "schools" && ops(c).includes("insert"))
         return { data: null, error: { code: "42501", message: "permission denied" } };
       return { data: null, error: null };
     };
 
     await expect(findOrCreateSchool("BYU")).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("findOrCreateSchool reuses a case-variant match: 'byu' resolves to 'BYU'", async () => {
+    h.state.respond = (c) => {
+      if (isSchoolProbe(c)) return { data: [{ id: 2, name: "BYU" }], error: null };
+      return { data: null, error: null };
+    };
+
+    await expect(findOrCreateSchool("byu")).resolves.toEqual({ id: 2, name: "BYU" });
+    // Reuse, not duplicate: no insert round-trip.
+    expect(callsTo("schools").filter((c) => ops(c).includes("insert"))).toHaveLength(0);
+  });
+
+  it("findOrCreateSchool never resolves a '*' name to a wildcard-matched other school", async () => {
+    // PostgREST rewrites `*` to `%`, and escapeIlike cannot neutralize it, so
+    // the probe for "A*M" also returns rows like "ATM". Only a literal
+    // case-insensitive match may be reused.
+    h.state.respond = (c) => {
+      if (isSchoolProbe(c)) return { data: [{ id: 5, name: "ATM" }], error: null };
+      if (c.table === "schools" && ops(c).includes("insert"))
+        return { data: { id: 9, name: "A*M" }, error: null };
+      return { data: null, error: null };
+    };
+
+    await expect(findOrCreateSchool("A*M")).resolves.toEqual({ id: 9, name: "A*M" });
+    const insert = callsTo("schools").find((c) => ops(c).includes("insert"));
+    expect(insert?.ops.find((o) => o.m === "insert")?.args).toEqual([{ name: "A*M" }]);
   });
 
   it("findOrCreateLocation refetches the winner on a 23505 unique violation", async () => {

@@ -107,13 +107,18 @@ export const POST = withApiHandler({
         throw new ApiError("Failed to save transcript segments", 500);
       }
 
-      // Look up attachment ID from the storage path
+      // Look up attachment ID from the storage path. user_id scoping is
+      // defense-in-depth (CAR-151): the path prefix was validated upstream,
+      // but a service-role read must not lean on that alone.
       const { data: attachment } = await serviceClient
         .from("attachments")
         .select("id")
         .eq("object_path", attachmentObjectPath)
+        .eq("user_id", user.id)
         .single();
 
+      // Inline user_id scoping (CAR-151): ownership was verified ~70 lines
+      // up, but a service-role write carries its own scope regardless.
       const { error: updateError } = await serviceClient
         .from("meetings")
         .update({
@@ -122,7 +127,8 @@ export const POST = withApiHandler({
           transcript_parsed: true,
           transcript_attachment_id: attachment?.id ?? null,
         })
-        .eq("id", meetingId);
+        .eq("id", meetingId)
+        .eq("user_id", user.id);
       if (updateError) {
         console.error("[transcribe] Meeting update error:", updateError);
       }

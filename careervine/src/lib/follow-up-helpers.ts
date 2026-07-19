@@ -19,13 +19,18 @@ import {
  */
 export async function cancelFollowUpsForScheduledEmail(
   service: SupabaseClient,
+  userId: string,
   scheduledEmailId: number,
   now: string = new Date().toISOString(),
 ): Promise<void> {
+  // user_id scoping is defense-in-depth (CAR-151): the caller verified the
+  // scheduled email's ownership, but this runs on the service client, so the
+  // linkage read must not trust scheduled_email_id alone.
   const { data: linked, error: readError } = await service
     .from("email_follow_ups")
     .select("id")
     .eq("scheduled_email_id", scheduledEmailId)
+    .eq("user_id", userId)
     .eq("status", FollowUpStatus.Active);
   if (readError) throw readError;
   if (!linked || linked.length === 0) return;
@@ -43,7 +48,8 @@ export async function cancelFollowUpsForScheduledEmail(
   const { error: fuError } = await service
     .from("email_follow_ups")
     .update({ status: FollowUpStatus.CancelledUser, updated_at: now })
-    .in("id", fuIds);
+    .in("id", fuIds)
+    .eq("user_id", userId);
   if (fuError) throw fuError;
 }
 

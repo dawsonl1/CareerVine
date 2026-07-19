@@ -328,10 +328,13 @@ export async function syncEmailsForContact(
         // what graduates imported prospects/bench into the active network
         // (plan 24 tier transition). Outbound-only threads never graduate.
         if (inserted.some((r) => r.direction === "inbound")) {
+          // Inline user_id scoping (CAR-151): contactId comes from this
+          // user's sync loop, but a service-role write carries its own scope.
           const { error: actError } = await supabase
             .from("contacts")
             .update({ network_status: "active" })
             .eq("id", contactId)
+            .eq("user_id", userId)
             .in("network_status", ["prospect", "bench"]);
           if (actError) console.error("Failed to activate contact on reply:", actError);
 
@@ -905,10 +908,15 @@ export async function activateContactByEmail(userId: string, email: string) {
   const contactIds = [...new Set(data.map((r) => r.contact_id).filter((id): id is number => id != null))];
   if (contactIds.length === 0) return;
 
+  // Inline user_id scoping (CAR-151), matching the sibling activation above:
+  // contactIds come from the user-scoped read, but that read's tenancy rests
+  // on its contacts!inner embed, and dropping an !inner is an edit no
+  // typecheck or lint catches. The write carries its own scope.
   const { error: actError } = await supabase
     .from("contacts")
     .update({ network_status: "active" })
     .in("id", contactIds)
+    .eq("user_id", userId)
     .in("network_status", ["prospect", "bench"]);
   if (actError) console.error("Failed to activate contact on reply:", actError);
 }
@@ -1173,7 +1181,8 @@ export async function detectBounces(
       await supabase
         .from("email_follow_ups")
         .update({ status: "cancelled_bounce", updated_at: now })
-        .eq("id", seq.id);
+        .eq("id", seq.id)
+        .eq("user_id", userId);
       await supabase
         .from("email_follow_up_messages")
         .update({ status: "cancelled" })
