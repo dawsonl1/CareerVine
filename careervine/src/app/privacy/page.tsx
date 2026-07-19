@@ -1,5 +1,5 @@
 export default function PrivacyPolicyPage() {
-  const lastUpdated = "July 16, 2026";
+  const lastUpdated = "July 19, 2026";
 
   return (
     <div className="min-h-screen bg-background">
@@ -35,7 +35,7 @@ export default function PrivacyPolicyPage() {
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">Google Account Data (optional)</h3>
-                <p>If you connect Gmail or Google Calendar, we access your emails and calendar events to display them in-app and sync meetings. For messages we read from your inbox, we store only metadata and a short preview (sender, subject, date, and a snippet), not the full body. Calendar events are cached in your CareerVine account to enable filtering and syncing features. Emails you write and send through CareerVine are handled separately, as described next.</p>
+                <p>If you connect your Google account, CareerVine requests only the permissions it needs: your basic account email address (to identify the account you connected), permission to send email on your behalf, and access to read your calendar and create or update events. We use these to send the emails you compose, schedule, or automate from your Gmail address, and to display and sync your calendar; calendar events are cached in your CareerVine account to enable filtering and syncing features. We also store your Gmail address (and, where available, its send-as aliases) so messages are sent from the right identity. The standard connection does not include permission to read your Gmail inbox. If your account has been granted optional inbox access, we store only metadata and a short preview of messages we read (sender, subject, date, and a snippet), never the full body. Emails you write and send through CareerVine are handled separately, as described next. Section 6 describes exactly with whom this Google data is and is not shared.</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">Emails You Send Through CareerVine</h3>
@@ -71,7 +71,8 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-lg font-medium mb-3">3. How We Use Your Data</h2>
             <ul className="list-disc list-inside space-y-2 text-muted-foreground leading-relaxed">
               <li>To provide and operate the CareerVine service</li>
-              <li>To sync and display your Gmail and Google Calendar data within the app</li>
+              <li>To display and sync your Google Calendar and your CareerVine email history within the app</li>
+              <li>To send emails from your Gmail address on your behalf when you compose, schedule, or set up automated follow-ups in CareerVine</li>
               <li>To parse LinkedIn profiles using AI when you use the Chrome extension</li>
               <li>To enrich your contacts with public profile details and suggest new people to add, using publicly available LinkedIn data collected through Apify</li>
               <li>To generate AI-written emails, parse transcripts, and power follow-up suggestions using OpenAI</li>
@@ -122,27 +123,59 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium mb-3">6. Data Storage, Security &amp; Retention</h2>
+            <h2 className="text-lg font-medium mb-3">6. How We Share Google User Data</h2>
+            <div className="space-y-4 text-muted-foreground leading-relaxed">
+              <p>
+                This section describes with whom we share, transfer, or disclose Google user data, meaning the information we receive from Google APIs when you connect your Google account: your Gmail messages and their metadata, your Google Calendar events, your Gmail address and send-as aliases, and your Google OAuth tokens. We do not sell Google user data, and we do not share it with advertisers or data brokers. We share it only in the following limited circumstances:
+              </p>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Service providers that process it on our behalf</h3>
+                <p>We share Google user data with Supabase, which hosts our database and stores your synced Gmail data, calendar events, and encrypted Google OAuth tokens, and with Vercel, which hosts our application servers and processes this data in transit when we call Google APIs on your behalf. Both act as data processors for CareerVine, use the data solely to operate the service, and are bound by their own privacy and security commitments.</p>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">At your direction</h3>
+                <p>When you send an email through CareerVine, the message is delivered to the recipients you choose through Gmail. If you connect a third-party AI assistant to CareerVine through our MCP integration, that assistant and its provider can access the email subjects, previews, sender and recipient addresses, and calendar events you ask it to work with. This applies only to assistants you explicitly connect and authorize through CareerVine&apos;s sign-in and consent screen.</p>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Legal reasons</h3>
+                <p>We may disclose data if we believe in good faith that doing so is required by law, regulation, legal process, or an enforceable governmental request.</p>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Business transfers</h3>
+                <p>If CareerVine is involved in a merger, acquisition, or sale of assets, we will notify you and obtain your explicit consent before your Google user data is transferred as part of that transaction or becomes subject to a different privacy policy.</p>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Human access</h3>
+                <p>No person at CareerVine reads your Gmail data or calendar events except with your explicit permission (for example, if you ask us to look at a specific issue while helping you with support), when necessary for security purposes such as investigating abuse, to comply with applicable law, or as part of aggregated and anonymized internal operations.</p>
+              </div>
+              <p>
+                No one else receives your Google user data. In particular, we do not send your Gmail message content or calendar events to OpenAI or any other AI provider, they are not included in the analytics data we send to PostHog, and they are never used for advertising or model training.
+              </p>
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-medium mb-3">7. Data Storage, Security &amp; Retention</h2>
             <p className="text-muted-foreground leading-relaxed">
-              All data is stored with row-level security policies so that only your account can access your data. We use HTTPS for all data transmission. Google OAuth tokens are stored securely and used only to make API calls on your behalf.
-            </p>
+              All data is stored with row-level security policies so that only your account can access your data. We use HTTPS for all data transmission. Google OAuth tokens are encrypted before storage and used only to make API calls on your behalf.
+</p>
             <p className="text-muted-foreground leading-relaxed mt-3">
-              We retain your data for as long as your account is active. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network. We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
+              We retain your data for as long as your account is active. If you disconnect Gmail without deleting your account, we revoke our access token with Google and delete the Gmail message history stored for your account at that time; if you disconnect Google Calendar, we delete your cached calendar events. When you delete your account, we remove your data, including your contacts, sent and scheduled messages, and uploaded files, from our database and file storage, along with any contact photos we host on our content delivery network. We also periodically remove scraped profile data we no longer need, such as suggestions you have dismissed or added and prospects removed from curated lists. Some data is stored on our third-party providers&apos; systems (see Section 4) and is removed according to their retention practices.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-medium mb-3">7. Your Rights</h2>
+            <h2 className="text-lg font-medium mb-3">8. Your Rights</h2>
             <ul className="list-disc list-inside space-y-2 text-muted-foreground leading-relaxed">
               <li>You can delete your account and all associated data at any time by contacting us</li>
-              <li>You can disconnect Google at any time from your account settings, which will revoke our access to your Gmail and Calendar</li>
+              <li>You can disconnect Google at any time from your account settings, which revokes our access to your Gmail and Calendar and deletes the synced email messages and cached calendar events we hold (see Section 7)</li>
               <li>You can uninstall the Chrome extension at any time from your browser, which stops all collection by the extension and clears the data it stored locally</li>
               <li>You can request an export of your data, or ask us to stop using your data for product analytics, by contacting us</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-lg font-medium mb-3">8. Chrome Extension</h2>
+            <h2 className="text-lg font-medium mb-3">9. Chrome Extension</h2>
             <div className="space-y-3 text-muted-foreground leading-relaxed">
               <p>
                 The CareerVine Chrome extension&apos;s in-page component runs only on LinkedIn (linkedin.com). To do its job it communicates in the background with CareerVine&apos;s servers, with Supabase (to sign you in), and with PostHog (to record the usage events described in Section 2). It requests only the browser permissions it needs: storage (to keep you signed in and cache your recent work) and access to LinkedIn pages (to detect profiles and import them).
@@ -160,14 +193,14 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium mb-3">9. Changes to This Policy</h2>
+            <h2 className="text-lg font-medium mb-3">10. Changes to This Policy</h2>
             <p className="text-muted-foreground leading-relaxed">
-              We may update this policy from time to time. We will post the updated policy on this page with a new &quot;Last updated&quot; date. Continued use of CareerVine after changes constitutes acceptance of the updated policy.
+              We may update this policy from time to time. We will post the updated policy on this page with a new &quot;Last updated&quot; date, and continued use of CareerVine after changes constitutes acceptance of the updated policy. There is one exception: if a change means we would use your Google user data in a way this policy does not already describe, we will notify you and ask for your consent before applying that new practice to your data.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-medium mb-3">10. Contact</h2>
+            <h2 className="text-lg font-medium mb-3">11. Contact</h2>
             <p className="text-muted-foreground leading-relaxed">
               If you have any questions about this Privacy Policy, please contact us at{" "}
               <a href="mailto:dawson@careervine.app" className="text-primary hover:underline">
