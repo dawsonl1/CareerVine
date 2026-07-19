@@ -511,8 +511,13 @@ async function runDrive(name: string, entry: Entry) {
   db.initDb(USER);
   state.route = (q) => entry.route?.(q as RouteCtx);
   await entry.drive!();
-  expect(recorded().length, `${name} drive issued no queries — the fixture no longer exercises it`).toBeGreaterThan(0);
-  assertAllScoped(recorded(), USER, entry.ownership);
+  // Snapshot before asserting. The recorder is a module-global shared by every
+  // drive in this file, so a query from a floating promise could otherwise
+  // land mid-assertion and be attributed to the wrong function.
+  const captured = [...recorded()];
+  expect(captured.length, `${name} drive issued no queries — the fixture no longer exercises it`).toBeGreaterThan(0);
+  assertAllScoped(captured, USER, entry.ownership);
+  return captured;
 }
 
 // ── 1. Export enumeration: every export classified, no stale entries ───
@@ -553,8 +558,8 @@ describe("export enumeration", () => {
       if (entry.kind !== "mcp-covered") continue;
       it(`${modPath}: ${name} is actually reached by its ${entry.coveredBy} drive`, async () => {
         const target = DB_TABLE[entry.coveredBy!];
-        await runDrive(entry.coveredBy!, target);
-        const tables = recorded().map((q) => q.table);
+        const captured = await runDrive(entry.coveredBy!, target);
+        const tables = captured.map((q) => q.table);
         expect(
           tables,
           `${name} declares touches:"${entry.touches}" but the ${entry.coveredBy} drive never queried it — the fixture no longer exercises this function`,
@@ -879,6 +884,28 @@ describe("web-vs-MCP parity (contacts due / on-track / streak)", () => {
       })),
     );
     expect(mcp.length).toBeGreaterThan(0); // the fixture really is overdue
+  });
+
+  // The dossier bundle is what the model reads before drafting outreach, so
+  // every field in it is a field the model can quote. user_id is selected only
+  // to scope the embed (CAR-151 review) and must not reach the payload.
+  it("get_dossier does not leak user_id into the action items the model reads", async () => {
+    resetRecorder();
+    db.initDb(USER);
+    state.route = (raw) => {
+      const q = raw as RouteCtx;
+      if (q.table === "contacts" && q.resolution === "single") return CONTACT_FULL;
+      if (q.table === "action_item_contacts") {
+        return [{ follow_up_action_items: { id: 11, title: "Send deck", is_completed: false, user_id: USER } }];
+      }
+      return undefined;
+    };
+    const bundle = await db.getDossierBundle(9, "recent");
+
+    expect(bundle.openActionItems.length).toBeGreaterThan(0); // fixture flowed through
+    for (const item of [...bundle.openActionItems, ...bundle.completedActionItems]) {
+      expect(item).not.toHaveProperty("user_id");
+    }
   });
 
   it("get_network_health serves the shared on-track, streak and neglected data verbatim", async () => {

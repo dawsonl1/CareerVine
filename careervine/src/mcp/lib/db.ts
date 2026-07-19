@@ -917,14 +917,24 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       : Promise.resolve({ data: [], error: null } as { data: never[]; error: null }),
   ]);
 
+  // user_id is selected only so the embed can be scoped (see the queries
+  // above); strip it here so the dossier payload the model reads stays exactly
+  // what it was — this bundle feeds generated outreach, and every field in it
+  // is a field the model can quote.
+  const stripUserId = <T extends { user_id?: unknown }>(i: T) => {
+    const { user_id: _user_id, ...rest } = i;
+    return rest;
+  };
   const openActionItems = (actionItemsRes.data ?? [])
     .map((r) => r.follow_up_action_items)
-    .filter((i): i is NonNullable<typeof i> => i != null && !i.is_completed);
+    .filter((i): i is NonNullable<typeof i> => i != null && !i.is_completed)
+    .map(stripUserId);
   const completedActionItems = (completedRes.data ?? [])
     .map((r) => r.follow_up_action_items)
     .filter((i): i is NonNullable<typeof i> => i != null && Boolean(i.is_completed))
     .sort((a, b) => String(b.completed_at ?? "").localeCompare(String(a.completed_at ?? "")))
-    .slice(0, depth === "full" ? 1000 : 5);
+    .slice(0, depth === "full" ? 1000 : 5)
+    .map(stripUserId);
 
   const meetings = (meetingsRes.data ?? [])
     .map((r) => r.meetings)
