@@ -83,7 +83,7 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 - Run `npm run test` (Vitest) from `careervine/` and ensure coverage for new/changed code before committing (rules 3, 4).
 - Don't browser-verify every UI change — reserve previews for high-risk work (rule 13).
 - Push to `main` auto-deploys; env-var changes require a redeploy, empty commit being the established pattern (rule 16). Migrations: Claude applies them itself on landing — dry-run then `supabase db push` (rule 27); never ad-hoc SQL (rule 10).
-- **Waiting for a deploy to go live:** `node scripts/wait-for-deploy.mjs [--sha <commit>] [--timeout <secs>]` (defaults to origin/main's head, 15s polls). Exit 0 = READY + alias assigned (live on the domain), 1 = build failed, 2 = timeout. This is the ONLY sanctioned deploy watch — never grep `vercel ls` (rule 47).
+- **Waiting for a deploy to go live:** `node scripts/wait-for-deploy.mjs [--sha <commit>] [--timeout <secs>]` (defaults to origin/main's head, 15s polls). Exit 0 = READY + alias assigned (live on the domain), 1 = build failed, 2 = timeout. This is the ONLY sanctioned deploy watch — never grep `vercel ls` (rule 47). Note: the Vercel project's Root Directory is `careervine/`, so commits touching nothing under it (docs, scripts, CLAUDE.md, migrations-only) never create a deployment at all — the script detects this and exits 0 immediately.
 
 ---
 

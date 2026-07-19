@@ -53,6 +53,26 @@ if (!sha) {
 }
 const timeoutMs = Number(arg("timeout", "900")) * 1000;
 
+// Vercel's Root Directory is careervine/ — commits that touch nothing under
+// it never get a deployment object at all (the project skips them), so
+// waiting would time out on a deploy that will never exist. Production
+// content is unaffected by such a commit, so it is vacuously live.
+try {
+  const changed = execSync(`git diff-tree --no-commit-id --name-only -r ${sha}`, {
+    encoding: "utf8",
+  });
+  const touchesApp = changed.split("\n").some((f) => f.startsWith("careervine/"));
+  if (changed.trim() && !touchesApp) {
+    console.log(
+      `wait-for-deploy: ${sha.slice(0, 12)} touches nothing under careervine/ — ` +
+        "Vercel creates no deployment for it (root-directory skip); nothing to wait for.",
+    );
+    process.exit(0);
+  }
+} catch {
+  // SHA not resolvable locally (e.g. different checkout) — fall through and poll.
+}
+
 async function fetchDeployments() {
   const url =
     `https://api.vercel.com/v6/deployments?projectId=${PROJECT_ID}` +
