@@ -23,6 +23,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalizeLinkedinUrl, extractPublicIdentifier } from "@/lib/linkedin-url";
 import type { PeopleRecord } from "@/lib/scrape-mapper";
 import type { Json } from "@/lib/database.types";
+import { must } from "@/lib/data/client";
 import {
   DISCOVERY_COMPANIES_PER_RUN,
   DISCOVERY_MIN_AGE_DAYS,
@@ -90,24 +91,28 @@ export async function selectDiscoveryCompanies(
   userId: string,
   limit: number = DISCOVERY_COMPANIES_PER_RUN,
 ): Promise<DiscoveryCompany[]> {
-  const { data: pendingRuns } = await service
-    .from("scrape_runs")
-    .select("company_id")
-    .eq("user_id", userId)
-    .eq("status", ScrapeRunStatus.Pending)
-    .eq("mode", ScrapeMode.Discovery);
+  const pendingRuns = must(
+    await service
+      .from("scrape_runs")
+      .select("company_id")
+      .eq("user_id", userId)
+      .eq("status", ScrapeRunStatus.Pending)
+      .eq("mode", ScrapeMode.Discovery),
+  );
   const inFlight = new Set(
     ((pendingRuns as { company_id: number | null }[] | null) ?? [])
       .map((r) => r.company_id)
       .filter((id): id is number => id != null),
   );
 
-  const { data: rows } = await service
-    .from("target_companies")
-    .select("company_id, last_discovery_at, priority_score, companies!inner(id, name, linkedin_url, linkedin_company_id)")
-    .eq("user_id", userId)
-    .eq("is_targeted", true)
-    .not("companies.linkedin_url", "is", null);
+  const rows = must(
+    await service
+      .from("target_companies")
+      .select("company_id, last_discovery_at, priority_score, companies!inner(id, name, linkedin_url, linkedin_company_id)")
+      .eq("user_id", userId)
+      .eq("is_targeted", true)
+      .not("companies.linkedin_url", "is", null),
+  );
 
   type TargetRow = {
     company_id: number;
@@ -416,35 +421,39 @@ async function loadPartitionContext(
     .map((i) => canonicalizeLinkedinUrl(i.linkedinUrl))
     .filter((u): u is string => Boolean(u));
 
-  const [{ data: contactRows }, { data: suppressedRows }, { data: atCompanyRows }, { data: companyRow }] =
-    await Promise.all([
-      urls.length
-        ? service.from("contacts").select("linkedin_url").eq("user_id", userId).in("linkedin_url", urls)
-        : Promise.resolve({ data: [] as { linkedin_url: string | null }[] }),
-      service.from("suppressed_imports").select("linkedin_url").eq("user_id", userId),
-      service
-        .from("contacts")
-        .select("name, contact_companies!inner(company_id)")
-        .eq("user_id", userId)
-        .eq("contact_companies.company_id", companyId),
-      service.from("companies").select("linkedin_company_id").eq("id", companyId).maybeSingle(),
-    ]);
+  // No URLs to match means no possible hit, so skip the round trip rather than
+  // fabricate a response — must() below then only ever wraps a real read.
+  const existingContactsPromise = urls.length
+    ? service.from("contacts").select("linkedin_url").eq("user_id", userId).in("linkedin_url", urls).then(must)
+    : Promise.resolve<{ linkedin_url: string | null }[]>([]);
+
+  // must() on every leg: these sets ARE the dedupe and suppression filters, so
+  // an empty-on-error read would re-surface tombstoned profiles and bill the
+  // user for an Apify re-scrape of contacts they already have. A failed read
+  // must fail the run, not quietly widen it.
+  const [contactRows, suppressedRows, atCompanyRows, companyRow] = await Promise.all([
+    existingContactsPromise,
+    service.from("suppressed_imports").select("linkedin_url").eq("user_id", userId).then(must),
+    service
+      .from("contacts")
+      .select("name, contact_companies!inner(company_id)")
+      .eq("user_id", userId)
+      .eq("contact_companies.company_id", companyId)
+      .then(must),
+    service.from("companies").select("linkedin_company_id").eq("id", companyId).maybeSingle().then(must),
+  ]);
 
   return {
     existingContactUrls: new Set(
-      ((contactRows as { linkedin_url: string | null }[] | null) ?? [])
-        .map((r) => r.linkedin_url)
-        .filter((u): u is string => Boolean(u)),
+      contactRows.map((r) => r.linkedin_url).filter((u): u is string => Boolean(u)),
     ),
-    suppressedUrls: new Set(
-      ((suppressedRows as { linkedin_url: string }[] | null) ?? []).map((r) => r.linkedin_url),
-    ),
+    suppressedUrls: new Set(suppressedRows.map((r) => r.linkedin_url)),
     contactNamesAtCompany: new Set(
-      ((atCompanyRows as { name: string | null }[] | null) ?? [])
+      atCompanyRows
         .map((r) => (r.name ? normalizeName(r.name) : null))
         .filter((n): n is string => Boolean(n)),
     ),
-    companyLinkedinId: (companyRow as { linkedin_company_id: string | null } | null)?.linkedin_company_id ?? null,
+    companyLinkedinId: companyRow?.linkedin_company_id ?? null,
   };
 }
 

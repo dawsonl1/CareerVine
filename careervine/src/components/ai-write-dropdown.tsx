@@ -93,7 +93,9 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
   }, [recipientEmail]);
 
   useEffect(() => {
-    if (open && recipientEmail) resolveContact();
+    // resolveContact swallows its own failures (the picker just shows no
+    // meetings), so the effect fires it without awaiting.
+    if (open && recipientEmail) void resolveContact();
   }, [open, recipientEmail, resolveContact]);
 
   const resetState = () => {
@@ -150,13 +152,14 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
       setPendingPrompt(prompt);
       setShowMeetingPicker(true);
     } else {
-      handleGenerate(prompt);
+      // handleGenerate reports failures through `error` / `aiFailure`.
+      void handleGenerate(prompt);
     }
   };
 
   const handleMeetingConfirm = () => {
     if (pendingPrompt) {
-      handleGenerate(pendingPrompt);
+      void handleGenerate(pendingPrompt);
     }
     setShowMeetingPicker(false);
   };
@@ -341,7 +344,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                       setShowCustomPrompt(false);
                       setShowMeetingPicker(true);
                     } else {
-                      handleGenerate(customPrompt.trim());
+                      void handleGenerate(customPrompt.trim());
                     }
                   }}
                   disabled={!customPrompt.trim()}

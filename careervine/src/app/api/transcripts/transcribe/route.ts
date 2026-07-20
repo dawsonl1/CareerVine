@@ -4,6 +4,19 @@ import { transcriptTranscribeSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 /**
+ * A transcript segment as this route produces it: the Deepgram utterance
+ * mapped to our column names, but before it becomes a transcript_segments row
+ * (no id / meeting_id yet), so it is NOT lib/types' TranscriptSegment.
+ */
+type DraftTranscriptSegment = {
+  speaker_label: string;
+  started_at: number | null;
+  ended_at: number | null;
+  content: string;
+  ordinal: number;
+};
+
+/**
  * POST /api/transcripts/transcribe
  *
  * Transcribes an audio/video file using Deepgram with speaker diarization.
@@ -14,7 +27,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
  * results are returned for the client to save after meeting creation.
  *
  * Input:  { meetingId?: number, attachmentObjectPath: string }
- * Output: { segments: TranscriptSegment[], rawText: string }
+ * Output: { segments: DraftTranscriptSegment[], rawText: string }
  */
 export const POST = withApiHandler({
   schema: transcriptTranscribeSchema,
@@ -71,8 +84,7 @@ export const POST = withApiHandler({
 
       // Map Deepgram utterances to our segment format
       const utterances = ("results" in result ? result.results?.utterances : undefined) ?? [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      const segs = utterances.map((u: any, i: number) => ({
+      const segs: DraftTranscriptSegment[] = utterances.map((u, i) => ({
         speaker_label: `Speaker ${u.speaker}`,
         started_at: u.start ?? null,
         ended_at: u.end ?? null,
@@ -93,8 +105,7 @@ export const POST = withApiHandler({
       // Atomic replace via Postgres function (transaction-safe)
       const { error: rpcError } = await serviceClient.rpc("replace_transcript_segments", {
         p_meeting_id: meetingId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        p_segments: segments.map((s: any) => ({
+        p_segments: segments.map((s) => ({
           ordinal: s.ordinal,
           speaker_label: s.speaker_label,
           started_at: s.started_at,

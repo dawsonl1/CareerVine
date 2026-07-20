@@ -70,6 +70,8 @@ export const POST = withApiHandler({
     const service = createSupabaseServiceClient();
 
     if (body.id) {
+      // cas-checked: filters are `id` and `user_id`, neither of which is
+      // written, so the .select() readback is sound.
       const { data, error } = await service
         .from("email_templates")
         .update({

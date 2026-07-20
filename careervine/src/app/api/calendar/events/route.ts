@@ -1,4 +1,4 @@
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, type InferApiResponse } from "@/lib/api-handler";
 import { calendarEventsQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
@@ -32,3 +32,11 @@ export const GET = withApiHandler({
     return { events: data || [] };
   },
 });
+
+/**
+ * Success shape, inferred from the handler above (CAR-158, F24). `data` comes
+ * from a typed `select("*")` on calendar_events, so the element type is the
+ * generated row — which is what lets the dashboard drop its `e: any`.
+ * Type-only, so it is erased at compile time.
+ */
+export type CalendarEventsResponse = InferApiResponse<typeof GET>;

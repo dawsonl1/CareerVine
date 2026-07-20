@@ -39,8 +39,10 @@ export const PUT = withApiHandler({
 
     // Pending-only enforced inside the UPDATE itself (CAR-134): a read-then-
     // write guard races the send drivers — the row can be claimed and sent
-    // between the check and the write. Status is not modified here, so
-    // .select() is safe (no rule-17 trap).
+    // between the check and the write.
+    // cas-checked: `updates` is built from body fields above (to/cc/bcc/subject/
+    // body_html/scheduled_send_at) and never includes `status`, so the filtered
+    // column is not a written column and the .select() readback is sound.
     const { data, error } = await service
       .from("scheduled_emails")
       .update(updates)

@@ -25,7 +25,15 @@ function preview(result: unknown, chars = 800): string {
 async function main() {
   const transport = new StdioClientTransport({
     command: path.join(pkgRoot, "node_modules", ".bin", "tsx"),
-    args: ["--tsconfig", path.join(pkgRoot, "tsconfig.json"), path.join(pkgRoot, "server.ts")],
+    // --conditions=react-server is required: the server's import graph reaches
+    // server-only-fenced modules under careervine/src/lib, and server-only
+    // throws unless resolved through React's server layer (CAR-158).
+    args: [
+      "--conditions=react-server",
+      "--tsconfig",
+      path.join(pkgRoot, "tsconfig.json"),
+      path.join(pkgRoot, "server.ts"),
+    ],
     env: { ...process.env } as Record<string, string>,
     stderr: "inherit",
   });

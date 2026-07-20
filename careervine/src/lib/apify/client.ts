@@ -12,6 +12,8 @@
  *                          (falls back to https://$VERCEL_URL)
  */
 
+import "server-only";
+
 import {
   DISCOVERY_FUNCTION_IDS,
   PROFILE_SCRAPER_ACTOR,

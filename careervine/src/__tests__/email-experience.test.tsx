@@ -17,11 +17,14 @@ vi.mock("next/dynamic", () => ({
       const [Comp, setComp] = React.useState<React.ComponentType | null>(null);
       React.useEffect(() => {
         let active = true;
-        Promise.resolve(loader()).then((resolved) => {
-          if (!active) return;
-          const c = (resolved as { default?: React.ComponentType }).default ?? (resolved as React.ComponentType);
-          setComp(() => c);
-        });
+        Promise.resolve(loader())
+          .then((resolved) => {
+            if (!active) return;
+            const c = (resolved as { default?: React.ComponentType }).default ?? (resolved as React.ComponentType);
+            setComp(() => c);
+          })
+          // A rejected loader would otherwise surface only as a waitFor timeout.
+          .catch((err) => console.error("next/dynamic mock: loader rejected", err));
         return () => {
           active = false;
         };

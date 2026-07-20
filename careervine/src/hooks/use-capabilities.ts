@@ -71,7 +71,8 @@ export function useCapabilities() {
   useEffect(() => {
     if (!user) return;
     if (!snap.loading || fetchPromise) return; // already resolved or in-flight
-    fetchCapabilities();
+    // Fire-and-forget: fetchCapabilities catches its own errors and fails closed.
+    void fetchCapabilities();
   }, [user, snap.loading]);
 
   const refresh = useCallback(async () => {

@@ -56,7 +56,16 @@ vi.mock("@/lib/gmail", () => ({
 
 vi.mock("@/lib/email-send", () => ({
   sendTrackedEmail: (...a: unknown[]) => sendTrackedEmailSpy(...a),
-  SendPolicyError: class extends Error {},
+  // Mirrors the real class (message + numeric status) so the cron's
+  // 429-vs-other-policy-vs-infrastructure branch is exercised for real.
+  SendPolicyError: class SendPolicyError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = "SendPolicyError";
+      this.status = status;
+    }
+  },
 }));
 
 vi.mock("@/lib/supabase/service-client", () => ({
@@ -114,6 +123,8 @@ vi.mock("@/lib/supabase/service-client", () => ({
 }));
 
 import { POST } from "@/app/api/cron/send-follow-ups/route";
+// Resolves to the mocked class above, so `instanceof` inside the route matches.
+import { SendPolicyError } from "@/lib/email-send";
 
 function dueMessage(userId: string) {
   return {
@@ -503,5 +514,93 @@ describe("send-follow-ups cron — claim lifecycle + fail-loud (CAR-139)", () =>
     state.dueReadError = { message: "connection reset" };
 
     await expect(POST(req)).rejects.toThrow(/Due follow-up query failed/);
+  });
+});
+
+describe("send-follow-ups cron — aged send failures only cancel on a policy verdict", () => {
+  // sendTrackedEmail throws for two very different reasons, and the aged-message
+  // branch used to conflate them: a POLICY refusal (SendPolicyError) is a verdict
+  // about the recipient, while an INFRASTRUCTURE failure (the daily-cap count's
+  // PostgrestError, the provenance read's must() throw, a Gmail 5xx) says nothing
+  // about whether the message should ever be sent. 'cancelled' is terminal, so
+  // only the former may reach it.
+  const aged = () => new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+  const messageWrite = (statusVal: string) =>
+    state.updates.find((u) => u.table === "email_follow_up_messages" && u.patch.status === statusVal);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    state.pendingMessages = [{ ...dueMessage("prem-1"), scheduled_send_at: aged() }];
+    state.connections = [
+      { user_id: "prem-1", gmail_address: "prem@x.com", modify_scope_granted: true, automatic_features_enabled: true, premium_enabled: true },
+    ];
+    state.activeUserIds = ["prem-1"];
+    state.updates = [];
+    state.claimCount = 1;
+    state.staleRows = [];
+    state.sweepReadError = null;
+    state.dueReadError = null;
+    state.connectionsReadError = null;
+    getGmailClientSpy.mockReset();
+    getGmailClientSpy.mockResolvedValue({
+      users: { threads: { get: async () => ({ data: { messages: [{ payload: { headers: [] } }] } }) } },
+    });
+  });
+
+  it("a transient DB error on an AGED message reverts to pending, never cancels", async () => {
+    // Shaped like the PostgrestError sendTrackedEmail rethrows from the daily-cap
+    // count (not an Error instance, exactly as supabase-js surfaces it).
+    sendTrackedEmailSpy.mockRejectedValueOnce({
+      code: "57014",
+      message: "canceling statement due to statement timeout",
+      details: null,
+      hint: null,
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    const revert = messageWrite("pending");
+    expect(revert).toBeDefined();
+    expect(revert!.patch.claimed_at).toBeNull();
+    expect(messageWrite("cancelled")).toBeUndefined();
+    expect(data.cancelled).toBe(0);
+  });
+
+  it("a must() throw from the provenance read on an AGED message reverts to pending", async () => {
+    sendTrackedEmailSpy.mockRejectedValueOnce(new Error("contact_emails read failed"));
+
+    const res = await POST(req);
+    await res.json();
+
+    expect(messageWrite("pending")).toBeDefined();
+    expect(messageWrite("cancelled")).toBeUndefined();
+  });
+
+  it("a bounced-recipient refusal (SendPolicyError 422) on an AGED message still cancels", async () => {
+    sendTrackedEmailSpy.mockRejectedValueOnce(
+      new SendPolicyError("amy@y.com has bounced before", 422),
+    );
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    const cancel = messageWrite("cancelled");
+    expect(cancel).toBeDefined();
+    expect(cancel!.patch).toEqual({ status: "cancelled", claimed_at: null });
+    expect(messageWrite("pending")).toBeUndefined();
+    expect(data.sent).toBe(0);
+  });
+
+  it("the daily cap (SendPolicyError 429) on an AGED message reverts to pending, never cancels", async () => {
+    sendTrackedEmailSpy.mockRejectedValueOnce(
+      new SendPolicyError("Daily send limit reached (50).", 429),
+    );
+
+    const res = await POST(req);
+    await res.json();
+
+    expect(messageWrite("pending")).toBeDefined();
+    expect(messageWrite("cancelled")).toBeUndefined();
   });
 });

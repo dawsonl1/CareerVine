@@ -61,6 +61,8 @@ export const POST = withApiHandler({
     if (existing) {
       const row = existing as { id: number; status: string; synced_version: number };
       if (row.status === "active") return { subscription: row, reactivated: false };
+      // cas-checked: writes status but filters only on `id`, so no written
+      // column is re-tested and the .select() readback is sound.
       const { data: updated, error } = await supabase
         .from("bundle_subscriptions")
         .update({

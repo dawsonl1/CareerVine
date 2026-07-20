@@ -124,7 +124,7 @@ export default function ContactsPage() {
       await Promise.all(
         TIERS.map(async (tier) => {
           await getContactsStreamed(user.id, [tier], (rows) => {
-            for (const r of rows as ContactListItem[]) byId.set(r.id, r);
+            for (const r of rows) byId.set(r.id, r);
             flush();
             // First paint on the active tier's first page (the default view).
             if (tier === "active") setLoading(false);
@@ -190,7 +190,8 @@ export default function ContactsPage() {
 
   useEffect(() => {
     if (user) {
-      loadContacts();
+      // Fire-and-forget: loadContacts owns its error handling (sets loadError).
+      void loadContacts();
       // Chip counts arrive in milliseconds, well before the full payload
       getNetworkTierCounts().then(setServerTierCounts).catch(() => {});
       getTags(user.id).then(setAllTags).catch(() => {});
@@ -403,7 +404,7 @@ export default function ContactsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <LoadErrorState
             message="We could not load your contacts"
-            onRetry={() => { setLoading(true); loadContacts(); }}
+            onRetry={() => { setLoading(true); void loadContacts(); }}
           />
         </div>
       </div>
@@ -650,7 +651,7 @@ export default function ContactsPage() {
                       <Tooltip label="Add to network">
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); handleActivate(contact); }}
+                          onClick={(e) => { e.stopPropagation(); void handleActivate(contact); }}
                           className="p-1.5 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors"
                         >
                           <UserPlus className="h-5 w-5" />
@@ -660,7 +661,7 @@ export default function ContactsPage() {
                         <Tooltip label="Move to archive">
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); handleSetTier(contact, "bench"); }}
+                            onClick={(e) => { e.stopPropagation(); void handleSetTier(contact, "bench"); }}
                             className="p-1.5 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors"
                           >
                             <Archive className="h-5 w-5" />
@@ -670,7 +671,7 @@ export default function ContactsPage() {
                         <Tooltip label="Move to prospects">
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); handleSetTier(contact, "prospect"); }}
+                            onClick={(e) => { e.stopPropagation(); void handleSetTier(contact, "prospect"); }}
                             className="p-1.5 rounded-[10px] text-muted-foreground hover:text-primary hover:bg-secondary/60 cursor-pointer transition-colors"
                           >
                             <ArchiveRestore className="h-5 w-5" />
@@ -971,8 +972,7 @@ export default function ContactsPage() {
                           <button type="button" onClick={async () => {
                             if (!user) return;
                             await withToastOnError(async () => {
-                              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-                              const newTag = await createTag({ user_id: user.id, name: tagSearch.trim() } as any);
+                              const newTag = await createTag({ user_id: user.id, name: tagSearch.trim() });
                               setAllTags([...allTags, newTag]);
                               setSelectedTagIds([...selectedTagIds, newTag.id]);
                               setTagSearch(""); setShowTagDropdown(false);

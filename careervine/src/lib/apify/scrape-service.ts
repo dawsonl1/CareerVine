@@ -14,6 +14,7 @@
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
+import { must } from "@/lib/data/client";
 import { importPeopleChunk, type PersonImportInput, type RescrapeDiffCapture } from "@/lib/bulk-import";
 import { buildSnapshot, computeDiff, type ScrapeSnapshot } from "@/lib/change-events/diff-engine";
 import type { Json, TablesInsert } from "@/lib/database.types";
@@ -83,12 +84,17 @@ export async function triggerContactScrape(opts: {
   const controls = await getApifyControls(service, userId);
   if (!controls.enrichmentEnabled) return { status: "disabled_by_admin" };
 
-  const { data: contact } = await service
-    .from("contacts")
-    .select("id, linkedin_url, last_scraped_at, scrape_failed_at")
-    .eq("id", contactId)
-    .eq("user_id", userId)
-    .single();
+  // maybeSingle, not single: a missing or foreign contact is a legitimate
+  // "no_url" answer, but a real read failure must not masquerade as one and
+  // silently swallow the user's enrich request.
+  const contact = must(
+    await service
+      .from("contacts")
+      .select("id, linkedin_url, last_scraped_at, scrape_failed_at")
+      .eq("id", contactId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+  );
 
   const url = canonicalizeLinkedinUrl((contact as { linkedin_url: string | null } | null)?.linkedin_url);
   if (!url) return { status: "no_url" };
@@ -247,11 +253,13 @@ export async function sweepStuckRuns(): Promise<number> {
   // completion webhook was lost. Record an estimated cost so the monthly cap
   // stays a real ceiling; otherwise a systematically-broken webhook would burn
   // Apify credit daily while the ledger (which the cap sums) shows $0.
-  const { data: stuck } = await service
-    .from("scrape_runs")
-    .select("id, mode, contact_ids")
-    .eq("status", ScrapeRunStatus.Pending)
-    .lt("created_at", cutoff);
+  const stuck = must(
+    await service
+      .from("scrape_runs")
+      .select("id, mode, contact_ids")
+      .eq("status", ScrapeRunStatus.Pending)
+      .lt("created_at", cutoff),
+  );
   const rows = (stuck as { id: number; mode: string; contact_ids: number[] }[] | null) ?? [];
 
   for (const run of rows) {
@@ -458,7 +466,7 @@ async function reconcileContacts(
   const okUrls = new Set(
     merged.map((r) => canonicalizeLinkedinUrl(r.linkedin_url)).filter(Boolean) as string[],
   );
-  const { data: contactRows } = await service.from("contacts").select("id, linkedin_url").in("id", contactIds);
+  const contactRows = must(await service.from("contacts").select("id, linkedin_url").in("id", contactIds));
   const succeeded: number[] = [];
   const failed: number[] = [];
   for (const c of (contactRows as { id: number; linkedin_url: string | null }[] | null) ?? []) {
@@ -497,9 +505,11 @@ async function processDiffs(
   // Latest prior snapshot per contact — via a DISTINCT ON RPC so it can't be
   // truncated by PostgREST's 1000-row select ceiling as snapshot history grows.
   const contactIds = captures.map((c) => c.contactId);
-  const { data: snapRows } = await service.rpc("latest_contact_snapshots", { p_contact_ids: contactIds });
+  const snapRows = must(await service.rpc("latest_contact_snapshots", { p_contact_ids: contactIds }));
   const prevByContact = new Map<number, ScrapeSnapshot>();
-  for (const row of (snapRows as { contact_id: number; snapshot: ScrapeSnapshot }[] | null) ?? []) {
+  // via unknown: the RPC's snapshot column is typed Json, and the shape it
+  // actually holds (ScrapeSnapshot) is only knowable from buildSnapshot.
+  for (const row of (snapRows as unknown as { contact_id: number; snapshot: ScrapeSnapshot }[] | null) ?? []) {
     prevByContact.set(row.contact_id, row.snapshot);
   }
 
@@ -513,10 +523,9 @@ async function processDiffs(
   }
   const missing = [...existingCompanyIds].filter((id) => !companyLinkedinIds.has(id));
   if (missing.length > 0) {
-    const { data: companyRows } = await service
-      .from("companies")
-      .select("id, linkedin_company_id")
-      .in("id", missing);
+    const companyRows = must(
+      await service.from("companies").select("id, linkedin_company_id").in("id", missing),
+    );
     for (const row of (companyRows as { id: number; linkedin_company_id: string | null }[] | null) ?? []) {
       companyLinkedinIds.set(row.id, row.linkedin_company_id);
     }
@@ -616,7 +625,7 @@ async function resetFailures(service: ServiceClient, ids: number[]) {
 
 async function bumpFailures(service: ServiceClient, ids: number[], now: string) {
   if (!ids.length) return;
-  const { data } = await service.from("contacts").select("id, scrape_failure_count").in("id", ids);
+  const data = must(await service.from("contacts").select("id, scrape_failure_count").in("id", ids));
   for (const c of (data as { id: number; scrape_failure_count: number | null }[] | null) ?? []) {
     await service
       .from("contacts")

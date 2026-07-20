@@ -93,18 +93,14 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
     });
     setCompanies(
       contact.contact_companies.length > 0
-        ? contact.contact_companies.map((cc) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-            const ccx = cc as any;
-            return {
-              company_name: cc.companies.name,
-              title: cc.title || "",
-              location: ccx.location || "",
-              is_current: cc.is_current,
-              start_month: ccx.start_month || "",
-              end_month: ccx.end_month || "",
-            };
-          })
+        ? contact.contact_companies.map((cc) => ({
+            company_name: cc.companies.name,
+            title: cc.title || "",
+            location: cc.location || "",
+            is_current: cc.is_current,
+            start_month: cc.start_month || "",
+            end_month: cc.end_month || "",
+          }))
         : []
     );
     setEmails(
@@ -358,18 +354,14 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
             {/* Companies & schools */}
             {(contact.contact_companies.length > 0 || contact.contact_schools.length > 0) && (
               <div className="space-y-1">
-                {contact.contact_companies.map((cc) => {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-                  const ccx = cc as any;
-                  return (
-                    <p key={cc.id} className="text-sm text-muted-foreground">
-                      <Briefcase className="h-3.5 w-3.5 inline mr-1" />
-                      {cc.title} at {cc.companies.name}
-                      {ccx.location && ` · ${ccx.location}`}
-                      {ccx.start_month && ` · ${ccx.start_month} – ${cc.is_current ? "Present" : (ccx.end_month || "")}`}
-                    </p>
-                  );
-                })}
+                {contact.contact_companies.map((cc) => (
+                  <p key={cc.id} className="text-sm text-muted-foreground">
+                    <Briefcase className="h-3.5 w-3.5 inline mr-1" />
+                    {cc.title} at {cc.companies.name}
+                    {cc.location && ` · ${cc.location}`}
+                    {cc.start_month && ` · ${cc.start_month} – ${cc.is_current ? "Present" : (cc.end_month || "")}`}
+                  </p>
+                ))}
                 {contact.contact_schools.map((cs) => (
                   <p key={cs.id} className="text-sm text-muted-foreground">
                     <GraduationCap className="h-3.5 w-3.5 inline mr-1" />
@@ -632,8 +624,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
                 <button
                   type="button"
                   onClick={() => withToastOnError(async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-                    const newTag = await createTag({ user_id: userId, name: tagSearch.trim() } as any);
+                    const newTag = await createTag({ user_id: userId, name: tagSearch.trim() });
                     setAllTags([...allTags, newTag]);
                     setSelectedTagIds([...selectedTagIds, newTag.id]);
                     setTagSearch("");

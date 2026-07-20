@@ -49,7 +49,8 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
     finally { setLoading(false); }
   }, [contactId]);
 
-  useEffect(() => { if (contactId) loadInteractions(); }, [contactId, loadInteractions]);
+  // Fire-and-forget: loadInteractions catches and logs its own failures.
+  useEffect(() => { if (contactId) void loadInteractions(); }, [contactId, loadInteractions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

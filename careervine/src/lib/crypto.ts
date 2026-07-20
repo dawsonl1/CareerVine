@@ -4,6 +4,8 @@
  * BYOK_ENCRYPTION_KEY: 32 bytes, base64. Generate: openssl rand -base64 32
  */
 
+import "server-only";
+
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";

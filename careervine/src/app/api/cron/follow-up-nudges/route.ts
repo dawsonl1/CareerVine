@@ -6,6 +6,7 @@ import { sendAppEmail } from "@/lib/notify/email";
 import { signUnsubscribeToken } from "@/lib/notify/tokens";
 import { trackServer } from "@/lib/analytics/server";
 import { renderNudgeDigest, type NudgeItem } from "./digest";
+import { must } from "@/lib/data/client";
 
 export const maxDuration = 60;
 
@@ -74,16 +75,18 @@ async function runJob(): Promise<NextResponse> {
   // maxDuration. Ordered oldest-parked-first so the cap is FIFO: overflow rows
   // are the newest, and processed items leave the set as they expire/confirm, so
   // a >1000 backlog drains deterministically instead of starving a stable tail.
-  const { data: rows } = await service
-    .from("email_follow_up_messages")
-    .select(`
-      id, follow_up_id, subject, parked_at, expires_at, reminder_count, seen_during_window,
-      email_follow_ups!inner(user_id, contact_name, recipient_email, status)
-    `)
-    .eq("status", "awaiting_review")
-    .eq("email_follow_ups.status", "active")
-    .order("parked_at", { ascending: true })
-    .limit(1000);
+  const rows = must(
+    await service
+      .from("email_follow_up_messages")
+      .select(`
+        id, follow_up_id, subject, parked_at, expires_at, reminder_count, seen_during_window,
+        email_follow_ups!inner(user_id, contact_name, recipient_email, status)
+      `)
+      .eq("status", "awaiting_review")
+      .eq("email_follow_ups.status", "active")
+      .order("parked_at", { ascending: true })
+      .limit(1000),
+  );
 
   const messages = (rows ?? []) as unknown as ParkedMessage[];
   if (messages.length === 0) {
@@ -174,7 +177,15 @@ async function runJob(): Promise<NextResponse> {
   const today = new Date(nowMs).toISOString().slice(0, 10);
   let nudged = 0;
   for (const [uid, items] of digestByUser) {
-    const { data: authData } = await service.auth.admin.getUserById(uid);
+    // GoTrue response, so must() (typed for PostgREST) does not fit: bind and
+    // check by hand. A lookup failure must be logged rather than read as
+    // "user has no email", but it also must not abandon the other users'
+    // digests, so this leg skips loudly instead of throwing.
+    const { data: authData, error: authError } = await service.auth.admin.getUserById(uid);
+    if (authError) {
+      console.error(`[cron follow-up-nudges] auth lookup failed for user ${uid}:`, authError);
+      continue;
+    }
     const to = authData?.user?.email;
     if (!to) continue;
 

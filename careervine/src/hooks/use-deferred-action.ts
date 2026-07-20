@@ -32,9 +32,15 @@ export function useDeferredAction<T extends { id: number }>({
       for (const [id, { item, timerId }] of pending) {
         clearTimeout(timerId);
         pending.delete(id); // Remove so the timer callback no-ops if it fires
-        action(item).catch(() => {});
+        // The UI is going away, so there is nothing to undo or toast into;
+        // log instead of swallowing so a failed commit is still traceable.
+        action(item).catch((err) => console.error("Deferred action failed on unmount:", err));
       }
     };
+    // Mount/unmount only. The cleanup is what commits pending actions; depending
+    // on `action` would tear down and re-run it whenever the caller passes a new
+    // function identity, committing deferred actions early and defeating the
+    // undo window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -67,17 +73,21 @@ export function useDeferredAction<T extends { id: number }>({
       ],
     });
 
-    const timerId = setTimeout(async () => {
+    const timerId = setTimeout(() => {
       // Guard: if already removed (by unmount cleanup or undo), skip
       if (!pendingRef.current.has(item.id)) return;
       pendingRef.current.delete(item.id);
-      try {
-        await action(item);
-      } catch (err) {
-        onError?.(item, err as Error);
-        // Restore on failure
-        onUndo?.(item);
-      }
+      // setTimeout expects a void-returning callback, so the commit runs as a
+      // self-contained async task; every rejection is handled below.
+      void (async () => {
+        try {
+          await action(item);
+        } catch (err) {
+          onError?.(item, err as Error);
+          // Restore on failure
+          onUndo?.(item);
+        }
+      })();
     }, delayMs);
 
     pendingRef.current.set(item.id, { item, timerId });

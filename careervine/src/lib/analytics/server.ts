@@ -13,6 +13,8 @@
  *   until the PostHog project is provisioned).
  */
 
+import "server-only";
+
 import { PostHog } from "posthog-node";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { EmailDirection } from "@/lib/constants";
@@ -184,6 +186,9 @@ export async function checkCompaniesEmailedMilestone(
     const service = getServiceClient();
     // Junction-scoped (CAR-159): an outbound to a shared thread credits every
     // linked contact's company, not just the single matched_contact_id.
+    // error-tolerated: milestone detection is idempotent and re-runs on the
+    // next tracked event, so a failed read defers the badge rather than
+    // breaking the send that triggered this check.
     const { data: sent } = await service
       .from("email_message_contacts")
       .select("contact_id, email_message_id, email_messages!inner(user_id, direction)")
@@ -198,6 +203,7 @@ export async function checkCompaniesEmailedMilestone(
     const contactIds = [...new Set((sent ?? []).map((r) => r.contact_id as number))];
     if (contactIds.length === 0) return;
 
+    // error-tolerated: same deferred-milestone contract as the read above.
     const { data: links } = await service
       .from("contact_companies")
       .select("company_id")

@@ -7,6 +7,19 @@ import type { SimpleContact } from "@/lib/types";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
+/**
+ * Contact projection this component matches speakers against: {@link SimpleContact}
+ * plus `industry`, the one extra field the AI prompt uses as disambiguating
+ * context.
+ *
+ * `industry` is REQUIRED (nullable, not optional) on purpose. CAR-158: it was
+ * previously read off a SimpleContact through a cast, and because no call site
+ * had ever populated it, every AI match request shipped `industry: undefined`.
+ * Requiring the key makes an omitting call site a compile error rather than a
+ * silently degraded prompt; pass null when the contact genuinely has none.
+ */
+export type SpeakerCandidate = SimpleContact & { industry: string | null };
+
 interface SpeakerMapping {
   speakerLabel: string;
   contactId: number | null;
@@ -22,9 +35,9 @@ interface SpeakerResolverProps {
   /** Unique speaker labels from the parsed transcript */
   segments: { speaker_label: string; text?: string }[];
   /** Contacts associated with this meeting */
-  meetingContacts: SimpleContact[];
+  meetingContacts: SpeakerCandidate[];
   /** All user contacts (for broader matching) */
-  allContacts?: SimpleContact[];
+  allContacts?: SpeakerCandidate[];
   /** Called when user confirms mappings */
   onResolve: (mappings: { speakerLabel: string; contactId: number | null }[]) => void;
   /** Called to dismiss without saving */
@@ -192,6 +205,10 @@ export default function SpeakerResolver({
         };
       }),
     );
+  // Keyed on the COUNT deliberately: this seeds the mapping table, and re-running
+  // it discards every manual speaker assignment the user has made. Depending on
+  // `meetingContacts` itself would re-seed on any parent re-render that produces
+  // a new array identity, silently wiping their edits mid-session.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingContacts.length]);
 
@@ -214,8 +231,7 @@ export default function SpeakerResolver({
     return allContactsList.map((c) => ({
       id: c.id,
       name: c.name,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      industry: (c as any).industry || undefined,
+      industry: c.industry || undefined,
       emails: [...(c.emails || []), ...(c.email ? [c.email] : [])].filter(Boolean),
     }));
   }, [allContacts, meetingContacts]);

@@ -1,4 +1,4 @@
-import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { withApiHandler, ApiError, type InferApiResponse } from "@/lib/api-handler";
 import { aiDraftFollowUpsSchema } from "@/lib/api-schemas";
 import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { getContactContext } from "@/lib/ai-helpers";
@@ -126,3 +126,11 @@ ${UNTRUSTED_DATA_CLAUSE}`;
     return { followUps };
   },
 });
+
+/**
+ * Success shape, inferred from the handler above (CAR-158, F24). The follow-up
+ * element type was always declared here (see `followUps` above) but stayed
+ * anonymous and unexported, which is exactly why compose-email-modal fell back
+ * to `any` when reading it. Type-only, so it is erased at compile time.
+ */
+export type DraftFollowUpsResponse = InferApiResponse<typeof POST>;

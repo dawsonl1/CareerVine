@@ -324,7 +324,7 @@ export function ContactProfileCard({
               onChange={(e) => setEmailValue(e.target.value)}
               onBlur={saveEmail}
               onKeyDown={(e) => {
-                if (e.key === "Enter") saveEmail();
+                if (e.key === "Enter") void saveEmail(); // saveEmail toasts its own failures
                 if (e.key === "Escape") setEditingEmail(false);
               }}
               className="flex-1 min-w-0 text-base bg-white rounded-[4px] px-1.5 py-0.5 -mx-1.5 -my-0.5 focus:outline-none shadow-[0_0_0_1.5px_var(--primary)]"

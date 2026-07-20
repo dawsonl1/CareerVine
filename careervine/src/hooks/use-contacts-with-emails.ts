@@ -31,12 +31,10 @@ export function useContactsWithEmails({ enabled = true }: { enabled?: boolean } 
     try {
       const data = await getContacts(userId);
       const map: Record<number, string[]> = {};
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      const list = (data as any[]).map((c: any) => {
+      const list = data.map((c) => {
         const emails = (c.contact_emails || [])
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          .map((e: any) => e.email)
-          .filter(Boolean) as string[];
+          .map((e) => e.email)
+          .filter((email): email is string => Boolean(email));
         if (emails.length > 0) map[c.id] = emails;
         return {
           id: c.id,
@@ -57,7 +55,8 @@ export function useContactsWithEmails({ enabled = true }: { enabled?: boolean } 
   }, [userId]);
 
   useEffect(() => {
-    if (enabled) load();
+    // Fire-and-forget: load catches its own errors and clears `loading`.
+    if (enabled) void load();
   }, [load, enabled]);
 
   return { contacts, emailsMap, loading, refresh: load };

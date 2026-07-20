@@ -5,7 +5,7 @@
   "type": "module",
   "description": "MCP server exposing CareerVine (contacts, email, outreach, upkeep, calendar) to Claude Code",
   "scripts": {
-    "start": "tsx --tsconfig tsconfig.json server.ts",
+    "start": "tsx --conditions=react-server --tsconfig tsconfig.json server.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

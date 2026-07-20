@@ -4,6 +4,7 @@ import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { triggerDiscoveryBatch } from "@/lib/apify/discovery";
 import { isApifyConfigured } from "@/lib/apify/client";
+import { must } from "@/lib/data/client";
 
 export const maxDuration = 60;
 
@@ -31,11 +32,9 @@ async function runJob(): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
   // discovery_enabled is the feature's own admin switch (default OFF) — it is
   // deliberately independent of apify_enrichment_enabled.
-  const { data: users } = await service
-    .from("users")
-    .select("id")
-    .eq("status", "active")
-    .eq("discovery_enabled", true);
+  const users = must(
+    await service.from("users").select("id").eq("status", "active").eq("discovery_enabled", true),
+  );
 
   let started = 0;
   const perUser: Record<string, number> = {};

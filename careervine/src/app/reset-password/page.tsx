@@ -20,13 +20,18 @@ export default function ResetPasswordPage() {
     // here via /auth/confirm, which verifies the token server-side and mints
     // session cookies before this page loads — so one session check suffices.
     const supabase = createSupabaseBrowserClient();
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setSessionReady(true);
-      } else {
-        setSessionError(true);
-      }
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (session) {
+          setSessionReady(true);
+        } else {
+          setSessionError(true);
+        }
+      })
+      // A failed session lookup is indistinguishable from a bad link to the
+      // user, and leaving it unhandled strands the page on the spinner.
+      .catch(() => setSessionError(true));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

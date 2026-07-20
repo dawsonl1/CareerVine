@@ -240,13 +240,13 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
       .eq('contact_id', contactId);
 
     const existing = (existingEmails || []).find(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      (e: any) => e.email.toLowerCase() === primaryEmail.toLowerCase()
+      // contact_emails.email is nullable, so the optional call is load-bearing:
+      // the old `e.email.toLowerCase()` under `any` would throw on a null row.
+      (e) => e.email?.toLowerCase() === primaryEmail.toLowerCase()
     );
     if (!existing) {
       // If no emails exist yet, make it primary; otherwise add as non-primary
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      const hasPrimary = (existingEmails || []).some((e: any) => e.is_primary);
+      const hasPrimary = (existingEmails || []).some((e) => e.is_primary);
       const { error: emailError } = await supabase.from('contact_emails').insert({
         contact_id: contactId,
         email: primaryEmail,
@@ -277,10 +277,12 @@ async function createNewContact(supabase: SupabaseClient, profileData: ProfileDa
   // Shared write chokepoint (CAR-155): canonicalization runs inside.
   let contact: ContactRow;
   try {
-    contact = (await createContact(
-      contactData as unknown as Parameters<typeof createContact>[0],
-      { client: supabase as unknown as QueryClient },
-    )) as ContactRow;
+    // CAR-158: buildContactData now returns the contacts Insert type directly,
+    // which is exactly what createContact takes, so the old double cast is gone
+    // — it was hiding real type checking on this call.
+    contact = (await createContact(contactData, {
+      client: supabase as unknown as QueryClient,
+    })) as ContactRow;
   } catch (err) {
     // PostgREST errors are message-bearing objects, not Error instances.
     throw new Error((err as { message?: string })?.message ?? 'Failed to create contact');

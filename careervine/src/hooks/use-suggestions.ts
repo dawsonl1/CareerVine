@@ -105,7 +105,8 @@ export function useSuggestions({ onSave }: UseSuggestionsOptions = {}) {
   const triggerOnce = useCallback(() => {
     if (hasTriggered.current) return;
     hasTriggered.current = true;
-    load();
+    // Fire-and-forget: load catches its own errors and clears `loading`.
+    void load();
   }, [load]);
 
   return { suggestions, loading, aiStatus, dismissAiStatus, load, save, complete, dismiss, triggerOnce };

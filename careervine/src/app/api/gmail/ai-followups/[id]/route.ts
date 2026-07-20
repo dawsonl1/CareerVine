@@ -58,6 +58,8 @@ export const PATCH = withApiHandler({
     if (body.bodyHtml !== undefined) update.body_html = body.bodyHtml;
     if (body.sendAsReply !== undefined) update.send_as_reply = body.sendAsReply;
 
+    // cas-checked: `update` may carry `status`, but the only filter is `id`, so
+    // no written column is re-tested and the .select() readback is sound.
     const { data: updated, error } = await service
       .from("ai_follow_up_drafts")
       .update(update)

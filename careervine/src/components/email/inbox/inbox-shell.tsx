@@ -195,7 +195,8 @@ export function InboxShell() {
     // Single message => auto-expand its content. Multi-message threads stay at
     // the message list (expandThread already cleared any prior selection).
     if (thread.messages.length === 1) {
-      handleExpandEmail(thread.messages[0].gmail_message_id);
+      // handleExpandEmail owns its error/loading state, so this is fire-and-forget.
+      void handleExpandEmail(thread.messages[0].gmail_message_id);
     }
   };
 
@@ -613,7 +614,7 @@ export function InboxShell() {
 
       <FollowUpModal
         isOpen={!!followUpModal}
-        onClose={() => { setFollowUpModal(null); loadInbox(); }}
+        onClose={() => { setFollowUpModal(null); void loadInbox(); }}
         recipientEmail={followUpModal?.recipientEmail || ""}
         contactName={followUpModal?.contactName || null}
         originalSubject={followUpModal?.originalSubject || ""}

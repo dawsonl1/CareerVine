@@ -137,6 +137,46 @@ careervine/
 - Pages call queries in `useEffect` on mount
 - Pattern: `useState` + `useEffect` + `loadData()` async function
 
+### Server-only Boundary (CAR-158)
+
+- Modules that read a secret from `process.env` carry `import "server-only"` so a
+  client component importing one fails `next build` instead of shipping the
+  credential read into the browser bundle. The fenced set is listed in
+  `src/__tests__/server-only-fence.test.ts`, which also fails if a NEW
+  secret-reading module under `src/lib` appears unfenced
+- Two modules are deliberately exempt and the test records why:
+  `supabase/config.ts` (holds the service-role read but is reached by browser
+  client code and edge middleware; fenced instead by `getSupabaseEnv({server:true})`
+  plus the CAR-151 import restriction) and `admin-notify.ts` (SendGrid, defunct)
+- `server-only` throws outside React's server layer, so two non-Next runtimes
+  need help: `vitest.config.ts` aliases it to its own `empty.js`, and the MCP
+  server's start script passes `--conditions=react-server`. Note the alias is
+  deliberate: setting `ssr.resolve.conditions: ['react-server']` also redirects
+  `react-dom/client` to its RSC stub and breaks every React component test
+
+### Typed API Responses (CAR-158)
+
+- `withApiHandler` carries a `TResponse` generic inferred from the handler's
+  return, so a route's success shape is recoverable by consumers:
+  `export type Response = InferApiResponse<typeof GET>`
+- Client code calls routes through `apiFetch<T>` / `apiSend` in
+  `src/lib/api-client.ts`. Both discriminate on status and throw
+  `ApiRequestError` carrying the route's curated message, so the error body can
+  never be mistaken for the success shape
+- A route's true wire type is `TResponse | ApiErrorBody`; typing only the happy
+  path would make client code more wrong, not less
+
+### Convention Guard
+
+- `npm run check:conventions` (`scripts/check-conventions.mjs`, wired into CI)
+  enforces four data-layer invariants that tsc and eslint cannot express: the
+  `queries.ts` barrel freeze, no module-scope Supabase client under
+  `src/lib/data|rules`, the rule-17 CAS readback shape, and growth of raw
+  query-builder use in `src/mcp/lib/db.ts`
+- Two escape hatches, both requiring a written reason: `// cas-checked: <why>`
+  for an update+select chain that is not a compare-and-set, and
+  `// error-tolerated: <why>` for a read where empty-on-error is correct
+
 ### Form Pattern
 
 - Modal dialogs for create/edit (M3 dialog style)

@@ -6,10 +6,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { findOrCreateLocation as findOrCreateLocationCanonical } from '@/lib/data/locations';
 import type { QueryClient } from '@/lib/data/client';
+import type { Database } from '@/lib/database.types';
 import type { ProfileData } from '@/lib/extension-contract';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase insert/update payloads are untyped column maps until the typed-Supabase-boundary rollout (CAR-142).
-type ColumnMap = Record<string, any>;
+// The builders write the contacts table, so their payloads are exactly the
+// generated insert/update column maps (CAR-158). Typing them this way also
+// makes the route's later `updateData.location_id = ...` a checked write.
+type ContactInsert = Database['public']['Tables']['contacts']['Insert'];
+type ContactUpdate = Database['public']['Tables']['contacts']['Update'];
 
 /**
  * Single source of contact-email validity for the import route. Both the
@@ -70,7 +74,7 @@ export function stripPostgrestOrMetachars(s: string): string {
 // itself), so they accept a Partial: the route passes a full parsed ProfileData,
 // tests pass focused fixtures, and both are valid input.
 /** Build the contact data object for insert from extension profile data */
-export function buildContactData(profileData: Partial<ProfileData>, userId: string, locationId: number | null): ColumnMap {
+export function buildContactData(profileData: Partial<ProfileData>, userId: string, locationId: number | null): ContactInsert {
   let notes = profileData.generated_notes || profileData.notes || null;
   if (!notes) {
     notes = `Imported from LinkedIn on ${new Date().toLocaleDateString()}`;
@@ -91,23 +95,21 @@ export function buildContactData(profileData: Partial<ProfileData>, userId: stri
 }
 
 /** Build the update data object for an existing contact */
-export function buildUpdateData(profileData: Partial<ProfileData>): ColumnMap {
-  const updateData: ColumnMap = {};
+export function buildUpdateData(profileData: Partial<ProfileData>): ContactUpdate {
+  const updateData: ContactUpdate = {};
 
   if (profileData.name) updateData.name = profileData.name;
   if (profileData.industry) updateData.industry = profileData.industry;
-  if (profileData.linkedin_url || profileData.profileUrl) {
-    updateData.linkedin_url = profileData.linkedin_url || profileData.profileUrl;
-  }
+  const linkedinUrl = profileData.linkedin_url || profileData.profileUrl;
+  if (linkedinUrl) updateData.linkedin_url = linkedinUrl;
   if (profileData.contact_status) {
     updateData.contact_status = profileData.contact_status;
     updateData.status_derived_at = new Date().toISOString();
   }
   if (profileData.expected_graduation) updateData.expected_graduation = profileData.expected_graduation;
 
-  if (profileData.generated_notes || profileData.notes) {
-    updateData.notes = profileData.generated_notes || profileData.notes;
-  }
+  const notes = profileData.generated_notes || profileData.notes;
+  if (notes) updateData.notes = notes;
 
   const freqDays = parseFollowUpFrequency(profileData.follow_up_frequency);
   if (freqDays !== null) updateData.follow_up_frequency_days = freqDays;

@@ -408,6 +408,9 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     removePhonesFromContact: { kind: "web-only" },
     addTagToContact: { kind: "web-only" },
     removeTagFromContact: { kind: "web-only" },
+    // CAR-158: reads one contact's tag names for the availability picker's
+    // priority detection. Browser/RLS surface; the MCP has no caller for it.
+    getContactTagNames: { kind: "web-only" },
   },
   "@/lib/data/interactions": {
     getInteractions: { kind: "web-only" },

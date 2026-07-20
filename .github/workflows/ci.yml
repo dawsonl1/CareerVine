@@ -38,6 +38,12 @@ jobs:
       - name: UI events guard
         run: node scripts/check-ui-events.mjs
 
+      # CAR-158: barrel freeze, rule-17 CAS shape, unchecked reads, and MCP
+      # raw-query-builder growth. Sits next to the ui-events guard and before
+      # Test so a convention break is not mistaken for a test failure.
+      - name: Conventions guard
+        run: node scripts/check-conventions.mjs
+
       - name: Test
         run: npx vitest run
 

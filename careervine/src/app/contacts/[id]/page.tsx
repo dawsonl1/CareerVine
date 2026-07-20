@@ -159,33 +159,36 @@ export default function ContactDetailPage() {
 
   useEffect(() => {
     if (user) {
-      loadContact();
+      // Fire-and-forget: loadContact owns its error handling (redirects out on
+      // a failed fetch), as do loadRelatedData and loadContactEmails below.
+      void loadContact();
       getGmailConnection(user.id)
         .then((conn) => setGmailConn(conn as GmailConnection | null))
         .catch(() => {});
 
-      getContacts(user.id).then((data) => setAllContacts(data as Contact[])).catch(() => {});
+      // getContacts is properly typed as of CAR-158; no assertion needed.
+      getContacts(user.id).then((data) => setAllContacts(data)).catch(() => {});
     }
   }, [user, loadContact]);
 
   useEffect(() => {
-    if (contact) loadRelatedData();
+    if (contact) void loadRelatedData();
   }, [contact, loadRelatedData]);
 
   useEffect(() => {
-    if (contact && gmailConn) loadContactEmails();
+    if (contact && gmailConn) void loadContactEmails();
   }, [contact, gmailConn, loadContactEmails]);
 
   useEffect(() => {
     return onUiEvent(UI_EVENTS.emailSent, () => {
       if (gmailConn) {
-        setTimeout(() => loadContactEmails(), 500);
+        setTimeout(() => void loadContactEmails(), 500);
       }
     });
   }, [gmailConn, loadContactEmails]);
 
   useEffect(() => {
-    return onUiEvent(UI_EVENTS.conversationLogged, () => loadRelatedData());
+    return onUiEvent(UI_EVENTS.conversationLogged, () => { void loadRelatedData(); });
   }, [loadRelatedData]);
 
   const handleScheduledEmailCancel = async (scheduledId: number) => {

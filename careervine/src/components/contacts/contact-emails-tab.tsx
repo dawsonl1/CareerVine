@@ -171,7 +171,9 @@ export function ContactEmailsTab({
     try {
       const res = await fetch(`/api/gmail/follow-ups/${followUpId}`, { method: "DELETE" });
       if (res.ok) {
-        loadFollowUpsForThread(threadId);
+        // Fire-and-forget: loadFollowUpsForThread swallows its own failures by
+        // design (the chips are enrichment), so the toast shouldn't wait on it.
+        void loadFollowUpsForThread(threadId);
         toastSuccess("Follow-up cancelled");
       }
     } catch {
@@ -197,7 +199,7 @@ export function ContactEmailsTab({
       if (!res.ok) throw new Error();
       toastSuccess(replied ? "Marked as replied" : "Follow-up sent");
       onReloadEmails();
-      loadFollowUpsForThread(threadId);
+      void loadFollowUpsForThread(threadId);
       // The confirm changed how many follow-ups await review — refresh the nav badge.
       emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
     } catch {
@@ -221,7 +223,7 @@ export function ContactEmailsTab({
       if (!res.ok) throw new Error();
       toastSuccess("Marked as replied");
       onReloadEmails();
-      loadFollowUpsForThread(threadId);
+      void loadFollowUpsForThread(threadId);
       // Cancelling the sequence cleared its awaiting-review items — refresh the nav badge.
       emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
     } catch {
@@ -336,7 +338,7 @@ export function ContactEmailsTab({
                     setExpandedEmailId(null);
                     setExpandedEmailContent(null);
                     if (newThreadId && gmailConnected) {
-                      loadFollowUpsForThread(newThreadId);
+                      void loadFollowUpsForThread(newThreadId);
                     }
                   }}
                 >
@@ -705,7 +707,7 @@ export function ContactEmailsTab({
       <FollowUpModal
         isOpen={!!followUpModal}
         onClose={() => {
-          if (followUpModal) loadFollowUpsForThread(followUpModal.threadId);
+          if (followUpModal) void loadFollowUpsForThread(followUpModal.threadId);
           setFollowUpModal(null);
         }}
         recipientEmail={followUpModal?.recipientEmail || ""}

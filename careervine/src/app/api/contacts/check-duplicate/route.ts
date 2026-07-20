@@ -10,6 +10,22 @@ import { sanitizeForPostgrest } from '@/lib/import-helpers';
 import { handleOptions } from '@/lib/extension-auth';
 import { shouldRederiveStatus, deriveContactStatusFromDB } from '@/lib/profile-helpers';
 import { canonicalizeLinkedinUrl } from '@/lib/linkedin-url';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database, Tables } from '@/lib/database.types';
+
+/**
+ * The contact columns every probe below selects — also the exact field set the
+ * `duplicates[]` response contract promises installed extensions.
+ */
+type DuplicateContact = Pick<
+  Tables<'contacts'>,
+  'id' | 'name' | 'linkedin_url' | 'contact_status' | 'status_derived_at' | 'industry' | 'notes'
+>;
+
+type DuplicateMatch = DuplicateContact & {
+  matchType: 'exact_linkedin' | 'exact_email' | 'name_similarity';
+  confidence: number;
+};
 
 export async function OPTIONS() {
   return handleOptions();
@@ -78,10 +94,12 @@ export const POST = withApiHandler({
   },
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-async function findPotentialDuplicates(supabase: any, userId: string, searchData: { linkedinUrl?: string, name?: string, email?: string }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const matches: any[] = [];
+async function findPotentialDuplicates(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  searchData: { linkedinUrl?: string, name?: string, email?: string },
+) {
+  const matches: DuplicateMatch[] = [];
 
   // Check for exact LinkedIn URL match
   if (searchData.linkedinUrl) {
@@ -92,10 +110,9 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       .eq('linkedin_url', searchData.linkedinUrl);
 
     if (data && data.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      matches.push(...data.map((contact: any) => ({
+      matches.push(...data.map((contact) => ({
         ...contact,
-        matchType: 'exact_linkedin',
+        matchType: 'exact_linkedin' as const,
         confidence: 100
       })));
     }
@@ -115,10 +132,9 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
       .eq('contacts.user_id', userId);
 
     if (data && data.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      matches.push(...data.map((item: any) => ({
+      matches.push(...data.map((item) => ({
         ...item.contacts,
-        matchType: 'exact_email',
+        matchType: 'exact_email' as const,
         confidence: 95
       })));
     }
@@ -138,9 +154,8 @@ async function findPotentialDuplicates(supabase: any, userId: string, searchData
         .or(`name.ilike.%${first}%,name.ilike.%${last}%`);
 
       if (data && data.length > 0 && searchData.name) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        data.filter((contact: any) => contact.name).forEach((contact: any) => {
-          const confidence = calculateNameMatchConfidence(searchData.name!, contact.name as string);
+        data.filter((contact) => contact.name).forEach((contact) => {
+          const confidence = calculateNameMatchConfidence(searchData.name!, contact.name);
 
           if (confidence > 50) {
             matches.push({

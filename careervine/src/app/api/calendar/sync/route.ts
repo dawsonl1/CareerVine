@@ -3,7 +3,8 @@ import { calendarSyncQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { fetchCalendarEvents, getCalendarTimezone, getCalendarList, DEFAULT_TIMEZONE } from "@/lib/calendar";
 import { buildOwnAddressSet } from "@/lib/gmail-helpers";
-import type { Json } from "@/lib/database.types";
+import type { Json, TablesInsert } from "@/lib/database.types";
+import type { calendar_v3 } from "@googleapis/calendar";
 
 
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes (auto-sync)
@@ -85,8 +86,7 @@ export const POST = withApiHandler({
     }
 
     // Fetch events from Google Calendar
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    let events: any[] = [];
+    let events: calendar_v3.Schema$Event[] = [];
     let nextSyncToken: string | null = null;
 
     try {
@@ -97,9 +97,11 @@ export const POST = withApiHandler({
       });
       events = result.events;
       nextSyncToken = result.nextSyncToken || null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    } catch (err: any) {
-      if (err.message === "SYNC_TOKEN_EXPIRED") {
+    // The sentinel below is thrown by our own fetchCalendarEvents (lib/calendar.ts)
+    // after it narrows Google's 410, so this branch matches on an Error message
+    // rather than on a Google API status.
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "SYNC_TOKEN_EXPIRED") {
         await service
           .from("gmail_connections")
           .update({ calendar_sync_token: null })
@@ -128,27 +130,39 @@ export const POST = withApiHandler({
     // Cancelled events (recurring instances included) arrive as status
     // "cancelled" skeletons, often without start/end. They are excluded from
     // the upsert set — writing then deleting them would be wasted work.
-    const cancelledGoogleIds: string[] = events
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      .filter((e: any) => e.status === "cancelled" && e.id)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      .map((e: any) => e.id);
-
-    const upsertable = events.filter(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      (e: any) =>
-        e.id &&
-        e.status !== "cancelled" &&
-        (e.start?.dateTime || e.start?.date) &&
-        (e.end?.dateTime || e.end?.date)
+    const cancelledGoogleIds: string[] = events.flatMap((e) =>
+      e.status === "cancelled" && e.id ? [e.id] : []
     );
+
+    // Every field on calendar_v3.Schema$Event is optional-and-nullable, but the
+    // filter below already proves at runtime exactly what the row builder needs:
+    // an id, and a resolvable start/end. Extracting those values HERE, where the
+    // proof happens, is what keeps the rest of this function assertion-free —
+    // narrowing with a type predicate alone would still leave `dateTime || date`
+    // as `string | null | undefined` at every use site and force a `!`, which
+    // would trade a compile-time `any` for a runtime crash in the sync path.
+    type PreparedEvent = {
+      event: calendar_v3.Schema$Event;
+      id: string;
+      startTime: string;
+      endTime: string;
+      allDay: boolean;
+    };
+
+    const upsertable: PreparedEvent[] = events.flatMap((event) => {
+      if (!event.id || event.status === "cancelled") return [];
+      const startTime = event.start?.dateTime || event.start?.date;
+      const endTime = event.end?.dateTime || event.end?.date;
+      if (!startTime || !endTime) return [];
+      return [{ event, id: event.id, startTime, endTime, allDay: !event.start?.dateTime }];
+    });
 
     // Attendee emails are matched lowercase+trimmed — exact against
     // contact_emails.email, which CAR-153/R2.8 normalizes (write-time trigger
     // + backfill). Self-filtering uses the ownAddresses set (primary + send-as
     // aliases, CAR-153/R2.5): an alias attendee is the user, not a contact.
     const allAttendeeEmails = new Set<string>();
-    for (const event of upsertable) {
+    for (const { event } of upsertable) {
       for (const a of event.attendees || []) {
         const email = typeof a.email === "string" ? a.email.toLowerCase().trim() : "";
         if (email && !ownAddresses.has(email)) allAttendeeEmails.add(email);
@@ -175,8 +189,7 @@ export const POST = withApiHandler({
         .in("email", emailList.slice(i, i + 200))
         .eq("contacts.user_id", user.id);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      for (const m of (matched as any[]) || []) {
+      for (const m of matched || []) {
         if (!m.email) continue;
         const key = m.email.toLowerCase();
         const list = contactIdsByEmail.get(key) ?? [];
@@ -188,49 +201,41 @@ export const POST = withApiHandler({
     // Build all rows up front; contactIdsByGoogleId feeds the link upserts.
     const contactIdsByGoogleId = new Map<string, number[]>();
     const syncedAt = new Date().toISOString();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    const rowByGoogleId = new Map<string, any>();
+    const rowByGoogleId = new Map<string, TablesInsert<"calendar_events">>();
 
-    for (const event of upsertable) {
-      const startTime = event.start.dateTime || event.start.date;
-      const endTime = event.end.dateTime || event.end.date;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      const attendees = event.attendees?.map((a: any) => ({
+    for (const { event, id, startTime, endTime, allDay } of upsertable) {
+      const attendees = event.attendees?.map((a) => ({
         email: a.email,
         name: a.displayName || a.email,
         responseStatus: a.responseStatus || "needsAction",
       })) || [];
 
       const meetLink = event.conferenceData?.entryPoints?.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        (ep: any) => ep.entryPointType === "video"
+        (ep) => ep.entryPointType === "video"
       )?.uri || null;
 
       const isPrivate = event.visibility === "private" || event.visibility === "confidential";
 
-      const matchedIds: number[] = (event.attendees || [])
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        .flatMap((a: any) =>
-          typeof a.email === "string"
-            ? contactIdsByEmail.get(a.email.toLowerCase().trim()) ?? []
-            : []
-        );
+      const matchedIds: number[] = (event.attendees || []).flatMap((a) =>
+        typeof a.email === "string"
+          ? contactIdsByEmail.get(a.email.toLowerCase().trim()) ?? []
+          : []
+      );
       const contactIds = [...new Set(matchedIds)];
-      contactIdsByGoogleId.set(event.id, contactIds);
+      contactIdsByGoogleId.set(id, contactIds);
 
       // Duplicate ids within one batch (an event updated twice across pages)
       // must collapse before the bulk upsert — Postgres rejects ON CONFLICT
       // touching the same row twice. Map insertion keeps the LAST occurrence.
-      rowByGoogleId.set(event.id, {
+      rowByGoogleId.set(id, {
         user_id: user.id,
-        google_event_id: event.id,
+        google_event_id: id,
         calendar_id: "primary",
         title: isPrivate ? null : (event.summary || null),
         description: isPrivate ? null : (event.description || null),
         start_at: new Date(startTime).toISOString(),
         end_at: new Date(endTime).toISOString(),
-        all_day: !event.start.dateTime,
+        all_day: allDay,
         location: event.location || null,
         meet_link: meetLink,
         status: event.status || null,

@@ -59,7 +59,9 @@ export default function IntegrationsSection() {
   }, [user]);
 
   useEffect(() => {
-    if (user) loadGmailStatus();
+    // Fire-and-forget: loadGmailStatus catches its own errors and owns the
+    // loading flag.
+    if (user) void loadGmailStatus();
   }, [user, loadGmailStatus]);
 
   const handleGmailSync = async () => {
@@ -72,7 +74,7 @@ export default function IntegrationsSection() {
           ? `Synced ${result.totalSynced} emails, ${result.failedContacts} contact${result.failedContacts === 1 ? "" : "s"} failed`
           : `Synced ${result.totalSynced} emails`
       );
-      loadGmailStatus();
+      void loadGmailStatus();
       setTimeout(() => setSyncResult(""), 6000);
     } catch (err) {
       setSyncResult(err instanceof Error ? err.message : "Sync failed");
@@ -105,7 +107,7 @@ export default function IntegrationsSection() {
       const res = await fetch("/api/calendar/disconnect", { method: "POST" });
       if (!res.ok) throw new Error("Failed to disconnect calendar");
       invalidateGmailConnectionCache();
-      refreshConnection();
+      void refreshConnection(); // swallows its own fetch errors
     } catch (err) {
       console.error("Error disconnecting calendar:", err);
     } finally {
