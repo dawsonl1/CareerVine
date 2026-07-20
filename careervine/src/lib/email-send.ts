@@ -22,6 +22,8 @@
  *     meeting link.
  */
 
+import "server-only";
+
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendEmail, getConnection, type ComposeEmailOptions } from "@/lib/gmail-send-core";
 import { EmailDirection, GmailLabel } from "@/lib/constants";

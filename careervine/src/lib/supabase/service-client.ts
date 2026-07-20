@@ -15,6 +15,8 @@
  * @returns SupabaseClient instance with service role privileges
  */
 
+import "server-only";
+
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseEnv } from "./config";
 import type { Database } from "../database.types";

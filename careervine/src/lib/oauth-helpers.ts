@@ -3,6 +3,8 @@
  * Both services share the same gmail_connections row.
  */
 
+import "server-only";
+
 import { OAuth2Client } from "google-auth-library";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 

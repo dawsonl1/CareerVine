@@ -13,6 +13,8 @@
  *   until the PostHog project is provisioned).
  */
 
+import "server-only";
+
 import { PostHog } from "posthog-node";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { EmailDirection } from "@/lib/constants";

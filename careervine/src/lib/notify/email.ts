@@ -9,6 +9,8 @@
  * upgrade prompts will reuse it.
  */
 
+import "server-only";
+
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const FROM = "CareerVine <notifications@careervine.app>";
 

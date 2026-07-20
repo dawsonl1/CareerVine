@@ -10,6 +10,8 @@
  * processScheduledEmails calls sendTrackedEmail).
  */
 
+import "server-only";
+
 import { gmail as gmailClientFactory } from "@googleapis/gmail";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getOAuth2Client, refreshTokenIfNeeded, decryptOAuthToken } from "@/lib/oauth-helpers";

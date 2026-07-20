@@ -12,6 +12,8 @@
  * dependency, importable anywhere); this module owns the S3 I/O.
  */
 
+import "server-only";
+
 import {
   S3Client,
   PutObjectCommand,

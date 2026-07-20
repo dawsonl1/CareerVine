@@ -11,6 +11,8 @@
  * feature, and this module is the Deepgram half.
  */
 
+import "server-only";
+
 import { DeepgramClient } from "@deepgram/sdk";
 import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, CryptoError } from "@/lib/crypto";

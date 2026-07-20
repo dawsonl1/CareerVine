@@ -12,6 +12,8 @@
  * processing — correctness never depends on the queue, only latency does.
  */
 
+import "server-only";
+
 import { Client } from "@upstash/qstash";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {

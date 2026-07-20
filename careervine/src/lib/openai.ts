@@ -11,6 +11,8 @@
  * instead of silently spending the app owner's credits or throwing an opaque 500.
  */
 
+import "server-only";
+
 import OpenAI, { APIError } from "openai";
 import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, CryptoError } from "@/lib/crypto";

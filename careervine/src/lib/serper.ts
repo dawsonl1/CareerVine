@@ -6,6 +6,8 @@
  * relevant to a contact's interests.
  */
 
+import "server-only";
+
 export interface SerperResult {
   title: string;
   url: string;
