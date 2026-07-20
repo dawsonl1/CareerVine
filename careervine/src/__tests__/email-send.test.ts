@@ -158,7 +158,8 @@ describe("sendTrackedEmail", () => {
     ]);
 
     const interaction = inserts.find((i) => i.table === "interactions");
-    expect((interaction?.row as unknown[]).map((r) => (r as { contact_id: number }).contact_id)).toEqual([7, 9]);
+    const rows = interaction?.row as unknown as Array<{ contact_id: number }>;
+    expect(rows.map((r) => r.contact_id)).toEqual([7, 9]);
   });
 
   it("never writes the contacts table — outbound sends do not graduate tiers", async () => {
