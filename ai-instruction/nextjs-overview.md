@@ -1,5 +1,5 @@
 > **HISTORICAL - superseded, do not trust the project-specific parts.** Written
-> 2026-02-14 and never updated. Its directory tree shows only `src/app/layout.tsx`,
+> 2026-02-06 and untouched since a 3-line edit on 2026-02-14. Its directory tree shows only `src/app/layout.tsx`,
 > `src/app/page.tsx`, and `src/lib/`, predating `components/`, `hooks/`, `mcp/`,
 > and the entire `api/` tree. The generic Next.js explanation below is still
 > broadly correct; the description of this repo is not.

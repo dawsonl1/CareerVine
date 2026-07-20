@@ -19,7 +19,7 @@
  * test is fast and never executes route side effects.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fg from "fast-glob";
@@ -56,8 +56,11 @@ const HAND_ROLLED: Record<string, string> = {
   "mcp/route.ts": "oauth-jwks",
 };
 
+// dot: true — a route.ts inside a dot-directory (the repo already routes
+// `.well-known/` elsewhere under src/app) must not fall outside the inventory.
+// The brace glob keeps a route authored as .js/.tsx from dodging it either.
 const routeFiles = fg
-  .sync("**/route.ts", { cwd: apiDir })
+  .sync("**/route.{ts,tsx,js,jsx,mjs}", { cwd: apiDir, dot: true })
   .sort();
 
 const rel = (f: string) => f; // already relative to apiDir
@@ -153,20 +156,30 @@ describe("route-auth inventory", () => {
 describe("route-auth inventory: handlers outside src/app/api", () => {
   const appDir = path.resolve(here, "../app");
 
-  const OUTSIDE_API: Record<string, string> = {
+  /**
+   * mechanism: how the route authenticates instead of the wrapper.
+   * methods: its expected HTTP-method exports (OPTIONS excluded as CORS
+   * preflight, matching the main inventory). Pinning the methods is what makes
+   * this an inventory rather than a label: without it, appending a bare
+   * unauthenticated POST to an already-listed route shipped green — and the
+   * listed routes include the one handler in the app that mints a session.
+   */
+  const OUTSIDE_API: Record<string, { mechanism: string; methods: string[] }> = {
     // Email confirmation link. Verifies a single-use `token_hash` server-side via
     // supabase.auth.verifyOtp, then redirects to a same-origin relative path only.
     // Unauthenticated by nature: it is what establishes the session.
-    "auth/confirm/route.ts": "supabase-otp-verify",
+    "auth/confirm/route.ts": { mechanism: "supabase-otp-verify", methods: ["GET"] },
     // RFC 9728 OAuth protected-resource metadata for the MCP endpoint. Public by
     // specification: it is the document clients read *before* they hold a token.
-    ".well-known/oauth-protected-resource/route.ts": "public-metadata",
-    ".well-known/oauth-protected-resource/api/mcp/route.ts": "public-metadata",
+    ".well-known/oauth-protected-resource/route.ts": { mechanism: "public-metadata", methods: ["GET"] },
+    ".well-known/oauth-protected-resource/api/mcp/route.ts": { mechanism: "public-metadata", methods: ["GET"] },
   };
 
   // dot: true is load-bearing — `.well-known/` is a dot-directory, which fast-glob
   // skips by default, and silently missing it would defeat the whole inventory.
-  const outsideFiles = fg.sync("**/route.ts", { cwd: appDir, ignore: ["api/**"], dot: true }).sort();
+  const outsideFiles = fg
+    .sync("**/route.{ts,tsx,js,jsx,mjs}", { cwd: appDir, ignore: ["api/**"], dot: true })
+    .sort();
 
   it("inventories every route handler outside src/app/api", () => {
     const unlisted = outsideFiles.filter((f) => !(f in OUTSIDE_API));
@@ -183,11 +196,20 @@ describe("route-auth inventory: handlers outside src/app/api", () => {
     expect(stale, `OUTSIDE_API entries with no matching route file: ${stale.join(", ")}`).toEqual([]);
   });
 
-  it("none of them silently gained a session-authenticated handler", () => {
-    // If one of these ever needs a user session, it belongs under src/app/api
-    // behind withApiHandler, not here.
-    for (const key of Object.keys(OUTSIDE_API)) {
-      const text = readFileSync(path.join(appDir, key), "utf8");
+  it("each exposes exactly its pinned HTTP methods and no wrapper", () => {
+    // The method pin is the teeth: a NEW handler export on a listed route (say a
+    // bare POST beside auth/confirm's GET) fails here instead of shipping as an
+    // unnoticed unauthenticated endpoint. If one of these ever needs a user
+    // session, it belongs under src/app/api behind withApiHandler, not here.
+    const METHOD_EXPORT = /^export\s+(?:async\s+function|const)\s+(GET|POST|PUT|PATCH|DELETE|HEAD)\b/gm;
+    for (const [key, { methods }] of Object.entries(OUTSIDE_API)) {
+      const file = path.join(appDir, key);
+      // A deleted route is the stale-entries test's failure to own; skip the
+      // raw ENOENT here so the report stays legible.
+      if (!existsSync(file)) continue;
+      const text = readFileSync(file, "utf8");
+      const exported = [...text.matchAll(METHOD_EXPORT)].map((m) => m[1]).sort();
+      expect(exported, `${key} exports unexpected HTTP methods`).toEqual([...methods].sort());
       expect(usesWrapper(text), `${key} now uses withApiHandler; move it under src/app/api`).toBe(false);
     }
   });

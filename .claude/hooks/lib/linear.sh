@@ -29,7 +29,12 @@ _ln_fail_visible() {
 
 # Pure parser: extract CAR-XX from any string (branch, filename), upcased. Empty if none.
 # Exposed (underscore-prefixed) so tests can exercise it without a repo/API.
-_ln_parse_ref() { printf '%s' "$1" | grep -oiE 'car-[0-9]+' | head -1 | tr '[:lower:]' '[:upper:]'; }
+# Boundary-anchored so an embedded substring ("oscar-12-notes.md") never binds a
+# ticket — only car-N at the start or after a non-alphanumeric separator counts.
+_ln_parse_ref() {
+  printf '%s' "$1" | grep -oiE '(^|[^[:alnum:]])car-[0-9]+' | head -1 \
+    | grep -oiE 'car-[0-9]+' | tr '[:lower:]' '[:upper:]'
+}
 
 # CAR-XX from the git branch of $1 (a directory), or of the current cwd when omitted.
 linear_issue_ref() {

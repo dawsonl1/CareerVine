@@ -9,16 +9,16 @@
 > - **Zoom integration (section 5) never shipped.** No `zoom_connections` table,
 >   no Zoom OAuth, no API calls. The `zoom_link` column exists but is only ever
 >   written as null.
-> - **The recurring-event model was inverted.** Section 19 treats a series as a
->   master row; `20260717040000_car152_calendar_sync_repair.sql` flipped
->   ingestion to `singleEvents: true` and purged those master rows as phantom
->   duplicates.
+> - **Recurring-event ingestion was repaired after shipping.** Section 19 assumed
+>   Google returns recurring instances individually and never specified
+>   `singleEvents: true`; the initial implementation consequently cached series
+>   master rows next to their own instances, and
+>   `20260717040000_car152_calendar_sync_repair.sql` flipped ingestion to
+>   `singleEvents: true` and purged the master rows as phantom duplicates.
 > - **Section 10's attendee auto-linking was a cross-tenant leak.** Matching ran
 >   globally across `contact_emails`, so calendar rows could point at another
 >   tenant's contact. Fixed under CAR-133; the CAR-152 migration nulls the bad
 >   rows.
-> - **`meetings.meeting_type` is now nullable** (`20260714180000_car122_nullable_meeting_type.sql`),
->   which section 2 assumes it is not.
 > - **The shipped schema is a superset** and the plan contradicts itself: its
 >   section 2 schema block lacks the `calendar_event_contacts` junction that its
 >   own section 21 later adds.

@@ -11,9 +11,10 @@
 Done. Routes go through `withApiHandler()` with Zod schemas, mostly defined in
 `src/lib/api-schemas.ts`. Validates input shape, types, and constraints, and
 returns structured 400s. Numeric query params use `z.coerce.number()`.
-91 of 105 routes use the wrapper; the 14 that do not are deliberate (QStash
-signature, machine token, webhook secret, HMAC, OAuth JWKS) and are enumerated in
-`src/__tests__/route-auth-inventory.test.ts`, which fails CI if that list drifts.
+The routes that skip the wrapper are deliberate (QStash signature, machine token,
+webhook secret, HMAC, OAuth JWKS) and are enumerated in
+`src/__tests__/route-auth-inventory.test.ts`, which fails CI if that list drifts;
+current counts live in `careervine/CONVENTIONS.md`, where a test pins them.
 
 ### ~~Centralized API Error Handler~~
 Done. `withApiHandler()` in `src/lib/api-handler.ts` handles auth, Zod validation,
@@ -43,15 +44,17 @@ the ui-events guard), `mcp` (typecheck), `types-drift` (regenerates Supabase typ
 and fails on a diff), and `extension` (typecheck plus a bundle-freshness gate).
 
 ### ~~Rate Limiting on External API Endpoints~~
-Done. `src/lib/rate-limit.ts` (Upstash sliding window) covers 15 routes: 14 opt in
+Done. `src/lib/rate-limit.ts` (Upstash sliding window) covers 17 routes: 14 opt in
 through `withApiHandler`'s `rateLimit` option, which returns a 429 carrying
-`code: "rate_limited"`, `resetAt`, and a `Retry-After` header, and the MCP route
-calls `checkRateLimit` directly.
+`code: "rate_limited"`, `resetAt`, and a `Retry-After` header; the MCP route calls
+`checkRateLimit` directly; and the two admin machine-token routes go through
+`checkMachineRateLimit` in `src/lib/admin-auth.ts`.
 
 ### ~~Undo on Destructive Actions via Toast~~
-Done. `src/hooks/use-deferred-action.ts` implements the soft-delete pattern with a
-5-second default delay and an undo button in the toast, used by action items,
-contacts, and meetings.
+Done for action items. `src/hooks/use-deferred-action.ts` implements the
+soft-delete pattern with a 5-second default delay and an undo button in the toast,
+used on the action-items page and the contact detail page's actions tab. Contact
+and meeting deletion still use confirm dialogs rather than deferred undo.
 
 ### ~~Smart Follow-Up Suggestions~~
 Done. `src/lib/ai-followup/generate-suggestions.ts` plus the `/api/suggestions/*`
@@ -59,8 +62,11 @@ routes and `useSuggestions()` surface AI-generated outreach suggestions on the
 dashboard.
 
 ### ~~Email Thread Linking to Contacts~~
-Done. `src/lib/contact-email-history.ts` joins synced Gmail messages to
-`contact_emails`, so conversation history shows on the contact detail page.
+Done. Synced Gmail messages are linked to contacts via `matched_contact_id`,
+written by `syncEmailsForContact` and `backfillEmailsForContact` in
+`src/lib/gmail.ts`, so conversation history shows on the contact detail page.
+(`src/lib/contact-email-history.ts` is the separate, capability-gated fetch layer
+for pre-contact history.)
 
 ### ~~Guided Onboarding~~
 Done, and rebuilt since the original idea was written. New accounts get a guided
@@ -72,7 +78,7 @@ open and is tracked under "Rich Empty States" below.
 
 ### ~~Dedicated Contact Profile Page~~
 Done. `/contacts/[id]` exists as a full profile page with tabbed Timeline,
-Actions, and Contact Info.
+Actions, Emails, and Attachments.
 
 ---
 
@@ -119,10 +125,10 @@ The M3 design token system already supports it: `globals.css` has the token stru
 ## Features
 
 ### Contact Relationship Graph
-Track how contacts know each other. "Met Alice through Bob at Company X." Store as a graph (contact_relationships table with source, target, relationship_type). Visualize with a network diagram. Helps users understand their network topology and find warm introductions.
+Track how contacts know each other. "Met Alice through Bob at Company X." A narrow slice already exists: the `referrals` table stores source/target/meeting/notes and feeds stage derivation. The idea is the general graph beyond referrals (a contact_relationships table with arbitrary relationship types) plus a network-diagram visualization, to surface topology and warm-introduction paths.
 
 ### Meeting Prep Briefing
-Before a meeting, auto-generate a one-page brief: contact's recent activity, last conversation summary, pending action items, shared connections, and relevant notes. Pull from existing data, no new integrations needed. Surface it as a "Prep" button on upcoming calendar events.
+Before a meeting, auto-generate a one-page brief: contact's recent activity, last conversation summary, pending action items, shared connections, and relevant notes. The assembly layer largely exists (the MCP dossier builder already gathers most of this per contact); the remaining work is surfacing it in the web app as a "Prep" button on upcoming calendar events.
 
 ### CSV/vCard Import and Data Export
 Bulk import already exists for the scraping pipeline and curated bundles
@@ -132,7 +138,10 @@ CRM or a spreadsheet, and export in any format. Export also matters for data
 portability and trust.
 
 ### Mobile Responsiveness
-The app uses fixed-width layouts in several places. Tailwind makes responsive design straightforward, so add responsive breakpoints to make the app usable on phones. Networking happens at events, not at desks.
+A mobile nav already exists; the real gap is content layout, where several grids and tables don't reflow at narrow widths. Tailwind makes responsive design straightforward, so add responsive breakpoints where layouts are still rigid to make the app usable on phones. Networking happens at events, not at desks.
+
+### Outlook / Microsoft 365 Email Integration
+Gmail is fully integrated (sync, send, bounce detection); Outlook has nothing. A Microsoft Graph equivalent of the Gmail connection would open the app to the half of candidates whose school or work email lives on Microsoft 365.
 
 ### Tagging & Smart Lists
 Tags exist but there are no saved filters or smart lists. Let users save filter combinations ("VCs in NYC I haven't talked to in 30 days") as named lists. Turns the contact page into a lightweight CRM pipeline view.
@@ -161,14 +170,15 @@ No CSP headers configured. Add them via `next.config.ts` to prevent XSS attacks 
 The contact creation/edit modal is a 564-line form with 15+ fields (name, status, company history, education, multiple emails, multiple phones, tags, location, LinkedIn, follow-up frequency, notes) in a single scrollable dialog. On mobile it is nearly unusable, and networking events are exactly when users need to add a contact quickly. Redesign it as a multi-step wizard: **Step 1** name and basics (name, status, industry, completable in 10 seconds); **Step 2** work and education; **Step 3** contact info (emails, phones, LinkedIn); **Step 4** relationship context (tags, follow-up frequency, how you met, notes). Each step fits on one mobile screen without scrolling. Add a progress bar, back/next navigation, and "Save & finish later" at any step. Persist draft state to localStorage so accidental closes don't lose work. The key insight: most contacts start with just a name and company, so let users capture that in 10 seconds and enrich later rather than presenting a wall of fields upfront.
 
 ### Accessibility & Keyboard Navigation Overhaul
-Real gaps remain, corroborated by the 2026-07-17 accessibility audit (19 findings, 7 serious): modals lack focus trapping so focus escapes to background content, `role="dialog"` appears in only about 5 files, loading spinners have no `role="status"` or `aria-live` regions, the calendar's drag-to-create is mouse-only, and custom Select/Dropdown components don't support arrow-key navigation. (ARIA coverage itself is better than this idea originally claimed: about 29 `.tsx` files use `aria-*` attributes.) The fix: (1) add a focus trap to the Modal component with return-focus-on-close, (2) add `aria-labelledby`, `aria-describedby`, and `role="dialog"` to all modals, (3) make custom Select/Dropdown components navigable with arrow keys and Enter/Escape, (4) add `aria-live="polite"` regions for loading states and toasts, (5) add calendar keyboard shortcuts, and (6) audit color contrast against WCAG AA. This affects keyboard users, screen-reader users, and anyone with motor impairments, and accessible apps feel more polished even to users who don't need the accommodations.
+Real gaps remain, corroborated by the 2026-07-17 accessibility audit (19 findings, 7 serious): modals lack focus trapping so focus escapes to background content, `role="dialog"` appears in only 3 production files, most loading spinners lack `role="status"` (two already have it), the calendar's drag-to-create is mouse-only, and custom Select/Dropdown components don't support arrow-key navigation. (ARIA coverage itself is better than this idea originally claimed: about 29 `.tsx` files use `aria-*` attributes, and the toast system already carries `aria-live`.) The fix: (1) add a focus trap to the Modal component with return-focus-on-close, (2) add `aria-labelledby`, `aria-describedby`, and `role="dialog"` to all modals, (3) make custom Select/Dropdown components navigable with arrow keys and Enter/Escape, (4) add `role="status"` / `aria-live="polite"` to the remaining loading states, (5) add calendar keyboard shortcuts, and (6) audit color contrast against WCAG AA. This affects keyboard users, screen-reader users, and anyone with motor impairments, and accessible apps feel more polished even to users who don't need the accommodations.
 
 ### Finish the Skeleton Loading Rollout
-Skeletons already exist on the dashboard, the email experience, and the unified
-action list (about 16 `animate-pulse` usages), and the reversible-write paths
-already use optimistic updates with rollback plus a toast. The remaining work is
-consistency: the pages still showing a centered spinner should get skeletons that
-mirror their real layout, so the app never flashes blank to content.
+Real skeletons already exist on the dashboard and the unified action list (about
+16 `animate-pulse` usages), and the reversible-write paths already use optimistic
+updates with rollback plus a toast. The remaining work is consistency: the pages
+still showing a centered spinner (including the email surface, whose "skeleton"
+component is actually a spinner) should get skeletons that mirror their real
+layout, so the app never flashes blank to content.
 
 ### Rich Empty States with Contextual Illustrations & Quick-Start CTAs
 Empty states are the most common first impression for each feature, and most still look broken rather than inviting. Design illustrated empty states per page: contacts shows people connecting with "Add your first contact", action items shows a checklist with "Create your first task", inbox explains Gmail integration with "Connect Gmail", calendar shows a week grid with "Sync your Google Calendar." Each should have (1) a custom SVG illustration matching the M3 green palette, (2) a headline explaining the feature's value, (3) a single primary CTA, and (4) an optional secondary link to docs. This turns dead ends into onboarding moments.

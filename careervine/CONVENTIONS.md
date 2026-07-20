@@ -52,11 +52,12 @@ route's file.
 
 - Authoritative: `careervine/src/lib/api-handler.ts` (header)
 - Enforced: `careervine/src/__tests__/route-auth-inventory.test.ts` gates wrapper
-  usage under `src/app/api`, and separately inventories the three route handlers
-  that live elsewhere under `src/app` (the email-confirmation handler, which is
-  unauthenticated because it is what mints the session, and the two public OAuth
-  metadata documents), each with its named mechanism. The envelope and the
-  curated-error rule are **not** enforced.
+  usage under `careervine/src/app/api`, and separately inventories the three route
+  handlers that live elsewhere under `careervine/src/app` (the email-confirmation
+  handler, which is unauthenticated because it is what mints the session, and the
+  two public OAuth metadata documents), each with its named mechanism and its
+  expected HTTP methods pinned. The envelope and the curated-error rule are
+  **not** enforced.
 
 ## b. Cron and queue
 
@@ -79,8 +80,11 @@ cadences, and a test pins them to this registry.
 - Authoritative: `careervine/src/lib/qstash-verify.ts` and
   `careervine/src/lib/cron-guard.ts` (headers)
 - Enforced: `careervine/src/__tests__/cron-schedules-registry.test.ts` pins every
-  cron expression and the follow-up and scheduled-email cadence copy. It does not
-  cover the cadence words in route header comments.
+  cron expression, the follow-up and scheduled-email cadence prose in both the
+  README and the docs page (subject-anchored, so swapping the two lines fails),
+  the docs page's follow-ups feature-card tag, and the cadence stated in the two
+  interval cron routes' header comments. Daily and weekly copy phrasing is not
+  pinned.
 
 ## c. Capability gating
 
@@ -188,12 +192,12 @@ rule is forward-looking rather than descriptive.
 
 ## g. Auth exceptions, machine tokens, package edges
 
-Fourteen routes deliberately skip `withApiHandler`. They are named, with the
+The 14 routes that deliberately skip `withApiHandler` are named, with the
 mechanism each uses, in the `HAND_ROLLED` map in
 `careervine/src/__tests__/route-auth-inventory.test.ts`. Five mechanisms are in
 play: qstash-signature, bundle-admin-token, webhook-secret, hmac-token, and
-oauth-jwks. Adding an unwrapped route under `src/app/api` without listing it fails
-CI, and so does leaving a stale entry behind.
+oauth-jwks. Adding an unwrapped route under `careervine/src/app/api` without
+listing it fails CI, and so does leaving a stale entry behind.
 
 `BUNDLE_ADMIN_TOKEN` guards the two admin machine routes through
 `isAuthorizedAdminToken`, which SHA-256 digests both sides before a constant-time
@@ -230,4 +234,4 @@ The global environment is node. A DOM test opts in per file with a
 assert with `getByText` / `queryByText` rather than `toBeInTheDocument`.
 
 - Authoritative: `careervine/vitest.config.ts` and the header of each helper
-- Enforced: only by the suite passing.
+- Not mechanically enforced; the only backstop is the suite itself passing.

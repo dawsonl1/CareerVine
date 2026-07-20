@@ -106,17 +106,35 @@ describe("QStash cadence is pinned to the registry", () => {
 
   /**
    * Both interval schedules are quoted in user-facing copy, so both are pinned.
-   * `extra` covers the docs page's feature-card tag, which is easy to miss when
-   * editing only the sentence next to it.
+   * Every needle is SUBJECT-ANCHORED — it names the job in the same phrase as the
+   * interval — because a bare "every N minutes" fragment is satisfied by ANY
+   * schedule that happens to share the interval: with presence-only fragments,
+   * swapping the two README lines (mislabeling both jobs) stayed green, and so
+   * did drifting one schedule onto the other's cadence. The tag needle keeps its
+   * trailing "<" to pin the docs page's feature-card tag, easy to miss when
+   * editing only the sentence next to it. The two route header comments are
+   * pinned too — a stale header here is exactly how the F41 drift started.
    */
-  const COPY_PINNED = [
-    { schedule: "send-follow-ups", extra: (m: number) => [`Every ${m} min<`] },
-    { schedule: "send-scheduled-emails", extra: () => [] as string[] },
+  const COPY_PINNED: Array<{
+    schedule: string;
+    readme: (m: number) => string[];
+    docs: (m: number) => string[];
+  }> = [
+    {
+      schedule: "send-follow-ups",
+      readme: (m) => [`Follow-up sequence steps are processed every ${m} minutes`],
+      docs: (m) => [`due follow-up steps go out every ${m} minutes`, `Every ${m} min<`],
+    },
+    {
+      schedule: "send-scheduled-emails",
+      readme: (m) => [`Scheduled emails are sent every ${m} minutes`],
+      docs: (m) => [`scheduled emails every ${m} minutes`],
+    },
   ];
 
   it.each(COPY_PINNED)(
     "keeps user-facing $schedule cadence copy in sync with the registry",
-    ({ schedule, extra }) => {
+    ({ schedule, readme, docs }) => {
       const entry = (SCHEDULES as Array<{ name: string; cron: string }>).find((s) => s.name === schedule);
       expect(entry, `${schedule} missing from the registry`).toBeDefined();
 
@@ -124,10 +142,18 @@ describe("QStash cadence is pinned to the registry", () => {
       expect(minutes, `${schedule} cron is no longer a simple interval: ${entry!.cron}`).not.toBeNull();
 
       const repoRoot = path.resolve(here, "../../..");
-      const docsPage = path.join(repoRoot, "careervine", "public", "docs", "index.html");
       const surfaces: Array<{ file: string; needles: string[] }> = [
-        { file: path.join(repoRoot, "careervine", "README.md"), needles: [`every ${minutes} minutes`] },
-        { file: docsPage, needles: [`every ${minutes} minutes`, ...extra(minutes!)] },
+        { file: path.join(repoRoot, "careervine", "README.md"), needles: readme(minutes!) },
+        {
+          file: path.join(repoRoot, "careervine", "public", "docs", "index.html"),
+          needles: docs(minutes!),
+        },
+        {
+          // The route's own header comment states its cadence; pin it so the
+          // comment cannot drift from the registry again.
+          file: path.join(repoRoot, "careervine", "src", "app", "api", "cron", schedule, "route.ts"),
+          needles: [`every ${minutes} minutes`],
+        },
       ];
 
       for (const { file, needles } of surfaces) {

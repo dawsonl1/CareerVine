@@ -78,8 +78,8 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 
 - **Location:** repo-root `.claude/plans/`.
 - **Naming:** the **Linear ticket is the unique key** — `CAR-XX-slug`. One plan file per ticket. A two-digit `NN-` prefix may lead the name (e.g. `31-car-18-add-companies-without-contacts.md`); it is an optional, approximate ordering hint, **not** an identifier.
-- **Never compute the prefix as "highest existing number + 1".** Parallel worktrees race on it: 32 of the 150 existing plans already share a duplicated prefix. Nothing reads the prefix — `_ln_parse_ref` in `.claude/hooks/lib/linear.sh` extracts `CAR-XX` from the filename and ignores everything else — so a collision is harmless and a "correct" number is not worth a round trip. Pick any number at or above the current maximum, or omit it. **Do not renumber existing files.**
-- A plan with no ticket (historical or reference material parked here) just uses a descriptive name; without a `CAR-XX` the hook falls back to the branch, so name it carefully if you are on a ticket branch.
+- **Never compute the prefix as "highest existing number + 1".** Parallel worktrees race on it: 89 of the 152 existing plan files already share a duplicated prefix (32 prefix numbers are used more than once). Nothing reads the prefix — `_ln_parse_ref` in `.claude/hooks/lib/linear.sh` extracts `CAR-XX` from the filename and ignores everything else — so a collision is harmless and a "correct" number is not worth a round trip. Pick any number at or above the current maximum, or omit it. **Do not renumber existing files.**
+- A plan with no ticket (historical or reference material parked here) just uses a descriptive name. The hook skips a ticket-less plan whose first line is marked HISTORICAL or SUPERSEDED; any **other** ticket-less plan written or edited on a ticket branch binds to that branch's issue via the fallback and will **overwrite its plan-sync comment** — so park archive material with the banner, and author real plans with the ticket in the filename.
 - Write a plan before starting any non-trivial feature.
 
 ### Docs & copy drift
@@ -88,11 +88,11 @@ Public text is a commitment that rots silently. Update it in the **same branch/P
 
 - **Docs page** — `careervine/public/docs/index.html` (served at docs.careervine.app): whenever a change alters the user-visible behavior of any surface it describes. It deploys with the app, so behavior merged without a copy update ships wrong documentation.
 - **Privacy policy** — `careervine/src/app/privacy/page.tsx`: whenever what CareerVine persists about users or third parties changes (a new stored field, table, cache, log, or third-party processor, or a change to deletion/retention behavior). Google and the Chrome Web Store both audit it against actual behavior.
-- **Cadence copy** — a change to `careervine/scripts/qstash-schedules.mjs` requires re-checking everything that quotes a cadence: the docs page (**prose and the feature-card tag**, which is easy to miss), `careervine/README.md`, and the cron route header comments. `cron-schedules-registry.test.ts` pins the cron expressions and the follow-up cadence copy and will fail on a miss, but it does not cover the tags or comments — those are yours.
+- **Cadence copy** — a change to `careervine/scripts/qstash-schedules.mjs` requires re-checking everything that quotes a cadence. `cron-schedules-registry.test.ts` pins the cron expressions, the follow-up and scheduled-email cadence prose in `careervine/README.md` and the docs page (subject-anchored), the docs page's follow-ups feature-card tag, and the two interval cron routes' header comments — it fails on a miss in any of those. Copy quoting the **daily/weekly** schedules ("daily safety-net sweep", "once a week") is not pinned — that is yours to re-check.
 - **Conventions doc** — `careervine/CONVENTIONS.md`: when a convention changes or an authoritative header moves. It is a pointer index, not a map; keep it pointing at code rather than restating it. A test asserts every path it cites still exists.
 - **No em dashes** in user-facing copy (rule 35).
 
-The failure mode this guards against is real and recent: CAR-157 found the same "every 15 minutes" claim wrong in three places for a job that runs every 10, and an `ARCHITECTURE.md` where 7 of 12 spot-checked claims were false.
+The failure mode this guards against is real and recent: CAR-157 found the same "every 15 minutes" claim wrong in four files for a job that runs every 10, and an `ARCHITECTURE.md` so stale it still said "No automated tests exist" against ~2,100 passing tests. The falsification pass over the replacement doc's own first draft caught 8 false and 4 misleading claims before it shipped — write the claim, then try to break it.
 
 ### Testing, deploy & QA (pointers)
 
