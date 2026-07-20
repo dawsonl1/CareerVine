@@ -201,4 +201,59 @@ describe("backfillEmailsForContact junction pass", () => {
 
     expect(junctionLinks()).toEqual([{ email_message_id: 100, contact_id: HIRING_MANAGER }]);
   });
+
+  it("paginates past the 1000-row cap and links every matching message (CAR-159 F6)", async () => {
+    // 1502 matching messages force three .range() windows (0-999, 1000-1999,
+    // then a short page). Before the harness honored range offsets this would
+    // have looped forever; it also proves the offset arithmetic links them all.
+    const N = 1502;
+    const messages = Array.from({ length: N }, (_, i) => ({
+      id: 1000 + i,
+      user_id: USER,
+      gmail_message_id: `bulk-${i}`,
+      from_address: "hm@corp.com",
+      to_addresses: ["me@gmail.com"],
+      matched_contact_id: null,
+    }));
+    seedDb({ email_messages: messages });
+
+    await backfillEmailsForContact(USER, HIRING_MANAGER, ["hm@corp.com"]);
+
+    const links = junctionLinks();
+    expect(links).toHaveLength(N);
+    expect(new Set(links.map((l) => l.email_message_id)).size).toBe(N);
+    expect(links.every((l) => l.contact_id === HIRING_MANAGER)).toBe(true);
+  });
+});
+
+describe("sync completion gate holds the watermark on junction-write failure (CAR-159 F3)", () => {
+  it("does not advance email_synced_through when the link upsert fails, so the next pass re-covers", async () => {
+    fake = createFakeGmail({ pages: [[INTRO_MESSAGE]] });
+    // Fail every write to the junction table; message insert still succeeds.
+    db = createFakeSyncDb(
+      {
+        contacts: [{ id: RECRUITER, user_id: USER, email_synced_through: null, network_status: "active" }],
+        email_messages: [],
+        email_message_contacts: [],
+        gmail_connections: [{ user_id: USER, gmail_address: "me@gmail.com" }],
+      },
+      { failOn: (table) => (table === "email_message_contacts" ? "injected link failure" : null) },
+    );
+
+    await syncEmailsForContact(USER, RECRUITER, ["recruiter@corp.com"], "me@gmail.com");
+
+    // The message was cached, but the link failed...
+    expect(db.tables.email_messages).toHaveLength(1);
+    expect(junctionLinks()).toHaveLength(0);
+    // ...so the watermark must NOT have advanced (a thrown error and a swallowed
+    // write failure are treated the same: the next sync re-covers the span).
+    expect(db.tables.contacts[0].email_synced_through).toBeNull();
+  });
+
+  it("advances the watermark on a fully successful pass", async () => {
+    fake = createFakeGmail({ pages: [[INTRO_MESSAGE]] });
+    seedDb();
+    await syncEmailsForContact(USER, RECRUITER, ["recruiter@corp.com"], "me@gmail.com");
+    expect(db.tables.contacts.find((c) => c.id === RECRUITER)?.email_synced_through).toBeTruthy();
+  });
 });

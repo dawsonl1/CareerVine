@@ -49,7 +49,12 @@ export interface StageSignals {
   hasPastCall: boolean;
   /** A linked upcoming calendar event / meeting. */
   hasUpcomingCall: boolean;
-  /** Inbound matched email (is_simulated = false) after an outbound. */
+  /**
+   * A real inbound email (is_simulated = false) SENT BY this contact, dated on
+   * or after our first outbound to them. On a thread shared with several
+   * contacts, only the actual sender counts — cc'd co-recipients do not (the
+   * caller attributes inbound by from_address, CAR-159).
+   */
   hasReply: boolean;
   /** Outbound matched email (is_simulated = false). */
   hasOutboundEmail: boolean;

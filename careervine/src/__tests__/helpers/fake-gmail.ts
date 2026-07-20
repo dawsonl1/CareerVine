@@ -156,7 +156,17 @@ function readColumn(row: Row, col: string): unknown {
   return current;
 }
 
-export function createFakeSyncDb(seed: Partial<Record<string, Row[]>> = {}) {
+export function createFakeSyncDb(
+  seed: Partial<Record<string, Row[]>> = {},
+  opts: {
+    /**
+     * Inject a DB error on matching operations (e.g. to prove the sync
+     * completion gate holds the watermark when a junction write fails).
+     * Return an error message to fail the op, or null/undefined to let it run.
+     */
+    failOn?: (table: string, op: DbOp["op"]) => string | null | undefined;
+  } = {},
+) {
   const tables: Record<string, Row[]> = {};
   for (const [name, rows] of Object.entries(seed)) {
     tables[name] = (rows ?? []).map((r) => ({ ...r }));
@@ -190,6 +200,7 @@ export function createFakeSyncDb(seed: Partial<Record<string, Row[]>> = {}) {
     let orderCol: string | null = null;
     let orderAsc = true;
     let limitN: number | null = null;
+    let rangeFrom = 0;
     let insertedThisCall: Row[] = [];
 
     const matches = (row: Row) =>
@@ -203,6 +214,11 @@ export function createFakeSyncDb(seed: Partial<Record<string, Row[]>> = {}) {
       gtFilters.every(([c, v]) => (readColumn(row, c) as number) > v);
 
     const execute = () => {
+      const failMsg = opts.failOn?.(table, op);
+      if (failMsg) {
+        ops.push({ table, op, filters: [...filters] });
+        return { data: null, error: { message: failMsg }, count: null };
+      }
       if (op === "upsert") {
         const conflictCols = (upsertOpts.onConflict ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         insertedThisCall = [];
@@ -211,8 +227,16 @@ export function createFakeSyncDb(seed: Partial<Record<string, Row[]>> = {}) {
             conflictCols.length > 0 && conflictCols.every((c) => existing[c] === row[c])
           );
           if (conflict) {
-            if (!upsertOpts.ignoreDuplicates) Object.assign(conflict, row);
-            continue; // ignoreDuplicates: DO NOTHING — not part of RETURNING
+            // ignoreDuplicates:true is ON CONFLICT DO NOTHING — the conflicting
+            // row is not in RETURNING. ignoreDuplicates:false is merge-duplicates
+            // (ON CONFLICT DO UPDATE): PostgREST returns the updated row in the
+            // representation, so it MUST be part of RETURNING here too — the
+            // sent-message cache upsert reads its id back through this path.
+            if (!upsertOpts.ignoreDuplicates) {
+              Object.assign(conflict, row);
+              insertedThisCall.push(conflict);
+            }
+            continue;
           }
           const copy = { ...row };
           if (copy.id === undefined) copy.id = nextId(table);
@@ -237,7 +261,11 @@ export function createFakeSyncDb(seed: Partial<Record<string, Row[]>> = {}) {
           return (av < bv ? -1 : av > bv ? 1 : 0) * (orderAsc ? 1 : -1);
         });
       }
-      if (limitN !== null) rows = rows.slice(0, limitN);
+      // range(from,to) must honor the offset (real PostgREST Range semantics):
+      // backfillEmailsForContact's junction pass paginates via .range(offset,
+      // offset+999) and breaks on a short page, so dropping the offset would
+      // return the first page forever and loop endlessly on >pageSize rows.
+      if (limitN !== null) rows = rows.slice(rangeFrom, rangeFrom + limitN);
       ops.push({ table, op, filters: [...filters] });
       return { data: rows, error: null, count: rows.length };
     };
@@ -253,7 +281,7 @@ export function createFakeSyncDb(seed: Partial<Record<string, Row[]>> = {}) {
       gte: (c: string, v: unknown) => { filters.push([`gte:${c}`, v]); return builder; },
       order: (c: string, opts?: { ascending?: boolean }) => { orderCol = c; orderAsc = opts?.ascending ?? true; return builder; },
       limit: (n: number) => { limitN = n; return builder; },
-      range: (fromIdx: number, toIdx: number) => { limitN = toIdx - fromIdx + 1; return builder; },
+      range: (fromIdx: number, toIdx: number) => { rangeFrom = fromIdx; limitN = toIdx - fromIdx + 1; return builder; },
       update: (values: Row, _opts?: { count?: string }) => { op = "update"; updateValues = values; return builder; },
       upsert: (rows: Row | Row[], opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
         op = "upsert";

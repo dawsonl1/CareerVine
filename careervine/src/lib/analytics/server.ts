@@ -186,9 +186,14 @@ export async function checkCompaniesEmailedMilestone(
     // linked contact's company, not just the single matched_contact_id.
     const { data: sent } = await service
       .from("email_message_contacts")
-      .select("contact_id, email_messages!inner(user_id, direction)")
+      .select("contact_id, email_message_id, email_messages!inner(user_id, direction)")
       .eq("email_messages.user_id", userId)
       .eq("email_messages.direction", EmailDirection.Outbound)
+      // Deterministic sample when a heavy sender exceeds the 1000-row cap:
+      // newest links first, so the window is stable rather than arbitrary
+      // (CAR-159 review F10). Best-effort milestone; full pagination is
+      // unwarranted for a >=5-distinct-companies check.
+      .order("email_message_id", { ascending: false })
       .limit(1000);
     const contactIds = [...new Set((sent ?? []).map((r) => r.contact_id as number))];
     if (contactIds.length === 0) return;

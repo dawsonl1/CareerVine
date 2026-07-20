@@ -159,14 +159,21 @@ export async function sendTrackedEmail(
   // they don't immediately reappear as a "Reach Out" suggestion (CAR-159: an
   // address shared by two contacts touched both).
   if (matchedContactIds.length > 0) {
-    await service.from("interactions").insert(
+    // supabase-js surfaces DB failures (FK violation from a contact deleted
+    // mid-send, constraint, RLS) as a RESOLVED { error }, not a rejection, so
+    // a .then(null, handler) rejection-only guard would swallow them silently.
+    // Destructure and log instead. Non-fatal by design: the email already sent,
+    // so we never throw here — a missing interaction only affects Reach Out
+    // ranking (CAR-159 review F7).
+    const { error: interactionError } = await service.from("interactions").insert(
       matchedContactIds.map((cid) => ({
         contact_id: cid,
         interaction_date: sentAt,
         interaction_type: "email",
         summary: `Sent: ${opts.subject}`,
       }))
-    ).then(null, (err: unknown) => console.error("Failed to create email interaction:", err));
+    );
+    if (interactionError) console.error("Failed to create email interaction:", interactionError);
   }
 
   await trackServer(userId, "email_sent", {

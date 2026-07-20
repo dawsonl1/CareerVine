@@ -239,6 +239,14 @@ export async function syncEmailsForContact(
 
   let pageToken: string | undefined;
   let totalSynced = 0;
+  // Completion-gate bookkeeping (CAR-159): a swallowed DB-write failure inside
+  // the loop must NOT let the watermark advance. Attribution is now two writes
+  // (the message row AND its email_message_contacts link); readers are
+  // junction-only, so a lost link is a permanently invisible message unless the
+  // next sync re-covers it. Tracking failures and holding the watermark makes
+  // the next pass re-fetch and re-link the span — the same contract a thrown
+  // error already honors, extended to the errors we log-and-continue on.
+  let pageFailed = false;
 
   do {
     const listRes = await withRetry(() => gmail.users.messages.list({
@@ -328,7 +336,7 @@ export async function syncEmailsForContact(
             ignoreDuplicates: true,
           })
           .select("gmail_message_id, thread_id, direction");
-        if (error) console.error("Insert error:", error);
+        if (error) { console.error("Insert error:", error); pageFailed = true; }
         const inserted = insertedRows ?? [];
 
         // An inbound message means the contact wrote back — that reply is
@@ -405,6 +413,7 @@ export async function syncEmailsForContact(
         .in("gmail_message_id", msgIds);
       if (pageRowsError) {
         console.error("Junction id lookup error:", pageRowsError);
+        pageFailed = true;
       } else if ((pageRows ?? []).length > 0) {
         const { error: linkError } = await supabase
           .from("email_message_contacts")
@@ -412,7 +421,7 @@ export async function syncEmailsForContact(
             (pageRows ?? []).map((r) => ({ email_message_id: r.id, contact_id: contactId })),
             { onConflict: "email_message_id,contact_id", ignoreDuplicates: true }
           );
-        if (linkError) console.error("Junction link error:", linkError);
+        if (linkError) { console.error("Junction link error:", linkError); pageFailed = true; }
       }
 
       totalSynced += rows.length;
@@ -421,16 +430,23 @@ export async function syncEmailsForContact(
     pageToken = listRes.data.nextPageToken || undefined;
   } while (pageToken);
 
-  // Completion gate: only a pass that drained every page moves the watermark.
-  // A throw anywhere above leaves it untouched, so the next sync re-covers
-  // the whole span instead of hiding the hole. Failure to stamp is non-fatal
+  // Completion gate: only a pass that drained every page AND persisted every
+  // row + link moves the watermark. A throw anywhere above leaves it untouched,
+  // and a swallowed message-insert or junction-link failure (pageFailed) does
+  // the same, so the next sync re-covers the span instead of hiding the hole.
+  // Holding the watermark re-fetches (idempotent) rather than stranding a
+  // message with no per-contact attribution. Failure to stamp is non-fatal
   // (worst case: the next pass re-fetches and dedupes).
-  const { error: watermarkError } = await supabase
-    .from("contacts")
-    .update({ email_synced_through: syncStartedAt.toISOString() })
-    .eq("id", contactId);
-  if (watermarkError) {
-    console.error(`Failed to advance email watermark for contact ${contactId}:`, watermarkError);
+  if (pageFailed) {
+    console.warn(`Skipping email watermark advance for contact ${contactId}: a write failed this pass; next sync will re-cover.`);
+  } else {
+    const { error: watermarkError } = await supabase
+      .from("contacts")
+      .update({ email_synced_through: syncStartedAt.toISOString() })
+      .eq("id", contactId);
+    if (watermarkError) {
+      console.error(`Failed to advance email watermark for contact ${contactId}:`, watermarkError);
+    }
   }
 
   return totalSynced;
