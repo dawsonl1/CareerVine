@@ -15,7 +15,7 @@ import {
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
-import { chunked, escapeIlike } from "@/lib/data/postgrest";
+import { chunked, paginateAll, escapeIlike } from "@/lib/data/postgrest";
 import { findOrCreateCompany } from "./company-helpers";
 import { nextActionForCompany } from "./company-next-action";
 
@@ -87,16 +87,43 @@ export async function getContactStages(
   const ids = contacts.map((c) => c.id);
   const nowIso = new Date().toISOString();
 
-  const [emails, interactions, referrals, bounces, calEvents, calLinks, meetingLinks] = await Promise.all([
-    chunked(ids, async (chunk) => {
-      const { data } = await db()
-        .from("email_messages")
-        .select("matched_contact_id, direction, date")
-        .eq("user_id", userId)
-        .eq("is_simulated", false)
-        .in("matched_contact_id", chunk);
-      return data ?? [];
-    }),
+  const [emails, contactAddrs, interactions, referrals, bounces, calEvents, calLinks, meetingLinks] = await Promise.all([
+    chunked(ids, async (chunk) =>
+      // Junction-scoped (CAR-159), mirroring the calendar_event_contacts leg
+      // below: a shared thread contributes signals to EVERY linked contact,
+      // not just the single matched_contact_id. from_address is selected so the
+      // aggregation can credit an inbound REPLY only to its actual sender, not
+      // to cc'd co-recipients (see the aggregation loop). Paginated: the
+      // junction returns one row per (message, contact) link, so a 200-contact
+      // chunk of a heavy emailer can exceed PostgREST's 1000-row cap.
+      paginateAll(async (from, to) => {
+        const { data } = await db()
+          .from("email_message_contacts")
+          .select("contact_id, email_messages!inner(user_id, direction, date, from_address, is_simulated)")
+          .eq("email_messages.user_id", userId)
+          .eq("email_messages.is_simulated", false)
+          .in("contact_id", chunk)
+          .order("email_message_id")
+          .order("contact_id")
+          .range(from, to);
+        return data ?? [];
+      }),
+    ),
+    chunked(ids, async (chunk) =>
+      // Contact address sets (CAR-159): used to attribute an inbound reply to
+      // the contact who actually sent it. Explicitly user-scoped via the
+      // contacts!inner embed (safe under the MCP service-role client).
+      paginateAll(async (from, to) => {
+        const { data } = await db()
+          .from("contact_emails")
+          .select("contact_id, email, contacts!inner()")
+          .eq("contacts.user_id", userId)
+          .in("contact_id", chunk)
+          .order("id")
+          .range(from, to);
+        return data ?? [];
+      }),
+    ),
     chunked(ids, async (chunk) => {
       // Explicitly user-scoped (CAR-151): this also runs under the MCP
       // service-role client, where RLS doesn't filter foreign interactions.
@@ -151,19 +178,39 @@ export async function getContactStages(
     }),
   ]);
 
+  // Contact -> normalized address set, for inbound sender attribution.
+  const addrByContact = new Map<number, Set<string>>();
+  for (const r of contactAddrs as Array<{ contact_id: number; email: string | null }>) {
+    if (!r.email) continue;
+    const set = addrByContact.get(r.contact_id) ?? new Set<string>();
+    set.add(r.email.toLowerCase()); // contact_emails.email is already lower(trim())'d
+    addrByContact.set(r.contact_id, set);
+  }
+
   // Aggregate signals per contact
   const outboundAt = new Map<number, string>(); // earliest outbound date
   const inboundAt = new Map<number, string[]>();
-  for (const m of emails as Array<{ matched_contact_id: number | null; direction: string | null; date: string | null }>) {
-    if (m.matched_contact_id == null) continue;
+  for (const link of emails as Array<{ contact_id: number; email_messages: { direction: string | null; date: string | null; from_address: string | null } | null }>) {
+    const m = link.email_messages;
+    if (m == null) continue;
     if (m.direction === "outbound") {
-      const prev = outboundAt.get(m.matched_contact_id);
+      // Outbound credits every linked contact — they all received the outreach.
+      const prev = outboundAt.get(link.contact_id);
       const d = m.date ?? "";
-      if (!prev || d < prev) outboundAt.set(m.matched_contact_id, d);
+      if (!prev || d < prev) outboundAt.set(link.contact_id, d);
     } else if (m.direction === "inbound") {
-      const list = inboundAt.get(m.matched_contact_id) ?? [];
-      list.push(m.date ?? "");
-      inboundAt.set(m.matched_contact_id, list);
+      // Inbound counts as a REPLY only for the contact who sent it (their
+      // address is from_address), not for cc'd co-recipients who merely
+      // received it. Without this, a reply-all on a shared thread would flip
+      // every linked contact to stage "replied" and silence their follow-ups
+      // (CAR-159 review F9). A message whose sender matches no linked contact
+      // address (rare: sender address removed from the contact) is skipped.
+      const from = (m.from_address ?? "").toLowerCase();
+      if (from && addrByContact.get(link.contact_id)?.has(from)) {
+        const list = inboundAt.get(link.contact_id) ?? [];
+        list.push(m.date ?? "");
+        inboundAt.set(link.contact_id, list);
+      }
     }
   }
 

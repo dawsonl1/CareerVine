@@ -136,7 +136,15 @@ export type GmailConnection = {
 };
 
 /** Cached email metadata row */
-export type EmailMessage = Database["public"]["Tables"]["email_messages"]["Row"];
+export type EmailMessage = Database["public"]["Tables"]["email_messages"]["Row"] & {
+  /**
+   * All tracked contacts this message is attributed to via the
+   * email_message_contacts junction (CAR-159). Populated by readers that select
+   * the junction embed (e.g. the inbox route); absent elsewhere. Consumers
+   * should fall back to matched_contact_id when it is undefined.
+   */
+  contact_ids?: number[];
+};
 
 // ── Timeline types ──
 

@@ -92,21 +92,29 @@ export const GET = withApiHandler({
       }
     }
 
-    // Return cached emails (exclude trashed/hidden)
+    // Return cached emails (exclude trashed/hidden). Per-contact scoping goes
+    // through the email_message_contacts junction (CAR-159): a thread shared
+    // with another tracked contact appears on this contact too, which the
+    // single-valued matched_contact_id column could never express.
     const { data: messages, error: queryError } = await serviceClient
       .from("email_messages")
-      .select("*")
+      .select("*, email_message_contacts!inner(contact_id)")
       .eq("user_id", user.id)
-      .eq("matched_contact_id", numericContactId)
+      .eq("email_message_contacts.contact_id", numericContactId)
       .eq("is_trashed", false)
       .eq("is_hidden", false)
       .order("date", { ascending: false });
 
     if (queryError) throw queryError;
 
+    // Strip the join artifact — the response shape predates the junction.
+    const cachedEmails = (messages || []).map(
+      ({ email_message_contacts: _links, ...rest }) => rest
+    );
+
     return {
       success: true,
-      emails: messages || [],
+      emails: cachedEmails,
       isStale,
       gmailAddress: conn.gmail_address,
     };

@@ -239,6 +239,14 @@ export async function syncEmailsForContact(
 
   let pageToken: string | undefined;
   let totalSynced = 0;
+  // Completion-gate bookkeeping (CAR-159): a swallowed DB-write failure inside
+  // the loop must NOT let the watermark advance. Attribution is now two writes
+  // (the message row AND its email_message_contacts link); readers are
+  // junction-only, so a lost link is a permanently invisible message unless the
+  // next sync re-covers it. Tracking failures and holding the watermark makes
+  // the next pass re-fetch and re-link the span — the same contract a thrown
+  // error already honors, extended to the errors we log-and-continue on.
+  let pageFailed = false;
 
   do {
     const listRes = await withRetry(() => gmail.users.messages.list({
@@ -328,7 +336,7 @@ export async function syncEmailsForContact(
             ignoreDuplicates: true,
           })
           .select("gmail_message_id, thread_id, direction");
-        if (error) console.error("Insert error:", error);
+        if (error) { console.error("Insert error:", error); pageFailed = true; }
         const inserted = insertedRows ?? [];
 
         // An inbound message means the contact wrote back — that reply is
@@ -391,22 +399,54 @@ export async function syncEmailsForContact(
         if (error) console.error("Update error:", error);
       }
 
+      // Multi-contact attribution (CAR-159): every message in this page is by
+      // construction about contactId (the Gmail query is scoped to their
+      // addresses), so link them all — including rows another contact's sync
+      // inserted first, which matched_contact_id alone can never attribute
+      // here. The ids come from a post-upsert lookup rather than the RETURNING
+      // set + pre-upsert lookup, so a row a concurrent sync inserts between
+      // the two still gets its link this pass.
+      const { data: pageRows, error: pageRowsError } = await supabase
+        .from("email_messages")
+        .select("id")
+        .eq("user_id", userId)
+        .in("gmail_message_id", msgIds);
+      if (pageRowsError) {
+        console.error("Junction id lookup error:", pageRowsError);
+        pageFailed = true;
+      } else if ((pageRows ?? []).length > 0) {
+        const { error: linkError } = await supabase
+          .from("email_message_contacts")
+          .upsert(
+            (pageRows ?? []).map((r) => ({ email_message_id: r.id, contact_id: contactId })),
+            { onConflict: "email_message_id,contact_id", ignoreDuplicates: true }
+          );
+        if (linkError) { console.error("Junction link error:", linkError); pageFailed = true; }
+      }
+
       totalSynced += rows.length;
     }
 
     pageToken = listRes.data.nextPageToken || undefined;
   } while (pageToken);
 
-  // Completion gate: only a pass that drained every page moves the watermark.
-  // A throw anywhere above leaves it untouched, so the next sync re-covers
-  // the whole span instead of hiding the hole. Failure to stamp is non-fatal
+  // Completion gate: only a pass that drained every page AND persisted every
+  // row + link moves the watermark. A throw anywhere above leaves it untouched,
+  // and a swallowed message-insert or junction-link failure (pageFailed) does
+  // the same, so the next sync re-covers the span instead of hiding the hole.
+  // Holding the watermark re-fetches (idempotent) rather than stranding a
+  // message with no per-contact attribution. Failure to stamp is non-fatal
   // (worst case: the next pass re-fetches and dedupes).
-  const { error: watermarkError } = await supabase
-    .from("contacts")
-    .update({ email_synced_through: syncStartedAt.toISOString() })
-    .eq("id", contactId);
-  if (watermarkError) {
-    console.error(`Failed to advance email watermark for contact ${contactId}:`, watermarkError);
+  if (pageFailed) {
+    console.warn(`Skipping email watermark advance for contact ${contactId}: a write failed this pass; next sync will re-cover.`);
+  } else {
+    const { error: watermarkError } = await supabase
+      .from("contacts")
+      .update({ email_synced_through: syncStartedAt.toISOString() })
+      .eq("id", contactId);
+    if (watermarkError) {
+      console.error(`Failed to advance email watermark for contact ${contactId}:`, watermarkError);
+    }
   }
 
   return totalSynced;
@@ -614,11 +654,16 @@ export async function syncAllContactEmails(
 }
 
 /**
- * Backfill orphaned email_messages for a contact.
+ * Backfill email_messages attribution for a contact.
  *
  * When a contact gains an email address (creation, import, or edit), there may
- * already be cached email_messages with that address that have no matched_contact_id.
- * This function claims those orphaned rows so they appear on the contact's timeline.
+ * already be cached email_messages with that address. Two passes:
+ *   1. Legacy claim: orphaned rows (matched_contact_id IS NULL) get this
+ *      contact as their denormalized primary — transition-era behavior kept
+ *      so nothing reading matched_contact_id breaks.
+ *   2. Junction links (CAR-159): EVERY message involving the address — claimed
+ *      by another contact or not — gets an email_message_contacts link, so a
+ *      thread shared with an already-tracked contact appears on this one too.
  */
 export async function backfillEmailsForContact(
   userId: string,
@@ -651,6 +696,46 @@ export async function backfillEmailsForContact(
       .contains("to_addresses", [email]);
 
     totalMatched += (matchedFrom || 0) + (matchedTo || 0);
+  }
+
+  // Junction pass: collect ids of ALL matching messages (paginated — a single
+  // PostgREST read caps at 1000 rows) and link them idempotently.
+  const linkIds = new Set<number>();
+  const PAGE = 1000;
+  for (const email of lowerEmails) {
+    for (const leg of ["from", "to"] as const) {
+      let offset = 0;
+      for (;;) {
+        let q = supabase
+          .from("email_messages")
+          .select("id")
+          .eq("user_id", userId)
+          .order("id", { ascending: true })
+          .range(offset, offset + PAGE - 1);
+        q = leg === "from" ? q.eq("from_address", email) : q.contains("to_addresses", [email]);
+        const { data, error } = await q;
+        if (error) {
+          console.error("Backfill junction id lookup error:", error);
+          break;
+        }
+        for (const r of data ?? []) linkIds.add(r.id);
+        if (!data || data.length < PAGE) break;
+        offset += PAGE;
+      }
+    }
+  }
+
+  if (linkIds.size > 0) {
+    const linkRows = [...linkIds].map((id) => ({ email_message_id: id, contact_id: contactId }));
+    for (let i = 0; i < linkRows.length; i += 500) {
+      const { error: linkError } = await supabase
+        .from("email_message_contacts")
+        .upsert(linkRows.slice(i, i + 500), {
+          onConflict: "email_message_id,contact_id",
+          ignoreDuplicates: true,
+        });
+      if (linkError) console.error("Backfill junction link error:", linkError);
+    }
   }
 
   return totalMatched;
