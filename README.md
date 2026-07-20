@@ -54,7 +54,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 | Auth | Supabase Auth |
 | APIs | Gmail API, Google Calendar API, OpenAI API, Deepgram API |
 | Rich text | Tiptap editor |
-| Testing | Vitest + React Testing Library (468 tests) |
+| Testing | Vitest + React Testing Library |
 | Deployment | Vercel |
 | Browser extension | Chrome Manifest V3, Shadow DOM isolation |
 
@@ -63,7 +63,7 @@ The core insight is that **conversations are the atomic unit of a relationship**
 ```
 careervine/           Next.js app
   src/
-    app/              14 pages + 61 API routes
+    app/              Pages and API routes
     components/       Custom M3 component library
     lib/              Database queries, types, utilities
     hooks/            Custom React hooks
@@ -73,7 +73,7 @@ chrome-extension/     LinkedIn import extension
   panel-app/          React sidebar panel (injected into LinkedIn)
 
 supabase/
-  migrations/         38 database migrations
+  migrations/         Database migrations
 ```
 
 ## Local development

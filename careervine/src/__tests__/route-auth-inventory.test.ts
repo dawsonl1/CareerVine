@@ -140,3 +140,55 @@ describe("route-auth inventory", () => {
     }
   });
 });
+
+/**
+ * CAR-157: the inventory above globs `src/app/api` only, so route handlers living
+ * elsewhere under `src/app` were covered by nothing — including
+ * `auth/confirm/route.ts`, the one unauthenticated handler in the app that mints a
+ * session. They are all legitimately outside the wrapper (none is session-gated),
+ * but "legitimate" should be a checked-in claim rather than an omission, so they
+ * get the same named-mechanism treatment: a new one fails until it is listed, and
+ * a stale entry fails too.
+ */
+describe("route-auth inventory: handlers outside src/app/api", () => {
+  const appDir = path.resolve(here, "../app");
+
+  const OUTSIDE_API: Record<string, string> = {
+    // Email confirmation link. Verifies a single-use `token_hash` server-side via
+    // supabase.auth.verifyOtp, then redirects to a same-origin relative path only.
+    // Unauthenticated by nature: it is what establishes the session.
+    "auth/confirm/route.ts": "supabase-otp-verify",
+    // RFC 9728 OAuth protected-resource metadata for the MCP endpoint. Public by
+    // specification: it is the document clients read *before* they hold a token.
+    ".well-known/oauth-protected-resource/route.ts": "public-metadata",
+    ".well-known/oauth-protected-resource/api/mcp/route.ts": "public-metadata",
+  };
+
+  // dot: true is load-bearing — `.well-known/` is a dot-directory, which fast-glob
+  // skips by default, and silently missing it would defeat the whole inventory.
+  const outsideFiles = fg.sync("**/route.ts", { cwd: appDir, ignore: ["api/**"], dot: true }).sort();
+
+  it("inventories every route handler outside src/app/api", () => {
+    const unlisted = outsideFiles.filter((f) => !(f in OUTSIDE_API));
+    expect(
+      unlisted,
+      `route handlers outside src/app/api with no inventory entry: ${unlisted.join(", ")}. ` +
+        "Add it to OUTSIDE_API with the mechanism it authenticates by, or move it under src/app/api.",
+    ).toEqual([]);
+  });
+
+  it("has no stale outside-api entries", () => {
+    const existing = new Set(outsideFiles);
+    const stale = Object.keys(OUTSIDE_API).filter((k) => !existing.has(k));
+    expect(stale, `OUTSIDE_API entries with no matching route file: ${stale.join(", ")}`).toEqual([]);
+  });
+
+  it("none of them silently gained a session-authenticated handler", () => {
+    // If one of these ever needs a user session, it belongs under src/app/api
+    // behind withApiHandler, not here.
+    for (const key of Object.keys(OUTSIDE_API)) {
+      const text = readFileSync(path.join(appDir, key), "utf8");
+      expect(usesWrapper(text), `${key} now uses withApiHandler; move it under src/app/api`).toBe(false);
+    }
+  });
+});

@@ -46,8 +46,7 @@ for (const file of files) {
 if (violations.length > 0) {
   console.error(
     "✖ Raw `careervine:` string literal found outside the typed ui-events module.\n" +
-      "  Use UI_EVENTS + emitUiEvent/onUiEvent from '@/lib/ui-events' instead.\n" +
-      "  (inbox-shell.tsx is exempt until CAR-150 converts it.)\n",
+      "  Use UI_EVENTS + emitUiEvent/onUiEvent from '@/lib/ui-events' instead.\n",
   );
   for (const v of violations) console.error("  " + v);
   process.exit(1);

@@ -1,3 +1,12 @@
+> **HISTORICAL - superseded, do not trust the project-specific parts.** Written
+> 2026-02-14 and never updated. Its directory tree shows only `src/app/layout.tsx`,
+> `src/app/page.tsx`, and `src/lib/`, predating `components/`, `hooks/`, `mcp/`,
+> and the entire `api/` tree. The generic Next.js explanation below is still
+> broadly correct; the description of this repo is not.
+>
+> For how this codebase actually works, read `careervine/CONVENTIONS.md`.
+> Kept for provenance only (CAR-157).
+
 # Next.js Project Overview
 
 This document summarizes how the `careervine` project (and most modern Next.js apps) are structured and how they run, so you can quickly reason about changes from the AI side.

@@ -35,3 +35,13 @@ Archived 2026-07-09 (CLAUDE.md optimization pass):
 
 23. [PROCESS] The moment a manual step for Dawson is identified (add an env var, run `supabase db push`, set a secret, redeploy, configure an external dashboard), record it on the Linear issue as a `<!-- manual-steps -->` checklist comment (upsert, don't duplicate) — because conversations and worktrees are disposable and get deleted; Linear is the durable record. The `worktree-cleanup` skill blocks teardown on unchecked items. Never let a manual step exist only in chat. (CAR-33)
     > Absorbed into Workflows → Worktree lifecycle (manual-steps paragraph + Linear automation).
+
+---
+
+Archived 2026-07-19 (CAR-157 docs purge — absorbed into Workflows → Docs & copy drift):
+
+34. [PROCESS] Whenever a change alters the user-visible behavior of any surface described on docs.careervine.app (source: `careervine/public/docs/index.html`), update that page's copy in the same branch/PR as the behavior change — check the page proactively on every user-facing change, without being asked — because the docs subdomain is the product's public reference and it silently drifts stale otherwise (the page deploys with the app, so a behavior change merged without a copy update ships wrong documentation). (Preference set by Dawson, 2026-07-11, during CAR-76.)
+    > Absorbed into Workflows → Docs & copy drift, which extends it with the qstash-schedules cadence trigger and the conventions-doc surface.
+
+46. [PROCESS] Any change to what CareerVine persists about users or third parties — a new stored field, table, cache, log, third-party processor, or a change to deletion/retention behavior — must update the privacy policy (`careervine/src/app/privacy/page.tsx`) in the same branch/PR, checked proactively without being asked — because the policy is a public commitment that silently drifts false otherwise, and Google/Chrome-Web-Store verification both audit it against actual behavior. Extends rule 34's docs-drift guard to the privacy surface; rule 35 (no em dashes) applies to the page copy. (CAR-156, 2026-07-19.)
+    > Absorbed into Workflows → Docs & copy drift alongside rule 34.

@@ -17,7 +17,8 @@ import {
 
 /**
  * POST /api/cron/send-follow-ups
- * Called by QStash every 15 minutes. Processes due follow-up emails:
+ * Called by QStash every 10 minutes (see scripts/qstash-schedules.mjs, which is
+ * the only place the cadence is declared). Processes due follow-up emails:
  * - Checks for replies in the thread (cancels if replied)
  * - Sends pending follow-ups via Gmail as replies
  * - Handles disconnected Gmail gracefully
