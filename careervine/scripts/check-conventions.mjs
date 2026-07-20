@@ -162,6 +162,48 @@ const CLIENT_FACTORY = /\b(createSupabase\w*Client|createBrowserClient|createSer
 
 const CAS_OPT_OUT = /\/\/\s*cas-checked:/;
 
+// The full PostgREST filter alphabet, not a sample of it. The original short
+// list (eq|is|neq|in|gt|gte|lt|lte|match|filter) could not see a claim guarded
+// by .contains() or .or(), both of which exist in this repo.
+const FILTER_OP =
+  /\.(eq|is|neq|in|gt|gte|lt|lte|match|filter|not|or|like|ilike|contains|containedBy|overlaps|textSearch|rangeGt|rangeGte|rangeLt|rangeLte|rangeAdjacent)\s*\(/;
+
+/**
+ * True when the `.update()` feeding this `.select()` passes a count option.
+ *
+ * Asked of the update call itself via the AST rather than by regexing the whole
+ * chain text: a chain-wide match is position-blind, so `count` appearing
+ * anywhere in the prefix (inside a filter argument, a nested call, an unrelated
+ * object literal) would read as compliant even though the update declares none.
+ * A non-literal second argument is treated as compliant, since its contents are
+ * unknowable statically and flagging it would punish correct code.
+ */
+function updateDeclaresCount(selectNode) {
+  let cur = selectNode.expression; // PropertyAccessExpression: <prefix>.select
+  while (cur) {
+    if (ts.isPropertyAccessExpression(cur)) {
+      cur = cur.expression;
+      continue;
+    }
+    if (ts.isCallExpression(cur)) {
+      const callee = cur.expression;
+      if (ts.isPropertyAccessExpression(callee) && callee.name.text === "update") {
+        const opts = cur.arguments[1];
+        if (!opts) return false;
+        if (!ts.isObjectLiteralExpression(opts)) return true; // opaque, assume intentional
+        return opts.properties.some((p) => {
+          const n = p.name;
+          return n && (ts.isIdentifier(n) || ts.isStringLiteral(n)) && n.text === "count";
+        });
+      }
+      cur = callee;
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+
 {
   const violations = [];
   const files = [...walk("src/lib", []), ...walk("src/app", []), ...walk("src/mcp", [])];
@@ -175,14 +217,11 @@ const CAS_OPT_OUT = /\/\/\s*cas-checked:/;
         const method = node.expression.name.text;
         if (method === "select") {
           const chain = node.getText(sf);
-          // Walk up to the full statement so the whole chain is visible even
-          // when it spans lines, then look for the update+filter+select shape.
-          if (/\.update\s*\(/.test(chain) && /\.(eq|is|neq|in|gt|gte|lt|lte|match|filter)\s*\(/.test(chain)) {
-            if (!/count\s*:\s*["']exact["']/.test(chain)) {
-              const stmt = ts.findAncestor(node, ts.isStatement) ?? node;
-              if (!CAS_OPT_OUT.test(leadingComments(sf, stmt))) {
-                violations.push(`${r}:${lineOf(sf, node)}: ${oneLine(chain)}`);
-              }
+          // The chain prefix, which is everything left of this .select().
+          if (/\.update\s*\(/.test(chain) && FILTER_OP.test(chain)) {
+            const stmt = ts.findAncestor(node, ts.isStatement) ?? node;
+            if (!updateDeclaresCount(node) && !CAS_OPT_OUT.test(leadingComments(sf, stmt))) {
+              violations.push(`${r}:${lineOf(sf, node)}: ${oneLine(chain)}`);
             }
           }
         }
@@ -213,6 +252,22 @@ const CAS_OPT_OUT = /\/\/\s*cas-checked:/;
 
 const TOLERATED = /\/\/\s*error-tolerated:/;
 
+/** Every ObjectBindingPattern reachable in a binding tree, at any nesting. */
+function* objectPatterns(name) {
+  if (ts.isObjectBindingPattern(name)) {
+    yield name;
+    for (const el of name.elements) {
+      if (el.name && !ts.isIdentifier(el.name)) yield* objectPatterns(el.name);
+    }
+  } else if (ts.isArrayBindingPattern(name)) {
+    for (const el of name.elements) {
+      if (ts.isBindingElement(el) && el.name && !ts.isIdentifier(el.name)) {
+        yield* objectPatterns(el.name);
+      }
+    }
+  }
+}
+
 {
   const violations = [];
   const files = [...walk("src/lib", []), ...walk("src/app/api/cron", [])];
@@ -223,13 +278,7 @@ const TOLERATED = /\/\/\s*error-tolerated:/;
 
     for (const node of collect(sf)) {
       if (!ts.isVariableDeclaration(node)) continue;
-      if (!node.name || !ts.isObjectBindingPattern(node.name)) continue;
-
-      const bound = node.name.elements.map((el) =>
-        ts.isIdentifier(el.propertyName ?? el.name) ? (el.propertyName ?? el.name).getText(sf) : "",
-      );
-      if (!bound.includes("data")) continue;
-      if (bound.includes("error")) continue;
+      if (!node.name) continue;
 
       // `must(await q)` throws on error, so it needs no error binding.
       const init = node.initializer ? node.initializer.getText(sf) : "";
@@ -241,7 +290,20 @@ const TOLERATED = /\/\/\s*error-tolerated:/;
       const stmt = ts.findAncestor(node, ts.isStatement) ?? node;
       if (TOLERATED.test(leadingComments(sf, stmt))) continue;
 
-      violations.push(`${r}:${lineOf(sf, node)}: ${oneLine(node.getText(sf), 110)}`);
+      // Every object pattern in the binding tree, not just the top level.
+      // `const [{ data: a }, { data: b }] = await Promise.all([...])` binds two
+      // responses inside an ArrayBindingPattern, and the old top-level-only
+      // check could never see either: the declaration's name is an
+      // ArrayBindingPattern, and the inner patterns are BindingElements rather
+      // than VariableDeclarations. That blind spot hid 9 live unchecked reads.
+      for (const pattern of objectPatterns(node.name)) {
+        const bound = pattern.elements.map((el) =>
+          ts.isIdentifier(el.propertyName ?? el.name) ? (el.propertyName ?? el.name).getText(sf) : "",
+        );
+        if (!bound.includes("data")) continue;
+        if (bound.includes("error")) continue;
+        violations.push(`${r}:${lineOf(sf, node)}: ${oneLine(pattern.getText(sf), 110)}`);
+      }
     }
   }
   report(
@@ -299,6 +361,82 @@ const MCP_DB_BASELINE = 45;
   }
 }
 
+// ── (e) every MCP server launch carries --conditions=react-server ────────
+//
+// The MCP server's import graph reaches server-only-fenced modules under
+// src/lib, and `server-only` THROWS unless resolved through React's server
+// layer. tsx only applies that layer when given --conditions=react-server, so
+// every way of launching careervine-mcp/server.ts needs the flag.
+//
+// This guard exists because the flag was originally added to ONE of three
+// launch surfaces (npm start), leaving .mcp.json — the entry point Claude Code
+// actually uses — and the e2e harness dead at startup. Nothing caught it: the
+// mcp CI job runs `tsc --noEmit`, which never evaluates a module. A launch
+// surface is exactly the kind of thing that gets added later and silently
+// misses a flag, so it is asserted here rather than trusted to review.
+
+const REACT_SERVER_FLAG = "--conditions=react-server";
+const MCP_ENTRY = "careervine-mcp/server.ts";
+
+/** Remove block and line comments so prose cannot satisfy a code check. */
+function stripComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+{
+  const violations = [];
+
+  /** Every launch surface: [label, does it launch the MCP server, its full text]. */
+  const surfaces = [];
+
+  // .mcp.json — Claude Code's registration, args array per server.
+  try {
+    const raw = readFileSync("../.mcp.json", "utf8");
+    const parsed = JSON.parse(raw);
+    for (const [name, cfg] of Object.entries(parsed.mcpServers ?? {})) {
+      const args = Array.isArray(cfg?.args) ? cfg.args : [];
+      const launchesMcp = args.some((a) => typeof a === "string" && a.endsWith("server.ts"));
+      if (launchesMcp) surfaces.push([`.mcp.json (mcpServers.${name})`, args.join(" ")]);
+    }
+  } catch {
+    // Absent or unparseable .mcp.json is not this guard's business.
+  }
+
+  // careervine-mcp/package.json — any script that runs server.ts.
+  try {
+    const parsed = JSON.parse(readFileSync("../careervine-mcp/package.json", "utf8"));
+    for (const [name, cmd] of Object.entries(parsed.scripts ?? {})) {
+      if (typeof cmd === "string" && cmd.includes("server.ts")) {
+        surfaces.push([`careervine-mcp/package.json (scripts.${name})`, cmd]);
+      }
+    }
+  } catch {
+    // no-op
+  }
+
+  // careervine-mcp/scripts/*.ts — harnesses that spawn the server as a child.
+  // Comments are stripped first: this very file documents the flag in prose
+  // directly above the args array, and a plain text match would let that prose
+  // satisfy the check after someone deleted the actual argument.
+  for (const file of walk("../careervine-mcp/scripts", [])) {
+    const code = stripComments(readFileSync(file, "utf8"));
+    if (code.includes("server.ts")) surfaces.push([rel(file), code]);
+  }
+
+  for (const [label, text] of surfaces) {
+    if (!text.includes(REACT_SERVER_FLAG)) violations.push(`${label}: launches the MCP server without ${REACT_SERVER_FLAG}`);
+  }
+
+  report(
+    "MCP launch missing react-server condition",
+    violations,
+    `Every launch of ${MCP_ENTRY} must pass ${REACT_SERVER_FLAG}. Without it,\n` +
+      "  `server-only` resolves to its throwing entry point and the server dies during\n" +
+      "  module evaluation — before any runtime guard can report why. The mcp CI job only\n" +
+      "  typechecks, so this failure is otherwise invisible until someone tries to use it.",
+  );
+}
+
 // ── Report ───────────────────────────────────────────────────────────────
 
 if (failures.length > 0) {
@@ -310,4 +448,10 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log("✓ conventions guard: barrel freeze, CAS shape, unchecked reads, MCP builders all clean.");
+// Scope is named rather than asserted globally: each rule covers a specific
+// tree, and a bare "all clean" would overstate what was actually inspected.
+console.log(
+  "✓ conventions guard: queries.ts barrel frozen; no module-scope client in src/lib/{data,rules};\n" +
+    "  CAS shape clean in src/{lib,app,mcp}; unchecked reads clean in src/lib + src/app/api/cron;\n" +
+    `  ${MCP_DB} within its ${MCP_DB_BASELINE} baseline; MCP launches carry ${REACT_SERVER_FLAG}.`,
+);

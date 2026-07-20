@@ -5,6 +5,7 @@
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { wrapUntrusted } from "@/lib/ai/untrusted";
+import { must } from "@/lib/data/client";
 
 export interface ContactContext {
   contactName: string;
@@ -25,9 +26,9 @@ export async function getContactContext(
 ): Promise<ContactContext> {
   const service = createSupabaseServiceClient();
 
-  // Run user profile + contact queries in parallel
-  const [{ data: userProfile }, { data: contact }] = await Promise.all([
-    service.from("users").select("first_name, last_name, email").eq("id", userId).single(),
+  // contactId <= 0 is the ai-write "sender info only" path — resolve that leg
+  // to null rather than a synthetic response, so must() wraps a real read.
+  const contactPromise =
     contactId > 0
       ? service.from("contacts").select(`
           name, industry, notes, met_through, intro_goal, contact_status, expected_graduation,
@@ -41,8 +42,15 @@ export async function getContactContext(
             degree, field_of_study, start_year, end_year,
             schools(name)
           )
-        `).eq("id", contactId).eq("user_id", userId).single()
-      : Promise.resolve({ data: null }),
+        `).eq("id", contactId).eq("user_id", userId).maybeSingle().then(must)
+      : Promise.resolve(null);
+
+  // Run user profile + contact queries in parallel. maybeSingle() keeps "no
+  // such row" expressible (draft-intro turns an absent contact into its 404)
+  // while must() stops a failed read from impersonating that absence.
+  const [userProfile, contact] = await Promise.all([
+    service.from("users").select("first_name, last_name, email").eq("id", userId).maybeSingle().then(must),
+    contactPromise,
   ]);
 
   const senderName = userProfile

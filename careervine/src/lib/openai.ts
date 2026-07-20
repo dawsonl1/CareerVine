@@ -241,8 +241,10 @@ async function evaluateAccessRow(
 /**
  * Whether the user is entitled to CareerVine's shared key — and if not,
  * whether that's because their trial expired. Cached 60s. Fails CLOSED on any
- * lookup error — the spend-safe default. Only consulted when a personal key is
- * unusable, so the common BYO-active path never pays for this.
+ * lookup error — the spend-safe default — but such a denial is NOT cached, so
+ * a transient failure costs one request rather than a whole TTL window. Only
+ * consulted when a personal key is unusable, so the common BYO-active path
+ * never pays for this.
  *
  * Side effects (CAR-51): arms the 24h trial for row-less users and lazily
  * retires expired grants — so this must only run from real AI-use paths,
@@ -284,7 +286,12 @@ async function resolveSharedAccess(userId: string): Promise<SharedAccessState> {
       }
     }
   } catch {
-    state = { granted: false, trialExpired: false };
+    // Fail closed for THIS request only (CAR-158). The reads above throw on
+    // transient DB failure, which says nothing about the user's entitlement —
+    // caching that denial would deny AI for the full TTL, where a bare read
+    // error used to recover on the very next request. Return without writing
+    // the cache so the next call re-reads.
+    return { granted: false, trialExpired: false };
   }
 
   sharedAccessCache.set(userId, {

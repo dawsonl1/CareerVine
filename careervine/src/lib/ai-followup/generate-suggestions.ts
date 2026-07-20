@@ -62,21 +62,24 @@ export async function fetchSuggestionCandidates(userId: string): Promise<Suggest
   // suggestion path shares one source of truth with the app — rather than the phantom
   // `get_contacts_with_last_touch` RPC this used to call, which never existed in
   // production and silently left every contact "never contacted" (CAR-119).
-  const [{ data: interactionRows }, { data: meetingLinks }] = await Promise.all([
-    service.from("interactions").select("contact_id, interaction_date").in("contact_id", contactIds),
-    service.from("meeting_contacts").select("contact_id, meetings(meeting_date)").in("contact_id", contactIds),
+  // must() on both legs: empty-on-error here reproduces that exact regression,
+  // since a dropped read is indistinguishable from "this contact has no touches"
+  // and fires first-touch suggestions at people the user already contacted.
+  const [interactionRows, meetingLinks] = await Promise.all([
+    service.from("interactions").select("contact_id, interaction_date").in("contact_id", contactIds).then(must),
+    service.from("meeting_contacts").select("contact_id, meetings(meeting_date)").in("contact_id", contactIds).then(must),
   ]);
 
   const lastTouch = new Map<number, string>();
   const interactionCount = new Map<number, number>();
-  for (const row of interactionRows || []) {
+  for (const row of interactionRows) {
     interactionCount.set(row.contact_id, (interactionCount.get(row.contact_id) || 0) + 1);
     const date = row.interaction_date;
     if (!date) continue;
     const prev = lastTouch.get(row.contact_id);
     if (!prev || date > prev) lastTouch.set(row.contact_id, date);
   }
-  for (const ml of (meetingLinks || []) as unknown as { contact_id: number; meetings: { meeting_date: string } | null }[]) {
+  for (const ml of meetingLinks as unknown as { contact_id: number; meetings: { meeting_date: string } | null }[]) {
     const date = ml.meetings?.meeting_date;
     if (!date) continue;
     const prev = lastTouch.get(ml.contact_id);
@@ -507,9 +510,6 @@ export async function generateSuggestions(userId: string): Promise<SuggestionsRe
     contactsWithEmail.set(row.contact_id, true);
   }
 
-  type _Probe = NonNullable<typeof waitingOnResult.data>[number]["contacts"];
-  const _probe: _Probe = 1 as never;
-  void _probe;
   const waitingOnItems: WaitingOnItem[] = (waitingOnResult.data || []).map((row) => ({
     ...row,
     contacts: Array.isArray(row.contacts) ? row.contacts[0] || null : row.contacts,

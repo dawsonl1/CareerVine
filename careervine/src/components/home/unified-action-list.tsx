@@ -143,10 +143,8 @@ function NotePopover({
   onSave,
   onCancel,
 }: {
-  // CAR-158: `void | Promise<void>`, not `void`. The only call site passes an
-  // async handler, so the `await` in handleSave was awaiting a value typed
-  // `void` — a no-op that let a rejection escape unhandled and left the popover
-  // stuck in its saving state forever.
+  // CAR-158: widened from `void` because the only call site passes an async
+  // handler. Type honesty, not a behaviour fix: the await was always real.
   onSave: (note: string) => void | Promise<void>;
   onCancel: () => void;
 }) {
@@ -179,8 +177,9 @@ function NotePopover({
     try {
       await onSave(text.trim());
     } finally {
-      // Now that the await is real, a failed save must release the button
-      // rather than leaving it disabled with no way back.
+      // Defensive. Today the only `onNote` supplied (handleNewContactNote)
+      // catches its own errors and always resolves, so `saving` cannot actually
+      // stick; this keeps that true if the handler ever starts propagating.
       setSaving(false);
     }
   };

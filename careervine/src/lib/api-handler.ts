@@ -165,6 +165,18 @@ type RouteHandler<TResponse = unknown> = (
  * Inferring beats hand-writing the type in a shared module: the declaration
  * cannot drift from what the handler actually returns, because it IS what the
  * handler returns.
+ *
+ * Two limits, both deliberate:
+ *  - Meaningful only for routes that return a plain JSON object. A handler that
+ *    returns a NextResponse directly (redirects, streams — today gmail/auth and
+ *    gmail/callback) infers TResponse as NextResponse, so the resulting type
+ *    describes the response object rather than a wire shape. Do not export it
+ *    for those routes.
+ *  - The Exclude strips ApiErrorBody out of the union, so a success shape that
+ *    itself carries a REQUIRED `error: string` would be excluded too and
+ *    collapse to `never`. No route does that today, and the collapse would
+ *    surface at the consumer rather than at the route, so prefer a different
+ *    field name (`message`, `reason`) for a success payload.
  */
 export type InferApiResponse<T> = T extends (
   ...args: never[]

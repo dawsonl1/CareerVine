@@ -6,7 +6,7 @@
  * the `@ts-expect-error` below stops suppressing a real error, becomes an
  * "unused directive" (TS2578), and fails the build.
  */
-import { withApiHandler, type InferApiResponse } from "@/lib/api-handler";
+import { withApiHandler, type InferApiResponse, type ApiErrorBody } from "@/lib/api-handler";
 
 // Authenticated route (no authOptional): `user` is a non-null `User`, so
 // `user.id` needs no guard. If this stopped compiling, the default typing broke.
@@ -63,12 +63,20 @@ const wrongCount: CountResponse = { total: 5 };
 void wrongCount;
 
 // InferApiResponse strips ApiErrorBody out of the union, so consumers get the
-// success shape alone rather than `TResponse | ApiErrorBody`. Were the error
-// body leaking through, `count` would not be a required property and this
-// empty-object assignment would compile.
-// @ts-expect-error the success shape requires `count`; ApiErrorBody must not widen it
-const notAnError: CountResponse = {};
-void notAnError;
+// success shape alone rather than `TResponse | ApiErrorBody`.
+//
+// This has to be an assignability check against a DECLARED value, not an object
+// literal. An earlier version asserted `const x: CountResponse = {}` and was
+// inert: ApiErrorBody declares `error: string` as REQUIRED, so `{}` is not
+// assignable to it either — the directive stayed "used" even with the Exclude
+// removed, TS2578 never fired, and the guard could not trip. `declare const`
+// tests real assignability instead of excess-property freshness, so dropping
+// the Exclude makes this line compile, the directive go unused, and the build
+// fail — which is the whole point of the assertion.
+declare const errBody: ApiErrorBody;
+// @ts-expect-error ApiErrorBody must not be assignable to the inferred success shape
+const leakedError: CountResponse = errBody;
+void leakedError;
 
 // A handler declaring an explicit return type is checked against it, so a
 // route that stops returning its declared shape fails tsc at the route rather

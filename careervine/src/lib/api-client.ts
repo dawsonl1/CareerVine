@@ -83,7 +83,20 @@ async function toApiError(res: Response): Promise<ApiRequestError> {
 export async function apiFetch<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, { credentials: "same-origin", ...init });
   if (!res.ok) throw await toApiError(res);
-  return (await res.json()) as T;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    // A 2xx whose body is empty or not JSON (a 204, or an edge/proxy response
+    // that never reached the route). Bare res.json() would reject with a
+    // SyntaxError, which callers catching ApiRequestError would miss entirely.
+    // Mirrors the guard toApiError already applies to the failure path, so
+    // everything thrown from this module is an ApiRequestError.
+    throw new ApiRequestError(
+      "The server returned an unreadable response. Please try again.",
+      res.status,
+      "unreadable_response",
+    );
+  }
 }
 
 /**

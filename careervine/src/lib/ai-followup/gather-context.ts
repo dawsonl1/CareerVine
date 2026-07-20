@@ -184,14 +184,15 @@ export async function gatherContactContext(
     .select("interaction_date, interaction_type, summary")
     .eq("contact_id", contactId)
     .order("interaction_date", { ascending: false })
-    .limit(MAX_INTERACTIONS);
+    .limit(MAX_INTERACTIONS)
+    .then(must);
 
-  const [meetings, { data: interactionRows }] = await Promise.all([
+  const [meetings, interactionRows] = await Promise.all([
     meetingsPromise,
     interactionsPromise,
   ]);
 
-  const interactions: InteractionContext[] = (interactionRows || []).map((i) => ({
+  const interactions: InteractionContext[] = interactionRows.map((i) => ({
     date: i.interaction_date,
     type: i.interaction_type,
     summary: i.summary,

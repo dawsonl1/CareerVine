@@ -700,7 +700,22 @@ export async function importPeopleChunk(
       for (const row of sinks.education) await supabase.from("contact_schools").insert(row);
     }
   }
-  await addTagsToContacts(supabase, userId, sinks.tags);
+  // addTagsToContacts throws on a failed read (must(), CAR-158), but by here
+  // the chunk's contacts are already COMMITTED — letting it escape would
+  // discard results for rows that are in the database. Degrade to a per-person
+  // warning instead, matching the email/education flushes above.
+  try {
+    await addTagsToContacts(supabase, userId, sinks.tags);
+  } catch (err) {
+    // PostgREST errors are message-bearing objects, not Error instances.
+    const message =
+      (err instanceof Error ? err.message : (err as { message?: string })?.message) ?? "tag write failed";
+    for (const w of working) {
+      if (w.contactId != null && sinks.tags.has(w.contactId)) {
+        w.result.warnings.push(`Tags not applied: ${message}`);
+      }
+    }
+  }
 
   // ── Best-effort photos within a strict budget ──
   const deadline = Date.now() + PHOTO_BUDGET_MS;

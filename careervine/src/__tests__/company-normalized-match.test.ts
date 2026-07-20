@@ -24,7 +24,9 @@ interface QueryState {
 
 type Responder = (
   state: QueryState,
-) => { data?: unknown; error?: { message: string } | null } | undefined;
+) =>
+  | { data?: unknown; error?: { message: string } | null; count?: number | null }
+  | undefined;
 
 function createMockClient(respond: Responder) {
   const calls: QueryState[] = [];
@@ -33,7 +35,7 @@ function createMockClient(respond: Responder) {
     calls.push(state);
     const resolve = () => {
       const r = respond(state) ?? {};
-      return { data: r.data ?? null, error: r.error ?? null };
+      return { data: r.data ?? null, error: r.error ?? null, count: r.count ?? null };
     };
     const builder: Record<string, unknown> = {};
     const chain = (method: string) => (...args: unknown[]) => {
@@ -43,7 +45,12 @@ function createMockClient(respond: Responder) {
     Object.assign(builder, {
       select: chain("select"),
       insert(p: unknown) { state.op = "insert"; state.payload = p; return builder; },
-      update(p: unknown) { state.op = "update"; state.payload = p; return builder; },
+      update(p: unknown, opts?: unknown) {
+        state.op = "update";
+        state.payload = p;
+        state.filters.push({ method: "updateOpts", args: [opts] });
+        return builder;
+      },
       delete() { state.op = "delete"; return builder; },
       eq: chain("eq"), neq: chain("neq"), in: chain("in"), is: chain("is"),
       ilike: chain("ilike"), like: chain("like"),
@@ -192,5 +199,137 @@ describe("findOrCreateCompany normalized matching (CAR-44)", () => {
         c.filters.some((f) => (f.method === "in" || f.method === "like") && f.args[0] === "name_normalized"),
     );
     expect(probes).toHaveLength(0);
+  });
+});
+
+// ── claimCompanyRow: count-based CAS + primary-key re-read ──────────────
+
+/**
+ * CAR-158: claiming a linkedin_company_id onto a name-matched row WRITES the
+ * same column its race guard filters on, so success is read from the row count
+ * and the fresh row comes from a separate primary-key re-read (rule 17). These
+ * pin all four outcomes — the win, the degraded win, the lost race, and the
+ * unique-violation — since a regression here silently attaches contacts to the
+ * wrong company row rather than failing.
+ */
+
+const CLAIM_ID = "4840301";
+/** Hand-named row the resolver finds by normalized name; no LinkedIn identity yet. */
+const UNCLAIMED = {
+  id: 4679,
+  name: "Rubrik",
+  linkedin_company_id: null,
+  linkedin_url: null,
+  universal_name: null,
+  logo_url: null,
+};
+/** The same row after a won claim, as the primary-key re-read would see it. */
+const CLAIMED = { ...UNCLAIMED, linkedin_company_id: CLAIM_ID };
+/** A different row that already owns the id — what a lost race resolves to. */
+const ID_OWNER = { ...UNCLAIMED, id: 5001, name: "Rubrik, Inc.", linkedin_company_id: CLAIM_ID };
+
+type MockResponse = { data?: unknown; error?: { message: string }; count?: number };
+
+/**
+ * Drives findOrCreateCompany down the name-match → claim path. The stable-id
+ * probe and claimCompanyRow's owner lookup are the same query shape
+ * (select.eq("linkedin_company_id").maybeSingle()), so they are told apart by
+ * order: the first is always the probe, which must miss for the claim to run.
+ */
+function claimResponder(opts: { claim: MockResponse; reread?: MockResponse; owner?: MockResponse }): Responder {
+  let idSelects = 0;
+  return (state) => {
+    if (state.table !== "companies") return { data: [] };
+    if (state.op === "update") return opts.claim;
+    if (state.op === "select") {
+      const eqs = state.filters.filter((f) => f.method === "eq");
+      if (eqs.some((f) => f.args[0] === "name_normalized")) return { data: [UNCLAIMED] };
+      if (eqs.some((f) => f.args[0] === "id")) return opts.reread ?? { data: null };
+      if (eqs.some((f) => f.args[0] === "linkedin_company_id")) {
+        idSelects += 1;
+        return idSelects === 1 ? { data: null } : (opts.owner ?? { data: null });
+      }
+    }
+    return { data: [] };
+  };
+}
+
+const CLAIM_INPUT = { name: "Rubrik", linkedin_company_id: CLAIM_ID };
+
+const idOwnerLookups = (calls: QueryState[]) =>
+  calls.filter(
+    (c) => c.op === "select" && c.filters.some((f) => f.method === "eq" && f.args[0] === "linkedin_company_id"),
+  );
+
+const pkRereads = (calls: QueryState[]) =>
+  calls.filter((c) => c.op === "select" && c.filters.some((f) => f.method === "eq" && f.args[0] === "id"));
+
+describe("claimCompanyRow (CAR-158)", () => {
+  it("returns the freshly re-read row when the claim wins", async () => {
+    const { client, calls } = createMockClient(claimResponder({ claim: { count: 1 }, reread: { data: CLAIMED } }));
+
+    const result = await findOrCreateCompany(client, CLAIM_INPUT);
+    expect(result).toMatchObject({ id: 4679, linkedin_company_id: CLAIM_ID });
+
+    // Success is read from the count, and the race guard still filters on the
+    // very column the patch writes — that pairing is the whole point.
+    const update = calls.find((c) => c.op === "update");
+    expect(update?.payload).toMatchObject({ linkedin_company_id: CLAIM_ID });
+    expect(update?.filters.find((f) => f.method === "updateOpts")?.args[0]).toEqual({ count: "exact" });
+    expect(update?.filters.find((f) => f.method === "is")?.args).toEqual(["linkedin_company_id", null]);
+
+    // Re-read is by primary key only; a won claim never needs the owner lookup.
+    expect(pkRereads(calls)).toHaveLength(1);
+    expect(idOwnerLookups(calls)).toHaveLength(1); // the stable-id probe only
+    expect(calls.filter((c) => c.op === "insert")).toHaveLength(0);
+  });
+
+  it("falls through to the owner lookup when the post-claim re-read fails", async () => {
+    const { client, calls } = createMockClient(
+      claimResponder({
+        claim: { count: 1 },
+        reread: { data: null, error: { message: "read timeout" } },
+        owner: { data: CLAIMED },
+      }),
+    );
+
+    // The claim still landed, so the id owner IS this row — the degraded path
+    // returns the same company, not a different one.
+    const result = await findOrCreateCompany(client, CLAIM_INPUT);
+    expect(result).toMatchObject({ id: 4679, linkedin_company_id: CLAIM_ID });
+    expect(pkRereads(calls)).toHaveLength(1);
+    expect(idOwnerLookups(calls)).toHaveLength(2); // probe + owner lookup
+  });
+
+  it("resolves to the id owner when the claim loses the race (count 0)", async () => {
+    const { client, calls } = createMockClient(claimResponder({ claim: { count: 0 }, owner: { data: ID_OWNER } }));
+
+    const result = await findOrCreateCompany(client, CLAIM_INPUT);
+    expect(result).toMatchObject({ id: 5001, linkedin_company_id: CLAIM_ID });
+    // A lost claim must not re-read the row it failed to claim.
+    expect(pkRereads(calls)).toHaveLength(0);
+    expect(idOwnerLookups(calls)).toHaveLength(2);
+  });
+
+  it("resolves to the id owner when the claim update errors (unique violation)", async () => {
+    const { client, calls } = createMockClient(
+      claimResponder({
+        claim: { error: { message: 'duplicate key value violates unique constraint "companies_linkedin_company_id_key"' } },
+        owner: { data: ID_OWNER },
+      }),
+    );
+
+    const result = await findOrCreateCompany(client, CLAIM_INPUT);
+    expect(result).toMatchObject({ id: 5001, linkedin_company_id: CLAIM_ID });
+    expect(pkRereads(calls)).toHaveLength(0);
+    // The error must never be swallowed into a bogus insert.
+    expect(calls.filter((c) => c.op === "insert")).toHaveLength(0);
+  });
+
+  it("keeps the name-matched row when both the claim and the owner lookup come up empty", async () => {
+    const { client } = createMockClient(claimResponder({ claim: { count: 0 }, owner: { data: null } }));
+
+    const result = await findOrCreateCompany(client, CLAIM_INPUT);
+    expect(result).toMatchObject({ id: 4679, linkedin_company_id: null });
   });
 });

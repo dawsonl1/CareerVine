@@ -96,6 +96,21 @@ describe("apiFetch", () => {
       message: "Something went wrong. Please try again.",
     });
   });
+
+  it("wraps an unreadable 2xx body as ApiRequestError, never a bare SyntaxError", async () => {
+    // A 204, or an edge response that never reached the route. Callers catch
+    // ApiRequestError; a raw SyntaxError would slip straight past them.
+    mockFetch({
+      ok: true,
+      status: 204,
+      json: async () => {
+        throw new SyntaxError("Unexpected end of JSON input");
+      },
+    });
+    const err = await apiFetch("/api/x").catch((e: unknown) => e);
+    expect(isApiRequestError(err)).toBe(true);
+    expect(err).toMatchObject({ status: 204, code: "unreadable_response" });
+  });
 });
 
 describe("apiSend", () => {

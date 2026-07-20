@@ -358,10 +358,13 @@ function QuickAddCard({
   onCancel,
 }: {
   draft: NewEventDraft;
-  // CAR-158: `void | Promise<void>`, not `void`. handleSaveNewEvent is async,
-  // so the `await` below was awaiting a value typed `void` — the surrounding
-  // try/catch could never fire and a failed create-event surfaced as an
-  // unhandled rejection instead of the "Failed to create event" message.
+  // CAR-158: widened from `void` because the only call site
+  // (handleSaveNewEvent) is async. Type honesty, NOT a behaviour fix: type
+  // annotations erase, so at runtime the `await` below always received a real
+  // Promise and the try/catch always caught a failed create-event. The old
+  // annotation made that `await` look redundant, which `await-thenable` now
+  // flags and which a future cleanup could have "simplified" away — and THAT
+  // would have killed the error path for real.
   onSave: (title: string, addMeet: boolean) => void | Promise<void>;
   onCancel: () => void;
 }) {

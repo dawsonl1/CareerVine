@@ -353,10 +353,27 @@ async function runJob(): Promise<NextResponse> {
         break; // one send per sequence per tick
       } catch (err) {
         // Cap reached (429): revert to pending, retry next run — never cancel.
-        // Bounce (422) / other errors past the 3-day window: give up.
+        // Bounce (422) / any other policy refusal past the 3-day window: give
+        // up, the recipient itself is the problem and no retry can fix it.
+        //
+        // Only a POLICY verdict may reach the terminal 'cancelled' write, which
+        // nothing resurrects (it is absent from UNRESOLVED_FOLLOW_UP_MESSAGE_
+        // STATUSES, and the sequence then completes). sendTrackedEmail also
+        // throws on infrastructure failures — a PostgrestError from the daily-cap
+        // count, a must() throw from the recipient-provenance read, a Gmail 5xx —
+        // and those say nothing about whether the follow-up should ever be sent,
+        // so they always revert to pending regardless of age.
+        //
+        // Trade-off, stated rather than hidden: this removes the aged give-up for
+        // infrastructure errors, so a row failing for a persistent non-policy
+        // reason now retries every cycle indefinitely instead of being cancelled
+        // after 3 days. It surfaces as a repeating console.error above rather than
+        // a quiet drop, which is the correct direction: never silently cancel a
+        // user's follow-up because of a transient DB blip.
         const capped = err instanceof SendPolicyError && err.status === 429;
+        const policyRefusal = err instanceof SendPolicyError && !capped;
         console.error(`[cron] Failed to send follow-up ${msg.id}:`, err);
-        if (!capped && msg.scheduled_send_at < threeDaysAgo) {
+        if (policyRefusal && msg.scheduled_send_at < threeDaysAgo) {
           await service
             .from("email_follow_up_messages")
             .update({ status: "cancelled", claimed_at: null })
