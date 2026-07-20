@@ -24,10 +24,15 @@ export const GET = withApiHandler({
 
     const service = createSupabaseServiceClient();
 
+    // Junction embed (CAR-169): each message carries every tracked contact it
+    // is attributed to, so the inbox contact filter can surface a shared thread
+    // under all involved contacts, not just the denormalized primary. Plain
+    // embed (not !inner) so messages with no links yet still return.
+    const emailSelect = "*, email_message_contacts(contact_id)";
     const [emailsRes, trashedRes, hiddenRes, scheduledRes, followUpsRes, contactsRes, calendarEventsRes] = await Promise.all([
       service
         .from("email_messages")
-        .select("*")
+        .select(emailSelect)
         .eq("user_id", user.id)
         .eq("is_trashed", false)
         .eq("is_hidden", false)
@@ -36,7 +41,7 @@ export const GET = withApiHandler({
 
       service
         .from("email_messages")
-        .select("*")
+        .select(emailSelect)
         .eq("user_id", user.id)
         .eq("is_trashed", true)
         .order("date", { ascending: false })
@@ -44,7 +49,7 @@ export const GET = withApiHandler({
 
       service
         .from("email_messages")
-        .select("*")
+        .select(emailSelect)
         .eq("user_id", user.id)
         .eq("is_hidden", true)
         .eq("is_trashed", false)
@@ -88,7 +93,26 @@ export const GET = withApiHandler({
     if (scheduledRes.error) throw scheduledRes.error;
     if (followUpsRes.error) throw followUpsRes.error;
 
-    const emails = emailsRes.data || [];
+    // Flatten the junction embed into a contact_ids array (union with the
+    // denormalized primary, which covers rows not yet linked), and strip the
+    // embed so the row shape stays otherwise identical to before (CAR-169).
+    type EmbeddedRow = Record<string, unknown> & {
+      email_message_contacts?: Array<{ contact_id: number | null }> | null;
+      matched_contact_id?: number | null;
+    };
+    const withContactIds = (rows: EmbeddedRow[] | null | undefined) =>
+      (rows || []).map(({ email_message_contacts, ...rest }) => {
+        const ids = new Set<number>();
+        for (const l of email_message_contacts ?? []) {
+          if (l.contact_id != null) ids.add(l.contact_id);
+        }
+        if (rest.matched_contact_id != null) ids.add(rest.matched_contact_id);
+        return { ...rest, contact_ids: [...ids] };
+      });
+
+    const emails = withContactIds(emailsRes.data as EmbeddedRow[]);
+    const trashedEmails = withContactIds(trashedRes.data as EmbeddedRow[]);
+    const hiddenEmails = withContactIds(hiddenRes.data as EmbeddedRow[]);
     const scheduledEmails = scheduledRes.data || [];
     const followUpsRaw = followUpsRes.data || [];
 
@@ -122,14 +146,10 @@ export const GET = withApiHandler({
     );
 
     const idSet = new Set<number>();
-    for (const e of emails) {
-      if (e.matched_contact_id) idSet.add(e.matched_contact_id);
-    }
-    for (const e of trashedRes.data || []) {
-      if (e.matched_contact_id) idSet.add(e.matched_contact_id);
-    }
-    for (const e of hiddenRes.data || []) {
-      if (e.matched_contact_id) idSet.add(e.matched_contact_id);
+    // Every attributed contact (all junction links, CAR-169), so co-recipients
+    // on a shared thread also get their employment details loaded for the row.
+    for (const e of [...emails, ...trashedEmails, ...hiddenEmails]) {
+      for (const id of e.contact_ids) idSet.add(id);
     }
     for (const s of scheduledEnriched) {
       if (s.matched_contact_id) idSet.add(s.matched_contact_id);
@@ -169,8 +189,8 @@ export const GET = withApiHandler({
     return {
       success: true,
       emails,
-      trashedEmails: trashedRes.data || [],
-      hiddenEmails: hiddenRes.data || [],
+      trashedEmails,
+      hiddenEmails,
       scheduledEmails: scheduledEnriched,
       followUps,
       contactMap,
