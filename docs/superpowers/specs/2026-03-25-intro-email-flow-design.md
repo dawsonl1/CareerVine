@@ -1,3 +1,19 @@
+> **SUPERSEDED, do not trust.** This spec shipped (via `.claude/plans/22-intro-email-flow.md`)
+> and was then extended past its own scope, so it now describes the flow
+> inaccurately in two load-bearing ways:
+>
+> - Its premise that the intro email is AI-drafted no longer holds for the primary
+>   path. New users get template-based first emails with no AI entitlement at all,
+>   deliberately: see the header of `careervine/src/lib/onboarding/templates.ts`.
+>   The spec has no concept of a no-AI path.
+> - Its scope fence ("only for first outreach, only triggers from the intro
+>   button") is broken. The flow is also the terminal step of guided onboarding and
+>   is reachable from the Outreach shell and the MCP server.
+>
+> For current behavior read `careervine/src/components/intro-context-form.tsx`,
+> `careervine/src/app/api/ai/draft-intro/`, and the routes under
+> `careervine/src/app/api/gmail/follow-ups/`. Kept for provenance only (CAR-157).
+
 # Smart Intro Email Flow — Design Spec
 
 ## Problem

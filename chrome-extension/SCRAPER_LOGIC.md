@@ -1,3 +1,11 @@
+> **HISTORICAL - superseded, do not trust.** Written 2026-02-17 and never
+> updated. It documents a naive fixed-count `window.scrollTo` loop; the shipped
+> scraper uses `scrollToLoad()` in `chrome-extension/src/content/linkedin-scraper.js`,
+> which detects the inner scroll container and loads sections lazily. This file
+> also predates `chrome-extension/src/content/identify-sections.js` entirely.
+>
+> Read the scraper source instead. Kept for provenance only (CAR-157).
+
 # LinkedIn Text Scraper - Logic Documentation
 
 ## Overview

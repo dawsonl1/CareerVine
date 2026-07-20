@@ -1,3 +1,16 @@
+> **SUPERSEDED 2026-07-08 by `supabase/migrations/20260708000000_drop_onboarding.sql`
+> and CAR-50. Do not trust.** The feature this specs was deleted outright: that
+> migration drops the `user_onboarding` table with the note "the guided intro was
+> buggy and outdated; all app code for it is deleted." Nothing here describes
+> shipped behavior. The spec's signature mechanism, the `data-onboarding-target`
+> highlighting attribute, appears nowhere in the codebase, and no floating or
+> draggable guide card exists.
+>
+> A different onboarding was rebuilt in July 2026 and shares nothing with this
+> design: a `users.onboarding_state` column with resumable states, implemented in
+> `careervine/src/components/onboarding/` and `careervine/src/lib/onboarding/`.
+> Read those, not this. Kept for provenance only (CAR-157).
+
 # Onboarding Flow Design Spec
 
 ## Overview

@@ -1,3 +1,30 @@
+> **HISTORICAL - superseded, do not trust.** Written 2026-02-18 and not updated
+> since. It was largely executed, then overtaken, so it reads plausibly while
+> being wrong in load-bearing places. Do not use it to understand today's
+> calendar behavior; read `careervine/src/lib/calendar.ts`, the routes under
+> `careervine/src/app/api/calendar/`, and the migrations instead.
+>
+> Known divergences from shipped reality:
+>
+> - **Zoom integration (section 5) never shipped.** No `zoom_connections` table,
+>   no Zoom OAuth, no API calls. The `zoom_link` column exists but is only ever
+>   written as null.
+> - **Recurring-event ingestion was repaired after shipping.** Section 19 assumed
+>   Google returns recurring instances individually and never specified
+>   `singleEvents: true`; the initial implementation consequently cached series
+>   master rows next to their own instances, and
+>   `20260717040000_car152_calendar_sync_repair.sql` flipped ingestion to
+>   `singleEvents: true` and purged the master rows as phantom duplicates.
+> - **Section 10's attendee auto-linking was a cross-tenant leak.** Matching ran
+>   globally across `contact_emails`, so calendar rows could point at another
+>   tenant's contact. Fixed under CAR-133; the CAR-152 migration nulls the bad
+>   rows.
+> - **The shipped schema is a superset** and the plan contradicts itself: its
+>   section 2 schema block lacks the `calendar_event_contacts` junction that its
+>   own section 21 later adds.
+>
+> Kept for provenance only (CAR-157).
+
 # Google Calendar Integration Plan
 
 ## Overview

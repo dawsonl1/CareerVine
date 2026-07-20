@@ -16,7 +16,15 @@ case "$fp" in
 esac
 [ -f "$fp" ] || exit 0
 
-ref=$(_ln_parse_ref "$(basename "$fp")"); [ -n "$ref" ] || ref=$(linear_issue_ref)
+ref=$(_ln_parse_ref "$(basename "$fp")")
+if [ -z "$ref" ]; then
+  # Ticket-less plans stamped HISTORICAL/SUPERSEDED are parked archive material,
+  # not active plans. Never bind them via the branch fallback: on a ticket branch
+  # that would OVERWRITE the ticket's real plan-sync comment with the archived
+  # doc and flip the issue to In Progress (CAR-157).
+  head -1 "$fp" | grep -qiE 'HISTORICAL|SUPERSEDED' && exit 0
+  ref=$(linear_issue_ref)
+fi
 [ -n "$ref" ] || exit 0
 
 body=$(printf '<!-- plan-sync -->\n📋 **Plan** — `%s`\n\n%s' "$(basename "$fp")" "$(cat "$fp")")

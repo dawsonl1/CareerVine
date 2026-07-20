@@ -44,7 +44,9 @@ describe("architecture boundaries", () => {
   });
 
   it("no API route imports from a sibling route module (alias, relative, or dynamic)", () => {
-    const routeFiles = fg.sync("**/route.ts", { cwd: apiDir, absolute: true });
+    // dot: true so a route inside a dot-directory can't dodge the boundary check
+    // (found via CAR-157's review — the sibling inventory had the same blindness).
+    const routeFiles = fg.sync("**/route.{ts,tsx,js,jsx,mjs}", { cwd: apiDir, absolute: true, dot: true });
     expect(routeFiles.length).toBeGreaterThan(50);
     const offenders = routeFiles.filter((f) => IMPORTS_SIBLING_ROUTE.test(readFileSync(f, "utf8")));
     expect(

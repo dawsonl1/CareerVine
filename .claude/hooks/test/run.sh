@@ -16,6 +16,8 @@ eq "parse filename"      "$(_ln_parse_ref '34-car-33-worktree-linear.md')"     "
 eq "parse already upper" "$(_ln_parse_ref 'CAR-7-thing')"                      "CAR-7"
 eq "parse multi picks 1" "$(_ln_parse_ref 'car-14-car-18-combo')"             "CAR-14"
 eq "parse none -> empty" "$(_ln_parse_ref 'main')"                            ""
+eq "parse no substring"  "$(_ln_parse_ref 'oscar-12-notes.md')"               ""
+eq "parse no calendar"   "$(_ln_parse_ref 'historical-google-calendar-plan.md')" ""
 
 # linear_rank: forward-only ordering; terminal/unknown => -1
 eq "rank Backlog"      "$(linear_rank Backlog)"        "0"

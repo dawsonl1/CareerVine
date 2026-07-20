@@ -20,6 +20,8 @@ Two authoritative parts:
 
 Canonical, stable process for this project — edited in place to stay accurate, and authoritative over older Learned Rules. Rules fully absorbed here live in `.claude/rules-archive.md`.
 
+> **Code conventions live in [`careervine/CONVENTIONS.md`](careervine/CONVENTIONS.md)**, not here. This file governs *process* (tickets, branches, PRs, deploys); that one covers *how to write code that fits* (API route shape, the data layer and its `db()`/`must()` seam, capability gating, cron wrappers, client-state rules, auth exceptions, test harness). It is a pointer index into authoritative code headers, so read the header it names rather than trusting a summary. Read it before your first non-trivial code change.
+
 ### Linear tickets
 
 Project is managed through Linear — team **"Career Vine"**, ticket prefix **`CAR-`**. All **product work** happens on a ticket (app, extension, MCP server, migrations, shipped tooling); meta-work on agent process files (CLAUDE.md, memory, config) needs none (rule 25).
@@ -75,8 +77,22 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 ### Plan files
 
 - **Location:** repo-root `.claude/plans/`.
-- **Naming:** `NN-CAR-XX-slug.md` — a two-digit sequential prefix (highest existing number + 1) plus the Linear ticket, e.g. `31-car-18-add-companies-without-contacts.md`. One plan file per ticket; never reuse a number.
+- **Naming:** the **Linear ticket is the unique key** — `CAR-XX-slug`. One plan file per ticket. A two-digit `NN-` prefix may lead the name (e.g. `31-car-18-add-companies-without-contacts.md`); it is an optional, approximate ordering hint, **not** an identifier.
+- **Never compute the prefix as "highest existing number + 1".** Parallel worktrees race on it: 89 of the 152 existing plan files already share a duplicated prefix (32 prefix numbers are used more than once). Nothing reads the prefix — `_ln_parse_ref` in `.claude/hooks/lib/linear.sh` extracts `CAR-XX` from the filename and ignores everything else — so a collision is harmless and a "correct" number is not worth a round trip. Pick any number at or above the current maximum, or omit it. **Do not renumber existing files.**
+- A plan with no ticket (historical or reference material parked here) just uses a descriptive name. The hook skips a ticket-less plan whose first line is marked HISTORICAL or SUPERSEDED; any **other** ticket-less plan written or edited on a ticket branch binds to that branch's issue via the fallback and will **overwrite its plan-sync comment** — so park archive material with the banner, and author real plans with the ticket in the filename.
 - Write a plan before starting any non-trivial feature.
+
+### Docs & copy drift
+
+Public text is a commitment that rots silently. Update it in the **same branch/PR** as the behavior change, checked proactively without being asked:
+
+- **Docs page** — `careervine/public/docs/index.html` (served at docs.careervine.app): whenever a change alters the user-visible behavior of any surface it describes. It deploys with the app, so behavior merged without a copy update ships wrong documentation.
+- **Privacy policy** — `careervine/src/app/privacy/page.tsx`: whenever what CareerVine persists about users or third parties changes (a new stored field, table, cache, log, or third-party processor, or a change to deletion/retention behavior). Google and the Chrome Web Store both audit it against actual behavior.
+- **Cadence copy** — a change to `careervine/scripts/qstash-schedules.mjs` requires re-checking everything that quotes a cadence. `cron-schedules-registry.test.ts` pins the cron expressions, the follow-up and scheduled-email cadence prose in `careervine/README.md` and the docs page (subject-anchored), the docs page's follow-ups feature-card tag, and the two interval cron routes' header comments — it fails on a miss in any of those. Copy quoting the **daily/weekly** schedules ("daily safety-net sweep", "once a week") is not pinned — that is yours to re-check.
+- **Conventions doc** — `careervine/CONVENTIONS.md`: when a convention changes or an authoritative header moves. It is a pointer index, not a map; keep it pointing at code rather than restating it. A test asserts every path it cites still exists.
+- **No em dashes** in user-facing copy (rule 35).
+
+The failure mode this guards against is real and recent: CAR-157 found the same "every 15 minutes" claim wrong in four files for a job that runs every 10, and an `ARCHITECTURE.md` so stale it still said "No automated tests exist" against ~2,100 passing tests. The falsification pass over the replacement doc's own first draft caught 8 false and 4 misleading claims before it shipped — write the claim, then try to break it.
 
 ### Testing, deploy & QA (pointers)
 
@@ -91,7 +107,7 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 
 <!-- New rules are appended below this line. Do not edit above this section. -->
 
-> **Archived:** rules 2, 6, 9, 11, 18–23 (superseded or absorbed into Workflows) → `.claude/rules-archive.md`, verbatim. Numbering is never reused — next new rule is 26.
+> **Archived:** rules 2, 6, 9, 11, 18–23, 34, 46 (superseded or absorbed into Workflows) → `.claude/rules-archive.md`, verbatim. Numbering is never reused — the next new rule takes the number after the highest below, never a gap.
 
 1. [PROCESS] Always rephrase user-provided rules into precise, unambiguous language optimized for LLM instruction-following before appending them — because the user's phrasing may be conversational, and rules are most effective when written as clear, direct imperatives with explicit scope and rationale.
 
@@ -142,8 +158,6 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 
 33. [TOOL] Never put `rewrites`/`redirects`/`headers` in `vercel.json` for this app — Vercel ignores them on Next.js projects, silently: the deploy succeeds and the routing rule simply doesn't exist. Define routing in `next.config.ts` (`rewrites().beforeFiles` for host-scoped rules like the docs.careervine.app → `/docs/index.html` rewrite). Verify host-based rewrites locally with `next build && next start` + `curl -H "Host: docs.careervine.app" localhost:3000/` before shipping, and always re-verify the production URL after deploy — the CAR-71 docs subdomain shipped "green" (build, tests, DNS, domain all passing) while serving the wrong content (2026-07-11).
 
-34. [PROCESS] Whenever a change alters the user-visible behavior of any surface described on docs.careervine.app (source: `careervine/public/docs/index.html`), update that page's copy in the same branch/PR as the behavior change — check the page proactively on every user-facing change, without being asked — because the docs subdomain is the product's public reference and it silently drifts stale otherwise (the page deploys with the app, so a behavior change merged without a copy update ships wrong documentation). (Preference set by Dawson, 2026-07-11, during CAR-76.)
-
 35. [STYLE] Never use em dashes (—) in user-facing copy anywhere on the website — this covers all rendered UI text, marketing/landing copy, the docs page (`careervine/public/docs/index.html`), emails, and any other product surface a user reads. Rewrite with a comma, colon, parentheses, or separate sentences instead. Scope is user-facing copy only: code, comments, commit messages, Linear/PR text, and these agent process files are unaffected. (Preference set by Dawson, 2026-07-11.)
 
 36. [PROCESS] Once Dawson has explicitly chosen among options you laid out, treat the decision as final and build it — surface a genuinely new consideration at most ONCE, and if he reaffirms, stop and implement without further comparisons or re-recommendations. Complements rule 31: brainstorm fully BEFORE the decision, commit fully AFTER. (During CAR-105 design Dawson picked the active-aware expiry model; re-recommending the simpler model after his pick, then again after he added the greyed-but-sendable requirement, made him repeat "do what I asked please" — re-defending a settled call wastes the scarce resource, his time.) (Correction from Dawson, 2026-07-12.)
@@ -164,8 +178,6 @@ Once installed, its hooks auto-invoke on any conflict. **If you hit a conflict a
 44. [PROCESS] When a review, audit, or agent surfaces a real problem, FIX it in the same pass — do not report it back as a judgment call, a "worth a look", or a decision for Dawson. Surfacing a genuinely new consideration once is allowed (rule 36), but a defect you have already diagnosed is work, not a question. If the fix is risky or changes behavior beyond the current scope, still make it and say plainly what changed and why, so he is reviewing a completed fix rather than being handed a task. (Correction from Dawson, 2026-07-19, after the CAR-151 deep review flagged a web-visible neglected-list change and a dossier payload change back to him instead of resolving them.)
 
 45. [PROCESS] Never report CI as green from the absence of failing checks — verify the expected JOB LIST is present and passing. A conflicted PR produces no GitHub Actions run at all (Actions builds against the merge ref, which GitHub cannot compute while the PR conflicts), so the checks UI shows only the non-Actions integrations (Vercel, GitGuardian) passing and reads as all-clear at a glance. The correct check is `gh run list` for a CI run on the head SHA plus `gh run view <id> --json jobs`, confirming web/mcp/types-drift/extension all present and successful; `gh pr checks` alone is insufficient because it cannot report a job that was never created. This nearly produced a false all-clear on CAR-151 (2026-07-19), where the branch sat conflicted across two separate main advances and CI silently stopped running both times. Corollary: `mergeStateStatus` of DIRTY/BLOCKED means investigate, never retry-and-hope — the first instinct there was to push an empty commit to "retrigger CI", which treated the symptom and would have left the conflict in place.
-
-46. [PROCESS] Any change to what CareerVine persists about users or third parties — a new stored field, table, cache, log, third-party processor, or a change to deletion/retention behavior — must update the privacy policy (`careervine/src/app/privacy/page.tsx`) in the same branch/PR, checked proactively without being asked — because the policy is a public commitment that silently drifts false otherwise, and Google/Chrome-Web-Store verification both audit it against actual behavior. Extends rule 34's docs-drift guard to the privacy surface; rule 35 (no em dashes) applies to the page copy. (CAR-156, 2026-07-19.)
 
 47. [TOOL] Never detect Vercel deployment status by parsing `vercel ls` output — the CLI writes the human status table (the `● Ready` column) to STDERR while stdout gets bare deployment URLs, so the ubiquitous `2>/dev/null | grep Ready` watcher matches nothing and hangs forever (this silently broke deploy-watching in session after session; proven and fixed 2026-07-19, CAR-168). Use `node scripts/wait-for-deploy.mjs --sha <commit>` instead: it polls the Vercel REST API for the deployment whose `meta.githubCommitSha` matches and exits 0 only on READY **plus** `aliasAssigned` (the actually-serving signal — READY alone can precede domain promotion), 1 on ERROR/CANCELED, 2 on timeout. For content-level proof, curl a string only the new build serves.
 

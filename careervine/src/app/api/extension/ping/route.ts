@@ -1,6 +1,6 @@
 // ── FIELD CONTRACT — shipped extensions call this; changes must be
 // backward-compatible. The body is empty (`extensionPingSchema`); the response
-// is `{ ok: true }`. Installed extensions POST this right after login and on
+// is `{ success: true }`. Installed extensions POST this right after login and on
 // popup-open auth checks — do not add required request fields.
 import { withApiHandler } from "@/lib/api-handler";
 import { handleOptions } from "@/lib/extension-auth";
