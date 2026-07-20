@@ -40,11 +40,14 @@ export function useInboxFilters({
   const [filterFollowUp, setFilterFollowUp] = useState<FilterFollowUp>("all");
   const [showFilters, setShowFilters] = useState(false);
 
-  // Contact list for the filter (search-based).
+  // Contact list for the filter (search-based). Built from every attributed
+  // contact (all junction links, CAR-169), so a contact who only ever appears
+  // as a co-recipient on a shared thread is still offered as a filter option.
   const contactsInEmails = useMemo(() => {
     const ids = new Set<number>();
     for (const e of emails) {
-      if (e.matched_contact_id) ids.add(e.matched_contact_id);
+      const linked = e.contact_ids ?? (e.matched_contact_id != null ? [e.matched_contact_id] : []);
+      for (const id of linked) ids.add(id);
     }
     return Array.from(ids)
       .map((id) => ({ id, name: contactMap[id] || `Contact #${id}` }))
@@ -61,9 +64,10 @@ export function useInboxFilters({
     (threads: EmailThread[]) => {
       let filtered = threads;
 
-      // Contact filter
+      // Contact filter: a shared thread matches under EVERY contact it involves
+      // (CAR-169), not just the denormalized primary.
       if (selectedContactId !== null) {
-        filtered = filtered.filter((t) => t.contactId === selectedContactId);
+        filtered = filtered.filter((t) => t.contactIds.includes(selectedContactId));
       }
 
       // Direction filter
@@ -110,7 +114,7 @@ export function useInboxFilters({
                 m.from_address?.toLowerCase().includes(q) ||
                 m.to_addresses?.some((a) => a.toLowerCase().includes(q))
             ) ||
-            (t.contactId && contactMap[t.contactId]?.toLowerCase().includes(q))
+            t.contactIds.some((id) => contactMap[id]?.toLowerCase().includes(q))
         );
       }
 

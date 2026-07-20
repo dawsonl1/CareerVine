@@ -127,6 +127,24 @@ describe('buildThreads', () => {
   it('returns an empty array for no messages', () => {
     expect(buildThreads([])).toEqual([]);
   });
+
+  it('unions contact_ids across a shared thread so it surfaces under every involved contact (CAR-169)', () => {
+    const threads = buildThreads([
+      mkMsg({ gmail_message_id: 'm1', thread_id: 't1', subject: 'Intro', date: '2026-07-01T10:00:00Z', direction: 'outbound', matched_contact_id: 7, contact_ids: [7, 8] }),
+      mkMsg({ gmail_message_id: 'm2', thread_id: 't1', subject: 'Intro', date: '2026-07-02T10:00:00Z', direction: 'inbound', matched_contact_id: 7, contact_ids: [7, 8] }),
+    ]);
+    // Primary (display label) stays the earliest message's matched contact...
+    expect(threads[0].contactId).toBe(7);
+    // ...but the filter set includes BOTH the recruiter and the hiring manager.
+    expect([...threads[0].contactIds].sort()).toEqual([7, 8]);
+  });
+
+  it('falls back to matched_contact_id for contactIds when no junction set is present', () => {
+    const threads = buildThreads([
+      mkMsg({ gmail_message_id: 'm1', thread_id: 't1', subject: 'Hi', date: '2026-07-01T10:00:00Z', direction: 'inbound', matched_contact_id: 5 }),
+    ]);
+    expect(threads[0].contactIds).toEqual([5]);
+  });
 });
 
 describe('buildOwnAddressSet (CAR-153/R2.5)', () => {

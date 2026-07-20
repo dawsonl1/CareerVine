@@ -653,18 +653,27 @@ export async function searchEmailHistory(query: string, contactId?: number, limi
   // query otherwise closes the .or() group early and breaks the request —
   // sanitizeForPostgrest is the repo's established defense for exactly this.
   const pattern = `%${sanitizeForPostgrest(query)}%`;
+  // Per-contact scoping goes through the email_message_contacts junction
+  // (CAR-159): the !inner embed both filters and stays out of the payload
+  // (stripped below) so the tool's row shape is unchanged.
+  const baseColumns = "gmail_message_id, thread_id, subject, snippet, from_address, to_addresses, date, direction, matched_contact_id";
   let q = db()
     .from("email_messages")
-    .select("gmail_message_id, thread_id, subject, snippet, from_address, to_addresses, date, direction, matched_contact_id")
+    .select(contactId != null ? `${baseColumns}, email_message_contacts!inner(contact_id)` : baseColumns)
     .eq("user_id", uid())
     .eq("is_simulated", false)
     .or(`subject.ilike.${pattern},snippet.ilike.${pattern}`)
     .order("date", { ascending: false })
     .limit(limit);
-  if (contactId != null) q = q.eq("matched_contact_id", contactId);
+  if (contactId != null) q = q.eq("email_message_contacts.contact_id", contactId);
   const { data, error } = await q;
   if (error) throw error;
-  return data ?? [];
+  // The dynamic select string defeats supabase-js's literal-type parser, so
+  // rows come back untyped; the cast matches the base column list above.
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((row) => {
+    const { email_message_contacts: _links, ...rest } = row;
+    return rest;
+  });
 }
 
 export async function getCachedThreadMessages(threadId: string) {
@@ -876,20 +885,23 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       .select("contact_id, meetings!inner(user_id)", { count: "exact", head: true })
       .eq("contact_id", contactId)
       .eq("meetings.user_id", uid()),
+    // Junction-scoped (CAR-159), mirroring the meeting_contacts legs above:
+    // shared threads appear in every linked contact's dossier. The !inner
+    // embed is a filter artifact and is stripped before the bundle returns.
     db()
       .from("email_messages")
-      .select("gmail_message_id, thread_id, subject, snippet, date, direction")
+      .select("gmail_message_id, thread_id, subject, snippet, date, direction, email_message_contacts!inner(contact_id)")
       .eq("user_id", uid())
-      .eq("matched_contact_id", contactId)
+      .eq("email_message_contacts.contact_id", contactId)
       .eq("is_simulated", false)
       .order("date", { ascending: false })
       .limit(limit),
     db()
-      .from("email_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", uid())
-      .eq("matched_contact_id", contactId)
-      .eq("is_simulated", false),
+      .from("email_message_contacts")
+      .select("contact_id, email_messages!inner(user_id, is_simulated)", { count: "exact", head: true })
+      .eq("contact_id", contactId)
+      .eq("email_messages.user_id", uid())
+      .eq("email_messages.is_simulated", false),
     db()
       .from("action_item_contacts")
       // Defense-in-depth: scope the embedded action item to this user. action_item_contacts
@@ -951,7 +963,9 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
     interactionsTotal: interactionsCountRes.count ?? 0,
     meetings,
     meetingsTotal: meetingsCountRes.count ?? 0,
-    emails: (emailsRes.data ?? []) as Array<Record<string, unknown>>,
+    emails: ((emailsRes.data ?? []) as Array<Record<string, unknown>>).map(
+      ({ email_message_contacts: _links, ...rest }) => rest
+    ),
     emailsTotal: emailsCountRes.count ?? 0,
     openActionItems,
     completedActionItems,

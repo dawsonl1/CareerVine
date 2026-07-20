@@ -108,11 +108,13 @@ export const POST = withApiHandler({
         const ninetyDaysAgo = new Date();
         ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
+        // Junction-scoped (CAR-159): a thread shared with another tracked
+        // contact still counts as this contact's recent thread.
         const recentThreadPromise = service
           .from("email_messages")
-          .select("thread_id, subject")
+          .select("thread_id, subject, email_message_contacts!inner(contact_id)")
           .eq("user_id", user.id)
-          .eq("matched_contact_id", contactId)
+          .eq("email_message_contacts.contact_id", contactId)
           .gte("date", ninetyDaysAgo.toISOString())
           .order("date", { ascending: false })
           .limit(1);
