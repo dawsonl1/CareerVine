@@ -154,7 +154,8 @@ export function ContactTimelineTab({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteInteraction(i.id);
+                          // handleDeleteInteraction reports its own failures via withToastOnError.
+                          void handleDeleteInteraction(i.id);
                         }}
                         className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"
                         title="Delete"

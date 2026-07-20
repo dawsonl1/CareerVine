@@ -27,9 +27,13 @@ vi.mock("@/lib/gmail-send-core", () => ({
 interface MockState {
   sentToday: number;
   emailRows: Array<{ contact_id: number; source: string; bounced_at: string | null }>;
+  /** Injected PostgREST error for the daily-cap count read. */
+  capError: { message: string } | null;
+  /** Injected PostgREST error for the recipient-provenance read. */
+  provenanceError: { message: string } | null;
 }
 
-const state: MockState = { sentToday: 0, emailRows: [] };
+const state: MockState = { sentToday: 0, emailRows: [], capError: null, provenanceError: null };
 const tablesTouched: string[] = [];
 const upserts: Array<{ table: string; row: Record<string, unknown> }> = [];
 const inserts: Array<{ table: string; row: Record<string, unknown> }> = [];
@@ -39,8 +43,8 @@ function makeBuilder(table: string) {
 
   const resolveResult = () => {
     if (op === "upsert" || op === "insert") return { error: null };
-    if (table === "email_messages") return { count: state.sentToday };
-    if (table === "contact_emails") return { data: state.emailRows };
+    if (table === "email_messages") return { count: state.sentToday, error: state.capError };
+    if (table === "contact_emails") return { data: state.emailRows, error: state.provenanceError };
     return { data: [] };
   };
 
@@ -58,6 +62,11 @@ function makeBuilder(table: string) {
     inserts.push({ table, row });
     return chain;
   };
+  // The sent-message cache upsert reads back its generated id (CAR-159).
+  chain.single = async () =>
+    op === "upsert" && table === "email_messages"
+      ? { data: { id: 501 }, error: null }
+      : { data: null, error: null };
   chain.then = (
     onFulfilled?: (v: unknown) => unknown,
     onRejected?: (e: unknown) => unknown,
@@ -82,6 +91,8 @@ const OPTS = { to: "Jane@Corp.com", subject: "Hello", bodyHtml: "<p>Hi Jane</p>"
 beforeEach(() => {
   state.sentToday = 0;
   state.emailRows = [];
+  state.capError = null;
+  state.provenanceError = null;
   tablesTouched.length = 0;
   upserts.length = 0;
   inserts.length = 0;
@@ -125,11 +136,36 @@ describe("sendTrackedEmail", () => {
     });
 
     const interaction = inserts.find((i) => i.table === "interactions");
-    expect(interaction?.row).toMatchObject({
-      contact_id: 7,
-      interaction_type: "email",
-      summary: "Sent: Hello",
-    });
+    expect(interaction?.row).toEqual([
+      expect.objectContaining({
+        contact_id: 7,
+        interaction_type: "email",
+        summary: "Sent: Hello",
+      }),
+    ]);
+
+    // CAR-159: the sent message is junction-linked to the matched contact.
+    const links = upserts.find((u) => u.table === "email_message_contacts");
+    expect(links?.row).toEqual([{ email_message_id: 501, contact_id: 7 }]);
+  });
+
+  it("links and logs every contact sharing the recipient address (CAR-159)", async () => {
+    state.emailRows = [
+      { contact_id: 7, source: "verified", bounced_at: null },
+      { contact_id: 9, source: "verified", bounced_at: null },
+    ];
+
+    await sendTrackedEmail(USER, OPTS);
+
+    const links = upserts.find((u) => u.table === "email_message_contacts");
+    expect(links?.row).toEqual([
+      { email_message_id: 501, contact_id: 7 },
+      { email_message_id: 501, contact_id: 9 },
+    ]);
+
+    const interaction = inserts.find((i) => i.table === "interactions");
+    const rows = interaction?.row as unknown as Array<{ contact_id: number }>;
+    expect(rows.map((r) => r.contact_id)).toEqual([7, 9]);
   });
 
   it("never writes the contacts table — outbound sends do not graduate tiers", async () => {
@@ -149,5 +185,23 @@ describe("sendTrackedEmail", () => {
     const result = await sendTrackedEmail(USER, OPTS);
     expect(result.matchedContactId).toBeNull();
     expect(inserts.find((i) => i.table === "interactions")).toBeUndefined();
+  });
+
+  // ── Read failures must never read as "clear to send" (CAR-158) ──────────
+
+  it("refuses the send when the daily-cap count read fails", async () => {
+    // A failed count used to destructure as undefined, compare as 0 against the
+    // cap, and wave every send through with the guardrail effectively off.
+    state.capError = { message: "statement timeout" };
+    await expect(sendTrackedEmail(USER, OPTS)).rejects.toMatchObject({ message: "statement timeout" });
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses the send when the recipient-provenance read fails", async () => {
+    // Empty-on-error here means "this address has never bounced", which would
+    // send straight at a known-dead address and burn deliverability.
+    state.provenanceError = { message: "connection reset" };
+    await expect(sendTrackedEmail(USER, OPTS)).rejects.toMatchObject({ message: "connection reset" });
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 });

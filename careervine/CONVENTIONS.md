@@ -17,8 +17,8 @@ still exists, so a rename turns this file red instead of quietly stale.
 
 Each section says whether its rules have a mechanical guard or rest on review.
 Five do. Independently of them, CI runs typecheck, ESLint at zero warnings, the
-Next build, the MCP typecheck, a Supabase types-drift check, and an
-extension-bundle freshness check.
+Next build, the MCP typecheck, a Supabase types-drift check, an extension-bundle
+freshness check, and the convention-guard script (`npm run check:conventions`).
 
 ---
 
@@ -45,6 +45,15 @@ consistently use their own `ok: true`.
 Curated errors: never interpolate a raw database or driver `error.message` into a
 client-visible message, because those leak schema detail. Throw a user-safe string
 and `console.error` the raw one.
+
+Success shapes are typed (CAR-158): `withApiHandler` carries a `TResponse`
+generic inferred from the handler's return, recoverable by consumers as
+`InferApiResponse<typeof GET>`. Client code calls routes through `apiFetch` /
+`apiSend` in `careervine/src/lib/api-client.ts`, which discriminate on status and
+throw `ApiRequestError` carrying the curated message, so an error body can never
+be mistaken for the success shape. A route's true wire type is
+`TResponse | ApiErrorBody`; typing only the happy path would make client code
+more wrong, not less.
 
 Shared request schemas live in `careervine/src/lib/api-schemas.ts` as
 `<domain><Action>Schema`; a schema used by exactly one route may stay in that
@@ -144,7 +153,13 @@ the operating user or sits behind an ownership assertion.
   `careervine/src/mcp/lib/db.ts` (header)
 - Enforced: `careervine/src/mcp/__tests__/db-scoping.test.ts` (a new export
   without a classification entry fails), `careervine/src/__tests__/contact-write-chokepoint.test.ts`,
-  and the `no-restricted-imports` fences in `careervine/eslint.config.mjs`.
+  the `no-restricted-imports` fences in `careervine/eslint.config.mjs`, and
+  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), which checks four
+  invariants tsc and eslint cannot express: the barrel freeze, no module-scope
+  Supabase client under `careervine/src/lib/data` or `careervine/src/lib/rules`,
+  the CAS readback shape, and raw query-builder growth in the MCP db module. Its
+  escape hatches
+  both demand a written reason: `// cas-checked:` and `// error-tolerated:`.
 
 ## e. Sending email
 
@@ -190,7 +205,7 @@ rule is forward-looking rather than descriptive.
 - Enforced: `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw
   event-name prefix outside the module. The other four rules are not enforced.
 
-## g. Auth exceptions, machine tokens, package edges
+## g. Auth exceptions, secrets, machine tokens, package edges
 
 The 14 routes that deliberately skip `withApiHandler` are named, with the
 mechanism each uses, in the `HAND_ROLLED` map in
@@ -198,6 +213,14 @@ mechanism each uses, in the `HAND_ROLLED` map in
 play: qstash-signature, bundle-admin-token, webhook-secret, hmac-token, and
 oauth-jwks. Adding an unwrapped route under `careervine/src/app/api` without
 listing it fails CI, and so does leaving a stale entry behind.
+
+Server-only fence (CAR-158): a module that reads a secret from `process.env`
+carries `import "server-only"`, so a client component importing it fails
+`next build` instead of shipping the credential read into the browser bundle.
+The fenced set, the two written-down exemptions, and the new-module catch live in
+`careervine/src/__tests__/server-only-fence.test.ts`. Two non-Next runtimes need
+help: `careervine/vitest.config.ts` aliases `server-only` to its own empty
+module, and the MCP start script passes `--conditions=react-server`.
 
 `BUNDLE_ADMIN_TOKEN` guards the two admin machine routes through
 `isAuthorizedAdminToken`, which SHA-256 digests both sides before a constant-time

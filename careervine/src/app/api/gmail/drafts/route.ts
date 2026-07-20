@@ -74,6 +74,8 @@ export const POST = withApiHandler({
 
     if (body.id) {
       // Update existing draft
+      // cas-checked: filters are `id` and `user_id`, neither of which is
+      // written, so the .select() readback is sound.
       const { data, error } = await service
         .from("email_drafts")
         .update({ ...draftData, updated_at: new Date().toISOString() })

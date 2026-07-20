@@ -1599,6 +1599,36 @@ export type Database = {
           },
         ]
       }
+      email_message_contacts: {
+        Row: {
+          contact_id: number
+          email_message_id: number
+        }
+        Insert: {
+          contact_id: number
+          email_message_id: number
+        }
+        Update: {
+          contact_id?: number
+          email_message_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_message_contacts_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_message_contacts_email_message_id_fkey"
+            columns: ["email_message_id"]
+            isOneToOne: false
+            referencedRelation: "email_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_messages: {
         Row: {
           ai_assisted: boolean

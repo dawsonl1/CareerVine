@@ -74,6 +74,7 @@ function OutreachFlow() {
         setQueue(q);
         setSkippedCount(skipped);
       })
+      .catch((e: unknown) => console.error("Error loading outreach queue:", e))
       .finally(() => setQueueLoading(false));
   }, [user]);
 
@@ -100,6 +101,8 @@ function OutreachFlow() {
     setDetailLoading(true);
     try {
       setDetail(await getCompanyDetail(user.id, company.id));
+    } catch (e) {
+      console.error("Error loading company detail:", e);
     } finally {
       setDetailLoading(false);
     }
@@ -107,7 +110,8 @@ function OutreachFlow() {
 
   useEffect(() => {
     setFormerOpen(false);
-    loadDetail();
+    // loadDetail() reports its own failures, so both call sites fire and forget
+    void loadDetail();
   }, [loadDetail]);
 
   // Refresh people (stage chips) after the composer closes
@@ -116,7 +120,7 @@ function OutreachFlow() {
     if (composeOpen) setWasComposing(true);
     else if (wasComposing) {
       setWasComposing(false);
-      loadDetail();
+      void loadDetail();
     }
   }, [composeOpen, wasComposing, loadDetail]);
 

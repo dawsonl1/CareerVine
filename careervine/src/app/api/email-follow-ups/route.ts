@@ -29,15 +29,13 @@ export const GET = withApiHandler({
       .limit(5);
 
     return {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      sequences: (sequences || []).map((s: any) => ({
+      sequences: (sequences || []).map((s) => ({
         id: s.id,
         status: s.status,
         original_subject: s.original_subject,
         original_sent_at: s.original_sent_at,
         messages: (s.email_follow_up_messages || []).sort(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          (a: any, b: any) => a.sequence_number - b.sequence_number
+          (a, b) => a.sequence_number - b.sequence_number
         ),
       })),
     };

@@ -85,7 +85,8 @@ export function useGmailConnection() {
   useEffect(() => {
     if (!user) return;
     if (snap.data !== null || fetchPromise) return; // already have data or in-flight
-    fetchConnection();
+    // Fire-and-forget: fetchConnection catches its own errors and keeps prior data.
+    void fetchConnection();
   }, [user, snap.data]);
 
   // Silent background refresh: consumers keep rendering current data until

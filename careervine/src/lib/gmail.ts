@@ -6,6 +6,8 @@
  * (bypasses RLS so API routes can read/write tokens server-side).
  */
 
+import "server-only";
+
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 import { getHeader, parseEmailAddress, buildOwnAddressSet, isBounceSenderAddress } from "@/lib/gmail-helpers";
@@ -15,6 +17,8 @@ import { getOAuth2Client, decryptOAuthToken } from "@/lib/oauth-helpers";
 import { getGmailClient, getConnection, buildMimeMessage, type ComposeEmailOptions } from "@/lib/gmail-send-core";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { trackServer } from "@/lib/analytics/server";
+import { googleApiStatus, googleApiReason } from "@/lib/google-api-error";
+import { must } from "@/lib/data/client";
 
 /**
  * Retry a function with exponential backoff on rate-limit (429), server errors
@@ -27,16 +31,18 @@ export async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promis
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    } catch (err: any) {
-      const status = err?.code || err?.response?.status;
-      const reason: unknown =
-        err?.errors?.[0]?.reason ?? err?.response?.data?.error?.errors?.[0]?.reason;
+    } catch (err: unknown) {
+      const status = googleApiStatus(err);
+      const reason = googleApiReason(err);
       const isRateLimited403 =
         status === 403 &&
         typeof reason === "string" &&
         /ratelimitexceeded/i.test(reason);
-      const isRetryable = status === 429 || isRateLimited403 || (status >= 500 && status < 600);
+      // A transport failure ("ENOTFOUND") yields no numeric status and is not
+      // retried here, matching the previous behaviour: the old string `code`
+      // compared false against both 429 and the 5xx range.
+      const isRetryable =
+        status === 429 || isRateLimited403 || (status !== undefined && status >= 500 && status < 600);
       if (!isRetryable || attempt === maxRetries) throw err;
       const delay = Math.min(1000 * 2 ** attempt + Math.random() * 500, 10000);
       await new Promise(r => setTimeout(r, delay));
@@ -148,11 +154,16 @@ export function getAuthUrl(
 export async function revokeAccess(userId: string) {
   const supabase = createSupabaseServiceClient();
 
-  const { data: conn } = await supabase
-    .from("gmail_connections")
-    .select("access_token")
-    .eq("user_id", userId)
-    .single();
+  // maybeSingle, not single: "no connection row" is a normal state here (the
+  // cleanup below still has to run), while a real read failure must surface
+  // rather than silently skipping the Google-side token revoke.
+  const conn = must(
+    await supabase
+      .from("gmail_connections")
+      .select("access_token")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  );
 
   if (conn?.access_token) {
     try {
@@ -217,11 +228,13 @@ export async function syncEmailsForContact(
   if (opts.syncedThrough !== undefined) {
     syncedThrough = opts.syncedThrough;
   } else {
-    const { data: contactRow } = await supabase
-      .from("contacts")
-      .select("email_synced_through")
-      .eq("id", contactId)
-      .maybeSingle();
+    const contactRow = must(
+      await supabase
+        .from("contacts")
+        .select("email_synced_through")
+        .eq("id", contactId)
+        .maybeSingle(),
+    );
     syncedThrough = contactRow?.email_synced_through ?? null;
   }
 
@@ -239,6 +252,14 @@ export async function syncEmailsForContact(
 
   let pageToken: string | undefined;
   let totalSynced = 0;
+  // Completion-gate bookkeeping (CAR-159): a swallowed DB-write failure inside
+  // the loop must NOT let the watermark advance. Attribution is now two writes
+  // (the message row AND its email_message_contacts link); readers are
+  // junction-only, so a lost link is a permanently invisible message unless the
+  // next sync re-covers it. Tracking failures and holding the watermark makes
+  // the next pass re-fetch and re-link the span — the same contract a thrown
+  // error already honors, extended to the errors we log-and-continue on.
+  let pageFailed = false;
 
   do {
     const listRes = await withRetry(() => gmail.users.messages.list({
@@ -305,11 +326,13 @@ export async function syncEmailsForContact(
       // Look up which messages already exist so we can skip overwriting
       // user-managed fields (is_read, is_trashed, is_hidden)
       const msgIds = rows.map((r) => r.gmail_message_id);
-      const { data: existing } = await supabase
-        .from("email_messages")
-        .select("gmail_message_id")
-        .eq("user_id", userId)
-        .in("gmail_message_id", msgIds);
+      const existing = must(
+        await supabase
+          .from("email_messages")
+          .select("gmail_message_id")
+          .eq("user_id", userId)
+          .in("gmail_message_id", msgIds),
+      );
       const existingIds = new Set((existing || []).map((e) => e.gmail_message_id));
 
       const newRows = rows.filter((r) => !existingIds.has(r.gmail_message_id));
@@ -328,7 +351,7 @@ export async function syncEmailsForContact(
             ignoreDuplicates: true,
           })
           .select("gmail_message_id, thread_id, direction");
-        if (error) console.error("Insert error:", error);
+        if (error) { console.error("Insert error:", error); pageFailed = true; }
         const inserted = insertedRows ?? [];
 
         // An inbound message means the contact wrote back — that reply is
@@ -354,6 +377,9 @@ export async function syncEmailsForContact(
           const inbound = inserted.filter((r) => r.direction === "inbound" && r.thread_id);
           const threadIds = [...new Set(inbound.map((r) => r.thread_id as string))];
           if (threadIds.length > 0) {
+            // error-tolerated: this only decides whether to emit the
+            // reply_received analytics event; the user's mail sync must not
+            // fail because an attribution lookup did.
             const { data: ourThreads } = await supabase
               .from("email_messages")
               .select("thread_id, ai_assisted")
@@ -391,22 +417,54 @@ export async function syncEmailsForContact(
         if (error) console.error("Update error:", error);
       }
 
+      // Multi-contact attribution (CAR-159): every message in this page is by
+      // construction about contactId (the Gmail query is scoped to their
+      // addresses), so link them all — including rows another contact's sync
+      // inserted first, which matched_contact_id alone can never attribute
+      // here. The ids come from a post-upsert lookup rather than the RETURNING
+      // set + pre-upsert lookup, so a row a concurrent sync inserts between
+      // the two still gets its link this pass.
+      const { data: pageRows, error: pageRowsError } = await supabase
+        .from("email_messages")
+        .select("id")
+        .eq("user_id", userId)
+        .in("gmail_message_id", msgIds);
+      if (pageRowsError) {
+        console.error("Junction id lookup error:", pageRowsError);
+        pageFailed = true;
+      } else if ((pageRows ?? []).length > 0) {
+        const { error: linkError } = await supabase
+          .from("email_message_contacts")
+          .upsert(
+            (pageRows ?? []).map((r) => ({ email_message_id: r.id, contact_id: contactId })),
+            { onConflict: "email_message_id,contact_id", ignoreDuplicates: true }
+          );
+        if (linkError) { console.error("Junction link error:", linkError); pageFailed = true; }
+      }
+
       totalSynced += rows.length;
     }
 
     pageToken = listRes.data.nextPageToken || undefined;
   } while (pageToken);
 
-  // Completion gate: only a pass that drained every page moves the watermark.
-  // A throw anywhere above leaves it untouched, so the next sync re-covers
-  // the whole span instead of hiding the hole. Failure to stamp is non-fatal
+  // Completion gate: only a pass that drained every page AND persisted every
+  // row + link moves the watermark. A throw anywhere above leaves it untouched,
+  // and a swallowed message-insert or junction-link failure (pageFailed) does
+  // the same, so the next sync re-covers the span instead of hiding the hole.
+  // Holding the watermark re-fetches (idempotent) rather than stranding a
+  // message with no per-contact attribution. Failure to stamp is non-fatal
   // (worst case: the next pass re-fetches and dedupes).
-  const { error: watermarkError } = await supabase
-    .from("contacts")
-    .update({ email_synced_through: syncStartedAt.toISOString() })
-    .eq("id", contactId);
-  if (watermarkError) {
-    console.error(`Failed to advance email watermark for contact ${contactId}:`, watermarkError);
+  if (pageFailed) {
+    console.warn(`Skipping email watermark advance for contact ${contactId}: a write failed this pass; next sync will re-cover.`);
+  } else {
+    const { error: watermarkError } = await supabase
+      .from("contacts")
+      .update({ email_synced_through: syncStartedAt.toISOString() })
+      .eq("id", contactId);
+    if (watermarkError) {
+      console.error(`Failed to advance email watermark for contact ${contactId}:`, watermarkError);
+    }
   }
 
   return totalSynced;
@@ -614,11 +672,16 @@ export async function syncAllContactEmails(
 }
 
 /**
- * Backfill orphaned email_messages for a contact.
+ * Backfill email_messages attribution for a contact.
  *
  * When a contact gains an email address (creation, import, or edit), there may
- * already be cached email_messages with that address that have no matched_contact_id.
- * This function claims those orphaned rows so they appear on the contact's timeline.
+ * already be cached email_messages with that address. Two passes:
+ *   1. Legacy claim: orphaned rows (matched_contact_id IS NULL) get this
+ *      contact as their denormalized primary — transition-era behavior kept
+ *      so nothing reading matched_contact_id breaks.
+ *   2. Junction links (CAR-159): EVERY message involving the address — claimed
+ *      by another contact or not — gets an email_message_contacts link, so a
+ *      thread shared with an already-tracked contact appears on this one too.
  */
 export async function backfillEmailsForContact(
   userId: string,
@@ -651,6 +714,46 @@ export async function backfillEmailsForContact(
       .contains("to_addresses", [email]);
 
     totalMatched += (matchedFrom || 0) + (matchedTo || 0);
+  }
+
+  // Junction pass: collect ids of ALL matching messages (paginated — a single
+  // PostgREST read caps at 1000 rows) and link them idempotently.
+  const linkIds = new Set<number>();
+  const PAGE = 1000;
+  for (const email of lowerEmails) {
+    for (const leg of ["from", "to"] as const) {
+      let offset = 0;
+      for (;;) {
+        let q = supabase
+          .from("email_messages")
+          .select("id")
+          .eq("user_id", userId)
+          .order("id", { ascending: true })
+          .range(offset, offset + PAGE - 1);
+        q = leg === "from" ? q.eq("from_address", email) : q.contains("to_addresses", [email]);
+        const { data, error } = await q;
+        if (error) {
+          console.error("Backfill junction id lookup error:", error);
+          break;
+        }
+        for (const r of data ?? []) linkIds.add(r.id);
+        if (!data || data.length < PAGE) break;
+        offset += PAGE;
+      }
+    }
+  }
+
+  if (linkIds.size > 0) {
+    const linkRows = [...linkIds].map((id) => ({ email_message_id: id, contact_id: contactId }));
+    for (let i = 0; i < linkRows.length; i += 500) {
+      const { error: linkError } = await supabase
+        .from("email_message_contacts")
+        .upsert(linkRows.slice(i, i + 500), {
+          onConflict: "email_message_id,contact_id",
+          ignoreDuplicates: true,
+        });
+      if (linkError) console.error("Backfill junction link error:", linkError);
+    }
   }
 
   return totalMatched;
@@ -835,14 +938,16 @@ export async function checkForReplyInThread(
   const supabase = createSupabaseServiceClient();
 
   // First check cached messages
-  const { data: cached } = await supabase
-    .from("email_messages")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("thread_id", threadId)
-    .eq("direction", "inbound")
-    .gte("date", sinceDate)
-    .limit(1);
+  const cached = must(
+    await supabase
+      .from("email_messages")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("thread_id", threadId)
+      .eq("direction", "inbound")
+      .gte("date", sinceDate)
+      .limit(1),
+  );
 
   if (cached && cached.length > 0) return true;
 
@@ -982,12 +1087,14 @@ export async function processScheduledEmails(
   const send = deps.send ?? sendTrackedEmail;
   const now = new Date().toISOString();
 
-  const { data: pending } = await supabase
-    .from("scheduled_emails")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("status", ScheduledEmailStatus.Pending)
-    .lte("scheduled_send_at", now);
+  const pending = must(
+    await supabase
+      .from("scheduled_emails")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("status", ScheduledEmailStatus.Pending)
+      .lte("scheduled_send_at", now),
+  );
 
   if (!pending || pending.length === 0) return { sent: 0, errors: 0 };
 
@@ -1161,11 +1268,13 @@ export async function detectBounces(
 
   for (const address of failedAddresses) {
     // Only touch addresses that belong to this user's contacts
-    const { data: emailRows } = await supabase
-      .from("contact_emails")
-      .select("id, bounced_at, contacts!inner(user_id)")
-      .eq("email", address)
-      .eq("contacts.user_id", userId);
+    const emailRows = must(
+      await supabase
+        .from("contact_emails")
+        .select("id, bounced_at, contacts!inner(user_id)")
+        .eq("email", address)
+        .eq("contacts.user_id", userId),
+    );
     if (!emailRows || emailRows.length === 0) continue;
 
     bounced.push(address);
@@ -1178,12 +1287,14 @@ export async function detectBounces(
     }
 
     // Cancel active follow-up sequences aimed at the dead address
-    const { data: sequences } = await supabase
-      .from("email_follow_ups")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .eq("recipient_email", address);
+    const sequences = must(
+      await supabase
+        .from("email_follow_ups")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .eq("recipient_email", address),
+    );
     for (const seq of sequences || []) {
       await supabase
         .from("email_follow_ups")

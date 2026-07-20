@@ -3,8 +3,21 @@
  * Both services share the same gmail_connections row.
  */
 
+import "server-only";
+
 import { OAuth2Client } from "google-auth-library";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
+import type { Database } from "@/lib/database.types";
+import { googleApiStatus, googleOAuthErrorCode } from "@/lib/google-api-error";
+import { must } from "@/lib/data/client";
+
+/**
+ * Both callers (gmail-send-core, calendar) hand in the service-role client,
+ * which is a `SupabaseClient<Database>` — typing the param that way is what
+ * lets the gmail_connections reads/writes below infer their own row shapes.
+ */
+type OAuthClient = SupabaseClient<Database>;
 
 /** Create a Google OAuth2 client from env vars. */
 export function getOAuth2Client() {
@@ -48,8 +61,7 @@ const refreshLocks = new Map<string, Promise<void>>();
  * Uses a per-user lock to prevent concurrent refresh races.
  */
 export async function refreshTokenIfNeeded(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  supabase: any,
+  supabase: OAuthClient,
   oauth2Client: OAuth2Client,
   userId: string,
   expiresAt: number,
@@ -62,11 +74,17 @@ export async function refreshTokenIfNeeded(
   if (existing) {
     await existing;
     // The first caller updated the DB — re-read the fresh token into this caller's client
-    const { data: fresh } = await supabase
-      .from("gmail_connections")
-      .select("access_token, refresh_token, token_expires_at")
-      .eq("user_id", userId)
-      .single();
+    // maybeSingle + must: a missing row keeps the old "leave credentials as
+    // they are" behavior, but a real read failure must not silently leave this
+    // caller holding the expired token it was refreshing away from. The row
+    // shape is inferred from the select now that supabase is typed.
+    const fresh = must(
+      await supabase
+        .from("gmail_connections")
+        .select("access_token, refresh_token, token_expires_at")
+        .eq("user_id", userId)
+        .maybeSingle(),
+    );
     if (fresh) {
       oauth2Client.setCredentials({
         access_token: decryptOAuthToken(fresh.access_token),
@@ -87,8 +105,7 @@ export async function refreshTokenIfNeeded(
 }
 
 async function doRefresh(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  supabase: any,
+  supabase: OAuthClient,
   oauth2Client: OAuth2Client,
   userId: string,
   serviceName: string,
@@ -96,14 +113,13 @@ async function doRefresh(
   let credentials;
   try {
     ({ credentials } = await oauth2Client.refreshAccessToken());
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Only delete the connection for permanent auth failures (revoked/expired refresh token).
     // Transient errors (network, 5xx) should not destroy the user's connection.
     const isRevoked =
-      err?.response?.data?.error === "invalid_grant" ||
-      err?.message?.includes("invalid_grant") ||
-      err?.code === 401;
+      googleOAuthErrorCode(err) === "invalid_grant" ||
+      (err instanceof Error && err.message.includes("invalid_grant")) ||
+      googleApiStatus(err) === 401;
     if (isRevoked) {
       await supabase.from("gmail_connections").delete().eq("user_id", userId);
       throw new Error(`${serviceName} session expired. Please reconnect your account.`);

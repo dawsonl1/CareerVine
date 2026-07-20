@@ -87,8 +87,13 @@ export default function ActionItemsPage() {
     finally { setLoading(false); }
   }, [user]);
 
+  // useSuggestions declares onSave as `() => void`, and loadActionItems reports
+  // its own failures, so start the refresh fire-and-forget. Wrapped in
+  // useCallback to keep the reference stable for the hook's own memoization.
+  const handleSuggestionSaved = useCallback(() => { void loadActionItems(); }, [loadActionItems]);
+
   const { suggestions, loading: suggestionsLoading, aiStatus: suggestionsAiStatus, dismissAiStatus, save: saveSuggestionRaw, complete: completeSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions({
-    onSave: loadActionItems,
+    onSave: handleSuggestionSaved,
   });
 
   const saveSuggestion = useCallback(async (s: Parameters<typeof saveSuggestionRaw>[0]) => {
@@ -103,11 +108,11 @@ export default function ActionItemsPage() {
     else toastError("Failed to mark as done");
   }, [completeSuggestionRaw, toastSuccess, toastError]);
 
-  useEffect(() => { if (user) { loadActionItems(); loadContacts(); } }, [user, loadActionItems, loadContacts]);
+  useEffect(() => { if (user) { void loadActionItems(); void loadContacts(); } }, [user, loadActionItems, loadContacts]);
 
   // Refresh when a conversation is logged via the unified modal
   useEffect(() => {
-    return onUiEvent(UI_EVENTS.conversationLogged, () => loadActionItems());
+    return onUiEvent(UI_EVENTS.conversationLogged, () => { void loadActionItems(); });
   }, [loadActionItems]);
 
   // Load suggestions once after initial data loads
@@ -209,7 +214,9 @@ export default function ActionItemsPage() {
     }
   };
 
-  const openEdit = async (e: React.MouseEvent, item: ActionItem) => {
+  // Synchronous: this only seeds the edit form's state, so it is not async and
+  // no call site has a promise to handle.
+  const openEdit = (e: React.MouseEvent, item: ActionItem) => {
     e.stopPropagation();
     setEditingItem(item);
     setEditTitle(item.title);
@@ -772,7 +779,7 @@ export default function ActionItemsPage() {
                       <Pencil className="h-5 w-5" /> Edit
                     </Button>
                     {selectedItem.is_completed ? (
-                      <Button variant="tonal" onClick={(e) => { restoreItem(e, selectedItem.id); setSelectedItem(null); }}>
+                      <Button variant="tonal" onClick={(e) => { void restoreItem(e, selectedItem.id); setSelectedItem(null); }}>
                         <RotateCcw className="h-5 w-5" /> Restore
                       </Button>
                     ) : (

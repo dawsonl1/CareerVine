@@ -24,6 +24,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { must } from "@/lib/data/client";
 import type {
   ApplyStepResult,
   BundleCore,
@@ -130,16 +131,18 @@ export async function runFastApplyStep(
   };
 
   // Same delta bounds as the merge path with synced_version = 0.
-  const { data: rows } = await client
-    .from("bundle_prospects")
-    .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
-    .eq("bundle_id", bundle.id)
-    .gt("version_updated", 0)
-    .lte("version_updated", pinnedVersion)
-    .or(`removed_in_version.is.null,removed_in_version.gt.${pinnedVersion}`)
-    .gt("id", afterId)
-    .order("id", { ascending: true })
-    .limit(FAST_APPLY_BATCH);
+  const rows = must(
+    await client
+      .from("bundle_prospects")
+      .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
+      .eq("bundle_id", bundle.id)
+      .gt("version_updated", 0)
+      .lte("version_updated", pinnedVersion)
+      .or(`removed_in_version.is.null,removed_in_version.gt.${pinnedVersion}`)
+      .gt("id", afterId)
+      .order("id", { ascending: true })
+      .limit(FAST_APPLY_BATCH),
+  );
   const prospects = (rows as FastProspectRow[] | null) ?? [];
 
   const importOpts: ImportChunkOptions = {

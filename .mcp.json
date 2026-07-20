@@ -3,6 +3,7 @@
     "careervine": {
       "command": "careervine-mcp/node_modules/.bin/tsx",
       "args": [
+        "--conditions=react-server",
         "--tsconfig",
         "careervine-mcp/tsconfig.json",
         "careervine-mcp/server.ts"

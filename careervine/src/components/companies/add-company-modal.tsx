@@ -56,7 +56,8 @@ export function AddCompanyModal({ userId, onClose }: AddCompanyModalProps) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          submit();
+          // submit() toasts its own failures, so the handler stays synchronous
+          void submit();
         }}
         className="space-y-4"
       >

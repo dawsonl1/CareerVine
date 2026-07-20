@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { chunkList } from "@/lib/data/postgrest";
+import { must } from "@/lib/data/client";
 import { makePhotoThumb } from "@/lib/photo-thumb";
 import {
   userPhotoKey,
@@ -37,10 +38,7 @@ export async function addTagsToContacts(
   }
   if (normalizedByContact.size === 0) return;
 
-  const { data: existingTags } = await supabase
-    .from("tags")
-    .select("id, name")
-    .eq("user_id", userId);
+  const existingTags = must(await supabase.from("tags").select("id, name").eq("user_id", userId));
   const tagMap = new Map<string, { id: number; name: string }>();
   for (const t of (existingTags as { id: number; name: string }[] | null) || []) {
     tagMap.set(t.name.toLowerCase(), t);
@@ -58,6 +56,9 @@ export async function addTagsToContacts(
       }
     } else {
       for (const name of missing) {
+        // error-tolerated: per-row fallback after the bulk insert failed —
+        // one unusable tag name must not abort the whole import, so a failed
+        // row leaves that single tag unlinked and the rest proceed.
         const { data: newTag } = await supabase
           .from("tags")
           .insert({ name, user_id: userId })
@@ -74,11 +75,13 @@ export async function addTagsToContacts(
 
   const linkedSet = new Set<string>();
   for (const idChunk of chunkList(contactIds)) {
-    const { data: existingLinks } = await supabase
-      .from("contact_tags")
-      .select("contact_id, tag_id")
-      .in("contact_id", idChunk)
-      .in("tag_id", tagIds);
+    const existingLinks = must(
+      await supabase
+        .from("contact_tags")
+        .select("contact_id, tag_id")
+        .in("contact_id", idChunk)
+        .in("tag_id", tagIds),
+    );
     for (const r of (existingLinks as Array<{ contact_id: number; tag_id: number }> | null) || []) {
       linkedSet.add(`${r.contact_id}:${r.tag_id}`);
     }
@@ -167,6 +170,9 @@ export async function downloadAndStorePhoto(
 
   // Swap the pointer, then clean up the previous version (content-hashed
   // keys mean a changed photo is a different object).
+  // error-tolerated: prevUrl only drives deletion of the superseded R2
+  // object; a failed read leaks one orphaned thumbnail rather than blocking
+  // the photo swap the user actually asked for.
   const { data: prevRow } = await supabase
     .from("contacts")
     .select("photo_url")

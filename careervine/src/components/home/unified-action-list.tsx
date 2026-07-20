@@ -143,7 +143,9 @@ function NotePopover({
   onSave,
   onCancel,
 }: {
-  onSave: (note: string) => void;
+  // CAR-158: widened from `void` because the only call site passes an async
+  // handler. Type honesty, not a behaviour fix: the await was always real.
+  onSave: (note: string) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [text, setText] = useState("");
@@ -172,7 +174,14 @@ function NotePopover({
   const handleSave = async () => {
     if (!text.trim()) return;
     setSaving(true);
-    await onSave(text.trim());
+    try {
+      await onSave(text.trim());
+    } finally {
+      // Defensive. Today the only `onNote` supplied (handleNewContactNote)
+      // catches its own errors and always resolves, so `saving` cannot actually
+      // stick; this keeps that true if the handler ever starts propagating.
+      setSaving(false);
+    }
   };
 
   return (

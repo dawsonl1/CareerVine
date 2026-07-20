@@ -13,6 +13,7 @@
  */
 
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
+import { must } from "@/lib/data/client";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
   CADENCE_MIN_AGE_DAYS,
@@ -42,20 +43,21 @@ export async function selectCadenceCandidates(
   target: number = DAILY_CADENCE_TARGET,
 ): Promise<CadenceCandidate[]> {
   // Contacts already covered by an in-flight run.
-  const { data: pendingRuns } = await service
-    .from("scrape_runs")
-    .select("contact_ids")
-    .eq("user_id", userId)
-    .eq("status", ScrapeRunStatus.Pending);
+  const pendingRuns = must(
+    await service
+      .from("scrape_runs")
+      .select("contact_ids")
+      .eq("user_id", userId)
+      .eq("status", ScrapeRunStatus.Pending),
+  );
   const inFlight = new Set<number>(
     ((pendingRuns as { contact_ids: number[] }[] | null) ?? []).flatMap((r) => r.contact_ids ?? []),
   );
 
   // Suppression tombstones (stored canonical).
-  const { data: suppressedRows } = await service
-    .from("suppressed_imports")
-    .select("linkedin_url")
-    .eq("user_id", userId);
+  const suppressedRows = must(
+    await service.from("suppressed_imports").select("linkedin_url").eq("user_id", userId),
+  );
   const suppressed = new Set(
     ((suppressedRows as { linkedin_url: string }[] | null) ?? []).map((r) => r.linkedin_url),
   );
@@ -72,7 +74,8 @@ export async function selectCadenceCandidates(
   // in-backoff never-scraped contacts starve everyone behind them).
   for (const statuses of [["active", "prospect"], ["bench"]]) {
     if (picked.length >= target) break;
-    const { data: rows } = await service
+    const rows = must(
+      await service
       .from("contacts")
       .select("id, linkedin_url, last_scraped_at, scrape_failed_at")
       .eq("user_id", userId)
@@ -84,7 +87,8 @@ export async function selectCadenceCandidates(
       .or(`scrape_failed_at.is.null,scrape_failed_at.lt.${backoffCutoffIso}`)
       .lt("scrape_failure_count", SCRAPE_FAILURES_BEFORE_RELINK)
       .order("last_scraped_at", { ascending: true, nullsFirst: true })
-      .limit(target * 2); // headroom for exclusions
+      .limit(target * 2), // headroom for exclusions
+    );
 
     for (const row of (rows as CandidateRow[] | null) ?? []) {
       if (picked.length >= target) break;

@@ -55,7 +55,8 @@ export default function AccountSection() {
   }, [user]);
 
   useEffect(() => {
-    if (user) loadProfile();
+    // Fire-and-forget: loadProfile logs its own errors and owns `loading`.
+    if (user) void loadProfile();
   }, [user, loadProfile]);
 
   const handleSave = async (e: React.FormEvent) => {

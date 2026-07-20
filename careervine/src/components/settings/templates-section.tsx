@@ -27,7 +27,8 @@ export default function TemplatesSection() {
   }, []);
 
   useEffect(() => {
-    loadTemplates();
+    // Fire-and-forget: loadTemplates catches its own errors and owns `loading`.
+    void loadTemplates();
   }, [loadTemplates]);
 
   const handleSave = async () => {
@@ -53,7 +54,7 @@ export default function TemplatesSection() {
       });
       if (!res.ok) throw new Error("Failed to save");
       setEditingTemplate(null);
-      loadTemplates();
+      void loadTemplates();
     } catch {
       setError("Failed to save template.");
     } finally {

@@ -13,8 +13,22 @@ export type EmailThread = {
   messages: EmailMessage[];
   latestDate: string;
   latestDirection: string | null;
+  /** Denormalized primary contact, for the display label / view-contact link. */
   contactId: number | null;
+  /**
+   * Every tracked contact any message in the thread is attributed to
+   * (CAR-159/CAR-169), so the inbox contact filter surfaces a shared thread
+   * under all of them, not just the primary. Union of each message's
+   * contact_ids (junction), falling back to matched_contact_id.
+   */
+  contactIds: number[];
 };
+
+/** All contacts a message is attributed to: the junction set if present, else the primary. */
+function messageContactIds(m: EmailMessage): number[] {
+  if (m.contact_ids && m.contact_ids.length > 0) return m.contact_ids;
+  return m.matched_contact_id != null ? [m.matched_contact_id] : [];
+}
 
 /** Group flat email list into threads, sorted by latest date desc. */
 export function buildThreads(msgs: EmailMessage[]): EmailThread[] {
@@ -35,6 +49,7 @@ export function buildThreads(msgs: EmailMessage[]): EmailThread[] {
       latestDate: latest.date || "",
       latestDirection: latest.direction,
       contactId: threadMsgs[0].matched_contact_id,
+      contactIds: [...new Set(threadMsgs.flatMap(messageContactIds))],
     });
   }
   result.sort((a, b) => new Date(b.latestDate).getTime() - new Date(a.latestDate).getTime());

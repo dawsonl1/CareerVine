@@ -7,16 +7,20 @@ import { inputClasses } from "@/lib/form-styles";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
-/** Debounce a callback by `delay` ms. Returns a stable function ref. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+/**
+ * Debounce a callback by `delay` ms. Returns a stable function ref.
+ * Generic over the argument tuple, so the debounced fn keeps the caller's
+ * parameter types instead of erasing them.
+ */
+function useDebouncedCallback<A extends unknown[]>(
+  fn: (...args: A) => void,
+  delay: number,
+): (...args: A) => void {
   const timer = useRef<ReturnType<typeof setTimeout>>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const debounced = useCallback((...args: any[]) => {
+  return useCallback((...args: A) => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => fn(...args), delay);
   }, [fn, delay]);
-  return debounced as T;
 }
 
 type TranscriptMode = "paste" | "file" | "audio";

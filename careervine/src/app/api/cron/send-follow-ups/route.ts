@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { gmail_v1 } from "@googleapis/gmail";
 import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
@@ -173,8 +174,7 @@ async function runJob(): Promise<NextResponse> {
   );
 
   // Cache Gmail clients per user to avoid redundant auth
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const gmailClients = new Map<string, any>();
+  const gmailClients = new Map<string, gmail_v1.Gmail>();
 
   for (const [seqId, messages] of bySequence) {
     const parent = messages[0].email_follow_ups;
@@ -246,6 +246,11 @@ async function runJob(): Promise<NextResponse> {
       }
     }
 
+    // The due query filters `thread_id is not null`, so this never fires in
+    // practice — it narrows the nullable column for threads.get below. Placed
+    // after the tier/disconnect paths so neither is skipped by it.
+    if (!threadId) continue;
+
     // Check for replies in the thread (one API call per thread)
     let hasReply = false;
     try {
@@ -273,11 +278,9 @@ async function runJob(): Promise<NextResponse> {
         // the contact — stay conservative and treat it as no reply, matching
         // the old code's degenerate behavior.
         if (ownAddresses.size > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          hasReply = threadMessages.some((m: any) => {
+          hasReply = threadMessages.some((m) => {
             const fromHeader = m.payload?.headers?.find(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-              (h: any) => h.name?.toLowerCase() === "from"
+              (h) => h.name?.toLowerCase() === "from"
             );
             const fromAddr = parseEmailAddress(fromHeader?.value || "");
             // NDRs are delivery failures, not replies — detectBounces owns
@@ -351,10 +354,27 @@ async function runJob(): Promise<NextResponse> {
         break; // one send per sequence per tick
       } catch (err) {
         // Cap reached (429): revert to pending, retry next run — never cancel.
-        // Bounce (422) / other errors past the 3-day window: give up.
+        // Bounce (422) / any other policy refusal past the 3-day window: give
+        // up, the recipient itself is the problem and no retry can fix it.
+        //
+        // Only a POLICY verdict may reach the terminal 'cancelled' write, which
+        // nothing resurrects (it is absent from UNRESOLVED_FOLLOW_UP_MESSAGE_
+        // STATUSES, and the sequence then completes). sendTrackedEmail also
+        // throws on infrastructure failures — a PostgrestError from the daily-cap
+        // count, a must() throw from the recipient-provenance read, a Gmail 5xx —
+        // and those say nothing about whether the follow-up should ever be sent,
+        // so they always revert to pending regardless of age.
+        //
+        // Trade-off, stated rather than hidden: this removes the aged give-up for
+        // infrastructure errors, so a row failing for a persistent non-policy
+        // reason now retries every cycle indefinitely instead of being cancelled
+        // after 3 days. It surfaces as a repeating console.error above rather than
+        // a quiet drop, which is the correct direction: never silently cancel a
+        // user's follow-up because of a transient DB blip.
         const capped = err instanceof SendPolicyError && err.status === 429;
+        const policyRefusal = err instanceof SendPolicyError && !capped;
         console.error(`[cron] Failed to send follow-up ${msg.id}:`, err);
-        if (!capped && msg.scheduled_send_at < threeDaysAgo) {
+        if (policyRefusal && msg.scheduled_send_at < threeDaysAgo) {
           await service
             .from("email_follow_up_messages")
             .update({ status: "cancelled", claimed_at: null })

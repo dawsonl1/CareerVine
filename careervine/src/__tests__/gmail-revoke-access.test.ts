@@ -15,6 +15,14 @@ interface TableCall {
 
 const calls: TableCall[] = [];
 
+/** Response the gmail_connections lookup resolves to; per-test overridable. */
+let connectionRead: { data: unknown; error: unknown } = {
+  // No access token stored — the Google-side revoke is skipped and the
+  // local cleanup (the behavior under test) runs unconditionally.
+  data: { access_token: null },
+  error: null,
+};
+
 function makeBuilder(table: string) {
   const call: TableCall = { table, ops: [] };
   calls.push(call);
@@ -24,11 +32,9 @@ function makeBuilder(table: string) {
     return builder;
   };
   for (const m of ["select", "delete", "eq"]) builder[m] = chain(m);
-  builder.single = async () => {
-    call.ops.push({ m: "single", args: [] });
-    // No access token stored — the Google-side revoke is skipped and the
-    // local cleanup (the behavior under test) runs unconditionally.
-    return { data: { access_token: null }, error: null };
+  builder.maybeSingle = async () => {
+    call.ops.push({ m: "maybeSingle", args: [] });
+    return connectionRead;
   };
   builder.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
     Promise.resolve({ data: null, error: null }).then(resolve, reject);
@@ -46,6 +52,7 @@ const deletesTo = (table: string) =>
 
 beforeEach(() => {
   calls.length = 0;
+  connectionRead = { data: { access_token: null }, error: null };
 });
 
 describe("revokeAccess", () => {
@@ -58,5 +65,27 @@ describe("revokeAccess", () => {
       const eq = dels[0].ops.find((o) => o.m === "eq");
       expect(eq?.args).toEqual(["user_id", "u-1"]);
     }
+  });
+
+  it("still cleans up when the user has no connection row at all", async () => {
+    // maybeSingle (not single) means "no row" is data:null with no error —
+    // the disconnect must proceed rather than reading as a failure.
+    connectionRead = { data: null, error: null };
+
+    await revokeAccess("u-1");
+
+    for (const table of ["email_messages", "calendar_events", "gmail_connections"]) {
+      expect(deletesTo(table), `expected a delete on ${table}`).toHaveLength(1);
+    }
+  });
+
+  it("throws instead of silently skipping the Google-side revoke when the read fails", async () => {
+    // CAR-158 must() convention: a failed connection read used to fall through
+    // as "no access token", deleting local data while leaving the OAuth grant
+    // live at Google. It must surface instead.
+    connectionRead = { data: null, error: { message: "connection reset" } };
+
+    await expect(revokeAccess("u-1")).rejects.toMatchObject({ message: "connection reset" });
+    expect(deletesTo("gmail_connections")).toHaveLength(0);
   });
 });

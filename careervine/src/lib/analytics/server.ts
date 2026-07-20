@@ -13,6 +13,8 @@
  *   until the PostHog project is provisioned).
  */
 
+import "server-only";
+
 import { PostHog } from "posthog-node";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { EmailDirection } from "@/lib/constants";
@@ -182,16 +184,26 @@ export async function checkCompaniesEmailedMilestone(
     // Distinct companies among contacts this user has emailed: outbound
     // messages matched to a contact → that contact's company links.
     const service = getServiceClient();
+    // Junction-scoped (CAR-159): an outbound to a shared thread credits every
+    // linked contact's company, not just the single matched_contact_id.
+    // error-tolerated: milestone detection is idempotent and re-runs on the
+    // next tracked event, so a failed read defers the badge rather than
+    // breaking the send that triggered this check.
     const { data: sent } = await service
-      .from("email_messages")
-      .select("matched_contact_id")
-      .eq("user_id", userId)
-      .eq("direction", EmailDirection.Outbound)
-      .not("matched_contact_id", "is", null)
+      .from("email_message_contacts")
+      .select("contact_id, email_message_id, email_messages!inner(user_id, direction)")
+      .eq("email_messages.user_id", userId)
+      .eq("email_messages.direction", EmailDirection.Outbound)
+      // Deterministic sample when a heavy sender exceeds the 1000-row cap:
+      // newest links first, so the window is stable rather than arbitrary
+      // (CAR-159 review F10). Best-effort milestone; full pagination is
+      // unwarranted for a >=5-distinct-companies check.
+      .order("email_message_id", { ascending: false })
       .limit(1000);
-    const contactIds = [...new Set((sent ?? []).map((r) => r.matched_contact_id as number))];
+    const contactIds = [...new Set((sent ?? []).map((r) => r.contact_id as number))];
     if (contactIds.length === 0) return;
 
+    // error-tolerated: same deferred-milestone contract as the read above.
     const { data: links } = await service
       .from("contact_companies")
       .select("company_id")

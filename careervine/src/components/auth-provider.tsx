@@ -69,8 +69,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Immediately check for existing session
-    getSession();
+    // Immediately check for existing session. getSession() catches its own
+    // failures (falling back to signed-out), so nothing here needs to await it.
+    void getSession();
 
     // Set up a listener for auth state changes (sign in, sign out, token refresh)
     // This keeps our React state in sync with Supabase auth state

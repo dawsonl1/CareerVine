@@ -71,7 +71,8 @@ function citedPaths(markdown: string): string[] {
  * survives a rename of the symbol inside it.
  */
 const SYMBOL_CLAIMS: Array<[file: string, symbols: string[]]> = [
-  ["careervine/src/lib/api-handler.ts", ["withApiHandler", "ApiError", "requireCapability"]],
+  ["careervine/src/lib/api-handler.ts", ["withApiHandler", "ApiError", "requireCapability", "InferApiResponse"]],
+  ["careervine/src/lib/api-client.ts", ["apiFetch", "apiSend", "ApiRequestError"]],
   ["careervine/src/lib/qstash-verify.ts", ["withQStashVerification"]],
   ["careervine/src/lib/cron-guard.ts", ["withCronGuard"]],
   ["careervine/src/lib/capabilities/map.ts", ["capabilitiesFor"]],

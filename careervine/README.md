@@ -22,6 +22,7 @@ npm run test         # vitest
 npx tsc --noEmit     # typecheck
 npm run lint         # eslint, zero warnings allowed
 npm run check:ui-events
+npm run check:conventions
 npx next build
 ```
 

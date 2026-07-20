@@ -15,6 +15,8 @@
  * never runs" a directly testable invariant.
  */
 
+import "server-only";
+
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 

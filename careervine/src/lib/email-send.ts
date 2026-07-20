@@ -22,10 +22,13 @@
  *     meeting link.
  */
 
+import "server-only";
+
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendEmail, getConnection, type ComposeEmailOptions } from "@/lib/gmail-send-core";
 import { EmailDirection, GmailLabel } from "@/lib/constants";
 import { trackServer, checkCompaniesEmailedMilestone } from "@/lib/analytics/server";
+import { must } from "@/lib/data/client";
 
 /**
  * Daily outbound cap (plan 24 Phase 4). Consumer Gmail allows ~500/day,
@@ -67,13 +70,15 @@ export async function sendTrackedEmail(
   // Send-limit guardrail
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
-  const { count: sentToday } = await service
+  const { count: sentToday, error: capError } = await service
     .from("email_messages")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("direction", EmailDirection.Outbound)
     .eq("is_simulated", false)
     .gte("date", midnight.toISOString());
+  // A failed count must not read as 0 and wave the send through the cap.
+  if (capError) throw capError;
   if ((sentToday ?? 0) >= DAILY_SEND_CAP) {
     await trackServer(userId, "send_cap_hit", {});
     throw new SendPolicyError(
@@ -84,11 +89,13 @@ export async function sendTrackedEmail(
 
   // Recipient provenance: refuse bounced addresses, warn on pattern-guessed.
   // One query also yields the contact match used for caching/logging below.
-  const { data: emailRows } = await service
-    .from("contact_emails")
-    .select("contact_id, source, bounced_at, contacts!inner(user_id)")
-    .eq("email", toAddr)
-    .eq("contacts.user_id", userId);
+  const emailRows = must(
+    await service
+      .from("contact_emails")
+      .select("contact_id, source, bounced_at, contacts!inner(user_id)")
+      .eq("email", toAddr)
+      .eq("contacts.user_id", userId),
+  );
   const matchedRow = (emailRows ?? [])[0] as
     | { contact_id: number; source: string; bounced_at: string | null }
     | undefined;
@@ -111,7 +118,7 @@ export async function sendTrackedEmail(
   const conn = await getConnection(userId);
   const sentAt = new Date().toISOString();
 
-  await service.from("email_messages").upsert(
+  const { data: sentRow, error: cacheError } = await service.from("email_messages").upsert(
     {
       user_id: userId,
       gmail_message_id: result.messageId,
@@ -133,17 +140,47 @@ export async function sendTrackedEmail(
       ai_assisted: analytics?.aiAssisted ?? false,
     },
     { onConflict: "user_id,gmail_message_id", ignoreDuplicates: false }
-  );
+  ).select("id").single();
+  if (cacheError) console.error("Failed to cache sent message:", cacheError);
 
-  // Record an interaction so the contact's last_touch is updated and they
-  // don't immediately reappear as a "Reach Out" suggestion.
-  if (matchedContactId) {
-    await service.from("interactions").insert({
-      contact_id: matchedContactId,
-      interaction_date: sentAt,
-      interaction_type: "email",
-      summary: `Sent: ${opts.subject}`,
-    }).then(null, (err: unknown) => console.error("Failed to create email interaction:", err));
+  // Multi-contact attribution (CAR-159): the provenance query above returns
+  // EVERY contact whose contact_emails row matches the recipient address —
+  // matched_contact_id keeps only the first as the denormalized primary, the
+  // junction links them all so the sent message appears on each timeline.
+  const matchedContactIds = [
+    ...new Set(
+      (emailRows ?? [])
+        .map((r: { contact_id: number | null }) => r.contact_id)
+        .filter((id): id is number => id != null)
+    ),
+  ];
+  if (sentRow && matchedContactIds.length > 0) {
+    const { error: linkError } = await service.from("email_message_contacts").upsert(
+      matchedContactIds.map((cid) => ({ email_message_id: (sentRow as { id: number }).id, contact_id: cid })),
+      { onConflict: "email_message_id,contact_id", ignoreDuplicates: true }
+    );
+    if (linkError) console.error("Failed to link sent message to contacts:", linkError);
+  }
+
+  // Record an interaction so each matched contact's last_touch is updated and
+  // they don't immediately reappear as a "Reach Out" suggestion (CAR-159: an
+  // address shared by two contacts touched both).
+  if (matchedContactIds.length > 0) {
+    // supabase-js surfaces DB failures (FK violation from a contact deleted
+    // mid-send, constraint, RLS) as a RESOLVED { error }, not a rejection, so
+    // a .then(null, handler) rejection-only guard would swallow them silently.
+    // Destructure and log instead. Non-fatal by design: the email already sent,
+    // so we never throw here — a missing interaction only affects Reach Out
+    // ranking (CAR-159 review F7).
+    const { error: interactionError } = await service.from("interactions").insert(
+      matchedContactIds.map((cid) => ({
+        contact_id: cid,
+        interaction_date: sentAt,
+        interaction_type: "email",
+        summary: `Sent: ${opts.subject}`,
+      }))
+    );
+    if (interactionError) console.error("Failed to create email interaction:", interactionError);
   }
 
   await trackServer(userId, "email_sent", {

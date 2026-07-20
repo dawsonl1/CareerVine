@@ -313,7 +313,8 @@ function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: (
   // Flip the buttons to "connected" once the OAuth round-trip finishes in its
   // own tab (returnTo=/onboarding/connected).
   useEffect(() => {
-    const t = setInterval(() => refreshConnection(), 3000);
+    // refresh() swallows its own fetch errors and keeps the prior snapshot.
+    const t = setInterval(() => void refreshConnection(), 3000);
     return () => clearInterval(t);
   }, [refreshConnection]);
 
@@ -476,7 +477,9 @@ function CompanyPickerStep({
   stats: OnboardingBundleStats;
   syncing: boolean;
   onSyncComplete: () => void;
-  onPicked: (company: PickerCompany) => void;
+  // The orchestrator's handler awaits the target-company write, so the prop type
+  // has to admit a promise; the picker fires it and lets it settle on its own.
+  onPicked: (company: PickerCompany) => void | Promise<void>;
   onSkip: () => void;
 }) {
   const [companies, setCompanies] = useState<PickerCompany[] | null>(null);
@@ -515,7 +518,9 @@ function CompanyPickerStep({
     if (!syncing || started.current) return;
     started.current = true;
     startedAtRef.current = Date.now();
-    (async () => {
+    // Self-contained: the catch below is the only failure path (it surfaces the
+    // background-sync notice), so the effect body owns its own errors.
+    void (async () => {
       try {
         // Resume-safe: subscribing when already subscribed is handled
         // server-side; the apply loop picks up wherever the sync left off.
@@ -533,6 +538,9 @@ function CompanyPickerStep({
         setNotice(err instanceof Error ? err.message : BACKGROUND_SYNC_MESSAGE);
       }
     })();
+    // `syncing` alone is the intended trigger. `finish` is not a dependency on
+    // purpose: it is re-created per render, so depending on it would re-enter
+    // this apply loop and can complete onboarding more than once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncing]);
 
@@ -582,7 +590,7 @@ function CompanyPickerStep({
       const v = (bundle as { version: number } | null)?.version;
       if (s?.status === "active" && v != null && s.synced_version >= v) finish();
     };
-    const t = setInterval(tick, 2500);
+    const t = setInterval(() => void tick(), 2500);
     void tick();
     return () => {
       cancelled = true;
@@ -702,9 +710,9 @@ function CompanyPickerStep({
                   <button
                     type="button"
                     disabled={syncing || selecting !== null}
-                    onClick={async () => {
+                    onClick={() => {
                       setSelecting(c.id);
-                      onPicked(c);
+                      void onPicked(c);
                     }}
                     className="opacity-0 group-hover:opacity-100 focus:opacity-100 h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -818,7 +826,9 @@ export function OnboardingFlow() {
   useEffect(() => {
     if (!active || statsLoaded.current) return;
     statsLoaded.current = true;
-    getOnboardingBundleStats()
+    // getOnboardingBundleStats fails closed to null, and the finally resolves the
+    // gate either way — a failed read falls through to the intro splash.
+    void getOnboardingBundleStats()
       .then(setStats)
       .finally(() => setStatsResolved(true));
   }, [active]);

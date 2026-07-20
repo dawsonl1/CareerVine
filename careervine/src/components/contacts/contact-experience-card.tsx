@@ -22,11 +22,7 @@ export function ContactExperienceCard({ contact }: ContactExperienceCardProps) {
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2.5">
             Experience
           </h3>
-          {contact.contact_companies.map((cc) => {
-            // start_month/end_month/location live on the DB row but not yet on the type.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-            const ccx = cc as any;
-            return (
+          {contact.contact_companies.map((cc) => (
               <div
                 key={cc.id}
                 className="flex gap-3 py-2"
@@ -54,22 +50,21 @@ export function ContactExperienceCard({ contact }: ContactExperienceCardProps) {
                     </p>
                   )}
                   <p className="text-sm text-muted-foreground">
-                    {ccx.start_month && (
+                    {cc.start_month && (
                       <>
-                        {ccx.start_month} – {cc.is_current ? "Present" : ccx.end_month || ""}
+                        {cc.start_month} – {cc.is_current ? "Present" : cc.end_month || ""}
                       </>
                     )}
-                    {ccx.location && (
+                    {cc.location && (
                       <>
-                        {ccx.start_month && " · "}
-                        {ccx.location}
+                        {cc.start_month && " · "}
+                        {cc.location}
                       </>
                     )}
                   </p>
                 </div>
               </div>
-            );
-          })}
+          ))}
         </div>
       )}
 

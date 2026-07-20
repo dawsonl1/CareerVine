@@ -5,7 +5,11 @@ import { useClickOutside } from "@/hooks/use-click-outside";
 import { Calendar, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { useAuth } from "@/components/auth-provider";
+import { getContactTagNames } from "@/lib/queries";
 import { withToastOnError } from "@/lib/with-toast-on-error";
+import type { AvailabilityDayConfig } from "@/lib/availability-profile";
+import type { GmailConnectionData } from "@/hooks/use-gmail-connection";
 
 interface AvailabilityDay {
   date: string;
@@ -22,18 +26,85 @@ type PickerMode = "standard" | "priority" | "custom";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-function profileToPickerState(profile: any) {
+// ── Stored availability shapes ──────────────────────────────────────────
+// gmail_connections.availability_standard / availability_priority are Json
+// columns, so they arrive as `unknown` (see GmailConnectionData) and get
+// narrowed by the guards below. Two shapes are live on the wire: the current
+// per-day one written by Settings and by this picker, and a legacy flat one
+// that calendarAvailabilityProfileSchema still accepts.
+
+/**
+ * A working-day entry as stored. `day` and `enabled` are what
+ * isWorkingDaysProfile validates; the rest stay optional because rows written
+ * before calendarAvailabilityProfileSchema existed can omit them, which is why
+ * every read below carries a default.
+ */
+type StoredWorkingDay = Pick<AvailabilityDayConfig, "day" | "enabled"> &
+  Partial<Omit<AvailabilityDayConfig, "day" | "enabled">>;
+
+type WorkingDaysProfile = { workingDays: StoredWorkingDay[] };
+
+type LegacyAvailabilityProfile = {
+  days?: number[];
+  windowStart?: string;
+  windowEnd?: string;
+  bufferBefore?: number;
+  bufferAfter?: number;
+};
+
+/** The custom-mode controls derived from either stored shape. */
+type PickerState = {
+  daysOfWeek: number[];
+  windowStart: string;
+  windowEnd: string;
+  bufferBefore: number;
+  bufferAfter: number;
+};
+
+/**
+ * Field-wise view of an unknown value. Sound because every property read off
+ * the result is typeof-guarded before use; mirrors normalizeAvailabilityProfile
+ * in lib/availability-profile.ts.
+ */
+function asRecord(raw: unknown): Record<string, unknown> | null {
+  return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+}
+
+function isStoredWorkingDay(value: unknown): value is StoredWorkingDay {
+  const d = asRecord(value);
+  return !!d && typeof d.day === "number" && typeof d.enabled === "boolean";
+}
+
+/** Exported for tests: the guard both the summary and the insert path branch on. */
+export function isWorkingDaysProfile(raw: unknown): raw is WorkingDaysProfile {
+  const r = asRecord(raw);
+  return !!r && Array.isArray(r.workingDays) && r.workingDays.every(isStoredWorkingDay);
+}
+
+/** Read the legacy flat fields off a stored blob, dropping anything mistyped. */
+function toLegacyProfile(raw: unknown): LegacyAvailabilityProfile | null {
+  const r = asRecord(raw);
+  if (!r) return null;
+  return {
+    days: Array.isArray(r.days) ? r.days.filter((d): d is number => typeof d === "number") : undefined,
+    windowStart: typeof r.windowStart === "string" ? r.windowStart : undefined,
+    windowEnd: typeof r.windowEnd === "string" ? r.windowEnd : undefined,
+    bufferBefore: typeof r.bufferBefore === "number" ? r.bufferBefore : undefined,
+    bufferAfter: typeof r.bufferAfter === "number" ? r.bufferAfter : undefined,
+  };
+}
+
+/** Exported for tests: pure, and the only reader of the stored JSON shapes. */
+export function profileToPickerState(profile: unknown): PickerState {
   let daysOfWeek = [1, 2, 3, 4, 5];
   let windowStart = "09:00";
   let windowEnd = "18:00";
   let bufferBefore = 10;
   let bufferAfter = 10;
-  if (profile?.workingDays) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    const enabled = profile.workingDays.filter((d: any) => d.enabled);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    if (enabled.length) daysOfWeek = enabled.map((d: any) => d.day + 1);
+
+  if (isWorkingDaysProfile(profile)) {
+    const enabled = profile.workingDays.filter((d) => d.enabled);
+    if (enabled.length) daysOfWeek = enabled.map((d) => d.day + 1);
     const first = enabled[0];
     if (first) {
       windowStart = first.startTime || "09:00";
@@ -41,18 +112,24 @@ function profileToPickerState(profile: any) {
       bufferBefore = first.bufferBefore ?? 10;
       bufferAfter = first.bufferAfter ?? 10;
     }
-  } else if (profile?.days) {
-    if (profile.days.length) daysOfWeek = profile.days;
-    if (profile.windowStart) windowStart = profile.windowStart;
-    if (profile.windowEnd) windowEnd = profile.windowEnd;
-    if (profile.bufferBefore != null) bufferBefore = profile.bufferBefore;
-    if (profile.bufferAfter != null) bufferAfter = profile.bufferAfter;
+  } else {
+    // Legacy blobs are only recognised when they carry `days`, matching the
+    // original `else if (profile?.days)` gate.
+    const legacy = toLegacyProfile(profile);
+    if (legacy?.days) {
+      if (legacy.days.length) daysOfWeek = legacy.days;
+      if (legacy.windowStart) windowStart = legacy.windowStart;
+      if (legacy.windowEnd) windowEnd = legacy.windowEnd;
+      if (legacy.bufferBefore != null) bufferBefore = legacy.bufferBefore;
+      if (legacy.bufferAfter != null) bufferAfter = legacy.bufferAfter;
+    }
   }
   return { daysOfWeek, windowStart, windowEnd, bufferBefore, bufferAfter };
 }
 
 export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPickerProps) {
   const { error: toastError } = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -79,12 +156,11 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
   const [savingDefault, setSavingDefault] = useState(false);
   const [savedDefault, setSavedDefault] = useState(false);
 
-  // Profile data keyed by type
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const profileData = useRef<Record<"standard" | "priority", any>>({ standard: null, priority: null });
+  // Profile data keyed by type. Stored as `unknown` because these are raw Json
+  // column values; every read narrows through the guards above.
+  const profileData = useRef<Record<"standard" | "priority", unknown>>({ standard: null, priority: null });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const formatProfileSummary = (profile: any): string => {
+  const formatProfileSummary = (profile: unknown): string => {
     if (!profile) return "Not configured";
     const dayAbbr = ["M","T","W","Th","F","Sa","Su"];
     const fmt = (t: string) => {
@@ -92,9 +168,8 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       return `${h % 12 || 12}${m ? `:${String(m).padStart(2,"0")}` : ""}${h < 12 ? "am" : "pm"}`;
     };
 
-    if (profile.workingDays) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      const enabled: any[] = profile.workingDays.filter((d: any) => d.enabled);
+    if (isWorkingDaysProfile(profile)) {
+      const enabled = profile.workingDays.filter((d) => d.enabled);
       if (!enabled.length) return "No days configured";
 
       // Group days by their time window
@@ -127,7 +202,7 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
     const load = async () => {
       try {
         const res = await fetch("/api/gmail/connection");
-        const data = await res.json();
+        const data: { connection: GmailConnectionData | null } = await res.json();
         const conn = data.connection;
         if (!conn) return;
 
@@ -140,18 +215,22 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
         setStandardSummary(formatProfileSummary(conn.availability_standard));
         setPrioritySummary(formatProfileSummary(conn.availability_priority));
 
-        // Detect priority contact to set default mode
+        // Detect priority contact to set default mode.
+        //
+        // CAR-158: this previously fetched `/api/contacts/{id}/tags`, a route
+        // that has never existed in this repo. The `if (res.ok)` guard
+        // swallowed the resulting 404, so `isPriority` was permanently false
+        // and the picker never auto-selected the priority profile — a shipped
+        // feature that had never once worked. Reading tags through the data
+        // layer keeps it on RLS and needs no new API surface.
         let isPriority = false;
-        if (recipientEmail) {
+        if (recipientEmail && user) {
           try {
             const r = await fetch(`/api/gmail/ai-write/resolve-contact?email=${encodeURIComponent(recipientEmail)}`);
-            const cd = await r.json();
+            const cd: { contactId?: number | null } = await r.json();
             if (cd.contactId) {
-              const cr = await fetch(`/api/contacts/${cd.contactId}/tags`);
-              if (cr.ok) {
-                const { tags } = await cr.json();
-                isPriority = tags?.some((t: string) => t.toLowerCase() === "priority") ?? false;
-              }
+              const tags = await getContactTagNames(cd.contactId, user.id);
+              isPriority = tags.some((t) => t.toLowerCase() === "priority");
             }
           } catch {
             // Priority-contact detection is best-effort; on failure the picker
@@ -159,8 +238,9 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
           }
         }
 
-        const detected: PickerMode = isPriority && conn.availability_priority ? "priority" : "standard";
-        setAutoDetectedProfile(detected as "standard" | "priority");
+        const detected: "standard" | "priority" =
+          isPriority && conn.availability_priority ? "priority" : "standard";
+        setAutoDetectedProfile(detected);
         setMode(detected);
 
         // Pre-populate custom controls from the detected profile
@@ -180,8 +260,9 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       setProfileLoading(false);
     };
 
-    load();
-  }, [open, recipientEmail]);
+    // `load` catches everything internally and always clears the loading flag.
+    void load();
+  }, [open, recipientEmail, user]);
 
   // Close on outside click
   useClickOutside(containerRef, useCallback(() => setOpen(false), []), open);
@@ -209,7 +290,12 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       bufferAfter: String(opts.bufferAfter),
     });
     const res = await fetch(`/api/calendar/availability?${params}`);
-    const data = await res.json();
+    const data: {
+      days?: AvailabilityDay[];
+      notConnected?: boolean;
+      neverSynced?: boolean;
+      error?: string;
+    } = await res.json();
     if (data.notConnected) throw Object.assign(new Error("Connect Google Calendar in Settings to use this feature."), { code: "NOT_CONNECTED" });
     if (data.neverSynced) throw Object.assign(new Error("Your calendar hasn't synced yet. Visit the Calendar page to sync."), { code: "NEVER_SYNCED" });
     if (!res.ok) throw new Error(data.error || "Failed to fetch availability");
@@ -227,10 +313,9 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       const DAYS_AHEAD = 7;
       let allDays: AvailabilityDay[] = [];
 
-      if (p.workingDays) {
+      if (isWorkingDaysProfile(p)) {
         // Per-day settings: group working days by their time window
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        const enabled: any[] = p.workingDays.filter((d: any) => d.enabled);
+        const enabled = p.workingDays.filter((d) => d.enabled);
         if (!enabled.length) { setError("No working days configured in this profile."); return; }
 
         // Group days with identical settings together so we make one API call per group
@@ -261,9 +346,8 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       if (allDays.length === 0) { setError("No availability found for the next 7 days."); return; }
       onInsert(allDays.map((d) => `${d.label}: ${d.slots.join(", ")}`).join("\n"));
       setOpen(false);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    } catch (err: any) {
-      setError(err.message || "Failed to load availability");
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : "Failed to load availability");
     } finally {
       setLoading(false);
     }
@@ -278,9 +362,8 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       if (days.length === 0) { setError("No availability found for the selected range."); return; }
       onInsert(days.map((d) => `${d.label}: ${d.slots.join(", ")}`).join("\n"));
       setOpen(false);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    } catch (err: any) {
-      setError(err.message || "Failed to load availability");
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : "Failed to load availability");
     } finally {
       setLoading(false);
     }
@@ -330,7 +413,7 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
                       onClick={() => {
                         setMode(m);
                         if (m !== "custom") {
-                          const p = profileData.current[m as "standard" | "priority"];
+                          const p = profileData.current[m];
                           if (p) {
                             const s = profileToPickerState(p);
                             setDaysOfWeek(s.daysOfWeek);

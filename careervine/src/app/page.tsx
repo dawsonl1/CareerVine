@@ -45,6 +45,8 @@ import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { LogConversationFab } from "@/components/home/log-conversation-fab";
 import { UnifiedActionList, type UnifiedActionItem, type SnoozeAction } from "@/components/home/unified-action-list";
 import { TodaySchedule, type ScheduleEvent } from "@/components/home/today-schedule";
+import { parseCalendarAttendees } from "@/lib/calendar-attendees";
+import type { CalendarEventsResponse } from "@/app/api/calendar/events/route";
 import { DiscoveryDigest } from "@/components/home/discovery-digest";
 import { type NewContact } from "@/components/home/new-contacts";
 import { NetworkingStats } from "@/components/home/networking-stats";
@@ -234,12 +236,13 @@ export default function Home() {
       ]);
 
       if (eventsRes.ok) {
-        const data = await eventsRes.json();
+        const data = (await eventsRes.json()) as CalendarEventsResponse;
         setScheduleEvents(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          (data.events || []).map((e: any) => {
-            // Match contact: try attendee emails first, then fall back to contact_id
-            const attendees = e.attendees || [];
+          (data.events || []).map((e) => {
+            // Match contact: try attendee emails first, then fall back to contact_id.
+            // `attendees` is a jsonb column, so it narrows through the shared
+            // parser rather than being trusted as-shaped (CAR-158).
+            const attendees = parseCalendarAttendees(e.attendees);
             let contact: ScheduleEvent["contact"] | undefined;
             for (const a of attendees) {
               if (!a.email) continue;
@@ -354,10 +357,12 @@ export default function Home() {
 
   useEffect(() => {
     if (user) {
-      // Fire count query first, then everything else in parallel
-      loadCounts();
-      loadCoreData();
-      loadBand3();
+      // Fire count query first, then everything else in parallel.
+      // All three loaders catch their own errors and clear their loading flags,
+      // so they are deliberately fire-and-forget (same for every `void` below).
+      void loadCounts();
+      void loadCoreData();
+      void loadBand3();
     }
   }, [user, loadCounts, loadCoreData, loadBand3]);
 
@@ -380,14 +385,14 @@ export default function Home() {
 
   // Load schedule after core data so lastTouchLookup is available for contact matching
   useEffect(() => {
-    if (dataLoaded) loadSchedule();
+    if (dataLoaded) void loadSchedule();
   }, [dataLoaded, loadSchedule]);
 
   // Refresh when a conversation is logged or an email is sent
   useEffect(() => {
     const handler = () => {
-      loadCoreData();
-      loadBand3();
+      void loadCoreData();
+      void loadBand3();
     };
     const unsubscribers = [
       onUiEvent(UI_EVENTS.conversationLogged, handler),
@@ -407,8 +412,8 @@ export default function Home() {
     let lastRefresh = Date.now();
     const refresh = () => {
       lastRefresh = Date.now();
-      loadCoreData();
-      loadBand3();
+      void loadCoreData();
+      void loadBand3();
     };
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") refresh();
@@ -466,7 +471,7 @@ export default function Home() {
       const ok = await saveSuggestionRaw(s);
       if (ok) {
         toast("Saved to action items", { variant: "success" });
-        loadCoreData();
+        void loadCoreData();
       } else {
         toast("Failed to save", { variant: "error" });
       }
@@ -628,11 +633,12 @@ export default function Home() {
   const handleComplete = useCallback(
     (item: UnifiedActionItem) => {
       if (item.type === "action_item" && item.actionItemId) {
-        markActionDone(item.actionItemId);
+        // Both toast their own failures, so the handler stays synchronous.
+        void markActionDone(item.actionItemId);
       } else if (item.type === "reach_out") {
         openQuickCapture(item.contactId);
       } else if (item.type === "suggestion" && item.suggestion) {
-        completeSuggestion(item.suggestion);
+        void completeSuggestion(item.suggestion);
       }
     },
     [markActionDone, openQuickCapture, completeSuggestion]
@@ -717,7 +723,7 @@ export default function Home() {
 
   const handleSave = useCallback(
     (item: UnifiedActionItem) => {
-      if (item.suggestion) saveSuggestion(item.suggestion);
+      if (item.suggestion) void saveSuggestion(item.suggestion);
     },
     [saveSuggestion]
   );
@@ -810,7 +816,7 @@ export default function Home() {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <LoadErrorState
             message="We could not load your dashboard"
-            onRetry={() => { setDataLoaded(false); loadCounts(); loadCoreData(); loadBand3(); }}
+            onRetry={() => { setDataLoaded(false); void loadCounts(); void loadCoreData(); void loadBand3(); }}
           />
         </main>
       </div>

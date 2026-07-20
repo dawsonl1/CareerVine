@@ -11,11 +11,14 @@
  * instead of silently spending the app owner's credits or throwing an opaque 500.
  */
 
+import "server-only";
+
 import OpenAI, { APIError } from "openai";
 import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, CryptoError } from "@/lib/crypto";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { trackServer } from "@/lib/analytics/server";
+import { must } from "@/lib/data/client";
 import {
   estimateCallCostUsd,
   getSharedAiSpendUsd,
@@ -238,8 +241,10 @@ async function evaluateAccessRow(
 /**
  * Whether the user is entitled to CareerVine's shared key — and if not,
  * whether that's because their trial expired. Cached 60s. Fails CLOSED on any
- * lookup error — the spend-safe default. Only consulted when a personal key is
- * unusable, so the common BYO-active path never pays for this.
+ * lookup error — the spend-safe default — but such a denial is NOT cached, so
+ * a transient failure costs one request rather than a whole TTL window. Only
+ * consulted when a personal key is unusable, so the common BYO-active path
+ * never pays for this.
  *
  * Side effects (CAR-51): arms the 24h trial for row-less users and lazily
  * retires expired grants — so this must only run from real AI-use paths,
@@ -252,11 +257,18 @@ async function resolveSharedAccess(userId: string): Promise<SharedAccessState> {
   let state: SharedAccessState = { granted: false, trialExpired: false };
   try {
     const service = createSupabaseServiceClient();
-    let { data } = await service
-      .from("user_ai_access")
-      .select(ACCESS_COLUMNS)
-      .eq("user_id", userId)
-      .maybeSingle();
+    // must(), not a bare destructure (CAR-158). A failed read returns
+    // { data: null } WITHOUT throwing, and `!data` below means "this user has
+    // no access row yet" — so a transient read failure would fall through to
+    // startTrial() and re-arm a trial for a user who may already have access.
+    // Throwing here lands in the catch below, which fails closed.
+    let data = must(
+      await service
+        .from("user_ai_access")
+        .select(ACCESS_COLUMNS)
+        .eq("user_id", userId)
+        .maybeSingle(),
+    );
 
     if (!data && (await startTrial(service, userId))) {
       state = { granted: true, trialExpired: false };
@@ -274,7 +286,12 @@ async function resolveSharedAccess(userId: string): Promise<SharedAccessState> {
       }
     }
   } catch {
-    state = { granted: false, trialExpired: false };
+    // Fail closed for THIS request only (CAR-158). The reads above throw on
+    // transient DB failure, which says nothing about the user's entitlement —
+    // caching that denial would deny AI for the full TTL, where a bare read
+    // error used to recover on the very next request. Return without writing
+    // the cache so the next call re-reads.
+    return { granted: false, trialExpired: false };
   }
 
   sharedAccessCache.set(userId, {

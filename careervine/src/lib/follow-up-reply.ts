@@ -2,6 +2,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { activateContactByEmail } from "@/lib/gmail";
 import { trackServer } from "@/lib/analytics/server";
 import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { must } from "@/lib/data/client";
 
 /**
  * Record that a contact replied on a thread — the free-tier manual reply signal
@@ -25,12 +26,14 @@ export async function recordThreadReply(
 
   // Cancel active sequences on this thread (mirrors the cron's reply-cancel;
   // clears both pending and awaiting_review messages so none are orphaned).
-  const { data: seqs } = await service
-    .from("email_follow_ups")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("thread_id", threadId)
-    .eq("status", "active");
+  const seqs = must(
+    await service
+      .from("email_follow_ups")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("thread_id", threadId)
+      .eq("status", "active"),
+  );
   for (const s of seqs ?? []) {
     await service
       .from("email_follow_ups")
@@ -50,30 +53,42 @@ export async function recordThreadReply(
 
   // Idempotency: a thread with any inbound message (a real synced reply or a
   // prior manual mark) is already recorded — don't fire the event twice.
-  const { data: existingInbound } = await service
-    .from("email_messages")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("thread_id", threadId)
-    .eq("direction", "inbound")
-    .limit(1)
-    .maybeSingle();
+  const existingInbound = must(
+    await service
+      .from("email_messages")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("thread_id", threadId)
+      .eq("direction", "inbound")
+      .limit(1)
+      .maybeSingle(),
+  );
   if (existingInbound) return { ok: true, alreadyMarked: true };
 
-  // ai_assisted + contact link come from the latest outbound on the thread.
-  const { data: outbound } = await service
-    .from("email_messages")
-    .select("ai_assisted, matched_contact_id")
-    .eq("user_id", userId)
-    .eq("thread_id", threadId)
-    .eq("direction", "outbound")
-    .order("date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // ai_assisted + contact link come from the latest outbound on the thread —
+  // including its junction links (CAR-159), so a reply on a thread shared by
+  // two tracked contacts is reflected on both.
+  //
+  // must(), not a bare destructure (CAR-158): a failed read here is not "no
+  // outbound found". It would write matched_contact_id null and ai_assisted
+  // false onto the simulated reply, detaching it from its contact and skewing
+  // AI attribution, while still returning { ok: true } to the caller.
+  // maybeSingle keeps a genuinely absent outbound expressible.
+  const outbound = must(
+    await service
+      .from("email_messages")
+      .select("ai_assisted, matched_contact_id, email_message_contacts(contact_id)")
+      .eq("user_id", userId)
+      .eq("thread_id", threadId)
+      .eq("direction", "outbound")
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  );
 
   // Simulated inbound row: reflects the reply in the thread and dedupes future
   // calls (the (user_id, gmail_message_id) unique constraint enforces one/thread).
-  const { error: insertErr } = await service.from("email_messages").insert({
+  const { data: insertedReply, error: insertErr } = await service.from("email_messages").insert({
     user_id: userId,
     gmail_message_id: `manual-reply-${threadId}`,
     thread_id: threadId,
@@ -84,7 +99,7 @@ export async function recordThreadReply(
     is_read: true,
     is_simulated: true,
     matched_contact_id: (outbound as { matched_contact_id?: number | null } | null)?.matched_contact_id ?? null,
-  });
+  }).select("id").single();
 
   // The existingInbound check above closes the common case, but two concurrent
   // marks/confirms can both pass it and race to insert. The unique constraint
@@ -92,6 +107,31 @@ export async function recordThreadReply(
   // already-recorded so reply_received fires EXACTLY once, never twice.
   if (insertErr) {
     return { ok: true, alreadyMarked: true };
+  }
+
+  // Junction links (CAR-159): attribute the simulated reply to every contact
+  // the outbound was linked to (union with the denormalized primary).
+  const outboundLinks = (outbound as {
+    matched_contact_id?: number | null;
+    email_message_contacts?: Array<{ contact_id: number | null }>;
+  } | null);
+  const replyContactIds = [
+    ...new Set(
+      [
+        ...(outboundLinks?.email_message_contacts ?? []).map((l) => l.contact_id),
+        outboundLinks?.matched_contact_id ?? null,
+      ].filter((id): id is number => id != null)
+    ),
+  ];
+  if (insertedReply && replyContactIds.length > 0) {
+    const { error: linkError } = await service.from("email_message_contacts").upsert(
+      replyContactIds.map((cid) => ({
+        email_message_id: (insertedReply as { id: number }).id,
+        contact_id: cid,
+      })),
+      { onConflict: "email_message_id,contact_id", ignoreDuplicates: true }
+    );
+    if (linkError) console.error("Failed to link manual reply to contacts:", linkError);
   }
 
   await trackServer(userId, "reply_received", {

@@ -6,11 +6,11 @@ import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Calendar, MapPin, Video, Clock, Users, X } from "lucide-react";
 import { packOverlappingEvents } from "@/lib/calendar-layout";
 
-export interface ScheduleEventAttendee {
-  email: string;
-  name?: string;
-  responseStatus?: string;
-}
+// Single-sourced in lib/calendar-attendees (CAR-158): the same shape is read
+// from the jsonb column on more than one surface, so the narrowing lives with
+// the type rather than being re-cast per consumer.
+export type { CalendarAttendee as ScheduleEventAttendee } from "@/lib/calendar-attendees";
+import type { CalendarAttendee } from "@/lib/calendar-attendees";
 
 export interface ScheduleEvent {
   id: number;
@@ -20,7 +20,7 @@ export interface ScheduleEvent {
   description: string | null;
   location: string | null;
   meet_link: string | null;
-  attendees: ScheduleEventAttendee[];
+  attendees: CalendarAttendee[];
   /** Resolved contact (from attendee matching or contact_id lookup) */
   contact?: {
     id: number;
@@ -358,7 +358,14 @@ function QuickAddCard({
   onCancel,
 }: {
   draft: NewEventDraft;
-  onSave: (title: string, addMeet: boolean) => void;
+  // CAR-158: widened from `void` because the only call site
+  // (handleSaveNewEvent) is async. Type honesty, NOT a behaviour fix: type
+  // annotations erase, so at runtime the `await` below always received a real
+  // Promise and the try/catch always caught a failed create-event. The old
+  // annotation made that `await` look redundant, which `await-thenable` now
+  // flags and which a future cleanup could have "simplified" away — and THAT
+  // would have killed the error path for real.
+  onSave: (title: string, addMeet: boolean) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState("");
@@ -417,7 +424,7 @@ function QuickAddCard({
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+          onKeyDown={(e) => { if (e.key === "Enter") void handleSave(); }}
           placeholder="Add title"
           className="w-full text-lg font-medium text-foreground bg-transparent border-b-2 border-primary pb-2 placeholder:text-muted-foreground/50 focus:outline-none"
         />

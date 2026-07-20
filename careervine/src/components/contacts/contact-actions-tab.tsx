@@ -91,8 +91,9 @@ export function ContactActionsTab({
   const { execute: deferDelete } = useDeferredAction<ActionItem>({
     action: async (item) => { await deleteActionItem(item.id); },
     undoMessage: (item) => `"${item.title}" deleted`,
-    onUndo: () => { reloadActions(); },
-    onError: () => { toastError("Failed to delete action item"); reloadActions(); },
+    // Fire-and-forget: reloadActions swallows its own failures by design (see above).
+    onUndo: () => { void reloadActions(); },
+    onError: () => { toastError("Failed to delete action item"); void reloadActions(); },
   });
 
   const { execute: deferComplete } = useDeferredAction<ActionItem>({
@@ -100,8 +101,8 @@ export function ContactActionsTab({
       await updateActionItem(item.id, { is_completed: true, completed_at: new Date().toISOString() });
     },
     undoMessage: (item) => `"${item.title}" completed`,
-    onUndo: () => { reloadActions(); },
-    onError: () => { toastError("Failed to complete action item"); reloadActions(); },
+    onUndo: () => { void reloadActions(); },
+    onError: () => { toastError("Failed to complete action item"); void reloadActions(); },
   });
 
   // Sort: overdue first, then by priority (high→medium→low→null), then by date

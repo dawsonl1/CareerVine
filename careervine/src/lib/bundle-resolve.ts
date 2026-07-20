@@ -25,6 +25,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { must } from "@/lib/data/client";
 import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payload";
 import {
   findOrCreateCompany,
@@ -143,15 +144,17 @@ export async function resolveBundleChunk(
   // every budget-second on NEW rows instead of re-scanning already-resolved ones
   // (the old scan restarted at afterId=0 each cron run and skip-scanned the
   // whole resolved prefix, making recovery O(n²) and ~1 chunk/day).
-  const { data: rows } = await service
-    .from("bundle_prospects")
-    .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
-    .eq("bundle_id", bundle.id)
-    .is("removed_in_version", null)
-    .is("resolved", null)
-    .gt("id", afterId)
-    .order("id", { ascending: true })
-    .limit(chunkSize);
+  const rows = must(
+    await service
+      .from("bundle_prospects")
+      .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
+      .eq("bundle_id", bundle.id)
+      .is("removed_in_version", null)
+      .is("resolved", null)
+      .gt("id", afterId)
+      .order("id", { ascending: true })
+      .limit(chunkSize),
+  );
   const prospects = (rows as ResolveProspectRow[] | null) ?? [];
   result.scanned = prospects.length;
 
@@ -236,6 +239,9 @@ export async function resolveBundleChunk(
       ...new Set(pending.flatMap((p) => p.mapped.education.map((e) => e.school_name.trim()).filter(Boolean))),
     ];
     for (const nameChunk of chunkList(schoolNames)) {
+      // error-tolerated: warm-cache sweep only; a school that misses the cache
+      // goes through resolveSchoolId's find-or-create, so a failed read costs
+      // round trips rather than minting duplicate school rows.
       const { data } = await service.from("schools").select("id, name").in("name", nameChunk);
       for (const row of (data as Array<{ id: number; name: string }> | null) ?? []) {
         const key = row.name.toLowerCase();
@@ -310,11 +316,15 @@ export async function resolveBundleChunk(
     // DB state + this run's establishments.
     const companyIds = [...new Set(workingByProspect.flat().map((e) => e.companyId))];
     for (const idChunk of chunkList(companyIds)) {
-      const { data: officeRows } = await service
-        .from("company_locations")
-        .select("company_id, location_id, locations(city, state, country)")
-        .in("company_id", idChunk);
-      for (const row of (officeRows as Array<{
+      const officeRows = must(
+        await service
+          .from("company_locations")
+          .select("company_id, location_id, locations(city, state, country)")
+          .in("company_id", idChunk),
+      );
+      // via unknown: the generated types model the to-one locations embed as
+      // an array; PostgREST returns a single object (or null) for it.
+      for (const row of (officeRows as unknown as Array<{
         company_id: number;
         location_id: number;
         locations: { city: string | null; state: string | null; country: string } | null;

@@ -236,7 +236,14 @@ const DB_TABLE: Record<string, Entry> = {
   },
   searchEmailHistory: {
     kind: "scoped",
-    drive: () => db.searchEmailHistory("intro (call)"),
+    // Drive BOTH branches: the no-contactId query AND the contactId branch,
+    // whose email_message_contacts!inner embed carries no user_id of its own —
+    // so its .eq("user_id", uid()) is the only tenant scope, and this gate is
+    // what would catch a future refactor dropping it (CAR-159 review F4).
+    drive: async () => {
+      await db.searchEmailHistory("intro (call)");
+      await db.searchEmailHistory("intro (call)", 5);
+    },
   },
   getCachedThreadMessages: {
     kind: "scoped",
@@ -401,6 +408,9 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     removePhonesFromContact: { kind: "web-only" },
     addTagToContact: { kind: "web-only" },
     removeTagFromContact: { kind: "web-only" },
+    // CAR-158: reads one contact's tag names for the availability picker's
+    // priority detection. Browser/RLS surface; the MCP has no caller for it.
+    getContactTagNames: { kind: "web-only" },
   },
   "@/lib/data/interactions": {
     getInteractions: { kind: "web-only" },

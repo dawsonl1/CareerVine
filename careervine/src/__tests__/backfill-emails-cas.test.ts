@@ -39,6 +39,13 @@ const h = vi.hoisted(() => {
         entry?.filters.push(["contains", col, val]);
         return builder;
       },
+      // CAR-159 junction pass plumbing: id-lookup selects paginate via
+      // order/range, links land via upsert. Reads resolve empty here — the
+      // junction behavior itself is covered on the fake-gmail harness
+      // (gmail-junction-links.test.ts); this suite pins the CAS claim shape.
+      order: () => builder,
+      range: () => builder,
+      upsert: () => builder,
       then: (resolve: (v: unknown) => unknown) =>
         Promise.resolve({ data: null, error: null, count: isCount ? (state.counts.shift() ?? 0) : null }).then(resolve),
     };

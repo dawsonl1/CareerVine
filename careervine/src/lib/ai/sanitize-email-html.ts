@@ -21,6 +21,11 @@ import { JSDOM } from "jsdom";
 
 // Server-side DOMPurify (Node.js doesn't have window.document)
 const jsdomWindow = new JSDOM("").window;
+// jsdom's Window is structurally incompatible with the DOM lib's Window that
+// DOMPurify expects, and the mismatch is not expressible without inventing a
+// false type. Kept deliberately: rule 43 pins jsdom ^26.1.0 for production
+// CJS-require safety, so this surface must not be "fixed" by bumping jsdom or
+// swapping the sanitizer.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const purify = createDOMPurify(jsdomWindow as any);
 

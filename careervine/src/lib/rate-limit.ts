@@ -4,6 +4,8 @@
  * degrades to allow-all (logged once) when they are absent.
  */
 
+import "server-only";
+
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { trackServer } from "@/lib/analytics/server";

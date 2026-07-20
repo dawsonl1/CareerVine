@@ -31,6 +31,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { must } from "@/lib/data/client";
 import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payload";
 import { chunkList } from "@/lib/data/postgrest";
 import { importPeopleChunk, type PersonImportResult } from "./bulk-import";
@@ -530,11 +531,13 @@ export async function applyBundleDelta(
       // a fresh read (safe: the row is seconds old and owned by this run).
       const createdSignals = await fetchTouchSignals(client, subscription.user_id, createdIds);
 
-      const { data: existingLinks } = await client
-        .from("bundle_subscription_contacts")
-        .select("contact_id")
-        .eq("subscription_id", subscription.id)
-        .in("contact_id", resultsWithContacts.map((r) => r.contact_id));
+      const existingLinks = must(
+        await client
+          .from("bundle_subscription_contacts")
+          .select("contact_id")
+          .eq("subscription_id", subscription.id)
+          .in("contact_id", resultsWithContacts.map((r) => r.contact_id)),
+      );
       const linkedAlready = new Set(((existingLinks as Array<{ contact_id: number }> | null) ?? []).map((l) => l.contact_id));
 
       const linkInserts: Record<string, unknown>[] = [];
@@ -748,24 +751,28 @@ export async function unsubscribeFromBundle(
   };
 
   if (opts.keepAll) {
-    const { data: dropped } = await client
-      .from("bundle_subscription_contacts")
-      .delete()
-      .eq("subscription_id", subscription.id)
-      .select("id");
+    const dropped = must(
+      await client
+        .from("bundle_subscription_contacts")
+        .delete()
+        .eq("subscription_id", subscription.id)
+        .select("id"),
+    );
     result.kept = ((dropped as { id: number }[] | null) ?? []).length;
     result.done = true;
     await markCleanupDone();
     return result;
   }
 
-  const { data: linkRows } = await client
-    .from("bundle_subscription_contacts")
-    .select("id, contact_id, created_by_bundle")
-    .eq("subscription_id", subscription.id)
-    .gt("id", opts.cursor ?? 0)
-    .order("id", { ascending: true })
-    .limit(chunkSize);
+  const linkRows = must(
+    await client
+      .from("bundle_subscription_contacts")
+      .select("id, contact_id, created_by_bundle")
+      .eq("subscription_id", subscription.id)
+      .gt("id", opts.cursor ?? 0)
+      .order("id", { ascending: true })
+      .limit(chunkSize),
+  );
   const links = (linkRows as Array<{ id: number; contact_id: number; created_by_bundle: boolean }> | null) ?? [];
 
   if (links.length > 0) {

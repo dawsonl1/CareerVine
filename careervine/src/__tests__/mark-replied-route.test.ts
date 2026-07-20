@@ -14,8 +14,9 @@ const state: {
   seqs: { id: number }[];
   inserts: { table: string; row: Record<string, unknown> }[];
   updates: { table: string; patch: Record<string, unknown> }[];
+  upserts: { table: string; rows: unknown }[];
   insertError: unknown;
-} = { outbound: null, inbound: null, seqs: [], inserts: [], updates: [], insertError: null };
+} = { outbound: null, inbound: null, seqs: [], inserts: [], updates: [], upserts: [], insertError: null };
 
 const activateSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
 const trackSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
@@ -39,7 +40,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
     from: (table: string) => {
       let selectStr = "";
       let direction = "";
-      let mode: "read" | "update" = "read";
+      let mode: "read" | "update" | "insert" | "upsert" = "read";
       const b: Record<string, unknown> = {
         select: (s: string) => {
           selectStr = s;
@@ -51,9 +52,21 @@ vi.mock("@/lib/supabase/service-client", () => ({
           return b;
         },
         insert: (row: Record<string, unknown>) => {
+          mode = "insert";
           state.inserts.push({ table, row });
-          return Promise.resolve({ error: state.insertError ?? null });
+          return b;
         },
+        upsert: (rows: unknown) => {
+          mode = "upsert";
+          state.upserts.push({ table, rows });
+          return b;
+        },
+        single: async () =>
+          mode === "insert"
+            ? state.insertError
+              ? { data: null, error: state.insertError }
+              : { data: { id: 900 }, error: null }
+            : { data: null, error: null },
         eq: (col: string, val: string) => {
           if (col === "direction") direction = val;
           return b;
@@ -109,6 +122,7 @@ describe("POST /api/gmail/follow-ups/mark-replied (CAR-102)", () => {
     state.seqs = [{ id: 11 }];
     state.inserts = [];
     state.updates = [];
+    state.upserts = [];
     state.insertError = null;
   });
 
@@ -132,8 +146,26 @@ describe("POST /api/gmail/follow-ups/mark-replied (CAR-102)", () => {
     expect(inboundInsert?.row.direction).toBe("inbound");
     expect(inboundInsert?.row.is_simulated).toBe(true);
     expect(inboundInsert?.row.gmail_message_id).toBe("manual-reply-t-1");
+    // CAR-159: the simulated reply is junction-linked to the outbound's contact.
+    const links = state.upserts.find((u) => u.table === "email_message_contacts");
+    expect(links?.rows).toEqual([{ email_message_id: 900, contact_id: 7 }]);
     expect(trackSpy).toHaveBeenCalledTimes(1);
     expect(trackSpy).toHaveBeenCalledWith("u-1", "reply_received", { ai_assisted: false });
+  });
+
+  it("junction-links the simulated reply to every contact linked on the outbound (CAR-159)", async () => {
+    state.outbound = {
+      ai_assisted: false,
+      matched_contact_id: 7,
+      email_message_contacts: [{ contact_id: 7 }, { contact_id: 9 }],
+    } as typeof state.outbound;
+    const { status } = await call({ threadId: "t-1", recipientEmail: "jane@corp.com" });
+    expect(status).toBe(200);
+    const links = state.upserts.find((u) => u.table === "email_message_contacts");
+    expect(links?.rows).toEqual([
+      { email_message_id: 900, contact_id: 7 },
+      { email_message_id: 900, contact_id: 9 },
+    ]);
   });
 
   it("is idempotent: a thread that already has an inbound message does not double-record or double-fire", async () => {

@@ -60,7 +60,9 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    getOnboardingState(user.id).then((s) => {
+    // Fire-and-forget: getOnboardingState fails closed to "completed" on a read
+    // error, so there is no rejection for a caller to handle.
+    void getOnboardingState(user.id).then((s) => {
       if (cancelled) return;
       setState(s);
       if (s === "not_started" && !startedTracked.current) {
@@ -79,7 +81,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       // Optimistic: the UI moves immediately; the persisted write reconciles
       // (forward-only, so a lost race just means another tab was ahead).
       setState((prev) => (prev === null ? prev : next));
-      advanceOnboardingState(user.id, next).then((persisted) => {
+      void advanceOnboardingState(user.id, next).then((persisted) => {
         setState((prev) => (prev === next ? persisted : prev));
       });
     },
