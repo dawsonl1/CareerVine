@@ -96,13 +96,10 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
         ? contact.contact_companies.map((cc) => ({
             company_name: cc.companies.name,
             title: cc.title || "",
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-            location: (cc as any).location || "",
+            location: cc.location || "",
             is_current: cc.is_current,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-            start_month: (cc as any).start_month || "",
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-            end_month: (cc as any).end_month || "",
+            start_month: cc.start_month || "",
+            end_month: cc.end_month || "",
           }))
         : []
     );
@@ -483,8 +480,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
                   <button
                     type="button"
                     onClick={() => withToastOnError(async () => {
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-                      const newTag = await createTag({ user_id: userId, name: tagSearch.trim() } as any);
+                      const newTag = await createTag({ user_id: userId, name: tagSearch.trim() });
                       setAllTags([...allTags, newTag]);
                       setSelectedTagIds([...selectedTagIds, newTag.id]);
                       setTagSearch("");

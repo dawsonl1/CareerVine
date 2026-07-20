@@ -179,10 +179,8 @@ export default function CalendarPage() {
     if (!user) return;
     const data = await getContacts(user.id);
     const em: Record<number, string[]> = {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    setAllContacts((data as any[]).map(c => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      const emails = (c.contact_emails || []).map((e: any) => e.email).filter(Boolean) as string[];
+    setAllContacts(data.map(c => {
+      const emails = (c.contact_emails || []).map(e => e.email).filter((e): e is string => Boolean(e));
       em[c.id] = emails;
       return { id: c.id, name: c.name, email: emails[0], emails };
     }));
@@ -191,7 +189,7 @@ export default function CalendarPage() {
 
   const loadLinkedMeetings = useCallback(async () => {
     if (!user) return;
-    const meetings = await getMeetings(user.id) as Meeting[];
+    const meetings = await getMeetings(user.id);
     const map: Record<string, Meeting> = {};
     meetings.forEach(m => { if (m.calendar_event_id) map[m.calendar_event_id] = m; });
     setLinkedMeetings(map);
@@ -219,7 +217,8 @@ export default function CalendarPage() {
     setLoading(false);
   }, [loadEvents, loadContacts, loadLinkedMeetings]);
 
-  useEffect(() => { if (user) loadData(); }, [user, loadData]);
+  // Fire-and-forget: loadData settles every loader itself and owns loadError.
+  useEffect(() => { if (user) void loadData(); }, [user, loadData]);
 
   const handleSync = async () => {
     setSyncing(true); setError("");
@@ -254,13 +253,10 @@ export default function CalendarPage() {
         meeting_date: dateToStr(d),
         meeting_time: `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`,
         meeting_type: linked.meeting_type || "",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        title: (linked as any).title || "",
+        title: linked.title || "",
         notes: linked.notes || "",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        privateNotes: (linked as any).private_notes || "",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        calendarDescription: (linked as any).calendar_description || "",
+        privateNotes: linked.private_notes || "",
+        calendarDescription: linked.calendar_description || "",
         transcript: linked.transcript || "",
       });
       setSelectedContactIds(linked.meeting_contacts.map(mc => mc.contact_id));

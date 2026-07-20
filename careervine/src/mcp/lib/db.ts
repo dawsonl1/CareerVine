@@ -375,15 +375,21 @@ export async function setNetworkStatus(
  * reply-based tier policy. Returns true if a graduation happened.
  */
 export async function activateContactIfDormant(contactId: number): Promise<boolean> {
-  const { data, error } = await db()
+  // Compare-and-set: this writes network_status while ALSO filtering on it, so
+  // success is reported by row COUNT rather than a .select() readback (rule 17,
+  // CAR-158). The readback form is the shape the convention bans — under
+  // PostgREST semantics where the request filters are re-applied to the
+  // RETURNING representation, the updated row no longer matches
+  // .in("network_status", ["prospect","bench"]) and the query answers "zero
+  // rows", i.e. "no graduation happened", for an update that did happen.
+  const { count, error } = await db()
     .from("contacts")
-    .update({ network_status: "active" })
+    .update({ network_status: "active" }, { count: "exact" })
     .eq("id", contactId)
     .eq("user_id", uid())
-    .in("network_status", ["prospect", "bench"])
-    .select("id");
+    .in("network_status", ["prospect", "bench"]);
   if (error) throw error;
-  return (data?.length ?? 0) > 0;
+  return (count ?? 0) > 0;
 }
 
 export async function setStageOverride(contactId: number, stage: string | null): Promise<void> {
@@ -537,6 +543,10 @@ export async function updateActionItem(
   if (patch.description !== undefined) updates.description = patch.description;
   if (Object.keys(updates).length === 0) throw new Error("No updates provided");
 
+  // cas-checked: `updates` is assembled from the patch fields above
+  // (is_completed/completed_at/snoozed_until/due_at/title/description) and the
+  // filters are `id` and `user_id`, neither of which is written, so this is an
+  // ownership-scoped update-and-return rather than a compare-and-set.
   const { data, error } = await db()
     .from("follow_up_action_items")
     .update(updates)

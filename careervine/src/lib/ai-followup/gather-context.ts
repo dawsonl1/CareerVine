@@ -7,6 +7,7 @@
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { wrapUntrusted } from "@/lib/ai/untrusted";
+import { must } from "@/lib/data/client";
 
 export interface ContactContext {
   contactName: string;
@@ -117,10 +118,9 @@ export async function gatherContactContext(
     : null;
 
   // Fetch meetings with this contact (most recent first)
-  const { data: meetingLinks } = await service
-    .from("meeting_contacts")
-    .select("meeting_id")
-    .eq("contact_id", contactId);
+  const meetingLinks = must(
+    await service.from("meeting_contacts").select("meeting_id").eq("contact_id", contactId),
+  );
 
   const meetingIds = meetingLinks?.map((ml) => ml.meeting_id) || [];
 
@@ -128,23 +128,27 @@ export async function gatherContactContext(
   const meetingsPromise = (async () => {
     if (meetingIds.length === 0) return [];
 
-    const { data: meetingRows } = await service
-      .from("meetings")
-      .select("id, meeting_date, meeting_type, title, notes")
-      .in("id", meetingIds)
-      .eq("user_id", userId)
-      .order("meeting_date", { ascending: false })
-      .limit(MAX_MEETINGS);
+    const meetingRows = must(
+      await service
+        .from("meetings")
+        .select("id, meeting_date, meeting_type, title, notes")
+        .in("id", meetingIds)
+        .eq("user_id", userId)
+        .order("meeting_date", { ascending: false })
+        .limit(MAX_MEETINGS),
+    );
 
     if (!meetingRows?.length) return [];
 
     // Fetch all transcript segments in a single query (avoids N+1)
     const meetingRowIds = meetingRows.map((m) => m.id);
-    const { data: allSegments } = await service
-      .from("transcript_segments")
-      .select("meeting_id, speaker_label, content")
-      .in("meeting_id", meetingRowIds)
-      .order("ordinal", { ascending: true });
+    const allSegments = must(
+      await service
+        .from("transcript_segments")
+        .select("meeting_id, speaker_label, content")
+        .in("meeting_id", meetingRowIds)
+        .order("ordinal", { ascending: true }),
+    );
 
     // Group segments by meeting_id
     const segmentsByMeeting = new Map<number, typeof allSegments>();

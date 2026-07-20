@@ -130,10 +130,47 @@ interface BaseRouteConfig<TBody, TQuery, TParams> {
   rateLimit?: RateLimitOptions;
 }
 
-type RouteHandler = (
+/**
+ * The body of every non-2xx response this wrapper produces (CAR-158, F24).
+ *
+ * It is deliberately part of the response type: the wrapper can fail from
+ * seven places (auth 401, admin 403, capability 403, rate-limit 429, three
+ * validation 400s) plus the uniform catch, so a route's true wire type is
+ * `TResponse | ApiErrorBody`, never TResponse alone. Typing only the happy
+ * path would make client code MORE wrong, not less — `res.json()` on a 500
+ * would typecheck as a success shape. `apiFetch` in lib/api-client.ts
+ * discriminates on status before handing back TResponse.
+ */
+export interface ApiErrorBody {
+  error: string;
+  /** Machine-readable code so clients can map an error to UX copy. */
+  code?: string;
+  /** Present on a 403 raised by requireCapability. */
+  capability?: Capability;
+  /** Present on a 429 from the rate limiter; null when the limiter is down. */
+  resetAt?: number | null;
+}
+
+type RouteHandler<TResponse = unknown> = (
   request: NextRequest,
   context?: { params?: Promise<Record<string, string>> },
-) => Promise<NextResponse>;
+) => Promise<NextResponse<TResponse | ApiErrorBody>>;
+
+/**
+ * The success shape a route responds with, recovered from the exported handler:
+ *
+ *   export const GET = withApiHandler({ handler: async () => ({ count: 1 }) });
+ *   export type Response = InferApiResponse<typeof GET>;   // { count: number }
+ *
+ * Inferring beats hand-writing the type in a shared module: the declaration
+ * cannot drift from what the handler actually returns, because it IS what the
+ * handler returns.
+ */
+export type InferApiResponse<T> = T extends (
+  ...args: never[]
+) => Promise<NextResponse<infer R>>
+  ? Exclude<R, ApiErrorBody>
+  : never;
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -168,29 +205,31 @@ export function withApiHandler<
   TBody = unknown,
   TQuery = unknown,
   TParams = Record<string, string>,
+  TResponse = unknown,
 >(
   config: BaseRouteConfig<TBody, TQuery, TParams> & {
     /** Auth is attempted but the handler runs even if no user resolves. */
     authOptional: true;
     handler: (
       ctx: HandlerContext<TBody, TQuery, TParams, User | null>,
-    ) => Promise<unknown>;
+    ) => Promise<TResponse>;
   },
-): RouteHandler;
+): RouteHandler<TResponse>;
 
 /** Default: an authenticated route → the handler receives a non-null `User`. */
 export function withApiHandler<
   TBody = unknown,
   TQuery = unknown,
   TParams = Record<string, string>,
+  TResponse = unknown,
 >(
   config: BaseRouteConfig<TBody, TQuery, TParams> & {
     authOptional?: false;
     handler: (
       ctx: HandlerContext<TBody, TQuery, TParams, User>,
-    ) => Promise<unknown>;
+    ) => Promise<TResponse>;
   },
-): RouteHandler;
+): RouteHandler<TResponse>;
 
 // The implementation signature must be assignable-from BOTH overloads, whose
 // handler `user` types (User vs User | null) are mutually incompatible under

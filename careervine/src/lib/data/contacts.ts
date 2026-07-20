@@ -13,6 +13,7 @@ import { db, must, type QueryClient } from "./client";
 import { chunked, chunkList, escapeIlike, paginateAll } from "./postgrest";
 import { parseManualLocation } from "@/lib/location-normalizer";
 import type { Database } from "@/lib/database.types";
+import type { Contact, ContactListItem } from "@/lib/types";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { validateContactPhotoFile } from "@/lib/contact-photo";
@@ -61,7 +62,8 @@ export async function getContactEmailLookup(userId: string) {
  * - Tags applied to the contact
  *
  * @param userId - The user's ID from auth.users
- * @returns Promise<Contact[]> - Array of contacts with all related data
+ * @returns Array of contacts with all related data (the `Contact` shape —
+ *   inferred from CONTACTS_SELECT, not asserted; see the lockstep check below)
  * @throws Error if query fails
  */
 // The joined column set every contact-list query pulls. Extracted so the
@@ -112,7 +114,7 @@ const CONTACTS_LIST_SELECT = `
 export async function getContacts(
   userId: string,
   opts: { networkStatuses?: Array<"active" | "prospect" | "bench"> } = {},
-): Promise<unknown[]> {
+) {
   // Default excludes bench: dormant imported data must not appear in
   // pickers or general lists — only explicit views opt in (plan 24).
   const statuses = opts.networkStatuses ?? ["active", "prospect"];
@@ -120,7 +122,7 @@ export async function getContacts(
   // Paginate: bulk imports push contact counts past PostgREST's row cap,
   // and the old limit(500) silently truncated. id breaks name ties so the
   // range windows stay stable between requests.
-  return await paginateAll<unknown>(async (from, to) =>
+  return await paginateAll(async (from, to) =>
     must(
       await db()
         .from("contacts")
@@ -133,6 +135,21 @@ export async function getContacts(
     ),
   );
 }
+
+// Lockstep tripwire (CAR-158): getContacts' row shape is INFERRED from
+// CONTACTS_SELECT, never asserted, so the signature cannot lie about what
+// callers actually receive. Callers annotate with the shared `Contact` type,
+// so this compile-time check fails the build the moment the select and the
+// type drift apart in either direction, instead of a stale `as Contact[]`
+// papering over it (the CAR-142 any-debt this ticket retires).
+type Assert<T extends true> = T;
+type _ContactsSelectMatchesContact = Assert<
+  Awaited<ReturnType<typeof getContacts>>[number] extends Contact
+    ? Contact extends Awaited<ReturnType<typeof getContacts>>[number]
+      ? true
+      : false
+    : false
+>;
 
 /**
  * Streaming variant of {@link getContacts}: fetches contacts in ascending
@@ -156,11 +173,15 @@ export async function getContacts(
 export async function getContactsStreamed(
   userId: string,
   statuses: Array<"active" | "prospect" | "bench">,
-  onPage: (rows: unknown[]) => void,
+  onPage: (rows: ContactListItem[]) => void,
 ) {
   const FIRST_PAGE = 50;
   const REST_PAGE = 1000;
-  const all: unknown[] = [];
+  // Annotation, not assertion (CAR-158): the query's inferred rows are
+  // *checked* against ContactListItem on the push/onPage below, so a select
+  // that stops matching the type is a compile error here rather than a lie
+  // the callers have to cast their way back out of.
+  const all: ContactListItem[] = [];
   let from = 0;
   let size = FIRST_PAGE;
   for (;;) {
@@ -566,6 +587,33 @@ export async function getTags(userId: string) {
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Tag names on one contact (CAR-158).
+ *
+ * Focused counterpart to getContactById, which pulls every join and is far
+ * more than a caller needs to answer "is this contact tagged X?". Added when
+ * the availability picker's priority detection was found calling
+ * `/api/contacts/[id]/tags`, a route that never existed in this repo's
+ * history: the `if (res.ok)` guard swallowed the 404, so the feature silently
+ * never worked. Reading through the data layer keeps it on RLS and avoids
+ * standing up a new API surface for one boolean.
+ *
+ * @returns tag names for the contact, or [] when it has none.
+ */
+export async function getContactTagNames(
+  contactId: number,
+  userId: string,
+): Promise<string[]> {
+  const { data, error } = await db()
+    .from("contact_tags")
+    .select("tags(name), contacts!inner(user_id)")
+    .eq("contact_id", contactId)
+    .eq("contacts.user_id", userId);
+
+  if (error) throw error;
+  return (data ?? []).flatMap((row) => (row.tags?.name ? [row.tags.name] : []));
 }
 
 /**

@@ -348,6 +348,42 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": ["error", { paths: IMPLICIT_DB_PATHS }],
     },
   },
+  // CAR-158: typed promise rules. These are the only rules here that need type
+  // information, so `projectService` is scoped to src/ rather than enabled
+  // globally — it roughly doubles lint time (measured 10.8s -> 22.5s), which is
+  // marginal next to tsc + vitest + next build in the same CI job, but there is
+  // no reason to pay it over config files and scripts too.
+  //
+  // `checksVoidReturn.attributes` is off deliberately, and it is NOT an
+  // effort-based carve-out. The rule's attribute check fires on
+  // `onClick={async () => …}` (164 sites here), and the prescribed rewrite,
+  // `onClick={() => { void handler(); }}`, produces exactly ZERO robustness
+  // gain: `void promise` discards a rejection identically to an unhandled
+  // async handler. It converts an implicit floating promise into an explicit
+  // one and silences the linter. Every finding with real defect value —
+  // floating promises, void-return arguments, and genuinely awaited
+  // non-thenables — stays on.
+  {
+    files: ["src/**/*.ts", "src/**/*.tsx"],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": [
+        "error",
+        { checksVoidReturn: { attributes: false } },
+      ],
+      "@typescript-eslint/await-thenable": "error",
+      // Already effectively enforced (CI runs `eslint . --max-warnings 0`, so a
+      // warning fails the build today). Raised to error so the severity states
+      // the intent rather than relying on a CI flag to mean it.
+      "react-hooks/exhaustive-deps": "error",
+    },
+  },
 ]);
 
 export default eslintConfig;

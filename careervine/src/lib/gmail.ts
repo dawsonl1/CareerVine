@@ -17,6 +17,8 @@ import { getOAuth2Client, decryptOAuthToken } from "@/lib/oauth-helpers";
 import { getGmailClient, getConnection, buildMimeMessage, type ComposeEmailOptions } from "@/lib/gmail-send-core";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { trackServer } from "@/lib/analytics/server";
+import { googleApiStatus, googleApiReason } from "@/lib/google-api-error";
+import { must } from "@/lib/data/client";
 
 /**
  * Retry a function with exponential backoff on rate-limit (429), server errors
@@ -29,16 +31,18 @@ export async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promis
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    } catch (err: any) {
-      const status = err?.code || err?.response?.status;
-      const reason: unknown =
-        err?.errors?.[0]?.reason ?? err?.response?.data?.error?.errors?.[0]?.reason;
+    } catch (err: unknown) {
+      const status = googleApiStatus(err);
+      const reason = googleApiReason(err);
       const isRateLimited403 =
         status === 403 &&
         typeof reason === "string" &&
         /ratelimitexceeded/i.test(reason);
-      const isRetryable = status === 429 || isRateLimited403 || (status >= 500 && status < 600);
+      // A transport failure ("ENOTFOUND") yields no numeric status and is not
+      // retried here, matching the previous behaviour: the old string `code`
+      // compared false against both 429 and the 5xx range.
+      const isRetryable =
+        status === 429 || isRateLimited403 || (status !== undefined && status >= 500 && status < 600);
       if (!isRetryable || attempt === maxRetries) throw err;
       const delay = Math.min(1000 * 2 ** attempt + Math.random() * 500, 10000);
       await new Promise(r => setTimeout(r, delay));
@@ -150,11 +154,16 @@ export function getAuthUrl(
 export async function revokeAccess(userId: string) {
   const supabase = createSupabaseServiceClient();
 
-  const { data: conn } = await supabase
-    .from("gmail_connections")
-    .select("access_token")
-    .eq("user_id", userId)
-    .single();
+  // maybeSingle, not single: "no connection row" is a normal state here (the
+  // cleanup below still has to run), while a real read failure must surface
+  // rather than silently skipping the Google-side token revoke.
+  const conn = must(
+    await supabase
+      .from("gmail_connections")
+      .select("access_token")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  );
 
   if (conn?.access_token) {
     try {
@@ -219,11 +228,13 @@ export async function syncEmailsForContact(
   if (opts.syncedThrough !== undefined) {
     syncedThrough = opts.syncedThrough;
   } else {
-    const { data: contactRow } = await supabase
-      .from("contacts")
-      .select("email_synced_through")
-      .eq("id", contactId)
-      .maybeSingle();
+    const contactRow = must(
+      await supabase
+        .from("contacts")
+        .select("email_synced_through")
+        .eq("id", contactId)
+        .maybeSingle(),
+    );
     syncedThrough = contactRow?.email_synced_through ?? null;
   }
 
@@ -307,11 +318,13 @@ export async function syncEmailsForContact(
       // Look up which messages already exist so we can skip overwriting
       // user-managed fields (is_read, is_trashed, is_hidden)
       const msgIds = rows.map((r) => r.gmail_message_id);
-      const { data: existing } = await supabase
-        .from("email_messages")
-        .select("gmail_message_id")
-        .eq("user_id", userId)
-        .in("gmail_message_id", msgIds);
+      const existing = must(
+        await supabase
+          .from("email_messages")
+          .select("gmail_message_id")
+          .eq("user_id", userId)
+          .in("gmail_message_id", msgIds),
+      );
       const existingIds = new Set((existing || []).map((e) => e.gmail_message_id));
 
       const newRows = rows.filter((r) => !existingIds.has(r.gmail_message_id));
@@ -356,6 +369,9 @@ export async function syncEmailsForContact(
           const inbound = inserted.filter((r) => r.direction === "inbound" && r.thread_id);
           const threadIds = [...new Set(inbound.map((r) => r.thread_id as string))];
           if (threadIds.length > 0) {
+            // error-tolerated: this only decides whether to emit the
+            // reply_received analytics event; the user's mail sync must not
+            // fail because an attribution lookup did.
             const { data: ourThreads } = await supabase
               .from("email_messages")
               .select("thread_id, ai_assisted")
@@ -837,14 +853,16 @@ export async function checkForReplyInThread(
   const supabase = createSupabaseServiceClient();
 
   // First check cached messages
-  const { data: cached } = await supabase
-    .from("email_messages")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("thread_id", threadId)
-    .eq("direction", "inbound")
-    .gte("date", sinceDate)
-    .limit(1);
+  const cached = must(
+    await supabase
+      .from("email_messages")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("thread_id", threadId)
+      .eq("direction", "inbound")
+      .gte("date", sinceDate)
+      .limit(1),
+  );
 
   if (cached && cached.length > 0) return true;
 
@@ -984,12 +1002,14 @@ export async function processScheduledEmails(
   const send = deps.send ?? sendTrackedEmail;
   const now = new Date().toISOString();
 
-  const { data: pending } = await supabase
-    .from("scheduled_emails")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("status", ScheduledEmailStatus.Pending)
-    .lte("scheduled_send_at", now);
+  const pending = must(
+    await supabase
+      .from("scheduled_emails")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("status", ScheduledEmailStatus.Pending)
+      .lte("scheduled_send_at", now),
+  );
 
   if (!pending || pending.length === 0) return { sent: 0, errors: 0 };
 
@@ -1163,11 +1183,13 @@ export async function detectBounces(
 
   for (const address of failedAddresses) {
     // Only touch addresses that belong to this user's contacts
-    const { data: emailRows } = await supabase
-      .from("contact_emails")
-      .select("id, bounced_at, contacts!inner(user_id)")
-      .eq("email", address)
-      .eq("contacts.user_id", userId);
+    const emailRows = must(
+      await supabase
+        .from("contact_emails")
+        .select("id, bounced_at, contacts!inner(user_id)")
+        .eq("email", address)
+        .eq("contacts.user_id", userId),
+    );
     if (!emailRows || emailRows.length === 0) continue;
 
     bounced.push(address);
@@ -1180,12 +1202,14 @@ export async function detectBounces(
     }
 
     // Cancel active follow-up sequences aimed at the dead address
-    const { data: sequences } = await supabase
-      .from("email_follow_ups")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .eq("recipient_email", address);
+    const sequences = must(
+      await supabase
+        .from("email_follow_ups")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .eq("recipient_email", address),
+    );
     for (const seq of sequences || []) {
       await supabase
         .from("email_follow_ups")

@@ -13,7 +13,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalizeLinkedinUrl, extractPublicIdentifier } from "@/lib/linkedin-url";
 import { updateContact } from "@/lib/data/contacts";
-import type { QueryClient } from "@/lib/data/client";
+import { must, type QueryClient } from "@/lib/data/client";
 import { ApiError } from "@/lib/api-handler";
 import {
   MONTHLY_SCRAPE_CAP_USD,
@@ -47,12 +47,16 @@ export async function resolveContactLinkedin(userId: string, contactId: number):
   const controls = await getApifyControls(service, userId);
   if (!controls.enrichmentEnabled) return { status: "disabled_by_admin" };
 
-  const { data: contact } = await service
-    .from("contacts")
-    .select("id, name, contact_companies(is_current, companies(linkedin_url)), locations(city, state)")
-    .eq("id", contactId)
-    .eq("user_id", userId)
-    .single();
+  // maybeSingle, not single: "no such contact for this user" is the 404 below,
+  // but a real read failure must surface as a 500 instead of a false 404.
+  const contact = must(
+    await service
+      .from("contacts")
+      .select("id, name, contact_companies(is_current, companies(linkedin_url)), locations(city, state)")
+      .eq("id", contactId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+  );
   if (!contact) throw new ApiError("Contact not found", 404);
 
   const c = contact as {
@@ -146,14 +150,16 @@ export async function linkContactLinkedin(
 
   const service = createSupabaseServiceClient();
 
-  const { data: holder } = await service
-    .from("contacts")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("linkedin_url", canonical)
-    .neq("id", contactId)
-    .limit(1)
-    .maybeSingle();
+  const holder = must(
+    await service
+      .from("contacts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("linkedin_url", canonical)
+      .neq("id", contactId)
+      .limit(1)
+      .maybeSingle(),
+  );
   if (holder) throw new ApiError("Another contact already uses that LinkedIn profile", 409);
 
   // Shared write chokepoint (CAR-155); throws when no row matches, which

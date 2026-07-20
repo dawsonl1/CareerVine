@@ -160,7 +160,9 @@ export function ExtensionOnboardingModal() {
   useEffect(() => {
     if (!isOpen || !user) return;
     let cancelled = false;
-    getExtensionOnboardingSnapshot(user.id).then((snap) => {
+    // Fire-and-forget: the snapshot read surfaces failure as a null snapshot
+    // (handled below), never as a rejection.
+    void getExtensionOnboardingSnapshot(user.id).then((snap) => {
       if (cancelled) return;
       if (!snap) {
         close();
@@ -180,7 +182,7 @@ export function ExtensionOnboardingModal() {
     state === "awaiting_connect" || state === "awaiting_first_contact" || state === "awaiting_email_contact";
   useEffect(() => {
     if (!isOpen || !user || !waiting) return;
-    const id = setInterval(async () => {
+    const poll = async () => {
       const snap = await getExtensionOnboardingSnapshot(user.id);
       // Transient read failure — keep the current step and retry next tick.
       if (!snap) return;
@@ -194,7 +196,10 @@ export function ExtensionOnboardingModal() {
         return;
       }
       applyRemoteState(snap.state, snap.contactId);
-    }, POLL_MS);
+    };
+    // Both state helpers report failure as null rather than rejecting, so each
+    // tick is safely fire-and-forget.
+    const id = setInterval(() => void poll(), POLL_MS);
     return () => clearInterval(id);
   }, [isOpen, user, waiting, state, applyRemoteState]);
 
@@ -249,7 +254,7 @@ export function ExtensionOnboardingModal() {
   }, [actionItemId, user]);
   useEffect(() => {
     if (state === "done") {
-      completeTodo();
+      void completeTodo(); // swallows its own failure; the to-do row is harmless if it stays
       track("extension_onboarding_completed", { apollo: true });
     }
   }, [state, completeTodo]);
@@ -371,7 +376,7 @@ export function ExtensionOnboardingModal() {
               <PrimaryButton
                 onClick={() => {
                   window.open(CV_STORE_URL, "_blank", "noopener");
-                  advance("awaiting_connect");
+                  void advance("awaiting_connect"); // stays put on a failed read
                 }}
               >
                 Get the extension from the Chrome Web Store

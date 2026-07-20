@@ -46,7 +46,11 @@ describe("OAuth token encryption (CAR-27)", () => {
     };
 
     await refreshTokenIfNeeded(
-      fakeSupabase,
+      // CAR-158 typed this parameter as SupabaseClient<Database> (it was `any`).
+      // The stub implements only the from().update().eq() path this test
+      // exercises, so it is narrowed to the real parameter type here rather
+      // than widening the production signature back out to accommodate a mock.
+      fakeSupabase as unknown as Parameters<typeof refreshTokenIfNeeded>[0],
       fakeOAuth2Client as never,
       "user-refresh-encrypt",
       Date.now() - 1000, // expired → forces refresh

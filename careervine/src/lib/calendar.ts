@@ -5,9 +5,10 @@
  * calendar event fetching, syncing, and free/busy queries.
  */
 
-import { calendar as calendarClientFactory } from "@googleapis/calendar";
+import { calendar as calendarClientFactory, type calendar_v3 } from "@googleapis/calendar";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getOAuth2Client, refreshTokenIfNeeded, decryptOAuthToken } from "@/lib/oauth-helpers";
+import { googleApiStatus } from "@/lib/google-api-error";
 import { trackServer } from "@/lib/analytics/server";
 
 export const DEFAULT_TIMEZONE = "America/New_York";
@@ -116,8 +117,7 @@ export async function fetchCalendarEvents(
   // key); cancelled instances arrive as status:"cancelled" skeletons. A sync
   // token is only valid under the settings that established it, so flipping
   // this required nulling all stored tokens (CAR-152 repair migration).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const params: any = {
+  const params: calendar_v3.Params$Resource$Events$List = {
     calendarId,
     maxResults: 250,
     singleEvents: true,
@@ -135,8 +135,7 @@ export async function fetchCalendarEvents(
   try {
     // Google returns nextSyncToken ONLY on the final page; single-shot fetches
     // both dropped events past page 1 and persisted a null token (R2.3).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    const events: any[] = [];
+    const events: calendar_v3.Schema$Event[] = [];
     let nextSyncToken: string | null | undefined;
     let pageToken: string | undefined;
 
@@ -150,9 +149,8 @@ export async function fetchCalendarEvents(
     } while (pageToken);
 
     return { events, nextSyncToken };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  } catch (err: any) {
-    if (err.code === 410) {
+  } catch (err: unknown) {
+    if (googleApiStatus(err) === 410) {
       // Sync token expired — clear it and do a full re-fetch
       throw new Error("SYNC_TOKEN_EXPIRED");
     }
@@ -222,8 +220,7 @@ export async function createCalendarEvent(
   const calendar = await getCalendarClient(userId);
   const calendarId = options.calendarId || "primary";
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const requestBody: any = {
+  const requestBody: calendar_v3.Schema$Event = {
     summary: options.summary,
     description: options.description || "",
     start: { dateTime: options.startTime, timeZone: options.timeZone || DEFAULT_TIMEZONE },

@@ -61,25 +61,20 @@ export async function getContactContext(
     if (contact.contact_status) parts.push(`Status: ${contact.contact_status}`);
     if (contact.expected_graduation) parts.push(`Expected graduation: ${contact.expected_graduation}`);
     if (contact.met_through) parts.push(`Met through: ${contact.met_through}`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    if ((contact as any).intro_goal) parts.push(`Goal: ${(contact as any).intro_goal}`);
+    if (contact.intro_goal) parts.push(`Goal: ${contact.intro_goal}`);
     // Notes are free text anyone the user meets can influence — fence them so
     // they read as data, not instructions (CAR-143).
     if (contact.notes) parts.push(`Notes:\n${wrapUntrusted("contact_notes", contact.notes)}`);
 
     // Location
-    const loc = contact.locations as unknown as { city: string | null; state: string | null; country: string } | null;
+    const loc = contact.locations;
     if (loc) {
       const locParts = [loc.city, loc.state, loc.country].filter(Boolean);
       if (locParts.length) parts.push(`Location: ${locParts.join(", ")}`);
     }
 
     // Companies
-    const companies = contact.contact_companies as unknown as Array<{
-      title: string | null;
-      is_current: boolean;
-      companies: { name: string } | null;
-    }> | null;
+    const companies = contact.contact_companies;
     if (companies?.length) {
       const compStrs = companies.map((cc) => {
         const name = cc.companies?.name || "Unknown";
@@ -91,13 +86,7 @@ export async function getContactContext(
     }
 
     // Schools
-    const schools = contact.contact_schools as unknown as Array<{
-      degree: string | null;
-      field_of_study: string | null;
-      start_year: number | null;
-      end_year: number | null;
-      schools: { name: string } | null;
-    }> | null;
+    const schools = contact.contact_schools;
     if (schools?.length) {
       const eduStrs = schools.map((cs) => {
         const name = cs.schools?.name || "Unknown";
@@ -109,10 +98,12 @@ export async function getContactContext(
       parts.push(`Education: ${eduStrs.join("; ")}`);
     }
 
-    // Emails
-    const emails = contact.contact_emails as Array<{ email: string }> | null;
-    if (emails?.length) {
-      parts.push(`Email(s): ${emails.map((e) => e.email).join(", ")}`);
+    // Emails. contact_emails.email is nullable, and a null used to reach the
+    // prompt as an empty list entry ("Email(s): a@b.com, ") — the stale cast
+    // that claimed it was non-null hid that (CAR-158).
+    const emails = contact.contact_emails.map((e) => e.email).filter((e): e is string => Boolean(e));
+    if (emails.length) {
+      parts.push(`Email(s): ${emails.join(", ")}`);
     }
 
     contactInfo = parts.join("\n");
@@ -121,6 +112,9 @@ export async function getContactContext(
   // Meeting notes
   let meetingNotes = "";
   if (meetingIds?.length) {
+    // error-tolerated: these notes are optional enrichment for the AI prompt.
+    // A failed read costs the draft some context, whereas throwing would deny
+    // the user a draft entirely — the worse outcome for an assistive feature.
     const { data: meetings } = await service
       .from("meetings")
       .select("id, meeting_date, meeting_type, notes, transcript")

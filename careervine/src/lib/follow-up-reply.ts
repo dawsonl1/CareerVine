@@ -2,6 +2,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { activateContactByEmail } from "@/lib/gmail";
 import { trackServer } from "@/lib/analytics/server";
 import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { must } from "@/lib/data/client";
 
 /**
  * Record that a contact replied on a thread — the free-tier manual reply signal
@@ -25,12 +26,14 @@ export async function recordThreadReply(
 
   // Cancel active sequences on this thread (mirrors the cron's reply-cancel;
   // clears both pending and awaiting_review messages so none are orphaned).
-  const { data: seqs } = await service
-    .from("email_follow_ups")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("thread_id", threadId)
-    .eq("status", "active");
+  const seqs = must(
+    await service
+      .from("email_follow_ups")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("thread_id", threadId)
+      .eq("status", "active"),
+  );
   for (const s of seqs ?? []) {
     await service
       .from("email_follow_ups")
@@ -50,26 +53,30 @@ export async function recordThreadReply(
 
   // Idempotency: a thread with any inbound message (a real synced reply or a
   // prior manual mark) is already recorded — don't fire the event twice.
-  const { data: existingInbound } = await service
-    .from("email_messages")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("thread_id", threadId)
-    .eq("direction", "inbound")
-    .limit(1)
-    .maybeSingle();
+  const existingInbound = must(
+    await service
+      .from("email_messages")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("thread_id", threadId)
+      .eq("direction", "inbound")
+      .limit(1)
+      .maybeSingle(),
+  );
   if (existingInbound) return { ok: true, alreadyMarked: true };
 
   // ai_assisted + contact link come from the latest outbound on the thread.
-  const { data: outbound } = await service
-    .from("email_messages")
-    .select("ai_assisted, matched_contact_id")
-    .eq("user_id", userId)
-    .eq("thread_id", threadId)
-    .eq("direction", "outbound")
-    .order("date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const outbound = must(
+    await service
+      .from("email_messages")
+      .select("ai_assisted, matched_contact_id")
+      .eq("user_id", userId)
+      .eq("thread_id", threadId)
+      .eq("direction", "outbound")
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  );
 
   // Simulated inbound row: reflects the reply in the thread and dedupes future
   // calls (the (user_id, gmail_message_id) unique constraint enforces one/thread).

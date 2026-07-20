@@ -21,7 +21,30 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 
 let eslint: ESLint;
 beforeAll(() => {
-  eslint = new ESLint({ cwd: projectRoot });
+  eslint = new ESLint({
+    cwd: projectRoot,
+    // CAR-158 added a type-aware rule block (projectService) over src/. Type
+    // information is resolved from the real TypeScript program, so it cannot be
+    // produced for the SYNTHETIC paths below — none of them exists on disk, and
+    // typescript-eslint reports that as a fatal parse error, which would mask
+    // every guardrail assertion here as `<fatal>`.
+    //
+    // These tests are about no-restricted-imports / no-restricted-syntax, which
+    // need no type information, so the typed layer is switched off for this
+    // harness only. Real lint runs (`eslint .`, and CI) lint real files and keep
+    // the typed rules fully active.
+    overrideConfig: [
+      {
+        files: ["**/*.ts", "**/*.tsx"],
+        languageOptions: { parserOptions: { projectService: false } },
+        rules: {
+          "@typescript-eslint/no-floating-promises": "off",
+          "@typescript-eslint/no-misused-promises": "off",
+          "@typescript-eslint/await-thenable": "off",
+        },
+      },
+    ],
+  });
 });
 
 /** Rule ids reported when `text` is linted as if it lived at `filePath`. */

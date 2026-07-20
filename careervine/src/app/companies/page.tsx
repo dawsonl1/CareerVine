@@ -123,13 +123,16 @@ function CompaniesPage() {
       // One list: every company you're targeting or already know someone at.
       const data = await getCompanies(user.id, { scope: "in_play", sort, minContacts: 1 });
       setCompanies(data);
+    } catch (e) {
+      console.error("Error loading companies:", e);
     } finally {
       setLoading(false);
     }
   }, [user, sort]);
 
   useEffect(() => {
-    load();
+    // load() reports its own failures, so the effect can fire and forget
+    void load();
   }, [load]);
 
   return (

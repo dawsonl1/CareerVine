@@ -3,6 +3,11 @@
  * Extracted for testability.
  */
 
+import type { ProfileEducation, ProfileExperience } from '@/lib/extension-contract';
+
+/** An entry after enrichment, where is_current is no longer optional. */
+type WithIsCurrent<T> = T & { is_current: boolean };
+
 /** Sentinel value used by the OpenAI parser to mark ongoing roles/education. */
 export const CURRENT_MARKER = "Present";
 
@@ -15,8 +20,9 @@ const MONTH_ABBREVS: Record<string, number> = {
 };
 
 /** Add is_current flag to experience entries based on end_month. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-export function addIsCurrentToExperience(experience: any[]): any[] {
+export function addIsCurrentToExperience(
+  experience: ProfileExperience[]
+): WithIsCurrent<ProfileExperience>[] {
   return experience.map(exp => ({
     ...exp,
     is_current: exp.end_month === CURRENT_MARKER
@@ -24,8 +30,9 @@ export function addIsCurrentToExperience(experience: any[]): any[] {
 }
 
 /** Add is_current flag to education entries based on end_year. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-export function addIsCurrentToEducation(education: any[]): any[] {
+export function addIsCurrentToEducation(
+  education: ProfileEducation[]
+): WithIsCurrent<ProfileEducation>[] {
   return education.map(edu => ({
     ...edu,
     is_current: edu.end_year === CURRENT_MARKER
@@ -33,8 +40,7 @@ export function addIsCurrentToEducation(education: any[]): any[] {
 }
 
 /** Derive current_company and current_title from experience list. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-export function deriveCurrentRole(experience: any[]): { current_company: string | null; current_title: string | null } {
+export function deriveCurrentRole(experience: ProfileExperience[]): { current_company: string | null; current_title: string | null } {
   const current = experience.find(exp => exp.is_current);
   return {
     current_company: current?.company || null,
@@ -90,8 +96,7 @@ function parseEducationEnd(endYear: string | null | undefined, isCurrent?: boole
  * - Year-only end (e.g. "2027") → student if before July of that year
  */
 export function deriveContactStatus(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  education: any[],
+  education: ProfileEducation[],
   now: Date = new Date()
 ): { contact_status: 'student' | 'professional'; expected_graduation: string | null } {
   let latestGraduationLabel: string | null = null;

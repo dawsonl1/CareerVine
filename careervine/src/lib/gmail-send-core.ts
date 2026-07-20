@@ -15,6 +15,7 @@ import "server-only";
 import { gmail as gmailClientFactory } from "@googleapis/gmail";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getOAuth2Client, refreshTokenIfNeeded, decryptOAuthToken } from "@/lib/oauth-helpers";
+import { must } from "@/lib/data/client";
 
 /** Load tokens from DB, refresh if expired, return an authenticated Gmail client. */
 export async function getGmailClient(userId: string) {
@@ -43,12 +44,16 @@ export async function getGmailClient(userId: string) {
 /** Get the gmail connection row for a user (or null). */
 export async function getConnection(userId: string) {
   const supabase = createSupabaseServiceClient();
-  const { data } = await supabase
-    .from("gmail_connections")
-    .select("id, gmail_address, send_as_aliases, modify_scope_granted, last_gmail_sync_at, created_at")
-    .eq("user_id", userId)
-    .maybeSingle();
-  return data;
+  // must(), not a bare destructure: every caller treats null as "not
+  // connected" and silently degrades, so a failed read must throw instead of
+  // impersonating a disconnected account (rule 42's exact failure shape).
+  return must(
+    await supabase
+      .from("gmail_connections")
+      .select("id, gmail_address, send_as_aliases, modify_scope_granted, last_gmail_sync_at, created_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  );
 }
 
 export interface ComposeEmailOptions {

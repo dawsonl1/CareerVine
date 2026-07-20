@@ -48,6 +48,7 @@ export {
   removePhonesFromContact,
   addTagToContact,
   removeTagFromContact,
+  getContactTagNames,
 } from "./data/contacts";
 
 export {

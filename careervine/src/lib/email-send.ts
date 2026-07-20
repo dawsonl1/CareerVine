@@ -28,6 +28,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendEmail, getConnection, type ComposeEmailOptions } from "@/lib/gmail-send-core";
 import { EmailDirection, GmailLabel } from "@/lib/constants";
 import { trackServer, checkCompaniesEmailedMilestone } from "@/lib/analytics/server";
+import { must } from "@/lib/data/client";
 
 /**
  * Daily outbound cap (plan 24 Phase 4). Consumer Gmail allows ~500/day,
@@ -69,13 +70,15 @@ export async function sendTrackedEmail(
   // Send-limit guardrail
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
-  const { count: sentToday } = await service
+  const { count: sentToday, error: capError } = await service
     .from("email_messages")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("direction", EmailDirection.Outbound)
     .eq("is_simulated", false)
     .gte("date", midnight.toISOString());
+  // A failed count must not read as 0 and wave the send through the cap.
+  if (capError) throw capError;
   if ((sentToday ?? 0) >= DAILY_SEND_CAP) {
     await trackServer(userId, "send_cap_hit", {});
     throw new SendPolicyError(
@@ -86,11 +89,13 @@ export async function sendTrackedEmail(
 
   // Recipient provenance: refuse bounced addresses, warn on pattern-guessed.
   // One query also yields the contact match used for caching/logging below.
-  const { data: emailRows } = await service
-    .from("contact_emails")
-    .select("contact_id, source, bounced_at, contacts!inner(user_id)")
-    .eq("email", toAddr)
-    .eq("contacts.user_id", userId);
+  const emailRows = must(
+    await service
+      .from("contact_emails")
+      .select("contact_id, source, bounced_at, contacts!inner(user_id)")
+      .eq("email", toAddr)
+      .eq("contacts.user_id", userId),
+  );
   const matchedRow = (emailRows ?? [])[0] as
     | { contact_id: number; source: string; bounced_at: string | null }
     | undefined;

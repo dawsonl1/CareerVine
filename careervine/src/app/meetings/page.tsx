@@ -28,13 +28,13 @@ import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getMeetings, deleteMeeting, getContacts, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment, getTranscriptSegments, updateSpeakerContact } from "@/lib/queries";
-import type { Meeting, SimpleContact, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact, TranscriptSegment } from "@/lib/types";
+import type { Meeting, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact, TranscriptSegment } from "@/lib/types";
 import { Plus, Calendar, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { DatePicker } from "@/components/ui/date-picker";
 import { ContactPicker } from "@/components/ui/contact-picker";
 import TranscriptViewer from "@/components/transcript-viewer";
-import SpeakerResolver from "@/components/speaker-resolver";
+import SpeakerResolver, { type SpeakerCandidate } from "@/components/speaker-resolver";
 import { TranscriptActionSuggestions } from "@/components/meetings/transcript-action-suggestions";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { useQuickCapture } from "@/components/quick-capture-context";
@@ -52,7 +52,9 @@ export default function MeetingsPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [allContacts, setAllContacts] = useState<SimpleContact[]>([]);
+  // SpeakerCandidate, not SimpleContact: the AI speaker matcher also reads
+  // `industry`, and a SimpleContact[] annotation would erase it here (CAR-158).
+  const [allContacts, setAllContacts] = useState<SpeakerCandidate[]>([]);
   const [meetingActions, setMeetingActions] = useState<MeetingActionsMap>({});
   const [cardEditActionId, setCardEditActionId] = useState<number | null>(null);
   const [cardEditTitle, setCardEditTitle] = useState("");
@@ -81,15 +83,15 @@ export default function MeetingsPage() {
     if (!user) return;
     try {
       const data = await getContacts(user.id);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-      const contacts = (data as any[]).map((c) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-        const emails = (c.contact_emails || []).map((e: any) => e.email).filter(Boolean) as string[];
+      const contacts = data.map((c) => {
+        const emails = (c.contact_emails || []).map((e) => e.email).filter((e): e is string => Boolean(e));
         return {
           id: c.id,
           name: c.name,
           email: emails[0] || undefined,
           photo_url: c.photo_url,
+          // Feeds the AI speaker-matching prompt (SpeakerResolver).
+          industry: c.industry,
         };
       });
       setAllContacts(contacts);
@@ -111,11 +113,10 @@ export default function MeetingsPage() {
     setLoadError(false);
     try {
       const data = await getMeetings(user.id);
-      setMeetings(data as unknown as Meeting[]);
+      setMeetings(data);
 
       // Load calendar events for meetings that have a linked calendar_event_id
-      const typedMeetings = data as unknown as Meeting[];
-      const calEventIds = typedMeetings
+      const calEventIds = data
         .map(m => m.calendar_event_id)
         .filter((id): id is string => Boolean(id));
       if (calEventIds.length > 0) {
@@ -129,7 +130,7 @@ export default function MeetingsPage() {
             .eq("user_id", user.id);
           if (calEvents) {
             const calMap: Record<number, { google_event_id: string; attendees: Array<{ email: string; name: string; responseStatus: string }> }> = {};
-            for (const m of typedMeetings) {
+            for (const m of data) {
               const ce = calEvents.find((c) => c.google_event_id === m.calendar_event_id);
               if (ce) calMap[m.id] = {
                 google_event_id: ce.google_event_id,
@@ -149,19 +150,17 @@ export default function MeetingsPage() {
       const segMap: Record<number, TranscriptSegment[]> = {};
       await Promise.all(data.map(async (m) => {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          const promises: Promise<any>[] = [
+          // A literal tuple (rather than a Promise<any>[] the results are cast
+          // back out of) so each result keeps its own query's inferred row type.
+          const [items, atts, segs] = await Promise.all([
             getActionItemsForMeeting(m.id),
             getAttachmentsForMeeting(m.id),
-          ];
-          // Only load segments for meetings that have parsed transcripts
-          if (m.transcript_parsed) {
-            promises.push(getTranscriptSegments(m.id));
-          }
-          const [items, atts, segs] = await Promise.all(promises);
-          if (items.length > 0) actionsMap[m.id] = items as ActionItemWithContacts[];
-          if (atts.length > 0) attMap[m.id] = atts as typeof meetingAttachments[number];
-          if (segs?.length > 0) segMap[m.id] = segs as TranscriptSegment[];
+            // Only load segments for meetings that have parsed transcripts
+            m.transcript_parsed ? getTranscriptSegments(m.id) : null,
+          ]);
+          if (items.length > 0) actionsMap[m.id] = items;
+          if (atts.length > 0) attMap[m.id] = atts;
+          if (segs && segs.length > 0) segMap[m.id] = segs;
         } catch {
           // Per-meeting action items/attachments/segments are enrichment; one
           // meeting failing must not blank the others.
@@ -175,19 +174,21 @@ export default function MeetingsPage() {
     finally { setLoading(false); }
   }, [user]);
 
+  // Each loader catches its own failures (console.error, and setLoadError on
+  // the meetings loader), so these are deliberately fire-and-forget.
   useEffect(() => {
     if (user) {
-      loadMeetings();
-      loadContacts();
-      loadInteractions();
+      void loadMeetings();
+      void loadContacts();
+      void loadInteractions();
     }
   }, [user, loadMeetings, loadContacts, loadInteractions]);
 
   // Refresh when a conversation is logged via the unified modal
   useEffect(() => {
     const handler = () => {
-      loadMeetings();
-      loadInteractions();
+      void loadMeetings();
+      void loadInteractions();
     };
     return onUiEvent(UI_EVENTS.conversationLogged, handler);
   }, [loadMeetings, loadInteractions]);
@@ -268,7 +269,7 @@ export default function MeetingsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <LoadErrorState
             message="We could not load your activity"
-            onRetry={() => { setLoading(true); loadMeetings(); loadInteractions(); loadContacts(); }}
+            onRetry={() => { setLoading(true); void loadMeetings(); void loadInteractions(); void loadContacts(); }}
           />
         </div>
       </div>
@@ -318,7 +319,7 @@ export default function MeetingsPage() {
         {loadError && (meetings.length > 0 || allInteractions.length > 0) && (
           <LoadErrorBanner
             message="Some of your activity could not be loaded."
-            onRetry={() => { loadMeetings(); loadInteractions(); loadContacts(); }}
+            onRetry={() => { void loadMeetings(); void loadInteractions(); void loadContacts(); }}
             className="mb-6"
           />
         )}
@@ -363,15 +364,13 @@ export default function MeetingsPage() {
             const q = searchQuery.toLowerCase().trim();
             const matchesMeeting = (m: Meeting) => {
               if (!q) return true;
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-              const mAny = m as any;
-              const title = mAny.title || "";
+              const title = m.title || "";
               const names = m.meeting_contacts.map(mc => mc.contacts?.name || "").join(" ");
               return (
                 title.toLowerCase().includes(q) ||
                 m.meeting_type?.toLowerCase().includes(q) ||
                 (m.notes || "").toLowerCase().includes(q) ||
-                (mAny.private_notes || "").toLowerCase().includes(q) ||
+                (m.private_notes || "").toLowerCase().includes(q) ||
                 names.toLowerCase().includes(q)
               );
             };
@@ -439,9 +438,6 @@ export default function MeetingsPage() {
               </div>
             ) : (() => {
               const meeting = item.data as Meeting;
-              // title/private_notes live on the DB row but not yet on the Meeting type.
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-              const mx = meeting as any;
               return (
             <div key={`m-${meeting.id}`} className="rounded-[16px] border border-outline-variant/60 bg-white hover:border-outline-variant hover:shadow-sm transition-all duration-200">
               <div className="p-6">
@@ -451,7 +447,7 @@ export default function MeetingsPage() {
                       <Calendar className="h-7 w-7 text-on-secondary-container" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-lg font-medium text-foreground">{mx.title || <span className="capitalize">{meeting.meeting_type || "Meeting"}</span>}</h3>
+                      <h3 className="text-lg font-medium text-foreground">{meeting.title || <span className="capitalize">{meeting.meeting_type || "Meeting"}</span>}</h3>
                       <p className="text-base text-muted-foreground">
                         {new Date(meeting.meeting_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         {" · "}
@@ -506,10 +502,10 @@ export default function MeetingsPage() {
                   </div>
                 )}
 
-                {mx.private_notes && (
+                {meeting.private_notes && (
                   <div className="mt-4 ml-[60px]">
                     <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2">Private reminders</h4>
-                    <p className="text-base text-foreground leading-relaxed whitespace-pre-wrap">{mx.private_notes}</p>
+                    <p className="text-base text-foreground leading-relaxed whitespace-pre-wrap">{meeting.private_notes}</p>
                   </div>
                 )}
 
@@ -538,9 +534,9 @@ export default function MeetingsPage() {
                       <div className="mb-3">
                         <SpeakerResolver
                           segments={meetingSegments[meeting.id]}
-                          meetingContacts={meeting.meeting_contacts.map(mc => ({ id: mc.contacts.id, name: mc.contacts.name }))}
+                          meetingContacts={meeting.meeting_contacts.map(mc => ({ id: mc.contacts.id, name: mc.contacts.name, industry: mc.contacts.industry }))}
                           allContacts={allContacts}
-                          meetingTitle={mx.title || undefined}
+                          meetingTitle={meeting.title || undefined}
                           onResolve={async (mappings) => {
                             try {
                               await Promise.all(mappings.map(m =>

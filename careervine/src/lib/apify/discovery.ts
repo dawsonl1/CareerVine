@@ -23,6 +23,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalizeLinkedinUrl, extractPublicIdentifier } from "@/lib/linkedin-url";
 import type { PeopleRecord } from "@/lib/scrape-mapper";
 import type { Json } from "@/lib/database.types";
+import { must } from "@/lib/data/client";
 import {
   DISCOVERY_COMPANIES_PER_RUN,
   DISCOVERY_MIN_AGE_DAYS,
@@ -90,24 +91,28 @@ export async function selectDiscoveryCompanies(
   userId: string,
   limit: number = DISCOVERY_COMPANIES_PER_RUN,
 ): Promise<DiscoveryCompany[]> {
-  const { data: pendingRuns } = await service
-    .from("scrape_runs")
-    .select("company_id")
-    .eq("user_id", userId)
-    .eq("status", ScrapeRunStatus.Pending)
-    .eq("mode", ScrapeMode.Discovery);
+  const pendingRuns = must(
+    await service
+      .from("scrape_runs")
+      .select("company_id")
+      .eq("user_id", userId)
+      .eq("status", ScrapeRunStatus.Pending)
+      .eq("mode", ScrapeMode.Discovery),
+  );
   const inFlight = new Set(
     ((pendingRuns as { company_id: number | null }[] | null) ?? [])
       .map((r) => r.company_id)
       .filter((id): id is number => id != null),
   );
 
-  const { data: rows } = await service
-    .from("target_companies")
-    .select("company_id, last_discovery_at, priority_score, companies!inner(id, name, linkedin_url, linkedin_company_id)")
-    .eq("user_id", userId)
-    .eq("is_targeted", true)
-    .not("companies.linkedin_url", "is", null);
+  const rows = must(
+    await service
+      .from("target_companies")
+      .select("company_id, last_discovery_at, priority_score, companies!inner(id, name, linkedin_url, linkedin_company_id)")
+      .eq("user_id", userId)
+      .eq("is_targeted", true)
+      .not("companies.linkedin_url", "is", null),
+  );
 
   type TargetRow = {
     company_id: number;

@@ -16,6 +16,7 @@ import {
   type StageSignals,
 } from "./stage-derivation";
 import { chunked, escapeIlike } from "@/lib/data/postgrest";
+import { must } from "@/lib/data/client";
 import { findOrCreateCompany } from "./company-helpers";
 import { nextActionForCompany } from "./company-next-action";
 
@@ -58,8 +59,9 @@ async function byuAlumContactIds(contactIds: number[]): Promise<Set<number>> {
   const out = new Set<number>();
   if (contactIds.length === 0) return out;
   const rows = await chunked(contactIds, async (chunk) => {
-    const { data } = await db().from("contact_schools").select("contact_id, schools(name)").in("contact_id", chunk);
-    return data ?? [];
+    return (
+      must(await db().from("contact_schools").select("contact_id, schools(name)").in("contact_id", chunk)) ?? []
+    );
   });
   for (const s of rows) {
     if (s.schools?.name && isByuSchoolName(s.schools.name)) out.add(s.contact_id);
@@ -89,65 +91,86 @@ export async function getContactStages(
 
   const [emails, interactions, referrals, bounces, calEvents, calLinks, meetingLinks] = await Promise.all([
     chunked(ids, async (chunk) => {
-      const { data } = await db()
-        .from("email_messages")
-        .select("matched_contact_id, direction, date")
-        .eq("user_id", userId)
-        .eq("is_simulated", false)
-        .in("matched_contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("email_messages")
+            .select("matched_contact_id, direction, date")
+            .eq("user_id", userId)
+            .eq("is_simulated", false)
+            .in("matched_contact_id", chunk),
+        ) ?? []
+      );
     }),
     chunked(ids, async (chunk) => {
       // Explicitly user-scoped (CAR-151): this also runs under the MCP
       // service-role client, where RLS doesn't filter foreign interactions.
-      const { data } = await db()
-        .from("interactions")
-        .select("contact_id, contacts!inner()")
-        .eq("contacts.user_id", userId)
-        .in("contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("interactions")
+            .select("contact_id, contacts!inner()")
+            .eq("contacts.user_id", userId)
+            .in("contact_id", chunk),
+        ) ?? []
+      );
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await db()
-        .from("referrals")
-        .select("referred_by_contact_id")
-        .eq("user_id", userId)
-        .in("referred_by_contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("referrals")
+            .select("referred_by_contact_id")
+            .eq("user_id", userId)
+            .in("referred_by_contact_id", chunk),
+        ) ?? []
+      );
     }),
     chunked(ids, async (chunk) => {
       // Explicitly user-scoped (CAR-151), same reason as the interactions leg.
-      const { data } = await db()
-        .from("contact_emails")
-        .select("contact_id, contacts!inner()")
-        .eq("contacts.user_id", userId)
-        .not("bounced_at", "is", null)
-        .in("contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("contact_emails")
+            .select("contact_id, contacts!inner()")
+            .eq("contacts.user_id", userId)
+            .not("bounced_at", "is", null)
+            .in("contact_id", chunk),
+        ) ?? []
+      );
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await db()
-        .from("calendar_events")
-        .select("contact_id, start_at, status")
-        .eq("user_id", userId)
-        .in("contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("calendar_events")
+            .select("contact_id, start_at, status")
+            .eq("user_id", userId)
+            .in("contact_id", chunk),
+        ) ?? []
+      );
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await db()
-        .from("calendar_event_contacts")
-        .select("contact_id, calendar_events!inner(user_id, start_at, status)")
-        .eq("calendar_events.user_id", userId)
-        .in("contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("calendar_event_contacts")
+            .select("contact_id, calendar_events!inner(user_id, start_at, status)")
+            .eq("calendar_events.user_id", userId)
+            .in("contact_id", chunk),
+        ) ?? []
+      );
     }),
     chunked(ids, async (chunk) => {
-      const { data } = await db()
-        .from("meeting_contacts")
-        .select("contact_id, meetings!inner(user_id, meeting_date)")
-        .eq("meetings.user_id", userId)
-        .in("contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("meeting_contacts")
+            .select("contact_id, meetings!inner(user_id, meeting_date)")
+            .eq("meetings.user_id", userId)
+            .in("contact_id", chunk),
+        ) ?? []
+      );
     }),
   ]);
 
@@ -797,34 +820,43 @@ export async function getCompanyDetail(
   // Emails, alum badge, stages, latest logged interaction, current employer
   const [emailRows, schoolRows, interactionRows, currentPositionRows] = await Promise.all([
     chunked(contactIds, async (chunk) => {
-      const { data } = await db()
-        .from("contact_emails")
-        .select("contact_id, email, source, is_primary, bounced_at")
-        .in("contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("contact_emails")
+            .select("contact_id, email, source, is_primary, bounced_at")
+            .in("contact_id", chunk),
+        ) ?? []
+      );
     }),
     chunked(contactIds, async (chunk) => {
-      const { data } = await db()
-        .from("contact_schools")
-        .select("contact_id, schools(name)")
-        .in("contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db().from("contact_schools").select("contact_id, schools(name)").in("contact_id", chunk),
+        ) ?? []
+      );
     }),
     chunked(contactIds, async (chunk) => {
-      const { data } = await db()
-        .from("interactions")
-        .select("contact_id, interaction_type, interaction_date")
-        .in("contact_id", chunk)
-        .order("interaction_date", { ascending: false });
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("interactions")
+            .select("contact_id, interaction_type, interaction_date")
+            .in("contact_id", chunk)
+            .order("interaction_date", { ascending: false }),
+        ) ?? []
+      );
     }),
     chunked(contactIds, async (chunk) => {
-      const { data } = await db()
-        .from("contact_companies")
-        .select("contact_id, title, companies(id, name)")
-        .eq("is_current", true)
-        .in("contact_id", chunk);
-      return data ?? [];
+      return (
+        must(
+          await db()
+            .from("contact_companies")
+            .select("contact_id, title, companies(id, name)")
+            .eq("is_current", true)
+            .in("contact_id", chunk),
+        ) ?? []
+      );
     }),
   ]);
 
@@ -995,11 +1027,13 @@ export async function getCompanyDetail(
   let target: CompanyDetail["target"] = null;
   if (targetRes.data) {
     const t = targetRes.data as TargetInfo;
-    const { data: noteRows } = await db()
-      .from("target_company_notes")
-      .select("id, note, created_at, location_id, locations(city, state, country)")
-      .eq("target_company_id", t.id)
-      .order("created_at", { ascending: false });
+    const noteRows = must(
+      await db()
+        .from("target_company_notes")
+        .select("id, note, created_at, location_id, locations(city, state, country)")
+        .eq("target_company_id", t.id)
+        .order("created_at", { ascending: false }),
+    );
     const notes: CompanyNote[] = ((noteRows) ?? [])
       .map((n) => ({
         id: n.id,
@@ -1115,12 +1149,14 @@ export async function addCompanyOfficeLocation(
   const location = await findOrCreateOfficeLocation(normalized);
   const label = formatCompanyOfficeLocationLabel(normalized);
 
-  const { data: existing } = await db()
-    .from("company_locations")
-    .select("id")
-    .eq("company_id", companyId)
-    .eq("location_id", location.id)
-    .maybeSingle();
+  const existing = must(
+    await db()
+      .from("company_locations")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("location_id", location.id)
+      .maybeSingle(),
+  );
   if (existing) {
     return { locationId: location.id, added: false, label };
   }
@@ -1137,7 +1173,7 @@ async function findOrCreateOfficeLocation(location: CompanyOfficeLocationInput):
     return q.eq("country", location.country);
   }
 
-  const { data: existing } = await buildLookup().maybeSingle();
+  const existing = must(await buildLookup().maybeSingle());
   if (existing) return existing as { id: number };
 
   const { data, error } = await db()
@@ -1150,6 +1186,9 @@ async function findOrCreateOfficeLocation(location: CompanyOfficeLocationInput):
     .select("id")
     .single();
   if (error) {
+    // error-tolerated: this lookup only exists to recover from a concurrent
+    // insert winning the unique constraint; if it fails too we fall through
+    // and throw the original insert error, which is the more useful one.
     const { data: retry } = await buildLookup().maybeSingle();
     if (retry) return retry as { id: number };
     throw error;

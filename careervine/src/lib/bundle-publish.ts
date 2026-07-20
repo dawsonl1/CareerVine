@@ -22,6 +22,7 @@
 
 import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { must } from "@/lib/data/client";
 import {
   BUNDLE_PAYLOAD_SCHEMA_VERSION,
   bundleProspectPayloadV1Schema,
@@ -77,11 +78,17 @@ export async function beginPublish(
 ): Promise<BeginPublishResult> {
   const nowIso = new Date().toISOString();
 
-  let { data: bundle } = await service
-    .from("data_bundles")
-    .select("id, version, staging_version, staging_claimed_at")
-    .eq("slug", input.slug)
-    .maybeSingle();
+  // must(), not a bare destructure (CAR-158). `!bundle` below means "this slug
+  // does not exist yet" and drives an INSERT, so a failed read would try to
+  // create a bundle that is already there — surfacing as a confusing
+  // "Failed to create bundle" (unique violation) instead of the read error.
+  let bundle = must(
+    await service
+      .from("data_bundles")
+      .select("id, version, staging_version, staging_claimed_at")
+      .eq("slug", input.slug)
+      .maybeSingle(),
+  );
 
   if (!bundle) {
     if (!input.name) throw new BundlePublishError(`Bundle "${input.slug}" does not exist and no name was given to create it`);
@@ -150,11 +157,9 @@ export interface ProspectChunkResult {
 }
 
 async function requireLockedBundle(service: SupabaseClient, slug: string, stagingVersion: number) {
-  const { data } = await service
-    .from("data_bundles")
-    .select("id, version, staging_version")
-    .eq("slug", slug)
-    .maybeSingle();
+  const data = must(
+    await service.from("data_bundles").select("id, version, staging_version").eq("slug", slug).maybeSingle(),
+  );
   const bundle = data as { id: number; version: number; staging_version: number | null } | null;
   if (!bundle) throw new BundlePublishError(`Bundle "${slug}" not found`, 404);
   if (bundle.staging_version !== stagingVersion) {
@@ -193,11 +198,13 @@ export async function publishProspectsChunk(
   // Last occurrence wins on duplicate URLs within a chunk.
   const byUrl = new Map(validated.map((v) => [v.payload.linkedin_url, v]));
 
-  const { data: existingRows } = await service
-    .from("bundle_prospects")
-    .select("id, linkedin_url, payload_hash")
-    .eq("bundle_id", bundle.id)
-    .in("linkedin_url", [...byUrl.keys()]);
+  const existingRows = must(
+    await service
+      .from("bundle_prospects")
+      .select("id, linkedin_url, payload_hash")
+      .eq("bundle_id", bundle.id)
+      .in("linkedin_url", [...byUrl.keys()]),
+  );
   const existingByUrl = new Map(
     ((existingRows as Array<{ id: number; linkedin_url: string; payload_hash: string }> | null) ?? []).map((r) => [
       r.linkedin_url,
@@ -230,6 +237,11 @@ export async function publishProspectsChunk(
       // We can't cheaply tell removed rows apart here; counting revivals
       // needs the flag, so select it lazily only when someone cares — the
       // update itself is identical either way.
+      // error-tolerated: the returned row only splits the counter between
+      // "unchanged" and "readded" in the publish summary; the update itself
+      // is identical either way, so a failed read-back skews a stat, nothing more.
+      // cas-checked: writes version_last_seen/removed_in_version but filters
+      // only on the primary key, so no written column is re-tested.
       const { data: touched } = await service
         .from("bundle_prospects")
         .update({ version_last_seen: stagingVersion, removed_in_version: null, updated_at: nowIso })

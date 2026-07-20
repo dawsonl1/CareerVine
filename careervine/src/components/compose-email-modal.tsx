@@ -16,6 +16,8 @@ import { FollowUpPlanSection, type FollowUpDraft } from "@/components/follow-up-
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
+import { apiFetch, jsonBody, isApiRequestError } from "@/lib/api-client";
+import type { DraftFollowUpsResponse } from "@/app/api/ai/draft-follow-ups/route";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { track } from "@/lib/analytics/client";
 import { editRatio } from "@/lib/analytics/edit-ratio";
@@ -292,7 +294,8 @@ function ComposeEmailModalBody() {
     }
     setContactQuery(value);
     if (contactSearchTimer.current) clearTimeout(contactSearchTimer.current);
-    contactSearchTimer.current = setTimeout(() => searchContacts(value), 200);
+    // searchContacts reports its own failures by clearing the suggestion list.
+    contactSearchTimer.current = setTimeout(() => { void searchContacts(value); }, 200);
   };
 
   const handleSelectContact = (contact: { id: number; name: string; email: string; emails: string[] }) => {
@@ -314,14 +317,17 @@ function ComposeEmailModalBody() {
   useEffect(() => {
     if (sent || scheduled) return;
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(async () => {
+    // saveDraft swallows its own failures (best-effort autosave), so the timer
+    // callback stays void-returning and just fires it.
+    const autoSave = async () => {
       await saveDraft({ to, cc, bcc, subject, bodyHtml });
       if (to.trim() || subject.trim() || bodyHtml.trim()) {
         setDraftSavedVisible(true);
         if (draftSavedTimer.current) clearTimeout(draftSavedTimer.current);
         draftSavedTimer.current = setTimeout(() => setDraftSavedVisible(false), 2000);
       }
-    }, 2000);
+    };
+    autoSaveTimerRef.current = setTimeout(() => { void autoSave(); }, 2000);
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
       if (draftSavedTimer.current) clearTimeout(draftSavedTimer.current);
@@ -393,38 +399,37 @@ function ComposeEmailModalBody() {
     setFollowUpError(null);
     setFollowUpAiFailure(null);
     try {
-      const res = await fetch("/api/ai/draft-follow-ups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await apiFetch<DraftFollowUpsResponse>(
+        "/api/ai/draft-follow-ups",
+        jsonBody({
           contactId: activeContactId,
           introSubject: subject,
           introBodyHtml: bodyHtml,
           goal: introContextRef.current.goal || undefined,
           howMet: introContextRef.current.howMet || undefined,
         }),
-      });
-      const data = await res.json();
-      if (res.ok && data.followUps) {
-        setFollowUps(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          data.followUps.map((fu: any, i: number) => ({
-            id: `fu-${i}`,
-            subject: fu.subject,
-            bodyHtml: fu.bodyHtml,
-            delayDays: fu.delayDays,
-            projectedDate: formatProjectedDate(fu.delayDays),
-          }))
-        );
-        setIntroPhase("ready");
-      } else {
-        const code = parseAiFailure(res.status, data);
+      );
+      setFollowUps(
+        data.followUps.map((fu, i) => ({
+          id: `fu-${i}`,
+          subject: fu.subject,
+          bodyHtml: fu.bodyHtml,
+          delayDays: fu.delayDays,
+          projectedDate: formatProjectedDate(fu.delayDays),
+        })),
+      );
+      setIntroPhase("ready");
+    } catch (err) {
+      // apiFetch throws on any non-2xx, so the AI-failure branch moves here.
+      // ApiRequestError carries the status and parsed body the old code read
+      // off the response, so parseAiFailure sees exactly what it saw before.
+      if (isApiRequestError(err)) {
+        const code = parseAiFailure(err.status, err.body);
         if (code) setFollowUpAiFailure(code);
-        else setFollowUpError(data.error || "Failed to generate follow-ups");
-        setIntroPhase("editing");
+        else setFollowUpError(err.message);
+      } else {
+        setFollowUpError("Failed to generate follow-ups. Try again.");
       }
-    } catch {
-      setFollowUpError("Failed to generate follow-ups. Try again.");
       setIntroPhase("editing");
     }
   }, [activeContactId, subject, bodyHtml]);
@@ -495,7 +500,9 @@ function ComposeEmailModalBody() {
 
       setSent(true);
       sentOrScheduledRef.current = true;
-      deleteDraft();
+      // Fire-and-forget: deleteDraft handles its own errors, and the send is
+      // already confirmed — a failed cleanup must not block the success UI.
+      void deleteDraft();
 
       // AI acceptance (CAR-38). AI-followup drafts are recorded server-side
       // by the status PATCH below, so only ai-write/intro drafts fire here.
@@ -585,7 +592,7 @@ function ComposeEmailModalBody() {
       setScheduled(true);
       setConfirmedSendAt(sendAt);
       sentOrScheduledRef.current = true;
-      deleteDraft();
+      void deleteDraft();
 
       // Create follow-up records for scheduled intro emails (awaited so a
       // failure is surfaced via toast instead of silently dropped).
@@ -629,7 +636,8 @@ function ComposeEmailModalBody() {
   // Save draft on close if there's content and not sent/scheduled
   const handleClose = useCallback(() => {
     if (!sentOrScheduledRef.current && (to.trim() || subject.trim() || bodyHtml.trim())) {
-      saveDraft({ to, cc, bcc, subject, bodyHtml });
+      // The modal closes immediately; saveDraft is best-effort and silent.
+      void saveDraft({ to, cc, bcc, subject, bodyHtml });
     }
     // Closing with an unsent AI draft is a discard — without this, intro/write
     // abandonment is invisible and acceptance rates read artificially high
@@ -1164,7 +1172,7 @@ function ComposeEmailModalBody() {
             {/* Footer */}
             <div className="flex flex-wrap items-center justify-between gap-3 px-7 py-5">
               <div className="flex items-center gap-1">
-                <Button type="button" variant="text" size="sm" onClick={() => { deleteDraft(); closeCompose(); }}>
+                <Button type="button" variant="text" size="sm" onClick={() => { void deleteDraft(); closeCompose(); }}>
                   Discard
                 </Button>
                 <Button
@@ -1197,7 +1205,8 @@ function ComposeEmailModalBody() {
                           const tomorrow = new Date();
                           tomorrow.setDate(tomorrow.getDate() + 1);
                           tomorrow.setHours(9, 5, 0, 0);
-                          handleScheduleSend(tomorrow);
+                          // handleScheduleSend surfaces its own failures via setError.
+                          void handleScheduleSend(tomorrow);
                         }}
                         loading={sending}
                       >

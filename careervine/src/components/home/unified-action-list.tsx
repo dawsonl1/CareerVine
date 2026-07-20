@@ -143,7 +143,11 @@ function NotePopover({
   onSave,
   onCancel,
 }: {
-  onSave: (note: string) => void;
+  // CAR-158: `void | Promise<void>`, not `void`. The only call site passes an
+  // async handler, so the `await` in handleSave was awaiting a value typed
+  // `void` — a no-op that let a rejection escape unhandled and left the popover
+  // stuck in its saving state forever.
+  onSave: (note: string) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [text, setText] = useState("");
@@ -172,7 +176,13 @@ function NotePopover({
   const handleSave = async () => {
     if (!text.trim()) return;
     setSaving(true);
-    await onSave(text.trim());
+    try {
+      await onSave(text.trim());
+    } finally {
+      // Now that the await is real, a failed save must release the button
+      // rather than leaving it disabled with no way back.
+      setSaving(false);
+    }
   };
 
   return (

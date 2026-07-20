@@ -26,6 +26,7 @@ import {
 import { resolveBundleChunk, markBundleResolved } from "@/lib/bundle-resolve";
 import { runWithResponseDeadline } from "@/lib/time-budget";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { must } from "@/lib/data/client";
 
 export const maxDuration = 60;
 
@@ -51,12 +52,14 @@ async function resolveStaleBundles(
   service: SupabaseClient,
 ): Promise<{ resolved: number; stillBehind: boolean }> {
   const deadline = Date.now() + RESOLVE_BUDGET_MS;
-  const { data } = await service
-    .from("data_bundles")
-    .select("id, slug, version, resolved_version")
-    .eq("status", "published")
-    .gt("version", 0)
-    .order("id", { ascending: true }); // deterministic forward progress across runs
+  const data = must(
+    await service
+      .from("data_bundles")
+      .select("id, slug, version, resolved_version")
+      .eq("status", "published")
+      .gt("version", 0)
+      .order("id", { ascending: true }), // deterministic forward progress across runs
+  );
   const bundles = ((data as Array<{ id: number; slug: string; version: number; resolved_version: number }> | null) ?? [])
     .filter((b) => b.resolved_version < b.version);
 

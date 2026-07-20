@@ -184,6 +184,9 @@ export async function checkCompaniesEmailedMilestone(
     // Distinct companies among contacts this user has emailed: outbound
     // messages matched to a contact → that contact's company links.
     const service = getServiceClient();
+    // error-tolerated: milestone detection is idempotent and re-runs on the
+    // next tracked event, so a failed read defers the badge rather than
+    // breaking the send that triggered this check.
     const { data: sent } = await service
       .from("email_messages")
       .select("matched_contact_id")
@@ -194,6 +197,7 @@ export async function checkCompaniesEmailedMilestone(
     const contactIds = [...new Set((sent ?? []).map((r) => r.matched_contact_id as number))];
     if (contactIds.length === 0) return;
 
+    // error-tolerated: same deferred-milestone contract as the read above.
     const { data: links } = await service
       .from("contact_companies")
       .select("company_id")

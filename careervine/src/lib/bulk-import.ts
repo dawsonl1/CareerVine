@@ -47,6 +47,7 @@ import {
   type CompanyRecord,
 } from "./company-helpers";
 import { chunkList, escapeIlike } from "@/lib/data/postgrest";
+import { must } from "@/lib/data/client";
 import { createContact, createContacts, updateContact } from "@/lib/data/contacts";
 import type { QueryClient } from "@/lib/data/client";
 import {
@@ -325,6 +326,9 @@ export async function importPeopleChunk(
   }
   const resolvedCompanies = new Map<number, CompanyRecord>();
   for (const idChunk of chunkList([...resolvedCompanyIds])) {
+    // error-tolerated: this only warms the publish-time short-circuit; an id
+    // that misses the map falls through to the normal resolve chain (the same
+    // path a merged/deleted company row already takes).
     const { data } = await supabase.from("companies").select(COMPANY_COLS).in("id", idChunk);
     for (const row of (data as CompanyRecord[] | null) ?? []) resolvedCompanies.set(row.id, row);
   }
@@ -486,11 +490,15 @@ export async function importPeopleChunk(
   // ── Load known offices for every company in the chunk ──
   const companyIds = [...new Set([...companyCache.values()].map((c) => c.id))];
   if (companyIds.length > 0) {
-    const { data: officeRows } = await supabase
-      .from("company_locations")
-      .select("company_id, location_id, locations(city, state, country)")
-      .in("company_id", companyIds);
-    for (const row of (officeRows as Array<{
+    const officeRows = must(
+      await supabase
+        .from("company_locations")
+        .select("company_id, location_id, locations(city, state, country)")
+        .in("company_id", companyIds),
+    );
+    // via unknown: the generated types model the to-one locations embed as an
+    // array; PostgREST returns a single object (or null) for it.
+    for (const row of (officeRows as unknown as Array<{
       company_id: number;
       location_id: number;
       locations: { city: string | null; state: string | null; country: string } | null;
@@ -531,11 +539,13 @@ export async function importPeopleChunk(
   // suppression sweep (CAR-57).
   const urlMap = new Map<string, ContactCoreRow>();
   for (const urlChunk of chunkList(urls)) {
-    const { data: byUrl } = await supabase
-      .from("contacts")
-      .select(CONTACT_CORE_COLUMNS)
-      .eq("user_id", userId)
-      .in("linkedin_url", urlChunk);
+    const byUrl = must(
+      await supabase
+        .from("contacts")
+        .select(CONTACT_CORE_COLUMNS)
+        .eq("user_id", userId)
+        .in("linkedin_url", urlChunk),
+    );
     for (const c of (byUrl as ContactCoreRow[] | null) ?? []) {
       if (c.linkedin_url) urlMap.set(c.linkedin_url, c);
     }
@@ -543,11 +553,13 @@ export async function importPeopleChunk(
   const pids = working.map((w) => w.mapped.public_identifier).filter(Boolean) as string[];
   const pidMap = new Map<string, ContactCoreRow>();
   for (const pidChunk of chunkList(pids)) {
-    const { data: byPid } = await supabase
-      .from("contacts")
-      .select(CONTACT_CORE_COLUMNS)
-      .eq("user_id", userId)
-      .in("public_identifier", pidChunk);
+    const byPid = must(
+      await supabase
+        .from("contacts")
+        .select(CONTACT_CORE_COLUMNS)
+        .eq("user_id", userId)
+        .in("public_identifier", pidChunk),
+    );
     for (const c of (byPid as ContactCoreRow[] | null) ?? []) {
       if (c.public_identifier) pidMap.set(c.public_identifier, c);
     }
@@ -556,12 +568,14 @@ export async function importPeopleChunk(
   // Explicit target for single-record rescrapes (see ImportChunkOptions).
   let targetRow: ContactCoreRow | undefined;
   if (opts.targetContactId != null && working.length === 1) {
-    const { data: byId } = await supabase
-      .from("contacts")
-      .select(CONTACT_CORE_COLUMNS)
-      .eq("user_id", userId)
-      .eq("id", opts.targetContactId)
-      .maybeSingle();
+    const byId = must(
+      await supabase
+        .from("contacts")
+        .select(CONTACT_CORE_COLUMNS)
+        .eq("user_id", userId)
+        .eq("id", opts.targetContactId)
+        .maybeSingle(),
+    );
     targetRow = (byId as ContactCoreRow | null) ?? undefined;
   }
 
@@ -583,6 +597,9 @@ export async function importPeopleChunk(
       ),
     ];
     for (const chunk of chunkList(schoolNames)) {
+      // error-tolerated: warm-cache pass only; a school that misses the cache
+      // goes through sinks.resolveSchool (findOrCreateSchool), so a failed
+      // read costs round trips rather than minting duplicate school rows.
       const { data } = await supabase.from("schools").select("id, name").in("name", chunk);
       for (const row of (data as Array<{ id: number; name: string }> | null) ?? []) {
         const key = row.name.toLowerCase();
@@ -796,6 +813,9 @@ async function refetchExistingContact(
   userId: string,
   mapped: MappedPerson,
 ): Promise<ContactCoreRow | undefined> {
+  // error-tolerated: this runs only after the insert already failed, to
+  // recover a row a racing writer created. Returning undefined lets the
+  // caller surface the original insert error, which is correct.
   const { data: byUrl } = await supabase
     .from("contacts")
     .select(CONTACT_CORE_COLUMNS)
@@ -805,6 +825,7 @@ async function refetchExistingContact(
   const urlHit = (byUrl as ContactCoreRow[] | null)?.[0];
   if (urlHit) return urlHit;
   if (!mapped.public_identifier) return undefined;
+  // error-tolerated: same post-insert-failure recovery contract as above.
   const { data: byPid } = await supabase
     .from("contacts")
     .select(CONTACT_CORE_COLUMNS)
@@ -1012,10 +1033,12 @@ async function updateExistingPerson(
 
   // Emails: monotonic upgrade only
   if (mapped.email && isValidImportEmail(mapped.email.address)) {
-    const { data: emailRows } = await supabase
-      .from("contact_emails")
-      .select("id, email, is_primary, source, bounced_at")
-      .eq("contact_id", contactId);
+    const emailRows = must(
+      await supabase
+        .from("contact_emails")
+        .select("id, email, is_primary, source, bounced_at")
+        .eq("contact_id", contactId),
+    );
     const emailPlan = computeEmailMerge(
       (emailRows as { id: number; email: string | null; is_primary: boolean; source: string; bounced_at: string | null }[] | null) ?? [],
       mapped.email,
@@ -1034,10 +1057,12 @@ async function updateExistingPerson(
   }
 
   // Employment merge
-  const { data: existingEmpRows } = await supabase
-    .from("contact_companies")
-    .select("id, company_id, title, start_month, end_month, is_current, location_id, location_source, location_raw, workplace_type, employment_type, source")
-    .eq("contact_id", contactId);
+  const existingEmpRows = must(
+    await supabase
+      .from("contact_companies")
+      .select("id, company_id, title, start_month, end_month, is_current, location_id, location_source, location_raw, workplace_type, employment_type, source")
+      .eq("contact_id", contactId),
+  );
 
   // Capture the PRE-merge state for the scrape-diff engine (plan 29 §5).
   if (hooks.onDiffCapture) {
@@ -1131,10 +1156,12 @@ async function collectEducation(
   // is null the key falls back to including degree/field (CAR-62 review).
   const existingKeys = new Set<string>();
   if (opts.checkExisting) {
-    const { data: existingRows } = await opts.supabase
-      .from("contact_schools")
-      .select("school_id, degree, field_of_study, start_year")
-      .eq("contact_id", contactId);
+    const existingRows = must(
+      await opts.supabase
+        .from("contact_schools")
+        .select("school_id, degree, field_of_study, start_year")
+        .eq("contact_id", contactId),
+    );
     for (const r of (existingRows as Array<{ school_id: number; degree: string | null; field_of_study: string | null; start_year: number | null }> | null) ?? []) {
       existingKeys.add(educationDedupeKey(r.school_id, r.start_year, r.degree, r.field_of_study));
     }
@@ -1179,15 +1206,16 @@ export function educationDedupeKey(
 export async function findOrCreateSchool(supabase: SupabaseClient, name: string): Promise<{ id: number } | null> {
   const trimmed = name.trim();
   if (!trimmed) return null;
-  const { data: found } = await supabase
-    .from("schools")
-    .select("id")
-    .ilike("name", escapeIlike(trimmed))
-    .limit(1);
+  const found = must(
+    await supabase.from("schools").select("id").ilike("name", escapeIlike(trimmed)).limit(1),
+  );
   const existing = (found as { id: number }[] | null)?.[0];
   if (existing) return existing;
   const { data: created, error } = await supabase.from("schools").insert({ name: trimmed }).select("id").single();
   if (!error && created) return created as { id: number };
+  // error-tolerated: post-insert-failure recovery for a unique-violation
+  // race; a failed read returns null, the same "could not resolve" answer
+  // the caller already handles.
   const { data: retry } = await supabase.from("schools").select("id").ilike("name", escapeIlike(trimmed)).limit(1);
   return (retry as { id: number }[] | null)?.[0] ?? null;
 }

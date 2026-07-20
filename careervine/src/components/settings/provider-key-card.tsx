@@ -138,7 +138,8 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
   }, [config.endpoint]);
 
   useEffect(() => {
-    loadStatus();
+    // Fire-and-forget: loadStatus catches its own errors into `error`.
+    void loadStatus();
   }, [loadStatus]);
 
   const handleSave = async () => {

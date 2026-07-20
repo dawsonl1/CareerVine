@@ -69,7 +69,9 @@ export default function AdminUsersPage() {
   // Debounced search.
   useEffect(() => {
     const controller = new AbortController();
-    const t = setTimeout(async () => {
+    // setTimeout wants a void callback, so the async search runs as a named
+    // fire-and-forget: it settles its own loading/error state below.
+    const search = async () => {
       setLoading(true);
       setError(null);
       try {
@@ -90,7 +92,8 @@ export default function AdminUsersPage() {
       } finally {
         setLoading(false);
       }
-    }, 250);
+    };
+    const t = setTimeout(() => void search(), 250);
     return () => {
       clearTimeout(t);
       controller.abort();

@@ -21,7 +21,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { chunkList, escapeIlike } from "@/lib/data/postgrest";
-import type { QueryClient } from "@/lib/data/client";
+import { must, type QueryClient } from "@/lib/data/client";
 import { findOrCreateLocation as findOrCreateLocationShared } from "@/lib/data/locations";
 
 /**
@@ -121,6 +121,9 @@ export async function prefetchCompanies(
 
   const ids = [...new Set(inputs.map((i) => i.linkedin_company_id?.trim()).filter(Boolean))] as string[];
   for (const chunk of chunkList(ids)) {
+    // error-tolerated: this is a warm-cache pass only; an id that misses the
+    // map runs findOrCreateCompany's full chain, so a failed read costs a
+    // round trip rather than resolving the company wrongly.
     const { data } = await supabase.from("companies").select(COMPANY_COLS).in("linkedin_company_id", chunk);
     for (const row of (data as CompanyRecord[] | null) ?? []) {
       if (row.linkedin_company_id) byId.set(row.linkedin_company_id, row);
@@ -136,6 +139,8 @@ export async function prefetchCompanies(
     ),
   ];
   for (const chunk of chunkList(names)) {
+    // error-tolerated: same warm-cache contract as the id sweep above — a
+    // name that misses falls through to the full resolve chain.
     const { data } = await supabase.from("companies").select(COMPANY_COLS).in("name", chunk);
     for (const row of (data as CompanyRecord[] | null) ?? []) {
       const key = row.name.toLowerCase();
@@ -157,21 +162,25 @@ export async function findOrCreateCompany(
 
   // 1. Stable-id match
   if (companyId) {
-    const { data } = await supabase
-      .from("companies")
-      .select(COMPANY_COLS)
-      .eq("linkedin_company_id", companyId)
-      .maybeSingle();
+    const data = must(
+      await supabase
+        .from("companies")
+        .select(COMPANY_COLS)
+        .eq("linkedin_company_id", companyId)
+        .maybeSingle(),
+    );
     if (data) return data as CompanyRecord;
   }
 
   // 2. LinkedIn URL match
   if (linkedinUrl) {
-    const { data: byUrl } = await supabase
-      .from("companies")
-      .select(COMPANY_COLS)
-      .ilike("linkedin_url", escapeIlike(linkedinUrl))
-      .limit(1);
+    const byUrl = must(
+      await supabase
+        .from("companies")
+        .select(COMPANY_COLS)
+        .ilike("linkedin_url", escapeIlike(linkedinUrl))
+        .limit(1),
+    );
     const existing = (byUrl as CompanyRecord[] | null)?.[0];
     if (existing) {
       if (companyId && !existing.linkedin_company_id) {
@@ -183,11 +192,13 @@ export async function findOrCreateCompany(
 
   // 3. LinkedIn universal_name match
   if (universalName) {
-    const { data: byUniversal } = await supabase
-      .from("companies")
-      .select(COMPANY_COLS)
-      .ilike("universal_name", escapeIlike(universalName))
-      .limit(1);
+    const byUniversal = must(
+      await supabase
+        .from("companies")
+        .select(COMPANY_COLS)
+        .ilike("universal_name", escapeIlike(universalName))
+        .limit(1),
+    );
     const existing = (byUniversal as CompanyRecord[] | null)?.[0];
     if (existing) {
       if (companyId && !existing.linkedin_company_id) {
@@ -205,9 +216,11 @@ export async function findOrCreateCompany(
   if (name) {
     const nameNorm = normalizeCompanyName(name);
     const byNameQuery = supabase.from("companies").select(COMPANY_COLS);
-    const { data: byName } = nameNorm
-      ? await byNameQuery.eq("name_normalized", nameNorm).order("id", { ascending: true }).limit(1)
-      : await byNameQuery.ilike("name", escapeIlike(name)).limit(1);
+    const byName = must(
+      nameNorm
+        ? await byNameQuery.eq("name_normalized", nameNorm).order("id", { ascending: true }).limit(1)
+        : await byNameQuery.ilike("name", escapeIlike(name)).limit(1),
+    );
     const existing = (byName as CompanyRecord[] | null)?.[0];
     if (existing) {
       if (companyId && !existing.linkedin_company_id) {
@@ -249,8 +262,13 @@ export async function findOrCreateCompany(
     return record;
   }
 
-  // Unique-violation race (name or linkedin_company_id): refetch
+  // Unique-violation race (name or linkedin_company_id): refetch. Every leg
+  // below runs only after the insert already failed, purely to recover the
+  // row a concurrent writer won; a failed refetch falls through to the
+  // `throw error` at the end, surfacing the original insert failure.
   if (companyId) {
+    // error-tolerated: post-insert-failure recovery read; falling through
+    // rethrows the original insert error, which is the more diagnostic one.
     const { data: retryById } = await supabase
       .from("companies")
       .select(COMPANY_COLS)
@@ -259,6 +277,7 @@ export async function findOrCreateCompany(
     if (retryById) return retryById as CompanyRecord;
   }
   if (linkedinUrl) {
+    // error-tolerated: same post-insert-failure recovery contract as above.
     const { data: retryByUrl } = await supabase
       .from("companies")
       .select(COMPANY_COLS)
@@ -268,6 +287,7 @@ export async function findOrCreateCompany(
     if (retriedByUrl) return retriedByUrl as CompanyRecord;
   }
   if (universalName) {
+    // error-tolerated: same post-insert-failure recovery contract as above.
     const { data: retryByUniversal } = await supabase
       .from("companies")
       .select(COMPANY_COLS)
@@ -276,6 +296,8 @@ export async function findOrCreateCompany(
     const retriedByUniversal = (retryByUniversal as CompanyRecord[] | null)?.[0];
     if (retriedByUniversal) return retriedByUniversal as CompanyRecord;
   }
+  // error-tolerated: last post-insert-failure recovery leg; a failed read
+  // lands on the `throw error` immediately below.
   const { data: retryByName } = await supabase
     .from("companies")
     .select(COMPANY_COLS)
@@ -311,6 +333,9 @@ async function probeSimilarCompany(
     }
   }
   if (tokens.size > 0) {
+    // error-tolerated: this probe only decides whether to attach a
+    // possible_duplicate_of warning; a failed read means no warning, never a
+    // blocked insert or a wrong merge.
     const { data } = await supabase
       .from("companies")
       .select(COMPANY_COLS)
@@ -324,6 +349,7 @@ async function probeSimilarCompany(
   // Prefix probe: an existing longer name starting with this one. Length
   // floor keeps ultra-short names ("X") from matching half the table.
   if (norm.length >= 4) {
+    // error-tolerated: same warn-only surface as the token probe above.
     const { data } = await supabase
       .from("companies")
       .select(COMPANY_COLS)
@@ -350,18 +376,37 @@ async function claimCompanyRow(
   if (!existing.universal_name && universalName) patch.universal_name = universalName;
   if (!existing.logo_url && input.logo_url) patch.logo_url = input.logo_url.trim();
 
-  const { data: updated, error } = await supabase
+  // Compare-and-set: `patch` WRITES linkedin_company_id while the filter below
+  // re-tests it, so success is reported by row COUNT (rule 17, CAR-158). Read
+  // back through .select() and a won claim can answer "zero rows" — because the
+  // updated row no longer satisfies .is("linkedin_company_id", null) — which
+  // this function would then misread as a lost race and resolve through the
+  // owner lookup instead.
+  const { count, error } = await supabase
     .from("companies")
-    .update(patch)
+    .update(patch, { count: "exact" })
     .eq("id", existing.id)
-    .is("linkedin_company_id", null) // claim only if still unclaimed (race guard)
-    .select(COMPANY_COLS)
-    .maybeSingle();
-  if (updated) return updated as CompanyRecord;
+    .is("linkedin_company_id", null); // claim only if still unclaimed (race guard)
+
+  if (!error && (count ?? 0) > 0) {
+    // Claim won. Re-read by primary key only: filtering on the written column
+    // here would reintroduce the same trap.
+    // error-tolerated: a failed re-read falls through to the owner lookup and
+    // then to `existing`, which is the same answer this path would give anyway.
+    const { data: claimed } = await supabase
+      .from("companies")
+      .select(COMPANY_COLS)
+      .eq("id", existing.id)
+      .maybeSingle();
+    if (claimed) return claimed as CompanyRecord;
+  }
 
   // Claim lost a race (someone else claimed this or another row got the id),
   // or the unique index rejected a duplicate id — fall back to the id owner.
-  if (error || !updated) {
+  {
+    // error-tolerated: the claim already lost its race, and `existing` below
+    // is the defined fallback. A failed owner lookup lands on that same
+    // fallback, so tolerating it changes nothing about the outcome.
     const { data: owner } = await supabase
       .from("companies")
       .select(COMPANY_COLS)
@@ -399,6 +444,9 @@ export async function prefetchLocations(
   const wanted = new Set(inputs.map(locationLookupKey));
   const cities = [...new Set(inputs.map((i) => i.city).filter(Boolean))] as string[];
   for (const chunk of chunkList(cities)) {
+    // error-tolerated: warm-cache pass only; a city that misses the map falls
+    // back to findOrCreateLocation, so a failed read costs a round trip
+    // rather than minting a duplicate location.
     const { data } = await supabase.from("locations").select("id, city, state, country").in("city", chunk);
     for (const row of (data as Array<{ id: number; city: string | null; state: string | null; country: string }> | null) ?? []) {
       const key = locationLookupKey(row);

@@ -1,6 +1,22 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { runWithOpenAIFallback, DEFAULT_MODEL, AiUnavailableError } from "@/lib/openai";
 import { transcriptParseSchema } from "@/lib/api-schemas";
+import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
+
+/**
+ * A parsed turn plus its position in the transcript. This is the pre-insert
+ * draft the client hands to the meeting form, not a `transcript_segments` row
+ * (no id / meeting_id / speaker resolution yet).
+ */
+type ParsedSegmentDraft = ParsedTranscriptTurn & { ordinal: number };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isSegmentEnvelope(value: unknown): value is { segments: unknown[] } {
+  return isRecord(value) && Array.isArray(value.segments);
+}
 
 /**
  * POST /api/transcripts/parse
@@ -84,7 +100,7 @@ export const POST = withApiHandler({
       throw new ApiError("LLM returned an empty response", 500);
     }
 
-    let parsed;
+    let parsed: unknown;
     try {
       parsed = JSON.parse(responseText);
     } catch {
@@ -92,14 +108,18 @@ export const POST = withApiHandler({
       throw new ApiError("Failed to parse transcript. Please try again.", 500);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-    const segments = (parsed.segments || []).map((s: any, i: number) => ({
-      speaker_label: s.speaker_label || "Unknown",
-      started_at: typeof s.started_at === "number" ? s.started_at : null,
-      ended_at: null,
-      content: s.content || "",
-      ordinal: i,
-    }));
+    // json_schema mode asks for this shape, but a model response is unvalidated
+    // input — narrow it field by field rather than trusting the schema held.
+    const rawSegments = isSegmentEnvelope(parsed) ? parsed.segments : [];
+    const segments: ParsedSegmentDraft[] = rawSegments
+      .filter(isRecord)
+      .map((s, i) => ({
+        speaker_label: typeof s.speaker_label === "string" && s.speaker_label ? s.speaker_label : "Unknown",
+        started_at: typeof s.started_at === "number" ? s.started_at : null,
+        ended_at: null,
+        content: typeof s.content === "string" ? s.content : "",
+        ordinal: i,
+      }));
 
     // After the work: a failed parse must not count as processed (CAR-58).
     track("transcript_processed", { step: "parse" });

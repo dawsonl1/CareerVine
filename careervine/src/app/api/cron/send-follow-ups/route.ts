@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { gmail_v1 } from "@googleapis/gmail";
 import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
@@ -172,8 +173,7 @@ async function runJob(): Promise<NextResponse> {
   );
 
   // Cache Gmail clients per user to avoid redundant auth
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const gmailClients = new Map<string, any>();
+  const gmailClients = new Map<string, gmail_v1.Gmail>();
 
   for (const [seqId, messages] of bySequence) {
     const parent = messages[0].email_follow_ups;
@@ -245,6 +245,11 @@ async function runJob(): Promise<NextResponse> {
       }
     }
 
+    // The due query filters `thread_id is not null`, so this never fires in
+    // practice — it narrows the nullable column for threads.get below. Placed
+    // after the tier/disconnect paths so neither is skipped by it.
+    if (!threadId) continue;
+
     // Check for replies in the thread (one API call per thread)
     let hasReply = false;
     try {
@@ -272,11 +277,9 @@ async function runJob(): Promise<NextResponse> {
         // the contact — stay conservative and treat it as no reply, matching
         // the old code's degenerate behavior.
         if (ownAddresses.size > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-          hasReply = threadMessages.some((m: any) => {
+          hasReply = threadMessages.some((m) => {
             const fromHeader = m.payload?.headers?.find(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-              (h: any) => h.name?.toLowerCase() === "from"
+              (h) => h.name?.toLowerCase() === "from"
             );
             const fromAddr = parseEmailAddress(fromHeader?.value || "");
             // NDRs are delivery failures, not replies — detectBounces owns

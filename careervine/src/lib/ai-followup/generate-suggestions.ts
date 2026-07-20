@@ -16,6 +16,7 @@ import { gatherContactContext, formatContextForLLM } from "./gather-context";
 import { SuggestionReasonType, ActionItemSource, ActionDirection } from "@/lib/constants";
 import type { AiFailureCode } from "@/lib/ai-errors";
 import type { Suggestion, SuggestionContact } from "./suggestion-types";
+import { must } from "@/lib/data/client";
 
 const MAX_SUGGESTIONS = 5;
 const MAX_LLM_CONTACTS = 5;
@@ -497,19 +498,22 @@ export async function generateSuggestions(userId: string): Promise<SuggestionsRe
 
   // Build a set of contact IDs that have emails (for nudge eligibility)
   const contactIds = contacts.map((c) => c.id);
-  const { data: emailRows } = contactIds.length > 0
-    ? await service.from("contact_emails").select("contact_id").in("contact_id", contactIds)
-    : { data: [] };
+  const emailRows =
+    contactIds.length > 0
+      ? must(await service.from("contact_emails").select("contact_id").in("contact_id", contactIds))
+      : [];
   const contactsWithEmail = new Map<number, boolean>();
   for (const row of emailRows || []) {
     contactsWithEmail.set(row.contact_id, true);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CAR-142: any-debt inventory; resolve at typed-Supabase-boundary rollout
-  const waitingOnItems = (waitingOnResult.data || []).map((row: any) => ({
+  type _Probe = NonNullable<typeof waitingOnResult.data>[number]["contacts"];
+  const _probe: _Probe = 1 as never;
+  void _probe;
+  const waitingOnItems: WaitingOnItem[] = (waitingOnResult.data || []).map((row) => ({
     ...row,
     contacts: Array.isArray(row.contacts) ? row.contacts[0] || null : row.contacts,
-  })) as WaitingOnItem[];
+  }));
 
   // Run rule-based generators
   const today = new Date();

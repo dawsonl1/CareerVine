@@ -16,6 +16,7 @@ import "server-only";
 
 import { Client } from "@upstash/qstash";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { must } from "@/lib/data/client";
 import {
   applyBundleDelta,
   claimSubscriptionSync,
@@ -140,9 +141,11 @@ export async function findStaleSubscriptionIds(
     .order("last_synced_at", { ascending: true, nullsFirst: true })
     .limit(opts.limit ?? 500);
   if (opts.bundleId) query = query.eq("bundle_id", opts.bundleId);
-  const { data } = await query;
+  const data = must(await query);
   return (
-    (data as Array<{ id: number; synced_version: number; data_bundles: { version: number } }> | null) ?? []
+    // via unknown: the generated types model the to-one data_bundles embed as
+    // an array; PostgREST returns a single object for it.
+    (data as unknown as Array<{ id: number; synced_version: number; data_bundles: { version: number } }> | null) ?? []
   )
     .filter((r) => r.synced_version < r.data_bundles.version)
     .map((r) => r.id);
@@ -155,13 +158,15 @@ export async function findPendingUnsubscribeIds(
   service: SupabaseClient,
   opts: { limit?: number } = {},
 ): Promise<number[]> {
-  const { data } = await service
-    .from("bundle_subscriptions")
-    .select("id, users!inner(status)")
-    .eq("status", "unsubscribed")
-    .not("unsubscribe_keep_all", "is", null)
-    .eq("users.status", "active")
-    .limit(opts.limit ?? 500);
+  const data = must(
+    await service
+      .from("bundle_subscriptions")
+      .select("id, users!inner(status)")
+      .eq("status", "unsubscribed")
+      .not("unsubscribe_keep_all", "is", null)
+      .eq("users.status", "active")
+      .limit(opts.limit ?? 500),
+  );
   return ((data as Array<{ id: number }> | null) ?? []).map((r) => r.id);
 }
 
@@ -222,13 +227,16 @@ export async function processSubscriptionsUnderBudget(
     unsubscribe_keep_all: boolean | null;
     data_bundles: (BundleCore & { status: string }) | null;
   };
-  const { data: rows } = await service
-    .from("bundle_subscriptions")
-    .select(
-      "id, user_id, bundle_id, status, synced_version, sync_cursor, unsubscribe_keep_all, data_bundles(id, slug, name, version, resolved_version, status)",
-    )
-    .in("id", subscriptionIds);
-  const byId = new Map(((rows as Row[] | null) ?? []).map((s) => [s.id, s]));
+  const rows = must(
+    await service
+      .from("bundle_subscriptions")
+      .select(
+        "id, user_id, bundle_id, status, synced_version, sync_cursor, unsubscribe_keep_all, data_bundles(id, slug, name, version, resolved_version, status)",
+      )
+      .in("id", subscriptionIds),
+  );
+  // via unknown: same to-one data_bundles embed mismatch as findDueSubscriptionIds.
+  const byId = new Map(((rows as unknown as Row[] | null) ?? []).map((s) => [s.id, s]));
 
   for (let i = 0; i < subscriptionIds.length; i++) {
     const id = subscriptionIds[i];

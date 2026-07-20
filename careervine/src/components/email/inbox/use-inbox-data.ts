@@ -70,8 +70,10 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
 
   useEffect(() => {
     if (user && gmailConnected) {
-      loadInbox();
-      loadDrafts();
+      // Both loaders catch internally (loadInbox sets `error`, loadDrafts is
+      // best-effort), so the effect fires them without awaiting.
+      void loadInbox();
+      void loadDrafts();
       fetch("/api/gmail/labels")
         .then((r) => r.json())
         .then((d) => setGmailLabels(d.labels || []))
@@ -83,14 +85,14 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
 
   useEffect(() => {
     return onUiEvent(UI_EVENTS.emailSent, () => {
-      setTimeout(() => loadInbox(), 500);
-      loadDrafts();
+      setTimeout(() => { void loadInbox(); }, 500);
+      void loadDrafts();
     });
   }, [loadInbox, loadDrafts]);
 
   // Refresh drafts when compose saves/deletes a draft.
   useEffect(() => {
-    return onUiEvent(UI_EVENTS.draftsChanged, () => loadDrafts());
+    return onUiEvent(UI_EVENTS.draftsChanged, () => { void loadDrafts(); });
   }, [loadDrafts]);
 
   const handleSync = useCallback(async () => {

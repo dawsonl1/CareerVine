@@ -18,6 +18,7 @@ import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, CryptoError } from "@/lib/crypto";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { trackServer } from "@/lib/analytics/server";
+import { must } from "@/lib/data/client";
 import {
   estimateCallCostUsd,
   getSharedAiSpendUsd,
@@ -254,11 +255,18 @@ async function resolveSharedAccess(userId: string): Promise<SharedAccessState> {
   let state: SharedAccessState = { granted: false, trialExpired: false };
   try {
     const service = createSupabaseServiceClient();
-    let { data } = await service
-      .from("user_ai_access")
-      .select(ACCESS_COLUMNS)
-      .eq("user_id", userId)
-      .maybeSingle();
+    // must(), not a bare destructure (CAR-158). A failed read returns
+    // { data: null } WITHOUT throwing, and `!data` below means "this user has
+    // no access row yet" — so a transient read failure would fall through to
+    // startTrial() and re-arm a trial for a user who may already have access.
+    // Throwing here lands in the catch below, which fails closed.
+    let data = must(
+      await service
+        .from("user_ai_access")
+        .select(ACCESS_COLUMNS)
+        .eq("user_id", userId)
+        .maybeSingle(),
+    );
 
     if (!data && (await startTrial(service, userId))) {
       state = { granted: true, trialExpired: false };

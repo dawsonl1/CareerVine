@@ -42,7 +42,8 @@ export function ResolveLinkedinModal({ contactId, contactName, onClose, onLinked
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    // Fire-and-forget: the IIFE catches its own failures into the error phase.
+    void (async () => {
       try {
         const res = await fetch(`/api/contacts/${contactId}/resolve-linkedin`, { method: "POST" });
         const data = await res.json().catch(() => ({}));

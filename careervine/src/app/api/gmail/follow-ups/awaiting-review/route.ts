@@ -1,4 +1,4 @@
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, type InferApiResponse } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { ACTIONABLE_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 
@@ -23,3 +23,9 @@ export const GET = withApiHandler({
     return { count: count ?? 0 };
   },
 });
+
+/**
+ * Success shape, inferred from the handler above (CAR-158, F24). Type-only, so
+ * it is erased at compile time and adds no runtime export to this route module.
+ */
+export type AwaitingReviewResponse = InferApiResponse<typeof GET>;

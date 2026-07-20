@@ -43,6 +43,9 @@ export async function getOnboardingBundleStats(): Promise<OnboardingBundleStats 
   let alumniCount = 0;
   let alumniProductCount = 0;
   let alumniCompanyCount = 0;
+  // error-tolerated: the alumni counts are onboarding copy that already
+  // defaults to 0; a failed read shows the bundle without its stat line rather
+  // than blocking onboarding.
   const { data: stats } = await supabase.rpc("bundle_alumni_stats", {
     p_bundle_id: bundle.id,
   });

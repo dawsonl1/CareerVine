@@ -168,7 +168,9 @@ export default function DataSubscriptionsSection() {
   // Initial load + opportunistic self-sync of stale subscriptions
   useEffect(() => {
     if (!user) return;
-    (async () => {
+    // Fire-and-forget: load() resolves to empty data rather than rejecting, and
+    // each background sync toasts its own failure below.
+    void (async () => {
       const { bundles: loadedBundles, subs } = await load();
       if (selfSyncStarted.current) return;
       selfSyncStarted.current = true;
@@ -184,6 +186,9 @@ export default function DataSubscriptionsSection() {
       }
       await load();
     })();
+    // Once per user, by design. `load` and `runApplyLoop` are re-created per
+    // render; depending on them would restart the background bundle sync on
+    // every render, which is real network and Apify work, not a wasted fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 

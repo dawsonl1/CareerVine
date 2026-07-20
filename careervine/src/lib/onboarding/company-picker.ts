@@ -10,6 +10,7 @@
  */
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
+import { must } from "@/lib/data/client";
 
 export type PickerCompany = {
   id: number;
@@ -89,6 +90,6 @@ export function toPickerCompanies(rows: BundleCompanyStatsRow[] | null): PickerC
 
 export async function getPickerCompanies(bundleId: number): Promise<PickerCompany[]> {
   const supabase = createSupabaseBrowserClient();
-  const { data } = await supabase.rpc("bundle_company_stats", { p_bundle_id: bundleId });
+  const data = must(await supabase.rpc("bundle_company_stats", { p_bundle_id: bundleId }));
   return toPickerCompanies((data as BundleCompanyStatsRow[] | null) ?? null);
 }

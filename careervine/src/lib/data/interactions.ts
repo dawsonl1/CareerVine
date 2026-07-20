@@ -72,6 +72,9 @@ export async function updateInteraction(
   id: number,
   updates: Database["public"]["Tables"]["interactions"]["Update"]
 ) {
+  // cas-checked: the only filter is the primary key, which is never a
+  // written column, so this is a plain update-and-return rather than a
+  // compare-and-set and the .select() readback is sound.
   const { data, error } = await db()
     .from("interactions")
     .update(updates)

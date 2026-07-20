@@ -79,7 +79,8 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
   }, [user, companyId]);
 
   useEffect(() => {
-    load();
+    // load() catches its own failures into the not-found state
+    void load();
   }, [load]);
 
   const { state, saveStatus, actions } = usePipelineAutosave({
@@ -143,7 +144,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
             ? `${person.name} moved to prospects`
             : `${person.name} archived`,
       );
-      load();
+      await load();
     } catch {
       toastError("Failed to move contact");
     }
