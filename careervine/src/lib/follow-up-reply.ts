@@ -60,10 +60,12 @@ export async function recordThreadReply(
     .maybeSingle();
   if (existingInbound) return { ok: true, alreadyMarked: true };
 
-  // ai_assisted + contact link come from the latest outbound on the thread.
+  // ai_assisted + contact link come from the latest outbound on the thread —
+  // including its junction links (CAR-159), so a reply on a thread shared by
+  // two tracked contacts is reflected on both.
   const { data: outbound } = await service
     .from("email_messages")
-    .select("ai_assisted, matched_contact_id")
+    .select("ai_assisted, matched_contact_id, email_message_contacts(contact_id)")
     .eq("user_id", userId)
     .eq("thread_id", threadId)
     .eq("direction", "outbound")
@@ -73,7 +75,7 @@ export async function recordThreadReply(
 
   // Simulated inbound row: reflects the reply in the thread and dedupes future
   // calls (the (user_id, gmail_message_id) unique constraint enforces one/thread).
-  const { error: insertErr } = await service.from("email_messages").insert({
+  const { data: insertedReply, error: insertErr } = await service.from("email_messages").insert({
     user_id: userId,
     gmail_message_id: `manual-reply-${threadId}`,
     thread_id: threadId,
@@ -84,7 +86,7 @@ export async function recordThreadReply(
     is_read: true,
     is_simulated: true,
     matched_contact_id: (outbound as { matched_contact_id?: number | null } | null)?.matched_contact_id ?? null,
-  });
+  }).select("id").single();
 
   // The existingInbound check above closes the common case, but two concurrent
   // marks/confirms can both pass it and race to insert. The unique constraint
@@ -92,6 +94,31 @@ export async function recordThreadReply(
   // already-recorded so reply_received fires EXACTLY once, never twice.
   if (insertErr) {
     return { ok: true, alreadyMarked: true };
+  }
+
+  // Junction links (CAR-159): attribute the simulated reply to every contact
+  // the outbound was linked to (union with the denormalized primary).
+  const outboundLinks = (outbound as {
+    matched_contact_id?: number | null;
+    email_message_contacts?: Array<{ contact_id: number | null }>;
+  } | null);
+  const replyContactIds = [
+    ...new Set(
+      [
+        ...(outboundLinks?.email_message_contacts ?? []).map((l) => l.contact_id),
+        outboundLinks?.matched_contact_id ?? null,
+      ].filter((id): id is number => id != null)
+    ),
+  ];
+  if (insertedReply && replyContactIds.length > 0) {
+    const { error: linkError } = await service.from("email_message_contacts").upsert(
+      replyContactIds.map((cid) => ({
+        email_message_id: (insertedReply as { id: number }).id,
+        contact_id: cid,
+      })),
+      { onConflict: "email_message_id,contact_id", ignoreDuplicates: true }
+    );
+    if (linkError) console.error("Failed to link manual reply to contacts:", linkError);
   }
 
   await trackServer(userId, "reply_received", {

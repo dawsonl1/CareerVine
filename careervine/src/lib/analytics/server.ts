@@ -182,14 +182,15 @@ export async function checkCompaniesEmailedMilestone(
     // Distinct companies among contacts this user has emailed: outbound
     // messages matched to a contact → that contact's company links.
     const service = getServiceClient();
+    // Junction-scoped (CAR-159): an outbound to a shared thread credits every
+    // linked contact's company, not just the single matched_contact_id.
     const { data: sent } = await service
-      .from("email_messages")
-      .select("matched_contact_id")
-      .eq("user_id", userId)
-      .eq("direction", EmailDirection.Outbound)
-      .not("matched_contact_id", "is", null)
+      .from("email_message_contacts")
+      .select("contact_id, email_messages!inner(user_id, direction)")
+      .eq("email_messages.user_id", userId)
+      .eq("email_messages.direction", EmailDirection.Outbound)
       .limit(1000);
-    const contactIds = [...new Set((sent ?? []).map((r) => r.matched_contact_id as number))];
+    const contactIds = [...new Set((sent ?? []).map((r) => r.contact_id as number))];
     if (contactIds.length === 0) return;
 
     const { data: links } = await service

@@ -111,7 +111,7 @@ export async function sendTrackedEmail(
   const conn = await getConnection(userId);
   const sentAt = new Date().toISOString();
 
-  await service.from("email_messages").upsert(
+  const { data: sentRow, error: cacheError } = await service.from("email_messages").upsert(
     {
       user_id: userId,
       gmail_message_id: result.messageId,
@@ -133,17 +133,40 @@ export async function sendTrackedEmail(
       ai_assisted: analytics?.aiAssisted ?? false,
     },
     { onConflict: "user_id,gmail_message_id", ignoreDuplicates: false }
-  );
+  ).select("id").single();
+  if (cacheError) console.error("Failed to cache sent message:", cacheError);
 
-  // Record an interaction so the contact's last_touch is updated and they
-  // don't immediately reappear as a "Reach Out" suggestion.
-  if (matchedContactId) {
-    await service.from("interactions").insert({
-      contact_id: matchedContactId,
-      interaction_date: sentAt,
-      interaction_type: "email",
-      summary: `Sent: ${opts.subject}`,
-    }).then(null, (err: unknown) => console.error("Failed to create email interaction:", err));
+  // Multi-contact attribution (CAR-159): the provenance query above returns
+  // EVERY contact whose contact_emails row matches the recipient address —
+  // matched_contact_id keeps only the first as the denormalized primary, the
+  // junction links them all so the sent message appears on each timeline.
+  const matchedContactIds = [
+    ...new Set(
+      (emailRows ?? [])
+        .map((r: { contact_id: number | null }) => r.contact_id)
+        .filter((id): id is number => id != null)
+    ),
+  ];
+  if (sentRow && matchedContactIds.length > 0) {
+    const { error: linkError } = await service.from("email_message_contacts").upsert(
+      matchedContactIds.map((cid) => ({ email_message_id: (sentRow as { id: number }).id, contact_id: cid })),
+      { onConflict: "email_message_id,contact_id", ignoreDuplicates: true }
+    );
+    if (linkError) console.error("Failed to link sent message to contacts:", linkError);
+  }
+
+  // Record an interaction so each matched contact's last_touch is updated and
+  // they don't immediately reappear as a "Reach Out" suggestion (CAR-159: an
+  // address shared by two contacts touched both).
+  if (matchedContactIds.length > 0) {
+    await service.from("interactions").insert(
+      matchedContactIds.map((cid) => ({
+        contact_id: cid,
+        interaction_date: sentAt,
+        interaction_type: "email",
+        summary: `Sent: ${opts.subject}`,
+      }))
+    ).then(null, (err: unknown) => console.error("Failed to create email interaction:", err));
   }
 
   await trackServer(userId, "email_sent", {

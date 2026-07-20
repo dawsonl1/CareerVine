@@ -23,6 +23,9 @@ function makeBuilder(table: string) {
   for (const m of ["select", "eq", "gte", "in", "limit", "order"]) chain[m] = () => chain;
   chain.upsert = () => { op = "upsert"; return chain; };
   chain.insert = () => { op = "insert"; return chain; };
+  // CAR-159: the sent-message cache upsert reads back its generated id.
+  chain.single = async () =>
+    op === "upsert" && table === "email_messages" ? { data: { id: 1 }, error: null } : { data: null, error: null };
   chain.then = (onF?: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
     Promise.resolve(resolveResult()).then(onF, onR);
   return chain;

@@ -58,6 +58,11 @@ function makeBuilder(table: string) {
     inserts.push({ table, row });
     return chain;
   };
+  // The sent-message cache upsert reads back its generated id (CAR-159).
+  chain.single = async () =>
+    op === "upsert" && table === "email_messages"
+      ? { data: { id: 501 }, error: null }
+      : { data: null, error: null };
   chain.then = (
     onFulfilled?: (v: unknown) => unknown,
     onRejected?: (e: unknown) => unknown,
@@ -125,11 +130,35 @@ describe("sendTrackedEmail", () => {
     });
 
     const interaction = inserts.find((i) => i.table === "interactions");
-    expect(interaction?.row).toMatchObject({
-      contact_id: 7,
-      interaction_type: "email",
-      summary: "Sent: Hello",
-    });
+    expect(interaction?.row).toEqual([
+      expect.objectContaining({
+        contact_id: 7,
+        interaction_type: "email",
+        summary: "Sent: Hello",
+      }),
+    ]);
+
+    // CAR-159: the sent message is junction-linked to the matched contact.
+    const links = upserts.find((u) => u.table === "email_message_contacts");
+    expect(links?.row).toEqual([{ email_message_id: 501, contact_id: 7 }]);
+  });
+
+  it("links and logs every contact sharing the recipient address (CAR-159)", async () => {
+    state.emailRows = [
+      { contact_id: 7, source: "verified", bounced_at: null },
+      { contact_id: 9, source: "verified", bounced_at: null },
+    ];
+
+    await sendTrackedEmail(USER, OPTS);
+
+    const links = upserts.find((u) => u.table === "email_message_contacts");
+    expect(links?.row).toEqual([
+      { email_message_id: 501, contact_id: 7 },
+      { email_message_id: 501, contact_id: 9 },
+    ]);
+
+    const interaction = inserts.find((i) => i.table === "interactions");
+    expect((interaction?.row as unknown[]).map((r) => (r as { contact_id: number }).contact_id)).toEqual([7, 9]);
   });
 
   it("never writes the contacts table — outbound sends do not graduate tiers", async () => {

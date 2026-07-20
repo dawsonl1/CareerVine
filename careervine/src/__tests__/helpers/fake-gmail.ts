@@ -163,6 +163,18 @@ export function createFakeSyncDb(seed: Partial<Record<string, Row[]>> = {}) {
   }
   const ops: DbOp[] = [];
 
+  // SERIAL-column stand-in: rows inserted without an id get a per-table
+  // auto-increment, seeded past any explicit ids, so code that reads back
+  // generated ids (e.g. the CAR-159 junction link inserts) works end-to-end.
+  const idCounters: Record<string, number> = {};
+  const nextId = (table: string) => {
+    idCounters[table] ??= Math.max(
+      0,
+      ...tables[table].map((r) => (typeof r.id === "number" ? (r.id as number) : 0))
+    );
+    return ++idCounters[table];
+  };
+
   function from(table: string) {
     tables[table] ??= [];
     let op: DbOp["op"] = "select";
@@ -203,6 +215,7 @@ export function createFakeSyncDb(seed: Partial<Record<string, Row[]>> = {}) {
             continue; // ignoreDuplicates: DO NOTHING — not part of RETURNING
           }
           const copy = { ...row };
+          if (copy.id === undefined) copy.id = nextId(table);
           tables[table].push(copy);
           insertedThisCall.push(copy);
         }

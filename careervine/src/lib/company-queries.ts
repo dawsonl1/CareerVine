@@ -89,12 +89,15 @@ export async function getContactStages(
 
   const [emails, interactions, referrals, bounces, calEvents, calLinks, meetingLinks] = await Promise.all([
     chunked(ids, async (chunk) => {
+      // Junction-scoped (CAR-159), mirroring the calendar_event_contacts leg
+      // below: a shared thread contributes signals to EVERY linked contact,
+      // not just the single matched_contact_id.
       const { data } = await db()
-        .from("email_messages")
-        .select("matched_contact_id, direction, date")
-        .eq("user_id", userId)
-        .eq("is_simulated", false)
-        .in("matched_contact_id", chunk);
+        .from("email_message_contacts")
+        .select("contact_id, email_messages!inner(user_id, direction, date, is_simulated)")
+        .eq("email_messages.user_id", userId)
+        .eq("email_messages.is_simulated", false)
+        .in("contact_id", chunk);
       return data ?? [];
     }),
     chunked(ids, async (chunk) => {
@@ -154,16 +157,17 @@ export async function getContactStages(
   // Aggregate signals per contact
   const outboundAt = new Map<number, string>(); // earliest outbound date
   const inboundAt = new Map<number, string[]>();
-  for (const m of emails as Array<{ matched_contact_id: number | null; direction: string | null; date: string | null }>) {
-    if (m.matched_contact_id == null) continue;
+  for (const link of emails as Array<{ contact_id: number; email_messages: { direction: string | null; date: string | null } | null }>) {
+    const m = link.email_messages;
+    if (m == null) continue;
     if (m.direction === "outbound") {
-      const prev = outboundAt.get(m.matched_contact_id);
+      const prev = outboundAt.get(link.contact_id);
       const d = m.date ?? "";
-      if (!prev || d < prev) outboundAt.set(m.matched_contact_id, d);
+      if (!prev || d < prev) outboundAt.set(link.contact_id, d);
     } else if (m.direction === "inbound") {
-      const list = inboundAt.get(m.matched_contact_id) ?? [];
+      const list = inboundAt.get(link.contact_id) ?? [];
       list.push(m.date ?? "");
-      inboundAt.set(m.matched_contact_id, list);
+      inboundAt.set(link.contact_id, list);
     }
   }
 
