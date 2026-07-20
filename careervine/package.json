@@ -64,7 +64,7 @@
     "eslint-config-next": "16.1.6",
     "fast-glob": "3.3.1",
     "tailwindcss": "^4",
-    "typescript": "^5",
+    "typescript": "^7",
     "typescript-eslint": "^8.54.0",
     "vitest": "^4.1.0"
   }
