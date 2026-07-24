@@ -54,7 +54,9 @@ describe("contacts write chokepoint scan", () => {
   const files = fg.sync("**/*.{ts,tsx}", {
     cwd: srcDir,
     absolute: true,
-    ignore: ["**/__tests__/**", "**/*.test.*"],
+    // __integration__ (CAR-178) seeds contacts via the service client as test
+    // scaffolding; like the unit-test exclusions, it is not an app write path.
+    ignore: ["**/__tests__/**", "**/*.test.*", "**/__integration__/**"],
   });
 
   it("no out-of-band contacts insert/update/upsert exists outside the allowlist", () => {
