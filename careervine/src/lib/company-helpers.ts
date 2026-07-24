@@ -461,12 +461,18 @@ export async function prefetchLocations(
  * Thin delegate to the canonical implementation in src/lib/data/locations.ts
  * (CAR-155), which also normalizes internally — already-normalized inputs
  * from the import/bulk pipelines pass through unchanged (idempotent).
+ *
+ * This wrapper is the SCRAPE/IMPORT seam (import route, backfill, bulk
+ * import, bundle publish/resolve) and pins source "scraped" — full metro
+ * collapsing applies. User-provenance writers (forms, MCP, manual work
+ * locations) call the canonical function directly with source "user"
+ * (CAR-173).
  */
 export async function findOrCreateLocation(
   supabase: SupabaseClient,
   location: LocationInput,
 ): Promise<{ id: number }> {
-  const row = await findOrCreateLocationShared(location, { client: supabase as unknown as QueryClient });
+  const row = await findOrCreateLocationShared(location, { client: supabase as unknown as QueryClient, source: "scraped" });
   if (!row) throw new Error("findOrCreateLocation: input normalized to no location");
   return { id: row.id };
 }

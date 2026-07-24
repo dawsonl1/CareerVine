@@ -238,13 +238,15 @@ export async function createContactFull(input: NewContactInput): Promise<number>
   const userId = uid();
   let locationId: number | null = null;
   if (input.location) {
-    // Normalization ("CA" -> "California", metro aliases) happens inside
-    // findOrCreateLocation itself (CAR-155), matching every other writer.
+    // Normalization ("CA" -> "California") happens inside findOrCreateLocation
+    // itself (CAR-155). Source "user": the agent relays what the user asserted
+    // in conversation, so a typed suburb is never collapsed onto its metro
+    // city (CAR-173).
     const loc = await findOrCreateLocation({
       city: input.location.city ?? null,
       state: input.location.state ?? null,
       country: input.location.country,
-    });
+    }, { source: "user" });
     locationId = loc?.id ?? null;
   }
 
