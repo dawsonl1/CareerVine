@@ -27,7 +27,9 @@
  * green under 7 of 8 hand-injected scoping regressions):
  *   - a function is only checked through the fixtures its drive supplies, so a
  *     code path the fixture never exercises is unverified (mcp-covered entries
- *     therefore declare `touches`, asserting the driver really reaches them);
+ *     therefore declare `touches`, and the reachability tests demand a query on
+ *     that table whose call stack originates in the covered function itself —
+ *     a declarative-only coveredBy claim fails, CAR-177/F10);
  *   - `context` entries are not driven at all, so that classification is
  *     separately guarded against smuggling in queries;
  *   - the import closure is a source scan, not a call graph.
@@ -41,6 +43,7 @@ import path from "node:path";
 import {
   assertAllScoped,
   GLOBAL_TABLES,
+  queryOriginatesFrom,
   type OwnershipSpec,
   type RecordedQuery,
   type RouteCtx,
@@ -121,6 +124,13 @@ interface Entry {
   ownership?: OwnershipSpec;
   /** For mcp-covered: the driven db.ts entry that exercises it. */
   coveredBy?: string;
+  /**
+   * For a RE-EXPORTED name: the module that actually defines the function
+   * (e.g. contacts.ts re-exports findOrCreateLocation from ./locations).
+   * Provenance frames carry the defining file, so the reachability check
+   * matches against this instead of the re-exporting module's path.
+   */
+  definedIn?: string;
   /**
    * For mcp-covered: a table this function queries. The coveredBy drive must
    * actually hit it, which is what makes coverage real rather than aspirational
@@ -382,7 +392,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     appendContactNote: { kind: "mcp-covered", coveredBy: "appendNote", touches: "rpc:append_contact_note" },
     findOrCreateCompany: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "companies" },
     findOrCreateSchool: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "schools" },
-    findOrCreateLocation: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "locations" },
+    // Re-export: defined in ./locations (CAR-155); frames carry that file.
+    findOrCreateLocation: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "locations", definedIn: "@/lib/data/locations" },
     addEmailToContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contact_emails" },
     addPhoneToContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contact_phones" },
     addCompanyToContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contact_companies" },
@@ -444,6 +455,9 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     getOnboardingActionItemId: { kind: "web-only" },
     updateActionItem: { kind: "web-only" },
     snoozeActionItem: { kind: "web-only" },
+  },
+  "@/lib/data/locations": {
+    findOrCreateLocation: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "locations" },
   },
   "@/lib/data/follow-ups": {
     buildLastTouchMap: { kind: "mcp-covered", coveredBy: "buildLastTouchMap", touches: "meeting_contacts" },
@@ -534,6 +548,20 @@ async function runDrive(name: string, entry: Entry) {
 // ── 1. Export enumeration: every export classified, no stale entries ───
 
 describe("export enumeration", () => {
+  // A data module missing from DATA_TABLES is invisible to every check below —
+  // src/mcp could import unclassified functions from it and nothing would
+  // object (found via CAR-177: locations.ts had lived unenumerated since
+  // CAR-155 split it out of contacts.ts).
+  it("every src/lib/data module is enumerated in DATA_TABLES", () => {
+    const dataDir = path.resolve(__dirname, "../../lib/data");
+    const modules = fg
+      .sync("*.ts", { cwd: dataDir })
+      .map((f) => `@/lib/data/${f.replace(/\.ts$/, "")}`)
+      .sort();
+    const listed = Object.keys(DATA_TABLES).sort();
+    expect(listed).toEqual(modules);
+  });
+
   it("db.ts: every export has a table entry and every entry an export", () => {
     const exported = Object.keys(db).sort();
     const listed = Object.keys(DB_TABLE).sort();
@@ -564,17 +592,30 @@ describe("export enumeration", () => {
   // reaches the covered function. A real cross-tenant write bug survived the
   // suite after one line was trimmed from the createContactFull fixture
   // (CAR-151 review), because nothing noticed the function stopped running.
+  //
+  // Two layers, and the second is the load-bearing one (CAR-177, F10): the
+  // touches-table check alone was satisfiable by the DRIVER querying the same
+  // table for its own reasons, so a brand-new unscoped function classified
+  // mcp-covered against any driver that happened to touch its table passed
+  // green without ever running. The provenance check closes that: the query on
+  // the touches table must carry a stack frame from the covered function
+  // itself, in its own module.
   for (const [modPath, table] of Object.entries(DATA_TABLES)) {
     for (const [name, entry] of Object.entries(table)) {
       if (entry.kind !== "mcp-covered") continue;
+      const moduleFile = `${(entry.definedIn ?? modPath).replace("@/", "src/")}.ts`;
       it(`${modPath}: ${name} is actually reached by its ${entry.coveredBy} drive`, async () => {
         const target = DB_TABLE[entry.coveredBy!];
         const captured = await runDrive(entry.coveredBy!, target);
-        const tables = captured.map((q) => q.table);
+        const hits = captured.filter((q) => q.table === entry.touches);
         expect(
-          tables,
+          hits.length,
           `${name} declares touches:"${entry.touches}" but the ${entry.coveredBy} drive never queried it — the fixture no longer exercises this function`,
-        ).toContain(entry.touches);
+        ).toBeGreaterThan(0);
+        expect(
+          hits.some((q) => queryOriginatesFrom(q, name, moduleFile)),
+          `${name} declares coveredBy:"${entry.coveredBy}", and that drive queries "${entry.touches}" — but no such query originated from ${name} itself (${moduleFile}). The classification is declarative, not real: drive the function, or fix the coveredBy claim.`,
+        ).toBe(true);
       });
     }
   }

@@ -144,3 +144,32 @@ describe("GET /api/gmail/auth — modify-scope decision (CAR-102 N3)", () => {
     expect(lastIncludeModify()).toBe(true);
   });
 });
+
+// CAR-177 (F35): the auth side of the returnTo open-redirect guard. The
+// callback re-validates independently (gmail-callback-security.test.ts), but
+// a hostile returnTo should never be minted into state in the first place.
+describe("GET /api/gmail/auth — returnTo filtering (CAR-50 / CAR-177)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authedUser = { id: "u-1" };
+    state.conn = null;
+    state.connError = null;
+  });
+
+  const mintedState = () => {
+    const raw = getAuthUrlSpy.mock.calls.at(-1)?.[0] as string;
+    return JSON.parse(Buffer.from(raw, "base64url").toString()) as Record<string, unknown>;
+  };
+
+  it("a same-origin relative path rides along in state", async () => {
+    await call("?returnTo=%2Fcontacts%3Fonboarding%3D1");
+    expect(mintedState().returnTo).toBe("/contacts?onboarding=1");
+  });
+
+  it("protocol-relative and absolute URLs are dropped from state", async () => {
+    for (const bad of ["%2F%2Fevil.example", "https%3A%2F%2Fevil.example%2Fphish", "javascript%3Aalert(1)"]) {
+      await call(`?returnTo=${bad}`);
+      expect(mintedState(), `returnTo=${decodeURIComponent(bad)} must not be minted`).not.toHaveProperty("returnTo");
+    }
+  });
+});

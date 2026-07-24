@@ -44,6 +44,14 @@ export interface RecordedQuery {
   returned?: unknown;
   /** Row count the query resolved with (count-based CAS proves a match). */
   returnedCount?: number | null;
+  /**
+   * Call stack captured when the query chain was created (.from()/.rpc()).
+   * This is what makes an mcp-covered `coveredBy` claim verifiable rather
+   * than declarative (CAR-177, F10): the reachability check can demand that a
+   * query on the claimed table actually ORIGINATED from the covered function,
+   * not merely that the driver touched the same table for its own reasons.
+   */
+  stack?: string;
 }
 
 export type RouteCtx = RecordedQuery;
@@ -85,6 +93,20 @@ function resolveQuery(state: RecordingState, q: RecordedQuery) {
   return finish({ data: [], error: null, count: 0 });
 }
 
+/**
+ * Capture the current call stack with enough frames to reach through the
+ * data layer's helper indirection (paginateAll/chunked) to the originating
+ * function. V8's default 10-frame limit can clip the named frame off deep
+ * chains, so it is raised for the capture and restored after.
+ */
+function captureStack(): string {
+  const prev = Error.stackTraceLimit;
+  Error.stackTraceLimit = 30;
+  const stack = new Error().stack ?? "";
+  Error.stackTraceLimit = prev;
+  return stack;
+}
+
 function makeBuilder(state: RecordingState, table: string, op: string, payload?: unknown, opts?: { count?: string; head?: boolean }) {
   const q: RecordedQuery = {
     table,
@@ -96,6 +118,7 @@ function makeBuilder(state: RecordingState, table: string, op: string, payload?:
     countRequested: opts?.count === "exact",
     headRequested: Boolean(opts?.head),
     orders: [],
+    stack: captureStack(),
   };
   const filter = (method: string) => (col: string, val?: unknown) => {
     q.filters.push([method, col, val]);
@@ -154,6 +177,7 @@ export function createRecordingClient(state: RecordingState) {
         countRequested: false,
         headRequested: false,
         orders: [],
+        stack: captureStack(),
       };
       const builder: Record<string, unknown> = {
         single: async () => { q.resolution = "single"; return resolveQuery(state, q); },
@@ -164,6 +188,22 @@ export function createRecordingClient(state: RecordingState) {
       return builder;
     },
   };
+}
+
+/**
+ * True when this query's captured stack shows it was issued from `fnName`
+ * as defined in `moduleFile` (a path fragment like "src/lib/data/contacts.ts").
+ * Requiring name AND file on the SAME frame line is deliberate: db.ts wrappers
+ * share names with the data functions they delegate to (createActionItem), and
+ * a module-only match would bless any sibling function in the same file —
+ * exactly the false-coverage shape this exists to reject (CAR-177, F10).
+ * Tolerates V8 frame decorations: "at async fn", "at Module.fn", "at Object.fn".
+ */
+export function queryOriginatesFrom(q: RecordedQuery, fnName: string, moduleFile: string): boolean {
+  const frame = new RegExp(`\\bat (?:async )?(?:[\\w$]+\\.)?${fnName} \\(`);
+  return (q.stack ?? "")
+    .split("\n")
+    .some((line) => frame.test(line) && line.includes(moduleFile));
 }
 
 // ── Scoping assertions ─────────────────────────────────────────────────
