@@ -227,6 +227,14 @@ export const POST = withApiHandler({
       // Duplicate ids within one batch (an event updated twice across pages)
       // must collapse before the bulk upsert — Postgres rejects ON CONFLICT
       // touching the same row twice. Map insertion keeps the LAST occurrence.
+      //
+      // This payload deliberately omits the application-owned columns
+      // (source_gmail_thread_id, source_gmail_message_id, meeting_id,
+      // zoom_link). Google has no record of them, and PostgREST's ON CONFLICT
+      // DO UPDATE only touches keys present in the payload, so their absence
+      // is what preserves them across re-syncs. Adding one here would clobber
+      // app data on every sync — the registry in
+      // __tests__/migration-destructive-guard.test.ts pins this (CAR-175).
       rowByGoogleId.set(id, {
         user_id: user.id,
         google_event_id: id,
