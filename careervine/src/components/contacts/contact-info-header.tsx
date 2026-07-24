@@ -182,7 +182,7 @@ export function ContactInfoHeader({ contact, userId, onContactUpdate, onContactD
           city: formData.location_city || null,
           state: formData.location_state || null,
           country: formData.location_country || "United States",
-        });
+        }, { source: "user" });
         contactData.location_id = location?.id ?? null;
       }
 

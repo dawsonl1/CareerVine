@@ -755,7 +755,10 @@ export async function resolveManualCompanyLocation(raw: string | null | undefine
   if (!parsed.isPlace) {
     return { location: parsed.display, location_id: null, location_source: "manual", location_raw: parsed.display };
   }
-  const location = await findOrCreateLocation({ city: parsed.city, state: parsed.state, country: parsed.country });
+  const location = await findOrCreateLocation(
+    { city: parsed.city, state: parsed.state, country: parsed.country },
+    { source: "user" },
+  );
   return { location: parsed.display, location_id: location?.id ?? null, location_source: "manual", location_raw: (raw ?? "").trim() };
 }
 

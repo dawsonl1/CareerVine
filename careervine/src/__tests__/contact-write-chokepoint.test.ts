@@ -236,7 +236,7 @@ describe("linkedin_url canonicalization inside the chokepoint", () => {
 
 describe("location normalization inside findOrCreateLocation", () => {
   it("normalizes 'CA' to 'California' so raw variants resolve to one row", async () => {
-    await findOrCreateLocation({ city: "san francisco", state: "CA", country: null });
+    await findOrCreateLocation({ city: "san francisco", state: "CA", country: null }, { source: "scraped" });
     const probe = h.state.calls.find((c) => c.table === "locations")!;
     expect(probe.ops.filter((o) => o.m === "eq").map((o) => o.args)).toEqual([
       ["city", "San Francisco"],
@@ -257,7 +257,21 @@ describe("location normalization inside findOrCreateLocation", () => {
   });
 
   it("returns null (no row) when nothing normalizes out of the input", async () => {
-    expect(await findOrCreateLocation({ city: null, state: null, country: null })).toBeNull();
+    expect(await findOrCreateLocation({ city: null, state: null, country: null }, { source: "scraped" })).toBeNull();
     expect(h.state.calls.filter((c) => c.table === "locations")).toEqual([]);
+  });
+
+  it("provenance decides metro collapsing: scraped probes the metro, user probes the typed city (CAR-173)", async () => {
+    const cityProbed = () => {
+      const probe = h.state.calls.find((c) => c.table === "locations")!;
+      return probe.ops.find((o) => o.m === "eq" && o.args[0] === "city")!.args[1];
+    };
+
+    await findOrCreateLocation({ city: "Cambridge", state: "Massachusetts", country: "United States" }, { source: "scraped" });
+    expect(cityProbed()).toBe("Boston");
+
+    h.state.calls = [];
+    await findOrCreateLocation({ city: "Cambridge", state: "Massachusetts", country: "United States" }, { source: "user" });
+    expect(cityProbed()).toBe("Cambridge");
   });
 });

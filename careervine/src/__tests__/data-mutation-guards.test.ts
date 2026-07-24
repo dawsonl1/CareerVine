@@ -204,7 +204,7 @@ describe("find-or-create insert races", () => {
     };
 
     await expect(
-      findOrCreateLocation({ city: "Provo", state: "Utah", country: "United States" }),
+      findOrCreateLocation({ city: "Provo", state: "Utah", country: "United States" }, { source: "scraped" }),
     ).resolves.toMatchObject({ id: 3 });
   });
 
@@ -215,7 +215,7 @@ describe("find-or-create insert races", () => {
       return { data: null, error: null };
     };
 
-    const row = await findOrCreateLocation({ city: null, state: "California", country: "United States" });
+    const row = await findOrCreateLocation({ city: null, state: "California", country: "United States" }, { source: "scraped" });
     expect(row).toMatchObject({ id: 11 });
 
     const probe = callsTo("locations")[0];

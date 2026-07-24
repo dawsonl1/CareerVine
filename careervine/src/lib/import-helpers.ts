@@ -129,6 +129,8 @@ export async function resolveProfileLocationId(
 ): Promise<number | null> {
   const location = await findOrCreateLocationCanonical(profileLocation, {
     client: supabase as unknown as QueryClient,
+    // Extension-scraped LinkedIn profile data: metro collapsing applies.
+    source: "scraped",
   });
   return location?.id ?? null;
 }

@@ -160,6 +160,63 @@ describe('normalizeParsedLocation', () => {
   });
 });
 
+describe('source "user" — hand-typed input is never alias-collapsed (CAR-173)', () => {
+  // The ticket's measured table: every one of these was silently rewritten
+  // when the CAR-155 chokepoint applied scrape-grade metro collapsing to
+  // form input. With source "user", what was typed is what is stored.
+  const typedCities: Array<[string, string]> = [
+    ['Cambridge', 'Massachusetts'],
+    ['Brooklyn', 'New York'],
+    ['Manhattan', 'New York'],
+    ['Santa Monica', 'California'],
+    ['Hollywood', 'California'],
+    ['La Jolla', 'California'],
+    ['St. Paul', 'Minnesota'],
+    ['Manhattan', 'Kansas'],
+    ['Provo', 'Utah'],
+  ];
+
+  it('normalizeParsedLocation stores exactly the typed city (incl. Cambridge/Massachusetts)', () => {
+    for (const [city, state] of typedCities) {
+      expect(normalizeParsedLocation({ city, state, country: 'United States' }, { source: 'user' }))
+        .toMatchObject({ city, state, country: 'United States', granularity: 'city' });
+    }
+    // Bare suburb with no state: still not collapsed for user input.
+    expect(normalizeParsedLocation({ city: 'Brooklyn' }, { source: 'user' }))
+      .toMatchObject({ city: 'Brooklyn', state: null });
+  });
+
+  it('the same inputs still collapse under the default scraped source (pipelines unchanged)', () => {
+    expect(normalizeParsedLocation({ city: 'Cambridge', state: 'Massachusetts', country: 'United States' }))
+      .toMatchObject({ city: 'Boston', state: 'Massachusetts' });
+    expect(normalizeParsedLocation({ city: 'St. Paul', state: 'Minnesota', country: 'United States' }))
+      .toMatchObject({ city: 'Minneapolis' });
+    expect(normalizeParsedLocation({ city: 'Santa Monica', state: 'California', country: 'United States' }))
+      .toMatchObject({ city: 'Los Angeles' });
+  });
+
+  it('normalizeLocation string path honors source "user" too', () => {
+    expect(normalizeLocation('Brooklyn, New York', { source: 'user' }))
+      .toMatchObject({ city: 'Brooklyn', state: 'New York' });
+    expect(normalizeLocation('Cambridge, MA', { source: 'user' }))
+      .toMatchObject({ city: 'Cambridge', state: 'Massachusetts' });
+    // Scraped default still collapses.
+    expect(normalizeLocation('Cambridge, MA')).toMatchObject({ city: 'Boston' });
+  });
+
+  it('provenance-independent canonicalization still applies to user input', () => {
+    // State abbreviation, casing, country alias — same as the pipeline.
+    expect(normalizeParsedLocation({ city: 'cambridge', state: 'ma', country: 'USA' }, { source: 'user' }))
+      .toMatchObject({ city: 'Cambridge', state: 'Massachusetts', country: 'United States' });
+    // Same-city synonyms are spelling, not a different place: "NYC" must
+    // store "New York", not title-cased "Nyc".
+    expect(normalizeParsedLocation({ city: 'NYC', state: 'New York', country: 'United States' }, { source: 'user' }))
+      .toMatchObject({ city: 'New York', state: 'New York' });
+    expect(normalizeParsedLocation({ city: 'New York City' }, { source: 'user' }))
+      .toMatchObject({ city: 'New York', state: 'New York' });
+  });
+});
+
 describe('locationMatchKey — rule-2 string-level matching', () => {
   it('matches equivalent strings normalized from different forms', () => {
     // A legacy "La Jolla" contact location must match a metro-grain
@@ -202,9 +259,22 @@ describe('parseManualLocation — manual work-experience location', () => {
     });
   });
 
-  it('collapses a metro string via the shared normalizer', () => {
+  it('resolves a metro phrase whose core is a known city (identity, no rewrite)', () => {
     expect(parseManualLocation('Greater Seattle Area')).toMatchObject({
       isPlace: true, city: 'Seattle', state: 'Washington', display: 'Seattle, Washington',
+    });
+  });
+
+  it('never collapses a hand-typed suburb onto its metro (CAR-173)', () => {
+    expect(parseManualLocation('Cambridge, MA')).toMatchObject({
+      isPlace: true, city: 'Cambridge', state: 'Massachusetts', display: 'Cambridge, Massachusetts',
+    });
+    expect(parseManualLocation('Santa Monica, CA')).toMatchObject({
+      isPlace: true, city: 'Santa Monica', state: 'California',
+    });
+    // Same-city synonym still canonicalizes (spelling, not a different place).
+    expect(parseManualLocation('NYC')).toMatchObject({
+      isPlace: true, city: 'New York', state: 'New York', display: 'New York, New York',
     });
   });
 
