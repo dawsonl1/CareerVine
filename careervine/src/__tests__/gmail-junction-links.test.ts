@@ -197,9 +197,63 @@ describe("backfillEmailsForContact junction pass", () => {
     });
 
     await backfillEmailsForContact(USER, HIRING_MANAGER, ["hm@corp.com"]);
-    await backfillEmailsForContact(USER, HIRING_MANAGER, ["hm@corp.com"]);
+    // backfilledAt: null forces past the CAR-172 warm gate so this genuinely
+    // re-exercises the upsert (the gated no-op has its own test below).
+    await backfillEmailsForContact(USER, HIRING_MANAGER, ["hm@corp.com"], { backfilledAt: null });
 
     expect(junctionLinks()).toEqual([{ email_message_id: 100, contact_id: HIRING_MANAGER }]);
+  });
+
+  it("no-ops on a warm contact: a completed pass stamps email_backfilled_at, the next call skips the scans (CAR-172)", async () => {
+    seedDb({
+      email_messages: [
+        {
+          id: 100,
+          user_id: USER,
+          gmail_message_id: "msg-direct",
+          from_address: "hm@corp.com",
+          to_addresses: ["me@gmail.com"],
+          matched_contact_id: null,
+        },
+      ],
+    });
+
+    await backfillEmailsForContact(USER, HIRING_MANAGER, ["hm@corp.com"]);
+    expect(db.tables.contacts.find((c) => c.id === HIRING_MANAGER)?.email_backfilled_at).toBeTruthy();
+
+    const opsBefore = db.ops.length;
+    const claimed = await backfillEmailsForContact(USER, HIRING_MANAGER, ["hm@corp.com"]);
+
+    expect(claimed).toBe(0);
+    // Exactly one DB touch: the gate read. No claim updates, no junction traffic.
+    const newOps = db.ops.slice(opsBefore);
+    expect(newOps).toHaveLength(1);
+    expect(newOps[0]).toMatchObject({ table: "contacts", op: "select" });
+  });
+
+  it("holds the backfill stamp when the junction link upsert fails, so the next call retries (CAR-172)", async () => {
+    db = createFakeSyncDb(
+      {
+        contacts: [{ id: HIRING_MANAGER, user_id: USER, network_status: "active" }],
+        email_messages: [
+          {
+            id: 100,
+            user_id: USER,
+            gmail_message_id: "msg-direct",
+            from_address: "hm@corp.com",
+            to_addresses: ["me@gmail.com"],
+            matched_contact_id: null,
+          },
+        ],
+        email_message_contacts: [],
+      },
+      { failOn: (table) => (table === "email_message_contacts" ? "injected link failure" : null) },
+    );
+
+    await backfillEmailsForContact(USER, HIRING_MANAGER, ["hm@corp.com"]);
+
+    expect(junctionLinks()).toHaveLength(0);
+    expect(db.tables.contacts[0].email_backfilled_at ?? null).toBeNull();
   });
 
   it("paginates past the 1000-row cap and links every matching message (CAR-159 F6)", async () => {

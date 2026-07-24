@@ -111,6 +111,15 @@ describe("GET /api/gmail/emails — tier-aware background sync (CAR-102)", () =>
     }
   });
 
+  it("prefetches email_backfilled_at with the ownership read and hands it to the backfill gate (CAR-172)", async () => {
+    caps = new Set(["mailbox:read"]);
+    results.contacts = { data: { id: 5, email_backfilled_at: "2026-07-24T00:00:00+00:00" }, error: null };
+    await call();
+    // 4th arg is the opts bag — the prefetched stamp means the backfill's
+    // staleness gate costs zero extra reads on this hot path.
+    expect(backfillSpy.mock.calls[0][3]).toEqual({ backfilledAt: "2026-07-24T00:00:00+00:00" });
+  });
+
   it("passes the alias-aware own-address list to the background sync (CAR-153/R2.5)", async () => {
     caps = new Set(["mailbox:read"]);
     await call();

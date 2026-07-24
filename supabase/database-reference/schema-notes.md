@@ -92,7 +92,8 @@ Core entity for professional network.
 - `stage_override`: Manual override for the derived outreach stage.
 - `scrape_failed_at`: Last failed scrape attempt (plan 29).
 - `scrape_failure_count`: Consecutive failed scrapes; 0 on success.
-- `email_synced_through`: CAR-153 (20260717020000). Gmail sync watermark: history is fully cached through this instant. Written ONLY when a sync pass drains every page without throwing; `NULL` = never fully synced (sync falls back to the sinceDays window). Never derive it from max(cached message date) — Gmail lists newest-first, so that self-hides holes after an interrupted backfill.
+- `email_synced_through`: CAR-153 (20260717020000). Gmail sync watermark: history is fully cached through this instant. Written ONLY when a sync pass drains every page without throwing; `NULL` = never fully synced (sync falls back to the sinceDays window). Never derive it from max(cached message date) — Gmail lists newest-first, so that self-hides holes after an interrupted backfill. Reset to `NULL` when the contact gains/changes an address (`contact_emails_reset_sync_state` trigger, CAR-172) and on Gmail disconnect (`revokeAccess`), so deleted or never-fetched spans get re-covered.
+- `email_backfilled_at`: CAR-172 (20260724000000). Completion stamp for the cached-email claim/junction backfill (`backfillEmailsForContact`), written only when a pass finishes with no swallowed write failures. The per-page-view backfill no-ops when this is inside its staleness window; `NULL` = never completed or address set changed since (same trigger as above resets it).
 
 ## locations
 

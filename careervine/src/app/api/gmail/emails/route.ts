@@ -33,10 +33,11 @@ export const GET = withApiHandler({
     // Verify the contact belongs to this user before touching it. The service
     // client bypasses RLS, so an unscoped read by raw contactId is an IDOR:
     // it would leak a foreign contact's email addresses and kick off background
-    // sync/backfill jobs against them (CAR-133 / R2.6).
+    // sync/backfill jobs against them (CAR-133 / R2.6). email_backfilled_at
+    // rides along so the backfill's staleness gate costs no extra read.
     const { data: ownedContact } = await serviceClient
       .from("contacts")
-      .select("id")
+      .select("id, email_backfilled_at")
       .eq("id", numericContactId)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -66,10 +67,13 @@ export const GET = withApiHandler({
       // Claim any orphaned emails that match this contact's addresses.
       // waitUntil (CAR-153/R3.4): a bare floating promise can be frozen by
       // Vercel the moment the response is sent — waitUntil keeps the
-      // invocation alive until the background work settles.
+      // invocation alive until the background work settles. Self-gating
+      // (CAR-172): with the prefetched email_backfilled_at, a warm contact
+      // makes this a synchronous no-op rather than a per-page-view full scan.
       waitUntil(
-        backfillEmailsForContact(user.id, numericContactId, emails)
-          .catch((err) => console.error("Email backfill error:", err))
+        backfillEmailsForContact(user.id, numericContactId, emails, {
+          backfilledAt: ownedContact.email_backfilled_at ?? null,
+        }).catch((err) => console.error("Email backfill error:", err))
       );
 
       if (isStale) {
