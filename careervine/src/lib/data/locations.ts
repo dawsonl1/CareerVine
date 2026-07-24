@@ -13,7 +13,7 @@
  */
 
 import { db, must, type QueryClient } from "./client";
-import { normalizeParsedLocation } from "@/lib/location-normalizer";
+import { normalizeParsedLocation, type LocationSource } from "@/lib/location-normalizer";
 
 export interface LocationRow {
   id: number;
@@ -26,6 +26,12 @@ export interface LocationRow {
  * Normalize the input and find-or-create its canonical locations row.
  * Returns null when nothing normalizes out of the input (no row to link).
  *
+ * `source` is REQUIRED (CAR-173): the chokepoint forces every locations
+ * writer to declare provenance. "scraped" applies the full metro/suburb
+ * collapsing; "user" (hand-typed forms, MCP add_contact, manual work
+ * locations) stores what was asserted — state/country canonicalization
+ * only, never a different city.
+ *
  * NULL-aware probe: UNIQUE(city,state,country) is NULLS DISTINCT, so
  * NULL-component tuples can legitimately hold more than one historical row;
  * order("id").limit(1) picks a stable winner. Concurrent saves of the same
@@ -34,10 +40,10 @@ export interface LocationRow {
  */
 export async function findOrCreateLocation(
   location: { city?: string | null; state?: string | null; country?: string | null },
-  opts: { client?: QueryClient } = {},
+  opts: { client?: QueryClient; source: LocationSource },
 ): Promise<LocationRow | null> {
   const client = opts.client ?? db();
-  const norm = normalizeParsedLocation(location);
+  const norm = normalizeParsedLocation(location, { source: opts.source });
   if (!norm.city && !norm.state && !norm.country) return null;
 
   const city = norm.city;

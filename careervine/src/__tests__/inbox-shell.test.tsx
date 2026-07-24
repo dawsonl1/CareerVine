@@ -2,7 +2,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup, fireEvent, act } from "@testing-library/react";
-import { UI_EVENTS, onUiEvent, type UnreadChangedDetail } from "@/lib/ui-events";
+import { UI_EVENTS, onUiEvent, emitUiEvent, type UnreadChangedDetail } from "@/lib/ui-events";
 
 /**
  * CAR-150: behavioral tests against the REAL InboxShell (the prior suite mocked
@@ -307,6 +307,26 @@ describe("InboxShell — honest load-failure state (CAR-154 / F21)", () => {
 
     await waitFor(() => expect(screen.getByText("Some of your inbox could not be loaded.")).toBeTruthy());
     expect(screen.queryByText("We could not load your inbox")).toBeNull();
+  });
+
+  it("keeps the empty page and toasts when a refresh fails after a successful empty load (CAR-176)", async () => {
+    // A legitimately-empty mailbox loads fine, then the emailSent refresh
+    // (fired 500ms after the composer sends) hits a failure. The known-good
+    // empty page must survive; the failure surfaces as a toast, not the
+    // full-screen error (mirrors the dashboard's coreLoadedOnce gate).
+    installFetch({ inbox: inboxPayload() });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+
+    installFetch({ inbox: { success: false } });
+    act(() => { emitUiEvent(UI_EVENTS.emailSent); });
+
+    await waitFor(
+      () => expect(toast.error).toHaveBeenCalledWith("Could not refresh your inbox. Please try again."),
+      { timeout: 2000 },
+    );
+    expect(screen.queryByText("We could not load your inbox")).toBeNull();
+    expect(screen.getByText("No emails synced yet.")).toBeTruthy();
   });
 
   it("re-shows the loading spinner while Retry is in flight", async () => {

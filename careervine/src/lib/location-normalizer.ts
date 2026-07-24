@@ -1,14 +1,19 @@
 /**
- * Deterministic location-string normalizer for scraped LinkedIn data.
+ * Deterministic, provenance-aware location normalizer.
  *
  * Converts free-text location strings ("Greater San Diego Area",
  * "Seattle, Washington, United States", "La Jolla, CA") into canonical
- * metro-grain values matching the locations table (city / state / country),
- * and classifies granularity: only city-grain results may establish company
+ * values matching the locations table (city / state / country), and
+ * classifies granularity: only city-grain results may establish company
  * offices (import rule 1). Country/state/region-grain strings normalize for
  * display but return canEstablishOffice: false.
  *
- * The alias map is a seed (US major metros + known suburb collapses) —
+ * Provenance (CAR-173): scraped LinkedIn input gets full metro/suburb
+ * collapsing onto metro-grain cities; hand-typed input ("user") keeps the
+ * asserted city and only gets provenance-independent canonicalization. See
+ * LocationSource.
+ *
+ * The collapse map is a seed (US major metros + known suburb collapses) —
  * expand from real scrape data as unparsed strings surface. Unparseable
  * input → granularity 'unknown' with the raw string kept by the caller.
  */
@@ -16,6 +21,16 @@
 import { US_STATES } from "./us-states";
 
 export type LocationGranularity = "city" | "state" | "country" | "region" | "unknown";
+
+/**
+ * Provenance of a location value (CAR-173). "scraped" input (LinkedIn metro
+ * strings, suburb names) carries an imprecise metro-grain signal, so it gets
+ * the full metro/suburb collapsing below. "user" input is an assertion of a
+ * specific fact — a hand-typed "Cambridge, Massachusetts" must never be
+ * rewritten to "Boston" — so only provenance-independent canonicalization
+ * (state/country lookup, title-casing, same-city synonyms) applies.
+ */
+export type LocationSource = "scraped" | "user";
 
 export interface NormalizedLocation {
   city: string | null;
@@ -77,13 +92,29 @@ const REGION_TOKENS = new Set([
 ]);
 
 /**
- * Metro alias map: LinkedIn metro strings and known suburbs → canonical
+ * Same-city synonyms: alternate spellings of ONE city, not a different place.
+ * Provenance-independent canonicalization — applies to scraped and user input
+ * alike (a hand-typed "NYC" should store "New York", not title-cased "Nyc").
+ * Keys are lowercase.
+ */
+const CITY_SYNONYMS: Record<string, { city: string; state: string }> = {
+  "new york city": { city: "New York", state: "New York" },
+  nyc: { city: "New York", state: "New York" },
+};
+
+/**
+ * Metro collapse map: LinkedIn metro strings and known suburbs → canonical
  * metro city + state. Collapsing is deliberately conservative — distinct
  * office cities (Mountain View vs Sunnyvale vs SF) stay distinct; only
  * unambiguous metro-area strings and neighborhood/suburb-of-city cases
  * collapse. Keys are lowercase.
+ *
+ * SCRAPED INPUT ONLY (CAR-173): these entries replace what was written with a
+ * different city, which is correct for LinkedIn's imprecise metro-grain
+ * signal and wrong for a hand-typed assertion ("Cambridge, Massachusetts"
+ * must not become "Boston"). Source "user" never consults this map.
  */
-const METRO_ALIASES: Record<string, { city: string; state: string }> = {
+const METRO_COLLAPSES: Record<string, { city: string; state: string }> = {
   // LinkedIn "Greater X Area" / metro strings that don't parse as City, State
   "san francisco bay area": { city: "San Francisco", state: "California" },
   "bay area": { city: "San Francisco", state: "California" },
@@ -101,8 +132,6 @@ const METRO_ALIASES: Record<string, { city: string; state: string }> = {
   "la jolla": { city: "San Diego", state: "California" },
   brooklyn: { city: "New York", state: "New York" },
   manhattan: { city: "New York", state: "New York" },
-  "new york city": { city: "New York", state: "New York" },
-  nyc: { city: "New York", state: "New York" },
   "santa monica": { city: "Los Angeles", state: "California" },
   "venice beach": { city: "Los Angeles", state: "California" },
   hollywood: { city: "Los Angeles", state: "California" },
@@ -112,6 +141,16 @@ const METRO_ALIASES: Record<string, { city: string; state: string }> = {
   // Utah / Silicon Slopes towns commonly written without state
   "silicon slopes": { city: "Lehi", state: "Utah" },
 };
+
+/**
+ * Source-aware alias lookup: synonyms always canonicalize; metro/suburb
+ * collapses only apply to scraped input. For scraped input the union is
+ * exactly the pre-CAR-173 METRO_ALIASES map — the import/bulk pipelines are
+ * byte-for-byte unchanged.
+ */
+function metroAlias(keyLower: string, source: LocationSource): { city: string; state: string } | undefined {
+  return CITY_SYNONYMS[keyLower] ?? (source === "scraped" ? METRO_COLLAPSES[keyLower] : undefined);
+}
 
 /** Cities whose metro is unambiguous without a state (for "Greater X Area"). */
 const KNOWN_METRO_CITIES: Record<string, { city: string; state: string }> = {
@@ -173,9 +212,10 @@ function lookupCountry(token: string): string | null {
 function applyMetroAlias(
   city: string,
   state: string | null,
-  country: string | null = null,
+  country: string | null,
+  source: LocationSource,
 ): { city: string; state: string | null } {
-  const alias = METRO_ALIASES[city.trim().toLowerCase()];
+  const alias = metroAlias(city.trim().toLowerCase(), source);
   // A suburb→metro alias keys on the city name alone, so it only applies
   // when it doesn't contradict what the caller already knows: an explicit
   // DIFFERENT state means the name is a homonym, not the metro member
@@ -205,9 +245,15 @@ function cityResult(raw: string, isRemote: boolean, city: string, state: string 
 
 /**
  * Normalize a free-text location string from a scraped LinkedIn profile
- * or experience entry.
+ * or experience entry. `opts.source` defaults to "scraped" (the historical
+ * behavior); pass "user" for hand-typed input so metro/suburb collapsing is
+ * skipped (CAR-173) — parseManualLocation does this for you.
  */
-export function normalizeLocation(input: string | null | undefined): NormalizedLocation {
+export function normalizeLocation(
+  input: string | null | undefined,
+  opts: { source?: LocationSource } = {},
+): NormalizedLocation {
+  const source = opts.source ?? "scraped";
   const raw = (input ?? "").trim();
   if (!raw) return unknown(raw, false);
 
@@ -224,7 +270,7 @@ export function normalizeLocation(input: string | null | undefined): NormalizedL
   }
 
   // Whole-string metro aliases: "San Francisco Bay Area", "Silicon Slopes"
-  const wholeAlias = METRO_ALIASES[lower];
+  const wholeAlias = metroAlias(lower, source);
   if (wholeAlias) return cityResult(raw, isRemote, wholeAlias.city, wholeAlias.state, "United States");
 
   // "Greater X Area" / "X Metropolitan Area" / "X Metro Area"
@@ -235,13 +281,13 @@ export function normalizeLocation(input: string | null | undefined): NormalizedL
     lower.match(/^greater\s+(.+)$/);
   if (metroMatch) {
     const core = metroMatch[1].trim();
-    const known = KNOWN_METRO_CITIES[core] || METRO_ALIASES[core];
+    const known = KNOWN_METRO_CITIES[core] || metroAlias(core, source);
     if (known) {
       const country = known.state && US_STATE_NAMES.has(known.state.toLowerCase()) ? "United States" : inferCountryForKnownCity(core);
       return cityResult(raw, isRemote, known.city, known.state || null, country);
     }
     // Unknown metro core — recurse on the core (may be "City, State")
-    const inner = normalizeLocation(core);
+    const inner = normalizeLocation(core, { source });
     if (inner.granularity === "city") return { ...inner, raw, isRemote: isRemote || inner.isRemote };
     return unknown(raw, isRemote);
   }
@@ -253,7 +299,7 @@ export function normalizeLocation(input: string | null | undefined): NormalizedL
     const [cityPart, statePart, countryPart] = parts.slice(-3);
     const country = lookupCountry(countryPart) ?? titleCase(countryPart);
     const state = lookupState(statePart) ?? (titleCase(statePart) || null);
-    const collapsed = applyMetroAlias(cityPart, state, country);
+    const collapsed = applyMetroAlias(cityPart, state, country, source);
     return cityResult(raw, isRemote, collapsed.city, collapsed.state, country);
   }
 
@@ -269,17 +315,17 @@ export function normalizeLocation(input: string | null | undefined): NormalizedL
     }
     // "City, ST" / "City, State" → city grain (US)
     if (secondAsState) {
-      const collapsed = applyMetroAlias(first, secondAsState, "United States");
+      const collapsed = applyMetroAlias(first, secondAsState, "United States", source);
       return cityResult(raw, isRemote, collapsed.city, collapsed.state, "United States");
     }
     // "City, Country"
     if (secondAsCountry) {
-      const collapsed = applyMetroAlias(first, null, secondAsCountry);
+      const collapsed = applyMetroAlias(first, null, secondAsCountry, source);
       return cityResult(raw, isRemote, collapsed.city, collapsed.state, secondAsCountry);
     }
     // "City, Region-we-don't-know" — treat second as country-ish text
     const countryish = titleCase(second);
-    const collapsed = applyMetroAlias(first, null, countryish);
+    const collapsed = applyMetroAlias(first, null, countryish, source);
     return cityResult(raw, isRemote, collapsed.city, collapsed.state, countryish);
   }
 
@@ -293,7 +339,7 @@ export function normalizeLocation(input: string | null | undefined): NormalizedL
   if (asState) {
     return { city: null, state: asState, country: "United States", granularity: "state", canEstablishOffice: false, isRemote, raw };
   }
-  const knownCity = KNOWN_METRO_CITIES[single.toLowerCase()] || METRO_ALIASES[single.toLowerCase()];
+  const knownCity = KNOWN_METRO_CITIES[single.toLowerCase()] || metroAlias(single.toLowerCase(), source);
   if (knownCity) {
     const country = knownCity.state && US_STATE_NAMES.has(knownCity.state.toLowerCase()) ? "United States" : inferCountryForKnownCity(single.toLowerCase());
     return cityResult(raw, isRemote, knownCity.city, knownCity.state || null, country);
@@ -317,12 +363,16 @@ function inferCountryForKnownCity(coreLower: string): string {
  * Normalize an already-parsed location object (the actor's
  * location.parsed {city, state, country}) — applies the same alias
  * collapsing and granularity classification as the string path.
+ * `opts.source` defaults to "scraped" (the historical behavior); pass
+ * "user" for hand-typed parts so metro/suburb collapsing is skipped
+ * (CAR-173) while state/country canonicalization still applies.
  */
 export function normalizeParsedLocation(parsed: {
   city?: string | null;
   state?: string | null;
   country?: string | null;
-}): NormalizedLocation {
+}, opts: { source?: LocationSource } = {}): NormalizedLocation {
+  const source = opts.source ?? "scraped";
   // Coerce defensively: callers reach here from an import route whose payload is
   // schema-typed `unknown`, so a non-string field (e.g. a numeric ZIP or a
   // nested {code,name} object) is possible. Optional chaining only guards
@@ -337,7 +387,7 @@ export function normalizeParsedLocation(parsed: {
   if (city) {
     const canonicalState = state ? (lookupState(state) ?? titleCase(state)) : null;
     const canonicalCountry = country ? (lookupCountry(country) ?? titleCase(country)) : (canonicalState && US_STATE_NAMES.has(canonicalState.toLowerCase()) ? "United States" : null);
-    const collapsed = applyMetroAlias(city, canonicalState, canonicalCountry ?? "United States");
+    const collapsed = applyMetroAlias(city, canonicalState, canonicalCountry ?? "United States", source);
     return cityResult(raw, false, collapsed.city, collapsed.state, canonicalCountry ?? "United States");
   }
   if (state) {
@@ -365,7 +415,9 @@ export function locationMatchKey(loc: NormalizedLocation): string | null {
 /**
  * Parse a manually-typed location string (e.g. a work-experience location) into
  * canonical parts plus a compact display string ("San Francisco, California").
- * Reuses normalizeLocation so hand-entered locations match scraped ones.
+ * Reuses normalizeLocation with source "user" (CAR-173): state/country
+ * canonicalization matches the scrape pipeline, but a hand-typed suburb is
+ * never collapsed onto its metro city.
  *
  * `isPlace` is true only when the string resolves to a real city or state worth
  * a locations row; country-only, vague-region, or unparseable input keeps the
@@ -383,7 +435,7 @@ export function parseManualLocation(raw: string | null | undefined): {
   const text = (raw ?? "").trim();
   if (!text) return { isPlace: false, city: null, state: null, country: "United States", display: null };
 
-  const norm = normalizeLocation(text);
+  const norm = normalizeLocation(text, { source: "user" });
   if (norm.city || norm.state) {
     const country = norm.country ?? "United States";
     const display =
