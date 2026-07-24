@@ -88,10 +88,13 @@ export async function getSharedAiSpendUsd(userId: string): Promise<number> {
 
 /**
  * Record spend after a shared-key call (atomic upsert-add via RPC).
- * Best-effort: a failed write is logged, never thrown — the call already
- * happened, and blocking the user's result wouldn't un-spend it. The ceiling
- * check reads persisted state, so a dropped increment only under-counts by
- * one call.
+ * A failed write is logged, never thrown — the call already happened, and
+ * blocking the user's result wouldn't un-spend it.
+ *
+ * Callers must AWAIT this (enforced by lint, CAR-174): the meter is the
+ * spend ceiling's only input, and a `void`-floated write can be frozen by
+ * Vercel the moment the response is sent, silently losing the increment.
+ * Awaiting is safe precisely because this never throws.
  */
 export async function recordSharedAiSpend(userId: string, costUsd: number): Promise<void> {
   try {

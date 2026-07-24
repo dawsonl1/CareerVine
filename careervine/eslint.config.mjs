@@ -191,6 +191,20 @@ const IMPLICIT_DB_PATHS = [...IMPLICIT_DB_MODULES, "@/lib/queries"].map(
   (name) => ({ name, message: IMPLICIT_DB_MESSAGE }),
 );
 
+// CAR-174: the shared-key spend meter is a control, not telemetry. A
+// `void`-floated recordSharedAiSpend(...) can be frozen by Vercel the moment
+// the response is sent, silently losing the increment the spend ceiling
+// reads — so the ceiling never trips. Callers must await it (it never
+// throws). Defined once and included in BOTH no-restricted-syntax blocks
+// below: flat config resolves a rule from the last matching block, so a
+// selector missing from either block silently disappears for those files.
+const VOID_SPEND_METER_SYNTAX = {
+  selector:
+    "UnaryExpression[operator='void'] > CallExpression[callee.name='recordSharedAiSpend']",
+  message:
+    "Never float the shared-AI spend meter — a void'd recordSharedAiSpend() can be frozen at response time and the spend ceiling undercounts. Await it instead; it never throws (CAR-174).",
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -262,6 +276,16 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // CAR-174 guardrail: the shared-AI spend meter must be awaited, everywhere.
+  // (src/mcp files get this selector from the MCP block below instead — see
+  // VOID_SPEND_METER_SYNTAX for why it rides along in both.)
+  {
+    files: ["src/**/*.ts", "src/**/*.tsx"],
+    ignores: ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__tests__/**"],
+    rules: {
+      "no-restricted-syntax": ["error", VOID_SPEND_METER_SYNTAX],
+    },
+  },
   // CAR-151 guardrail: inside src/mcp, all data access goes through
   // src/mcp/lib/db.ts (uid()-scoped wrappers). Tools must not acquire the raw
   // client or run ad-hoc queries — that's how unscoped service-role queries
@@ -311,6 +335,9 @@ const eslintConfig = defineConfig([
           message:
             "No raw db() client outside src/mcp/lib/db.ts — add a uid()-scoped helper there so the db-scoping gate covers it (CAR-151).",
         },
+        // This block is the last no-restricted-syntax match for src/mcp
+        // files, so the CAR-174 meter guard must ride along here too.
+        VOID_SPEND_METER_SYNTAX,
       ],
     },
   },

@@ -558,9 +558,8 @@ describe("openai routing", () => {
       output_text: "ok",
       usage: { input_tokens: 1000, output_tokens: 500 },
     }));
-    // recordSharedAiSpend is fire-and-forget — let the microtask settle.
-    await new Promise((r) => setTimeout(r, 0));
-
+    // CAR-174: the meter is awaited, so the write has landed by the time the
+    // call resolves — no settle dance needed.
     expect(mockRpc).toHaveBeenCalledWith(
       "increment_ai_shared_usage",
       expect.objectContaining({ p_user_id: "user-123", p_cost: expect.any(Number) }),
@@ -585,6 +584,111 @@ describe("openai routing", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(mockRpc).not.toHaveBeenCalled();
+    getSpy.mockRestore();
+  });
+
+  // ── CAR-174: the spend meter must be awaited, not floated ─────────────
+  //
+  // A `void recordSharedAiSpend(...)` lets the platform freeze the invocation
+  // the moment the response is sent, silently dropping the increment the
+  // spend ceiling reads — so the ceiling never trips. These two tests hold
+  // the returned promise open on the meter write itself: if the meter is ever
+  // reverted to a floating promise, the call settles early and they fail.
+
+  it("does not resolve a shared-key call until the spend meter write lands", async () => {
+    mockDb(null, accessTableMock({ rows: [accessRow()] }));
+    const getSpy = vi.spyOn(routing, "getOpenAIForUser").mockResolvedValue({
+      ok: true,
+      client: openaiModule.getAppOpenAIClient(),
+      source: "app",
+    });
+
+    let releaseMeter!: (v: { error: null }) => void;
+    mockRpc.mockReturnValueOnce(new Promise((r) => { releaseMeter = r; }));
+
+    let settled = false;
+    const call = openaiModule
+      .runWithOpenAIFallback("user-123", async () => ({
+        usage: { input_tokens: 1000, output_tokens: 500 },
+      }))
+      .finally(() => { settled = true; });
+
+    // Drain microtasks and a macrotask tick — a floating meter would have
+    // let the call settle by now.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+
+    releaseMeter({ error: null });
+    await expect(call).resolves.toMatchObject({
+      usage: { input_tokens: 1000, output_tokens: 500 },
+    });
+
+    getSpy.mockRestore();
+  });
+
+  it("does not resolve the user-key→shared fallback until the meter write lands", async () => {
+    const failingClient = {
+      responses: {
+        create: vi.fn().mockRejectedValue(
+          new AuthenticationError(401, { message: "invalid_api_key" }, "invalid", new Headers()),
+        ),
+      },
+    } as unknown as OpenAI;
+    const appClient = {
+      responses: {
+        create: vi.fn().mockResolvedValue({
+          output_text: "ok",
+          usage: { input_tokens: 10, output_tokens: 5 },
+        }),
+      },
+    } as unknown as OpenAI;
+
+    mockDb(null, accessTableMock({ rows: [accessRow()] }));
+    const getSpy = vi.spyOn(routing, "getOpenAIForUser").mockResolvedValue({
+      ok: true,
+      client: failingClient,
+      source: "user",
+    });
+    const appSpy = vi.spyOn(routing, "getAppOpenAIClient").mockReturnValue(appClient);
+
+    let releaseMeter!: (v: { error: null }) => void;
+    mockRpc.mockReturnValueOnce(new Promise((r) => { releaseMeter = r; }));
+
+    let settled = false;
+    const call = openaiModule
+      .runWithOpenAIFallback("user-123", (client) =>
+        client.responses.create({ model: "gpt-5-mini", input: "hi" } as never),
+      )
+      .finally(() => { settled = true; });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(appClient.responses.create).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+
+    releaseMeter({ error: null });
+    await expect(call).resolves.toMatchObject({ output_text: "ok" });
+
+    getSpy.mockRestore();
+    appSpy.mockRestore();
+  });
+
+  it("still returns the result when the awaited meter write fails", async () => {
+    mockDb(null, accessTableMock({ rows: [accessRow()] }));
+    const getSpy = vi.spyOn(routing, "getOpenAIForUser").mockResolvedValue({
+      ok: true,
+      client: openaiModule.getAppOpenAIClient(),
+      source: "app",
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockRpc.mockRejectedValueOnce(new Error("meter down"));
+
+    await expect(
+      openaiModule.runWithOpenAIFallback("user-123", async () => ({ output_text: "ok" })),
+    ).resolves.toMatchObject({ output_text: "ok" });
+
+    errorSpy.mockRestore();
     getSpy.mockRestore();
   });
 
