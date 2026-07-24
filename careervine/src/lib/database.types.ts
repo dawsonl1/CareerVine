@@ -1171,6 +1171,7 @@ export type Database = {
         Row: {
           contact_status: string | null
           created_at: string
+          email_backfilled_at: string | null
           email_synced_through: string | null
           expected_graduation: string | null
           first_outreach_skipped: boolean
@@ -1207,6 +1208,7 @@ export type Database = {
         Insert: {
           contact_status?: string | null
           created_at?: string
+          email_backfilled_at?: string | null
           email_synced_through?: string | null
           expected_graduation?: string | null
           first_outreach_skipped?: boolean
@@ -1243,6 +1245,7 @@ export type Database = {
         Update: {
           contact_status?: string | null
           created_at?: string
+          email_backfilled_at?: string | null
           email_synced_through?: string | null
           expected_graduation?: string | null
           first_outreach_skipped?: boolean

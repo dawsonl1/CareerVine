@@ -174,6 +174,20 @@ export async function revokeAccess(userId: string) {
     }
   }
 
+  // Reset the per-contact ingestion state BEFORE deleting the cache it
+  // describes (CAR-172). email_synced_through survives the wipe below (it
+  // lives on contacts), and a reconnect resuming from it would never re-fetch
+  // the deleted span — silent, unrecoverable history loss. Order + throw are
+  // the safety argument: a failed reset aborts the wipe (retryable, nothing
+  // lost yet), whereas wiping first could strand deleted data behind a live
+  // watermark, which is exactly the bug.
+  const { error: resetError } = await supabase
+    .from("contacts")
+    .update({ email_synced_through: null, email_backfilled_at: null })
+    .eq("user_id", userId)
+    .or("email_synced_through.not.is.null,email_backfilled_at.not.is.null");
+  if (resetError) throw resetError;
+
   await supabase.from("email_messages").delete().eq("user_id", userId);
   await supabase.from("calendar_events").delete().eq("user_id", userId);
   await supabase.from("gmail_connections").delete().eq("user_id", userId);
@@ -671,6 +685,13 @@ export async function syncAllContactEmails(
   return { totalSynced, processedContacts, failedContacts, nextCursor };
 }
 
+// Warm-contact gate for backfillEmailsForContact: within this window a
+// completed backfill is not repeated. The email_backfilled_at stamp is nulled
+// by the contact_emails_reset_sync_state trigger whenever the contact gains an
+// address, so the gate only ever suppresses warm REPEATS — a new address
+// backfills on the very next call (CAR-172).
+const BACKFILL_STALE_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Backfill email_messages attribution for a contact.
  *
@@ -682,15 +703,54 @@ export async function syncAllContactEmails(
  *   2. Junction links (CAR-159): EVERY message involving the address — claimed
  *      by another contact or not — gets an email_message_contacts link, so a
  *      thread shared with an already-tracked contact appears on this one too.
+ *
+ * Called per page view (GET /api/gmail/emails), so it gates itself on
+ * `contacts.email_backfilled_at` (CAR-172): a contact backfilled within
+ * BACKFILL_STALE_MS is a no-op instead of a billed full-scan. The stamp is
+ * completion-gated like the sync watermark — a swallowed claim/junction
+ * failure holds it so the next call retries.
  */
 export async function backfillEmailsForContact(
   userId: string,
   contactId: number,
-  contactEmails: string[]
+  contactEmails: string[],
+  opts: {
+    /**
+     * Pre-fetched contacts.email_backfilled_at (null = never completed or
+     * reset by an address change). Pass it when the caller already has the
+     * contact row (the emails route reads it for the ownership check); leave
+     * undefined to fetch here.
+     */
+    backfilledAt?: string | null;
+  } = {}
 ) {
   if (contactEmails.length === 0) return 0;
 
   const supabase = createSupabaseServiceClient();
+
+  let backfilledAt: string | null;
+  if (opts.backfilledAt !== undefined) {
+    backfilledAt = opts.backfilledAt;
+  } else {
+    const contactRow = must(
+      await supabase
+        .from("contacts")
+        .select("email_backfilled_at")
+        .eq("id", contactId)
+        .maybeSingle(),
+    );
+    backfilledAt = contactRow?.email_backfilled_at ?? null;
+  }
+
+  if (backfilledAt && Date.now() - new Date(backfilledAt).getTime() < BACKFILL_STALE_MS) {
+    return 0;
+  }
+
+  // Captured BEFORE the scans, like the sync watermark: messages cached while
+  // this pass runs fall after the stamp and are re-covered next time.
+  const backfillStartedAt = new Date();
+  let passFailed = false;
+
   const lowerEmails = contactEmails.map((e) => e.toLowerCase());
 
   let totalMatched = 0;
@@ -699,19 +759,21 @@ export async function backfillEmailsForContact(
     // email. Detect matches via count, not a .select() read-back — the update
     // writes the matched_contact_id column the filter tests, the rule-17 shape
     // (CAR-139).
-    const { count: matchedFrom } = await supabase
+    const { count: matchedFrom, error: fromError } = await supabase
       .from("email_messages")
       .update({ matched_contact_id: contactId }, { count: "exact" })
       .eq("user_id", userId)
       .is("matched_contact_id", null)
       .eq("from_address", email);
+    if (fromError) { console.error("Backfill claim error (from):", fromError); passFailed = true; }
 
-    const { count: matchedTo } = await supabase
+    const { count: matchedTo, error: toError } = await supabase
       .from("email_messages")
       .update({ matched_contact_id: contactId }, { count: "exact" })
       .eq("user_id", userId)
       .is("matched_contact_id", null)
       .contains("to_addresses", [email]);
+    if (toError) { console.error("Backfill claim error (to):", toError); passFailed = true; }
 
     totalMatched += (matchedFrom || 0) + (matchedTo || 0);
   }
@@ -734,6 +796,7 @@ export async function backfillEmailsForContact(
         const { data, error } = await q;
         if (error) {
           console.error("Backfill junction id lookup error:", error);
+          passFailed = true;
           break;
         }
         for (const r of data ?? []) linkIds.add(r.id);
@@ -752,7 +815,28 @@ export async function backfillEmailsForContact(
           onConflict: "email_message_id,contact_id",
           ignoreDuplicates: true,
         });
-      if (linkError) console.error("Backfill junction link error:", linkError);
+      if (linkError) { console.error("Backfill junction link error:", linkError); passFailed = true; }
+    }
+  }
+
+  // Completion stamp, mirroring the sync watermark contract: only a pass with
+  // no swallowed failures records itself, so the next call retries a partial
+  // one. CAS-guarded on the value read at the gate — a concurrent address-add
+  // fires the reset trigger (email_backfilled_at → NULL), and this in-flight
+  // pass, which scanned the OLD address set, must not overwrite that reset or
+  // the new address would sit invisible for a full staleness window. No
+  // readback: losing the CAS just means the next call re-runs (idempotent).
+  if (!passFailed) {
+    let stamp = supabase
+      .from("contacts")
+      .update({ email_backfilled_at: backfillStartedAt.toISOString() })
+      .eq("id", contactId);
+    stamp = backfilledAt === null
+      ? stamp.is("email_backfilled_at", null)
+      : stamp.eq("email_backfilled_at", backfilledAt);
+    const { error: stampError } = await stamp;
+    if (stampError) {
+      console.error(`Failed to stamp email backfill for contact ${contactId}:`, stampError);
     }
   }
 

@@ -6,6 +6,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * connection row itself. The OAuth grant covers Gmail and Calendar together,
  * so leaving cached event titles/attendees behind would outlive the consent
  * that justified caching them.
+ *
+ * CAR-172: it must ALSO reset the per-contact ingestion state
+ * (email_synced_through / email_backfilled_at) BEFORE the wipe. The watermark
+ * lives on contacts and survives the cache delete; a reconnect resuming from
+ * it would never re-fetch the deleted span — silent, unrecoverable history
+ * loss. Ordering is the safety property: a failed reset aborts the wipe.
  */
 
 interface TableCall {
@@ -23,6 +29,9 @@ let connectionRead: { data: unknown; error: unknown } = {
   error: null,
 };
 
+/** Error injected into the contacts watermark-reset update; per-test overridable. */
+let contactsUpdateError: unknown = null;
+
 function makeBuilder(table: string) {
   const call: TableCall = { table, ops: [] };
   calls.push(call);
@@ -31,13 +40,18 @@ function makeBuilder(table: string) {
     call.ops.push({ m, args });
     return builder;
   };
-  for (const m of ["select", "delete", "eq"]) builder[m] = chain(m);
+  for (const m of ["select", "delete", "update", "eq", "or"]) builder[m] = chain(m);
   builder.maybeSingle = async () => {
     call.ops.push({ m: "maybeSingle", args: [] });
     return connectionRead;
   };
-  builder.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
-    Promise.resolve({ data: null, error: null }).then(resolve, reject);
+  builder.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
+    const isContactsUpdate = table === "contacts" && call.ops.some((o) => o.m === "update");
+    return Promise.resolve({ data: null, error: isContactsUpdate ? contactsUpdateError : null }).then(
+      resolve,
+      reject,
+    );
+  };
   return builder;
 }
 
@@ -49,10 +63,13 @@ import { revokeAccess } from "@/lib/gmail";
 
 const deletesTo = (table: string) =>
   calls.filter((c) => c.table === table && c.ops.some((o) => o.m === "delete"));
+const updatesTo = (table: string) =>
+  calls.filter((c) => c.table === table && c.ops.some((o) => o.m === "update"));
 
 beforeEach(() => {
   calls.length = 0;
   connectionRead = { data: { access_token: null }, error: null };
+  contactsUpdateError = null;
 });
 
 describe("revokeAccess", () => {
@@ -64,6 +81,34 @@ describe("revokeAccess", () => {
       expect(dels, `expected a delete on ${table}`).toHaveLength(1);
       const eq = dels[0].ops.find((o) => o.m === "eq");
       expect(eq?.args).toEqual(["user_id", "u-1"]);
+    }
+  });
+
+  it("nulls the per-contact ingestion watermarks, user-scoped, BEFORE deleting the cache (CAR-172)", async () => {
+    await revokeAccess("u-1");
+
+    const resets = updatesTo("contacts");
+    expect(resets).toHaveLength(1);
+    const update = resets[0].ops.find((o) => o.m === "update");
+    expect(update?.args[0]).toEqual({ email_synced_through: null, email_backfilled_at: null });
+    const eq = resets[0].ops.find((o) => o.m === "eq");
+    expect(eq?.args).toEqual(["user_id", "u-1"]);
+
+    // Order: the reset call must be issued before the email_messages delete.
+    // The reverse order could strand deleted mail behind a live watermark —
+    // exactly the CAR-172 history-loss bug.
+    const resetIdx = calls.indexOf(resets[0]);
+    const deleteIdx = calls.indexOf(deletesTo("email_messages")[0]);
+    expect(resetIdx).toBeGreaterThanOrEqual(0);
+    expect(resetIdx).toBeLessThan(deleteIdx);
+  });
+
+  it("aborts the wipe when the watermark reset fails (nothing deleted, error surfaces)", async () => {
+    contactsUpdateError = { message: "reset failed" };
+
+    await expect(revokeAccess("u-1")).rejects.toMatchObject({ message: "reset failed" });
+    for (const table of ["email_messages", "calendar_events", "gmail_connections"]) {
+      expect(deletesTo(table), `expected NO delete on ${table}`).toHaveLength(0);
     }
   });
 
