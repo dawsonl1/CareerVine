@@ -268,5 +268,21 @@ The global environment is node. A DOM test opts in per file with a
 `// @vitest-environment jsdom` docblock. jest-dom matchers are not wired, so
 assert with `getByText` / `queryByText` rather than `toBeInTheDocument`.
 
-- Authoritative: `careervine/vitest.config.ts` and the header of each helper
-- Not mechanically enforced; the only backstop is the suite itself passing.
+A second tier exists for what mocks structurally cannot express (CAR-178):
+`*.itest.ts` files under `careervine/src/__integration__/` run against the
+LOCAL Supabase stack (real Postgres, PostgREST, GoTrue, RLS at the full
+migration chain) via `npm run test:integration` after `supabase start` from
+the repo root. It covers tenant isolation for every RLS table (a new table
+fails its completeness guard until it gets a seeded probe or a written
+exemption), the scheduled-send claim/race/sweep money path, CHECK-constraint
+conformance for every constants.ts vocabulary, and the account-deletion
+cascade. Do not port mocked tests into it; the mocked suite stays
+authoritative for logic. CI runs it as the separate `integration` job.
+
+- Authoritative: `careervine/vitest.config.ts`,
+  `careervine/vitest.integration.config.ts` (header), the header of each
+  helper, and `careervine/src/__integration__/helpers/stack.ts` (header)
+- Enforced (integration tier): the completeness guard in
+  `careervine/src/__integration__/rls-tenant-isolation.itest.ts`. The unit
+  tier's conventions are not mechanically enforced; the backstop is the suite
+  itself passing.

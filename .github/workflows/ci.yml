@@ -149,6 +149,40 @@ jobs:
       - name: Fail if committed database.types.ts is stale
         run: git diff --exit-code -- careervine/src/lib/database.types.ts
 
+  # CAR-178: the integration tier. Real Postgres + PostgREST + GoTrue + RLS
+  # at the full migration chain — the semantics the unit suite's builder
+  # mocks structurally cannot check (RLS policy legs, CAS claim behavior,
+  # CHECK-constraint conformance, deletion cascade). Separate job so the
+  # fast suite stays fast; see careervine/vitest.integration.config.ts.
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: careervine/package-lock.json
+
+      # Same pinned CLI as types-drift; the tier resolves keys via
+      # `supabase status -o env` and refuses non-local stacks.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      - name: Start local Supabase at the full migration chain
+        run: supabase start -x studio,mailpit,imgproxy,edge-runtime,realtime,storage-api,vector,logflare,supavisor
+
+      - name: Install
+        working-directory: careervine
+        run: npm ci
+
+      - name: Integration tests
+        working-directory: careervine
+        run: npm run test:integration
+
   extension:
     name: extension
     runs-on: ubuntu-latest

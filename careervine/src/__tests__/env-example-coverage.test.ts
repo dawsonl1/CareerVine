@@ -34,8 +34,10 @@ const PLATFORM_SKIP = new Set([
 function scannedVars(): Set<string> {
   // Exclude test files: they stub/mention env vars (and this file names example
   // placeholders in its own docstring), and every real config var has a
-  // non-test reader — so tests add only noise, never coverage.
-  const globOpts = { absolute: true, ignore: ["**/__tests__/**"] };
+  // non-test reader — so tests add only noise, never coverage. The integration
+  // tier's ITEST_* vars (CAR-178) are published by its own global-setup from
+  // `supabase status`, never set by hand, so they are excluded the same way.
+  const globOpts = { absolute: true, ignore: ["**/__tests__/**", "**/__integration__/**"] };
   const files = [
     ...fg.sync("**/*.{ts,tsx,js,mjs,cjs}", { cwd: srcDir, ...globOpts }),
     ...fg.sync("**/*.{ts,tsx,js,mjs,cjs}", { cwd: scriptsDir, ...globOpts }),
