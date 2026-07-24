@@ -16,18 +16,30 @@
  */
 
 import createDOMPurify from "dompurify";
-// @ts-expect-error -- jsdom has no bundled types; @types/jsdom is a devDep
-import { JSDOM } from "jsdom";
 
-// Server-side DOMPurify (Node.js doesn't have window.document)
-const jsdomWindow = new JSDOM("").window;
-// jsdom's Window is structurally incompatible with the DOM lib's Window that
-// DOMPurify expects, and the mismatch is not expressible without inventing a
-// false type. Kept deliberately: rule 43 pins jsdom ^26.1.0 for production
-// CJS-require safety, so this surface must not be "fixed" by bumping jsdom or
-// swapping the sanitizer.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const purify = createDOMPurify(jsdomWindow as any);
+// Server-side DOMPurify (Node.js doesn't have window.document), built lazily:
+// jsdom costs ~130ms to require and ~25ms to construct, and this module is
+// reached at module scope from /api/mcp's registerAllTools — so an eager
+// instance taxes every MCP cold start even when nothing sanitizes (CAR-176).
+// The literal require() keeps jsdom statically analyzable (webpack bundles
+// it, nft traces it) while deferring both the load and the construction to
+// the first sanitize call.
+let purify: ReturnType<typeof createDOMPurify> | null = null;
+function getPurify(): ReturnType<typeof createDOMPurify> {
+  if (!purify) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { JSDOM } = require("jsdom");
+    const jsdomWindow = new JSDOM("").window;
+    // jsdom's Window is structurally incompatible with the DOM lib's Window
+    // that DOMPurify expects, and the mismatch is not expressible without
+    // inventing a false type. Kept deliberately: rule 43 pins jsdom ^26.1.0
+    // for production CJS-require safety, so this surface must not be "fixed"
+    // by bumping jsdom or swapping the sanitizer.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    purify = createDOMPurify(jsdomWindow as any);
+  }
+  return purify;
+}
 
 /**
  * Tight allowlist for model-generated draft HTML. Lists are included even
@@ -37,7 +49,7 @@ const purify = createDOMPurify(jsdomWindow as any);
  * List tags carry no attributes, so they add no attack surface.
  */
 export function sanitizeAiDraftHtml(html: string): string {
-  return purify.sanitize(html, {
+  return getPurify().sanitize(html, {
     ALLOWED_TAGS: ["p", "br", "a", "strong", "em", "b", "i", "ul", "ol", "li"],
     ALLOWED_ATTR: ["href", "target", "rel"],
   });
@@ -50,7 +62,7 @@ export function sanitizeAiDraftHtml(html: string): string {
  * never legitimately carries them.
  */
 export function sanitizeStoredEmailHtml(html: string): string {
-  return purify.sanitize(html, {
+  return getPurify().sanitize(html, {
     USE_PROFILES: { html: true },
     FORBID_TAGS: ["style", "form", "input", "textarea", "select", "button", "iframe"],
   });

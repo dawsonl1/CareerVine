@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
@@ -46,6 +46,7 @@ export function InboxShell() {
     setLoading,
     syncing,
     error: loadError,
+    loadedOnce,
     emails, setEmails,
     trashedEmails, setTrashedEmails,
     hiddenEmails, setHiddenEmails,
@@ -77,6 +78,25 @@ export function InboxShell() {
 
   // Follow-up modal
   const [followUpModal, setFollowUpModal] = useState<FollowUpModalPayload | null>(null);
+
+  // Anything on screen the error UI could attach to or would wipe out.
+  const anyInboxData =
+    emails.length > 0 ||
+    trashedEmails.length > 0 ||
+    hiddenEmails.length > 0 ||
+    scheduledEmails.length > 0 ||
+    followUps.length > 0 ||
+    drafts.length > 0;
+
+  // A background refresh failing over a legitimately empty-but-loaded mailbox:
+  // keep the working page (the full-screen error below is gated on
+  // !loadedOnce) and surface the failure as a toast — there is no data-bearing
+  // list for the partial-failure banner to sit above (CAR-176).
+  useEffect(() => {
+    if (loadError && !loading && loadedOnce && !anyInboxData) {
+      toastError("Could not refresh your inbox. Please try again.");
+    }
+  }, [loadError, loading, loadedOnce, anyInboxData, toastError]);
 
   // ── Thread grouping ──
 
@@ -437,14 +457,10 @@ export function InboxShell() {
   // on, render a full-screen retryable error instead of the empty "No emails
   // synced yet." state; when an independently-loaded list (drafts, or prior
   // data) survived, a banner below flags the failure without wiping it out.
-  const anyInboxData =
-    emails.length > 0 ||
-    trashedEmails.length > 0 ||
-    hiddenEmails.length > 0 ||
-    scheduledEmails.length > 0 ||
-    followUps.length > 0 ||
-    drafts.length > 0;
-  if (loadError && !loading && !anyInboxData) {
+  // `!loadedOnce` scopes this to the INITIAL load: once a load has succeeded
+  // (even empty), a transient refresh failure toasts instead of replacing the
+  // known-good page (CAR-176 — mirrors the dashboard's coreLoadedOnce).
+  if (loadError && !loading && !anyInboxData && !loadedOnce) {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />

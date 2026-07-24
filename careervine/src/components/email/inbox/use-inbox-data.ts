@@ -21,6 +21,11 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
   // Distinguish a failed inbox fetch from a genuinely empty mailbox, so the
   // shell renders a retryable error instead of "No emails synced yet." (CAR-154).
   const [error, setError] = useState(false);
+  // True once ANY inbox load has succeeded (even empty). Gates the shell's
+  // full-screen error so a transient background-refresh failure over a
+  // known-good empty mailbox can't replace the working page — mirrors the
+  // dashboard's coreLoadedOnce (CAR-176).
+  const [loadedOnce, setLoadedOnce] = useState(false);
 
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [trashedEmails, setTrashedEmails] = useState<EmailMessage[]>([]);
@@ -47,6 +52,7 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
         setContactMap(data.contactMap || {});
         setCalendarByThread(data.calendarByThread || {});
         setGmailAddress(data.gmailAddress || "");
+        setLoadedOnce(true);
       } else {
         setError(true);
       }
@@ -117,6 +123,7 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
     setLoading,
     syncing,
     error,
+    loadedOnce,
     emails, setEmails,
     trashedEmails, setTrashedEmails,
     hiddenEmails, setHiddenEmails,
