@@ -36,8 +36,14 @@ function scheduledRow(overrides: Partial<Row> = {}): Row {
  * synchronously (filter + assign in one JS tick), which mirrors the row-level
  * atomicity Postgres gives a single conditional UPDATE — so a lost CAS shows
  * up as count 0 exactly like production.
+ *
+ * `failUpdate` simulates a transport-level failure (fetch rejection, not a
+ * PostgREST error-as-value): a matching update rejects without touching rows.
  */
-function makeDb(tables: Record<string, Row[]>) {
+function makeDb(
+  tables: Record<string, Row[]>,
+  failUpdate?: (table: string, payload: Record<string, unknown>) => boolean,
+) {
   function from(table: string) {
     const rows = tables[table] ?? [];
     let updatePayload: Record<string, unknown> | null = null;
@@ -66,7 +72,10 @@ function makeDb(tables: Record<string, Row[]>) {
       },
       order: () => builder,
       limit: () => builder,
-      then: (resolve: (v: unknown) => unknown) => {
+      then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
+        if (updatePayload && failUpdate?.(table, updatePayload)) {
+          return Promise.reject(new Error(`network failure updating ${table}`)).then(resolve, reject);
+        }
         const matched = rows.filter((r) => filters.every((f) => f(r)));
         if (updatePayload) {
           for (const r of matched) Object.assign(r, updatePayload);
@@ -178,5 +187,59 @@ describe("processScheduledEmails claim step (CAR-134)", () => {
     expect(result).toEqual({ sent: 0, errors: 1 });
     expect(rows[0].status).toBe("pending");
     expect(rows[0].claimed_at).toBeNull();
+  });
+});
+
+/**
+ * CAR-179: a failure AFTER the Gmail send (the mark-sent or follow-up-linking
+ * write rejecting at the transport layer) must never release the claim — the
+ * email is already delivered, and a released claim re-enters the pending pool
+ * where the next tick would send a duplicate. The row stays 'sending' for the
+ * stale-claim sweeper to flag 'failed', the same terminal path as a process
+ * killed mid-send.
+ */
+describe("processScheduledEmails post-send failures (CAR-179)", () => {
+  it("keeps the claim when the mark-sent write fails after delivery — no re-send on the next tick", async () => {
+    const rows = [scheduledRow()];
+    const db = makeDb(
+      { scheduled_emails: rows, email_follow_ups: [] },
+      (table, payload) => table === "scheduled_emails" && payload.status === "sent",
+    );
+    const send = vi.fn(okSend);
+
+    const result = await processScheduledEmails("u1", { service: db, send });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ sent: 0, errors: 1 });
+    // Delivered but unrecorded: the row must NOT return to pending.
+    expect(rows[0].status).toBe("sending");
+
+    // Next cron tick: the row is invisible to the pending query and the
+    // claim CAS — nothing is sent a second time.
+    const second = await processScheduledEmails("u1", { service: db, send });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(second).toEqual({ sent: 0, errors: 0 });
+    expect(rows[0].status).toBe("sending");
+  });
+
+  it("keeps the row terminal when the follow-up-linking write fails after delivery", async () => {
+    const rows = [scheduledRow()];
+    const followUps: Row[] = [{ id: 9, status: "active", scheduled_email_id: 1 }];
+    const db = makeDb(
+      { scheduled_emails: rows, email_follow_ups: followUps },
+      (table) => table === "email_follow_ups",
+    );
+    const send = vi.fn(okSend);
+
+    const result = await processScheduledEmails("u1", { service: db, send });
+
+    expect(result).toEqual({ sent: 0, errors: 1 });
+    // Mark-sent landed before the follow-up write failed: 'sent' is terminal
+    // and equally safe. The invariant is: never back to 'pending'.
+    expect(rows[0].status).toBe("sent");
+
+    const second = await processScheduledEmails("u1", { service: db, send });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(second).toEqual({ sent: 0, errors: 0 });
   });
 });

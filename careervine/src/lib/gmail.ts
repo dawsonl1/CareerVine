@@ -1128,6 +1128,11 @@ export async function processScheduledEmails(
         .eq("status", ScheduledEmailStatus.Sending);
     };
 
+    // Once send() has resolved, Gmail has the message and the claim must never
+    // be released — a released claim re-enters the pending pool and the next
+    // tick delivers a duplicate (CAR-179).
+    let delivered = false;
+
     try {
       // Route through the shared tracked path so scheduled sends count against
       // the daily cap, are refused if the address has since bounced, and get
@@ -1159,6 +1164,7 @@ export async function processScheduledEmails(
         }
         throw policyErr;
       }
+      delivered = true;
 
       // Mark as sent. Guarded on the claim so nothing else gets overwritten;
       // if this write is never reached (process killed mid-send), the row
@@ -1189,11 +1195,22 @@ export async function processScheduledEmails(
 
       sent++;
     } catch (err) {
-      // A throw here almost certainly precedes Gmail accepting the message:
-      // the steps after the send inside sendTrackedEmail surface errors as
-      // values, not throws. Release the claim so the next tick retries.
       console.error(`Error sending scheduled email ${email.id}:`, err);
-      await releaseClaim();
+      if (delivered) {
+        // Post-send failure: the email is out, only the bookkeeping writes
+        // (mark-sent / follow-up linking) failed. Leave the row 'sending' so
+        // the stale-claim sweeper flags it 'failed' for manual reconciliation
+        // — the same terminal path as a process killed mid-send. Releasing
+        // here would re-queue an already-delivered email and the next tick
+        // would send a duplicate (CAR-179).
+        console.error(
+          `[scheduled] ${email.id} delivered but mark-sent failed; leaving claim for the sweeper`,
+        );
+      } else {
+        // Pre-send failure: nothing was delivered, so release the claim and
+        // let the next tick retry.
+        await releaseClaim();
+      }
       errors++;
     }
   }
