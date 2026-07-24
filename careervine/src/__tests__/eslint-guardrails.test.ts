@@ -161,3 +161,38 @@ describe("eslint guardrails: src/app must not resolve the implicit db() seam (CA
     );
   });
 });
+
+describe("eslint guardrails: the shared-AI spend meter must be awaited (CAR-174)", () => {
+  const voidMeter = [
+    `import { recordSharedAiSpend } from "@/lib/ai/spend";`,
+    `export async function f() {`,
+    `  void recordSharedAiSpend("u", 1);`,
+    `}`,
+    ``,
+  ].join("\n");
+  const awaitedMeter = [
+    `import { recordSharedAiSpend } from "@/lib/ai/spend";`,
+    `export async function f() {`,
+    `  await recordSharedAiSpend("u", 1);`,
+    `}`,
+    ``,
+  ].join("\n");
+
+  // Flat config resolves no-restricted-syntax from the LAST matching block,
+  // so the selector must hold in both the src-wide block and the src/mcp
+  // block (which redefines the rule for its db() fence) — a file in either
+  // scope losing the guard would be silent.
+  it.each(["src/lib/probe.ts", "src/app/api/probe/route.ts", "src/mcp/tools/probe.ts"])(
+    "%s voiding the meter is restricted",
+    async (filePath) => {
+      expect(await ruleIdsFor(filePath, voidMeter)).toContain("no-restricted-syntax");
+    },
+  );
+
+  it.each(["src/lib/probe.ts", "src/mcp/tools/probe.ts"])(
+    "%s awaiting the meter is clean",
+    async (filePath) => {
+      expect(await ruleIdsFor(filePath, awaitedMeter)).not.toContain("no-restricted-syntax");
+    },
+  );
+});

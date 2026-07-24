@@ -535,7 +535,11 @@ async function fallbackToSharedOrFail<T>(
 
   try {
     const result = await fn(appClient);
-    void recordSharedAiSpend(userId, estimateCallCostUsd(result));
+    // CAR-174: awaited, not floated — the meter is the spend ceiling's input,
+    // and a floating promise can be frozen by Vercel the moment the response
+    // is sent, silently losing the increment. recordSharedAiSpend never
+    // throws, so this cannot break the success path.
+    await recordSharedAiSpend(userId, estimateCallCostUsd(result));
     return result;
   } catch (retryErr) {
     // The shared key itself is dead — nothing left to fall back to.
@@ -566,8 +570,10 @@ export async function runWithOpenAIFallback<T>(
     if (resolved.source === "user") {
       void markKeyStatus(userId, "active");
     } else {
-      // CAR-143 (R5.3): meter every successful shared-key call.
-      void recordSharedAiSpend(userId, estimateCallCostUsd(result));
+      // CAR-143 (R5.3): meter every successful shared-key call. Awaited
+      // (CAR-174) — a floating promise can be frozen at response time,
+      // losing the increment the ceiling depends on; the write never throws.
+      await recordSharedAiSpend(userId, estimateCallCostUsd(result));
     }
     return result;
   } catch (err) {
