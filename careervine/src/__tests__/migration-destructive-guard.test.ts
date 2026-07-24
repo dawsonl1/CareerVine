@@ -96,7 +96,7 @@ export function scanMigrationSql(file: string, rawSql: string): Violation[] {
   const rawLines = rawSql.split("\n");
   const violations: Violation[] = [];
 
-  const destructive = /\b(?:DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?(?:\s+ONLY)?)\s+(?:"?public"?\.)?"?([a-zA-Z_]\w*)"?/gi;
+  const destructive = /\b(?:DELETE\s+FROM(?:\s+ONLY)?|TRUNCATE(?:\s+TABLE)?(?:\s+ONLY)?)\s+(?:"?public"?\.)?"?([a-zA-Z_]\w*)"?/gi;
   for (const match of stripped.matchAll(destructive)) {
     const table = match[1].toLowerCase();
     const owned = APP_OWNED_COLUMNS[table];
@@ -145,12 +145,16 @@ describe("scanner trips where it must (fixtures)", () => {
     expect(v[0].missing).toEqual([...CALENDAR_EVENTS_APP_OWNED]);
   });
 
-  it("rejects TRUNCATE, with and without TABLE/ONLY/public qualifiers", () => {
+  it("rejects TRUNCATE and DELETE, with and without TABLE/ONLY/public qualifiers", () => {
     for (const stmt of [
       "TRUNCATE calendar_events;",
       "TRUNCATE TABLE calendar_events;",
       'TRUNCATE TABLE ONLY "public"."calendar_events";',
       "DELETE FROM public.calendar_events;",
+      // CAR-180: ONLY is valid on DELETE too, and identical to the bare form
+      // on a non-partitioned table — it must not slip past the scanner.
+      "DELETE FROM ONLY calendar_events;",
+      'DELETE FROM ONLY "public"."calendar_events";',
     ]) {
       expect(scanMigrationSql("fixture.sql", stmt), stmt).toHaveLength(1);
     }
