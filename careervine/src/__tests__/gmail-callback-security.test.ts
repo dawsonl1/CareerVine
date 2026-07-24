@@ -114,10 +114,11 @@ describe("gmail/callback security branches (CAR-177, F35)", () => {
   });
 
   it("a missing code or state rejects", async () => {
-    for (const params of [
+    const cases: Array<Record<string, string>> = [
       { state: encodeState(VALID_STATE()) }, // no code
       { code: "auth-code" }, // no state
-    ]) {
+    ];
+    for (const params of cases) {
       const { location } = await call(params);
       expect(location).toContain("gmail=error");
       expect(location).toContain("Missing code or state");
