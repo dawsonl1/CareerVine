@@ -148,6 +148,14 @@ skip normalization.
 Under MCP the service-role client bypasses RLS, so every query either scopes to
 the operating user or sits behind an ownership assertion.
 
+`calendar_events` caches Google Calendar, but four of its columns are
+application-owned and unrecoverable from a re-sync
+(`source_gmail_thread_id`, `source_gmail_message_id`, `meeting_id`,
+`zoom_link`). A migration that deletes or truncates rows from that table must
+preserve them or carry a `-- destructive-resync-audited:` annotation; the
+CAR-152 repair migration deleted a 67-day window without doing either and
+permanently erased every email-to-meeting link in it (CAR-175).
+
 - Authoritative: `careervine/src/lib/queries.ts` (header),
   `careervine/src/lib/data/client.ts` (header, and the `must()` docblock),
   `careervine/src/mcp/lib/db.ts` (header)
@@ -160,6 +168,10 @@ the operating user or sits behind an ownership assertion.
   the CAS readback shape, and raw query-builder growth in the MCP db module. Its
   escape hatches
   both demand a written reason: `// cas-checked:` and `// error-tolerated:`.
+  The app-owned-column rule is enforced by
+  `careervine/src/__tests__/migration-destructive-guard.test.ts` (authoritative
+  header there), which scans `supabase/migrations/` for unguarded destructive
+  statements.
 
 ## e. Sending email
 
