@@ -268,11 +268,13 @@ New tests reuse the shared harness helpers instead of re-rolling a fake:
 A component test that exercises an HTTP call uses `installFakeFetch`, which
 routes on `"METHOD /url"` and answers with a real `Response`. The older idiom
 in this suite assigns a `{ ok, json }` object literal to `global.fetch` through
-an `as unknown as typeof fetch` cast; that literal carries no `status` and is
-never typechecked against `Response`, so a test asserting through `apiSend`
-(whose failure path reads `res.status` and `res.json()`) would prove the stub
-rather than the code. An unrouted request is an error, not a silent `{}`, so a
-component calling the wrong endpoint fails loudly.
+an `as unknown as typeof fetch` cast; that literal is never typechecked against
+`Response` and usually carries no `status`, so a test asserting through
+`apiSend` (whose failure path reads `res.status` and `res.json()`) would prove
+the stub rather than the code. An unrouted request throws and is recorded in
+`unmatched`; assert `unmatched` is empty (or `countOf` the route you injected),
+because the handlers under test swallow rejections and a miss would otherwise
+read as the failure the test was written for.
 
 The global environment is node. A DOM test opts in per file with a
 `// @vitest-environment jsdom` docblock. jest-dom matchers are not wired, so

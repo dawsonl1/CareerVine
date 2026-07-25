@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Mail, X, Check, Clock } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
-import { apiSend } from "@/lib/api-client";
+import { apiFetch, apiSend } from "@/lib/api-client";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 
 interface FollowUpSequence {
@@ -26,15 +26,37 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
   const { error: toastError } = useToast();
   const [sequences, setSequences] = useState<FollowUpSequence[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  /**
+   * `mode` decides who owns the failure. An initial load that fails has nothing
+   * on screen to preserve, so it says so; a re-sync after a cancel keeps the
+   * list it already has rather than blanking it over a transient blip.
+   */
+  const loadSequences = useCallback(
+    async (mode: "initial" | "resync" = "initial") => {
+      if (!user || !contactId) return;
+      try {
+        const data = await apiFetch<{ sequences?: FollowUpSequence[] }>(
+          `/api/email-follow-ups?contactId=${contactId}`,
+        );
+        setSequences(data.sequences || []);
+        setLoadFailed(false);
+      } catch {
+        // Unchecked, a non-2xx left `sequences` empty and the whole card
+        // returned null, so a failed read was indistinguishable from "this
+        // contact has no follow-ups" (CAR-183).
+        if (mode === "initial") setLoadFailed(true);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [user, contactId],
+  );
 
   useEffect(() => {
-    if (!user || !contactId) return;
-    fetch(`/api/email-follow-ups?contactId=${contactId}`)
-      .then((r) => r.json())
-      .then((data) => setSequences(data.sequences || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [user, contactId]);
+    void loadSequences();
+  }, [loadSequences]);
 
   const handleCancel = async (sequenceId: number) => {
     // The route answers 404 on an ownership miss and 500 on a cascade failure,
@@ -46,7 +68,14 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
       toastError,
       "Couldn't cancel that follow-up sequence. Please try again.",
     );
-    if (!cancelled) return;
+    if (!cancelled) {
+      // Re-sync instead of leaving the row asserting a state the server just
+      // refused. On a 404 the sequence is gone or was never ours, and the load
+      // effect's deps never change again, so without this the row would keep
+      // offering a Cancel button that can never succeed.
+      void loadSequences("resync");
+      return;
+    }
 
     setSequences((prev) =>
       prev.map((s) =>
@@ -55,7 +84,30 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
     );
   };
 
-  if (loading || sequences.length === 0) return null;
+  if (loading) return null;
+
+  if (loadFailed && sequences.length === 0) {
+    return (
+      <div className="rounded-[20px] border border-outline-variant/60 bg-white p-5">
+        <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+          <Mail className="h-4 w-4" />
+          Follow-up sequences
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Couldn&apos;t load follow-up sequences.{" "}
+          <button
+            type="button"
+            onClick={() => { setLoading(true); void loadSequences(); }}
+            className="text-primary hover:underline cursor-pointer"
+          >
+            Try again
+          </button>
+        </p>
+      </div>
+    );
+  }
+
+  if (sequences.length === 0) return null;
 
   return (
     <div className="rounded-[20px] border border-outline-variant/60 bg-white p-5">

@@ -84,7 +84,19 @@ describe("TemplatesSection — delete (CAR-183)", () => {
 
     expect(screen.getByText("Job referral request")).toBeTruthy();
     expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    // Without this the toast assertion would also be satisfied by the harness's
+    // own "no route" throw, i.e. by never reaching the 500 at all.
     expect(http.countOf(DELETE_ROUTE)).toBe(1);
+    expect(http.unmatched).toEqual([]);
+  });
+
+  it("keeps the template in the list and toasts when the request never lands", async () => {
+    const http = await renderAndDelete({ reject: new TypeError("Failed to fetch") });
+
+    expect(screen.getByText("Job referral request")).toBeTruthy();
+    expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    expect(http.countOf(DELETE_ROUTE)).toBe(1);
+    expect(http.unmatched).toEqual([]);
   });
 
   it("removes the template on a 2xx, with no toast", async () => {
@@ -95,5 +107,46 @@ describe("TemplatesSection — delete (CAR-183)", () => {
     expect(h.toastError).not.toHaveBeenCalled();
     expect(http.countOf(DELETE_ROUTE)).toBe(1);
     expect(http.unmatched).toEqual([]);
+  });
+});
+
+describe("TemplatesSection — failed load (CAR-183)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("offers a retry instead of claiming the user has no templates", async () => {
+    // The unchecked read fell through to `data.templates || []`, so a 500 was
+    // rendered as the empty state: an affirmative lie about the user's data.
+    installFakeFetch({ [LIST_ROUTE]: { status: 500, body: { error: "boom" } } });
+
+    await act(async () => {
+      render(<TemplatesSection />);
+    });
+
+    expect(screen.queryByText("No custom templates yet.")).toBeNull();
+    expect(screen.getByText("Couldn't load your templates.")).toBeTruthy();
+    expect(screen.getByText("Try again")).toBeTruthy();
+  });
+
+  it("recovers the list when Try again succeeds", async () => {
+    // A route table is fixed once installed, so the second outcome comes from
+    // re-installing the stub between the two loads.
+    const first = installFakeFetch({ [LIST_ROUTE]: { status: 500, body: {} } });
+    await act(async () => {
+      render(<TemplatesSection />);
+    });
+    expect(screen.getByText("Couldn't load your templates.")).toBeTruthy();
+    expect(first.countOf(LIST_ROUTE)).toBe(1);
+
+    const second = installFakeFetch({ [LIST_ROUTE]: { body: { templates: [template()] } } });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Try again"));
+    });
+
+    expect(screen.getByText("Job referral request")).toBeTruthy();
+    expect(screen.queryByText("Couldn't load your templates.")).toBeNull();
+    expect(second.countOf(LIST_ROUTE)).toBe(1);
   });
 });

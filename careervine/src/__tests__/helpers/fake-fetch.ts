@@ -9,28 +9,35 @@
  *     as unknown as typeof fetch;
  *
  * That cast is load-bearing, which is the tell: the literal is not a Response
- * and nothing typechecks it against one. It usually carries no `status`, so
- * `res.status` reads `undefined`. That was survivable while call sites only
- * branched on `res.ok`, and stops being survivable now that mutations go
- * through `apiSend` (`src/lib/api-client.ts`): its failure path reads
- * `res.status` AND `await res.json()` to build the `ApiRequestError` that
- * carries the route's curated message. Asserted against a hand-rolled stub,
- * a test proves the stub.
+ * and nothing typechecks it against one. Most instances carry no `status` (a
+ * few, like calendar-page.test.tsx, do), so `res.status` commonly reads
+ * `undefined`. That was survivable while call sites only branched on `res.ok`,
+ * and stops being survivable now that mutations go through `apiSend`
+ * (`src/lib/api-client.ts`): its failure path reads `res.status` AND
+ * `await res.json()` to build the `ApiRequestError` that carries the route's
+ * curated message. Asserted against a hand-rolled stub, a test proves the stub.
  *
- * The jsdom environment supplies undici's `Response` as a global (verified,
- * not assumed), so a fixture can be the real thing and `ok` / `status` /
- * `json()` behave exactly as they do in the browser.
+ * `Response` here is Node's undici class, not jsdom's — jsdom defines no
+ * `Response` at all. Vitest's jsdom environment only overrides the globals in
+ * its own key list, which `Response` and `fetch` are not on, so Node's survive
+ * and `ok` / `status` / `json()` behave exactly as they do in the browser.
  *
  * ── Why routed, and why an unrouted call is an error ─────────────────────
  *
  * A catch-all fake that answers every URL with `{}` lets a component fetch
- * the WRONG endpoint and still pass. Routes are declared per `"METHOD /url"`,
- * an unrouted request throws a named error, and `unmatched` records it so the
- * miss is visible even when the component under test swallows the rejection.
+ * the WRONG endpoint and still pass. Routes are declared per `"METHOD /url"`
+ * and an unrouted request throws.
+ *
+ * That throw alone is NOT a loud failure: the handlers this helper exists to
+ * test swallow rejections (a bare `.catch(() => {})`, or `withToastOnError`),
+ * so a miss can masquerade as the failure under test. `unmatched` exists for
+ * exactly that reason — assert it is empty, or assert `countOf` on the route
+ * you injected, so a wrong endpoint cannot pass silently.
  *
  * Installed through `vi.stubGlobal`, so `vi.unstubAllGlobals()` restores the
- * real `fetch`; a direct `global.fetch =` assignment leaks the stub into every
- * later file sharing the worker.
+ * real `fetch`. Vitest isolates modules per file by default, so a bare
+ * `global.fetch =` assignment does not leak across files, but it does leak
+ * across tests WITHIN a file, which is enough reason to prefer the stub.
  *
  *   const http = installFakeFetch({
  *     "GET /api/things": { body: { things: [] } },
@@ -38,6 +45,7 @@
  *   });
  *   // ...exercise the component...
  *   expect(http.countOf("DELETE /api/things/7")).toBe(1);
+ *   expect(http.unmatched).toEqual([]);
  *
  * Pair with `afterEach(() => vi.unstubAllGlobals())`.
  */
@@ -59,24 +67,56 @@ export interface FakeRoute {
 /** Routes keyed by `"METHOD /url"`, e.g. `"DELETE /api/gmail/templates/3"`. */
 export type FakeRoutes = Record<string, FakeRoute>;
 
+/** One captured request, so a test can assert on more than the URL. */
+export interface RecordedRequest {
+  /** The `"METHOD /url"` routing key. */
+  key: string;
+  method: string;
+  /** Path plus query, normalized (never the origin). */
+  url: string;
+  init?: RequestInit;
+}
+
 export interface FakeFetch {
   /** Every `"METHOD /url"` issued, in order. */
   readonly calls: string[];
+  /** The same requests with their init, for asserting headers and payloads. */
+  readonly requests: RecordedRequest[];
   /** Requests with no declared route. Non-empty means an unexpected URL. */
   readonly unmatched: string[];
   /** How many times one `"METHOD /url"` was issued. */
   countOf(key: string): number;
+  /**
+   * The parsed JSON body of the last request matching `key`, for asserting
+   * what a mutation actually sent. Undefined when the request carried no body.
+   */
+  bodyOf(key: string): unknown;
 }
 
-function requestKey(input: RequestInfo | URL, init?: RequestInit): string {
-  const url =
+/**
+ * Only ever used to resolve a relative URL so `pathname`/`search` can be read
+ * back. `Request.url` and `URL.toString()` are always absolute, so without
+ * this a caller passing either could never match a `"METHOD /path"` route.
+ */
+const RELATIVE_BASE = "http://localhost";
+
+function normalizeUrl(raw: string): string {
+  const parsed = new URL(raw, RELATIVE_BASE);
+  return `${parsed.pathname}${parsed.search}`;
+}
+
+function describeRequest(input: RequestInfo | URL, init?: RequestInit): RecordedRequest {
+  const raw =
     typeof input === "string"
       ? input
       : input instanceof URL
         ? input.toString()
         : input.url;
-  const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
-  return `${method} ${url}`;
+  const method = (
+    init?.method ?? (input instanceof Request ? input.method : "GET")
+  ).toUpperCase();
+  const url = normalizeUrl(raw);
+  return { key: `${method} ${url}`, method, url, init };
 }
 
 /**
@@ -85,18 +125,20 @@ function requestKey(input: RequestInfo | URL, init?: RequestInit): string {
  */
 export function installFakeFetch(routes: FakeRoutes): FakeFetch {
   const calls: string[] = [];
+  const requests: RecordedRequest[] = [];
   const unmatched: string[] = [];
 
   const impl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const key = requestKey(input, init);
-    calls.push(key);
+    const record = describeRequest(input, init);
+    calls.push(record.key);
+    requests.push(record);
 
-    const route = routes[key];
+    const route = routes[record.key];
     if (!route) {
-      unmatched.push(key);
+      unmatched.push(record.key);
       const declared = Object.keys(routes);
       throw new Error(
-        `installFakeFetch: no route for "${key}". Declared: ${declared.length ? declared.join(", ") : "(none)"}`,
+        `installFakeFetch: no route for "${record.key}". Declared: ${declared.length ? declared.join(", ") : "(none)"}`,
       );
     }
 
@@ -116,7 +158,13 @@ export function installFakeFetch(routes: FakeRoutes): FakeFetch {
 
   return {
     calls,
+    requests,
     unmatched,
     countOf: (key: string) => calls.filter((c) => c === key).length,
+    bodyOf: (key: string) => {
+      const last = [...requests].reverse().find((r) => r.key === key);
+      const raw = last?.init?.body;
+      return typeof raw === "string" ? JSON.parse(raw) : undefined;
+    },
   };
 }

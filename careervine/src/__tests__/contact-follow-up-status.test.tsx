@@ -116,7 +116,7 @@ describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
   });
 
   it("keeps the sequence active and toasts when the route answers 500", async () => {
-    await renderAndCancel({
+    const http = await renderAndCancel({
       status: 500,
       body: { error: "Something went wrong" },
     });
@@ -124,16 +124,22 @@ describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
     expect(screen.getByText("1 of 2 sent")).toBeTruthy();
     expect(screen.queryByText("Cancelled")).toBeNull();
     expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    // Without this the toast assertion would also be satisfied by the harness's
+    // own "no route" throw, i.e. by never reaching the 500 at all.
+    expect(http.unmatched).toEqual([]);
+    expect(http.countOf(CANCEL_ROUTE)).toBe(1);
   });
 
   it("keeps the sequence active and toasts when the request never lands", async () => {
     // The only failure the original bare try/catch could observe. It must stay
     // covered now that the check moved into apiSend.
-    await renderAndCancel({ reject: new TypeError("Failed to fetch") });
+    const http = await renderAndCancel({ reject: new TypeError("Failed to fetch") });
 
     expect(screen.getByText("1 of 2 sent")).toBeTruthy();
     expect(screen.queryByText("Cancelled")).toBeNull();
     expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    expect(http.unmatched).toEqual([]);
+    expect(http.countOf(CANCEL_ROUTE)).toBe(1);
   });
 
   it("marks the sequence cancelled exactly once on a 2xx, with no toast", async () => {
@@ -146,5 +152,49 @@ describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
     expect(h.toastError).not.toHaveBeenCalled();
     expect(http.countOf(CANCEL_ROUTE)).toBe(1);
     expect(http.unmatched).toEqual([]);
+    // A successful cancel trusts its own optimistic update; no refetch.
+    expect(http.countOf(LIST_ROUTE)).toBe(1);
+  });
+
+  it("re-syncs the list after a refused cancel", async () => {
+    // The load effect's deps never change again, so without a re-sync a row the
+    // server refused to cancel would keep offering a Cancel button forever.
+    const http = await renderAndCancel({ status: 404, body: { error: "gone" } });
+
+    expect(http.countOf(LIST_ROUTE)).toBe(2);
+    expect(http.unmatched).toEqual([]);
+  });
+});
+
+describe("ContactFollowUpStatus — failed load (CAR-183)", () => {
+  beforeEach(() => {
+    h.toastError.mockClear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("offers a retry instead of rendering nothing when the list fails to load", async () => {
+    // Unchecked, a non-2xx left `sequences` empty and the card returned null,
+    // so a failed read looked identical to "this contact has no follow-ups".
+    installFakeFetch({ [LIST_ROUTE]: { status: 500, body: { error: "boom" } } });
+
+    await act(async () => {
+      render(<ContactFollowUpStatus contactId={CONTACT_ID} />);
+    });
+
+    expect(screen.getByText("Couldn't load follow-up sequences.")).toBeTruthy();
+    expect(screen.getByText("Try again")).toBeTruthy();
+  });
+
+  it("renders nothing when the contact genuinely has no sequences", async () => {
+    // The empty state must stay invisible: only a FAILED read earns the card.
+    installFakeFetch({ [LIST_ROUTE]: { body: { sequences: [] } } });
+
+    const { container } = render(<ContactFollowUpStatus contactId={CONTACT_ID} />);
+    await act(async () => {});
+
+    expect(container.textContent).toBe("");
   });
 });
