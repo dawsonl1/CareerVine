@@ -179,6 +179,7 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
     }
   };
 
+  // reentry-safe: useConfirm() supersedes a pending question synchronously, so a second click resolves the first false and returns before the DELETE
   const handleRemove = async () => {
     // The only one of the twelve confirms whose copy is not a string literal:
     // it comes from the per-provider config, which is why ConfirmDialog takes a

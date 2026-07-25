@@ -6,6 +6,8 @@
  * promise for a full sync regardless of contact count.
  */
 
+import { apiFetch, jsonBody } from "@/lib/api-client";
+
 export interface FullSyncResult {
   totalSynced: number;
   failedContacts: number;
@@ -23,15 +25,14 @@ export async function runFullGmailSync(): Promise<FullSyncResult> {
   let bounced = 0;
 
   for (let pass = 0; pass < MAX_PASSES; pass++) {
-    const res = await fetch("/api/gmail/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cursor === undefined ? {} : { cursor }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || "Sync failed");
-    }
+    // apiFetch throws ApiRequestError with the route's own `error` message on
+    // a non-2xx, so the explicit !res.ok branch this replaced is now implicit.
+    const data = await apiFetch<{
+      totalSynced?: number;
+      failedContacts?: number;
+      bounced?: number;
+      nextCursor?: number | null;
+    }>("/api/gmail/sync", jsonBody(cursor === undefined ? {} : { cursor }));
 
     totalSynced += data.totalSynced ?? 0;
     failedContacts += data.failedContacts ?? 0;

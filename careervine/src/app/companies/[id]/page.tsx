@@ -9,6 +9,7 @@ import Navigation from "@/components/navigation";
 import { useCompose } from "@/components/compose-email-context";
 import { PipelineLayout } from "@/components/companies/pipeline/pipeline-layout";
 import { usePipelineAutosave } from "@/hooks/use-pipeline-autosave";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 import { fetchCompanyScopes, type LocationTabsData } from "@/lib/company-scopes";
 import { loadPipeline, type LoadedPipeline } from "@/lib/pipeline-queries";
 import {
@@ -53,14 +54,23 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
   // Bench contacts with an unactioned job-change event (plan 29 Q5 hint)
   const [jobChangeIds, setJobChangeIds] = useState<Set<number>>(new Set());
 
+  // `load` is re-invoked after every tier move, so two of them can be in flight
+  // at once and the slower one lands last, reverting the roster to its
+  // pre-mutation state and clearing the spinner early. `tabs`/`target`/`loaded`
+  // also feed usePipelineAutosave, so a stale commit is not only a display
+  // problem (CAR-190 review).
+  const loadRequest = useLatestRequest();
+
   const load = useCallback(async () => {
     if (!user || Number.isNaN(companyId)) return;
+    const token = loadRequest.begin();
     setLoading(true);
     try {
       const [scopes, pipeline] = await Promise.all([
         fetchCompanyScopes(user.id, companyId),
         loadPipeline(user.id, companyId),
       ]);
+      if (!loadRequest.isLatest(token)) return;
       setCompany(scopes.company);
       setTabs(scopes.tabs);
       setOffices(scopes.offices);
@@ -69,14 +79,17 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
       setLoaded(pipeline);
       // Best-effort job-change hint data — never blocks the page
       getFreshJobChangeContactIds(scopes.tabs.all.bench.map((p) => p.contact_id))
-        .then(setJobChangeIds)
+        .then((ids) => {
+          if (loadRequest.isLatest(token)) setJobChangeIds(ids);
+        })
         .catch(() => {});
     } catch {
+      if (!loadRequest.isLatest(token)) return;
       setNotFound(true);
     } finally {
-      setLoading(false);
+      if (loadRequest.isLatest(token)) setLoading(false);
     }
-  }, [user, companyId]);
+  }, [user, companyId, loadRequest]);
 
   useEffect(() => {
     // load() catches its own failures into the not-found state
