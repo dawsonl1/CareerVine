@@ -280,6 +280,28 @@ all honour. Worked examples: `careervine/src/hooks/use-portal-dropdown.ts` and
 Both rules are adopted by every current call site, so unlike the paragraph above
 they are descriptive rather than forward-looking.
 
+Every dialog surface registers as a dismissal layer with `useDialogLayer()` from
+`careervine/src/components/ui/modal.tsx` (CAR-202). Escape is a document-level
+event, so without a topmost check one keypress dismisses every open layer, and a
+per-dialog scroll lock releases the page under whatever is still open. The hook
+answers "am I topmost" at *event* time rather than effect time, since a layer stops
+being topmost the moment another opens above it and nothing re-runs its effect; it
+also owns the body scroll lock for the stack as a whole. Adopted by `Modal`,
+`ConfirmDialog` and all three hand-rolled full-screen modals
+(`careervine/src/components/compose-email-modal.tsx`,
+`careervine/src/components/follow-up-modal.tsx`,
+`careervine/src/components/conversation-modal/index.tsx`), so on dismissal at least,
+the hand-rolled dialogs the paragraph above calls out behave like the real ones. The
+one exception is a dialog rendered *inside* another as its confirmation step, which
+must not register: the parent's handler already dismisses it, and registering would
+make the parent non-topmost and that branch unreachable.
+
+`<Select>` and `<MonthYearPicker>` take an `ariaLabel` naming the field (CAR-201).
+Both render their trigger as a `<button>`, which no visible `<label>` can be
+associated with, so without one the accessible name is the trigger's own text —
+which, once a value is chosen, is the value. A screen reader user then hears the
+value with no way to tell which field they are on.
+
 A subtree that can independently fail gets wrapped in
 `careervine/src/components/ui/section-boundary.tsx` so a render throw shows a
 retryable panel in that subtree's frame instead of unmounting the page. Do not
@@ -302,16 +324,22 @@ only, never a rejected promise in a handler; that is the contract above.
   `careervine/src/components/ui/confirm-dialog.tsx`,
   `careervine/src/lib/api-client.ts`, and
   `careervine/src/components/ui/section-boundary.tsx` (headers)
-- Enforced: `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw
-  event-name prefix outside the module. It is the only rule here whose *adoption* is
-  mechanically checked. Two more have behavior coverage without an adoption check:
-  `careervine/src/__tests__/modal.test.tsx` covers the focus trap and dialog
-  semantics, and `careervine/src/__tests__/error-boundaries.test.tsx` pins the
+- Enforced: two rules have their *adoption* mechanically checked.
+  `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw event-name
+  prefix outside the module, and `careervine/src/__tests__/select-aria-label.test.ts`
+  scans source and fails on any `<Select>` or `<MonthYearPicker>` call site with no
+  `ariaLabel` — that one is a source scan rather than a render test because a missing
+  accessible name changes nothing on screen and so survives sighted review. Three more
+  have behavior coverage without an adoption check: `modal.test.tsx` covers the focus
+  trap and dialog semantics, `careervine/src/__tests__/dialog-layer.test.tsx` covers
+  the layer stack (topmost-only Escape, shared scroll lock, and the nested-confirmation
+  exception), and `careervine/src/__tests__/error-boundaries.test.tsx` pins the
   boundary behaviors, including the `notFound()` re-throw that rules out a
   hand-rolled class, plus source tripwires holding the three existing adoption sites
-  to their `key` and `onReset`. Nothing requires a NEW modal to use `modal.tsx` or a
-  NEW failure-prone subtree to be wrapped. The remaining two rules
-  (`useLatestRequest` and the double-submit guard) have no coverage at all.
+  to their `key` and `onReset`. Nothing requires a NEW modal to use `modal.tsx`, a NEW
+  dialog to register a layer, or a NEW failure-prone subtree to be wrapped. The
+  remaining two rules (`useLatestRequest` and the double-submit guard) have no
+  coverage at all.
 - Enforced (mutation contract, CAR-188): behavior only, not adoption. Zero raw
   `fetch(` and zero `window.confirm` remain under `careervine/src/components`,
   `careervine/src/hooks`, and `careervine/src/app` outside the API routes, but

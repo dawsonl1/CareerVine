@@ -11,6 +11,25 @@ afterEach(() => {
 
 const escape = () => fireEvent.keyDown(document.body, { key: "Escape" });
 
+/** A Modal with a focusable child, so the trap has somewhere real to land. */
+function Layer({
+  title,
+  isOpen = true,
+  onClose = vi.fn(),
+  hasUnsavedChanges = false,
+}: {
+  title: string;
+  isOpen?: boolean;
+  onClose?: () => void;
+  hasUnsavedChanges?: boolean;
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title} hasUnsavedChanges={hasUnsavedChanges}>
+      <button type="button">{title} field</button>
+    </Modal>
+  );
+}
+
 /**
  * CAR-202. Every dialog in this app listens for Escape on document/window, and a
  * document-level listener fires for every layer regardless of which is on top, so one
@@ -26,8 +45,8 @@ describe("stacked Modals", () => {
     const closeInner = vi.fn();
     render(
       <>
-        <Modal isOpen onClose={closeOuter} title="Outer" />
-        <Modal isOpen onClose={closeInner} title="Inner" />
+        <Layer title="Outer" onClose={closeOuter} />
+        <Layer title="Inner" onClose={closeInner} />
       </>,
     );
 
@@ -41,15 +60,15 @@ describe("stacked Modals", () => {
     const closeOuter = vi.fn();
     const { rerender } = render(
       <>
-        <Modal isOpen onClose={closeOuter} title="Outer" />
-        <Modal isOpen onClose={vi.fn()} title="Inner" />
+        <Layer title="Outer" onClose={closeOuter} />
+        <Layer title="Inner" />
       </>,
     );
 
     rerender(
       <>
-        <Modal isOpen onClose={closeOuter} title="Outer" />
-        <Modal isOpen={false} onClose={vi.fn()} title="Inner" />
+        <Layer title="Outer" onClose={closeOuter} />
+        <Layer title="Inner" isOpen={false} />
       </>,
     );
     escape();
@@ -60,8 +79,8 @@ describe("stacked Modals", () => {
   it("holds the scroll lock while any layer is open and releases it on the last", () => {
     const { rerender } = render(
       <>
-        <Modal isOpen onClose={vi.fn()} title="Outer" />
-        <Modal isOpen onClose={vi.fn()} title="Inner" />
+        <Layer title="Outer" />
+        <Layer title="Inner" />
       </>,
     );
     expect(document.body.style.overflow).toBe("hidden");
@@ -69,16 +88,16 @@ describe("stacked Modals", () => {
     // The inner one closing used to unlock the page under the outer one.
     rerender(
       <>
-        <Modal isOpen onClose={vi.fn()} title="Outer" />
-        <Modal isOpen={false} onClose={vi.fn()} title="Inner" />
+        <Layer title="Outer" />
+        <Layer title="Inner" isOpen={false} />
       </>,
     );
     expect(document.body.style.overflow).toBe("hidden");
 
     rerender(
       <>
-        <Modal isOpen={false} onClose={vi.fn()} title="Outer" />
-        <Modal isOpen={false} onClose={vi.fn()} title="Inner" />
+        <Layer title="Outer" isOpen={false} />
+        <Layer title="Inner" isOpen={false} />
       </>,
     );
     expect(document.body.style.overflow).toBe("");
@@ -87,10 +106,10 @@ describe("stacked Modals", () => {
   it("restores whatever overflow the page had, rather than assuming 'unset'", () => {
     document.body.style.overflow = "scroll";
 
-    const { rerender } = render(<Modal isOpen onClose={vi.fn()} title="Only" />);
+    const { rerender } = render(<Layer title="Only" />);
     expect(document.body.style.overflow).toBe("hidden");
 
-    rerender(<Modal isOpen={false} onClose={vi.fn()} title="Only" />);
+    rerender(<Layer title="Only" isOpen={false} />);
 
     expect(document.body.style.overflow).toBe("scroll");
   });
@@ -105,9 +124,7 @@ describe("stacked Modals", () => {
 describe("ConfirmDialog over a Modal", () => {
   const stack = (onModalClose: () => void, onCancel: () => void) => (
     <>
-      <Modal isOpen onClose={onModalClose} title="Edit contact">
-        <button type="button">Delete</button>
-      </Modal>
+      <Layer title="Edit contact" onClose={onModalClose} />
       <ConfirmDialog message="Delete this contact?" onConfirm={vi.fn()} onCancel={onCancel} />
     </>
   );
@@ -129,9 +146,7 @@ describe("ConfirmDialog over a Modal", () => {
     // own confirm dialog *underneath* the one already up, stacking two alertdialogs.
     render(
       <>
-        <Modal isOpen onClose={vi.fn()} title="Edit contact" hasUnsavedChanges>
-          <button type="button">Delete</button>
-        </Modal>
+        <Layer title="Edit contact" hasUnsavedChanges />
         <ConfirmDialog message="Delete this contact?" onConfirm={vi.fn()} onCancel={vi.fn()} />
       </>,
     );
@@ -145,7 +160,7 @@ describe("ConfirmDialog over a Modal", () => {
     const { rerender } = render(stack(vi.fn(), vi.fn()));
     expect(document.body.style.overflow).toBe("hidden");
 
-    rerender(<Modal isOpen onClose={vi.fn()} title="Edit contact" />);
+    rerender(<Layer title="Edit contact" />);
 
     expect(document.body.style.overflow).toBe("hidden");
   });
@@ -160,11 +175,7 @@ describe("ConfirmDialog over a Modal", () => {
 describe("Modal's own discard confirmation", () => {
   it("still answers Escape through the Modal's handler", () => {
     const onClose = vi.fn();
-    render(
-      <Modal isOpen onClose={onClose} title="Edit contact" hasUnsavedChanges>
-        <button type="button">field</button>
-      </Modal>,
-    );
+    render(<Layer title="Edit contact" onClose={onClose} hasUnsavedChanges />);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.getByRole("alertdialog")).toBeTruthy();
 
@@ -176,11 +187,7 @@ describe("Modal's own discard confirmation", () => {
   });
 
   it("does not double-count the scroll lock when it opens and closes", () => {
-    render(
-      <Modal isOpen onClose={vi.fn()} title="Edit contact" hasUnsavedChanges>
-        <button type="button">field</button>
-      </Modal>,
-    );
+    render(<Layer title="Edit contact" hasUnsavedChanges />);
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     escape();

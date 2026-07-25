@@ -115,8 +115,27 @@ CAR-201 would otherwise have to label.
 - `modal.test.tsx` — `ConfirmDiscardDialog` still answers Escape through the Modal.
 - Falsify each: revert the fix, confirm the intended test goes red.
 
+## Also fixed while in these files
+
+- `select.tsx` keyed its options by `option.value`. The pipeline scope Select can list
+  two options with the same value, and React then reuses one node for both — the exact
+  duplicate-value case `select.test.tsx` already pins. Keyed by index now.
+- `CONVENTIONS.md` gains both new contracts (register a dialog layer; name a Select),
+  and its "Enforced" bullet goes from one mechanically-checked adoption rule to two.
+
 ## Verify
 
-`npm run test`, `npm run build`, `tsc --noEmit`, `eslint` from `careervine/`.
-Browser check for the picker, since jsdom has no layout: real graduation values render,
-the grid highlights the right month, and the page behind a stacked dialog stays put.
+`npm run test` (2,613 passing), `npm run build`, `tsc --noEmit` (0 errors, cold per
+rule 48) and `eslint`, all from `careervine/`.
+
+Falsified rather than assumed: each fix was patched back out and the intended tests
+confirmed red — the `parseInt` parse (11 red), one removed `ariaLabel` (1 red), the
+missing topmost check (3 red), and a per-layer scroll release (6 red).
+
+**Not done: the browser pass this plan originally committed to.** The preview server
+pins to the session's launch directory, which is a different worktree, so it served a
+checkout without these changes and `EnterWorktree` did not move it. What that leaves
+unverified is narrow — the Clear button's placement inside the popup, and background
+scroll actually being blocked. The scroll lock itself is the same
+`body.style.overflow = "hidden"` `Modal` has used in production all along; only the
+release *timing* changed, and that is what the jsdom tests pin.
