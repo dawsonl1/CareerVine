@@ -18,7 +18,8 @@ still exists, so a rename turns this file red instead of quietly stale.
 Each section says whether its rules have a mechanical guard or rest on review.
 Five do. Independently of them, CI runs typecheck, ESLint at zero warnings, the
 Next build, the MCP typecheck, a Supabase types-drift check, an extension-bundle
-freshness check, and the convention-guard script (`npm run check:conventions`).
+freshness check, a unit-test coverage gate (§h), and the convention-guard script
+(`npm run check:conventions`).
 
 ---
 
@@ -208,9 +209,16 @@ separate from the boolean UI state because a state update is async and would not
 block a fast second click.
 
 New modals use `careervine/src/components/ui/modal.tsx`, which provides the scrim,
-escape handling, body scroll lock, and the unsaved-changes guard. It does not
-provide a focus trap. Adoption is currently even with hand-rolled dialogs, so this
-rule is forward-looking rather than descriptive.
+escape handling, body scroll lock, the unsaved-changes guard, and a focus trap
+(CAR-185). The trap moves focus into the dialog on open, cycles Tab and Shift+Tab
+at the edges, and restores focus to the trigger on close; the surface carries
+`role="dialog"` and `aria-modal`, named by the title or by the `ariaLabel` prop
+when a modal has no visible title. The unsaved-changes dialog is a second dialog
+and traps separately. Read the file header before extending it: the tabbable
+filter deliberately avoids layout checks, because jsdom has no layout and the
+usual `offsetParent` filter disarms the trap under test while still reading as
+correct. Adoption is currently even with hand-rolled dialogs, so this rule is
+forward-looking rather than descriptive.
 
 A subtree that can independently fail gets wrapped in
 `careervine/src/components/ui/section-boundary.tsx` so a render throw shows a
@@ -229,13 +237,20 @@ error tracker gets wired (none is installed today). Boundaries catch render thro
 only, never a rejected promise in a handler; that is the contract above.
 
 - Authoritative: `careervine/src/lib/ui-events.ts`,
-  `careervine/src/hooks/use-latest-request.ts` and
+  `careervine/src/hooks/use-latest-request.ts`,
+  `careervine/src/components/ui/modal.tsx`, and
   `careervine/src/components/ui/section-boundary.tsx` (headers)
 - Enforced: `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw
-  event-name prefix outside the module. `careervine/src/__tests__/error-boundaries.test.tsx`
-  pins the boundary behaviors, including the `notFound()` re-throw that rules out a
-  hand-rolled class, but nothing checks that a failure-prone subtree actually got
-  wrapped. The other five rules are not enforced at all.
+  event-name prefix outside the module. It is the only rule here whose *adoption* is
+  mechanically checked. Two more have behavior coverage without an adoption check:
+  `careervine/src/__tests__/modal.test.tsx` covers the focus trap and dialog
+  semantics, and `careervine/src/__tests__/error-boundaries.test.tsx` pins the
+  boundary behaviors, including the `notFound()` re-throw that rules out a
+  hand-rolled class, plus source tripwires holding the three existing adoption sites
+  to their `key` and `onReset`. Nothing requires a NEW modal to use `modal.tsx` or a
+  NEW failure-prone subtree to be wrapped. The remaining three rules
+  (`useLatestRequest`, optimistic-write rollback, and the double-submit guard) have
+  no coverage at all.
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 
@@ -299,10 +314,23 @@ conformance for every constants.ts vocabulary, and the account-deletion
 cascade. Do not port mocked tests into it; the mocked suite stays
 authoritative for logic. CI runs it as the separate `integration` job.
 
+Coverage is a gate rather than a report (CAR-186). `npm run test:coverage`, and
+the CI `web` job which runs the suite with `--coverage`, measure
+`careervine/src/lib` and `careervine/src/hooks` only. Two kinds of regression
+fail it: global percentage floors catch broad erosion, and per-area "maximum
+uncovered units" budgets catch newly added untested code, which a percentage
+cannot — one new module is far too small to move the ratio of a corpus this size
+past any usable buffer. `careervine/src/components` and `careervine/src/app` are
+deliberately unmeasured, because a line number there rewards
+render-and-assert-nothing tests; the browser tier owns them. Every threshold's
+measured baseline is recorded beside it in the config.
+
 - Authoritative: `careervine/vitest.config.ts`,
   `careervine/vitest.integration.config.ts` (header), the header of each
   helper, and `careervine/src/__integration__/helpers/stack.ts` (header)
 - Enforced (integration tier): the completeness guard in
-  `careervine/src/__integration__/rls-tenant-isolation.itest.ts`. The unit
-  tier's conventions are not mechanically enforced; the backstop is the suite
-  itself passing.
+  `careervine/src/__integration__/rls-tenant-isolation.itest.ts`
+- Enforced (coverage): the thresholds in `careervine/vitest.config.ts`, run by
+  the `web` job in `.github/workflows/ci.yml`. The unit tier's remaining
+  conventions (harness reuse, per-file environment opt-in) are not mechanically
+  enforced; the backstop is the suite itself passing.

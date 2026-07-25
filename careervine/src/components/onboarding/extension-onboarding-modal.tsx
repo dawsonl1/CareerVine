@@ -313,7 +313,7 @@ export function ExtensionOnboardingModal() {
   const chromeOk = isChromeLike();
 
   return (
-    <Modal isOpen={isOpen} onClose={close} size="lg">
+    <Modal isOpen={isOpen} onClose={close} size="lg" ariaLabel="Chrome extension setup">
       <div className="relative px-2 pb-2">
         {/* Close — progress persists server-side; the to-do reopens the flow */}
         <button
