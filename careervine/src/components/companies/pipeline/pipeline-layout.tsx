@@ -1011,6 +1011,7 @@ function RecruitingPanel({
     <div className="w-full rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-4 space-y-4">
         <FieldRow label={isCompanyScope ? "Company status" : "Location status"}>
           <Select
+            ariaLabel={isCompanyScope ? "Company status" : "Location status"}
             value={targeted ? "target" : "none"}
             onChange={(v) => onTargetChange(v === "target")}
             options={
@@ -1284,6 +1285,7 @@ export function PipelineLayout({
         <div className="w-full sm:w-56 shrink-0">
           <FieldRow label="Location">
             <Select
+              ariaLabel="Location"
               value={scope}
               onChange={onScopeChange}
               options={scopeOptions}

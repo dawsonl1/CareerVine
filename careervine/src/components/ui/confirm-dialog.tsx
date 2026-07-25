@@ -40,7 +40,7 @@
  */
 
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
-import { useFocusTrap } from "@/components/ui/modal";
+import { useDialogLayer, useFocusTrap } from "@/components/ui/modal";
 
 export interface ConfirmOptions {
   /** The question. Required: one call site's copy is config-driven, not literal. */
@@ -75,14 +75,21 @@ export function ConfirmDialog({
   const titleId = useId();
   const messageId = useId();
   const { surfaceRef, onKeyDown } = useFocusTrap(true);
+  /**
+   * This dialog is the reachable half of CAR-202: several call sites `confirm()` from
+   * *inside* an open `Modal` (Edit Contact → Delete is the live one), and before the
+   * layer stack that Escape cancelled the delete and dismissed the modal behind it in
+   * the same keypress. Registering also gives it the scroll lock it never had.
+   */
+  const isTopLayer = useDialogLayer(true);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape" && isTopLayer()) onCancel();
     };
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [onCancel]);
+  }, [onCancel, isTopLayer]);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">

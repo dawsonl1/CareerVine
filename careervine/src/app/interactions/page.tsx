@@ -153,6 +153,7 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
                   <label className={labelClasses}>Type *</label>
                   <Select
                     required
+                    ariaLabel="Interaction type"
                     value={formData.interaction_type}
                     onChange={(val) => setFormData({ ...formData, interaction_type: val })}
                     placeholder="Select…"

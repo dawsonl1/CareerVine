@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ContactPicker } from "@/components/ui/contact-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
-import { ConfirmDiscardDialog } from "@/components/ui/modal";
+import { ConfirmDiscardDialog, useDialogLayer } from "@/components/ui/modal";
 import {
   createMeeting,
   updateMeeting,
@@ -129,11 +129,16 @@ export function ConversationModal() {
     }
   }, [hasUnsavedChanges, closeAndCleanup]);
 
-  // Close on Escape
+  // Close on Escape. One layer covers this surface and its ConfirmDiscardDialog, the
+  // same arrangement Modal uses: the branch below is what dismisses the inner one, so
+  // registering that separately would make this handler non-topmost and unreachable
+  // (CAR-202). The scroll lock comes with the registration.
+  const isTopLayer = useDialogLayer(isOpen);
+
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && isTopLayer()) {
         if (showConfirmDiscard) {
           setShowConfirmDiscard(false);
         } else {
@@ -143,7 +148,7 @@ export function ConversationModal() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, attemptClose, showConfirmDiscard]);
+  }, [isOpen, attemptClose, showConfirmDiscard, isTopLayer]);
 
   // Reset form when opened
   useEffect(() => {

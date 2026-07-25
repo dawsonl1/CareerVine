@@ -184,6 +184,7 @@ function CompaniesPage() {
           </div>
 
           <Select
+            ariaLabel="Sort companies"
             value={sort}
             onChange={(v) => setSort(v as CompanySort)}
             options={[

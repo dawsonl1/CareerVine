@@ -410,6 +410,7 @@ export function ContactActionsTab({
                     onChange={setNewPriority}
                     options={PRIORITY_OPTIONS}
                     placeholder="No priority"
+                    ariaLabel="Priority"
                   />
                 </div>
               </div>
@@ -417,6 +418,7 @@ export function ContactActionsTab({
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1.5">Link to meeting</label>
                   <Select
+                    ariaLabel="Link to meeting"
                     value={String(newMeetingId ?? "")}
                     onChange={(val) => setNewMeetingId(val ? Number(val) : null)}
                     placeholder="No linked meeting"

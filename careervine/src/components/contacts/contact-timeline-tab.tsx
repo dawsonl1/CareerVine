@@ -243,6 +243,7 @@ export function ContactTimelineTab({
                 <div>
                   <label className={labelClasses}>Type *</label>
                   <Select
+                    ariaLabel="Interaction type"
                     value={interactionForm.interaction_type}
                     onChange={(val) => setInteractionForm({ ...interactionForm, interaction_type: val })}
                     placeholder="Select..."
