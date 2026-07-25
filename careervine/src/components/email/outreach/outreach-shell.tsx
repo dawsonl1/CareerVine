@@ -34,19 +34,15 @@ import DOMPurify from "dompurify";
 import { useCapabilities } from "@/hooks/use-capabilities";
 import { PremiumUpgradeBanner } from "@/components/email/premium-upgrade-banner";
 import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
+import type { InferApiResponse } from "@/lib/api-handler";
+import type { GET as InboxGET } from "@/app/api/gmail/inbox/route";
+import type { GET as DraftsGET } from "@/app/api/gmail/drafts/route";
 
 type OutreachTab = "sent" | "scheduled" | "followups" | "drafts";
 type ContactDetailsMap = Record<number, ContactEmployment>;
 
-/** See use-inbox-data.ts for why this is declared rather than inferred. */
-type OutreachInboxResponse = {
-  success?: boolean;
-  emails?: EmailMessage[];
-  scheduledEmails?: ScheduledEmail[];
-  followUps?: EmailFollowUp[];
-  contactMap?: Record<number, string>;
-  contactDetails?: ContactDetailsMap;
-};
+/** Typed off the route's own handler, so producer and consumer cannot drift. */
+type OutreachInboxResponse = InferApiResponse<typeof InboxGET>;
 
 /** Short "Jul 12" / "Jul 12, 2025" date, safe for a client-only render. */
 function fmtDate(value: string | null | undefined): string {
@@ -130,10 +126,7 @@ export function OutreachShell() {
 
   const loadDrafts = useCallback(async () => {
     try {
-      const data = await apiFetch<{
-        drafts?: EmailDraft[];
-        contactDetails?: Record<number, ContactEmployment>;
-      }>("/api/gmail/drafts");
+      const data = await apiFetch<InferApiResponse<typeof DraftsGET>>("/api/gmail/drafts");
       setDrafts(data.drafts || []);
       if (data.contactDetails) {
         setContactDetails((prev) => ({ ...prev, ...data.contactDetails }));

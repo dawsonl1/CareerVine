@@ -28,21 +28,25 @@ export const GET = withApiHandler({
     if (error) throw error;
     const draftsRaw = data || [];
 
+    // No parameter annotations (CAR-199): naming one field on the callback
+    // parameter meant the `{ ...d }` spread below carried only that field into
+    // the inferred response, so a consumer reading `subject` or `body_html`
+    // through `InferApiResponse<typeof GET>` got a type error on every one.
     const emailToContact = await resolveEmailsToContactIds(
       service,
       user.id,
-      draftsRaw.map((d: { recipient_email?: string | null }) => d.recipient_email),
+      draftsRaw.map((d) => d.recipient_email),
     );
 
-    const drafts = draftsRaw.map((d: { recipient_email?: string | null }) => {
+    const drafts = draftsRaw.map((d) => {
       const matched =
         (d.recipient_email && emailToContact.get(d.recipient_email.toLowerCase())) || null;
       return { ...d, matched_contact_id: matched };
     });
 
     const ids = drafts
-      .map((d: { matched_contact_id?: number | null }) => d.matched_contact_id)
-      .filter((id: number | null | undefined): id is number => id != null);
+      .map((d) => d.matched_contact_id)
+      .filter((id): id is number => id != null);
 
     const contactDetails = await loadContactEmploymentMap(service, user.id, ids);
 

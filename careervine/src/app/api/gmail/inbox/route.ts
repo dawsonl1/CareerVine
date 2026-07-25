@@ -96,11 +96,21 @@ export const GET = withApiHandler({
     // Flatten the junction embed into a contact_ids array (union with the
     // denormalized primary, which covers rows not yet linked), and strip the
     // embed so the row shape stays otherwise identical to before (CAR-169).
-    type EmbeddedRow = Record<string, unknown> & {
-      email_message_contacts?: Array<{ contact_id: number | null }> | null;
-      matched_contact_id?: number | null;
-    };
-    const withContactIds = (rows: EmbeddedRow[] | null | undefined) =>
+    //
+    // Generic over the row rather than taking `Record<string, unknown> & {...}`
+    // (CAR-199). That intersection needed an `as` at all three call sites, and
+    // the index signature did not survive the `{ ...rest }` spread, so the
+    // handler's inferred return said an email message had `contact_ids` and
+    // nothing else. Consumers could not then use `InferApiResponse<typeof GET>`
+    // at all, which is the seam CAR-158 built. Preserving T keeps every column.
+    const withContactIds = <
+      T extends {
+        email_message_contacts?: Array<{ contact_id: number | null }> | null;
+        matched_contact_id?: number | null;
+      },
+    >(
+      rows: T[] | null | undefined,
+    ): Array<Omit<T, "email_message_contacts"> & { contact_ids: number[] }> =>
       (rows || []).map(({ email_message_contacts, ...rest }) => {
         const ids = new Set<number>();
         for (const l of email_message_contacts ?? []) {
@@ -110,9 +120,9 @@ export const GET = withApiHandler({
         return { ...rest, contact_ids: [...ids] };
       });
 
-    const emails = withContactIds(emailsRes.data as EmbeddedRow[]);
-    const trashedEmails = withContactIds(trashedRes.data as EmbeddedRow[]);
-    const hiddenEmails = withContactIds(hiddenRes.data as EmbeddedRow[]);
+    const emails = withContactIds(emailsRes.data);
+    const trashedEmails = withContactIds(trashedRes.data);
+    const hiddenEmails = withContactIds(hiddenRes.data);
     const scheduledEmails = scheduledRes.data || [];
     const followUpsRaw = followUpsRes.data || [];
 
@@ -122,28 +132,27 @@ export const GET = withApiHandler({
     }
 
     // Resolve follow-up (and any scheduled without matched_contact_id) emails → contacts.
+    // No parameter annotations here or below (CAR-199): they named one field
+    // being read, and the cost was that a `{ ...f }` spread then carried only
+    // that field into the response type. The element type comes from the array.
     const emailsNeedingIds = [
-      ...followUpsRaw.map((f: { recipient_email?: string | null }) => f.recipient_email),
-      ...scheduledEmails
-        .filter((s: { matched_contact_id?: number | null }) => !s.matched_contact_id)
-        .map((s: { recipient_email?: string | null }) => s.recipient_email),
+      ...followUpsRaw.map((f) => f.recipient_email),
+      ...scheduledEmails.filter((s) => !s.matched_contact_id).map((s) => s.recipient_email),
     ];
     const emailToContact = await resolveEmailsToContactIds(service, user.id, emailsNeedingIds);
 
-    const followUps = followUpsRaw.map((f: { recipient_email?: string | null }) => {
+    const followUps = followUpsRaw.map((f) => {
       const matched =
         (f.recipient_email && emailToContact.get(f.recipient_email.toLowerCase())) || null;
       return { ...f, matched_contact_id: matched };
     });
 
-    const scheduledEnriched = scheduledEmails.map(
-      (s: { matched_contact_id?: number | null; recipient_email?: string | null }) => {
-        if (s.matched_contact_id) return s;
-        const matched =
-          (s.recipient_email && emailToContact.get(s.recipient_email.toLowerCase())) || null;
-        return matched ? { ...s, matched_contact_id: matched } : s;
-      },
-    );
+    const scheduledEnriched = scheduledEmails.map((s) => {
+      if (s.matched_contact_id) return s;
+      const matched =
+        (s.recipient_email && emailToContact.get(s.recipient_email.toLowerCase())) || null;
+      return matched ? { ...s, matched_contact_id: matched } : s;
+    });
 
     const idSet = new Set<number>();
     // Every attributed contact (all junction links, CAR-169), so co-recipients
