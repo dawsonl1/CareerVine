@@ -55,9 +55,17 @@ export default defineConfig({
       // failure message prints the exact figure to use.
       //
       // BASELINE MEASURED 2026-07-24 on this branch, `npm run test:coverage`,
-      // 249 files / 2,359 tests / 165 source files. Identical output on Node 22
-      // (CI) and Node 26 (local), and byte-stable across four runs except
-      // branches, which drifts +/-1 - hence no threshold sits inside 1 of it.
+      // 249 files / 2,363 tests / 165 source files. Node version is not a factor:
+      // Node 22 and Node 26 agree byte for byte on one machine, and four runs are
+      // stable except branches, which drifts +/-1 locally.
+      //
+      // PLATFORM is a factor, by a little. The first CI run of this config
+      // (linux-x64) reported 68.38 / 61.21 / 65.41 / 71.44 against the
+      // 68.37 / 61.31 / 65.41 / 71.43 measured on darwin-arm64. Statements,
+      // functions and lines land within 0.01; branches is the loose one at 0.10,
+      // roughly seven branches. So branches keeps the slackest floor, and no
+      // threshold here should ever be tightened to within a fraction of a
+      // measured value - leave room for the platform you did not measure on.
       //
       //                    measured        threshold
       //   global      stmt 68.37%          66
