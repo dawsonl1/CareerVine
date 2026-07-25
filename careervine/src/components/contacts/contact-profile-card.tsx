@@ -24,6 +24,7 @@ import {
 import { validateContactPhotoFile } from "@/lib/contact-photo";
 import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import type { Contact } from "@/lib/types";
+import { apiFetch, jsonBody } from "@/lib/api-client";
 
 interface ContactProfileCardProps {
   contact: Contact;
@@ -126,15 +127,11 @@ export function ContactProfileCard({
     if (scraping) return;
     setScraping(true);
     try {
-      const res = await fetch(`/api/contacts/${contact.id}/scrape`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toastError("Couldn't start the refresh");
-      } else if (data.status === "started") {
+      const data = await apiFetch<{ status?: string }>(
+        `/api/contacts/${contact.id}/scrape`,
+        jsonBody({ mode }),
+      );
+      if (data.status === "started") {
         toastSuccess(mode === "email" ? "Searching LinkedIn for an email…" : "Refreshing from LinkedIn…");
       } else if (data.status === "pending") {
         toastSuccess("A refresh is already in progress");

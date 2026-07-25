@@ -201,9 +201,47 @@ Identity-keyed async reads go through `useLatestRequest`: claim a token with
 `begin()` when the request starts, gate the state update on `isLatest(token)`, so
 a slow earlier response cannot overwrite a newer one.
 
+Client code never calls `fetch` directly. Reads go through `apiFetch`, status-only
+mutations through `apiSend` (`careervine/src/lib/api-client.ts`, section a), so a
+non-2xx throws `ApiRequestError` instead of an error body being read as the
+success shape. An interactive handler wraps the call in `withToastOnError`
+(`careervine/src/lib/with-toast-on-error.ts`) and gates its state update on the
+`true` return. That helper takes caller-written copy and deliberately discards
+`ApiRequestError.message`: the route's curated message names the server's
+problem ("Follow-up sequence not found"), the handler's names the user's
+("Couldn't cancel that follow-up sequence"). Surface the server's own message
+only where it is the actionable part, as `settings/provider-key-card.tsx` does
+for a key the provider rejected.
+
 Reversible writes are optimistic with rollback plus a toast on failure;
-irreversible actions get a confirm modal instead. There is no helper, it is
-written per site.
+irreversible actions get a confirm modal instead, via `useConfirm()` in
+`careervine/src/components/ui/confirm-dialog.tsx` rather than `window.confirm`.
+
+A failed load renders a retryable error state, never the load-empty copy: an
+empty list is an affirmative claim about the user's data, and "No email history
+found." over a 500 is a lie the user acts on. `LoadErrorState` and its inline
+sibling `LoadErrorBanner` (`careervine/src/components/ui/load-error-state.tsx`)
+are that state; the banner is for a partial failure beside content worth keeping.
+
+**Load versus resync.** A refetch that follows a write does not always own the
+failure, and which case it is decides whether it may stay silent:
+
+- Re-reading after a **failed** write keeps what is on screen and says nothing.
+  The toast already fired; blanking the list would complain twice about one
+  failure. `contacts/contact-follow-up-status.tsx` carries the `mode:
+  "initial" | "resync"` parameter for exactly this, because its cancel path
+  re-reads precisely when the write was refused.
+- Re-reading after a **successful** write, on mount, or on an explicit retry
+  must not silently render known-stale data. All three surface the failure.
+  `settings/templates-section.tsx` has no `mode` parameter for that reason: no
+  path in it re-reads after a failed write, so every caller is the second case.
+
+An error a site genuinely tolerates carries an `// error-tolerated:` comment
+saying why, the same escape hatch the data layer uses in section d. The bar is
+that the user did not ask for the request and nothing they see depends on it:
+analytics, a read-state mirror Gmail re-derives, an opportunistic background
+refresh over data already loaded. A bare `.catch(() => {})` is not tolerance, it
+is a silent failure.
 
 Double submits are blocked with a synchronous `useRef(false)` (`submittingRef` or
 `savingRef`), checked and set before the first await and reset in `finally`. It is
@@ -240,7 +278,9 @@ only, never a rejected promise in a handler; that is the contract above.
 
 - Authoritative: `careervine/src/lib/ui-events.ts`,
   `careervine/src/hooks/use-latest-request.ts`,
-  `careervine/src/components/ui/modal.tsx`, and
+  `careervine/src/components/ui/modal.tsx`,
+  `careervine/src/components/ui/confirm-dialog.tsx`,
+  `careervine/src/lib/api-client.ts`, and
   `careervine/src/components/ui/section-boundary.tsx` (headers)
 - Enforced: `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw
   event-name prefix outside the module. It is the only rule here whose *adoption* is
@@ -250,9 +290,18 @@ only, never a rejected promise in a handler; that is the contract above.
   boundary behaviors, including the `notFound()` re-throw that rules out a
   hand-rolled class, plus source tripwires holding the three existing adoption sites
   to their `key` and `onReset`. Nothing requires a NEW modal to use `modal.tsx` or a
-  NEW failure-prone subtree to be wrapped. The remaining three rules
-  (`useLatestRequest`, optimistic-write rollback, and the double-submit guard) have
-  no coverage at all.
+  NEW failure-prone subtree to be wrapped. The remaining two rules
+  (`useLatestRequest` and the double-submit guard) have no coverage at all.
+- Enforced (mutation contract, CAR-188): behavior only, not adoption. Zero raw
+  `fetch(` and zero `window.confirm` remain under `careervine/src/components`,
+  `careervine/src/hooks`, and `careervine/src/app` outside the API routes, but
+  nothing yet fails CI when the 1st new one lands: that guard is CAR-190, which
+  this ticket unblocks. `careervine/src/__tests__/confirm-dialog.test.tsx` pins the
+  promise contract (every exit path settles, exactly once) and the dialog's
+  focus and ARIA; the per-component tests named in
+  `careervine/src/__tests__/client-mutation-contract.test.tsx` pin that a non-ok
+  response leaves state unchanged and toasts, and that a failed load renders the
+  retryable state rather than the empty one.
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 

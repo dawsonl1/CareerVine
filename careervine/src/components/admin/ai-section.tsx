@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/toast";
 import { KeyBadge } from "@/components/admin/user-badges";
 import type { AdminUserDetail } from "@/lib/admin-users";
+import { apiSend, jsonBody } from "@/lib/api-client";
 
 const OPTIONS: Array<{
   value: "shared" | "cutoff";
@@ -47,13 +48,7 @@ export default function AiSection({
     if (policy === user.aiFallbackPolicy || saving) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/ai-policy`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ai_fallback_policy: policy }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(`/api/admin/users/${user.id}/ai-policy`, jsonBody({ ai_fallback_policy: policy }, "PATCH"));
       success(
         policy === "shared"
           ? `${user.email ?? "Account"} now falls back to the shared key`

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { AI_FAILURE_COPY, type AiFailureCode } from "@/lib/ai-errors";
+import { installFakeFetch } from "./helpers/fake-fetch";
 
 const CODES: AiFailureCode[] = [
   "ai_no_key",
@@ -50,29 +51,39 @@ describe("AiUnavailableNotice", () => {
     expect(screen.queryByRole("button", { name: "Request AI access" })).toBeNull();
     cleanup();
 
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", fetchMock);
+    // installFakeFetch rather than the older `{ ok: true }` object literal
+    // (CONVENTIONS.md §h): the handler goes through apiSend as of CAR-188, and
+    // apiSend's failure path reads res.status AND res.json(), neither of which
+    // that literal carries. Asserted against it, the sibling failure test below
+    // would have been proving the stub.
+    const http = installFakeFetch({
+      "POST /api/ai/request-access": { body: { success: true } },
+    });
 
     render(<AiUnavailableNotice code="ai_trial_expired" />);
     const button = screen.getByRole("button", { name: "Request AI access" });
     fireEvent.click(button);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/ai/request-access", { method: "POST" });
     expect(await screen.findByText(/Request sent/)).toBeTruthy();
+    expect(http.countOf("POST /api/ai/request-access")).toBe(1);
+    expect(http.unmatched).toEqual([]);
     expect(screen.queryByRole("button", { name: "Request AI access" })).toBeNull();
 
     vi.unstubAllGlobals();
   });
 
   it("surfaces a request failure and lets the user retry", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
-    vi.stubGlobal("fetch", fetchMock);
+    const http = installFakeFetch({
+      "POST /api/ai/request-access": { status: 500, body: { error: "boom" } },
+    });
 
     render(<AiUnavailableNotice code="ai_trial_expired" />);
     fireEvent.click(screen.getByRole("button", { name: "Request AI access" }));
 
     expect(await screen.findByText(/Couldn't send/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Request AI access" })).toBeTruthy();
+    expect(http.countOf("POST /api/ai/request-access")).toBe(1);
+    expect(http.unmatched).toEqual([]);
 
     vi.unstubAllGlobals();
   });

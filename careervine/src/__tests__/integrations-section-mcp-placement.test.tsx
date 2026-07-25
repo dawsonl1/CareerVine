@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { mockToastModule } from "./helpers/mock-toast";
 import IntegrationsSection from "@/components/settings/integrations-section";
 
 const mockGetGmailConnection = vi.fn();
@@ -12,6 +13,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
+
+// The disconnect handlers toast on failure as of CAR-188, so the component now
+// calls useToast at render and needs the provider (or this fake) present.
+vi.mock("@/components/ui/toast", () => mockToastModule());
 
 vi.mock("@/lib/queries", () => ({
   getGmailConnection: (...args: unknown[]) => mockGetGmailConnection(...args),

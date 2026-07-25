@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import type { AdminUserDetail } from "@/lib/admin-users";
+import { apiSend, jsonBody } from "@/lib/api-client";
 
 export default function ProfileSection({
   user,
@@ -36,18 +37,12 @@ export default function ProfileSection({
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+      await apiSend(`/api/admin/users/${user.id}`, jsonBody({
           first_name: firstName,
           last_name: lastName,
           email: email || undefined,
           phone: phone || null,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `Save failed (${res.status})`);
+        }, "PATCH"));
       success("Profile updated");
       onChanged();
     } catch (err) {

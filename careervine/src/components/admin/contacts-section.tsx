@@ -16,6 +16,7 @@ import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import type { BundleAccessItem } from "@/lib/admin-bundles";
+import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
 
 interface AdminContact {
   id: number;
@@ -76,14 +77,9 @@ export default function ContactsSection({ userId }: { userId: string }) {
         if (status !== "all") search.set("status", status);
         if (offset > 0) search.set("offset", String(offset));
         const qs = search.toString();
-        const res = await fetch(
+        const body = await apiFetch<{ contacts: AdminContact[]; total: number }>(
           `/api/admin/users/${userId}/contacts${qs ? `?${qs}` : ""}`,
         );
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `Request failed (${res.status})`);
-        }
-        const body = (await res.json()) as { contacts: AdminContact[]; total: number };
         setContacts((prev) =>
           offset > 0 ? [...(prev ?? []), ...body.contacts] : body.contacts,
         );
@@ -128,18 +124,12 @@ export default function ContactsSection({ userId }: { userId: string }) {
   const addContact = async () => {
     setBusy(true);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/contacts`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          mode: "manual",
-          name: name.trim(),
-          email: email.trim() || undefined,
-          linkedin_url: linkedinUrl.trim() || undefined,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(`/api/admin/users/${userId}/contacts`, jsonBody({
+        mode: "manual",
+        name: name.trim(),
+        email: email.trim() || undefined,
+        linkedin_url: linkedinUrl.trim() || undefined,
+      }));
       success(`Added ${name.trim()} to this account`);
       close();
       void load();
@@ -154,12 +144,9 @@ export default function ContactsSection({ userId }: { userId: string }) {
     setOpen("bundle");
     if (bundles) return;
     try {
-      const res = await fetch(`/api/admin/users/${userId}/bundle-access`);
-      const json = (await res.json().catch(() => ({}))) as {
-        bundles?: BundleAccessItem[];
-        error?: string;
-      };
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      const json = await apiFetch<{ bundles?: BundleAccessItem[] }>(
+        `/api/admin/users/${userId}/bundle-access`,
+      );
       setBundles(json.bundles ?? []);
     } catch (err) {
       toastError((err as Error).message);
@@ -171,17 +158,10 @@ export default function ContactsSection({ userId }: { userId: string }) {
     if (!pickedBundle) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/contacts`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode: "bundle", bundleId: pickedBundle.bundleId }),
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        applied?: number;
-        completed?: boolean;
-        error?: string;
-      };
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      const json = await apiFetch<{ applied?: number; completed?: boolean }>(
+        `/api/admin/users/${userId}/contacts`,
+        jsonBody({ mode: "bundle", bundleId: pickedBundle.bundleId }),
+      );
       success(
         json.completed
           ? `Injected “${pickedBundle.name}”: ${json.applied ?? 0} contacts applied`
@@ -204,14 +184,10 @@ export default function ContactsSection({ userId }: { userId: string }) {
     const fire = async () => {
       pendingDeletes.current.delete(contact.id);
       try {
-        const res = await fetch(
+        await apiSend(
           `/api/admin/users/${userId}/contacts/${contact.id}`,
           { method: "DELETE" },
         );
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `Request failed (${res.status})`);
-        }
       } catch (err) {
         toastError(`Couldn't remove ${contact.name}: ${(err as Error).message}`);
         void load();

@@ -10,6 +10,7 @@ import type { EmailFollowUp } from "@/lib/types";
 import { isUnresolvedFollowUpMessage } from "@/lib/constants";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
+import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 export type FollowUpDraft = {
   /** For follow-up #1: days after original email. For #2+: days after previous follow-up. */
@@ -215,43 +216,31 @@ export function FollowUpModal({
 
       if (isEditing) {
         // Update existing follow-up
-        const res = await fetch(`/api/gmail/follow-ups/${existingFollowUp!.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: drafts.map((d, i) => ({
-              sendAfterDays: absDays[i],
-              sendTime: d.sendTime,
-              subject: d.subject,
-              bodyHtml: d.bodyHtml,
-            })),
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
+        await apiSend(`/api/gmail/follow-ups/${existingFollowUp!.id}`, jsonBody({
+          messages: drafts.map((d, i) => ({
+            sendAfterDays: absDays[i],
+            sendTime: d.sendTime,
+            subject: d.subject,
+            bodyHtml: d.bodyHtml,
+          })),
+        }, "PUT"));
       } else {
         // Create new follow-up
-        const res = await fetch("/api/gmail/follow-ups", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            originalGmailMessageId,
-            threadId,
-            recipientEmail,
-            contactName,
-            originalSubject,
-            originalSentAt,
-            scheduledEmailId: scheduledEmailId || undefined,
-            messages: drafts.map((d, i) => ({
-              sendAfterDays: absDays[i],
-              sendTime: d.sendTime,
-              subject: d.subject,
-              bodyHtml: d.bodyHtml,
-            })),
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
+        await apiSend("/api/gmail/follow-ups", jsonBody({
+          originalGmailMessageId,
+          threadId,
+          recipientEmail,
+          contactName,
+          originalSubject,
+          originalSentAt,
+          scheduledEmailId: scheduledEmailId || undefined,
+          messages: drafts.map((d, i) => ({
+            sendAfterDays: absDays[i],
+            sendTime: d.sendTime,
+            subject: d.subject,
+            bodyHtml: d.bodyHtml,
+          })),
+        }));
       }
 
       setSaved(true);
@@ -449,28 +438,28 @@ export function FollowUpModal({
                       setAiFailure(null);
                       setError("");
                       try {
-                        const res = await fetch("/api/gmail/ai-write", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
+                        const data = await apiFetch<{ bodyHtml?: string; subject?: string }>(
+                          "/api/gmail/ai-write",
+                          jsonBody({
                             recipientEmail,
                             recipientName: contactName || undefined,
                             prompt: `Write follow-up #${activeTab + 1} for an email with subject "${originalSubject}". This is a professional networking follow-up. Keep it brief (2-3 sentences), friendly, and add value. Do not start with "I hope this email finds you well".`,
                           }),
-                        });
-                        const data = await res.json();
-                        if (!res.ok) {
-                          const code = parseAiFailure(res.status, data);
-                          if (code) setAiFailure(code);
-                          else setError(data.error || "Couldn't generate. Please try again.");
-                        } else if (data.bodyHtml) {
+                        );
+                        if (data.bodyHtml) {
                           updateDraft(activeTab, { bodyHtml: data.bodyHtml });
                           if (data.subject && !currentDraft.bodyHtml.trim()) {
                             updateDraft(activeTab, { subject: data.subject });
                           }
                         }
-                      } catch {
-                        setError("Couldn't generate. Please try again.");
+                      } catch (err) {
+                        // ApiRequestError carries the status and body that
+                        // parseAiFailure read off the raw Response.
+                        const code = isApiRequestError(err)
+                          ? parseAiFailure(err.status, err.body)
+                          : null;
+                        if (code) setAiFailure(code);
+                        else setError(err instanceof Error ? err.message : "Couldn't generate. Please try again.");
                       }
                       setGeneratingAi(false);
                     }}

@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/components/auth-provider";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import type { AdminUserDetail } from "@/lib/admin-users";
+import { apiFetch, jsonBody } from "@/lib/api-client";
 
 type OpenModal = null | "link" | "set" | "role";
 
@@ -47,16 +48,9 @@ export default function SecuritySection({
     setNewPassword("");
   };
 
-  const post = async (path: string, body: unknown) => {
-    const res = await fetch(path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
-    return json;
-  };
+  /** The two admin action routes here answer `{ actionLink }` on the link mode. */
+  const post = (path: string, body: unknown) =>
+    apiFetch<{ actionLink?: string }>(path, jsonBody(body));
 
   const generateLink = async () => {
     setBusy(true);

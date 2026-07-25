@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/toast";
 import { Toggle } from "@/components/ui/toggle";
 import type { AdminUserDetail } from "@/lib/admin-users";
+import { apiSend, jsonBody } from "@/lib/api-client";
 
 const CONTROLS: Array<{
   key: "apify_enrichment_enabled" | "diff_analysis_enabled" | "discovery_enabled";
@@ -59,13 +60,7 @@ export default function ScrapingSection({
     if (saving) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/scrape-controls`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ [key]: value }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(`/api/admin/users/${user.id}/scrape-controls`, jsonBody({ [key]: value }, "PATCH"));
       const label = CONTROLS.find((c) => c.key === key)?.label ?? key;
       success(`${label} ${value ? "on" : "off"} for ${user.email ?? "this account"}`);
       onChanged();

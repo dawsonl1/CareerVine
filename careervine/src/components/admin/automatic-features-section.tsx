@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/toast";
 import { Toggle } from "@/components/ui/toggle";
 import type { AdminUserDetail } from "@/lib/admin-users";
+import { apiSend, jsonBody } from "@/lib/api-client";
 
 export default function AutomaticFeaturesSection({
   user,
@@ -28,13 +29,7 @@ export default function AutomaticFeaturesSection({
     if (saving) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/automatic-features`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ automatic_features_enabled: value }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(`/api/admin/users/${user.id}/automatic-features`, jsonBody({ automatic_features_enabled: value }, "PATCH"));
       success(`Automatic features ${value ? "on" : "off"} for ${user.email ?? "this account"}`);
       onChanged();
     } catch (err) {

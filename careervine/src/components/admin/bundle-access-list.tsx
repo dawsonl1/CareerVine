@@ -17,6 +17,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 import type { BundleAccessItem } from "@/lib/admin-bundles";
+import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
 
 function StateChip({ item }: { item: BundleAccessItem }) {
   if (item.subscribed) {
@@ -66,12 +67,9 @@ export default function BundleAccessList({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/admin/users/${userId}/bundle-access`);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Request failed (${res.status})`);
-      }
-      const body = (await res.json()) as { bundles: BundleAccessItem[] };
+      const body = await apiFetch<{ bundles: BundleAccessItem[] }>(
+        `/api/admin/users/${userId}/bundle-access`,
+      );
       emit(body.bundles);
       setError(null);
     } catch (e) {
@@ -86,15 +84,10 @@ export default function BundleAccessList({
   }, [load]);
 
   const put = async (bundleId: number, allowed: boolean | null) => {
-    const res = await fetch(`/api/admin/users/${userId}/bundle-access`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ bundleId, allowed }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `Request failed (${res.status})`);
-    }
+    await apiSend(
+      `/api/admin/users/${userId}/bundle-access`,
+      jsonBody({ bundleId, allowed }, "PUT"),
+    );
   };
 
   const setOverride = async (item: BundleAccessItem, allowed: boolean | null) => {
