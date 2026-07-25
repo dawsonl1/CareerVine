@@ -1,9 +1,26 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { Modal } from "@/components/ui/modal";
 
 afterEach(cleanup);
+
+/** The dialog surface, which is what owns the trap and the ARIA. */
+const surface = () => screen.getByRole("dialog");
+
+/**
+ * Tab is driven with fireEvent rather than user-event, which is not a dependency
+ * of this repo and which CAR-185 declined to add. That is not a shortcut: the
+ * keydown handler *is* the seam the trap owns. jsdom implements no sequential
+ * focus navigation at all, so the non-wrapping Tab case is deliberately not
+ * asserted anywhere below. It is the browser's job, and simulating it here would
+ * only assert the simulation. CAR-189's Playwright tier is where that lands.
+ */
+const tab = (opts: { shift?: boolean } = {}) =>
+  fireEvent.keyDown(document.activeElement ?? document.body, {
+    key: "Tab",
+    shiftKey: opts.shift ?? false,
+  });
 
 /**
  * The Modal owns its body padding (CAR-48) — callers must NOT re-add
@@ -41,5 +58,185 @@ describe("Modal body padding", () => {
       </Modal>,
     );
     expect(screen.queryByText("body")).toBeNull();
+  });
+});
+
+/**
+ * Focus trap (CAR-185). Without one, Tab from the last control lands behind the
+ * scrim and the user types into a form they cannot see.
+ */
+describe("Modal focus trap", () => {
+  function Harness({ open }: { open: boolean }) {
+    return (
+      <>
+        <button type="button">trigger</button>
+        <Modal isOpen={open} onClose={vi.fn()} title="Edit contact">
+          <button type="button">first</button>
+          <button type="button">second</button>
+        </Modal>
+      </>
+    );
+  }
+
+  it("moves focus into the dialog on open", () => {
+    render(<Harness open />);
+    // The headline's close button leads the tab order, so it takes initial focus.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+    expect(surface().contains(document.activeElement)).toBe(true);
+  });
+
+  it("focuses the dialog container when there is nothing focusable inside", () => {
+    render(
+      <Modal isOpen onClose={vi.fn()}>
+        <p>read only</p>
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(surface());
+  });
+
+  it("wraps Tab from the last focusable back to the first", () => {
+    render(<Harness open />);
+    screen.getByText("second").focus();
+
+    tab();
+
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+  });
+
+  it("wraps Shift+Tab from the first focusable round to the last", () => {
+    render(<Harness open />);
+    screen.getByRole("button", { name: "Close" }).focus();
+
+    tab({ shift: true });
+
+    expect(document.activeElement).toBe(screen.getByText("second"));
+  });
+
+  it("wraps Shift+Tab off the dialog container itself", () => {
+    render(<Harness open />);
+    surface().focus();
+
+    tab({ shift: true });
+
+    expect(document.activeElement).toBe(screen.getByText("second"));
+  });
+
+  it("leaves disabled controls out of the cycle", () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Edit contact">
+        <button type="button">first</button>
+        <button type="button" disabled>
+          disabled
+        </button>
+      </Modal>,
+    );
+    // "first" is the last *tabbable*, so Tab must wrap rather than reach the
+    // disabled button. jsdom reports tabIndex 0 for a disabled button, so a trap
+    // filtering on the property instead of the attribute would fail right here.
+    screen.getByText("first").focus();
+
+    tab();
+
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+  });
+
+  it("returns focus to the trigger when the modal closes", () => {
+    const { rerender } = render(<Harness open={false} />);
+    const trigger = screen.getByText("trigger");
+    trigger.focus();
+
+    rerender(<Harness open />);
+    expect(document.activeElement).not.toBe(trigger);
+
+    rerender(<Harness open={false} />);
+    expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe("Modal dialog semantics", () => {
+  it("marks the surface as a modal dialog named by its headline", () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Edit contact">
+        <p>body</p>
+      </Modal>,
+    );
+    const dialog = surface();
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+
+    const labelledBy = dialog.getAttribute("aria-labelledby");
+    expect(labelledBy).toBeTruthy();
+    expect(document.getElementById(labelledBy!)?.textContent).toBe("Edit contact");
+  });
+
+  it("falls back to ariaLabel when the modal has no visible title", () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} ariaLabel="Chrome extension setup">
+        <p>body</p>
+      </Modal>,
+    );
+    const dialog = surface();
+    expect(dialog.getAttribute("aria-label")).toBe("Chrome extension setup");
+    expect(dialog.getAttribute("aria-labelledby")).toBeNull();
+  });
+
+  it("gives the icon-only close button an accessible name", () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Edit contact">
+        <p>body</p>
+      </Modal>,
+    );
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+});
+
+/**
+ * The unsaved-changes dialog is a second dialog, rendered as a DOM sibling of the
+ * modal surface rather than a child. That is what lets the two traps coexist: a
+ * keydown inside this one never bubbles through the modal's handler.
+ */
+describe("ConfirmDiscardDialog focus trap", () => {
+  const openConfirm = () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Edit contact" hasUnsavedChanges>
+        <button type="button">body control</button>
+      </Modal>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    return screen.getByRole("alertdialog");
+  };
+
+  it("takes focus on the least destructive action", () => {
+    openConfirm();
+    // APG: focus the least destructive action on an irreversible operation.
+    expect(document.activeElement).toBe(screen.getByText("Keep editing"));
+  });
+
+  it("names and describes itself", () => {
+    const confirm = openConfirm();
+    expect(confirm.getAttribute("aria-modal")).toBe("true");
+    expect(document.getElementById(confirm.getAttribute("aria-labelledby")!)?.textContent).toBe(
+      "Unsaved changes",
+    );
+    expect(document.getElementById(confirm.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "You have unsaved changes that will be lost.",
+    );
+  });
+
+  it("cycles within itself rather than back into the modal underneath", () => {
+    openConfirm();
+    screen.getByText("Discard").focus();
+
+    tab();
+
+    expect(document.activeElement).toBe(screen.getByText("Keep editing"));
+    expect(document.activeElement).not.toBe(screen.getByText("body control"));
+  });
+
+  it("hands focus back into the modal when dismissed", () => {
+    openConfirm();
+    fireEvent.click(screen.getByText("Keep editing"));
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
   });
 });

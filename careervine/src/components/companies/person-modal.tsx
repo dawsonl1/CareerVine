@@ -75,7 +75,7 @@ export function PersonModal({ person, companyId, companyName, userId, onClose, o
   };
 
   return (
-    <Modal isOpen onClose={onClose} size="lg">
+    <Modal isOpen onClose={onClose} size="lg" ariaLabel={person.name}>
       <div className="space-y-5">
         {/* Header */}
         <div className="flex items-start gap-4">
