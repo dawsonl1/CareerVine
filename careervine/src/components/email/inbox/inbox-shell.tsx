@@ -597,8 +597,20 @@ export function InboxShell() {
                  Keyed by activeTab because the boundary self-clears on pathname
                  change and switching tabs is same-route state, so without the key
                  a tripped Drafts panel would keep showing the error after the
-                 user switched back to Inbox. */
-              <SectionBoundary key={activeTab} label={`inbox-tab:${activeTab}`}>
+                 user switched back to Inbox.
+
+                 onReset re-asserts the spinner before re-fetching, the same
+                 closure the LoadErrorState retry above uses. That matters twice:
+                 it makes "Try again" actually re-fetch, and because `loading`
+                 gates this whole branch, setting it unmounts the boundary and so
+                 discards a stale error once good data lands. loadInbox alone
+                 would not (it deliberately never sets loading=true), which is
+                 what would otherwise leave the panel stuck after a Sync. */
+              <SectionBoundary
+                key={activeTab}
+                label={`inbox-tab:${activeTab}`}
+                onReset={() => { setLoading(true); void loadInbox(); }}
+              >
                 {activeTab === "inbox" && <ThreadListTab threads={filteredInboxThreads} tabCtx="inbox" {...threadListProps} />}
                 {activeTab === "sent" && <ThreadListTab threads={filteredSentThreads} tabCtx="sent" {...threadListProps} />}
                 {activeTab === "trash" && <ThreadListTab threads={filteredTrashThreads} tabCtx="trash" {...threadListProps} />}

@@ -83,6 +83,9 @@ export default function ContactDetailPage() {
   const [completedActions, setCompletedActions] = useState<CompletedAction[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  // Increments on every completed loadRelatedData; feeds the tab boundary's key so
+  // fresh data clears a stale error panel (CAR-184, see loadRelatedData).
+  const [dataGeneration, setDataGeneration] = useState(0);
 
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
   const [contactEmails, setContactEmails] = useState<EmailMessage[]>([]);
@@ -134,6 +137,14 @@ export default function ContactDetailPage() {
       console.error("Error loading contact data:", e);
     } finally {
       setLoadingData(false);
+      // Bump the generation so the tab SectionBoundary remounts on fresh data
+      // (CAR-184). Unlike the inbox and calendar, `loadingData` is passed to the
+      // tabs as a prop rather than gating them, so nothing here unmounts the
+      // boundary during a refresh: without this, a tripped tab would keep
+      // showing its error panel even after correct data arrived, and "Try again"
+      // could never recover. In the finally block on purpose, so a failed load
+      // also re-evaluates rather than pinning the panel forever.
+      setDataGeneration((g) => g + 1);
     }
   }, [contactId]);
 
@@ -317,12 +328,19 @@ export default function ContactDetailPage() {
             {/* Tab content */}
             <div>
               {/* A throw in one tab must leave the profile card, the tab bar and
-                  the rest of the page intact (CAR-184). Keyed by activeTab: the
-                  boundary self-clears on pathname change, and switching tabs here
-                  is same-route state (it only rewrites the hash), so without the
-                  key a tripped Timeline tab would keep showing the error panel
-                  after the user switched to Actions. */}
-              <SectionBoundary key={activeTab} label={`contact-tab:${activeTab}`}>
+                  the rest of the page intact (CAR-184). The key carries two
+                  signals and both are load-bearing. activeTab: the boundary only
+                  self-clears on a pathname change, and switching tabs here is
+                  same-route state (it just rewrites the hash), so without it a
+                  tripped Timeline tab would keep showing the error after the user
+                  switched to Actions. dataGeneration: nothing on this page
+                  unmounts the boundary during a refresh, so it is what lets fresh
+                  data clear a stale panel and lets "Try again" recover at all. */}
+              <SectionBoundary
+                key={`${activeTab}:${dataGeneration}`}
+                label={`contact-tab:${activeTab}`}
+                onReset={() => void loadRelatedData()}
+              >
               {activeTab === "actions" && (
                 <ContactActionsTab
                   contactId={contactId}

@@ -154,5 +154,28 @@ and restores, so the suite stays clean without globally muting a real signal.
 * `npm run test` from `careervine/`
 * `npm run typecheck` and `npm run lint` **cold**, with `.next` moved aside (rule 48:
   CI runs both before Build, so `.next/types` is absent there)
-* `npm run build` — also confirms Next accepts the `error.tsx` prop signatures, since
-  the generated route validators only exist after a build
+* `npm run build`
+
+> **Correction (post-review).** An earlier draft of this plan claimed the build
+> machine-checks the `error.tsx` prop signatures. It does not: `.next/types/validator.ts`
+> contains no error-component validation, so Next never typechecks these props against
+> its own expectation. The signatures were instead verified by reading
+> `node_modules/next/dist/client/components/error-boundary.js`, which renders the error
+> component with `{ error, reset, unstable_retry }` at line ~107, making the declared
+> subset correct.
+
+## Post-review addendum: the recovery contract
+
+The deep review found that the plan above was incomplete in one important way. Wrapping
+alone gives a retry button that cannot work: `unstable_retry`'s `router.refresh()` does
+not re-run a client component's `useEffect` loaders or replace parent-held `useState`,
+and every wrapped subtree here is a presentational leaf whose data lives in the page
+above it. Two bugs followed, both confirmed by independent reviewers with probes:
+"Try again" was a no-op at all three sites, and a *successful* refresh from elsewhere on
+the page (the inbox Sync button) left the stale error panel on screen.
+
+The fix is the RECOVERY CONTRACT documented in `section-boundary.tsx`: every site wires
+`onReset` to its existing retry closure, and a site that keeps its subtree mounted
+during a refresh (contact detail) also carries a data generation in the boundary `key`.
+The calendar's `key={view}` turned out to be dead code and was removed, since its
+enclosing `view === "week"` conditional already unmounts the boundary.

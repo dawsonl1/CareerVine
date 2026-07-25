@@ -117,7 +117,18 @@ describe("CONVENTIONS.md", () => {
     // A `src/...` span is invisible to the existence check above (the allowlist
     // drops it), so it would be an UNGUARDED citation — the exact quiet-rot
     // failure this file exists to prevent.
-    const careervineRelative = backtickSpans(markdown).filter((s) => /^(src|public|scripts)\/[^\s]*$/.test(s));
+    //
+    // `app/` is in the list because of CAR-184: three route-boundary citations were
+    // written as `app/error.tsx` and slipped through BOTH layers — the existence
+    // check ignored them (no `careervine/` prefix) and this guard could not see them
+    // either, because its prefix list started at src|public|scripts. Any new segment
+    // that can begin a careervine-relative path belongs here — but only if it is
+    // NOT also a real repo-root directory, or this guard would reject valid
+    // citations. `app/` qualifies (there is no repo-root `app/`); `supabase/`
+    // deliberately does not, since `supabase/migrations/...` is a valid root path.
+    const careervineRelative = backtickSpans(markdown).filter((s) =>
+      /^(src|public|scripts|app)\/[^\s]*$/.test(s),
+    );
     expect(
       careervineRelative,
       `citations must start at the repo root (prefix with careervine/): ${careervineRelative.join(", ")}`,

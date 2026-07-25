@@ -219,9 +219,11 @@ hand-roll a class `ErrorBoundary`: it would swallow the sentinel errors
 `redirect()` / `notFound()` throw, and would stay stuck in the error state across a
 client navigation. Read that file's header before adding a boundary, including the
 part about passing a `key` when sections switch by same-route state rather than by
-navigation. Route-level boundaries are `app/error.tsx`, `app/global-error.tsx` and
-`app/admin/error.tsx`; `global-error.tsx` replaces the root layout, so it may not
-import the design system or assume the global stylesheet loaded. All of them report
+navigation, and about wiring `onReset` so the retry can actually recover. Route-level
+boundaries are `careervine/src/app/error.tsx`,
+`careervine/src/app/global-error.tsx` and `careervine/src/app/admin/error.tsx`; the
+global one replaces the root layout, so it may not import the design system or assume
+the global stylesheet, the document head, or any provider survived. All of them report
 through the one seam in `careervine/src/lib/report-error.ts`, which is where an
 error tracker gets wired (none is installed today). Boundaries catch render throws
 only, never a rejected promise in a handler; that is the contract above.

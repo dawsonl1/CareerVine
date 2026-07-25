@@ -14,7 +14,7 @@
  * non-admin is still redirected rather than shown an error panel.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { reportBoundaryError } from "@/lib/report-error";
 
@@ -25,12 +25,24 @@ export default function AdminError({
   error: Error & { digest?: string };
   unstable_retry: () => void;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     reportBoundaryError("admin", error, { digest: error.digest });
   }, [error]);
 
+  // Focus the panel: the throw destroyed the view the user was on, so focus fell to
+  // <body> and the recovery controls would otherwise be a full tab traversal away.
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, [error]);
+
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-outline-variant bg-surface px-6 py-20 text-center">
+    <div
+      ref={panelRef}
+      tabIndex={-1}
+      className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-outline-variant bg-surface px-6 py-20 text-center outline-none"
+    >
       <p role="alert" className="text-base font-medium text-on-surface">
         Something went wrong.
       </p>

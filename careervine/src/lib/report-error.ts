@@ -8,13 +8,24 @@
  * SDK is installed in the web app (`@sentry/*` appears nowhere in `src` or
  * `package.json`), and CAR-184 scoped adding one out of its diff. `$SENTRY_AUTH_TOKEN`
  * and the `na-ui4` org exist, so the follow-up is real work, just not this work.
- * To wire it: install `@sentry/nextjs`, then call `Sentry.captureException` here.
  *
- * This module must stay dependency-free. `global-error.tsx` imports it, and that
- * file replaces the root layout when it renders, so it cannot assume the design
- * system, the seven context providers, or even the global stylesheet are alive.
- * A plain function with no React and no imports is safe in that context; anything
- * heavier is not.
+ * This module must stay dependency-free, and that is ENFORCED: the import assertion
+ * in `src/__tests__/error-boundaries.test.tsx` fails if this file grows a single
+ * static import. `global-error.tsx` imports this module, and that file replaces the
+ * root layout when it renders, so it cannot assume the design system, the eight
+ * context providers, or even the global stylesheet are alive. There is also no
+ * boundary BELOW global-error, so a tracker SDK that threw during module init would
+ * take out the last-resort page itself.
+ *
+ * So when a tracker is wired here, do not add a top-level import. Load it lazily
+ * inside the function, at the moment of reporting, where the try/catch below already
+ * contains a failure:
+ *
+ *     void import("@sentry/nextjs").then((s) => s.captureException(error)).catch(() => {});
+ *
+ * That keeps the SDK out of the last-resort page's module-init path. The alternative,
+ * a separate reporter used only by the non-global boundaries, is also fine, but then
+ * global-error silently stops reporting, which is the surface you least want blind.
  *
  * The `[boundary]` prefix is load-bearing for log search, so keep it stable.
  */

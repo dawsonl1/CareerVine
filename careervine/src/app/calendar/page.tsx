@@ -508,14 +508,19 @@ export default function CalendarPage() {
         {/* ── Week Grid View ── */}
         {view === "week" && (
           <div ref={weekShellRef} className="relative">
-            {/* The week grid does the most date math on this page (event packing,
-                overlap, drag-to-create), so it is the most likely thing here to
-                throw on a malformed event. Contained so the page header, the
-                List/Week toggle and Sync stay usable: a user whose week grid
-                breaks can still switch to List (CAR-184). Keyed by view so
-                toggling away and back clears the panel, since the boundary only
-                self-clears on a pathname change. */}
-            <SectionBoundary key={view} label="calendar-week-grid">
+            {/* Event packing, overlap and drag-to-create all run inside here, so
+                contain them: the page header, the List/Week toggle and Sync stay
+                usable, and a user whose week grid breaks can still switch to List
+                (CAR-184). Note the week-scoped date math in the useMemo above is
+                OUTSIDE this boundary and still escalates to app/error.tsx.
+
+                No key needed here, unlike the inbox and contact tab strips: the
+                enclosing `view === "week"` conditional unmounts this boundary on
+                a toggle, which discards the error state on its own. onReset calls
+                loadData, which sets its own loading flag and early-returns a
+                spinner, so it likewise unmounts the boundary before the re-fetch
+                lands rather than re-throwing on stale data. */}
+            <SectionBoundary label="calendar-week-grid" onReset={() => void loadData()}>
             <div className="overflow-x-auto">
             <div className="min-w-[640px]">
               {/* Day headers */}
