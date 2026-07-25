@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import type { SimpleContact } from "@/lib/types";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
+import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 /**
  * Contact projection this component matches speakers against: {@link SimpleContact}
@@ -163,6 +164,14 @@ function ConfidenceBadge({ confidence, reason }: { confidence: number | null; re
   );
 }
 
+/** One row of /api/transcripts/match-speakers' AI matching result. */
+type AiSpeakerMatch = {
+  speakerLabel: string;
+  contactId: number | null;
+  confidence: number;
+  reason: string;
+};
+
 export default function SpeakerResolver({
   segments,
   meetingContacts,
@@ -256,34 +265,16 @@ export default function SpeakerResolver({
       const unmatchedSegments = segments.filter((s) => unmatchedSet.has(s.speaker_label));
       const speakerSamples = extractSpeakerSamples(unmatchedSegments);
 
-      const res = await fetch("/api/transcripts/match-speakers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await apiFetch<{ matches?: AiSpeakerMatch[] }>(
+        "/api/transcripts/match-speakers",
+        jsonBody({
           speakerLabels: unmatchedLabels,
           speakerSamples,
           contactContext,
           meetingTitle,
         }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        const code = parseAiFailure(res.status, err);
-        if (code) {
-          setAiFailure(code);
-          return;
-        }
-        throw new Error(err.error || "AI matching failed");
-      }
-
-      const data = await res.json();
-      const aiMatches: Array<{
-        speakerLabel: string;
-        contactId: number | null;
-        confidence: number;
-        reason: string;
-      }> = data.matches || [];
+      );
+      const aiMatches = data.matches || [];
 
       // Apply AI matches to current mappings
       setMappings((prev) =>
@@ -304,6 +295,14 @@ export default function SpeakerResolver({
         }),
       );
     } catch (err) {
+      // apiFetch throws on any non-2xx, so the AI-unavailable branch that used
+      // to sit in an `if (!res.ok)` moves here. ApiRequestError carries the
+      // status and parsed body parseAiFailure read off the raw Response.
+      const code = isApiRequestError(err) ? parseAiFailure(err.status, err.body) : null;
+      if (code) {
+        setAiFailure(code);
+        return;
+      }
       setAiError(err instanceof Error ? err.message : "AI matching failed");
     } finally {
       setAiLoading(false);

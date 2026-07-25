@@ -10,8 +10,10 @@ import { mockToastModule, toastMock } from "./helpers/mock-toast";
  * the response, then drop the row from local state. A failed delete looked like
  * a success until the next load brought the template back.
  *
- * The `window.confirm` this handler still uses is a separate finding owned by
- * CAR-188; it is stubbed here rather than changed.
+ * The `window.confirm` that used to guard the handler is now the in-app
+ * ConfirmDialog (CAR-188), so these drive a real click on its Confirm button
+ * rather than stubbing a global. That is strictly better coverage: a stubbed
+ * `confirm` proved nothing about whether the guard was still wired up.
  */
 
 vi.mock("@/components/ui/toast", () => mockToastModule());
@@ -52,18 +54,45 @@ async function renderAndDelete(deleteRoute: Parameters<typeof installFakeFetch>[
     fireEvent.click(screen.getByTitle("Delete"));
   });
 
+  // The handler is suspended on the confirm promise until this lands.
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("confirm-dialog-confirm"));
+  });
+
   return http;
 }
 
 describe("TemplatesSection — delete (CAR-183)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The handler bails before fetching unless the confirm is accepted.
-    vi.stubGlobal("confirm", () => true);
   });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("asks before deleting, and does not delete when the user declines", async () => {
+    const http = installFakeFetch({
+      [LIST_ROUTE]: { body: { templates: [template()] } },
+    });
+
+    await act(async () => {
+      render(<TemplatesSection />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Delete"));
+    });
+
+    expect(screen.getByText("Delete this template?")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("confirm-dialog-cancel"));
+    });
+
+    expect(screen.getByText("Job referral request")).toBeTruthy();
+    // No DELETE was declared, so reaching one would land in `unmatched`.
+    expect(http.unmatched).toEqual([]);
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 
   it("keeps the template in the list and toasts when the delete fails", async () => {

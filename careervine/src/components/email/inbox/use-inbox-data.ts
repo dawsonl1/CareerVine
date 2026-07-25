@@ -3,6 +3,20 @@ import type { EmailMessage, EmailFollowUp, ScheduledEmail, EmailDraft } from "@/
 import { runFullGmailSync } from "@/lib/gmail-sync-client";
 import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import type { GmailLabel, LinkedCalendarEvent } from "./inbox-types";
+import { apiFetch } from "@/lib/api-client";
+import type { InferApiResponse } from "@/lib/api-handler";
+import type { GET as InboxGET } from "@/app/api/gmail/inbox/route";
+import type { GET as DraftsGET } from "@/app/api/gmail/drafts/route";
+import type { GET as LabelsGET } from "@/app/api/gmail/labels/route";
+
+/**
+ * Typed off each route's own handler (CONVENTIONS.md §a), so producer and
+ * consumer cannot drift: a route changing its success shape breaks this file at
+ * compile time rather than at runtime.
+ */
+type InboxResponse = InferApiResponse<typeof InboxGET>;
+type DraftsResponse = InferApiResponse<typeof DraftsGET>;
+type LabelsResponse = InferApiResponse<typeof LabelsGET>;
 
 interface UseInboxDataParams {
   user: { id: string } | null | undefined;
@@ -41,8 +55,9 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
   const loadInbox = useCallback(async () => {
     setError(false);
     try {
-      const res = await fetch("/api/gmail/inbox");
-      const data = await res.json();
+      // apiFetch throws on any non-2xx, so `data.success` is no longer the only
+      // thing standing between a 500 and eight setState calls full of undefined.
+      const data = await apiFetch<InboxResponse>("/api/gmail/inbox");
       if (data.success) {
         setEmails(data.emails || []);
         setTrashedEmails(data.trashedEmails || []);
@@ -66,11 +81,12 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
 
   const loadDrafts = useCallback(async () => {
     try {
-      const res = await fetch("/api/gmail/drafts");
-      const data = await res.json();
+      const data = await apiFetch<DraftsResponse>("/api/gmail/drafts");
       setDrafts(data.drafts || []);
     } catch {
-      // ignore
+      // error-tolerated: drafts are a secondary tab beside the inbox payload,
+      // which owns this hook's `error` state. A failed drafts read leaves that
+      // tab empty rather than taking the whole inbox down with it.
     }
   }, []);
 
@@ -80,9 +96,11 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
       // best-effort), so the effect fires them without awaiting.
       void loadInbox();
       void loadDrafts();
-      fetch("/api/gmail/labels")
-        .then((r) => r.json())
+      apiFetch<LabelsResponse>("/api/gmail/labels")
         .then((d) => setGmailLabels(d.labels || []))
+        // error-tolerated: labels populate the "Move to" menu only. The route is
+        // capability-gated, so a free account 403s here by design and must not
+        // see an error for a control it does not have.
         .catch(() => {});
     } else {
       setLoading(false);

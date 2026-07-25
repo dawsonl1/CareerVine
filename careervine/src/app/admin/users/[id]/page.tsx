@@ -15,6 +15,7 @@ import ContactsSection from "@/components/admin/contacts-section";
 import ScrapingSection from "@/components/admin/scraping-section";
 import PremiumSection from "@/components/admin/premium-section";
 import AutomaticFeaturesSection from "@/components/admin/automatic-features-section";
+import { apiFetch } from "@/lib/api-client";
 
 export default function AdminUserDetailPage() {
   const params = useParams<{ id: string }>();
@@ -27,12 +28,9 @@ export default function AdminUserDetailPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/admin/users/${id}`);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Request failed (${res.status})`);
-      }
-      const body = (await res.json()) as { user: AdminUserDetail; apifyMonthSpendUsd?: number };
+      const body = await apiFetch<{ user: AdminUserDetail; apifyMonthSpendUsd?: number }>(
+        `/api/admin/users/${id}`,
+      );
       setUser(body.user);
       setMonthSpendUsd(body.apifyMonthSpendUsd ?? null);
       setError(null);

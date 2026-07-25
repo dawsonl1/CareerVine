@@ -15,6 +15,7 @@ import { decodeProfileData } from "@/lib/profile-encoding";
 import { deriveCurrentRole } from "@/lib/profile-helpers";
 // CAR-148 (F11): the profile shape is single-sourced in the extension contract.
 import type { ProfileData } from "@/lib/extension-contract";
+import { apiFetch, jsonBody } from "@/lib/api-client";
 
 export default function ContactPreviewPage() {
   const { user, loading: authLoading } = useAuth();
@@ -50,21 +51,19 @@ export default function ContactPreviewPage() {
     if (!data.linkedin_url) return;
 
     const controller = new AbortController();
-    fetch("/api/contacts/check-duplicate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ linkedinUrl: data.linkedin_url }),
+    apiFetch<{ duplicates?: Array<{ id: number }> }>("/api/contacts/check-duplicate", {
+      ...jsonBody({ linkedinUrl: data.linkedin_url }),
       signal: controller.signal,
     })
-      .then((res) => res.json())
       .then((result) => {
-        if (result.duplicates?.length > 0) {
+        if (result.duplicates?.length) {
           routerRef.current.replace(`/contacts/${result.duplicates[0].id}`);
         }
       })
-      .catch(() => {
-        // Ignore — aborted or network error, just show preview
-      });
+      // error-tolerated: this is an opportunistic redirect to an existing
+      // contact. Failing it shows the preview, which is exactly what the user
+      // asked for; the import route dedupes again on save regardless.
+      .catch(() => {});
 
     return () => controller.abort();
   }, [user]);
@@ -85,22 +84,22 @@ export default function ContactPreviewPage() {
         },
         photoUrl: profileData.photo_url,
       };
-      const res = await fetch("/api/contacts/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const result = await res.json();
+      const result = await apiFetch<{ success?: boolean; contact?: { id: number } }>(
+        "/api/contacts/import",
+        jsonBody(payload),
+      );
 
-      if (result.success && result.contact?.id) {
-        setSaved(true);
-        // Redirect to the saved contact page after a brief delay
-        setTimeout(() => {
-          router.push(`/contacts/${result.contact.id}`);
-        }, 1500);
-      } else {
-        throw new Error(result.error || "Failed to save contact");
-      }
+      // A non-2xx now throws out of apiFetch carrying the route's own message,
+      // so this branch is only reached on a 2xx whose body is missing the
+      // contact, which is a shape violation rather than a reported failure.
+      const savedId = result.success ? result.contact?.id : undefined;
+      if (savedId === undefined) throw new Error("Failed to save contact");
+
+      setSaved(true);
+      // Redirect to the saved contact page after a brief delay
+      setTimeout(() => {
+        router.push(`/contacts/${savedId}`);
+      }, 1500);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save contact");
     } finally {

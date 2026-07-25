@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Sparkles, AlertTriangle, CloudOff, Hourglass, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AI_FAILURE_COPY, type AiFailureCode } from "@/lib/ai-errors";
+import { apiSend } from "@/lib/api-client";
 
 const ICONS: Record<AiFailureCode, typeof Sparkles> = {
   ai_no_key: Sparkles,
@@ -52,8 +53,7 @@ export function RequestAiAccessButton({
   async function requestAccess() {
     setState("sending");
     try {
-      const res = await fetch("/api/ai/request-access", { method: "POST" });
-      if (!res.ok) throw new Error(`request-access ${res.status}`);
+      await apiSend("/api/ai/request-access", { method: "POST" });
       setState("sent");
     } catch {
       setState("error");

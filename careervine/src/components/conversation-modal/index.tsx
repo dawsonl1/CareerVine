@@ -41,6 +41,7 @@ import type { ConversationFormState, PendingAction, TranscriptState } from "./ty
 import { PastMeetingFields } from "./past-meeting-fields";
 import { FutureMeetingFields } from "./future-meeting-fields";
 import { ActionItemsSection } from "./action-items-section";
+import { apiSend, jsonBody } from "@/lib/api-client";
 
 // Map icon names to components
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -240,17 +241,18 @@ export function ConversationModal() {
           try {
             const startTime = new Date(dateTime).toISOString();
             const endTime = new Date(new Date(dateTime).getTime() + meetingDuration * 60000).toISOString();
-            await fetch(`/api/calendar/events/${editMeeting.calendar_event_id}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                summary: autoSummary,
-                description: form.calendarDescription || form.notes || undefined,
-                startTime,
-                endTime,
-              }),
-            });
-          } catch { /* calendar update is best-effort */ }
+            await apiSend(`/api/calendar/events/${editMeeting.calendar_event_id}`, jsonBody({
+              summary: autoSummary,
+              description: form.calendarDescription || form.notes || undefined,
+              startTime,
+              endTime,
+            }, "PATCH"));
+          } catch {
+            // error-tolerated: the meeting row is already saved at this point.
+            // Failing the whole save over the calendar mirror would lose the
+            // notes the user just wrote; the Calendar page's own sync is the
+            // recovery path.
+          }
         }
       } else {
         // Create new meeting
@@ -279,20 +281,19 @@ export function ConversationModal() {
 
             const startTime = new Date(dateTime).toISOString();
             const endTime = new Date(new Date(dateTime).getTime() + meetingDuration * 60000).toISOString();
-            await fetch("/api/calendar/create-event", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                summary: autoSummary,
-                description: form.calendarDescription || undefined,
-                startTime,
-                endTime,
-                attendeeEmails,
-                conferenceType: includeMeetLink ? "meet" : "none",
-                meetingId: created.id,
-              }),
-            });
-          } catch { /* calendar creation is best-effort */ }
+            await apiSend("/api/calendar/create-event", jsonBody({
+              summary: autoSummary,
+              description: form.calendarDescription || undefined,
+              startTime,
+              endTime,
+              attendeeEmails,
+              conferenceType: includeMeetLink ? "meet" : "none",
+              meetingId: created.id,
+            }));
+          } catch {
+            // error-tolerated: same reason as the update path above. The
+            // meeting exists; only its Google mirror is missing.
+          }
         }
       }
 

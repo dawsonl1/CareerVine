@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/toast";
 import { Toggle } from "@/components/ui/toggle";
 import type { AdminUserDetail } from "@/lib/admin-users";
+import { apiSend, jsonBody } from "@/lib/api-client";
 
 export default function PremiumSection({
   user,
@@ -28,13 +29,7 @@ export default function PremiumSection({
     if (saving) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/premium`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ premium_enabled: value }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(`/api/admin/users/${user.id}/premium`, jsonBody({ premium_enabled: value }, "PATCH"));
       success(`Premium ${value ? "on" : "off"} for ${user.email ?? "this account"}`);
       onChanged();
     } catch (err) {

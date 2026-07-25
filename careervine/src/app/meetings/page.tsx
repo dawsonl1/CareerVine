@@ -43,10 +43,12 @@ import { inputClasses } from "@/lib/form-styles";
 import { getRsvpDisplay } from "@/lib/constants";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { LoadErrorState, LoadErrorBanner } from "@/components/ui/load-error-state";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function MeetingsPage() {
   const { user } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
   const { calendarConnected, loading: connectionLoading } = useGmailConnection();
   const { open: openConversationModal, openEdit: openEditModal } = useQuickCapture();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -413,7 +415,11 @@ export default function MeetingsPage() {
                     </div>
                     <button
                       onClick={async () => {
-                        if (!confirm("Delete this interaction?")) return;
+                        if (!(await confirm({
+                          message: "Delete this interaction?",
+                          confirmLabel: "Delete",
+                          destructive: true,
+                        }))) return;
                         await withToastOnError(async () => {
                           await deleteInteraction((item.data as InteractionWithContact).id);
                           await loadInteractions();
@@ -461,7 +467,11 @@ export default function MeetingsPage() {
                     </button>
                     <button
                       onClick={async () => {
-                        if (!confirm("Delete this meeting? This action cannot be undone.")) return;
+                        if (!(await confirm({
+                          message: "Delete this meeting? This action cannot be undone.",
+                          confirmLabel: "Delete",
+                          destructive: true,
+                        }))) return;
                         try {
                           await deleteMeeting(meeting.id);
                           await loadMeetings();
@@ -617,7 +627,7 @@ export default function MeetingsPage() {
                                   <Check className="h-3.5 w-3.5" />
                                 </button>
                               )}
-                              <button type="button" onClick={async () => { if (!confirm("Delete this action item?")) return; await withToastOnError(async () => { await deleteActionItem(action.id); await reloadMeetingActions(meeting.id); }, toastError, "Couldn't delete that action item. Please try again."); }} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
+                              <button type="button" onClick={async () => { if (!(await confirm({ message: "Delete this action item?", confirmLabel: "Delete", destructive: true }))) return; await withToastOnError(async () => { await deleteActionItem(action.id); await reloadMeetingActions(meeting.id); }, toastError, "Couldn't delete that action item. Please try again."); }} className="p-1.5 rounded-full text-muted-foreground hover:text-destructive cursor-pointer" title="Delete">
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </div>
@@ -686,6 +696,7 @@ export default function MeetingsPage() {
         </div>
       </div>
 
+      {confirmDialog}
     </div>
   );
 }

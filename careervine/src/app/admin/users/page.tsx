@@ -25,6 +25,8 @@ import type { BundleAccessItem } from "@/lib/admin-bundles";
 import { Toggle } from "@/components/ui/toggle";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
 import { AdminBadge, StatusBadge, KeyBadge } from "@/components/admin/user-badges";
 import BundleAccessList from "@/components/admin/bundle-access-list";
 
@@ -56,6 +58,7 @@ const SCRAPE_CONTROL_LABEL: Record<ScrapeControlKey, string> = {
 
 export default function AdminUsersPage() {
   const { success, error: toastError } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
   const [q, setQ] = useState("");
   const [users, setUsers] = useState<AdminUserListItem[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,12 +81,11 @@ export default function AdminUsersPage() {
         const url = q.trim()
           ? `/api/admin/users?q=${encodeURIComponent(q.trim())}`
           : "/api/admin/users";
-        const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `Request failed (${res.status})`);
-        }
-        const body = (await res.json()) as { users: AdminUserListItem[] };
+        // An abort rejects inside apiFetch before the status branch, so it
+        // still surfaces as an AbortError for the guard below.
+        const body = await apiFetch<{ users: AdminUserListItem[] }>(url, {
+          signal: controller.signal,
+        });
         setUsers(body.users);
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
@@ -114,13 +116,10 @@ export default function AdminUsersPage() {
     setSavingAiId(user.id);
     patchUser(user.id, { aiFallbackPolicy: policy });
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/ai-policy`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ai_fallback_policy: policy }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(
+        `/api/admin/users/${user.id}/ai-policy`,
+        jsonBody({ ai_fallback_policy: policy }, "PATCH"),
+      );
       success(
         share
           ? `${user.email ?? "Account"} now falls back to the shared key`
@@ -146,13 +145,10 @@ export default function AdminUsersPage() {
     setSavingScrapeId(`${user.id}:${key}`);
     patchUser(user.id, { [field]: value });
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/scrape-controls`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ [key]: value }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(
+        `/api/admin/users/${user.id}/scrape-controls`,
+        jsonBody({ [key]: value }, "PATCH"),
+      );
       success(`${SCRAPE_CONTROL_LABEL[key]} ${value ? "on" : "off"} for ${user.email ?? "this account"}`);
     } catch (err) {
       patchUser(user.id, { [field]: prev });
@@ -166,16 +162,21 @@ export default function AdminUsersPage() {
   const bulkSet = async (key: ScrapeControlKey, value: boolean) => {
     const label = SCRAPE_CONTROL_LABEL[key];
     if (bulkBusy) return;
-    if (!window.confirm(`Turn ${label} ${value ? "ON" : "OFF"} for ALL accounts?`)) return;
+    // The only control on this page that writes to every account at once, so
+    // it gets the most deliberate confirm of the twelve: a destructive action
+    // whose button says what it is about to do rather than "Confirm".
+    if (!(await confirm({
+      message: `Turn ${label} ${value ? "ON" : "OFF"} for ALL accounts?`,
+      title: "Change every account",
+      confirmLabel: `Turn ${value ? "ON" : "OFF"} for all`,
+      destructive: true,
+    }))) return;
     setBulkBusy(true);
     try {
-      const res = await fetch("/api/admin/scrape-controls/bulk", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ [key]: value }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      const body = await apiFetch<{ affected: number }>(
+        "/api/admin/scrape-controls/bulk",
+        jsonBody({ [key]: value }),
+      );
       success(`${label[0].toUpperCase()}${label.slice(1)} ${value ? "on" : "off"} for ${body.affected} accounts`);
       setRefreshKey((k) => k + 1);
     } catch (e) {
@@ -455,6 +456,7 @@ export default function AdminUsersPage() {
           })}
         </ul>
       )}
+      {confirmDialog}
     </div>
   );
 }

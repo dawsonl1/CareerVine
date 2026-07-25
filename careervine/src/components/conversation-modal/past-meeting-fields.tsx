@@ -7,6 +7,7 @@ import TranscriptUploader from "@/components/transcript-uploader";
 import { TranscriptActionSuggestions } from "@/components/meetings/transcript-action-suggestions";
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import type { ConversationFormState, PendingAction, TranscriptState } from "./types";
+import { apiFetch, jsonBody } from "@/lib/api-client";
 
 interface PastMeetingFieldsProps {
   form: ConversationFormState;
@@ -62,12 +63,12 @@ export function PastMeetingFields({
         // Upload audio file
         const formDataUpload = new FormData();
         formDataUpload.append("file", file);
-        const uploadRes = await fetch("/api/attachments/upload", {
-          method: "POST",
-          body: formDataUpload,
-        });
-        if (!uploadRes.ok) throw new Error("We couldn't upload that file. Please try again.");
-        const { attachment } = await uploadRes.json();
+        // FormData body: deliberately no Content-Type, so the browser sets the
+        // multipart boundary. jsonBody would break that, hence the bare init.
+        const { attachment } = await apiFetch<{ attachment: { id: number; object_path: string } }>(
+          "/api/attachments/upload",
+          { method: "POST", body: formDataUpload },
+        );
 
         setTranscriptState((prev) => ({
           ...prev,
@@ -76,16 +77,10 @@ export function PastMeetingFields({
 
         // Transcribe — the server routes through the user's Deepgram key (or the
         // shared key) and returns a friendly, specific message if both fail.
-        const transcribeRes = await fetch("/api/transcripts/transcribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ objectPath: attachment.object_path }),
-        });
-        if (!transcribeRes.ok) {
-          const data = await transcribeRes.json().catch(() => ({}));
-          throw new Error(data.error || "Transcription failed. Please try again.");
-        }
-        const { rawText, segments } = await transcribeRes.json();
+        const { rawText, segments } = await apiFetch<{
+          rawText: string;
+          segments?: ParsedTranscriptTurn[];
+        }>("/api/transcripts/transcribe", jsonBody({ objectPath: attachment.object_path }));
 
         setForm((prev) => ({ ...prev, transcript: rawText }));
         setTranscriptState((prev) => ({

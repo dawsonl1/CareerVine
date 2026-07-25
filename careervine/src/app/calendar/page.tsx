@@ -20,6 +20,8 @@ import { resolveCalendarSaveMode } from "@/lib/calendar-save-mode";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { LoadErrorState } from "@/components/ui/load-error-state";
 import { SectionBoundary } from "@/components/ui/section-boundary";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -60,6 +62,7 @@ function snapMins(raw: number) { return Math.round(raw / 15) * 15; }
 export default function CalendarPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
   // Same source as Home / Meetings — never probe /api/calendar/availability
   // without start/end (that 400 left calendarConnected stuck false; CAR-129).
   const { calendarConnected } = useGmailConnection();
@@ -167,13 +170,13 @@ export default function CalendarPage() {
     const now = new Date();
     const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
-    const res = await fetch(`/api/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
     // fetch only rejects on network failures; an HTTP 401/500 resolves with a
     // JSON error body and no `events` key, which used to read as load-empty.
-    // Throw so callers' catches see the failure (CAR-154).
-    if (!res.ok) throw new Error(`Failed to load calendar events: ${res.status}`);
-    const data = await res.json();
-    if (data.events) setEvents(data.events.sort((a: CalendarEvent, b: CalendarEvent) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
+    // apiFetch throws on any non-2xx so callers' catches see it (CAR-154).
+    const data = await apiFetch<{ events?: CalendarEvent[] }>(
+      `/api/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+    );
+    if (data.events) setEvents([...data.events].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
   }, []);
 
   const loadContacts = useCallback(async () => {
@@ -212,8 +215,11 @@ export default function CalendarPage() {
       console.error("Error loading calendar events:", eventsResult.reason);
       setLoadError(true);
     } else {
-      // Background auto-sync (silent, respects 5-min cooldown)
-      fetch("/api/calendar/sync", { method: "POST" }).then(r => { if (r.ok) return loadEvents(); }).catch(() => {});
+      // Background auto-sync (respects a 5-min cooldown). error-tolerated: the
+      // user did not ask for this and the events they came for are already on
+      // screen from the load above, so a failed opportunistic refresh has
+      // nothing to report. The explicit Sync button is the path that reports.
+      apiSend("/api/calendar/sync", { method: "POST" }).then(() => loadEvents()).catch(() => {});
     }
     setLoading(false);
   }, [loadEvents, loadContacts, loadLinkedMeetings]);
@@ -224,7 +230,9 @@ export default function CalendarPage() {
   const handleSync = async () => {
     setSyncing(true); setError("");
     try {
-      await fetch("/api/calendar/sync?force=true", { method: "POST" });
+      // Unchecked, a refused sync still ran the reloads and cleared `syncing`,
+      // so the button reported done over unchanged data (CAR-188).
+      await apiSend("/api/calendar/sync?force=true", { method: "POST" });
       await loadEvents(); await loadLinkedMeetings();
     } catch { setError("Failed to sync calendar"); }
     finally { setSyncing(false); }
@@ -288,12 +296,16 @@ export default function CalendarPage() {
   };
 
   const handleDeleteEvent = async (event: CalendarEvent) => {
-    if (!confirm("Delete this event from Google Calendar?")) return;
+    if (!(await confirm({
+      message: "Delete this event from Google Calendar?",
+      title: "Delete event",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
     try {
-      const res = await fetch(`/api/calendar/events/${encodeURIComponent(event.google_event_id)}`, {
+      await apiSend(`/api/calendar/events/${encodeURIComponent(event.google_event_id)}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Delete failed");
       setSelectedEvent(null);
       await loadLinkedMeetings();
       await loadEvents();
@@ -331,12 +343,10 @@ export default function CalendarPage() {
           const effectiveDuration = meetingDuration > 0 ? meetingDuration : 60;
           const startTime = new Date(dateTime).toISOString();
           const endTime = new Date(new Date(dateTime).getTime() + effectiveDuration * 60000).toISOString();
-          const patchRes = await fetch(`/api/calendar/events/${encodeURIComponent(editingMeeting.calendar_event_id)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime }),
-          });
-          if (!patchRes.ok) throw new Error("Failed to update Google Calendar event");
+          await apiSend(
+            `/api/calendar/events/${encodeURIComponent(editingMeeting.calendar_event_id)}`,
+            jsonBody({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime }, "PATCH"),
+          );
         }
       } else if (saveMode === "patch-existing-google" && editingGoogleEventId) {
         // Link a CareerVine meeting to the existing Google event; never create a duplicate
@@ -353,12 +363,10 @@ export default function CalendarPage() {
           const effectiveDuration = meetingDuration > 0 ? meetingDuration : 60;
           const startTime = new Date(dateTime).toISOString();
           const endTime = new Date(new Date(dateTime).getTime() + effectiveDuration * 60000).toISOString();
-          const patchRes = await fetch(`/api/calendar/events/${encodeURIComponent(editingGoogleEventId)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime }),
-          });
-          if (!patchRes.ok) throw new Error("Failed to update Google Calendar event");
+          await apiSend(
+            `/api/calendar/events/${encodeURIComponent(editingGoogleEventId)}`,
+            jsonBody({ summary: autoSummary, description: formData.calendarDescription || undefined, startTime, endTime }, "PATCH"),
+          );
         }
       } else {
         const created = await createMeeting({
@@ -375,20 +383,15 @@ export default function CalendarPage() {
           const attendeeEmails = selectedContactIds.map(id => inviteEmailMap[id] || contactEmailsMap[id]?.[0] || allContacts.find(c => c.id === id)?.email || null).filter(Boolean) as string[];
           const startTime = new Date(dateTime).toISOString();
           const endTime = new Date(new Date(dateTime).getTime() + effectiveDuration * 60000).toISOString();
-          const createRes = await fetch("/api/calendar/create-event", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              summary: autoSummary,
-              description: formData.calendarDescription || undefined,
-              startTime,
-              endTime,
-              attendeeEmails,
-              conferenceType: includeMeetLink ? "meet" : "none",
-              meetingId: created.id,
-            }),
-          });
-          if (!createRes.ok) throw new Error("Failed to create Google Calendar event");
+          await apiSend("/api/calendar/create-event", jsonBody({
+            summary: autoSummary,
+            description: formData.calendarDescription || undefined,
+            startTime,
+            endTime,
+            attendeeEmails,
+            conferenceType: includeMeetLink ? "meet" : "none",
+            meetingId: created.id,
+          }));
         }
       }
       await loadLinkedMeetings(); await loadEvents();
@@ -898,6 +901,7 @@ export default function CalendarPage() {
           </div>
         )}
       </main>
+      {confirmDialog}
     </div>
   );
 }

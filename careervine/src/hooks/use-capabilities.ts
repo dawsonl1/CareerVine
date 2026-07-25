@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useSyncExternalStore } from "react";
 import { useAuth } from "@/components/auth-provider";
 import type { Capability } from "@/lib/capabilities/types";
+import { apiFetch } from "@/lib/api-client";
 
 /**
  * Client mirror of the server capability resolver (CAR-103).
@@ -39,12 +40,8 @@ function setState(patch: Partial<StoreState>) {
 
 function fetchCapabilities(): Promise<void> {
   if (fetchPromise) return fetchPromise;
-  fetchPromise = fetch("/api/capabilities")
-    .then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    })
-    .then((data: { capabilities?: Capability[] }) => {
+  fetchPromise = apiFetch<{ capabilities?: Capability[] }>("/api/capabilities")
+    .then((data) => {
       setState({ capabilities: new Set(data.capabilities ?? []), loading: false });
       fetchPromise = null;
     })

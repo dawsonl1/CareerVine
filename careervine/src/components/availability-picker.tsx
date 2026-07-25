@@ -10,6 +10,7 @@ import { getContactTagNames } from "@/lib/queries";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import type { AvailabilityDayConfig } from "@/lib/availability-profile";
 import type { GmailConnectionData } from "@/hooks/use-gmail-connection";
+import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
 
 interface AvailabilityDay {
   date: string;
@@ -201,8 +202,9 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
 
     const load = async () => {
       try {
-        const res = await fetch("/api/gmail/connection");
-        const data: { connection: GmailConnectionData | null } = await res.json();
+        const data = await apiFetch<{ connection: GmailConnectionData | null }>(
+          "/api/gmail/connection",
+        );
         const conn = data.connection;
         if (!conn) return;
 
@@ -226,8 +228,9 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
         let isPriority = false;
         if (recipientEmail && user) {
           try {
-            const r = await fetch(`/api/gmail/ai-write/resolve-contact?email=${encodeURIComponent(recipientEmail)}`);
-            const cd: { contactId?: number | null } = await r.json();
+            const cd = await apiFetch<{ contactId?: number | null }>(
+              `/api/gmail/ai-write/resolve-contact?email=${encodeURIComponent(recipientEmail)}`,
+            );
             if (cd.contactId) {
               const tags = await getContactTagNames(cd.contactId, user.id);
               isPriority = tags.some((t) => t.toLowerCase() === "priority");
@@ -289,16 +292,16 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
       bufferBefore: String(opts.bufferBefore),
       bufferAfter: String(opts.bufferAfter),
     });
-    const res = await fetch(`/api/calendar/availability?${params}`);
-    const data: {
+    // `notConnected` / `neverSynced` are 200-level signals from this route, not
+    // error statuses, so they still resolve here and their checks keep running
+    // ahead of anything apiFetch would throw for.
+    const data = await apiFetch<{
       days?: AvailabilityDay[];
       notConnected?: boolean;
       neverSynced?: boolean;
-      error?: string;
-    } = await res.json();
+    }>(`/api/calendar/availability?${params}`);
     if (data.notConnected) throw Object.assign(new Error("Connect Google Calendar in Settings to use this feature."), { code: "NOT_CONNECTED" });
     if (data.neverSynced) throw Object.assign(new Error("Your calendar hasn't synced yet. Visit the Calendar page to sync."), { code: "NEVER_SYNCED" });
-    if (!res.ok) throw new Error(data.error || "Failed to fetch availability");
     return data.days || [];
   };
 
@@ -529,21 +532,16 @@ export function AvailabilityPicker({ onInsert, recipientEmail }: AvailabilityPic
                       onClick={async () => {
                         setSavingDefault(true);
                         await withToastOnError(async () => {
-                          const res = await fetch("/api/calendar/availability-profile", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              profile: autoDetectedProfile,
-                              data: {
-                                workingDays: daysOfWeek.map(d => ({
-                                  day: d - 1, enabled: true,
-                                  startTime: windowStart, endTime: windowEnd,
-                                  bufferBefore, bufferAfter,
-                                })),
-                              },
-                            }),
-                          });
-                          if (!res.ok) throw new Error(`save failed: ${res.status}`);
+                          await apiSend("/api/calendar/availability-profile", jsonBody({
+                            profile: autoDetectedProfile,
+                            data: {
+                              workingDays: daysOfWeek.map(d => ({
+                                day: d - 1, enabled: true,
+                                startTime: windowStart, endTime: windowEnd,
+                                bufferBefore, bufferAfter,
+                              })),
+                            },
+                          }));
                           setSavedDefault(true);
                           setTimeout(() => setSavedDefault(false), 2000);
                         }, toastError, "Couldn't save your default availability. Please try again.");

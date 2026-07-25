@@ -81,8 +81,14 @@ function tabbableWithin(root: HTMLElement): HTMLElement[] {
  *
  * Attach `onKeyDown` to the dialog surface and give that surface `tabIndex={-1}`
  * so it can hold focus when it has no focusable content of its own.
+ *
+ * Exported for `confirm-dialog.tsx` (CAR-188), which is a third dialog surface
+ * in the same family. It imports rather than re-rolls because `tabbableWithin`
+ * above is not the obvious implementation: the layout-free filter is what keeps
+ * the trap armed under jsdom, and a fresh copy would reach for `offsetParent`
+ * and silently disarm itself in exactly the tests written to prove it works.
  */
-function useFocusTrap(active: boolean) {
+export function useFocusTrap(active: boolean) {
   const surfaceRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

@@ -9,6 +9,9 @@ import { useToast } from "@/components/ui/toast";
 import { FollowUpModal } from "@/components/follow-up-modal";
 import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
 import { buildThreads } from "@/lib/gmail-helpers";
+import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
+import { withToastOnError } from "@/lib/with-toast-on-error";
+import { LoadErrorBanner } from "@/components/ui/load-error-state";
 import { isOpenFollowUpMessage, isActionableFollowUpMessage, FollowUpMessageStatus } from "@/lib/constants";
 import { Inbox, ArrowUpRight, ArrowDownLeft, Reply, Clock, XCircle, Pencil, Check, Send, RotateCcw } from "lucide-react";
 
@@ -23,6 +26,8 @@ interface ContactEmailsTabProps {
    * snippets only (no live body fetch) and the manual "Mark as replied" control. */
   canReadMailbox: boolean;
   loadingEmails: boolean;
+  /** The parent's email read failed. Renders a retry instead of "no emails". */
+  emailsLoadFailed: boolean;
   onScheduledEmailCancel: (id: number) => void;
   onReloadEmails: () => void;
 }
@@ -35,6 +40,7 @@ export function ContactEmailsTab({
   gmailConnected,
   canReadMailbox,
   loadingEmails,
+  emailsLoadFailed,
   onScheduledEmailCancel,
   onReloadEmails,
 }: ContactEmailsTabProps) {
@@ -63,18 +69,26 @@ export function ContactEmailsTab({
   // Load all follow-ups upfront so badges appear on thread headers
   useEffect(() => {
     if (!gmailConnected) return;
-    fetch("/api/gmail/follow-ups")
-      .then((res) => res.json())
+    apiFetch<{ followUps?: EmailFollowUp[] }>("/api/gmail/follow-ups")
       .then((data) => {
-        if (data.followUps) {
-          const grouped: Record<string, EmailFollowUp[]> = {};
-          for (const fu of data.followUps) {
-            if (!grouped[fu.thread_id]) grouped[fu.thread_id] = [];
-            grouped[fu.thread_id].push(fu);
-          }
-          setThreadFollowUps(grouped);
+        if (!data.followUps) return;
+        const grouped: Record<string, EmailFollowUp[]> = {};
+        for (const fu of data.followUps) {
+          // `thread_id` is nullable on the row. Untyped `res.json()` hid that,
+          // and a null key stringified to "null", collecting every threadless
+          // follow-up under one bogus thread whose chips then rendered on
+          // whichever thread happened to be named "null" (never one), i.e.
+          // silently dropped. Skipping them is the same outcome, stated.
+          if (!fu.thread_id) continue;
+          if (!grouped[fu.thread_id]) grouped[fu.thread_id] = [];
+          grouped[fu.thread_id].push(fu);
         }
+        setThreadFollowUps(grouped);
       })
+      // error-tolerated: these are the follow-up count chips on thread headers,
+      // pure enrichment over the emails prop. The emails themselves come from
+      // the parent, which owns the honest failure state for this tab, so a
+      // second error surface here would report one outage twice.
       .catch(() => {});
   }, [gmailConnected, emails]);
 
@@ -84,16 +98,17 @@ export function ContactEmailsTab({
   // be requeued; the user decides, since the original may or may not have
   // actually gone out.
   const retryScheduledEmail = async (id: number) => {
-    try {
-      const res = await fetch(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
-      if (!res.ok) throw new Error();
-      // The cron is the sole send driver (CAR-139); the requeued email goes
-      // out on the next tick (within ~15 minutes).
-      toastSuccess("Email requeued. It will send within 15 minutes.");
-      onReloadEmails();
-    } catch {
-      toastError("Could not retry this email");
-    }
+    const requeued = await withToastOnError(
+      () => apiSend(`/api/gmail/schedule/${id}/retry`, { method: "POST" }),
+      toastError,
+      "Could not retry this email",
+    );
+    if (!requeued) return;
+
+    // The cron is the sole send driver (CAR-139); the requeued email goes
+    // out on the next tick (within ~15 minutes).
+    toastSuccess("Email requeued. It will send within 15 minutes.");
+    onReloadEmails();
   };
 
   const handleExpandEmail = async (gmailMessageId: string) => {
@@ -132,19 +147,21 @@ export function ContactEmailsTab({
     if (msg && !msg.is_read) {
       const delta = unreadDeltaFor(msg);
       emitUiEvent(UI_EVENTS.unreadChanged, { delta });
-      try {
-        await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
-      } catch { /* best-effort */ }
+      // error-tolerated: marking read is a mirror of Gmail's own state, not
+      // something the user asked for. The next sync re-derives it, and a toast
+      // here would interrupt a read with news about bookkeeping.
+      await apiSend(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" }).catch(() => {});
       // Confirm badge count and reload parent email list so read state is reflected
       emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
       onReloadEmails();
     }
 
     try {
-      const res = await fetch(`/api/gmail/emails/${gmailMessageId}`);
-      const data = await res.json();
+      const data = await apiFetch<{ success?: boolean; message?: EmailMessageFull }>(
+        `/api/gmail/emails/${gmailMessageId}`,
+      );
       if (!expandReq.isLatest(token)) return;
-      if (data.success) {
+      if (data.success && data.message) {
         setExpandedEmailContent(data.message);
       }
     } catch {
@@ -156,29 +173,33 @@ export function ContactEmailsTab({
 
   const loadFollowUpsForThread = async (threadId: string) => {
     try {
-      const res = await fetch(`/api/gmail/follow-ups?threadId=${threadId}`);
-      const data = await res.json();
+      const data = await apiFetch<{ followUps?: EmailFollowUp[] }>(
+        `/api/gmail/follow-ups?threadId=${threadId}`,
+      );
       if (data.followUps) {
-        setThreadFollowUps((prev) => ({ ...prev, [threadId]: data.followUps }));
+        setThreadFollowUps((prev) => ({ ...prev, [threadId]: data.followUps! }));
       }
     } catch {
-      // Follow-up chips are enrichment; a failed lookup just leaves them off
-      // this thread and the emails still render.
+      // error-tolerated: follow-up chips are enrichment; a failed lookup just
+      // leaves them off this thread and the emails still render. Every caller
+      // is a re-read after its own write already reported success or failure.
     }
   };
 
   const cancelFollowUp = async (followUpId: number, threadId: string) => {
-    try {
-      const res = await fetch(`/api/gmail/follow-ups/${followUpId}`, { method: "DELETE" });
-      if (res.ok) {
-        // Fire-and-forget: loadFollowUpsForThread swallows its own failures by
-        // design (the chips are enrichment), so the toast shouldn't wait on it.
-        void loadFollowUpsForThread(threadId);
-        toastSuccess("Follow-up cancelled");
-      }
-    } catch {
-      toastError("Failed to cancel follow-up");
-    }
+    // `if (res.ok)` with no else: a refused cancel reported nothing at all,
+    // the same shape CAR-183 fixed one component over (CAR-188).
+    const cancelled = await withToastOnError(
+      () => apiSend(`/api/gmail/follow-ups/${followUpId}`, { method: "DELETE" }),
+      toastError,
+      "Failed to cancel follow-up",
+    );
+    if (!cancelled) return;
+
+    // Fire-and-forget: loadFollowUpsForThread swallows its own failures by
+    // design (the chips are enrichment), so the toast shouldn't wait on it.
+    void loadFollowUpsForThread(threadId);
+    toastSuccess("Follow-up cancelled");
   };
 
   const [markingReplied, setMarkingReplied] = useState<string | null>(null);
@@ -190,23 +211,19 @@ export function ContactEmailsTab({
   const confirmMessage = async (messageId: number, replied: boolean, threadId: string) => {
     if (confirmingMsgId) return;
     setConfirmingMsgId(messageId);
-    try {
-      const res = await fetch("/api/gmail/follow-ups/confirm", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messageId, replied }),
-      });
-      if (!res.ok) throw new Error();
-      toastSuccess(replied ? "Marked as replied" : "Follow-up sent");
-      onReloadEmails();
-      void loadFollowUpsForThread(threadId);
-      // The confirm changed how many follow-ups await review — refresh the nav badge.
-      emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
-    } catch {
-      toastError(replied ? "Could not update this follow-up" : "Could not send the follow-up");
-    } finally {
-      setConfirmingMsgId(null);
-    }
+    const confirmed = await withToastOnError(
+      () => apiSend("/api/gmail/follow-ups/confirm", jsonBody({ messageId, replied })),
+      toastError,
+      replied ? "Could not update this follow-up" : "Could not send the follow-up",
+    );
+    setConfirmingMsgId(null);
+    if (!confirmed) return;
+
+    toastSuccess(replied ? "Marked as replied" : "Follow-up sent");
+    onReloadEmails();
+    void loadFollowUpsForThread(threadId);
+    // The confirm changed how many follow-ups await review — refresh the nav badge.
+    emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
   };
 
   // Free-tier manual "they replied": cancels the sequence, activates the contact,
@@ -214,23 +231,19 @@ export function ContactEmailsTab({
   const markReplied = async (threadId: string, recipientEmail: string) => {
     if (markingReplied) return;
     setMarkingReplied(threadId);
-    try {
-      const res = await fetch("/api/gmail/follow-ups/mark-replied", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ threadId, recipientEmail }),
-      });
-      if (!res.ok) throw new Error();
-      toastSuccess("Marked as replied");
-      onReloadEmails();
-      void loadFollowUpsForThread(threadId);
-      // Cancelling the sequence cleared its awaiting-review items — refresh the nav badge.
-      emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
-    } catch {
-      toastError("Could not mark as replied");
-    } finally {
-      setMarkingReplied(null);
-    }
+    const marked = await withToastOnError(
+      () => apiSend("/api/gmail/follow-ups/mark-replied", jsonBody({ threadId, recipientEmail })),
+      toastError,
+      "Could not mark as replied",
+    );
+    setMarkingReplied(null);
+    if (!marked) return;
+
+    toastSuccess("Marked as replied");
+    onReloadEmails();
+    void loadFollowUpsForThread(threadId);
+    // Cancelling the sequence cleared its awaiting-review items — refresh the nav badge.
+    emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
   };
 
   return (
@@ -315,6 +328,14 @@ export function ContactEmailsTab({
           <div className="animate-spin rounded-full h-4 w-4 border border-primary border-t-transparent" />
           Loading emails…
         </div>
+      ) : emailsLoadFailed ? (
+        /* Never "No email history found." on a failed read: that is an
+           affirmative claim about the relationship, and the user acts on it
+           by writing an intro to someone they have already been emailing. */
+        <LoadErrorBanner
+          message="Couldn't load this contact's email history."
+          onRetry={onReloadEmails}
+        />
       ) : emailThreads.length === 0 && scheduledEmails.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {contactEmailAddresses.length === 0

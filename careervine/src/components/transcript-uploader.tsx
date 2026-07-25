@@ -6,6 +6,7 @@ import { parseTranscript, type ParsedTranscriptTurn } from "@/lib/transcript-par
 import { inputClasses } from "@/lib/form-styles";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
+import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 /**
  * Debounce a callback by `delay` ms. Returns a stable function ref.
@@ -100,30 +101,24 @@ export default function TranscriptUploader({
       setParseStatus(`Parsing ${file.name} with AI...`);
       setAiFailure(null);
       try {
-        const res = await fetch("/api/transcripts/parse", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rawText: text }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.segments?.length > 0) {
-            setParseStatus(`AI parsed ${data.segments.length} segments from ${file.name}`);
-            onSegmentsParsed?.(data.segments, source);
-          } else {
-            setParseStatus(`Could not detect speakers in ${file.name}`);
-          }
+        const data = await apiFetch<{ segments?: ParsedTranscriptTurn[] }>(
+          "/api/transcripts/parse",
+          jsonBody({ rawText: text }),
+        );
+        if (data.segments?.length) {
+          setParseStatus(`AI parsed ${data.segments.length} segments from ${file.name}`);
+          onSegmentsParsed?.(data.segments, source);
         } else {
-          const code = parseAiFailure(res.status, await res.json().catch(() => null));
-          if (code) {
-            setAiFailure(code);
-            setParseStatus(null);
-          } else {
-            setParseStatus(`Could not parse ${file.name}`);
-          }
+          setParseStatus(`Could not detect speakers in ${file.name}`);
         }
-      } catch {
-        setParseStatus(`Could not parse ${file.name}`);
+      } catch (err) {
+        const code = isApiRequestError(err) ? parseAiFailure(err.status, err.body) : null;
+        if (code) {
+          setAiFailure(code);
+          setParseStatus(null);
+        } else {
+          setParseStatus(`Could not parse ${file.name}`);
+        }
       }
     }
 

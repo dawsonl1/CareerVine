@@ -12,6 +12,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { RefreshCw, CircleDollarSign, Activity, PauseCircle, Search } from "lucide-react";
 import { EXTENSION_STORE_URL } from "@/lib/extension-store";
+import { apiFetch } from "@/lib/api-client";
 
 interface ScrapeStatus {
   configured: boolean;
@@ -30,11 +31,13 @@ export default function DataScrapingSection() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/scrape/status")
-      .then((r) => (r.ok ? r.json() : null))
+    apiFetch<ScrapeStatus>("/api/scrape/status")
       .then((data) => {
-        if (!cancelled && data) setStatus(data);
+        if (!cancelled) setStatus(data);
       })
+      // error-tolerated: the card renders its own "not available" copy from a
+      // null status, which is the same thing the user sees when scraping is
+      // genuinely off for their account.
       .catch(() => {})
       .finally(() => {
         if (!cancelled) setLoading(false);
