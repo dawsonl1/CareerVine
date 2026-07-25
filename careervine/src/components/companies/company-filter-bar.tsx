@@ -136,6 +136,7 @@ export default function CompanyFilterBar({
           </button>
 
           <Select
+            ariaLabel="Filter by traction"
             value={filters.traction ?? ""}
             onChange={(v) => onFiltersChange({ ...filters, traction: (v || null) as OutreachStage | null })}
             options={[{ value: "", label: "Any traction" }, ...STAGE_ORDER.map((s) => ({ value: s, label: STAGE_LABELS[s] }))]}
@@ -145,6 +146,7 @@ export default function CompanyFilterBar({
 
           {tierOptions.length >= 2 && (
             <Select
+              ariaLabel="Filter by tier"
               value={filters.tier ?? ""}
               onChange={(v) => onFiltersChange({ ...filters, tier: v || null })}
               options={[{ value: "", label: "Any tier" }, ...tierOptions.map((t) => ({ value: t, label: t }))]}
@@ -154,6 +156,7 @@ export default function CompanyFilterBar({
           )}
 
           <Select
+            ariaLabel="Filter by contacts"
             value={filters.contacts}
             onChange={(v) => onFiltersChange({ ...filters, contacts: v as ContactsFilter })}
             options={[

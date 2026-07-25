@@ -465,7 +465,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
                 {formData.contact_status === "student" && (
                   <div>
                     <label className={labelClasses}>Expected graduation</label>
-                    <MonthYearPicker value={formData.expected_graduation} onChange={(val) => setFormData({ ...formData, expected_graduation: val })} placeholder="Select graduation month" />
+                    <MonthYearPicker value={formData.expected_graduation} onChange={(val) => setFormData({ ...formData, expected_graduation: val })} placeholder="Select graduation month" ariaLabel="Expected graduation" />
                   </div>
                 )}
               </div>

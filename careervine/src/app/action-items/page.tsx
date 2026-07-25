@@ -462,6 +462,7 @@ export default function ActionItemsPage() {
         onChange={onChange}
         options={PRIORITY_OPTIONS}
         placeholder="No priority"
+        ariaLabel="Priority"
       />
     </div>
   );

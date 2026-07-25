@@ -19,6 +19,7 @@ import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { apiFetch, apiSend, jsonBody, isApiRequestError } from "@/lib/api-client";
 import type { DraftFollowUpsResponse } from "@/app/api/ai/draft-follow-ups/route";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
+import { useDialogLayer } from "@/components/ui/modal";
 import { track } from "@/lib/analytics/client";
 import { editRatio } from "@/lib/analytics/edit-ratio";
 import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
@@ -693,13 +694,18 @@ function ComposeEmailModalBody() {
   }, [to, cc, bcc, subject, bodyHtml, saveDraft, closeCompose, aiDraftContext]);
 
   // Close on Escape
+  // Mounted only while open (the wrapper returns null otherwise), so the layer is
+  // unconditionally active here. Escape only while topmost, plus the scroll lock this
+  // full-screen overlay never had (CAR-202).
+  const isTopLayer = useDialogLayer(true);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleClose();
+      if (e.key === "Escape" && isTopLayer()) handleClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleClose]);
+  }, [handleClose, isTopLayer]);
 
   const isDone = sent || scheduled;
 

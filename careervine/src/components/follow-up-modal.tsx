@@ -10,6 +10,7 @@ import type { EmailFollowUp } from "@/lib/types";
 import { isUnresolvedFollowUpMessage } from "@/lib/constants";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
+import { useDialogLayer } from "@/components/ui/modal";
 import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 export type FollowUpDraft = {
@@ -252,14 +253,18 @@ export function FollowUpModal({
     }
   };
 
+  // Escape only while topmost, and the scroll lock comes with it (CAR-202). This is a
+  // full-screen overlay that previously let the page scroll behind it.
+  const isTopLayer = useDialogLayer(isOpen);
+
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && isTopLayer()) onClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, isTopLayer]);
 
   if (!isOpen) return null;
 

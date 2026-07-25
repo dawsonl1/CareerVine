@@ -164,6 +164,7 @@ function OutreachFlow() {
                 Company {index + 1} of {queue.length}
               </span>
               <Select
+                ariaLabel="Jump to company"
                 value={String(company?.id ?? "")}
                 onChange={(v) => {
                   const i = queue.findIndex((c) => String(c.id) === v);

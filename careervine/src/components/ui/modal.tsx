@@ -15,6 +15,11 @@
  * keydown inside the confirm dialog never bubbles through the modal surface and
  * the two traps compose with no trap stack and no "am I topmost" check.
  *
+ * Dismissal (CAR-202) is the opposite: Escape is a *document*-level event, so every
+ * open layer's listener sees every keypress and one press dismissed the whole stack.
+ * That one does need a topmost check, and `useDialogLayer` below is it — shared with
+ * the other dialog surfaces in the app rather than kept private here.
+ *
  * Portalled children (CAR-198): the trap is "everything inside the surface", so a
  * child that portals out of the surface leaves the cycle and becomes keyboard
  * unreachable. Rather than teach the trap about satellite containers, the surface
@@ -174,6 +179,58 @@ export function useFocusTrap(active: boolean, returnFocusFallback?: HTMLElement 
   return { surfaceRef: setSurface, surface, onKeyDown };
 }
 
+/* ── Dismissal layer stack ── */
+
+/** Every open modal layer, oldest first. Identity only; no layer reads another's. */
+const layerStack: symbol[] = [];
+
+/** Body `overflow` as it stood before the first layer locked it. */
+let overflowBeforeLock = "";
+
+/**
+ * Registers an open dialog as a modal layer and reports whether it is the topmost.
+ *
+ * Every dialog in this app listens for Escape on `document`/`window`, and a
+ * document-level listener fires for every layer regardless of which one is on top, so
+ * one keypress used to dismiss the entire stack. The reachable case is the page-level
+ * `ConfirmDialog` that Edit Contact's Delete opens over the still-open modal: Escape
+ * there cancelled the delete *and* closed the modal underneath it (CAR-202).
+ *
+ * `isTopLayer` is a function, not a boolean, because the answer has to be read when
+ * the key is pressed rather than when the listener was attached. A layer that is
+ * topmost at effect time stops being topmost the moment another opens above it, and
+ * nothing re-runs its effect to tell it so.
+ *
+ * The stack also owns the body scroll lock, because "should the page be locked" is
+ * the same question as "is any layer open". Each dialog releasing its own lock meant
+ * the first one to unmount unlocked the page under everything still open. What was
+ * there before is captured and restored, rather than assumed to be `"unset"`.
+ *
+ * A dialog rendered *inside* another as its own confirmation step should not register
+ * — see the note on `ConfirmDiscardDialog`.
+ */
+export function useDialogLayer(active: boolean): () => boolean {
+  const [id] = useState(() => Symbol("dialog-layer"));
+
+  useEffect(() => {
+    if (!active) return;
+
+    if (layerStack.length === 0) {
+      overflowBeforeLock = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    layerStack.push(id);
+
+    return () => {
+      const at = layerStack.lastIndexOf(id);
+      if (at !== -1) layerStack.splice(at, 1);
+      if (layerStack.length === 0) document.body.style.overflow = overflowBeforeLock;
+    };
+  }, [active, id]);
+
+  return useCallback(() => layerStack[layerStack.length - 1] === id, [id]);
+}
+
 interface ModalContextValue {
   /** The dialog surface, or null outside a Modal. */
   portalContainer: HTMLElement | null;
@@ -237,6 +294,13 @@ interface ModalProps {
 }
 
 /* ── Inline confirmation dialog ── */
+/**
+ * Deliberately not a `useDialogLayer` participant. It is rendered by `Modal` as that
+ * modal's own confirmation step, and `Modal`'s Escape handler already branches on
+ * `showConfirm` to dismiss this first. Registering it would make the Modal
+ * non-topmost and that branch unreachable, so Escape would stop closing this dialog
+ * at all. The Modal's single layer covers both surfaces.
+ */
 function ConfirmDiscardDialog({
   message,
   onDiscard,
@@ -310,6 +374,7 @@ export function Modal({
   const [showConfirm, setShowConfirm] = useState(false);
   const titleId = useId();
   const { surfaceRef, surface, onKeyDown } = useFocusTrap(isOpen);
+  const isTopLayer = useDialogLayer(isOpen);
 
   const attemptClose = useCallback(() => {
     if (hasUnsavedChanges) {
@@ -329,27 +394,26 @@ export function Modal({
     [surface, attemptClose],
   );
 
+  // The scroll lock lives in useDialogLayer above, not here: it belongs to the stack
+  // as a whole, and releasing it per-modal unlocked the page under anything still open.
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (showConfirm) {
-          setShowConfirm(false);
-        } else {
-          attemptClose();
-        }
+      if (e.key !== "Escape") return;
+      // Read now, not when this listener was attached — another layer may have opened
+      // above this one since, and it owns the key until it closes.
+      if (!isTopLayer()) return;
+      if (showConfirm) {
+        setShowConfirm(false);
+      } else {
+        attemptClose();
       }
     };
 
-    if (isOpen) {
-      document.addEventListener("keydown", handleEscape);
-      document.body.style.overflow = "hidden";
-    }
-
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "unset";
-    };
-  }, [isOpen, attemptClose, showConfirm]);
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isOpen, attemptClose, showConfirm, isTopLayer]);
 
   // Reset confirm dialog when the modal closes. Adjusting state during render
   // (tracking the previous isOpen) is React's pattern for prop-driven resets.
