@@ -137,21 +137,22 @@ test("scheduling then cancelling a follow-up persists across a reload", async ({
 });
 
 /**
- * CAR-183, pinned as an executable regression.
+ * CAR-183's silent-failure bug, now a live regression test.
  *
- * Expected to FAIL until CAR-183 lands. `test.fail()` keeps CI green while the
- * bug is live, and — because Playwright reports "expected to fail but passed"
- * as a failure — turns green-ness itself into a signal the moment the fix
- * merges, forcing this annotation off. CAR-188 migrates this same call site to
- * apiSend/withToastOnError, so whichever lands first should remove it.
+ * This test was written while the bug was open and annotated `test.fail()`, so
+ * CI stayed green on a known defect while Playwright watched for it to start
+ * passing. CAR-183 landed in #167, the same hour this tier merged; the
+ * annotation came off in the next commit, which is exactly the handshake it was
+ * there to force.
  *
- * The ticket asked to prove the tier catches something real by reverting
- * CAR-183's fix. That fix is not merged (`git log --all --grep CAR-183` is
- * empty), so there is nothing to revert; this is the same proof from the other
- * direction.
+ * What it guards now: `handleCancel` in `contact-follow-up-status.tsx` runs the
+ * DELETE through `apiSend` + `withToastOnError` and gates the optimistic update
+ * on the write actually landing. A bare `fetch` there would resolve on a 404 or
+ * 500 without rejecting, and the row would claim "Cancelled" while the sequence
+ * kept emailing the contact.
  */
-test.fail(
-  "a failed cancel request must not report success (CAR-183, still open)",
+test(
+  "a failed cancel request must not report success (CAR-183)",
   async ({ page }) => {
     const { contactId } = tenant();
     const subject = uniq("E2E follow-up fail");
@@ -177,11 +178,16 @@ test.fail(
 
     await row.getByTestId("followup-sequence-cancel").click();
 
-    // What the fix must produce: the row does NOT claim to be cancelled, and the
-    // user is told. Today the optimistic update fires regardless and no toast
-    // appears, so both of these fail.
+    // The row must not claim to be cancelled, and the user must be told.
+    //
+    // Matched on `data-variant`, not on the message text. Asserting the copy
+    // ("fail", "error", …) is the brittleness this tier is supposed to avoid:
+    // CAR-183's toast reads "Couldn't cancel that follow-up sequence. Please
+    // try again.", which contains neither word, and a matcher keyed on wording
+    // would go red on the next copy edit. `data-variant` is exactly why that
+    // attribute was added.
     await expect(row).not.toContainText("Cancelled");
-    await expect(page.getByTestId("toast").filter({ hasText: /fail|error/i })).toBeVisible();
+    await expect(page.locator('[data-testid="toast"][data-variant="error"]')).toBeVisible();
 
     // Server truth never changed, either way.
     expect(await statusInDb(sequenceId)).toBe("active");
