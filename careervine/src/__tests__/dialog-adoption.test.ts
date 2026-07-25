@@ -235,6 +235,109 @@ describe("full-screen overlays are dialogs", () => {
 });
 
 /**
+ * Every portal either targets a dialog surface or says why it does not (CAR-197 review).
+ *
+ * `useModalPortalContainer` exists because the focus trap is "everything inside the
+ * surface": a child that portals to `document.body` leaves the tab cycle and becomes
+ * keyboard-unreachable, and the surface's `aria-modal` additionally hides it from
+ * assistive tech, all while looking perfectly correct on screen. CONVENTIONS.md called
+ * that rule "adopted by every current call site" — and it was not. Guided onboarding's
+ * sort menu portalled to the body, and the moment a trap went on that dialog its options
+ * became mouse-only. Nothing caught it, because nothing checked.
+ *
+ * The exemption is real and common: a hover tooltip holds no focusable content, so the
+ * trap is irrelevant to it. That is a claim about the portalled content, which no static
+ * scan can verify — so the author asserts it in a comment rather than the scan inferring it.
+ */
+describe("portals target the dialog surface", () => {
+  const BODY_PORTAL_HATCH = "body-portal:";
+
+  /** Comments stripped, so a justification comment inside the arg list is not the arg. */
+  const withoutComments = (text: string) =>
+    text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  /**
+   * The last top-level argument of the `createPortal(` call starting at `open`.
+   *
+   * Collects every segment rather than tracking one index, because of trailing commas:
+   * `createPortal(node, target,)` ends on a blank segment, and reading that as the
+   * target reports "no target" for a call that plainly has one.
+   */
+  function lastArgument(source: string, open: number): string | null {
+    let depth = 0;
+    let quote: string | null = null;
+    let segmentStart = open + 1;
+    const segments: string[] = [];
+
+    for (let i = open; i < source.length; i++) {
+      const ch = source[i];
+      if (quote) {
+        if (ch === quote && source[i - 1] !== "\\") quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") {
+        quote = ch;
+        continue;
+      }
+      if (ch === "(" || ch === "{" || ch === "[") depth++;
+      else if (ch === ")" || ch === "}" || ch === "]") {
+        depth--;
+        if (depth === 0) {
+          segments.push(source.slice(segmentStart, i));
+          const meaningful = segments.map((x) => withoutComments(x).trim()).filter(Boolean);
+          return meaningful[meaningful.length - 1] ?? null;
+        }
+      } else if (ch === "," && depth === 1) {
+        segments.push(source.slice(segmentStart, i));
+        segmentStart = i + 1;
+      }
+    }
+    return null;
+  }
+
+  const portals = fg
+    .sync("**/*.tsx", { cwd: SRC, ignore: ["__tests__/**", "**/*.test.tsx"] })
+    .flatMap((rel) => {
+      const source = readFileSync(path.join(SRC, rel), "utf8");
+      return [...source.matchAll(/createPortal\(/g)].map((m) => {
+        const open = m.index + "createPortal".length;
+        return {
+          file: rel,
+          line: source.slice(0, m.index).split("\n").length,
+          target: (lastArgument(source, open) ?? "").trim(),
+          source,
+        };
+      });
+    });
+
+  it("finds the portals at all", () => {
+    // A floor, not a pin. If the argument scanner mis-terminates, every target reads
+    // empty and the policy assertion below passes over nothing.
+    expect(portals.length).toBeGreaterThanOrEqual(8);
+    expect(portals.filter((p) => p.target === "").map((p) => `${p.file}:${p.line}`)).toEqual([]);
+  });
+
+  it("never portals to the bare body without saying why", () => {
+    const bare = portals
+      .filter((p) => p.target === "document.body")
+      .filter((p) => {
+        const lines = p.source.split("\n");
+        return !lines
+          .slice(Math.max(0, p.line - 4), p.line + 2)
+          .some((l) => l.includes(BODY_PORTAL_HATCH));
+      })
+      .map((p) => `${p.file}:${p.line}`);
+
+    expect(
+      bare,
+      "a child portalled to document.body sits outside the focus trap and the aria-modal " +
+        "boundary of any enclosing dialog. Portal to `useModalPortalContainer() ?? document.body`, " +
+        `or mark it "${BODY_PORTAL_HATCH} <why this holds nothing focusable>".`,
+    ).toEqual([]);
+  });
+});
+
+/**
  * A dialog with no accessible name announces as just "dialog". `Modal` names itself
  * from `title` or `ariaLabel`; `DialogSurface` from `labelledBy` or `label`. Neither
  * can enforce "at least one" in the type system without making the common call site
