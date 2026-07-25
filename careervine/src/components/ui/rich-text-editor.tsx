@@ -123,7 +123,12 @@ export function RichTextEditor({ content = "", placeholder = "Write your message
         </button>
       </div>
 
-      <EditorContent editor={editor} />
+      {/*
+        TipTap renders a `contenteditable` div here, not a form control, so it
+        has no role and no accessible name to target. E2E types into it with
+        pressSequentially (CAR-189).
+      */}
+      <EditorContent editor={editor} data-testid="rich-text-editor" />
     </div>
   );
 }

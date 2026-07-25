@@ -286,3 +286,61 @@ authoritative for logic. CI runs it as the separate `integration` job.
   `careervine/src/__integration__/rls-tenant-isolation.itest.ts`. The unit
   tier's conventions are not mechanically enforced; the backstop is the suite
   itself passing.
+
+## i. End-to-end tests
+
+A third tier (CAR-189): real Chromium against a real `next build && next start`,
+backed by the same local Supabase stack the integration tier uses. It exists for
+the one thing neither other tier can express — whether a change the UI *claims*
+to have made actually persisted. Run it:
+
+```
+supabase start -x studio,imgproxy,edge-runtime,realtime,storage-api,vector,logflare,supavisor
+cd careervine && npm run test:e2e
+```
+
+Note the exclusion list is the integration tier's **minus mailpit**. Local auth
+runs with `enable_confirmations = true` to match production, so signup sends a
+real confirmation email and the flow reads it back; without Mailpit, signup fails
+outright. The email templates in `supabase/templates/` are the single source of
+truth for both the local stack (via `supabase/config.toml`) and production (via
+`careervine/scripts/configure-auth-emails.mjs`).
+
+**Third parties are intercepted in two places, and the split is not optional.**
+The calls that matter are made *server-side* — `POST /api/gmail/send` reaches
+Google from inside the Next process — and `page.route()` cannot see those.
+Stubbing the browser hop instead would skip every server-side write, which is
+the thing under test. So: `careervine/e2e/server-stubs/register.mjs` runs MSW
+inside the server via `NODE_OPTIONS=--import`, and the `networkGuard` fixture in
+`careervine/e2e/fixtures/test.ts` covers browser traffic. Both **deny by
+default**: an unstubbed external origin fails the test rather than reaching the
+network. That denial is also what makes this tier structurally unable to touch
+production, the same guarantee `careervine/src/__integration__/global-setup.ts`
+gives the integration tier.
+
+Wire-shaped fixtures live in `careervine/e2e/fixtures/google-wire.mjs`, imported
+by both layers. `careervine/src/__tests__/helpers/fake-gmail.ts` is *not*
+reusable here: it doubles the `@googleapis/gmail` client object, not the HTTP
+body.
+
+Authentication never drives the login form. `careervine/e2e/auth.setup.ts`
+provisions a tenant with the integration tier's own `createTenant` /
+`seedTenantGraph`, then mints the session by navigating the app's real
+`/auth/confirm` route with a service-role `token_hash` — so the cookie is
+whatever the app itself writes, with no coupling to `@supabase/ssr`'s encoding.
+The signup spec opts out with `test.use({ storageState: { cookies: [], origins: [] } })`.
+
+Selectors prefer `getByRole` / `getByLabel`; `data-testid` appears only where
+role plus name is genuinely unreachable (a `type=password` input has no role; a
+TipTap contenteditable is not a form control). Assertions are web-first —
+**no `waitForTimeout`, no sleep**. Waiting on something outside the DOM (a
+mail delivery, an async POST that fires after its trigger resolves) uses
+`expect.poll`.
+
+- Authoritative: `careervine/playwright.config.ts` (header),
+  `careervine/e2e/server-stubs/register.mjs` (header),
+  `careervine/e2e/helpers/tenant.ts` (header), and
+  `careervine/e2e/helpers/stack-env.ts` (header)
+- Enforced: CI runs it as the separate `e2e` job. The deny-by-default stub
+  layers are self-enforcing — a new external dependency fails the suite by
+  name. Nothing enforces the no-arbitrary-wait rule; that one rests on review.

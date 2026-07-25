@@ -670,7 +670,10 @@ function ComposeEmailModalBody() {
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/32" onClick={handleClose} />
 
-      <div className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg flex flex-col max-h-[90vh]">
+      <div
+        data-testid="compose-modal"
+        className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg flex flex-col max-h-[90vh]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-7 pt-6 pb-4">
           <h2 className="text-2xl leading-8 font-normal text-foreground flex items-center gap-2.5">
@@ -770,6 +773,7 @@ function ComposeEmailModalBody() {
                       <button
                         key={c.id}
                         type="button"
+                        data-testid="compose-contact-suggestion"
                         onClick={() => handleSelectContact(c)}
                         className="w-full text-left px-4 py-2.5 flex items-center gap-3.5 hover:bg-primary/[0.06] transition-colors cursor-pointer"
                       >
