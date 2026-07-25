@@ -6,10 +6,9 @@ const { rpcSingle, rpcMock } = vi.hoisted(() => {
   return { rpcSingle, rpcMock: vi.fn(() => ({ single: rpcSingle })) };
 });
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({ rpc: rpcMock }),
-}));
+vi.mock("@/lib/supabase/browser-client", () => mockBrowserClientModule(() => ({ rpc: rpcMock })));
 
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { getNetworkTierCounts } from "@/lib/queries";
 
 beforeEach(() => {

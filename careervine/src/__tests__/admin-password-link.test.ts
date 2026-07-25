@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * check. Regressing to action_link would break the simplified page.
  */
 
-let authedUser: Record<string, unknown> | null = {
+let authedUser: FakeAuthUser | null = {
   id: "admin-1",
   app_metadata: { role: "admin" },
 };
@@ -17,14 +17,10 @@ const updateUserByIdMock = vi.fn();
 const writeAuditMock = vi.fn();
 const revokeUserSessionsMock = vi.fn();
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     auth: {
       admin: {
         getUserById: (...args: unknown[]) => getUserByIdMock(...args),
@@ -33,7 +29,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
       },
     },
   })),
-}));
+);
 
 vi.mock("@/lib/admin", () => ({
   writeAudit: (...args: unknown[]) => writeAuditMock(...args),
@@ -43,6 +39,7 @@ vi.mock("@/lib/admin-actions", () => ({
   revokeUserSessions: (...args: unknown[]) => revokeUserSessionsMock(...args),
 }));
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/admin/users/[id]/password/route";
 
 function makeRequest(body: unknown) {

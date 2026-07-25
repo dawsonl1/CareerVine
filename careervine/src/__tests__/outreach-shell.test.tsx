@@ -16,19 +16,14 @@ vi.mock("@/components/follow-up-modal", () => ({
 }));
 // Stable user reference (created once in the factory closure) — matches the real
 // context-backed useAuth, so the load effect doesn't re-run on every render.
-vi.mock("@/components/auth-provider", () => {
-  const user = { id: "u-1" };
-  return { useAuth: () => ({ user }) };
-});
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 
 const openCompose = vi.fn();
 vi.mock("@/components/compose-email-context", () => ({
   useCompose: () => ({ gmailConnected: true, gmailLoading: false, openCompose }),
 }));
 
-vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
-}));
+vi.mock("@/components/ui/toast", () => mockToastModule());
 
 // matched_contact_id and body_html are nullable in the real inbox payload (an
 // email may match no contact and may have no persisted HTML body). The base
@@ -172,6 +167,8 @@ function mockFetch(inbox = payload, drafts = draftsPayload) {
   }) as unknown as typeof fetch;
 }
 
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { mockToastModule } from "./helpers/mock-toast";
 import { OutreachShell } from "@/components/email/outreach/outreach-shell";
 
 describe("OutreachShell — free tier portal", () => {

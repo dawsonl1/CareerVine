@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
 import IntegrationsSection from "@/components/settings/integrations-section";
 
 const mockGetGmailConnection = vi.fn();
@@ -10,9 +11,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-vi.mock("@/components/auth-provider", () => ({
-  useAuth: () => ({ user: { id: "user-1" } }),
-}));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 
 vi.mock("@/lib/queries", () => ({
   getGmailConnection: (...args: unknown[]) => mockGetGmailConnection(...args),

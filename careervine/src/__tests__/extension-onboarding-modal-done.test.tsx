@@ -21,17 +21,17 @@ vi.mock("@/lib/onboarding/extension-state", async (importOriginal) => {
     advanceExtensionOnboardingState: vi.fn().mockResolvedValue(null),
   };
 });
-vi.mock("@/components/auth-provider", () => ({
-  useAuth: () => ({ user: { id: "u1" }, loading: false }),
-}));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 vi.mock("@/lib/queries", () => ({
   updateActionItem: vi.fn().mockResolvedValue(undefined),
   deleteActionItem: vi.fn().mockResolvedValue(undefined),
   getOnboardingActionItemId: vi.fn().mockResolvedValue(1),
 }));
-vi.mock("@/lib/analytics/client", () => ({ track: vi.fn() }));
+vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
 import { ExtensionOnboardingModal } from "@/components/onboarding/extension-onboarding-modal";
 import {
   ExtensionOnboardingProvider,

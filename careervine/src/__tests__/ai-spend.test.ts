@@ -8,10 +8,11 @@ const chain: Record<string, unknown> = { maybeSingle: mockMaybeSingle };
 chain.select = vi.fn(() => chain);
 chain.eq = vi.fn(() => chain);
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({ from: vi.fn(() => chain), rpc: mockRpc })),
-}));
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({ from: vi.fn(() => chain), rpc: mockRpc })),
+);
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import {
   estimateCallCostUsd,
   currentPeriodStart,

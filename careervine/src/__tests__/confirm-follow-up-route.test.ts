@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * and sends it. Guards: 404 unknown/foreign, 400 not-awaiting, 409 already-claimed.
  */
 
-let authedUser: Record<string, unknown> | null = { id: "u-1" };
+let authedUser: FakeAuthUser | null = { id: "u-1" };
 const state: {
   msgData: unknown;
   /** The fresh parent re-read the send-failure revert path performs (CAR-108). */
@@ -31,11 +31,7 @@ const state: {
 const recordThreadReplySpy = vi.fn<(...a: unknown[]) => Promise<{ ok: boolean; alreadyMarked: boolean }>>(async () => ({ ok: true, alreadyMarked: false }));
 const sendTrackedEmailSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
 vi.mock("@/lib/follow-up-reply", () => ({
   recordThreadReply: (...a: unknown[]) => recordThreadReplySpy(...a),
@@ -52,8 +48,8 @@ vi.mock("@/lib/email-send", () => ({
   },
 }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       // The claim is now a count-based update (rule 17), so it and the
       // completion-count SELECT both resolve via then() but need different
@@ -81,8 +77,9 @@ vi.mock("@/lib/supabase/service-client", () => ({
       return b;
     },
   })),
-}));
+);
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/gmail/follow-ups/confirm/route";
 
 const parent = {

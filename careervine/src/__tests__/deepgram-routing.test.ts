@@ -3,9 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockFrom = vi.fn();
 const mockServiceClient = { from: mockFrom };
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => mockServiceClient),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => mockServiceClient));
 
 vi.mock("@/lib/crypto", () => ({
   decryptSecret: vi.fn((value: string) => value.replace("enc:", "")),
@@ -22,6 +20,7 @@ vi.mock("@deepgram/sdk", () => ({
   },
 }));
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import * as deepgramModule from "@/lib/deepgram";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { decryptSecret } from "@/lib/crypto";

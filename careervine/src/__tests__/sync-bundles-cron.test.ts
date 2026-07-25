@@ -6,6 +6,7 @@
  * bundle can't loop; self-terminates once caught up.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import type { ResolveChunkResult } from "@/lib/bundle-resolve";
 
 const resolveChunkMock = vi.fn<(...a: unknown[]) => Promise<ResolveChunkResult>>();
@@ -40,8 +41,8 @@ vi.mock("@upstash/qstash", () => ({
 // Only data_bundles is read directly by the route (resolveStaleBundles); the
 // rest is mocked above. from().select().eq().gt().order() resolves to bundles.
 let bundlesData: unknown[] = [];
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       const b: Record<string, unknown> = {};
       Object.assign(b, {
@@ -52,8 +53,8 @@ vi.mock("@/lib/supabase/service-client", () => ({
       });
       return b;
     },
-  }),
-}));
+  })),
+);
 
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/cron/sync-bundles/route";

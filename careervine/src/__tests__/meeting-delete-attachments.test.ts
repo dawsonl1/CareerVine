@@ -46,8 +46,8 @@ const h = vi.hoisted(() => {
   return { state, makeBuilder };
 });
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     from: (t: string) => h.makeBuilder(t),
     storage: {
       from: () => ({
@@ -57,9 +57,10 @@ vi.mock("@/lib/supabase/browser-client", () => ({
         },
       }),
     },
-  }),
-}));
+  })),
+);
 
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { deleteMeeting } from "@/lib/data/meetings";
 
 const ops = (c: Call) => c.ops.map((o) => o.m);

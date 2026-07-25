@@ -30,17 +30,16 @@ const q = vi.hoisted(() => ({
 }));
 
 vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <nav /> }));
-vi.mock("@/components/auth-provider", () => {
-  const user = { id: "u-1" };
-  return { useAuth: () => ({ user }) };
-});
-vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({ success: toast.success, error: toast.error, info: vi.fn(), warning: vi.fn(), toast: vi.fn(), dismiss: vi.fn() }),
-}));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
+vi.mock("@/components/ui/toast", () =>
+  mockToastModule(() => ({ success: toast.success, error: toast.error })),
+);
 vi.mock("@/hooks/use-gmail-connection", () => ({ useGmailConnection: () => ({ calendarConnected: true, loading: false }) }));
 vi.mock("@/components/quick-capture-context", () => ({ useQuickCapture: () => ({ open: vi.fn(), openEdit: vi.fn() }) }));
 vi.mock("@/lib/queries", () => q);
 
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { mockToastModule } from "./helpers/mock-toast";
 import MeetingsPage from "@/app/meetings/page";
 
 const meeting = {

@@ -1,17 +1,16 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import { fakeUser, mockAuthProviderModule, type FakeAuthValue } from "./helpers/mock-auth-provider";
 import { SignedOutRedirect } from "@/components/signed-out-redirect";
 import { hardNavigate } from "@/lib/hard-navigate";
 
 const { authState, pathnameMock } = vi.hoisted(() => ({
-  authState: { user: null as object | null, loading: false },
+  authState: { user: null as FakeAuthValue["user"], loading: false },
   pathnameMock: vi.fn<() => string>(),
 }));
 
-vi.mock("@/components/auth-provider", () => ({
-  useAuth: () => authState,
-}));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule(() => authState));
 
 vi.mock("next/navigation", () => ({
   usePathname: pathnameMock,
@@ -54,7 +53,7 @@ describe("SignedOutRedirect (CAR-64)", () => {
   });
 
   it("renders children when signed in", () => {
-    authState.user = { id: "user-1" };
+    authState.user = fakeUser({ id: "user-1" });
 
     renderGuard();
 

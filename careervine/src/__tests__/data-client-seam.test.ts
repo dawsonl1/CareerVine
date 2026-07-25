@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import type { PostgrestError, PostgrestSingleResponse } from "@supabase/supabase-js";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 
 const h = vi.hoisted(() => {
   const browserClient = { kind: "browser" };
@@ -15,9 +16,9 @@ const h = vi.hoisted(() => {
   };
 });
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: h.createSupabaseBrowserClient,
-}));
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => h.createSupabaseBrowserClient()),
+);
 
 import { db, setDataClient, must, type QueryClient } from "@/lib/data/client";
 

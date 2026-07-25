@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
 
 // The hook shares one module-level store across all instances, so each test
 // re-imports a fresh copy of the module.
-vi.mock("@/components/auth-provider", () => ({
-  useAuth: () => ({ user: { id: "user-1" } }),
-}));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 
 type Deferred = {
   promise: Promise<Response>;

@@ -55,10 +55,11 @@ function makeBuilder(table: string) {
   return builder;
 }
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({ from: (t: string) => makeBuilder(t) }),
-}));
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({ from: (t: string) => makeBuilder(t) })),
+);
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { revokeAccess } from "@/lib/gmail";
 
 const deletesTo = (table: string) =>

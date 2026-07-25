@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
 import { useCapabilities, invalidateCapabilitiesCache } from "@/hooks/use-capabilities";
 import { Capable } from "@/components/capable";
 
 /** CAR-103: the client store + <Capable> gate reflect the server capability set,
  *  and fail closed (free) when the fetch errors. */
 
-vi.mock("@/components/auth-provider", () => ({
-  useAuth: () => ({ user: { id: "u-1" } }),
-}));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 
 function Probe() {
   const { can, loading } = useCapabilities();

@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { fakeUser, mockAuthProviderModule, type FakeAuthValue } from "./helpers/mock-auth-provider";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import OAuthConsentPage from "@/app/oauth/consent/page";
 
 /**
@@ -17,19 +19,19 @@ const pushMock = vi.fn();
 const signInMock = vi.fn();
 
 let searchParams = new URLSearchParams("authorization_id=auth-123");
-let authState: { user: { id: string } | null; loading: boolean };
+let authState: { user: FakeAuthValue["user"]; loading: boolean };
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => searchParams,
   useRouter: () => ({ push: pushMock }),
 }));
 
-vi.mock("@/components/auth-provider", () => ({
-  useAuth: () => ({ user: authState.user, loading: authState.loading, signIn: signInMock }),
-}));
+vi.mock("@/components/auth-provider", () =>
+  mockAuthProviderModule(() => ({ user: authState.user, loading: authState.loading, signIn: signInMock })),
+);
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     auth: {
       oauth: {
         getAuthorizationDetails: (...args: unknown[]) => getDetailsMock(...args),
@@ -37,8 +39,8 @@ vi.mock("@/lib/supabase/browser-client", () => ({
         denyAuthorization: (...args: unknown[]) => denyMock(...args),
       },
     },
-  }),
-}));
+  })),
+);
 
 const DETAILS = {
   authorization_id: "auth-123",
@@ -51,7 +53,7 @@ const originalLocation = window.location;
 beforeEach(() => {
   vi.clearAllMocks();
   searchParams = new URLSearchParams("authorization_id=auth-123");
-  authState = { user: { id: "u-1" }, loading: false };
+  authState = { user: fakeUser({ id: "u-1" }), loading: false };
   getDetailsMock.mockResolvedValue({ data: DETAILS, error: null });
   // jsdom's real window.location is unforgeable; swap in a plain object so
   // the page's `window.location.href = ...` redirect can be observed.

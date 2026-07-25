@@ -19,13 +19,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const getTokenSpy = vi.fn();
 const upsertSpy = vi.fn();
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn().mockResolvedValue({
-    auth: {
-      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "victim-user" } }, error: null }),
-    },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () =>
+  mockServerClientModule({ user: () => ({ id: "victim-user" }) }),
+);
 
 vi.mock("@/lib/oauth-helpers", () => ({
   getOAuth2Client: () => ({
@@ -45,8 +41,8 @@ vi.mock("@googleapis/gmail", () => ({
   gmail: () => ({ users: { settings: { sendAs: { list: async () => ({ data: { sendAs: [] } }) } } } }),
 }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test chainable stub
       const builder: any = {
@@ -62,9 +58,10 @@ vi.mock("@/lib/supabase/service-client", () => ({
       };
       return builder;
     },
-  }),
-}));
+  })),
+);
 
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 import { GET } from "@/app/api/gmail/callback/route";
 
 const encodeState = (payload: Record<string, unknown>) =>

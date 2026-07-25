@@ -1,15 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn().mockResolvedValue({
-    auth: {
-      getUser: vi.fn().mockResolvedValue({
-        data: { user: { id: "user-123", email: "test@example.com" } },
-        error: null,
-      }),
-    },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () =>
+  mockServerClientModule({ user: () => ({ id: "user-123", email: "test@example.com" }) }),
+);
 
 const mockRunWithOpenAIFallback = vi.fn();
 
@@ -18,6 +11,7 @@ vi.mock("@/lib/openai", () => ({
   DEFAULT_MODEL: "gpt-5-mini",
 }));
 
+import { mockServerClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/transcripts/parse/route";
 
 function makeRequest(body: unknown) {

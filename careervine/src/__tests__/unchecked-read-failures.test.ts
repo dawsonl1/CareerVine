@@ -11,9 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule());
 vi.mock("@/lib/apify/client", () => ({
   getRun: vi.fn(),
   getDatasetItems: vi.fn(),
@@ -22,6 +20,7 @@ vi.mock("@/lib/apify/client", () => ({
   startProfileSearchRun: vi.fn(),
 }));
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getRun, getDatasetItems } from "@/lib/apify/client";
 import { ingestDiscoveryRun } from "@/lib/apify/discovery";

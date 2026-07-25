@@ -10,13 +10,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule());
 vi.mock("@/lib/apify/account-controls", () => ({
   getApifyControls: vi.fn(async () => ({ diffEnabled: true })),
 }));
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
   syncAnniversaryEvents,

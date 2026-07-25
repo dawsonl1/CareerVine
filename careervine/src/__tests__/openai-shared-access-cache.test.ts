@@ -10,14 +10,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFrom = vi.fn();
 const mockServiceClient = { from: mockFrom };
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => mockServiceClient),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => mockServiceClient));
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule());
 
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import * as openaiModule from "@/lib/openai";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 

@@ -18,16 +18,13 @@ const q = vi.hoisted(() => ({
 }));
 
 vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <nav /> }));
-vi.mock("@/components/auth-provider", () => {
-  const user = { id: "u-1" };
-  return { useAuth: () => ({ user }) };
-});
-vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), toast: vi.fn(), dismiss: vi.fn() }),
-}));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
+vi.mock("@/components/ui/toast", () => mockToastModule());
 vi.mock("@/hooks/use-gmail-connection", () => ({ useGmailConnection: () => ({ calendarConnected: true }) }));
 vi.mock("@/lib/queries", () => q);
 
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { mockToastModule } from "./helpers/mock-toast";
 import CalendarPage from "@/app/calendar/page";
 
 beforeEach(() => {

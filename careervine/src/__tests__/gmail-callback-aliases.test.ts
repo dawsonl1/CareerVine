@@ -17,13 +17,7 @@ const aliasUpdateSpy = vi.fn();
 let grantedScope =
   "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify";
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn().mockResolvedValue({
-    auth: {
-      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "u-1" } }, error: null }),
-    },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => ({ id: "u-1" }) }));
 
 vi.mock("@/lib/oauth-helpers", () => ({
   getOAuth2Client: () => ({
@@ -62,8 +56,8 @@ vi.mock("@googleapis/gmail", () => ({
   }),
 }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: (table: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test chainable stub
       const builder: any = {
@@ -84,9 +78,10 @@ vi.mock("@/lib/supabase/service-client", () => ({
       };
       return builder;
     },
-  }),
-}));
+  })),
+);
 
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 import { GET } from "@/app/api/gmail/callback/route";
 
 function makeReq() {
