@@ -186,6 +186,73 @@ jobs:
         working-directory: careervine
         run: npm run test:integration
 
+  # CAR-189: the E2E tier. Real Chromium against a real production build of the
+  # app, backed by the same local Supabase stack the integration job uses — the
+  # only tier that can tell an optimistic client update apart from a persisted
+  # one (which is where CAR-183's class of bug lives).
+  #
+  # Third parties are intercepted INSIDE the Next server process by
+  # careervine/e2e/server-stubs/register.mjs, because the calls that matter
+  # (Gmail) are made server-side and page.route() cannot see them. Every
+  # non-loopback origin is denied there, so this job cannot reach production
+  # Supabase or spend money on an API.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: careervine/package-lock.json
+
+      # Same pinned CLI as types-drift and integration.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      # NOTE the exclusion list differs from the integration job by one entry:
+      # mailpit is NOT excluded. `enable_confirmations` is on (matching
+      # production), so the signup flow reads the real confirmation email out of
+      # Mailpit's API. Excluding it makes signup fail with "Error sending
+      # confirmation email".
+      - name: Start local Supabase at the full migration chain
+        run: supabase start -x studio,imgproxy,edge-runtime,realtime,storage-api,vector,logflare,supavisor
+
+      - name: Install
+        working-directory: careervine
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: careervine
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts's webServer block runs `next build && next start`
+      # itself, with the local stack's env.
+      - name: E2E tests
+        working-directory: careervine
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: careervine/playwright-report/
+          retention-days: 7
+
+      # Traces, screenshots and video for the failing test only — this is the
+      # artifact that makes a CI failure watchable instead of reproducible.
+      - name: Upload traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: careervine/test-results/
+          retention-days: 7
+
   extension:
     name: extension
     runs-on: ubuntu-latest

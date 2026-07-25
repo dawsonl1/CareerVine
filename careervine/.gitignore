@@ -41,3 +41,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Playwright (CAR-189)
+/playwright/.auth/
+/playwright-report/
+/test-results/
+/blob-report/
