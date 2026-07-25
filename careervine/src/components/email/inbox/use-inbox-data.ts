@@ -4,32 +4,19 @@ import { runFullGmailSync } from "@/lib/gmail-sync-client";
 import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import type { GmailLabel, LinkedCalendarEvent } from "./inbox-types";
 import { apiFetch } from "@/lib/api-client";
+import type { InferApiResponse } from "@/lib/api-handler";
+import type { GET as InboxGET } from "@/app/api/gmail/inbox/route";
+import type { GET as DraftsGET } from "@/app/api/gmail/drafts/route";
+import type { GET as LabelsGET } from "@/app/api/gmail/labels/route";
 
 /**
- * Declared here rather than as `InferApiResponse<typeof GET>` (CONVENTIONS.md
- * §a's preferred form), because these two routes' inferred types are lossy:
- * their enrichment passes annotate the map callback parameter narrowly
- * (`(f: { recipient_email?: string | null }) => ({ ...f, matched_contact_id })`),
- * which erases the row type, so the inferred response says a message has
- * exactly `contact_ids` and `matched_contact_id` and nothing else. Inferring
- * from that would be worse than this: it would make every field the component
- * actually reads a type error, and the natural fix under deadline is a cast,
- * which is the hole CAR-158 closed. The route-side fix is tracked separately.
+ * Typed off each route's own handler (CONVENTIONS.md §a), so producer and
+ * consumer cannot drift: a route changing its success shape breaks this file at
+ * compile time rather than at runtime.
  */
-type InboxResponse = {
-  success?: boolean;
-  emails?: EmailMessage[];
-  trashedEmails?: EmailMessage[];
-  hiddenEmails?: EmailMessage[];
-  scheduledEmails?: ScheduledEmail[];
-  followUps?: EmailFollowUp[];
-  contactMap?: Record<number, string>;
-  calendarByThread?: Record<string, LinkedCalendarEvent>;
-  gmailAddress?: string;
-};
-
-type DraftsResponse = { drafts?: EmailDraft[] };
-type LabelsResponse = { labels?: GmailLabel[] };
+type InboxResponse = InferApiResponse<typeof InboxGET>;
+type DraftsResponse = InferApiResponse<typeof DraftsGET>;
+type LabelsResponse = InferApiResponse<typeof LabelsGET>;
 
 interface UseInboxDataParams {
   user: { id: string } | null | undefined;
