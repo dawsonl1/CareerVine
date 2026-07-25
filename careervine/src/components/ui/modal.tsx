@@ -13,7 +13,15 @@
  * Focus (CAR-185): both surfaces here are real dialogs, and each traps its own
  * focus through useFocusTrap. They are DOM *siblings* rather than nested, so a
  * keydown inside the confirm dialog never bubbles through the modal surface and
- * the two traps compose with no trap stack and no "am I topmost" check.
+ * the two TAB traps compose with no trap stack and no "am I topmost" check.
+ *
+ * That holds for Tab only (CAR-204). ESCAPE is a document-level listener here
+ * and another in `confirm-dialog.tsx`, neither of which stops propagation or
+ * asks whether it is the top layer, so a `useConfirm` dialog opened over an
+ * open Modal would have one Escape close both. Nothing does that today (the
+ * only in-Modal delete closes the Modal first, and that ordering is incidental
+ * rather than a guard), but the original wording generalized to a third dialog
+ * family it was not written for.
  */
 
 import {

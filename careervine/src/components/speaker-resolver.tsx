@@ -303,7 +303,7 @@ export default function SpeakerResolver({
         setAiFailure(code);
         return;
       }
-      setAiError(err instanceof Error ? err.message : "AI matching failed");
+      setAiError(isApiRequestError(err) ? err.message : "AI matching failed");
     } finally {
       setAiLoading(false);
     }

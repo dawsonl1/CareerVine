@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
@@ -41,6 +41,10 @@ export function InboxShell() {
   const { error: toastError } = useToast();
 
   const [activeTab, setActiveTab] = useState<SidebarTab>("inbox");
+  // Synchronous in-flight sets, per CONVENTIONS.md §f: a boolean state flag
+  // updates asynchronously and would not block a fast second click.
+  const cancellingRef = useRef<Set<number>>(new Set());
+  const retryingRef = useRef<Set<number>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Server-backed data + loaders (CAR-150).
@@ -368,11 +372,22 @@ export function InboxShell() {
     // `if (res.ok)` with no else, so a refused cancel left the row queued and
     // said nothing: the user's next signal was the email arriving anyway. The
     // same shape CAR-183 fixed on the follow-up card (CAR-188).
+    //
+    // Guard + 409 passthrough are CAR-204. Without the guard a double-click
+    // sends two DELETEs; the second finds status='cancelled', which the
+    // cascade's `.in("status", [pending, failed])` filter excludes, so it 409s
+    // and the toast reported failure on a cancel that landed. And when the cron
+    // has genuinely claimed the row, "Please try again" is advice that cannot
+    // succeed, so the route's own message says why instead.
+    if (cancellingRef.current.has(id)) return;
+    cancellingRef.current.add(id);
     const cancelled = await withToastOnError(
       () => apiSend(`/api/gmail/schedule/${id}`, { method: "DELETE" }),
       toastError,
       "Couldn't cancel that scheduled email. Please try again.",
+      { preferServerMessageFor: [409] },
     );
+    cancellingRef.current.delete(id);
     if (!cancelled) return;
 
     setScheduledEmails((prev) => prev.filter((e) => e.id !== id));
@@ -383,11 +398,18 @@ export function InboxShell() {
   // be requeued; the user decides, since the original may or may not have
   // actually gone out.
   const retryScheduledEmail = async (id: number) => {
+    // Same shape as the cancel above: the retry route 409s with "This email is
+    // not in a failed state." on a second call, so an unguarded double-click
+    // flipped the row to Scheduled AND toasted that the retry failed (CAR-204).
+    if (retryingRef.current.has(id)) return;
+    retryingRef.current.add(id);
     const requeued = await withToastOnError(
       () => apiSend(`/api/gmail/schedule/${id}/retry`, { method: "POST" }),
       toastError,
       "Could not retry this email. Please try again.",
+      { preferServerMessageFor: [409] },
     );
+    retryingRef.current.delete(id);
     if (!requeued) return;
 
     // The cron is the sole send driver (CAR-139); the requeued email goes

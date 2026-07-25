@@ -28,6 +28,7 @@ type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] 
 
 import { inputClasses } from "@/lib/form-styles";
 import { useQuickCapture } from "@/components/quick-capture-context";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 
 export default function ActionItemsPage() {
   const { user } = useAuth();
@@ -92,7 +93,7 @@ export default function ActionItemsPage() {
   // useCallback to keep the reference stable for the hook's own memoization.
   const handleSuggestionSaved = useCallback(() => { void loadActionItems(); }, [loadActionItems]);
 
-  const { suggestions, loading: suggestionsLoading, aiStatus: suggestionsAiStatus, dismissAiStatus, save: saveSuggestionRaw, complete: completeSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions({
+  const { suggestions, loading: suggestionsLoading, loadFailed: suggestionsLoadFailed, load: reloadSuggestions, aiStatus: suggestionsAiStatus, dismissAiStatus, save: saveSuggestionRaw, complete: completeSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions({
     onSave: handleSuggestionSaved,
     // The hook puts the card back when the server refuses the dismissal, so
     // without this the row would silently reappear with no explanation.
@@ -496,6 +497,18 @@ export default function ActionItemsPage() {
               <X className="h-4 w-4" />
             </button>
           </div>
+        )}
+
+        {/* A failed load must not read as "you have no suggestions today": the
+            section is gated on suggestions.length, so without this branch both
+            sources going down renders nothing at all, and triggerOnce is
+            once-per-mount so it stays that way for the session (CAR-204). */}
+        {suggestionsLoadFailed && !suggestionsLoading && (
+          <LoadErrorState
+            className="mb-10"
+            message="Couldn't load your suggestions."
+            onRetry={() => { void reloadSuggestions(); }}
+          />
         )}
 
         {/* Suggested for you banner */}

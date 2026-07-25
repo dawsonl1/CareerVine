@@ -8,7 +8,7 @@ import { Sparkles, Plus, Pencil, Trash2, X } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { apiSend, apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
+import { apiSend, apiFetch, jsonBody } from "@/lib/api-client";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 
 export default function TemplatesSection() {
@@ -73,12 +73,15 @@ export default function TemplatesSection() {
       );
       setEditingTemplate(null);
       void loadTemplates();
-    } catch (err) {
-      // The editor panel is open on this path, so the inline `error` is visible
-      // and is the right surface. It prefers the route's curated message, which
-      // names the actual problem (a duplicate name, a length limit) where the
-      // old hardcoded string could only say something went wrong.
-      setError(isApiRequestError(err) ? err.message : "Failed to save template.");
+    } catch {
+      // Hardcoded on purpose (CAR-204). CAR-188 switched this to the route's
+      // message on the theory that it would name a duplicate name or a length
+      // limit — neither of which exists: POST /api/gmail/templates throws no
+      // ApiError, the table has no unique index on `name` and no CHECK, and
+      // both columns are unbounded `text`. Its only reachable non-2xx bodies
+      // are "Unauthorized" and "An unexpected error occurred", so the sole
+      // effect was rendering the bare word "Unauthorized" in the editor.
+      setError("Failed to save template.");
     } finally {
       setSaving(false);
     }

@@ -6,6 +6,7 @@ import { Sparkles, ChevronDown, X, Loader2, MessageSquare, Calendar, Check } fro
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 
 type PresetTemplate = {
   name: string;
@@ -41,6 +42,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
   const [open, setOpen] = useState(false);
   const [presets, setPresets] = useState<PresetTemplate[]>([]);
   const [templatesFailed, setTemplatesFailed] = useState(false);
+  const resolveReq = useLatestRequest();
   const [templatesReloadKey, setTemplatesReloadKey] = useState(0);
   const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
   const [generating, setGenerating] = useState(false);
@@ -84,27 +86,51 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
   // Resolve contact ID from recipient email and load their meetings
   const resolveContact = useCallback(async () => {
     if (!recipientEmail.trim()) return;
+    // Identity-keyed read (CONVENTIONS.md §f): the recipient can change while a
+    // resolve is in flight, and a slower earlier response must not repopulate
+    // the picker for a contact the user has moved off.
+    const token = resolveReq.begin();
     try {
-      const data = await apiFetch<{ contactId?: number }>(
+      const data = await apiFetch<{ contactId?: number | null }>(
         `/api/gmail/ai-write/resolve-contact?email=${encodeURIComponent(recipientEmail.trim())}`,
       );
-      if (data.contactId) {
-        setContactId(data.contactId);
-        setMeetingsLoading(true);
-        const mData = await apiFetch<{ meetings?: Meeting[] }>(
-          `/api/gmail/ai-write/meetings?contactId=${data.contactId}`,
-        );
-        setMeetings(mData.meetings || []);
-        setMeetingsLoading(false);
+      if (!resolveReq.isLatest(token)) return;
+
+      // A null contactId means the recipient is not in the CRM. The route
+      // answers 200 for that, so the old `if (data.contactId)` skipped the whole
+      // block and left BOTH contactId and meetings pinned to the PREVIOUS
+      // recipient — no failure required, and the generated email then carried a
+      // different contact's dossier and meeting transcripts (CAR-204).
+      if (data.contactId == null) {
+        setContactId(null);
+        setMeetings([]);
+        return;
       }
+
+      setContactId(data.contactId);
+      setMeetingsLoading(true);
+      const mData = await apiFetch<{ meetings?: Meeting[] }>(
+        `/api/gmail/ai-write/meetings?contactId=${data.contactId}`,
+      );
+      if (!resolveReq.isLatest(token)) return;
+      setMeetings(mData.meetings || []);
+      setMeetingsLoading(false);
     } catch {
       // error-tolerated: this resolves optional meeting context for the prompt.
       // Failing it means the picker offers no meetings, which is the same as a
-      // contact having none, and generation works either way. Clearing the
-      // spinner matters more than reporting it.
+      // contact having none, and generation works either way.
+      //
+      // `setMeetings([])` is load-bearing (CAR-204): the pre-CAR-188 code called
+      // `setMeetings(mData.meetings || [])` unconditionally, so an error body
+      // cleared the list as a side effect. apiFetch throwing skipped that, and
+      // the previous recipient's meetings stayed selectable against the new
+      // contactId. The server does not scope meetingIds by contact, so a
+      // selection would have put their notes into someone else's email.
+      if (!resolveReq.isLatest(token)) return;
+      setMeetings([]);
       setMeetingsLoading(false);
     }
-  }, [recipientEmail]);
+  }, [recipientEmail, resolveReq]);
 
   useEffect(() => {
     // resolveContact swallows its own failures (the picker just shows no
@@ -154,7 +180,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
           return;
         }
       }
-      setError(err instanceof Error ? err.message : "Failed to generate email");
+      setError(isApiRequestError(err) ? err.message : "Failed to generate email");
     } finally {
       setGenerating(false);
     }
@@ -395,7 +421,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                 error && <p className="text-sm text-destructive px-4 pt-2.5">{error}</p>
               )}
 
-              {templatesFailed && (
+              {templatesFailed && allTemplates.length === 0 && (
                 <div className="px-4 py-6 text-center">
                   <p role="alert" className="text-sm text-foreground">Couldn&apos;t load your templates.</p>
                   <button

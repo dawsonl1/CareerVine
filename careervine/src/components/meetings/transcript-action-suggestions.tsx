@@ -126,7 +126,7 @@ export function TranscriptActionSuggestions({
         setAiFailure(code);
         return;
       }
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(isApiRequestError(err) ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }

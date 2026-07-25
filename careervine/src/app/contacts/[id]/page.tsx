@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useParams, useRouter } from "next/navigation";
 import { hasInAppBackHistory } from "@/lib/nav-history";
 import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import { useCapabilities } from "@/hooks/use-capabilities";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 import Navigation from "@/components/navigation";
 import { getContactById, getContacts, getMeetingsForContact, getActionItemsForContact, getCompletedActionItemsForContact, getInteractions, getAttachmentsForContact, getGmailConnection } from "@/lib/queries";
 import type { Contact, ContactMeeting, InteractionRow, GmailConnection, EmailMessage, ScheduledEmail } from "@/lib/types";
@@ -96,6 +97,8 @@ export default function ContactDetailPage() {
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
   const [loadingEmails, setLoadingEmails] = useState(false);
   const [emailsLoadFailed, setEmailsLoadFailed] = useState(false);
+  const [scheduledLoadFailed, setScheduledLoadFailed] = useState(false);
+  const cancellingRef = useRef<Set<number>>(new Set());
 
   // Tab state with hash persistence
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
@@ -153,33 +156,56 @@ export default function ContactDetailPage() {
     }
   }, [contactId]);
 
+  /**
+   * The scheduled read was unchecked: a non-2xx `{ error }` body fell through
+   * `scheduledData.scheduledEmails || []` to an empty list, so a failed read
+   * looked like "nothing is scheduled" for a contact who has queued sends
+   * (CAR-188).
+   *
+   * The two reads settle INDEPENDENTLY (CAR-204). Under `Promise.all` a failed
+   * schedule read rejected the pair, so a successful email read was discarded
+   * and the banner claimed "Couldn't load this contact's email history" — false,
+   * and the emails had actually arrived. Worse, `contactEmails` also feeds the
+   * Timeline tab, which has no failure prop, so it rendered a relationship
+   * history with every email missing and no sign anything had gone wrong. That
+   * is the same confident lie this work exists to remove, just relocated.
+   *
+   * The token guard is the other half: this owns a persistent user-visible flag
+   * now, and it is called from the mount effect, the emailSent listener, four
+   * callbacks inside ContactEmailsTab, and the banner's own Retry. Without it a
+   * slow loser resolving after a fast winner strands the banner over good data.
+   */
+  const emailsReq = useLatestRequest();
   const loadContactEmails = useCallback(async () => {
     if (!gmailConn) return;
+    const token = emailsReq.begin();
     setLoadingEmails(true);
     setContactEmails([]);
     setScheduledEmails([]);
-    try {
-      // The scheduled read was unchecked: a non-2xx `{ error }` body fell
-      // through `scheduledData.scheduledEmails || []` to an empty list, so a
-      // failed read was indistinguishable from "nothing is scheduled" for a
-      // contact who has queued sends (CAR-188).
-      const [emailsData, scheduledData] = await Promise.all([
-        apiFetch<{ success?: boolean; emails?: EmailMessage[] }>(
-          `/api/gmail/emails?contactId=${contactId}`,
-        ),
-        apiFetch<{ scheduledEmails?: ScheduledEmail[] }>(
-          `/api/gmail/schedule?contactId=${contactId}`,
-        ),
-      ]);
-      if (emailsData.success) setContactEmails(emailsData.emails || []);
-      setScheduledEmails(scheduledData.scheduledEmails || []);
-      setEmailsLoadFailed(false);
-    } catch {
-      setEmailsLoadFailed(true);
-    } finally {
-      setLoadingEmails(false);
+
+    const [emailsResult, scheduledResult] = await Promise.allSettled([
+      apiFetch<{ success?: boolean; emails?: EmailMessage[] }>(
+        `/api/gmail/emails?contactId=${contactId}`,
+      ),
+      apiFetch<{ scheduledEmails?: ScheduledEmail[] }>(
+        `/api/gmail/schedule?contactId=${contactId}`,
+      ),
+    ]);
+    if (!emailsReq.isLatest(token)) return;
+
+    if (emailsResult.status === "fulfilled" && emailsResult.value.success) {
+      setContactEmails(emailsResult.value.emails || []);
     }
-  }, [contactId, gmailConn]);
+    if (scheduledResult.status === "fulfilled") {
+      setScheduledEmails(scheduledResult.value.scheduledEmails || []);
+    }
+    // Only the emails read owns the tab's failure state, because only it backs
+    // the thread list the banner's copy names. A failed schedule read is
+    // reported by the scheduled block itself.
+    setEmailsLoadFailed(emailsResult.status === "rejected");
+    setScheduledLoadFailed(scheduledResult.status === "rejected");
+    setLoadingEmails(false);
+  }, [contactId, gmailConn, emailsReq]);
 
   useEffect(() => {
     if (user) {
@@ -219,11 +245,16 @@ export default function ContactDetailPage() {
     // `if (res.ok) setState` with no else: a refused cancel left the row in
     // place and said nothing at all, so the user's only signal was the email
     // arriving later anyway (CAR-188).
+    // Guard + 409 passthrough per CAR-204, matching inbox-shell's copy.
+    if (cancellingRef.current.has(scheduledId)) return;
+    cancellingRef.current.add(scheduledId);
     const cancelled = await withToastOnError(
       () => apiSend(`/api/gmail/schedule/${scheduledId}`, { method: "DELETE" }),
       toastError,
       "Couldn't cancel that scheduled email. Please try again.",
+      { preferServerMessageFor: [409] },
     );
+    cancellingRef.current.delete(scheduledId);
     if (!cancelled) return;
 
     setScheduledEmails((prev) => prev.filter((e) => e.id !== scheduledId));
@@ -379,6 +410,11 @@ export default function ContactDetailPage() {
               )}
               {activeTab === "timeline" && (
                 <ContactTimelineTab
+                  onConfirmDeleteInteraction={() => confirm({
+                    message: "Delete this interaction?",
+                    confirmLabel: "Delete",
+                    destructive: true,
+                  })}
                   contactId={contactId}
                   meetings={meetings}
                   interactions={interactions}
@@ -400,6 +436,7 @@ export default function ContactDetailPage() {
                     canReadMailbox={can("mailbox:read")}
                     loadingEmails={loadingEmails}
                     emailsLoadFailed={emailsLoadFailed}
+                    scheduledLoadFailed={scheduledLoadFailed}
                     onScheduledEmailCancel={handleScheduledEmailCancel}
                     onReloadEmails={loadContactEmails}
                   />

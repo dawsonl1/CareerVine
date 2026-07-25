@@ -210,7 +210,8 @@ success shape. An interactive handler wraps the call in `withToastOnError`
 `ApiRequestError.message`: the route's curated message names the server's
 problem ("Follow-up sequence not found"), the handler's names the user's
 ("Couldn't cancel that follow-up sequence"). Surface the server's own message
-only where it is the actionable part, as `settings/provider-key-card.tsx` does
+only where it is the actionable part, as
+`careervine/src/components/settings/provider-key-card.tsx` does
 for a key the provider rejected.
 
 Reversible writes are optimistic with rollback plus a toast on failure;
@@ -228,12 +229,14 @@ failure, and which case it is decides whether it may stay silent:
 
 - Re-reading after a **failed** write keeps what is on screen and says nothing.
   The toast already fired; blanking the list would complain twice about one
-  failure. `contacts/contact-follow-up-status.tsx` carries the `mode:
+  failure. `careervine/src/components/contacts/contact-follow-up-status.tsx`
+  carries the `mode:
   "initial" | "resync"` parameter for exactly this, because its cancel path
   re-reads precisely when the write was refused.
 - Re-reading after a **successful** write, on mount, or on an explicit retry
   must not silently render known-stale data. All three surface the failure.
-  `settings/templates-section.tsx` has no `mode` parameter for that reason: no
+  `careervine/src/components/settings/templates-section.tsx` has no `mode`
+  parameter for that reason: no
   path in it re-reads after a failed write, so every caller is the second case.
 
 An error a site genuinely tolerates carries an `// error-tolerated:` comment
@@ -290,18 +293,28 @@ only, never a rejected promise in a handler; that is the contract above.
   boundary behaviors, including the `notFound()` re-throw that rules out a
   hand-rolled class, plus source tripwires holding the three existing adoption sites
   to their `key` and `onReset`. Nothing requires a NEW modal to use `modal.tsx` or a
-  NEW failure-prone subtree to be wrapped. The remaining two rules
-  (`useLatestRequest` and the double-submit guard) have no coverage at all.
-- Enforced (mutation contract, CAR-188): behavior only, not adoption. Zero raw
-  `fetch(` and zero `window.confirm` remain under `careervine/src/components`,
-  `careervine/src/hooks`, and `careervine/src/app` outside the API routes, but
-  nothing yet fails CI when the 1st new one lands: that guard is CAR-190, which
-  this ticket unblocks. `careervine/src/__tests__/confirm-dialog.test.tsx` pins the
+  NEW failure-prone subtree to be wrapped. The remaining two rules have behavior
+  coverage without an adoption check:
+  `careervine/src/__tests__/use-latest-request.test.tsx` pins that the newest
+  request's result survives an older one resolving last, and
+  `careervine/src/__tests__/compose-modal-send-guards.test.tsx` pins that a
+  double-clicked Send dispatches one POST. (CAR-188 rewrote this sentence from
+  three rules to two, correctly dropping optimistic-write rollback, but carried
+  the "no coverage at all" claim over to two rules that were already covered.)
+- Enforced (mutation contract, CAR-188 + CAR-204): behavior only, not adoption.
+  Zero raw `fetch(` and zero `window.confirm` remain under
+  `careervine/src/components`, `careervine/src/hooks`, and `careervine/src/app`
+  outside the API routes, but nothing yet fails CI when the 1st new one lands:
+  that guard is CAR-190, which this ticket unblocks.
+  `careervine/src/__tests__/api-client.test.ts` pins that `jsonBody`'s method
+  argument reaches the wire, which ten call sites depend on. `careervine/src/__tests__/confirm-dialog.test.tsx` pins the
   promise contract (every exit path settles, exactly once) and the dialog's
   focus and ARIA; the per-component tests named in
   `careervine/src/__tests__/client-mutation-contract.test.tsx` pin that a non-ok
-  response leaves state unchanged and toasts, and that a failed load renders the
-  retryable state rather than the empty one.
+  response leaves state unchanged and surfaces the failure, and that a failed
+  load renders the retryable state rather than the empty one. ("Surfaces"
+  rather than "toasts": `ProviderKeyCard`'s failure surface is the inline error
+  beside Save, because the editor is open on that path.)
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 

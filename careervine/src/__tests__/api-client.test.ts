@@ -120,6 +120,50 @@ describe("apiSend", () => {
     await expect(apiSend("/api/x", jsonBody({}, "DELETE"))).resolves.toBeUndefined();
     expect(json).not.toHaveBeenCalled();
   });
+});
+
+/**
+ * `jsonBody(value, method = "POST")` — the second argument, asserted on the wire
+ * (CAR-204).
+ *
+ * Ten production call sites depend on it, all converted from an explicit
+ * `method:` on a raw fetch, several of them by an automated pattern
+ * replacement. A regression to the POST default would still compile, still pass
+ * every other test, and silently send a PATCH as a POST to routes that only
+ * export the one handler — so the request would 405 or, worse, hit a different
+ * handler on the same path. Nothing covered this before: the existing DELETE
+ * case above asserts only that the promise resolves.
+ */
+describe("jsonBody verb", () => {
+  it("defaults to POST", () => {
+    expect(jsonBody({ a: 1 })).toEqual({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: '{"a":1}',
+    });
+  });
+
+  it.each(["PATCH", "PUT", "DELETE"] as const)("carries %s through to fetch", async (method) => {
+    const fn = mockFetch({ ok: true, status: 200, json: async () => ({}) });
+    await apiFetch("/api/x", jsonBody({ a: 1 }, method));
+    expect(fn).toHaveBeenCalledWith("/api/x", {
+      credentials: "same-origin",
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: '{"a":1}',
+    });
+  });
+
+  it("carries the verb through apiSend too", async () => {
+    const fn = mockFetch({ ok: true, status: 200, json: async () => ({}) });
+    await apiSend("/api/x", jsonBody({ b: 2 }, "PATCH"));
+    expect(fn).toHaveBeenCalledWith("/api/x", {
+      credentials: "same-origin",
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: '{"b":2}',
+    });
+  });
 
   it("throws the curated message on a non-2xx", async () => {
     mockFetch({ ok: false, status: 400, json: async () => ({ error: "Bad request" }) });

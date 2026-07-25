@@ -42,6 +42,10 @@ export function DiscoveryDigest() {
         }
         setRows([...byCompany.values()].sort((a, b) => b.count - a.count));
       })
+      // error-tolerated: the component returns null when `rows` is empty, so
+      // this is an additive digest card on the dashboard rather than data the
+      // user navigated here to read. CAR-188 converted the fetch but left the
+      // catch bare, which its own §f text calls a silent failure (CAR-204).
       .catch(() => {});
     return () => {
       cancelled = true;

@@ -196,9 +196,10 @@ function ComposeEmailModalBody() {
   const activeContactId = contactId || matchedContactId || 0;
   const followUpsAvailable = !isReply && !isIntro && activeContactId > 0;
 
-  const saveDraft = useCallback(async (fields: { to: string; cc: string; bcc: string; subject: string; bodyHtml: string }) => {
+  /** Returns whether the draft actually saved, for callers that need to know. */
+  const saveDraft = useCallback(async (fields: { to: string; cc: string; bcc: string; subject: string; bodyHtml: string }): Promise<boolean> => {
     // Don't save empty drafts
-    if (!fields.to.trim() && !fields.subject.trim() && !fields.bodyHtml.trim()) return;
+    if (!fields.to.trim() && !fields.subject.trim() && !fields.bodyHtml.trim()) return true;
     try {
       const data = await apiFetch<{ draft?: { id: number } }>(
         "/api/gmail/drafts",
@@ -221,9 +222,16 @@ function ComposeEmailModalBody() {
         // absent id) and would never remove the row this POST just created.
         // Delete it now instead of recording its id (CAR-145 / F42).
         if (sentOrScheduledRef.current) {
-          // error-tolerated: cleanup of a draft the user already sent past. It
-          // is invisible to them either way, and the daily draft sweep is the
-          // backstop; a toast here would report a problem they do not have.
+          // error-tolerated: cleanup of a draft the user already sent past. A
+          // failure toast on top of a send that just succeeded is worse than
+          // the stray draft, which the user can delete from the Drafts tab.
+          //
+          // CAR-188 justified this with "the daily draft sweep is the backstop".
+          // There is no such sweep: nothing in the repo deletes from
+          // `email_drafts` except the DELETE route and the account-deletion
+          // cascade — no cron, no pg_cron, no retention pass (CAR-204). The real
+          // consequence is a re-openable draft of an already-sent email. Still
+          // tolerable, but for the reason above, not that one.
           apiSend(`/api/gmail/drafts/${data.draft.id}`, { method: "DELETE" }).catch(() => {});
         } else {
           draftIdRef.current = data.draft.id;
@@ -231,10 +239,17 @@ function ComposeEmailModalBody() {
       }
       emitUiEvent(UI_EVENTS.draftsChanged);
     } catch {
-      // error-tolerated: autosave fires on a debounce while the user is still
-      // typing. Interrupting composition to report a background save is worse
-      // than losing it, and the body stays in local state either way.
+      // error-tolerated for the DEBOUNCED autosave caller: interrupting
+      // composition to report a background save is worse than losing it, and
+      // the body stays in local state either way.
+      //
+      // It does NOT cover the explicit "Save draft" button, which also routes
+      // through here (CAR-204). There the user did ask, and the modal closes on
+      // return, so a silent failure loses the body with no message. That caller
+      // checks the return value below.
+      return false;
     }
+    return true;
   }, [prefillName, replyThreadId, replyInReplyTo, replyReferences]);
 
   const deleteDraft = useCallback(async () => {
@@ -564,9 +579,12 @@ function ComposeEmailModalBody() {
       // Mark AI draft as sent/edited_and_sent if this came from one
       if (aiDraftContext?.draftId) {
         const draftStatus = bodyHtml !== prefillBodyHtml ? "edited_and_sent" : "sent";
-        // error-tolerated: this is analytics bookkeeping on a draft whose
-        // email has already gone out. The outcome event is nice to have; the
-        // send is the thing the user did, and it succeeded.
+        // Must not block the send, which has already succeeded — but this is
+        // NOT "analytics bookkeeping" as CAR-188 called it (CAR-204). The PATCH
+        // clears `status: pending`, and /api/gmail/ai-followups/pending selects
+        // on exactly that, so a failure leaves the draft in the pending list and
+        // the user can send the same follow-up twice. Hence console.warn rather
+        // than silence; a retry here would be better still.
         await apiSend(
           `/api/gmail/ai-followups/${aiDraftContext.draftId}`,
           jsonBody({
@@ -584,7 +602,7 @@ function ComposeEmailModalBody() {
       emitUiEvent(UI_EVENTS.emailSent, { onboardingIntro: !!templateFollowUps?.length });
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send email");
+      setError(isApiRequestError(err) ? err.message : "Failed to send email");
     } finally {
       setSending(false);
       submittingRef.current = false;
@@ -643,9 +661,12 @@ function ComposeEmailModalBody() {
       // Mark AI draft as sent/edited_and_sent if this came from one
       if (aiDraftContext?.draftId) {
         const draftStatus = bodyHtml !== prefillBodyHtml ? "edited_and_sent" : "sent";
-        // error-tolerated: this is analytics bookkeeping on a draft whose
-        // email has already gone out. The outcome event is nice to have; the
-        // send is the thing the user did, and it succeeded.
+        // Must not block the send, which has already succeeded — but this is
+        // NOT "analytics bookkeeping" as CAR-188 called it (CAR-204). The PATCH
+        // clears `status: pending`, and /api/gmail/ai-followups/pending selects
+        // on exactly that, so a failure leaves the draft in the pending list and
+        // the user can send the same follow-up twice. Hence console.warn rather
+        // than silence; a retry here would be better still.
         await apiSend(
           `/api/gmail/ai-followups/${aiDraftContext.draftId}`,
           jsonBody({
@@ -663,7 +684,7 @@ function ComposeEmailModalBody() {
       emitUiEvent(UI_EVENTS.emailSent, { onboardingIntro: !!templateFollowUps?.length });
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to schedule email");
+      setError(isApiRequestError(err) ? err.message : "Failed to schedule email");
     } finally {
       setSending(false);
       submittingRef.current = false;
@@ -1182,7 +1203,15 @@ function ComposeEmailModalBody() {
                   variant="text"
                   size="sm"
                   onClick={async () => {
-                    await saveDraft({ to, cc, bcc, subject, bodyHtml });
+                    // Keep the modal open when the save failed (CAR-204): this
+                    // closes on return and the body lives only in local state,
+                    // so closing over a failure silently destroyed what the
+                    // user wrote. The autosave caller may stay silent; this one
+                    // may not.
+                    if (!(await saveDraft({ to, cc, bcc, subject, bodyHtml }))) {
+                      pushToast("Couldn't save that draft. Please try again.", { variant: "error" });
+                      return;
+                    }
                     closeCompose();
                   }}
                 >

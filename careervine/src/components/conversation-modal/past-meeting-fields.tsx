@@ -7,7 +7,7 @@ import TranscriptUploader from "@/components/transcript-uploader";
 import { TranscriptActionSuggestions } from "@/components/meetings/transcript-action-suggestions";
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import type { ConversationFormState, PendingAction, TranscriptState } from "./types";
-import { apiFetch, jsonBody } from "@/lib/api-client";
+import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 interface PastMeetingFieldsProps {
   form: ConversationFormState;
@@ -91,7 +91,7 @@ export function PastMeetingFields({
         }));
       } catch (err) {
         setTranscribeError(
-          err instanceof Error ? err.message : "Transcription failed. Please try again.",
+          isApiRequestError(err) ? err.message : "Transcription failed. Please try again.",
         );
         setTranscriptState((prev) => ({ ...prev, isTranscribing: false }));
       }

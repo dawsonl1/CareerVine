@@ -51,8 +51,11 @@ async function call(handler: any, request: any) {
   return { status: response.status, data, text: JSON.stringify(data) };
 }
 
-function mockSelectRow(row: Record<string, unknown> | null) {
-  const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
+function mockSelectRow(
+  row: Record<string, unknown> | null,
+  error: { message: string } | null = null,
+) {
+  const maybeSingle = vi.fn().mockResolvedValue({ data: row, error });
   const single = vi.fn().mockResolvedValue({ data: row, error: null });
   const eqProvider = vi.fn().mockReturnValue({ maybeSingle, single });
   const eqUser = vi.fn().mockReturnValue({ eq: eqProvider });
@@ -78,6 +81,32 @@ describe("settings/deepgram-key route", () => {
     const { status, data } = await call(GET, makeRequest("GET"));
     expect(status).toBe(200);
     expect(data).toEqual({ hasKey: false });
+  });
+
+  /**
+   * CAR-204. `if (error || !data) return { hasKey: false }` folded a genuine
+   * read failure into the "no row" branch and answered 200. supabase-js
+   * RESOLVES with `{ error }` rather than throwing (learned rule 42), so a
+   * permission error or statement timeout landed there.
+   *
+   * That is what made CAR-188's client-side `loadFailed` guard unable to do its
+   * job: it engages on a non-2xx, and this path never produced one. The card
+   * rendered its no-key form over a key still on file, labelled the input
+   * "API key" rather than "Replace key", and the replacement upserted over the
+   * original. `hasKey` is control flow, so it needs must()-style handling
+   * (CONVENTIONS.md §d).
+   */
+  it("GET 500s on a read error rather than claiming the user has no key", async () => {
+    mockSelectRow(null, { message: "permission denied for table user_api_keys" });
+
+    const { status, data } = await call(GET, makeRequest("GET"));
+
+    expect(status).toBe(500);
+    // Never a 200 that says there is no key.
+    expect(data.hasKey).toBeUndefined();
+    // Curated, not the raw driver text (CONVENTIONS.md §a).
+    expect(data.error).toBe("Couldn't load your key status. Please try again.");
+    expect(JSON.stringify(data)).not.toContain("permission denied");
   });
 
   it("GET returns metadata only", async () => {

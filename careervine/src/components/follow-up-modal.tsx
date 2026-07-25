@@ -246,7 +246,7 @@ export function FollowUpModal({
       setSaved(true);
       setTimeout(() => onClose(), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save follow-ups");
+      setError(isApiRequestError(err) ? err.message : "Failed to save follow-ups");
     } finally {
       setSaving(false);
     }
@@ -455,11 +455,16 @@ export function FollowUpModal({
                       } catch (err) {
                         // ApiRequestError carries the status and body that
                         // parseAiFailure read off the raw Response.
+                        // Two sibling sites in the same commit (compose's
+                        // applyIntroFailure and generateFollowUps) branch on
+                        // isApiRequestError before falling back to fixed copy;
+                        // this one did not, so a network TypeError put the raw
+                        // "Failed to fetch" in the UI (CAR-204).
                         const code = isApiRequestError(err)
                           ? parseAiFailure(err.status, err.body)
                           : null;
                         if (code) setAiFailure(code);
-                        else setError(err instanceof Error ? err.message : "Couldn't generate. Please try again.");
+                        else setError(isApiRequestError(err) ? err.message : "Couldn't generate. Please try again.");
                       }
                       setGeneratingAi(false);
                     }}
