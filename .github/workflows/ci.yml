@@ -50,6 +50,14 @@ jobs:
       - name: Test
         run: npx vitest run --coverage
 
+      # CAR-195: BYOK_ENCRYPTION_KEY has to be a real 32-byte base64 key, not the
+      # word "placeholder", so it cannot be a flat literal like its neighbours
+      # below — and a committed base64 blob is exactly what secret scanners flag.
+      # GitGuardian failed every PR on the old hardcoded value. Minting it here
+      # keeps the build valid and leaves nothing secret-shaped in the repo.
+      - name: Mint throwaway BYOK key for the build
+        run: echo "BYOK_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
       - name: Build
         run: npx next build
         env:
@@ -78,7 +86,6 @@ jobs:
           QSTASH_NEXT_SIGNING_KEY: sig_placeholder
           UPSTASH_REDIS_REST_URL: https://placeholder.upstash.io
           UPSTASH_REDIS_REST_TOKEN: placeholder
-          BYOK_ENCRYPTION_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
           BUNDLE_ADMIN_TOKEN: placeholder
           R2_ACCOUNT_ID: placeholder
           R2_ACCESS_KEY_ID: placeholder
