@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { Modal, useModalDismiss } from "@/components/ui/modal";
+import {
+  DialogSurface,
+  Modal,
+  useModalDismiss,
+  useModalPortalContainer,
+} from "@/components/ui/modal";
 
 afterEach(cleanup);
 
@@ -150,6 +155,41 @@ describe("Modal focus trap", () => {
 
     rerender(<Harness open={false} />);
     expect(document.activeElement).toBe(trigger);
+  });
+
+  /**
+   * CAR-197. React's `autoFocus` cannot express "open on this field": React strips
+   * the attribute and focuses imperatively during commit, so this effect — which
+   * runs after — always won, and every form dialog opened on its close button
+   * instead of its first field. `data-autofocus` is the marker that survives to
+   * the DOM for the trap to find.
+   */
+  it("opens on the control marked data-autofocus rather than the first tabbable", () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Edit contact">
+        <input data-autofocus placeholder="name" />
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByPlaceholderText("name"));
+  });
+
+  it("ignores the marker on a control that is not tabbable", () => {
+    // Otherwise a marker left on a disabled field black-holes focus onto an
+    // element that cannot hold it, dropping the user onto <body> outside the trap.
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Edit contact">
+        <input data-autofocus disabled placeholder="name" />
+        <button type="button">reachable</button>
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+  });
+
+  it("still honours React's autoFocus nowhere, which is why the marker exists", () => {
+    // Pins the premise of the two tests above. If a future React starts emitting
+    // the attribute, this fails and the marker can be reconsidered.
+    render(<input autoFocus placeholder="native" />);
+    expect(screen.getByPlaceholderText("native").hasAttribute("autofocus")).toBe(false);
   });
 });
 
@@ -390,5 +430,260 @@ describe("ConfirmDiscardDialog focus trap", () => {
 
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+  });
+});
+
+/**
+ * `DialogSurface` is what `Modal` is built on, and what the four dialogs with
+ * genuinely custom chrome render through (CAR-197). Everything below is behaviour
+ * those four inherit and would otherwise have had to re-derive — which is exactly
+ * how twelve dialogs ended up with no trap and no semantics at all.
+ */
+describe("DialogSurface", () => {
+  const dialog = () => screen.getByRole("dialog");
+
+  it("names itself from a heading id", () => {
+    render(
+      <DialogSurface isOpen onClose={vi.fn()} labelledBy="h">
+        <h2 id="h">Log a conversation</h2>
+      </DialogSurface>,
+    );
+    expect(dialog().getAttribute("aria-modal")).toBe("true");
+    expect(document.getElementById(dialog().getAttribute("aria-labelledby")!)?.textContent).toBe(
+      "Log a conversation",
+    );
+  });
+
+  it("falls back to a literal label, and drops it once a heading is named", () => {
+    const { rerender } = render(
+      <DialogSurface isOpen onClose={vi.fn()} label="Guided onboarding">
+        <p>step</p>
+      </DialogSurface>,
+    );
+    expect(dialog().getAttribute("aria-label")).toBe("Guided onboarding");
+
+    rerender(
+      <DialogSurface isOpen onClose={vi.fn()} label="Guided onboarding" labelledBy="h">
+        <h2 id="h">Welcome</h2>
+      </DialogSurface>,
+    );
+    // Both at once would leave the announced name up to the AT to pick.
+    expect(dialog().getAttribute("aria-label")).toBeNull();
+    expect(dialog().getAttribute("aria-labelledby")).toBe("h");
+  });
+
+  it("takes role alertdialog and a description for a consequential question", () => {
+    render(
+      <DialogSurface isOpen onClose={vi.fn()} role="alertdialog" labelledBy="h" describedBy="b">
+        <h2 id="h">Cancel the onboarding?</h2>
+        <p id="b">It only takes four minutes.</p>
+      </DialogSurface>,
+    );
+    const alert = screen.getByRole("alertdialog");
+    expect(document.getElementById(alert.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "It only takes four minutes.",
+    );
+  });
+
+  it("traps Tab inside the surface", () => {
+    render(
+      <>
+        <button type="button">outside</button>
+        <DialogSurface isOpen onClose={vi.fn()} label="Sheet">
+          <button type="button">first</button>
+          <button type="button">last</button>
+        </DialogSurface>
+      </>,
+    );
+    expect(document.activeElement).toBe(screen.getByText("first"));
+
+    screen.getByText("last").focus();
+    tab();
+
+    expect(document.activeElement).toBe(screen.getByText("first"));
+    expect(document.activeElement).not.toBe(screen.getByText("outside"));
+  });
+
+  it("restores focus to the trigger on close", () => {
+    const Harness = ({ open }: { open: boolean }) => (
+      <>
+        <button type="button">trigger</button>
+        {open && (
+          <DialogSurface isOpen onClose={vi.fn()} label="Sheet">
+            <button type="button">inside</button>
+          </DialogSurface>
+        )}
+      </>
+    );
+    const { rerender } = render(<Harness open={false} />);
+    const trigger = screen.getByText("trigger");
+    trigger.focus();
+
+    rerender(<Harness open />);
+    rerender(<Harness open={false} />);
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("dismisses on the scrim and on Escape", () => {
+    const onClose = vi.fn();
+    const { container } = render(
+      <DialogSurface isOpen onClose={onClose} label="Sheet" scrimClassName="scrim">
+        <p>body</p>
+      </DialogSurface>,
+    );
+
+    fireEvent.click(container.querySelector(".scrim")!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("routes both of those through the unsaved-changes guard", () => {
+    const onClose = vi.fn();
+    const { container } = render(
+      <DialogSurface isOpen onClose={onClose} label="Sheet" scrimClassName="scrim" hasUnsavedChanges>
+        <p>body</p>
+      </DialogSurface>,
+    );
+
+    fireEvent.click(container.querySelector(".scrim")!);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Discard"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Guided onboarding. A stray click on the scrim or a reflexive Escape must not end
+   * a run the user is four minutes into; the only way out is its own skip hatch,
+   * which routes through a stay-nudge.
+   */
+  describe("dismissible={false}", () => {
+    it("ignores the scrim and Escape", () => {
+      const onClose = vi.fn();
+      const { container } = render(
+        <DialogSurface
+          isOpen
+          dismissible={false}
+          onClose={onClose}
+          label="Guided onboarding"
+          scrimClassName="scrim"
+        >
+          <p>step</p>
+        </DialogSurface>,
+      );
+
+      fireEvent.click(container.querySelector(".scrim")!);
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("still traps focus, because it is still a modal dialog", () => {
+      render(
+        <>
+          <button type="button">outside</button>
+          <DialogSurface isOpen dismissible={false} label="Guided onboarding">
+            <button type="button">only</button>
+          </DialogSurface>
+        </>,
+      );
+      screen.getByText("only").focus();
+      tab();
+      expect(document.activeElement).toBe(screen.getByText("only"));
+    });
+  });
+
+  /**
+   * A nested confirmation has to be a DOM *sibling* of the surface. As a child its
+   * keydowns would bubble through this surface's Tab handler and the two traps would
+   * fight over every keypress.
+   */
+  it("renders `overlay` as a sibling of the surface, not inside it", () => {
+    render(
+      <DialogSurface
+        isOpen
+        onClose={vi.fn()}
+        label="Sheet"
+        overlay={<div data-testid="nested">confirm</div>}
+      >
+        <p>body</p>
+      </DialogSurface>,
+    );
+
+    const nested = screen.getByTestId("nested");
+    expect(dialog().contains(nested)).toBe(false);
+    expect(nested.parentElement).toBe(dialog().parentElement);
+  });
+
+  /**
+   * The reason a dialog cannot just add `useFocusTrap` locally: without this
+   * provider every portalling child falls back to `document.body`, landing its menu
+   * outside the trap that was just added.
+   */
+  it("publishes the surface as the portal container for its children", () => {
+    let seen: HTMLElement | null = null;
+    function Probe() {
+      seen = useModalPortalContainer();
+      return null;
+    }
+    render(
+      <DialogSurface isOpen onClose={vi.fn()} label="Sheet">
+        <Probe />
+      </DialogSurface>,
+    );
+    expect(seen).toBe(dialog());
+  });
+
+  it("lets a child dismiss even when the ambient gestures are off", () => {
+    // `dismissible` governs stray gestures, not a deliberate action by a control
+    // inside the dialog.
+    const onClose = vi.fn();
+    function Skip() {
+      const dismiss = useModalDismiss();
+      return <button type="button" onClick={dismiss}>Skip</button>;
+    }
+    render(
+      <DialogSurface isOpen dismissible={false} onClose={onClose} label="Guided onboarding">
+        <Skip />
+      </DialogSurface>,
+    );
+
+    fireEvent.click(screen.getByText("Skip"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the caller's chrome on the wrapper, the scrim and the surface", () => {
+    // Each of the four custom-chrome dialogs keeps its own z-index, alignment and
+    // surface shape; swapping any of those onto the wrong element is invisible in
+    // jsdom and obvious on screen.
+    const { container } = render(
+      <DialogSurface
+        isOpen
+        onClose={vi.fn()}
+        label="Sheet"
+        wrapperClassName="wrapper-chrome"
+        scrimClassName="scrim-chrome"
+        className="surface-chrome"
+      >
+        <p>body</p>
+      </DialogSurface>,
+    );
+
+    expect(container.querySelector(".wrapper-chrome")).toBe(dialog().parentElement);
+    expect(container.querySelector(".scrim-chrome")?.parentElement).toBe(dialog().parentElement);
+    expect(dialog().className).toContain("surface-chrome");
+  });
+
+  it("renders nothing when closed", () => {
+    render(
+      <DialogSurface isOpen={false} onClose={vi.fn()} label="Sheet">
+        <p>body</p>
+      </DialogSurface>,
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

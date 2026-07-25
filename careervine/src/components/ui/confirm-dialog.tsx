@@ -40,7 +40,7 @@
  */
 
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
-import { useDialogLayer, useFocusTrap } from "@/components/ui/modal";
+import { DialogSurface } from "@/components/ui/modal";
 
 export interface ConfirmOptions {
   /** The question. Required: one call site's copy is config-driven, not literal. */
@@ -62,6 +62,16 @@ export interface ConfirmOptions {
  * The dialog surface. `role="alertdialog"` rather than `dialog` because it
  * interrupts the user for a consequential decision, which is exactly the
  * distinction APG draws between the two.
+ *
+ * The wrapper, scrim, focus trap, layer registration and Escape all come from
+ * `DialogSurface` (CAR-197). They were hand-rolled here, which made this a second
+ * dialog primitive alongside `modal.tsx` — and a second thing to remember to fix.
+ * `dialog-adoption.test.ts` is what caught it.
+ *
+ * Registering as a layer is the reachable half of CAR-202: several call sites
+ * `confirm()` from *inside* an open `Modal` (Edit Contact → Delete is the live one),
+ * and before the layer stack, Escape cancelled the delete and dismissed the modal
+ * behind it in the same keypress.
  */
 export function ConfirmDialog({
   message,
@@ -74,69 +84,49 @@ export function ConfirmDialog({
 }: ConfirmOptions & { onConfirm: () => void; onCancel: () => void }) {
   const titleId = useId();
   const messageId = useId();
-  const { surfaceRef, onKeyDown } = useFocusTrap(true);
-  /**
-   * This dialog is the reachable half of CAR-202: several call sites `confirm()` from
-   * *inside* an open `Modal` (Edit Contact → Delete is the live one), and before the
-   * layer stack that Escape cancelled the delete and dismissed the modal behind it in
-   * the same keypress. Registering also gives it the scroll lock it never had.
-   */
-  const isTopLayer = useDialogLayer(true);
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isTopLayer()) onCancel();
-    };
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [onCancel, isTopLayer]);
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/32" onClick={onCancel} />
-      <div
-        ref={surfaceRef}
-        onKeyDown={onKeyDown}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={messageId}
-        tabIndex={-1}
-        data-testid="confirm-dialog"
-        className="relative bg-surface-container-high rounded-[28px] shadow-xl max-w-sm w-full p-6 focus:outline-none"
-      >
-        <h2 id={titleId} className="text-base font-medium text-foreground mb-2">
-          {title}
-        </h2>
-        <p id={messageId} className="text-sm text-muted-foreground mb-6">
-          {message}
-        </p>
-        <div className="flex justify-end gap-2">
-          {/* Cancel leads in DOM order so the trap's initial focus lands on it.
-              APG: focus the least destructive action on an irreversible one. */}
-          <button
-            type="button"
-            onClick={onCancel}
-            data-testid="confirm-dialog-cancel"
-            className="h-10 px-5 rounded-full text-sm font-medium text-primary hover:bg-primary/8 cursor-pointer transition-colors"
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            data-testid="confirm-dialog-confirm"
-            className={`h-10 px-5 rounded-full text-sm font-medium cursor-pointer transition-colors ${
-              destructive
-                ? "bg-error text-on-error hover:bg-error/90"
-                : "bg-primary text-on-primary hover:bg-primary/90"
-            }`}
-          >
-            {confirmLabel}
-          </button>
-        </div>
+    <DialogSurface
+      isOpen
+      onClose={onCancel}
+      role="alertdialog"
+      labelledBy={titleId}
+      describedBy={messageId}
+      testId="confirm-dialog"
+      wrapperClassName="fixed inset-0 z-[200] flex items-center justify-center p-4"
+      className="relative bg-surface-container-high rounded-[28px] shadow-xl max-w-sm w-full p-6"
+    >
+      <h2 id={titleId} className="text-base font-medium text-foreground mb-2">
+        {title}
+      </h2>
+      <p id={messageId} className="text-sm text-muted-foreground mb-6">
+        {message}
+      </p>
+      <div className="flex justify-end gap-2">
+        {/* Cancel leads in DOM order so the trap's initial focus lands on it.
+            APG: focus the least destructive action on an irreversible one. */}
+        <button
+          type="button"
+          onClick={onCancel}
+          data-testid="confirm-dialog-cancel"
+          className="h-10 px-5 rounded-full text-sm font-medium text-primary hover:bg-primary/8 cursor-pointer transition-colors"
+        >
+          {cancelLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          data-testid="confirm-dialog-confirm"
+          className={`h-10 px-5 rounded-full text-sm font-medium cursor-pointer transition-colors ${
+            destructive
+              ? "bg-error text-on-error hover:bg-error/90"
+              : "bg-primary text-on-primary hover:bg-primary/90"
+          }`}
+        >
+          {confirmLabel}
+        </button>
       </div>
-    </div>
+    </DialogSurface>
   );
 }
 
