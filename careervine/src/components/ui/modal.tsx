@@ -90,20 +90,27 @@ function tabbableWithin(root: HTMLElement): HTMLElement[] {
  * Attach `onKeyDown` to the dialog surface and give that surface `tabIndex={-1}`
  * so it can hold focus when it has no focusable content of its own.
  *
+ * Exported for `confirm-dialog.tsx` (CAR-188), which is a third dialog surface
+ * in the same family. It imports rather than re-rolls because `tabbableWithin`
+ * above is not the obvious implementation: the layout-free filter is what keeps
+ * the trap armed under jsdom, and a fresh copy would reach for `offsetParent`
+ * and silently disarm itself in exactly the tests written to prove it works.
+ *
  * The surface is held in state behind a callback ref rather than in a `useRef`,
  * because it is published to descendants as a portal target and so has to be
  * readable during render. `ref.current` would be populated by the time any menu
  * opens, but reading it in render is impure and would not re-render a consumer.
  * `setSurface` is used as the ref directly: `useState` guarantees it is stable,
- * and a DOM node can never be mistaken for a functional updater.
+ * and a DOM node can never be mistaken for a functional updater. Callers that
+ * only attach it to a `<div ref=>` are unaffected by the change.
  *
- * `returnFocusFallback` is where focus goes when the element that opened this
- * layer is no longer a usable target. A layer that closes without landing focus
- * somewhere real leaves it on `<body>`, and since the trap is a keydown handler
- * *on the surface*, focus outside the surface means the trap silently stops
- * running and Tab walks straight out of the dialog.
+ * `returnFocusFallback` is optional and where focus goes when the element that
+ * opened this layer is no longer a usable target. A layer that closes without
+ * landing focus somewhere real leaves it on `<body>`, and since the trap is a
+ * keydown handler *on the surface*, focus outside the surface means the trap
+ * silently stops running and Tab walks straight out of the dialog.
  */
-function useFocusTrap(active: boolean, returnFocusFallback?: HTMLElement | null) {
+export function useFocusTrap(active: boolean, returnFocusFallback?: HTMLElement | null) {
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {

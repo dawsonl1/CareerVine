@@ -7,11 +7,13 @@ import type { EmailTemplate } from "@/lib/types";
 import { Sparkles, Plus, Pencil, Trash2, X } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { useToast } from "@/components/ui/toast";
-import { apiFetch, apiSend } from "@/lib/api-client";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { apiSend, apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 
 export default function TemplatesSection() {
   const { error: toastError } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -19,6 +21,15 @@ export default function TemplatesSection() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  /**
+   * Every caller here is a load that must not silently render stale data: the
+   * mount, the retry, and the re-read after a SUCCESSFUL save. So all three
+   * surface the failure, and this has no `mode` parameter of the kind
+   * `contact-follow-up-status.tsx` carries (CONVENTIONS.md §f). That file needs
+   * one because it also re-reads after a FAILED write, where the toast has
+   * already fired and blanking the list would be a second complaint about one
+   * failure. No path here re-reads after a failed write.
+   */
   const loadTemplates = useCallback(async () => {
     try {
       const data = await apiFetch<{ templates?: EmailTemplate[] }>("/api/gmail/templates");
@@ -49,10 +60,9 @@ export default function TemplatesSection() {
     setError("");
     setSaving(true);
     try {
-      const res = await fetch("/api/gmail/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await apiSend(
+        "/api/gmail/templates",
+        jsonBody({
           id: editingTemplate.id || undefined,
           name: editingTemplate.name.trim(),
           prompt: editingTemplate.prompt.trim(),
@@ -60,19 +70,26 @@ export default function TemplatesSection() {
             ? templates.find((t) => t.id === editingTemplate.id)?.sort_order ?? templates.length
             : templates.length,
         }),
-      });
-      if (!res.ok) throw new Error("Failed to save");
+      );
       setEditingTemplate(null);
       void loadTemplates();
-    } catch {
-      setError("Failed to save template.");
+    } catch (err) {
+      // The editor panel is open on this path, so the inline `error` is visible
+      // and is the right surface. It prefers the route's curated message, which
+      // names the actual problem (a duplicate name, a length limit) where the
+      // old hardcoded string could only say something went wrong.
+      setError(isApiRequestError(err) ? err.message : "Failed to save template.");
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Delete this template?")) return;
+    if (!(await confirm({
+      message: "Delete this template?",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
     // Dropping the row without checking the response made a failed delete look
     // like a success until the next refresh brought the template back
     // (CAR-183). The inline `error` state renders only inside the editor panel,
@@ -89,6 +106,7 @@ export default function TemplatesSection() {
   };
 
   return (
+    <>
     <Card variant="outlined">
       <CardContent className="p-7">
         <div className="flex items-center justify-between mb-6">
@@ -216,5 +234,7 @@ export default function TemplatesSection() {
         )}
       </CardContent>
     </Card>
+    {confirmDialog}
+    </>
   );
 }

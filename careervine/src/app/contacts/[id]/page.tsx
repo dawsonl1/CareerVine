@@ -26,6 +26,9 @@ import { useQuickCapture } from "@/components/quick-capture-context";
 import { deleteContact } from "@/lib/queries";
 import { useToast } from "@/components/ui/toast";
 import { SectionBoundary } from "@/components/ui/section-boundary";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { apiFetch, apiSend } from "@/lib/api-client";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 
 type ActionItem = {
   id: number;
@@ -68,6 +71,7 @@ export default function ContactDetailPage() {
   const { can } = useCapabilities();
   const { open: openQuickCapture } = useQuickCapture();
   const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
   const router = useRouter();
   const params = useParams();
   const contactId = Number(params.id);
@@ -91,6 +95,7 @@ export default function ContactDetailPage() {
   const [contactEmails, setContactEmails] = useState<EmailMessage[]>([]);
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
   const [loadingEmails, setLoadingEmails] = useState(false);
+  const [emailsLoadFailed, setEmailsLoadFailed] = useState(false);
 
   // Tab state with hash persistence
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
@@ -154,16 +159,23 @@ export default function ContactDetailPage() {
     setContactEmails([]);
     setScheduledEmails([]);
     try {
-      const [emailsRes, scheduledRes] = await Promise.all([
-        fetch(`/api/gmail/emails?contactId=${contactId}`),
-        fetch(`/api/gmail/schedule?contactId=${contactId}`),
+      // The scheduled read was unchecked: a non-2xx `{ error }` body fell
+      // through `scheduledData.scheduledEmails || []` to an empty list, so a
+      // failed read was indistinguishable from "nothing is scheduled" for a
+      // contact who has queued sends (CAR-188).
+      const [emailsData, scheduledData] = await Promise.all([
+        apiFetch<{ success?: boolean; emails?: EmailMessage[] }>(
+          `/api/gmail/emails?contactId=${contactId}`,
+        ),
+        apiFetch<{ scheduledEmails?: ScheduledEmail[] }>(
+          `/api/gmail/schedule?contactId=${contactId}`,
+        ),
       ]);
-      const emailsData = await emailsRes.json();
-      const scheduledData = await scheduledRes.json();
       if (emailsData.success) setContactEmails(emailsData.emails || []);
       setScheduledEmails(scheduledData.scheduledEmails || []);
-    } catch (err) {
-      console.error("Error loading emails:", err);
+      setEmailsLoadFailed(false);
+    } catch {
+      setEmailsLoadFailed(true);
     } finally {
       setLoadingEmails(false);
     }
@@ -204,17 +216,27 @@ export default function ContactDetailPage() {
   }, [loadRelatedData]);
 
   const handleScheduledEmailCancel = async (scheduledId: number) => {
-    try {
-      const res = await fetch(`/api/gmail/schedule/${scheduledId}`, { method: "DELETE" });
-      if (res.ok) setScheduledEmails((prev) => prev.filter((e) => e.id !== scheduledId));
-    } catch (err) {
-      console.error("Error cancelling scheduled email:", err);
-    }
+    // `if (res.ok) setState` with no else: a refused cancel left the row in
+    // place and said nothing at all, so the user's only signal was the email
+    // arriving later anyway (CAR-188).
+    const cancelled = await withToastOnError(
+      () => apiSend(`/api/gmail/schedule/${scheduledId}`, { method: "DELETE" }),
+      toastError,
+      "Couldn't cancel that scheduled email. Please try again.",
+    );
+    if (!cancelled) return;
+
+    setScheduledEmails((prev) => prev.filter((e) => e.id !== scheduledId));
   };
 
   const handleDelete = async () => {
     if (!contact) return;
-    if (!confirm("Are you sure you want to delete this contact? This cannot be undone.")) return;
+    if (!(await confirm({
+      message: "Are you sure you want to delete this contact? This cannot be undone.",
+      title: "Delete contact",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
     try {
       await deleteContact(contact.id);
       toastSuccess(`${contact.name} deleted`);
@@ -377,6 +399,7 @@ export default function ContactDetailPage() {
                     gmailConnected={gmailConnected}
                     canReadMailbox={can("mailbox:read")}
                     loadingEmails={loadingEmails}
+                    emailsLoadFailed={emailsLoadFailed}
                     onScheduledEmailCancel={handleScheduledEmailCancel}
                     onReloadEmails={loadContactEmails}
                   />
@@ -418,6 +441,7 @@ export default function ContactDetailPage() {
           onContactDelete={handleDelete}
         />
       </div>
+      {confirmDialog}
     </div>
   );
 }

@@ -164,6 +164,13 @@ export async function fetchChangeEventSuggestions(userId: string): Promise<Sugge
 /**
  * Transition a change event's status. Scoped to the owning user. 'actioned'
  * also stamps actioned_at.
+ *
+ * The update's `error` is checked (CAR-188). supabase-js RESOLVES on a failed
+ * write rather than throwing, so without this both callers
+ * (`/api/change-events/dismiss` and `/api/suggestions/save`) answered
+ * `200 {success:true}` on a write that never landed. That made the client's own
+ * `res.ok` check meaningless: the dismissed card would come back on the next
+ * load with nothing anywhere reporting why.
  */
 export async function markChangeEventStatus(
   eventId: number,
@@ -175,9 +182,10 @@ export async function markChangeEventStatus(
   if (status === ChangeEventStatus.Actioned) {
     patch.actioned_at = new Date().toISOString();
   }
-  await service
+  const { error } = await service
     .from("contact_change_events")
     .update(patch)
     .eq("id", eventId)
     .eq("user_id", userId);
+  if (error) throw error;
 }

@@ -17,6 +17,7 @@ import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/components/auth-provider";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import type { AdminUserDetail } from "@/lib/admin-users";
+import { apiSend, jsonBody } from "@/lib/api-client";
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "never";
@@ -66,13 +67,7 @@ export default function AccountSection({
   const setStatus = async () => {
     setBusy(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/status`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status: suspended ? "active" : "suspended" }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(`/api/admin/users/${user.id}/status`, jsonBody({ status: suspended ? "active" : "suspended" }));
       success(
         suspended
           ? `Reactivated ${email}`
@@ -90,9 +85,7 @@ export default function AccountSection({
   const deleteAccount = async () => {
     setBusy(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      await apiSend(`/api/admin/users/${user.id}`, { method: "DELETE" });
       success(`Deleted ${email}`);
       close();
       onDeleted();

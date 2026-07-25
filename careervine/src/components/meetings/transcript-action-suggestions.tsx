@@ -8,6 +8,7 @@ import { ActionItemSource, SuggestionReasonType } from "@/lib/constants";
 import { Sparkles, Check, X, Calendar, User, AlertTriangle, CheckSquare, Hourglass, Pencil } from "lucide-react";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
+import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 /** Compact inline date picker — renders as a small "Add date" button that opens a native date input */
 function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
@@ -99,30 +100,17 @@ export function TranscriptActionSuggestions({
     setError(null);
     setAiFailure(null);
     try {
-      const res = await fetch("/api/transcripts/extract-actions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          meetingId,
-          transcript,
-          attendees,
-          meetingDate,
-          userName,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const code = parseAiFailure(res.status, data);
-        if (code) {
-          setAiFailure(code);
-          return;
-        }
-        throw new Error(data.error || "Failed to extract action items");
-      }
-
-      const data = await res.json();
-      const keyed = (data.suggestions || []).map((s: Omit<TranscriptSuggestion, "_key">, i: number) => ({
+      const data = await apiFetch<{
+        suggestions?: Omit<TranscriptSuggestion, "_key">[];
+        truncated?: boolean;
+      }>("/api/transcripts/extract-actions", jsonBody({
+        meetingId,
+        transcript,
+        attendees,
+        meetingDate,
+        userName,
+      }));
+      const keyed = (data.suggestions || []).map((s, i) => ({
         ...s,
         direction: s.direction || "my_task",
         _key: `${i}-${s.title.slice(0, 20)}`,
@@ -131,6 +119,13 @@ export function TranscriptActionSuggestions({
       setTruncated(data.truncated || false);
       setHasRun(true);
     } catch (err) {
+      // apiFetch throws on any non-2xx, so the AI-unavailable branch moves into
+      // catch. ApiRequestError carries the status and body parseAiFailure read.
+      const code = isApiRequestError(err) ? parseAiFailure(err.status, err.body) : null;
+      if (code) {
+        setAiFailure(code);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);

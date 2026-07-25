@@ -16,7 +16,7 @@ import { FollowUpPlanSection, type FollowUpDraft } from "@/components/follow-up-
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
-import { apiFetch, jsonBody, isApiRequestError } from "@/lib/api-client";
+import { apiFetch, apiSend, jsonBody, isApiRequestError } from "@/lib/api-client";
 import type { DraftFollowUpsResponse } from "@/app/api/ai/draft-follow-ups/route";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { track } from "@/lib/analytics/client";
@@ -25,6 +25,12 @@ import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 import { useLatestRequest } from "@/hooks/use-latest-request";
 
 type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
+
+/** A row from /api/contacts/search, used for the To-field autocomplete. */
+type ContactSuggestion = { id: number; name: string; email: string; emails: string[] };
+
+/** The success shape of /api/ai/draft-intro. */
+type AiIntroDraft = { bodyHtml?: string | null; subject?: string | null };
 
 type FollowUpSendOpts = {
   threadId: string;
@@ -169,7 +175,7 @@ function ComposeEmailModalBody() {
 
   // Contact autocomplete
   const [, setContactQuery] = useState("");
-  const [contactSuggestions, setContactSuggestions] = useState<Array<{ id: number; name: string; email: string; emails: string[] }>>([]);
+  const [contactSuggestions, setContactSuggestions] = useState<ContactSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedContactName, setSelectedContactName] = useState(prefillName || "");
   // Contact resolved from the recipient autocomplete — lets Outreach's blank compose
@@ -194,10 +200,9 @@ function ComposeEmailModalBody() {
     // Don't save empty drafts
     if (!fields.to.trim() && !fields.subject.trim() && !fields.bodyHtml.trim()) return;
     try {
-      const res = await fetch("/api/gmail/drafts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await apiFetch<{ draft?: { id: number } }>(
+        "/api/gmail/drafts",
+        jsonBody({
           id: draftIdRef.current || undefined,
           to: fields.to.trim(),
           cc: fields.cc.trim() || undefined,
@@ -209,33 +214,39 @@ function ComposeEmailModalBody() {
           inReplyTo: replyInReplyTo || undefined,
           references: replyReferences || undefined,
         }),
-      });
-      const data = await res.json();
+      );
       if (data.draft?.id) {
         // Ghost-draft guard: if the message was sent/scheduled while this
         // autosave was in flight, deleteDraft already ran (against a stale or
         // absent id) and would never remove the row this POST just created.
         // Delete it now instead of recording its id (CAR-145 / F42).
         if (sentOrScheduledRef.current) {
-          fetch(`/api/gmail/drafts/${data.draft.id}`, { method: "DELETE" }).catch(() => {});
+          // error-tolerated: cleanup of a draft the user already sent past. It
+          // is invisible to them either way, and the daily draft sweep is the
+          // backstop; a toast here would report a problem they do not have.
+          apiSend(`/api/gmail/drafts/${data.draft.id}`, { method: "DELETE" }).catch(() => {});
         } else {
           draftIdRef.current = data.draft.id;
         }
       }
       emitUiEvent(UI_EVENTS.draftsChanged);
     } catch {
-      // silent — draft save is best-effort
+      // error-tolerated: autosave fires on a debounce while the user is still
+      // typing. Interrupting composition to report a background save is worse
+      // than losing it, and the body stays in local state either way.
     }
   }, [prefillName, replyThreadId, replyInReplyTo, replyReferences]);
 
   const deleteDraft = useCallback(async () => {
     if (!draftIdRef.current) return;
     try {
-      await fetch(`/api/gmail/drafts/${draftIdRef.current}`, { method: "DELETE" });
+      await apiSend(`/api/gmail/drafts/${draftIdRef.current}`, { method: "DELETE" });
       draftIdRef.current = null;
       emitUiEvent(UI_EVENTS.draftsChanged);
     } catch {
-      // silent
+      // error-tolerated: every caller runs after a confirmed send or schedule,
+      // where the draft row is now redundant bookkeeping. Reporting it would
+      // put a failure toast on top of a success the user just completed.
     }
   }, []);
 
@@ -270,8 +281,9 @@ function ComposeEmailModalBody() {
     const token = searchReq.begin();
     if (query.length < 1) { setContactSuggestions([]); setShowSuggestions(false); return; }
     try {
-      const res = await fetch(`/api/contacts/search?q=${encodeURIComponent(query)}`);
-      const data = await res.json();
+      const data = await apiFetch<{ contacts?: ContactSuggestion[] }>(
+        `/api/contacts/search?q=${encodeURIComponent(query)}`,
+      );
       if (!searchReq.isLatest(token)) return;
       setContactSuggestions(data.contacts || []);
       setShowSuggestions((data.contacts || []).length > 0);
@@ -353,10 +365,9 @@ function ComposeEmailModalBody() {
     // Fire for the intro flow OR a regular compose where the user opened the planner,
     // as long as follow-ups are enabled, non-empty, and a contact is resolved (CAR-120).
     if ((!isIntro && !showFollowUps) || !followUpsEnabled || followUps.length === 0 || !activeContactId) return;
-    const res = await fetch("/api/email-follow-ups", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await apiSend(
+      "/api/email-follow-ups",
+      jsonBody({
         contactId: activeContactId,
         threadId: opts.threadId || null,
         messageId: opts.messageId || null,
@@ -372,8 +383,7 @@ function ComposeEmailModalBody() {
           delayDays: fu.delayDays,
         })),
       }),
-    });
-    if (!res.ok) throw new Error("Failed to create follow-up records");
+    );
   }, [isIntro, showFollowUps, followUpsEnabled, followUps, activeContactId, to, selectedContactName, prefillName, subject]);
 
   // The send itself already succeeded, so a follow-up failure is soft: keep the
@@ -434,6 +444,35 @@ function ComposeEmailModalBody() {
     }
   }, [activeContactId, subject, bodyHtml]);
 
+  /**
+   * The intro generator's two entry points (with context, and Skip) had
+   * byte-identical response handling. Sharing it keeps the AI-failure branch
+   * from drifting between them, which is how one of the two ends up showing a
+   * raw error where the other shows the AiUnavailableNotice.
+   */
+  const applyIntroDraft = useCallback((data: AiIntroDraft) => {
+    setBodyHtml(data.bodyHtml || "");
+    aiBodyRef.current = data.bodyHtml || null;
+    aiKindRef.current = data.bodyHtml ? "intro" : null;
+    if (data.subject) setSubject(data.subject);
+    setIntroError(null);
+    setIntroAiFailure(null);
+    setIntroPhase("editing");
+  }, []);
+
+  const applyIntroFailure = useCallback((err: unknown) => {
+    // Mirrors the follow-up generator above: ApiRequestError carries the status
+    // and parsed body that parseAiFailure used to read off the raw Response.
+    if (isApiRequestError(err)) {
+      const code = parseAiFailure(err.status, err.body);
+      if (code) setIntroAiFailure(code);
+      else setIntroError(err.message);
+    } else {
+      setIntroError("Failed to generate email. Please try again.");
+    }
+    setIntroPhase("context");
+  }, []);
+
   // Follow-up list mutations, shared by the intro and regular-compose planners.
   const editFollowUp = useCallback((id: string, updates: Partial<FollowUpDraft>) => {
     setFollowUps((prev) =>
@@ -480,10 +519,9 @@ function ComposeEmailModalBody() {
     setError("");
     setSending(true);
     try {
-      const res = await fetch("/api/gmail/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await apiFetch<{ messageId?: string; threadId?: string }>(
+        "/api/gmail/send",
+        jsonBody({
           to: to.trim(),
           cc: cc.trim() || undefined,
           bcc: bcc.trim() || undefined,
@@ -494,9 +532,7 @@ function ComposeEmailModalBody() {
           ...(replyInReplyTo ? { inReplyTo: replyInReplyTo } : {}),
           ...(replyReferences ? { references: replyReferences } : {}),
         }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      );
 
       setSent(true);
       sentOrScheduledRef.current = true;
@@ -528,16 +564,18 @@ function ComposeEmailModalBody() {
       // Mark AI draft as sent/edited_and_sent if this came from one
       if (aiDraftContext?.draftId) {
         const draftStatus = bodyHtml !== prefillBodyHtml ? "edited_and_sent" : "sent";
-        await fetch(`/api/gmail/ai-followups/${aiDraftContext.draftId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        // error-tolerated: this is analytics bookkeeping on a draft whose
+        // email has already gone out. The outcome event is nice to have; the
+        // send is the thing the user did, and it succeeded.
+        await apiSend(
+          `/api/gmail/ai-followups/${aiDraftContext.draftId}`,
+          jsonBody({
             status: draftStatus,
             // Server-side outcome event needs the ratio; only the client has
             // the original AI body to diff against (CAR-58).
             editRatio: editRatio(prefillBodyHtml || "", bodyHtml),
-          }),
-        }).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
+          }, "PATCH"),
+        ).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
       }
 
       // onboardingIntro marks the guided flow's templated first outreach so
@@ -570,10 +608,9 @@ function ComposeEmailModalBody() {
     setError("");
     setSending(true);
     try {
-      const res = await fetch("/api/gmail/schedule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await apiFetch<{ scheduledEmail?: { id: number } }>(
+        "/api/gmail/schedule",
+        jsonBody({
           to: to.trim(),
           cc: cc.trim() || undefined,
           bcc: bcc.trim() || undefined,
@@ -585,9 +622,7 @@ function ComposeEmailModalBody() {
           ...(replyInReplyTo ? { inReplyTo: replyInReplyTo } : {}),
           ...(replyReferences ? { references: replyReferences } : {}),
         }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      );
 
       setScheduled(true);
       setConfirmedSendAt(sendAt);
@@ -608,16 +643,18 @@ function ComposeEmailModalBody() {
       // Mark AI draft as sent/edited_and_sent if this came from one
       if (aiDraftContext?.draftId) {
         const draftStatus = bodyHtml !== prefillBodyHtml ? "edited_and_sent" : "sent";
-        await fetch(`/api/gmail/ai-followups/${aiDraftContext.draftId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        // error-tolerated: this is analytics bookkeeping on a draft whose
+        // email has already gone out. The outcome event is nice to have; the
+        // send is the thing the user did, and it succeeded.
+        await apiSend(
+          `/api/gmail/ai-followups/${aiDraftContext.draftId}`,
+          jsonBody({
             status: draftStatus,
             // Server-side outcome event needs the ratio; only the client has
             // the original AI body to diff against (CAR-58).
             editRatio: editRatio(prefillBodyHtml || "", bodyHtml),
-          }),
-        }).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
+          }, "PATCH"),
+        ).catch((e) => console.warn("[AI Draft] Failed to update draft status:", e));
       }
 
       // onboardingIntro marks the guided flow's templated first outreach so
@@ -930,51 +967,30 @@ function ComposeEmailModalBody() {
                     try {
                       // Save context to contact
                       if (contactId && (ctx.howMet || ctx.goal)) {
-                        fetch(`/api/contacts/${contactId}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            met_through: ctx.howMet || undefined,
-                            intro_goal: ctx.goal || undefined,
-                          }),
-                        }).catch(() => {}); // best-effort save
+                        // error-tolerated: stashing the context the user just
+                        // typed so it prefills next time. The draft it feeds is
+                        // generated from the same values in the request below,
+                        // so a failed save costs nothing in this session.
+                        apiSend(`/api/contacts/${contactId}`, jsonBody({
+                          met_through: ctx.howMet || undefined,
+                          intro_goal: ctx.goal || undefined,
+                        }, "PATCH")).catch(() => {});
                       }
                       if (contactId && ctx.notes) {
-                        fetch(`/api/contacts/${contactId}/note`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ note: ctx.notes }),
-                        }).catch(() => {});
+                        // error-tolerated: same reason as the context save above.
+                        apiSend(`/api/contacts/${contactId}/note`, jsonBody({ note: ctx.notes }))
+                          .catch(() => {});
                       }
 
-                      const res = await fetch("/api/ai/draft-intro", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          contactId,
-                          howMet: ctx.howMet || undefined,
-                          goal: ctx.goal || undefined,
-                          notes: ctx.notes || undefined,
-                        }),
-                      });
-                      const data = await res.json();
-                      if (res.ok) {
-                        setBodyHtml(data.bodyHtml || "");
-                        aiBodyRef.current = data.bodyHtml || null;
-                        aiKindRef.current = data.bodyHtml ? "intro" : null;
-                        if (data.subject) setSubject(data.subject);
-                        setIntroError(null);
-                        setIntroAiFailure(null);
-                        setIntroPhase("editing");
-                      } else {
-                        const code = parseAiFailure(res.status, data);
-                        if (code) setIntroAiFailure(code);
-                        else setIntroError(data.error || "Failed to generate email. Please try again.");
-                        setIntroPhase("context");
-                      }
-                    } catch {
-                      setIntroError("Failed to generate email. Please try again.");
-                      setIntroPhase("context");
+                      const data = await apiFetch<AiIntroDraft>("/api/ai/draft-intro", jsonBody({
+                        contactId,
+                        howMet: ctx.howMet || undefined,
+                        goal: ctx.goal || undefined,
+                        notes: ctx.notes || undefined,
+                      }));
+                      applyIntroDraft(data);
+                    } catch (err) {
+                      applyIntroFailure(err);
                     }
                   }}
                   onSkip={async () => {
@@ -982,29 +998,11 @@ function ComposeEmailModalBody() {
                     setIntroError(null);
                     setIntroAiFailure(null);
                     try {
-                      const res = await fetch("/api/ai/draft-intro", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ contactId }),
-                      });
-                      const data = await res.json();
-                      if (res.ok) {
-                        setBodyHtml(data.bodyHtml || "");
-                        aiBodyRef.current = data.bodyHtml || null;
-                        aiKindRef.current = data.bodyHtml ? "intro" : null;
-                        if (data.subject) setSubject(data.subject);
-                        setIntroError(null);
-                        setIntroAiFailure(null);
-                        setIntroPhase("editing");
-                      } else {
-                        const code = parseAiFailure(res.status, data);
-                        if (code) setIntroAiFailure(code);
-                        else setIntroError(data.error || "Failed to generate email. Please try again.");
-                        setIntroPhase("context");
-                      }
-                    } catch {
-                      setIntroError("Failed to generate email. Please try again.");
-                      setIntroPhase("context");
+                      applyIntroDraft(
+                        await apiFetch<AiIntroDraft>("/api/ai/draft-intro", jsonBody({ contactId })),
+                      );
+                    } catch (err) {
+                      applyIntroFailure(err);
                     }
                   }}
                   generating={introPhase === "generating"}

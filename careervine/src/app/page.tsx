@@ -50,6 +50,7 @@ import type { CalendarEventsResponse } from "@/app/api/calendar/events/route";
 import { DiscoveryDigest } from "@/components/home/discovery-digest";
 import { type NewContact } from "@/components/home/new-contacts";
 import { NetworkingStats } from "@/components/home/networking-stats";
+import { apiFetch, apiSend } from "@/lib/api-client";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   // Null for contactless rows, e.g. the seeded CAR-68 onboarding to-do.
@@ -117,6 +118,7 @@ export default function Home() {
   // Band 2 right data
   const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleError, setScheduleError] = useState(false);
   const [newContacts, setNewContacts] = useState<NewContact[]>(cachedData?.newContacts ?? []);
 
   // Band 3 data
@@ -157,7 +159,9 @@ export default function Home() {
     complete: completeSuggestionRaw,
     dismiss: dismissSuggestion,
     triggerOnce: triggerSuggestions,
-  } = useSuggestions();
+  } = useSuggestions({
+    onDismissFailed: () => toast("Couldn't dismiss that suggestion. Please try again.", { variant: "error" }),
+  });
 
   // Last-touch lookup, used to label today's meetings with "last contacted".
   const lastTouchLookup = useMemo(() => {
@@ -222,21 +226,25 @@ export default function Home() {
       setScheduleLoading(false);
       return;
     }
+    setScheduleError(false);
     try {
-      // Sync calendar from Google first (has built-in 5-min cooldown)
-      await fetch("/api/calendar/sync", { method: "POST" }).catch(() => {});
+      // Sync calendar from Google first (has built-in 5-min cooldown).
+      // error-tolerated: opportunistic freshening. The events read below is the
+      // load that matters, and it reports for itself.
+      await apiSend("/api/calendar/sync", { method: "POST" }).catch(() => {});
 
       const today = new Date();
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
       const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
 
-      const [eventsRes, emailLookup] = await Promise.all([
-        fetch(`/api/calendar/events?start=${encodeURIComponent(startOfDay)}&end=${encodeURIComponent(endOfDay)}`),
+      const [data, emailLookup] = await Promise.all([
+        apiFetch<CalendarEventsResponse>(
+          `/api/calendar/events?start=${encodeURIComponent(startOfDay)}&end=${encodeURIComponent(endOfDay)}`,
+        ),
         getContactEmailLookup(user.id),
       ]);
 
-      if (eventsRes.ok) {
-        const data = (await eventsRes.json()) as CalendarEventsResponse;
+      {
         setScheduleEvents(
           (data.events || []).map((e) => {
             // Match contact: try attendee emails first, then fall back to contact_id.
@@ -290,7 +298,10 @@ export default function Home() {
         );
       }
     } catch {
-      // silent
+      // `if (eventsRes.ok)` with no else, plus a `// silent` catch and no error
+      // state at all: a connected user whose events API 500s saw a bare hour
+      // grid with zero blocks, i.e. "you have nothing on today" (CAR-188).
+      setScheduleError(true);
     } finally {
       setScheduleLoading(false);
     }
@@ -689,14 +700,25 @@ export default function Home() {
           await snoozeContact(item.contactId, until);
           setNewContacts((prev) => prev.filter((c) => c.id !== item.contactId));
         } else if (item.type === "suggestion" && item.suggestion) {
-          // Save the suggestion as an action item, snooze it, and set cooldown
+          // Save the suggestion as an action item, snooze it, and set cooldown.
           const ok = await saveSuggestionRaw(item.suggestion);
-          if (ok) {
-            // Reload action items to get the newly created one, then snooze it
-            await setSuggestionCooldown(item.contactId);
-            await snoozeContact(item.contactId, until);
+          if (!ok) {
+            // The save is what makes this a snooze rather than a deletion. It
+            // failed, so `dismissSuggestion` here would destroy a
+            // change-event-backed row server-side while the toast below claimed
+            // "Snoozed for 7 days" (CAR-188). Report the failure instead: the
+            // card stays, and the user can try again.
+            toast("Couldn't snooze that suggestion. Please try again.", { variant: "error" });
+            return;
           }
-          dismissSuggestion(item.suggestion);
+          // Reload action items to get the newly created one, then snooze it
+          await setSuggestionCooldown(item.contactId);
+          await snoozeContact(item.contactId, until);
+          // The card is only really snoozed once the change event is dismissed
+          // server-side. If that is refused the hook restores the card and
+          // toasts, so falling through to "Snoozed for 7 days" here would put a
+          // success message under a card that visibly came back.
+          if (!(await dismissSuggestion(item.suggestion))) return;
         }
 
         toast(label, { variant: "info" });
@@ -710,11 +732,17 @@ export default function Home() {
   const handleDismiss = useCallback(
     async (item: UnifiedActionItem) => {
       if (item.suggestion) {
-        dismissSuggestion(item.suggestion);
+        // dismissSuggestion rolls the card back and returns false when the
+        // server refused it, so the cooldown only follows a landed dismissal.
+        // The toast for that failure is the hook's `onDismissFailed`, not here,
+        // or the user would get the same message twice.
+        if (!(await dismissSuggestion(item.suggestion))) return;
         try {
           await setSuggestionCooldown(item.contactId);
         } catch {
-          // Cooldown failed — suggestion dismissed locally but may reappear on reload
+          // error-tolerated: the dismissal itself landed, so the card is gone
+          // for good. The cooldown only suppresses re-suggesting this contact
+          // for a while, and it is re-set the next time one is dismissed.
         }
       }
     },
@@ -866,6 +894,8 @@ export default function Home() {
             <TodaySchedule
               events={scheduleEvents}
               loading={scheduleLoading}
+              loadFailed={scheduleError}
+              onRetry={() => { setScheduleLoading(true); void loadSchedule(); }}
               calendarConnected={calendarConnected}
               availableHeight={calendarAvailableHeight}
               onLogConversation={(ev) => {

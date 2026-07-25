@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertTriangle } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { LoadErrorState } from "@/components/ui/load-error-state";
+import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 export type KeyStatus = {
   hasKey: boolean;
@@ -118,20 +121,28 @@ function SetupVideo({ url, title }: { url?: string | null; title?: string }) {
  * show stored-key badge, remove. Provider differences are entirely in config.
  */
 export default function ProviderKeyCard({ config }: { config: ProviderKeyCardConfig }) {
+  const { confirm, confirmDialog } = useConfirm();
   const [status, setStatus] = useState<KeyStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch(config.endpoint);
-      const data = await res.json();
-      setStatus(data);
+      // Unchecked, a non-2xx `{ error }` body was assigned straight to `status`,
+      // where `hasKey` reads undefined and the card renders its no-key state:
+      // the user is told they have no key on file when the read simply failed,
+      // and pastes a replacement over a key that was there all along (CAR-188).
+      setStatus(await apiFetch<KeyStatus>(config.endpoint));
+      setLoadFailed(false);
     } catch {
-      setError("Couldn't load key status.");
+      // Not an inline `error` beside Save: that leaves the whole key form live,
+      // which is the overwrite hazard above. The controls are withheld until a
+      // read succeeds and we know what is actually stored.
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -153,30 +164,31 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
     setSaving(true);
 
     try {
-      const res = await fetch(config.endpoint, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: apiKey.trim() }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Failed to save key.");
-        return;
-      }
-
-      setStatus(data);
+      // This is one of the few sites that SHOULD surface the route's own
+      // message: the endpoint validates the key against the provider, so
+      // "That key was rejected by OpenAI" is the whole answer the user needs.
+      // `ApiRequestError.message` is exactly the `data.error` this used to read
+      // by hand, with the missing-or-unparseable-body fallback handled.
+      setStatus(await apiFetch<KeyStatus>(config.endpoint, jsonBody({ apiKey: apiKey.trim() }, "PUT")));
       setApiKey("");
       setSaved(true);
-    } catch {
-      setError("Failed to save key.");
+    } catch (err) {
+      setError(isApiRequestError(err) ? err.message : "Failed to save key.");
     } finally {
       setSaving(false);
     }
   };
 
   const handleRemove = async () => {
-    if (!window.confirm(config.removeConfirm)) {
+    // The only one of the twelve confirms whose copy is not a string literal:
+    // it comes from the per-provider config, which is why ConfirmDialog takes a
+    // `message` prop rather than owning its own wording (CAR-188).
+    if (!(await confirm({
+      message: config.removeConfirm,
+      title: "Remove key",
+      confirmLabel: "Remove",
+      destructive: true,
+    }))) {
       return;
     }
 
@@ -184,16 +196,10 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
     setSaved(false);
 
     try {
-      const res = await fetch(config.endpoint, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to remove key.");
-        return;
-      }
-      setStatus(data);
+      setStatus(await apiFetch<KeyStatus>(config.endpoint, { method: "DELETE" }));
       setApiKey("");
-    } catch {
-      setError("Failed to remove key.");
+    } catch (err) {
+      setError(isApiRequestError(err) ? err.message : "Failed to remove key.");
     }
   };
 
@@ -201,6 +207,7 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
     status?.hasKey && status.status && status.status !== "active";
 
   return (
+    <>
     <Card variant="outlined">
       <CardContent className="p-7">
         <div className="flex items-center gap-3 mb-4">
@@ -220,6 +227,11 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
 
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : loadFailed ? (
+          <LoadErrorState
+            message="Couldn't load your key status."
+            onRetry={() => { setLoading(true); void loadStatus(); }}
+          />
         ) : (
           <div className="space-y-4">
             {status && config.statusBanner?.(status)}
@@ -288,5 +300,7 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
         )}
       </CardContent>
     </Card>
+    {confirmDialog}
+    </>
   );
 }

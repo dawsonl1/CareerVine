@@ -11,6 +11,8 @@ import { packOverlappingEvents } from "@/lib/calendar-layout";
 // the type rather than being re-cast per consumer.
 export type { CalendarAttendee as ScheduleEventAttendee } from "@/lib/calendar-attendees";
 import type { CalendarAttendee } from "@/lib/calendar-attendees";
+import { apiSend, jsonBody } from "@/lib/api-client";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 
 export interface ScheduleEvent {
   id: number;
@@ -43,6 +45,14 @@ export interface LogConversationEvent {
 interface TodayScheduleProps {
   events: ScheduleEvent[];
   loading: boolean;
+  /**
+   * The events read failed. Without this the hour grid rendered empty, which
+   * a connected user reads as "nothing on today" rather than "we could not
+   * check" (CAR-188).
+   */
+  loadFailed?: boolean;
+  /** Re-runs the parent's schedule load. Required when `loadFailed` is set. */
+  onRetry?: () => void;
   calendarConnected: boolean;
   /** Height of the left column (action list) in px — used to expand hour range to fill space */
   availableHeight: number;
@@ -472,7 +482,7 @@ function QuickAddCard({
 
 // ── Main component ──
 
-export function TodaySchedule({ events, loading, calendarConnected, availableHeight, onLogConversation, onEventCreated }: TodayScheduleProps) {
+export function TodaySchedule({ events, loading, loadFailed = false, onRetry, calendarConnected, availableHeight, onLogConversation, onEventCreated }: TodayScheduleProps) {
   const [now, setNow] = useState(new Date());
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
 
@@ -605,17 +615,12 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
     const startMs = startDate.getTime() + newEventDraft.startHour * 60 * 60 * 1000;
     const endMs = startDate.getTime() + newEventDraft.endHour * 60 * 60 * 1000;
 
-    const res = await fetch("/api/calendar/create-event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        summary: title,
-        startTime: new Date(startMs).toISOString(),
-        endTime: new Date(endMs).toISOString(),
-        conferenceType: addMeet ? "meet" : "none",
-      }),
-    });
-    if (!res.ok) throw new Error("Failed to create event");
+    await apiSend("/api/calendar/create-event", jsonBody({
+      summary: title,
+      startTime: new Date(startMs).toISOString(),
+      endTime: new Date(endMs).toISOString(),
+      conferenceType: addMeet ? "meet" : "none",
+    }));
     setNewEventDraft(null);
     onEventCreated?.();
   }, [newEventDraft, onEventCreated]);
@@ -629,6 +634,18 @@ export function TodaySchedule({ events, loading, calendarConnected, availableHei
             <div key={i} className="h-16 rounded-lg bg-surface-container-highest animate-pulse" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div>
+        <h3 className="text-[28px] font-medium text-foreground mb-8">Today</h3>
+        <LoadErrorState
+          message="Couldn't load today's schedule."
+          onRetry={() => onRetry?.()}
+        />
       </div>
     );
   }

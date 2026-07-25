@@ -35,6 +35,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { EXTENSION_STORE_URL } from "@/lib/extension-store";
 import { LoadErrorState } from "@/components/ui/load-error-state";
 import { withToastOnError } from "@/lib/with-toast-on-error";
+import { apiSend } from "@/lib/api-client";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 
@@ -370,7 +371,10 @@ export default function ContactsPage() {
       track("contact_imported", { source: "manual" });
       // Manual adds happen via the browser Supabase client, so the server
       // never sees them — ask it to re-check the contacts_5 milestone.
-      void fetch("/api/analytics/milestones", { method: "POST" }).catch(() => {});
+      // error-tolerated: a server-side milestone re-check for analytics only.
+      // The contact itself is already written; the next manual add re-triggers
+      // the same check, and nothing the user sees depends on it.
+      void apiSend("/api/analytics/milestones", { method: "POST" }).catch(() => {});
 
       closeForm();
       await loadContacts();
