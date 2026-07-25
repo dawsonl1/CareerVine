@@ -3,6 +3,9 @@
 import { useState, useEffect } from "react";
 import { Mail, X, Check, Clock } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
+import { useToast } from "@/components/ui/toast";
+import { apiSend } from "@/lib/api-client";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 
 interface FollowUpSequence {
   id: number;
@@ -20,6 +23,7 @@ interface FollowUpSequence {
 
 export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
   const { user } = useAuth();
+  const { error: toastError } = useToast();
   const [sequences, setSequences] = useState<FollowUpSequence[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,18 +37,22 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
   }, [user, contactId]);
 
   const handleCancel = async (sequenceId: number) => {
-    try {
-      await fetch(`/api/email-follow-ups/${sequenceId}`, {
-        method: "DELETE",
-      });
-      setSequences((prev) =>
-        prev.map((s) =>
-          s.id === sequenceId ? { ...s, status: "cancelled_user" } : s
-        )
-      );
-    } catch {
-      // silent
-    }
+    // The route answers 404 on an ownership miss and 500 on a cascade failure,
+    // neither of which rejects a bare fetch. Marking the row cancelled without
+    // checking meant the UI said "Cancelled" while the sequence kept emailing
+    // the contact (CAR-183), so the state update is gated on the write landing.
+    const cancelled = await withToastOnError(
+      () => apiSend(`/api/email-follow-ups/${sequenceId}`, { method: "DELETE" }),
+      toastError,
+      "Couldn't cancel that follow-up sequence. Please try again.",
+    );
+    if (!cancelled) return;
+
+    setSequences((prev) =>
+      prev.map((s) =>
+        s.id === sequenceId ? { ...s, status: "cancelled_user" } : s
+      )
+    );
   };
 
   if (loading || sequences.length === 0) return null;

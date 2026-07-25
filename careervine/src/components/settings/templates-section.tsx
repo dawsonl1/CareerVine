@@ -6,8 +6,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { EmailTemplate } from "@/lib/types";
 import { Sparkles, Plus, Pencil, Trash2, X } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { useToast } from "@/components/ui/toast";
+import { apiSend } from "@/lib/api-client";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 
 export default function TemplatesSection() {
+  const { error: toastError } = useToast();
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingTemplate, setEditingTemplate] = useState<{ id?: number; name: string; prompt: string } | null>(null);
@@ -64,12 +68,18 @@ export default function TemplatesSection() {
 
   const handleDelete = async (id: number) => {
     if (!confirm("Delete this template?")) return;
-    try {
-      await fetch(`/api/gmail/templates/${id}`, { method: "DELETE" });
-      setTemplates((prev) => prev.filter((t) => t.id !== id));
-    } catch {
-      // ignore
-    }
+    // Dropping the row without checking the response made a failed delete look
+    // like a success until the next refresh brought the template back
+    // (CAR-183). The inline `error` state is scoped to the editor panel and is
+    // unmounted during a list delete, so the failure surfaces as a toast.
+    const deleted = await withToastOnError(
+      () => apiSend(`/api/gmail/templates/${id}`, { method: "DELETE" }),
+      toastError,
+      "Couldn't delete that template. Please try again.",
+    );
+    if (!deleted) return;
+
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
   };
 
   return (

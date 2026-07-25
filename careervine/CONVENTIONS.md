@@ -261,8 +261,18 @@ React and chrome APIs: crossing the edge drags them into the build.
 
 New tests reuse the shared harness helpers instead of re-rolling a fake:
 `careervine/src/__tests__/helpers/fake-gmail.ts`,
-`careervine/src/__tests__/helpers/fake-calendar.ts`, and
+`careervine/src/__tests__/helpers/fake-calendar.ts`,
+`careervine/src/__tests__/helpers/fake-fetch.ts`, and
 `careervine/src/mcp/__tests__/helpers/recording-client.ts` for scoping assertions.
+
+A component test that exercises an HTTP call uses `installFakeFetch`, which
+routes on `"METHOD /url"` and answers with a real `Response`. The older idiom
+in this suite assigns a `{ ok, json }` object literal to `global.fetch` through
+an `as unknown as typeof fetch` cast; that literal carries no `status` and is
+never typechecked against `Response`, so a test asserting through `apiSend`
+(whose failure path reads `res.status` and `res.json()`) would prove the stub
+rather than the code. An unrouted request is an error, not a silent `{}`, so a
+component calling the wrong endpoint fails loudly.
 
 The global environment is node. A DOM test opts in per file with a
 `// @vitest-environment jsdom` docblock. jest-dom matchers are not wired, so
