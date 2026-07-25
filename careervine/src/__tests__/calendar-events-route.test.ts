@@ -24,7 +24,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { mockServerClientModule } from "./helpers/mock-supabase";
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 
 /** Rows the mocked service client returns for the current test. */
 let rows: Array<Record<string, unknown>>;
@@ -33,8 +33,11 @@ vi.mock("@/lib/supabase/server-client", () =>
   mockServerClientModule({ user: () => ({ id: "user-1" }) }),
 );
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+// Through the shared factory, not a hand-rolled object literal: an untyped
+// module mock keeps compiling after the real export changes, which is the drift
+// `scripts/check-conventions.mjs` rejects (CAR-187).
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       // The route chains .select().eq().order() and may add .gte()/.lte()
       // depending on the query string, then awaits the builder. A thenable that
@@ -44,12 +47,11 @@ vi.mock("@/lib/supabase/service-client", () => ({
       for (const method of ["select", "eq", "order", "gte", "lte"]) {
         builder[method] = () => builder;
       }
-      builder.then = (resolve: (v: unknown) => unknown) =>
-        resolve({ data: rows, error: null });
+      builder.then = (resolve: (v: unknown) => unknown) => resolve({ data: rows, error: null });
       return builder;
     },
-  }),
-}));
+  })),
+);
 
 const { GET } = await import("@/app/api/calendar/events/route");
 
