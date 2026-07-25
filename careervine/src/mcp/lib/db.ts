@@ -48,6 +48,7 @@ import {
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
+import { parseCalendarAttendees } from "@/lib/calendar-attendees";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -1023,7 +1024,7 @@ export async function listCalendarEvents(timeMin: string, timeMax: string) {
   return events.map((e) => {
     const matched = new Map<number, { id: number; name: string }>();
     for (const c of linksByEvent.get(e.id) ?? []) matched.set(c.id, c);
-    for (const a of (e.attendees ?? []) as Array<{ email?: string }>) {
+    for (const a of parseCalendarAttendees(e.attendees)) {
       const hit = a.email ? byEmail.get(a.email.toLowerCase()) : undefined;
       if (hit) matched.set(hit.id, hit);
     }

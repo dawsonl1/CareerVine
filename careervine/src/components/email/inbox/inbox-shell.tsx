@@ -192,6 +192,7 @@ export function InboxShell() {
           bodyHtml: `<p>${msg?.snippet ?? ""}</p>`,
           bodyText: msg?.snippet ?? "",
           messageId: gmailMessageId,
+          gmailMessageId,
           threadId: msg?.thread_id ?? "",
         });
         setLoadingEmailContent(false);

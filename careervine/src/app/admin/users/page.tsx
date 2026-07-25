@@ -257,7 +257,17 @@ export default function AdminUsersPage() {
                 },
               ]
             ).map((row) => (
-              <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
+              /* CAR-191: keyed so the E2E flow can scope "All on"/"All off" to one
+                 control row. The alternative anchors on the chip's exact copy
+                 ("Enrichment: on for N/M"), and Playwright's regex text engine
+                 matches non-normalized text — so a JSX reformat that split the
+                 count onto its own line would insert whitespace and turn the
+                 selector into a silent 60s timeout. */
+              <div
+                key={row.key}
+                data-testid={`scrape-control-row-${row.key}`}
+                className="flex flex-wrap items-center justify-between gap-2"
+              >
                 <span className="text-sm text-muted-foreground">
                   {row.label}: on for {row.on}/{users.length}
                 </span>
