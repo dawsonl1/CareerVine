@@ -144,6 +144,7 @@ export function ContactEmailsTab({
           bodyHtml: null,
           bodyText: msg.snippet || "No preview available for this message.",
           messageId: msg.gmail_message_id,
+          gmailMessageId: msg.gmail_message_id,
           threadId: msg.thread_id || "",
         });
       }

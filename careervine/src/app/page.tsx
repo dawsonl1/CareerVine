@@ -788,6 +788,7 @@ export default function Home() {
 
   // ── New contacts handlers ──
 
+  // reentry-safe: NotePopover.handleSave holds the savingRef for this path; guarding here too would double-latch one logical submit
   const handleNewContactNote = useCallback(
     async (contactId: number, note: string) => {
       try {

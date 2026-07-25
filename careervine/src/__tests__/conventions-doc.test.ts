@@ -184,6 +184,19 @@ describe("CONVENTIONS.md", () => {
       expect(markdown).toContain(`${WORDS[SCHEDULES.length]} QStash schedules`);
     });
 
+    it("E2E flow count (CAR-191)", () => {
+      // Section i states a flow count, and an unpinned count is exactly the rot
+      // this file exists to stop — the same failure the route census records.
+      const specs = fg.sync("*.spec.ts", {
+        cwd: path.join(REPO_ROOT, "careervine", "e2e"),
+      });
+      expect(specs.length).toBeGreaterThan(0);
+      expect(
+        markdown,
+        `doc must say "${WORDS[specs.length]} flows" — e2e/ now has ${specs.length} specs`,
+      ).toContain(`${WORDS[specs.length]} flows`);
+    });
+
     it("capability key count", () => {
       const types = readFileSync(
         path.join(REPO_ROOT, "careervine", "src", "lib", "capabilities", "types.ts"),

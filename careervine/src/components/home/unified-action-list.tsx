@@ -171,12 +171,20 @@ function NotePopover({
     return () => document.removeEventListener("keydown", handler);
   }, [onCancel]);
 
+  // Synchronous re-entry guard (CAR-190): `disabled={saving}` is state, so it
+  // does not take effect until the next render and a fast double click lands
+  // two notes.
+  const savingRef = useRef(false);
+
   const handleSave = async () => {
+    if (savingRef.current) return;
     if (!text.trim()) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       await onSave(text.trim());
     } finally {
+      savingRef.current = false;
       // Defensive. Today the only `onNote` supplied (handleNewContactNote)
       // catches its own errors and always resolves, so `saving` cannot actually
       // stick; this keeps that true if the handler ever starts propagating.

@@ -16,6 +16,7 @@ import {
 } from "../lib/db";
 import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
 import { handler, contactRefShape } from "../lib/tool-utils";
+import { parseCalendarAttendees } from "@/lib/calendar-attendees";
 
 /** Parse an ISO timestamp, requiring an explicit timezone offset so a naive
  *  time isn't silently interpreted in the MCP host's local zone. */
@@ -82,9 +83,10 @@ export function registerCalendarTools(server: McpServer): void {
           start_at: e.start_at,
           end_at: e.end_at,
           meet_link: e.meet_link ?? e.zoom_link,
-          attendees: ((e.attendees ?? []) as Array<{ email?: string; responseStatus?: string }>).map(
-            (a) => ({ email: a.email, rsvp: a.responseStatus }),
-          ),
+          attendees: parseCalendarAttendees(e.attendees).map((a) => ({
+            email: a.email,
+            rsvp: a.responseStatus,
+          })),
           matched_contacts: e.matched_contacts,
         })),
       };

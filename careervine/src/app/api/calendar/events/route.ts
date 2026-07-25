@@ -1,6 +1,7 @@
 import { withApiHandler, type InferApiResponse } from "@/lib/api-handler";
 import { calendarEventsQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { parseCalendarAttendees } from "@/lib/calendar-attendees";
 
 /**
  * GET /api/calendar/events?start=...&end=...
@@ -29,7 +30,27 @@ export const GET = withApiHandler({
 
     if (error) throw error;
 
-    return { events: data || [] };
+    // `attendees` is `jsonb`, so the generated row type is `Json` and the column
+    // can hold anything, while `app/calendar/page.tsx` types it
+    // `Array<{email;name;responseStatus}>` and dereferences `.length`, `.some`,
+    // `.map` and `.slice` in six places. Those sit in the top-level render,
+    // outside the page's only SectionBoundary, so a bad value blanks the whole
+    // route via the error boundary.
+    //
+    // `parseCalendarAttendees` rather than a local `?? []` (CAR-191 review):
+    // its header designates it "the one place that turns the stored Json into
+    // typed attendees, so every surface reading them narrows identically instead
+    // of each casting its own way", and `??` only substitutes null/undefined —
+    // a stored `"x"`, `{}` or `7` would pass straight through to the same crash
+    // this is meant to prevent. It also makes the inferred response type real
+    // `CalendarAttendee[]` instead of `Json`.
+    //
+    // No writer produces a bad value today (sync, create-event and the MCP tool
+    // all store an array), so this is a latent trap, not a live bug — it
+    // surfaced when CAR-191's E2E seed wrote a null directly.
+    return {
+      events: (data || []).map((e) => ({ ...e, attendees: parseCalendarAttendees(e.attendees) })),
+    };
   },
 });
 

@@ -847,7 +847,7 @@ export async function backfillEmailsForContact(
 export async function getFullMessage(
   userId: string,
   gmailMessageId: string
-): Promise<{ subject: string; from: string; to: string; date: string; bodyHtml: string | null; bodyText: string | null; messageId: string; threadId: string }> {
+): Promise<{ subject: string; from: string; to: string; date: string; bodyHtml: string | null; bodyText: string | null; messageId: string; gmailMessageId: string; threadId: string }> {
   const gmail = await getGmailClient(userId);
 
   const res = await gmail.users.messages.get({
@@ -886,7 +886,7 @@ export async function getFullMessage(
 
   extractParts(res.data.payload);
 
-  return { subject, from, to, date, bodyHtml, bodyText, messageId, threadId };
+  return { subject, from, to, date, bodyHtml, bodyText, messageId, gmailMessageId, threadId };
 }
 
 /**

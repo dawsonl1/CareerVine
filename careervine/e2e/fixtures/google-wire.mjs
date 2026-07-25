@@ -150,6 +150,49 @@ export function calendarEventsResponse({ items = [], nextSyncToken = "e2e-sync-t
   return { kind: "calendar#events", items, nextSyncToken };
 }
 
+/**
+ * The one event `calendar.events.list` returns for the whole run (CAR-191).
+ *
+ * A FIXED id, because that is what the calendar flow needs: it seeds a
+ * `calendar_events` row on this id carrying the four application-owned columns,
+ * re-syncs, and asserts they survived. Varying the response per test would need
+ * a control channel into the server process, which nothing has (see
+ * `third-party-wire.mjs`'s note) — and is not wanted here anyway. Known beats
+ * varied.
+ */
+export const E2E_CALENDAR_EVENT_ID = "e2e-calendar-sync-event";
+
+/**
+ * A single event positioned INSIDE the sync window.
+ *
+ * `/api/calendar/sync` requests `timeMin = now - 7d` / `timeMax = now + 60d`
+ * and drops anything without a resolvable start and end, so a fixed calendar
+ * date (as `calendarEventResponse` uses) would fall outside the window on every
+ * day but one and the sync would silently upsert nothing. Anchoring to `now`
+ * keeps the event in range on any day the suite runs.
+ *
+ * The summary is deliberately distinct from whatever the seeded row holds: the
+ * flow asserts that Google-owned fields WERE refreshed while application-owned
+ * ones were not, and identical values could not tell those apart.
+ */
+export function calendarSyncEvent({
+  id = E2E_CALENDAR_EVENT_ID,
+  summary = "E2E synced event",
+  startMs = Date.now() + 24 * 60 * 60 * 1000,
+  durationMs = 30 * 60 * 1000,
+} = {}) {
+  return {
+    kind: "calendar#event",
+    id,
+    status: "confirmed",
+    summary,
+    start: { dateTime: new Date(startMs).toISOString() },
+    end: { dateTime: new Date(startMs + durationMs).toISOString() },
+    attendees: [],
+    htmlLink: `https://calendar.google.com/event?eid=${id}`,
+  };
+}
+
 /** Response body of a single-event `calendar.events.{get,insert,update}`. */
 export function calendarEventResponse({
   id = "e2e-calendar-event-0001",

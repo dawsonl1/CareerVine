@@ -23,6 +23,7 @@ import { LoadErrorState } from "@/components/ui/load-error-state";
 import { SectionBoundary } from "@/components/ui/section-boundary";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
+import type { CalendarAttendee } from "@/lib/calendar-attendees";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -43,7 +44,14 @@ interface CalendarEvent {
   is_private: boolean;
   recurring_event_id: string | null;
   contact_id: number | null;
-  attendees: Array<{ email: string; name: string; responseStatus: string }>;
+  /**
+   * Narrowed by `/api/calendar/events` through `parseCalendarAttendees`, so this
+   * is a real guarantee rather than an unchecked `apiFetch<...>` assertion
+   * (CAR-191 review). `name` and `responseStatus` are optional because the
+   * shared narrowing drops entries without a usable email but preserves partial
+   * ones — the previous shape claimed both were always present.
+   */
+  attendees: CalendarAttendee[];
 }
 
 type ContactFilter = "all" | "contacts" | "no-contacts";
@@ -313,10 +321,16 @@ export default function CalendarPage() {
         calendarDescription: event.description || "",
       };
       const nextContactIds = event.contact_id ? [event.contact_id] : [];
+      const nextDuration = Math.round((end.getTime() - start.getTime()) / 60000);
       setFormData(nextForm);
       setSelectedContactIds(nextContactIds);
-      setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds, meetingDuration));
-      setMeetingDuration(Math.round((end.getTime() - start.getTime()) / 60000));
+      // Snapshot the duration this open is ABOUT to set, not the one still in state.
+      // Reading `meetingDuration` here captured the previous value (60 after a close),
+      // so opening any Google event of a different length made the discard guard fire
+      // on an untouched form — and the Duration select is hidden on this path, so the
+      // user could not reconcile it.
+      setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds, nextDuration));
+      setMeetingDuration(nextDuration);
     }
     setContactSearch(""); setInviteEmailMap({});
     setShowMeetingForm(true);
@@ -824,8 +838,10 @@ export default function CalendarPage() {
                         {!event.is_private && event.attendees.length > 0 && (
                           <div className="mt-2.5 pt-2.5 border-t border-outline-variant/40 flex flex-wrap gap-x-4 gap-y-1">
                             {event.attendees.map((a, i) => {
-                              const sc = { accepted: "text-primary", declined: "text-destructive", tentative: "text-tertiary", needsAction: "text-muted-foreground" }[a.responseStatus] || "text-muted-foreground";
-                              const sl = { accepted: "✓", declined: "✗", tentative: "?", needsAction: "–" }[a.responseStatus] || "–";
+                              // The shared helper, not a second copy of the same
+                              // map (CAR-191 review): this inline pair duplicated
+                              // RSVP_DISPLAY exactly, so the two could drift.
+                              const { className: sc, label: sl } = getRsvpDisplay(a.responseStatus);
                               const displayName = contactEmailToName[a.email?.toLowerCase()] || a.name || a.email;
                               return <span key={i} className="text-sm text-foreground"><span className={`font-semibold ${sc}`}>{sl}</span> {displayName}</span>;
                             })}

@@ -89,3 +89,8 @@ supabase/.branches/
 
 # Playwright MCP session artifacts (screenshots, console logs)
 .playwright-mcp/
+
+# Playwright artifacts from a run invoked at the repo root. careervine/.gitignore
+# has "/test-results/", but the leading slash anchors it to careervine/ only.
+test-results/
+playwright-report/

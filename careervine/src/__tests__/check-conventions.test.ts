@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { diffNamedRatchet, diffCountRatchet } from "../../scripts/lib/ratchet.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, "../..");
@@ -41,6 +42,8 @@ function seed() {
     "src/lib/rules",
     "src/app/api/cron",
     "src/mcp/lib",
+    "src/components",
+    "src/hooks",
     "scripts",
     "../careervine-mcp/scripts",
   ]) {
@@ -201,11 +204,17 @@ describe("conventions guard", () => {
     for (const op of ['contains("tags", ["x"])', 'or("a.is.null")', 'not("s", "eq", "b")']) {
       const { code, out } = withFile(
         "src/lib/probe.ts",
+        // `error` is bound and checked so ONLY tripwire (b) can fire. Without
+        // that, the bare `const { data }` also trips the unchecked-read rule,
+        // which exits 1 on its own — so reverting FILTER_OP to its original
+        // short list (the exact regression this test names) left the assertion
+        // green. Asserting on `out` closes the other half.
         "export async function f(db: any) {\n" +
-          `  const { data } = await db.from("t").update({ s: "a" }).${op}.select("id");\n` +
-          "  return data;\n}\n",
+          `  const { data, error } = await db.from("t").update({ s: "a" }).${op}.select("id");\n` +
+          "  if (error) throw error;\n  return data;\n}\n",
       );
       expect(code, `${op} should be flagged: ${out}`).toBe(1);
+      expect(out, `${op} should trip the CAS rule specifically`).toContain("CAS readback");
     }
   });
 
@@ -221,14 +230,18 @@ describe("conventions guard", () => {
     ).toBe(0);
 
     // NOT compliant: `count` appears in the chain but not as an update option.
-    // The original chain-wide regex was position-blind and passed this.
-    const { code } = withFile(
+    // The original chain-wide regex was position-blind and passed this. Same
+    // reasoning as the test above — bind `error` so only tripwire (b) can fire,
+    // and assert on the rule name, or restoring the position-blind regex leaves
+    // this green off the unchecked-read rule alone.
+    const { code, out } = withFile(
       "src/lib/probe.ts",
       "export async function f(db: any) {\n" +
-        '  const { data } = await db.from("t").update({ s: "a" }).match({ count: "exact" }).select("id");\n' +
-        "  return data;\n}\n",
+        '  const { data, error } = await db.from("t").update({ s: "a" }).match({ count: "exact" }).select("id");\n' +
+        "  if (error) throw error;\n  return data;\n}\n",
     );
-    expect(code).toBe(1);
+    expect(code, out).toBe(1);
+    expect(out).toContain("CAS readback");
   });
 
   it("accepts a cas-checked annotation", () => {
@@ -308,7 +321,7 @@ describe("conventions guard", () => {
   it("accepts a mock that goes through the shared factory", () => {
     const { code, out } = withFile(
       "src/__tests__/probe.test.ts",
-      'vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule();\n',
+      'vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule());\n',
     );
     expect(code, out).toBe(0);
   });
@@ -341,5 +354,669 @@ describe("conventions guard", () => {
     rmSync(f, { force: true });
     expect(code).toBe(1);
     expect(out).toContain("react-server");
+  });
+
+  // Tripwire (f) had the same comment-bypass hole that check (e) strips
+  // comments to avoid: it matched the factory argument's TEXT, so prose
+  // naming the helper satisfied it. Closed in CAR-190; no live bypass existed.
+
+  it("does not let a comment or string mentioning the factory satisfy a vi.mock", () => {
+    for (const factory of [
+      "() => /* mockAnalyticsServerModule */ ({ trackServer: vi.fn() })",
+      '() => ({ trackServer: vi.fn(), tag: "mockAnalyticsServerModule" })',
+    ]) {
+      const { code, out } = withFile(
+        "src/__tests__/probe.test.ts",
+        `vi.mock("@/lib/analytics/server", ${factory});\n`,
+      );
+      expect(code, `${factory} should be flagged: ${out}`).toBe(1);
+      expect(out).toContain("mockAnalyticsServerModule()");
+    }
+  });
+
+  it("sees vi.doMock and relative specifiers, not just vi.mock of the alias", () => {
+    expect(
+      withFile(
+        "src/__tests__/probe.test.ts",
+        'vi.doMock("@/lib/analytics/server", () => ({ trackServer: vi.fn() }));\n',
+      ).code,
+    ).toBe(1);
+
+    // ../lib/analytics/server from src/__tests__/ resolves to the same module
+    // the alias names, and must key the same rule.
+    expect(
+      withFile(
+        "src/__tests__/probe.test.ts",
+        'vi.mock("../lib/analytics/server", () => ({ trackServer: vi.fn() }));\n',
+      ).code,
+    ).toBe(1);
+  });
+
+  // ── tripwire (g): no raw fetch in the client tree (CAR-190) ──
+
+  it("flags a raw fetch in the client tree, in bare and window-qualified form", () => {
+    for (const call of ['fetch("/api/x")', 'window.fetch("/api/x")']) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        `export async function load() {\n  const r = await ${call};\n  return r;\n}\n`,
+      );
+      expect(code, `${call} should be flagged: ${out}`).toBe(1);
+      expect(out).toContain("raw fetch");
+    }
+  });
+
+  it("scans every client root, not just src/components", () => {
+    // CLIENT_ROOTS is the one machine part five checks share — it decides what
+    // is inspected at all — and nothing exercised it. Every client-state probe
+    // wrote to src/components/probe.tsx, and the single src/app probe asserted
+    // exit 0 under src/app/api (excluded by design), so cutting the scope from
+    // three roots to one left all 37 assertions green, and cutting it to ZERO
+    // still exited 0 against the real tree.
+    for (const path of ["src/hooks/probe.ts", "src/app/probe/page.tsx"]) {
+      const { code, out } = withFile(
+        path,
+        '"use client";\nexport async function load() {\n  return fetch("/api/x");\n}\n',
+      );
+      expect(code, `${path} should be scanned: ${out}`).toBe(1);
+      expect(out).toContain("raw fetch");
+    }
+  });
+
+  it("flags a first-party /api fetch outside the client tree, where a refactor can hide it", () => {
+    // Hoisting a call out of a component into a src/lib helper is a change a
+    // reviewer would ask for, and it silently escaped a freeze scoped to the
+    // three client roots. Six such calls were already there.
+    const { code, out } = withFile(
+      "src/lib/probe-client.ts",
+      'export async function save() {\n  return fetch("/api/x", { method: "POST" });\n}\n',
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("raw fetch");
+
+    // A third-party URL in the same place is fine: it is not one of our routes.
+    expect(
+      withFile(
+        "src/lib/probe-client.ts",
+        'export async function ping() {\n  return fetch("https://example.com/x");\n}\n',
+      ).code,
+    ).toBe(0);
+  });
+
+  it("leaves server files alone, where fetch is the correct call", () => {
+    // apiFetch sends credentials against a relative URL and throws outside a
+    // browser, so pointing a Route Handler or an RSC at it is bad advice.
+    expect(
+      withFile(
+        "src/app/probe/route.ts",
+        'export async function GET() {\n  return fetch("https://example.com");\n}\n',
+      ).code,
+    ).toBe(0);
+
+    // An RSC is a file under src/app with no "use client" directive.
+    expect(
+      withFile(
+        "src/app/probe-rsc/page.tsx",
+        'export default async function Page() {\n  await fetch("https://example.com");\n  return null;\n}\n',
+      ).code,
+    ).toBe(0);
+  });
+
+  it("accepts apiFetch, a raw-fetch annotation, and fetch inside the API routes", () => {
+    expect(
+      withFile(
+        "src/components/probe.tsx",
+        'import { apiFetch } from "@/lib/api-client";\n' +
+          "export async function load() {\n  return apiFetch(\"/api/x\");\n}\n",
+      ).code,
+    ).toBe(0);
+
+    expect(
+      withFile(
+        "src/components/probe.tsx",
+        "export async function load() {\n" +
+          "  // raw-fetch: streams an audio blob, apiFetch parses JSON\n" +
+          '  const r = await fetch("/api/x");\n  return r;\n}\n',
+      ).code,
+    ).toBe(0);
+
+    // Server code: a third-party fetch here is the correct call.
+    expect(
+      withFile(
+        "src/app/api/probe/route.ts",
+        'export async function GET() {\n  return fetch("https://example.com");\n}\n',
+      ).code,
+    ).toBe(0);
+  });
+
+  it("honours the hatch where a developer writes it, and only for that call", () => {
+    // Anchoring the annotation to the nearest STATEMENT made it unusable in
+    // JSX — where the nearest statement is the whole `return (…)` — and
+    // simultaneously blanket, silencing every match in that render tree. Both
+    // modes at once, and neither was covered.
+    const inJsx = withFile(
+      "src/components/probe.tsx",
+      "export function Probe() {\n" +
+        "  return (\n" +
+        "    <button\n" +
+        "      // raw-fetch: exports a CSV stream\n" +
+        '      onClick={() => fetch("/api/export")}\n' +
+        "    >go</button>\n" +
+        "  );\n" +
+        "}\n",
+    );
+    expect(inJsx.code, `hatch in JSX position should be honoured: ${inJsx.out}`).toBe(0);
+
+    // …and it covers exactly one call: the second, unannotated one still fails.
+    const blanket = withFile(
+      "src/components/probe.tsx",
+      "export function Probe() {\n" +
+        "  return (\n" +
+        "    <div>\n" +
+        "      // raw-fetch: exports a CSV stream\n" +
+        '      <button onClick={() => fetch("/api/export")}>a</button>\n' +
+        '      <button onClick={() => fetch("/api/contacts")}>b</button>\n' +
+        "    </div>\n" +
+        "  );\n" +
+        "}\n",
+    );
+    expect(blanket.code).toBe(1);
+    expect(blanket.out).toContain("/api/contacts");
+    expect(blanket.out).not.toContain("/api/export");
+  });
+
+  it("accepts the JSX comment form for the overlay hatch", () => {
+    // `{/* … */}` is the only comment syntax legal between JSX children, and
+    // every overlay in this app is nested in JSX.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe() {\n" +
+        "  return (\n" +
+        "    <div>\n" +
+        "      {/* overlay-not-a-dialog: click-outside catcher behind a popover */}\n" +
+        '      <div className="fixed inset-0 z-10" />\n' +
+        "    </div>\n" +
+        "  );\n" +
+        "}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  // ── tripwire (h): no native confirm (CAR-190) ──
+
+  it("flags window.confirm and a bare confirm that nothing in the file binds", () => {
+    for (const call of ['window.confirm("Sure?")', 'confirm("Sure?")']) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        `export function Probe() {\n  if (!${call}) return null;\n  return null;\n}\n`,
+      );
+      expect(code, `${call} should be flagged: ${out}`).toBe(1);
+      expect(out).toContain("native confirm");
+    }
+  });
+
+  it("resolves the confirm binding lexically, not file-wide", () => {
+    // A file-wide "does anything here bind `confirm`" flag exempted the whole
+    // module, so a sibling component in the same file could call the DOM global
+    // with no signal — in a check the banner reports as a freeze at zero. Nine
+    // files bind `confirm` today and two already have this exact shape.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { useConfirm } from "@/components/ui/confirm-dialog";\n' +
+        "export function First() {\n" +
+        "  const { confirm, dialog } = useConfirm();\n" +
+        '  void confirm;\n  return dialog;\n' +
+        "}\n" +
+        "export function Second() {\n" +
+        '  if (!confirm("Delete forever?")) return null;\n' +
+        "  return null;\n}\n",
+    );
+    expect(code, `the sibling component calls the global: ${out}`).toBe(1);
+    expect(out).toContain("native confirm");
+
+    // An unrelated binding elsewhere in the file must not exempt it either.
+    expect(
+      withFile(
+        "src/components/probe.tsx",
+        "export function Row({ confirm }: { confirm: boolean }) {\n  return confirm ? null : null;\n}\n" +
+          "export function Other() {\n" +
+          '  if (!confirm("Sure?")) return null;\n  return null;\n}\n',
+      ).code,
+    ).toBe(1);
+  });
+
+  it("accepts the useConfirm() binding, whose returned function is also called confirm", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { useConfirm } from "@/components/ui/confirm-dialog";\n' +
+        "export function Probe() {\n" +
+        "  const { confirm, dialog } = useConfirm();\n" +
+        "  const onDelete = async () => {\n" +
+        '    if (!(await confirm({ message: "Delete?" }))) return;\n' +
+        "  };\n" +
+        "  return dialog;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  // ── tripwire (i): double-submit guard (CAR-190) ──
+  //
+  // The fixture files are not in the shipped baseline, so each of these also
+  // exercises the ratchet's "offender absent from the baseline" direction.
+
+  it("flags a mutation handler with no synchronous re-entry guard", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const handleSave = async () => {\n" +
+        '    await apiSend("/api/x", { method: "POST" });\n' +
+        "  };\n" +
+        "  return handleSave;\n}\n",
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("double-submit");
+    expect(out).toContain("handleSave");
+  });
+
+  it("accepts both guard shapes, and does not count an unrelated ref as one", () => {
+    const boolGuard =
+      "    if (savingRef.current) return;\n    savingRef.current = true;\n";
+    // CAR-204's per-row shape: one in-flight id at a time, not one at a time.
+    const keyedGuard =
+      "    if (cancellingRef.current.has(1)) return;\n    cancellingRef.current.add(1);\n";
+
+    for (const guard of [boolGuard, keyedGuard]) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        'import { apiSend } from "@/lib/api-client";\n' +
+          "export function Probe() {\n" +
+          "  const handleSave = async () => {\n" +
+          guard +
+          '    await apiSend("/api/x", { method: "POST" });\n' +
+          "  };\n" +
+          "  return handleSave;\n}\n",
+      );
+      expect(code, out).toBe(0);
+    }
+
+    // Touching some other ref is not a guard. This is the check that keeps the
+    // rule from reading half the tree as compliant.
+    const { code } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const handleSave = async () => {\n" +
+        "    inputRef.current?.focus();\n" +
+        '    await apiSend("/api/x", { method: "POST" });\n' +
+        "  };\n" +
+        "  return handleSave;\n}\n",
+    );
+    expect(code).toBe(1);
+  });
+
+  it("rejects a ref that is claimed but never read, or claimed after the await", () => {
+    // The three shapes a claim-only check accepted, none of which guards
+    // anything. This matters more than a plain miss: the ratchet FAILS on a
+    // baselined site that stops violating, so one cosmetic line does not merely
+    // permit deleting an entry, it compels it — turning a live defect into a
+    // permanent "fixed" with nothing behind it.
+    const cases = {
+      "claimed, never read": "    savingRef.current = true;\n",
+      "claimed after the await": "", // appended below instead
+      "unrelated ref in a nested callback": "    items.forEach(() => { hoveredRef.current = true; });\n",
+    };
+
+    for (const [label, prefix] of Object.entries(cases)) {
+      const body =
+        label === "claimed after the await"
+          ? '    await apiSend("/api/x", { method: "POST" });\n    savingRef.current = true;\n'
+          : `${prefix}    await apiSend("/api/x", { method: "POST" });\n`;
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        'import { apiSend } from "@/lib/api-client";\n' +
+          "export function Probe() {\n" +
+          "  const handleSave = async () => {\n" +
+          body +
+          "  };\n  return handleSave;\n}\n",
+      );
+      expect(code, `${label} should be flagged: ${out}`).toBe(1);
+    }
+  });
+
+  it("accepts a correct guard whatever the ref is called", () => {
+    // The old check required the identifier to end in `Ref` and the assigned
+    // value to be the literal `true`, so `const saving = useRef(false)` — a
+    // correct guard, and a spelling already live in this repo — failed CI. The
+    // early-return READ is the discriminator, so the name is free.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const handleSave = async () => {\n" +
+        "    if (saving.current) return;\n" +
+        "    saving.current = Date.now();\n" +
+        '    await apiSend("/api/x", { method: "POST" });\n' +
+        "  };\n  return handleSave;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("sees a mutation carried by apiFetch, and one behind an unlisted verb", () => {
+    // Two of the five blind spots that made the published baseline understate
+    // the tree by 31%. A body-returning write correctly uses apiFetch, and the
+    // old write-verb allowlist caught `removeContactPhoto` while missing
+    // `uploadContactPhoto` in the same file.
+    const viaApiFetch = withFile(
+      "src/components/probe.tsx",
+      'import { apiFetch, jsonBody } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const handleSave = async () => {\n" +
+        '    setStatus(await apiFetch("/api/key", jsonBody({ k: 1 }, "PUT")));\n' +
+        "  };\n  return handleSave;\n}\n",
+    );
+    expect(viaApiFetch.code, viaApiFetch.out).toBe(1);
+
+    const unlistedVerb = withFile(
+      "src/components/probe.tsx",
+      'import { uploadContactPhoto } from "@/lib/data/contacts";\n' +
+        "export function Probe() {\n" +
+        "  const handlePhotoSelected = async () => {\n" +
+        "    await uploadContactPhoto(1, 2, file);\n" +
+        "  };\n  return handlePhotoSelected;\n}\n",
+    );
+    expect(unlistedVerb.code, unlistedVerb.out).toBe(1);
+  });
+
+  it("ignores a handler that only reads, since a duplicate read is not a duplicate write", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiFetch } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const handleExpand = async () => {\n" +
+        '    await apiFetch("/api/x");\n' +
+        "  };\n" +
+        "  return handleExpand;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  // ── tripwire (j): useLatestRequest on an identity-keyed read (CAR-190) ──
+
+  it("flags an identity-keyed read that commits an ungated result", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  const load = useCallback(async () => {\n" +
+        "    const data = await getContact(contactId);\n" +
+        "    setContact(data);\n" +
+        "  }, [contactId]);\n" +
+        "  return load;\n}\n",
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("useLatestRequest");
+  });
+
+  it("accepts the same read once it gates on isLatest", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  const load = useCallback(async () => {\n" +
+        "    const token = req.begin();\n" +
+        "    const data = await getContact(contactId);\n" +
+        "    if (!req.isLatest(token)) return;\n" +
+        "    setContact(data);\n" +
+        "  }, [contactId]);\n" +
+        "  return load;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("does not let a comment or string mentioning isLatest satisfy the gate", () => {
+    // The identical bypass tripwire (f) was hardened against one rule up, in
+    // this same file. (j) matched `isLatest` as TEXT, and the AST check beside
+    // it was dead code: it required a bare `isLatest(…)` call while every real
+    // site spells it `req.isLatest(token)`, so the regex did all the work.
+    for (const decoy of [
+      "    // TODO: gate this on isLatest\n",
+      '    const tag = "isLatest";\n',
+    ]) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        "export function Probe({ contactId }: { contactId: string }) {\n" +
+          "  const load = useCallback(async () => {\n" +
+          decoy +
+          "    const data = await getContact(contactId);\n" +
+          "    setContact(data);\n" +
+          "  }, [contactId]);\n  return load;\n}\n",
+      );
+      expect(code, `decoy should not satisfy the gate: ${out}`).toBe(1);
+    }
+  });
+
+  it("sees a destructured await, which is how a multi-read loader is written", () => {
+    // Requiring a plain identifier binding made `const { x } = await …` and
+    // `const [a, b] = await Promise.all(…)` invisible — the same blind spot
+    // tripwire (c) shipped with, recorded in this file's own header as the
+    // reason these tests exist. It hid two live races.
+    for (const binding of [
+      "const { rows } = await load(contactId);\n    setRows(rows);",
+      "const [a, b] = await Promise.all([load(contactId), other(contactId)]);\n    setRows(a);",
+    ]) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        "export function Probe({ contactId }: { contactId: string }) {\n" +
+          "  const load = useCallback(async () => {\n    " +
+          binding +
+          "\n  }, [contactId]);\n  return load;\n}\n",
+      );
+      expect(code, `${binding} should be flagged: ${out}`).toBe(1);
+    }
+  });
+
+  it("accepts the cancelled-flag idiom, in both spellings this app uses", () => {
+    // The canonical React fix, used at eight sites here and entirely correct:
+    // React runs the cleanup before the next effect, so a stale response cannot
+    // commit. Rejecting it made a false positive out of correct code — and
+    // because the ratchet fails when a baselined site stops violating, the only
+    // way to clear that entry would have been to rewrite working code.
+    const earlyReturn = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    void (async () => {\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      if (cancelled) return;\n" +
+        "      setContact(data);\n" +
+        "    })();\n" +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(earlyReturn.code, earlyReturn.out).toBe(0);
+
+    const inlineGuard = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    getContact(contactId).then((c) => {\n" +
+        "      if (!cancelled && c) setContact(c);\n" +
+        "    });\n" +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(inlineGuard.code, inlineGuard.out).toBe(0);
+  });
+
+  it("treats a snake_case id in the dependency array as an identity", () => {
+    // This app's DB columns are snake_case throughout, so `contact_id` is as
+    // much an identity as `contactId`; the camelCase-only pattern exempted it.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ person }: { person: { contact_id: number } }) {\n" +
+        "  const load = useCallback(async () => {\n" +
+        "    const data = await getContact(person.contact_id);\n" +
+        "    setContact(data);\n" +
+        "  }, [person.contact_id]);\n  return load;\n}\n",
+    );
+    expect(code, out).toBe(1);
+  });
+
+  it("ignores a read whose setState is not derived from the awaited value", () => {
+    // Keyed on an id and awaits, but commits unrelated local state. Without
+    // the derivation requirement this shape alone flagged 23 sites, most of
+    // them keyed on a UI-state id that races nothing.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  const save = useCallback(async () => {\n" +
+        "    await persist(contactId);\n" +
+        "    setDirty(false);\n" +
+        "  }, [contactId]);\n" +
+        "  return save;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  // ── tripwire (k): dialog semantics on a fixed-inset overlay (CAR-190) ──
+
+  it("flags a full-screen overlay with no dialog role", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe() {\n" +
+        '  return <div className="fixed inset-0 z-50 flex items-center justify-center" />;\n' +
+        "}\n",
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("dialog semantics");
+  });
+
+  it("accepts a role on the surface INSIDE the overlay, not only on the wrapper", () => {
+    // confirm-dialog.tsx and modal.tsx both put the scrim and the centring on
+    // the fixed div and role on the panel within it. An earlier version of
+    // this check asked only the fixed element and reported both as violations.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe() {\n" +
+        '  return (<div className="fixed inset-0 z-50 flex items-center justify-center">\n' +
+        '    <div role="dialog" aria-modal="true">hi</div>\n' +
+        "  </div>);\n" +
+        "}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("accepts an overlay-not-a-dialog annotation", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe() {\n" +
+        "  // overlay-not-a-dialog: click-outside catcher behind a popover\n" +
+        '  return <div className="fixed inset-0 z-10" />;\n' +
+        "}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+});
+
+/**
+ * The ratchet algebra, tested directly rather than through the script.
+ *
+ * The subprocess route above cannot reach the stale-entry direction: the
+ * fixture tree contains none of the real baselined files, so every entry would
+ * read as stale at once and nothing would be proved. That direction is the
+ * half people forget, and it is the half that stops a fixed site being given
+ * back, so it gets a real test rather than an implicit one.
+ */
+describe("baseline ratchet", () => {
+  const WHERE = "scripts/check-conventions.mjs";
+  const present = new Set(["a.tsx", "b.tsx"]);
+
+  it("flags an offender absent from the baseline, and stays quiet on a listed one", () => {
+    const found = { "a.tsx": [{ name: "handleSave", line: 12 }] };
+
+    expect(diffNamedRatchet(found, {}, present, WHERE)).toEqual(["a.tsx:12: handleSave"]);
+    expect(diffNamedRatchet(found, { "a.tsx": ["handleSave"] }, present, WHERE)).toEqual([]);
+  });
+
+  it("flags a baselined site that no longer violates, so the gain is locked in", () => {
+    const violations = diffNamedRatchet({}, { "a.tsx": ["handleSave"] }, present, WHERE);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("no longer violates");
+    expect(violations[0]).toContain(WHERE);
+  });
+
+  it("does not let a fixed violation be traded for a fresh one in the same file", () => {
+    // The precise thing a COUNT baseline cannot see: one out, one in, total
+    // unchanged. Both halves must be reported.
+    const violations = diffNamedRatchet(
+      { "a.tsx": [{ name: "handleDelete", line: 30 }] },
+      { "a.tsx": ["handleSave"] },
+      present,
+      WHERE,
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.some((v) => v.includes("handleDelete"))).toBe(true);
+    expect(violations.some((v) => v.includes("handleSave") && v.includes("no longer"))).toBe(true);
+  });
+
+  it("counts duplicate names, so a second offender does not ride the first's entry", () => {
+    // The baseline was a Set, and names are not unique: check (j) labels an
+    // unnamed useEffect with the enclosing const, falling back to the literal
+    // "useEffect", and 34 of 165 client files already have two hook calls that
+    // collapse to one label. A second offender matched the first's entry and
+    // passed free — the exact "trade a fixed violation for a fresh one" hole
+    // that choosing named over counted was meant to close.
+    const violations = diffNamedRatchet(
+      { "a.tsx": [{ name: "useEffect", line: 10 }, { name: "useEffect", line: 99 }] },
+      { "a.tsx": ["useEffect"] },
+      present,
+      WHERE,
+    );
+    expect(violations).toEqual(["a.tsx:99: useEffect"]);
+
+    // And the mirror: a baseline listing a name twice against one surviving
+    // offender still reports the one that was given back.
+    const mirrored = diffNamedRatchet(
+      { "a.tsx": [{ name: "handleSave", line: 1 }] },
+      { "a.tsx": ["handleSave", "handleSave"] },
+      present,
+      WHERE,
+    );
+    expect(mirrored).toHaveLength(1);
+    expect(mirrored[0]).toContain("no longer violates");
+  });
+
+  it("says DELETE, not 'lower it to 0', when a file's count reaches zero", () => {
+    // Following "lower it to 0" literally leaves a permanent no-op entry, and
+    // drop-to-zero is the common case: a ticket that migrates a file's last
+    // offender hits this branch, not the partial one.
+    const violations = diffCountRatchet({}, { "a.tsx": 2 }, present, WHERE, "overlays");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("delete its baseline entry");
+    expect(violations[0]).not.toContain("to 0");
+  });
+
+  it("says nothing about a baselined file the scan never visited", () => {
+    // A partial checkout is not a fixed violation. Without this the guard
+    // fails on any tree that does not contain the whole app — which is exactly
+    // what the fixture above is.
+    expect(diffNamedRatchet({}, { "gone.tsx": ["handleSave"] }, present, WHERE)).toEqual([]);
+    expect(diffCountRatchet({}, { "gone.tsx": 2 }, present, WHERE, "overlays")).toEqual([]);
+  });
+
+  it("ratchets counts in both directions", () => {
+    expect(diffCountRatchet({ "a.tsx": 3 }, { "a.tsx": 2 }, present, WHERE, "overlays")).toEqual([
+      "a.tsx: 3 overlays, baseline is 2",
+    ]);
+    expect(diffCountRatchet({ "a.tsx": 2 }, { "a.tsx": 2 }, present, WHERE, "overlays")).toEqual([]);
+
+    const lowered = diffCountRatchet({ "a.tsx": 1 }, { "a.tsx": 2 }, present, WHERE, "overlays");
+    expect(lowered).toHaveLength(1);
+    expect(lowered[0]).toContain("lower its baseline entry");
+
+    // A file with no baseline entry at all may not carry violations.
+    expect(diffCountRatchet({ "b.tsx": 1 }, {}, present, WHERE, "overlays")).toEqual([
+      "b.tsx: 1 overlays, baseline is 0",
+    ]);
   });
 });

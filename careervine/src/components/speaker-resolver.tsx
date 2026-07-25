@@ -245,6 +245,7 @@ export default function SpeakerResolver({
     }));
   }, [allContacts, meetingContacts]);
 
+  // reentry-safe: /api/transcripts/match-speakers is an OpenAI read, not a write
   const handleAiMatch = useCallback(async () => {
     setAiLoading(true);
     setAiError(null);

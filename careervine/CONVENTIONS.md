@@ -163,13 +163,15 @@ permanently erased every email-to-meeting link in it (CAR-175).
 - Enforced: `careervine/src/mcp/__tests__/db-scoping.test.ts` (a new export
   without a classification entry fails), `careervine/src/__tests__/contact-write-chokepoint.test.ts`,
   the `no-restricted-imports` fences in `careervine/eslint.config.mjs`, and
-  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), whose four
+  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), whose five
   data-layer checks cover what tsc and eslint cannot express: the barrel freeze,
   no module-scope Supabase client under `careervine/src/lib/data` or
-  `careervine/src/lib/rules`, the CAS readback shape, and raw query-builder
-  growth in the MCP db module. (It carries two further checks, on MCP launch
-  flags and on test mocks; see sections g and h.) Its
-  escape hatches
+  `careervine/src/lib/rules`, the CAS readback shape, unchecked `const { data }`
+  reads, and raw query-builder growth in the MCP db module. (The script carries
+  twelve checks in total: two further ones on MCP launch flags and test mocks,
+  see sections g and h, and five client-state ones, see section f. CAR-190
+  corrected a long-standing "four" here and in its own ticket description.) Its
+  data-layer escape hatches
   both demand a written reason: `// cas-checked:` and `// error-tolerated:`.
   The app-owned-column rule is enforced by
   `careervine/src/__tests__/migration-destructive-guard.test.ts` (authoritative
@@ -201,7 +203,14 @@ Identity-keyed async reads go through `useLatestRequest`: claim a token with
 `begin()` when the request starts, gate the state update on `isLatest(token)`, so
 a slow earlier response cannot overwrite a newer one.
 
-Client code never calls `fetch` directly. Reads go through `apiFetch`, status-only
+Client code never calls `fetch` directly, and neither does a browser-reached
+helper under `careervine/src/lib`: a relative `/api/...` URL only resolves in a
+browser, so it is client code wherever it lives. (That sentence used to stop at
+"client code", and six such calls were sitting in `careervine/src/lib` outside the guard's
+scope, two of them hand-rolling the error-body parse `apiFetch` exists to
+delete. Hoisting a call out of a component into a helper is a refactor a
+reviewer would ask for, so the narrower rule was one review away from being
+wrong.) Reads go through `apiFetch`, status-only
 mutations through `apiSend` (`careervine/src/lib/api-client.ts`, section a), so a
 non-2xx throws `ApiRequestError` instead of an error body being read as the
 success shape. An interactive handler wraps the call in `withToastOnError`
@@ -274,6 +283,12 @@ extending any of this: the tabbable filter deliberately avoids layout checks,
 because jsdom has no layout and the usual `offsetParent` filter disarms the trap
 under test while still reading as correct.
 
+Both halves of that rule are mechanically enforced (see Enforced, below): a source
+scan fails any overlay without a dialog role, and `check-conventions.mjs` carries a
+ratchet on the same shape. CAR-190 opened that ratchet at twelve to stop the
+hand-rolled side growing while this migration was in flight; the migration landed and
+the baseline is now empty, so the two agree.
+
 Two things a modal child must use rather than hand-roll (CAR-198). A child that
 portals — a dropdown menu, a popover — portals to `useModalPortalContainer() ??
 document.body`, never to `document.body` unconditionally: the trap is
@@ -337,39 +352,90 @@ only, never a rejected promise in a handler; that is the contract above.
   `careervine/src/components/ui/confirm-dialog.tsx`,
   `careervine/src/lib/api-client.ts`, and
   `careervine/src/components/ui/section-boundary.tsx` (headers)
-- Enforced: two rules have their *adoption* mechanically checked.
-  `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw event-name
-  prefix outside the module, and `careervine/src/__tests__/select-aria-label.test.ts`
-  scans source and fails on any `<Select>` or `<MonthYearPicker>` call site with no
-  `ariaLabel` — that one is a source scan rather than a render test because a missing
-  accessible name changes nothing on screen and so survives sighted review.
-  `careervine/src/__tests__/dialog-adoption.test.ts` (CAR-197) is the third, and covers
-  both halves of the dialog rule: every `fixed inset-0` overlay outside the primitive
-  must carry `role="dialog"`/`"alertdialog"` or an explicit `non-dialog-overlay:`
-  comment, and every `Modal`/`DialogSurface` call site must pass a name. It also
-  asserts that every occurrence of the overlay class is one the scanner can *see*, so
-  a class assembled in a const fails loudly rather than slipping past a guard that
-  only reads `className` attributes. Three more rules have behavior coverage without an
-  adoption check: `modal.test.tsx` covers the focus trap, the `data-autofocus` marker
-  and dialog semantics for both layers, `careervine/src/__tests__/dialog-layer.test.tsx`
-  covers the layer stack (topmost-only Escape, shared scroll lock, and the
-  nested-confirmation exception), and `careervine/src/__tests__/error-boundaries.test.tsx`
-  pins the boundary behaviors, including the `notFound()` re-throw that rules out a
+- Enforced (adoption, CI): `careervine/scripts/check-ui-events.mjs` bans the raw
+  event-name prefix outside the module, and
+  `careervine/src/__tests__/select-aria-label.test.ts` scans source and fails on any
+  `<Select>` or `<MonthYearPicker>` call site with no `ariaLabel` — a source scan
+  rather than a render test because a missing accessible name changes nothing on
+  screen and so survives sighted review. `careervine/src/__tests__/dialog-adoption.test.ts`
+  (CAR-197) is the third, and covers both halves of the dialog rule: every
+  `fixed inset-0` overlay outside the primitive must carry `role="dialog"`/`"alertdialog"`
+  or an explicit `non-dialog-overlay:` comment, and every `Modal`/`DialogSurface` call
+  site must pass a name. It also asserts that every occurrence of the overlay class is
+  one the scanner can *see*, so a class assembled in a const fails loudly rather than
+  slipping past a guard that only reads `className` attributes, and that every
+  `createPortal` either targets a dialog surface or carries a `body-portal:`
+  justification — the rule whose unenforced version let a portalled menu inside a
+  trapped dialog become keyboard-unreachable.
+
+  `careervine/scripts/check-conventions.mjs` adds five more (CAR-190). Scope is
+  `careervine/src/components` + `careervine/src/hooks` + `careervine/src/app`, minus
+  the API routes and minus server files (a Route Handler anywhere, or anything under
+  `careervine/src/app` with no `"use client"`) — in a server component `fetch` IS the idiomatic
+  data call, and `apiFetch` throws outside a browser. The no-raw-`fetch` rule also
+  reaches any first-party `/api` call elsewhere under `careervine/src/`:
+
+  | Rule | Shape it fails on | Escape hatch |
+  | -- | -- | -- |
+  | no raw `fetch(` | any `fetch` in the client tree, plus a literal `/api/...` URL anywhere else under `careervine/src/` | `// raw-fetch:` |
+  | no native confirm | `window.confirm`, or a bare `confirm(` with no **lexically enclosing** binding (`useConfirm()` returns one, so binding is what separates the two) | none |
+  | double-submit ref | an async `handle*`/`on*` that writes, with no ref both READ in an early return and claimed before the first await | `// reentry-safe:` + ratchet |
+  | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, gated by neither `isLatest`, a cancellation flag, nor an `AbortSignal` | `// latest-request-exempt:` + ratchet |
+  | dialog semantics | a `fixed inset-0` element outside `modal.tsx` with no `role="dialog"` in its own subtree | `// overlay-not-a-dialog:` + ratchet |
+
+  The first two are frozen at zero. The last three ship as **ratchets** over a
+  baseline (54 handlers, 7 reads, and — since CAR-197 landed — 0 overlays) rather than as the warning CAR-190
+  originally proposed, because a warning exits 0 and that is precisely how CAR-154's
+  helper decayed to 6 files and CAR-158's to 1. A ratchet fails both ways: an
+  offender absent from the baseline fails, and a baselined site that no longer
+  offends fails too, so a fix can never be given back.
+  `careervine/scripts/lib/ratchet.mjs` holds that algebra and its rationale. The
+  handler and read baselines are **named** (one row consumes one slot, so a repeated
+  name cannot ride another's entry); the overlay one is **counted per file**, because
+  an overlay `<div>` has no name to key on — which means a same-file swap there is
+  invisible, and is the one thing the named form buys that the counted form cannot.
+  CAR-197 drained the overlay baseline to zero by migrating those same twelve dialogs,
+  and this script's own dead-baseline check is what forced the entries out: a ratchet
+  fails when a baselined site stops offending, so the fix could not be given back.
+
+  Read those three numbers as a property of the DETECTOR, not of the codebase. The
+  handler baseline was first published as 35; a review found five blind spots
+  (mutations carried by `apiFetch`, verbs absent from a hand-written allowlist, every
+  `@/lib` module outside a list of five, a write one hop away in a local helper, and
+  a guard-recognition rule that accepted refs which guarded nothing) and the real
+  figure was 54. Two of the additions, `data-subscriptions-section.tsx`'s
+  `handleSubscribe` and `handleUnsubscribe`, are non-idempotent and one POSTs a
+  destructive contact-removal loop; they are the first two to drain.
+
+- Enforced (behavior, no adoption check): `modal.test.tsx` covers the focus
+  trap, the `data-autofocus` marker and dialog semantics for both layers, `careervine/src/__tests__/dialog-layer.test.tsx` covers
+  the layer stack (topmost-only Escape, shared scroll lock, and the nested-confirmation
+  exception), and `careervine/src/__tests__/error-boundaries.test.tsx` pins the
+  boundary behaviors, including the `notFound()` re-throw that rules out a
   hand-rolled class, plus source tripwires holding the three existing adoption sites
-  to their `key` and `onReset`. Nothing yet requires a NEW failure-prone subtree to be
-  wrapped in a boundary. The remaining two rules have behavior coverage without an
-  adoption check:
-  `careervine/src/__tests__/use-latest-request.test.tsx` pins that the newest
-  request's result survives an older one resolving last, and
+  to their `key` and `onReset`. Layer registration now comes free with `DialogSurface`, so
+  nothing needs to require it separately; nothing yet requires a NEW failure-prone
+  subtree to be wrapped in a boundary. `careervine/src/__tests__/use-latest-request.test.tsx`
+  pins that the newest request's result survives an older one resolving last, and
   `careervine/src/__tests__/compose-modal-send-guards.test.tsx` pins that a
   double-clicked Send dispatches one POST. (CAR-188 rewrote this sentence from
   three rules to two, correctly dropping optimistic-write rollback, but carried
   the "no coverage at all" claim over to two rules that were already covered.)
-- Enforced (mutation contract, CAR-188 + CAR-204): behavior only, not adoption.
-  Zero raw `fetch(` and zero `window.confirm` remain under
-  `careervine/src/components`, `careervine/src/hooks`, and `careervine/src/app`
-  outside the API routes, but nothing yet fails CI when the 1st new one lands:
-  that guard is CAR-190, which this ticket unblocks.
+
+  `careervine/src/__tests__/double-submit-guards.test.tsx` and
+  `careervine/src/__tests__/outreach-detail-race.test.tsx` cover the four live defects
+  CAR-190's audit found while inventorying for those ratchets: two ungated
+  identity-keyed reads (the outreach page raced two `getCompanyDetail` calls and
+  rendered one company's header over another's employees; the Gmail connection store
+  let a stale poll response flip the app back to "Connect Gmail") and two mutation
+  handlers whose only guard was `disabled={saving}` (the schedule popover fired one
+  POST per Enter keydown at a create-event route with no idempotency key, so key
+  repeat produced a row of real Google Calendar events). Note for anyone writing more
+  of these: two successive `fireEvent.click` calls do NOT reproduce a double click,
+  because fireEvent act-wraps each dispatch and the second lands on an
+  already-disabled button. Dispatch both inside one `act()`.
+
+- Enforced (mutation contract, CAR-188 + CAR-204): behavior.
   `careervine/src/__tests__/api-client.test.ts` pins that `jsonBody`'s method
   argument reaches the wire, which ten call sites depend on. `careervine/src/__tests__/confirm-dialog.test.tsx` pins the
   promise contract (every exit path settles, exactly once) and the dialog's
@@ -501,7 +567,8 @@ measured baseline is recorded beside it in the config.
 
 ## i. End-to-end tests
 
-A third tier (CAR-189): real Chromium against a real `next build && next start`,
+A third tier (CAR-189, expanded to nine flows by CAR-191): real Chromium against
+a real `next build && next start`,
 backed by the same local Supabase stack the integration tier uses. It exists for
 the one thing neither other tier can express — whether a change the UI *claims*
 to have made actually persisted. Run it:
@@ -556,6 +623,13 @@ no third-party traffic originates in the page.
 `careervine/src/__tests__/helpers/fake-gmail.ts` is *not* reusable here: it
 doubles the `@googleapis/gmail` client object, not the HTTP body.
 
+Stub responses are FIXED for the whole run — a Playwright worker has no channel
+into the Next server process, so a spec cannot vary one. Where a flow needs a
+particular value it seeds the database to match the stub, not the reverse:
+`calendarSyncEvent` in `google-wire.mjs` returns one event on a known id,
+anchored to `Date.now()` so it lands inside the sync route's
+`now - 7d` / `now + 60d` window on whatever day the suite runs.
+
 The server's **environment is a closed set**, not the developer's shell:
 Playwright merges into the child env and Next loads `.env.local` inside the
 server process, so `careervine/e2e/helpers/env-allowlist.ts` closes over all
@@ -575,12 +649,46 @@ provisions a tenant with the integration tier's own `createTenant` /
 whatever the app itself writes, with no coupling to `@supabase/ssr`'s encoding.
 The signup spec opts out with `test.use({ storageState: { cookies: [], origins: [] } })`.
 
+**One shared tenant, single-worker.** `fullyParallel: false` and `workers: 1`,
+so the flows write to one database in file order. Two specs mint their own
+identity instead, because the shared one cannot be it: the capability flow needs
+a FREE account (the shared tenant is premium, and `resolve.ts` fails open to
+premium on a null flag), and the admin flow needs both an admin and a non-admin.
+Both opt out of the project storageState and call `mintSessionUrl` in-test. A
+spec that mutates shared state puts it back in `afterEach` — `settings-keys`
+re-seeds the Gmail connection it deletes, `calendar-sync` revokes the calendar
+scope it grants — otherwise a later spec passes or fails on whether an earlier
+one ran. `afterEach`, not `finally`: a body abandoned at the test timeout never
+reaches a `finally`.
+
 Selectors prefer `getByRole` / `getByLabel`; `data-testid` appears only where
-role plus name is genuinely unreachable (a `type=password` input has no role; a
-TipTap contenteditable is not a form control). Assertions are web-first —
-**no `waitForTimeout`, no sleep**. Waiting on something outside the DOM (a
-mail delivery, an async POST that fires after its trigger resolves) uses
-`expect.poll`.
+role plus name is genuinely unreachable. Four kinds qualify, and they are the
+whole list: an element with no role (a `type=password` input, a TipTap
+contenteditable); an accessible name that is not stable (a row whose name
+concatenates a locale-formatted date); two structurally identical components on
+one page (the AI tab's provider cards, the integrations tab's two "Disconnect"
+buttons); and application STATE that is otherwise reachable only through a style
+(`data-unread`, `data-message-id`) — mirror the state into an attribute rather
+than asserting on a font weight. Prefer scoping a role query to a container over
+adding an attribute. Note `Button` renders an `<a>` when given an `href`, so a
+control that looks like a button is often `getByRole("link")`, and that a
+`getByText` REGEX matches non-normalized text, so anchoring one on copy that
+spans JSX lines breaks on reformatting.
+
+Assertions are web-first — **no `waitForTimeout`, no sleep**. Waiting on
+something outside the DOM (a mail delivery, an async POST that fires after its
+trigger resolves) uses `expect.poll`.
+
+**Asserting that something did NOT happen needs the causal event first.**
+`expect(...)` returns the moment it first passes, so an assertion issued right
+after the trigger passes before the thing it is guarding against could possibly
+have occurred. Both attempts at this in CAR-191 were green against deliberately
+broken code until they were re-sequenced: wait for the real event (a
+`page.waitForResponse`, the dialog disappearing), then two `requestAnimationFrame`s
+so React has committed anything that event scheduled, and only then assert.
+Where a count is available — "the endpoint was never called", via `page.route` —
+prefer it to a state comparison, which a slow write wins by default. Neither
+technique is an arbitrary wait: both are synchronised to browser events.
 
 - Authoritative: `careervine/playwright.config.ts` (header),
   `careervine/e2e/server-stubs/register.mjs` (header),
@@ -588,6 +696,9 @@ mail delivery, an async POST that fires after its trigger resolves) uses
   `careervine/e2e/helpers/env-allowlist.ts` (header),
   `careervine/e2e/helpers/tenant.ts` (header), and
   `careervine/e2e/helpers/stack-env.ts` (header)
+- Counted: Nine flows live in `careervine/e2e/*.spec.ts`. Pinned by
+  `careervine/src/__tests__/conventions-doc.test.ts`, so a tenth cannot silently
+  falsify this section.
 - Enforced: CI runs it as the separate `e2e` job, with `failOnFlakyTests` so a
   test that only passes on retry exits non-zero rather than printing "flaky" and
   going green. The deny-by-default stub layers are self-enforcing — a new

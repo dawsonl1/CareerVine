@@ -302,8 +302,13 @@ const RSVP_DISPLAY: Record<string, { className: string; label: string }> = {
 
 const RSVP_DEFAULT = { className: "text-muted-foreground", label: "–" };
 
-export function getRsvpDisplay(status: string): { className: string; label: string } {
-  return RSVP_DISPLAY[status] ?? RSVP_DEFAULT;
+export function getRsvpDisplay(
+  // Accepts undefined (CAR-191 review): `attendees.responseStatus` is optional on
+  // the shared `CalendarAttendee`, and this already falls back for an unknown
+  // value, so refusing an absent one only pushed the guard to every call site.
+  status: string | undefined,
+): { className: string; label: string } {
+  return (status ? RSVP_DISPLAY[status] : undefined) ?? RSVP_DEFAULT;
 }
 
 /** Contacts added within this many days appear in "Recently Added" */

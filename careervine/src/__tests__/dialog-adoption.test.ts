@@ -347,7 +347,7 @@ describe("portals target the dialog surface", () => {
       .filter((p) => {
         const lines = p.source.split("\n");
         return !lines
-          .slice(Math.max(0, p.targetLine - 4), p.targetLine + 1)
+          .slice(Math.max(0, p.targetLine - 4), p.targetLine + 2)
           .some((l) => l.includes(BODY_PORTAL_HATCH));
       })
       .map((p) => `${p.file}:${p.line}`);

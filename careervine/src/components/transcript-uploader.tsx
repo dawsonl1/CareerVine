@@ -82,6 +82,7 @@ export default function TranscriptUploader({
   };
 
   // ── Text file upload ─────────────────────────────────────
+  // reentry-safe: /api/transcripts/parse is an OpenAI read: no row is written, so a duplicate costs tokens rather than data
   const handleTextFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;

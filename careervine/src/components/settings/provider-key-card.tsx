@@ -179,6 +179,7 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
     }
   };
 
+  // reentry-safe: useConfirm() supersedes a pending question synchronously, so a second click resolves the first false and returns before the DELETE
   const handleRemove = async () => {
     // The only one of the twelve confirms whose copy is not a string literal:
     // it comes from the per-provider config, which is why ConfirmDialog takes a
@@ -209,7 +210,10 @@ export default function ProviderKeyCard({ config }: { config: ProviderKeyCardCon
   return (
     <>
     <Card variant="outlined">
-      <CardContent className="p-7">
+      {/* CAR-191: the AI tab renders two structurally identical cards, so
+          "API key" and "Save" each match twice and role+name cannot pick one.
+          Keyed off `inputId`, which is already the config's stable identifier. */}
+      <CardContent className="p-7" data-testid={`provider-key-card-${config.inputId}`}>
         <div className="flex items-center gap-3 mb-4">
           {config.icon}
           <h2 className="text-lg font-medium text-foreground">{config.title}</h2>
