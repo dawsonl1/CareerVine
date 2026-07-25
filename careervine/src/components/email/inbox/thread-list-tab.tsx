@@ -288,7 +288,11 @@ export function ThreadListTab({
           Loading email…
         </div>
       ) : expandedEmailContent ? (
-        <div>
+        /* CAR-191: `data-message-id` is what makes the stale-response race
+           assertable. Clicking message A then B while A's body fetch is still
+           in flight must render B — and the only way to tell whose body is on
+           screen, without asserting on fixture copy, is to name it. */
+        <div data-testid="inbox-email-body" data-message-id={expandedEmailContent.messageId}>
           <div className="text-sm text-muted-foreground space-y-1 mb-4">
             <p><span className="font-medium">From:</span> {expandedEmailContent.from}</p>
             <p><span className="font-medium">To:</span> {expandedEmailContent.to}</p>
@@ -342,6 +346,13 @@ export function ThreadListTab({
               {/* Thread row */}
               <button
                 type="button"
+                /* CAR-191: the row's accessible name concatenates contact,
+                   subject, snippet and a locale-formatted date, so role+name is
+                   neither stable nor unambiguous here. `data-unread` exposes the
+                   read state the E2E tier asserts on, which would otherwise be
+                   reachable only through a font-weight class. */
+                data-testid={`inbox-thread-${thread.threadId}`}
+                data-unread={isUnread ? "true" : "false"}
                 className={`group/thread w-full text-left px-5 py-3.5 hover:bg-surface-container-low transition-colors cursor-pointer ${isUnread ? "bg-primary/[0.04]" : ""}`}
                 onClick={() => { setMoveDropdownMsgId(null); onThreadClick(thread); }}
               >

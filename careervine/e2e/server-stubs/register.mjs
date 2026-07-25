@@ -56,6 +56,7 @@ import {
   gmailThreadResponse,
   gmailDraftResponse,
   calendarEventsResponse,
+  calendarSyncEvent,
   calendarEventResponse,
   calendarListResponse,
   calendarFreeBusyResponse,
@@ -227,14 +228,23 @@ const server = setupServer(
     HttpResponse.json(gmailDraftResponse()),
   ),
 
-  // ── Google OAuth token refresh ─────────────────────────────────────────
+  // ── Google OAuth token refresh + revoke ────────────────────────────────
   mswHttp.post("https://oauth2.googleapis.com/token", () =>
     HttpResponse.json(oauthTokenResponse()),
   ),
+  // Disconnecting Gmail or Calendar revokes the grant with Google before
+  // deleting the local row (CAR-191 flow 7). Google answers 200 with an empty
+  // body; the caller only reads the status.
+  mswHttp.post("https://oauth2.googleapis.com/revoke", () => new HttpResponse(null, { status: 200 })),
 
   // ── Calendar ───────────────────────────────────────────────────────────
+  // One event, always the same id, always inside the sync window (CAR-191).
+  // An empty list would make `/api/calendar/sync` a no-op, and the calendar
+  // flow's whole premise is that a re-sync writes over the row it seeded.
+  // Harmless to the other flows: `calendar_scopes_granted` defaults false, so
+  // their tenants' background syncs 400 before they ever reach Google.
   mswHttp.get("https://www.googleapis.com/calendar/v3/calendars/:calendarId/events", () =>
-    HttpResponse.json(calendarEventsResponse()),
+    HttpResponse.json(calendarEventsResponse({ items: [calendarSyncEvent()] })),
   ),
   mswHttp.post("https://www.googleapis.com/calendar/v3/calendars/:calendarId/events", () =>
     HttpResponse.json(calendarEventResponse()),

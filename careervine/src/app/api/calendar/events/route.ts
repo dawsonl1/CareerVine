@@ -29,7 +29,16 @@ export const GET = withApiHandler({
 
     if (error) throw error;
 
-    return { events: data || [] };
+    // `attendees` is nullable in the schema but every consumer treats it as an
+    // array — `app/calendar/page.tsx` types it `Array<...>` and dereferences
+    // `.length` in four places. No writer produces a null today (the sync route,
+    // create-event and the MCP tool all pass an array or `[]`), so this is a
+    // latent trap rather than a live bug; it surfaced when CAR-191's E2E seed
+    // wrote one directly and the calendar page died to its route-level error
+    // boundary — a blank "Something went wrong." for the entire page, from one
+    // null column. Normalizing at the read boundary costs nothing and makes the
+    // client type honest, which is cheaper than a null-guard at every use site.
+    return { events: (data || []).map((e) => ({ ...e, attendees: e.attendees ?? [] })) };
   },
 });
 

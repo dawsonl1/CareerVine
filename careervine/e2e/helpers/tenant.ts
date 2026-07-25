@@ -119,6 +119,114 @@ export async function completeOnboarding(userId: string): Promise<void> {
   if (error) throw new Error(`completeOnboarding: ${error.message}`);
 }
 
+/**
+ * A CONNECTED but FREE-TIER Gmail connection (CAR-191).
+ *
+ * `capabilitiesFor` resolves premium as `modifyScopeGranted && premiumEnabled`,
+ * so both flags off yields `{outreach:portal}` and nothing else — no
+ * `mailbox:read`, no `mailbox:modify`. The row still has to EXIST: free is a
+ * positive grant keyed on `hasConnection`, not the absence of premium, and a
+ * tenant with no row at all resolves to the empty set and falls through to the
+ * Inbox shell rather than Outreach.
+ *
+ * `premium_enabled` is set explicitly rather than left null on purpose:
+ * `resolve.ts` fails OPEN to premium on a null, so the default would produce the
+ * exact tier this seeds a tenant to avoid.
+ */
+export async function seedFreeTierConnection(
+  userId: string,
+  opts: { gmailAddress?: string } = {},
+): Promise<void> {
+  const svc = serviceClient();
+  const { error } = await svc.from("gmail_connections").upsert(
+    {
+      user_id: userId,
+      gmail_address: opts.gmailAddress ?? "e2e-free@gmail.com",
+      access_token: "e2e-plaintext-access-token",
+      refresh_token: "e2e-plaintext-refresh-token",
+      token_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      send_scope_granted: true,
+      modify_scope_granted: false,
+      premium_enabled: false,
+    },
+    { onConflict: "user_id" },
+  );
+  if (error) throw new Error(`seedFreeTierConnection: ${error.message}`);
+}
+
+/**
+ * Promote a tenant to admin (CAR-191).
+ *
+ * The admin identity lives in `auth.users.app_metadata.role` and is
+ * service-role writable only, which is exactly why `/admin` cannot be reached by
+ * a user who simply asks for it. There is no env var and no allowlist to
+ * configure — see `src/lib/admin.ts`.
+ */
+export async function promoteToAdmin(userId: string): Promise<void> {
+  const svc = serviceClient();
+  const { error } = await svc.auth.admin.updateUserById(userId, {
+    app_metadata: { role: "admin" },
+  });
+  if (error) throw new Error(`promoteToAdmin: ${error.message}`);
+}
+
+/**
+ * Grant the calendar scope for one tenant (CAR-191).
+ *
+ * Deliberately NOT part of `seedGmailConnection`, and not in the setup
+ * project's seed. `/api/calendar/sync` refuses with 400 unless this is set, and
+ * both `/` and `/calendar` fire a background sync on mount — so leaving it off
+ * by default is what keeps the calendar stub inert for every flow that does not
+ * ask for it. The calendar flow turns it on for itself.
+ */
+export async function grantCalendarScope(userId: string): Promise<void> {
+  const svc = serviceClient();
+  const { error } = await svc
+    .from("gmail_connections")
+    .update({ calendar_scopes_granted: true, calendar_last_synced_at: null })
+    .eq("user_id", userId);
+  if (error) throw new Error(`grantCalendarScope: ${error.message}`);
+}
+
+/**
+ * One inbound, unread `email_messages` row — an inbox thread of a single
+ * message (CAR-191).
+ *
+ * Seeded rather than synced. `/api/gmail/inbox` reads this table directly, and
+ * driving a real sync to populate it would make every inbox assertion depend on
+ * the sync's paging, label filtering and contact matching — three subsystems
+ * this flow is not testing, each able to fail it for unrelated reasons.
+ *
+ * Single-message threads are deliberate: `handleThreadClick` in `inbox-shell.tsx`
+ * auto-expands the body only for those, which is what puts a body fetch on the
+ * click and makes the stale-response race reachable at all.
+ */
+export async function seedInboxMessage(
+  userId: string,
+  opts: { gmailMessageId: string; subject: string; from?: string; snippet?: string; date?: string },
+): Promise<void> {
+  const svc = serviceClient();
+  const { error } = await svc.from("email_messages").insert({
+    user_id: userId,
+    gmail_message_id: opts.gmailMessageId,
+    // Its own thread, so `buildThreads` yields one thread per seeded message.
+    thread_id: opts.gmailMessageId,
+    subject: opts.subject,
+    from_address: opts.from ?? "sender@example.com",
+    to_addresses: ["e2e-sender@gmail.com"],
+    snippet: opts.snippet ?? opts.subject,
+    // Inbound AND unread together are what the unread badge keys on
+    // (`unreadDeltaFor`), so the mark-as-read assertion has something to observe.
+    direction: "inbound",
+    is_read: false,
+    is_trashed: false,
+    is_hidden: false,
+    date: opts.date ?? new Date().toISOString(),
+    label_ids: ["INBOX"],
+  });
+  if (error) throw new Error(`seedInboxMessage(${opts.gmailMessageId}): ${error.message}`);
+}
+
 /** A contact with one primary, non-bounced address — the send path's happy case. */
 export async function seedContact(
   userId: string,

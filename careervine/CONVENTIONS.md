@@ -484,7 +484,8 @@ measured baseline is recorded beside it in the config.
 
 ## i. End-to-end tests
 
-A third tier (CAR-189): real Chromium against a real `next build && next start`,
+A third tier (CAR-189, expanded to nine flows by CAR-191): real Chromium against
+a real `next build && next start`,
 backed by the same local Supabase stack the integration tier uses. It exists for
 the one thing neither other tier can express — whether a change the UI *claims*
 to have made actually persisted. Run it:
@@ -539,6 +540,13 @@ no third-party traffic originates in the page.
 `careervine/src/__tests__/helpers/fake-gmail.ts` is *not* reusable here: it
 doubles the `@googleapis/gmail` client object, not the HTTP body.
 
+Stub responses are FIXED for the whole run — a Playwright worker has no channel
+into the Next server process, so a spec cannot vary one. Where a flow needs a
+particular value it seeds the database to match the stub, not the reverse:
+`calendarSyncEvent` in `google-wire.mjs` returns one event on a known id,
+anchored to `Date.now()` so it lands inside the sync route's
+`now - 7d` / `now + 60d` window on whatever day the suite runs.
+
 The server's **environment is a closed set**, not the developer's shell:
 Playwright merges into the child env and Next loads `.env.local` inside the
 server process, so `careervine/e2e/helpers/env-allowlist.ts` closes over all
@@ -558,12 +566,39 @@ provisions a tenant with the integration tier's own `createTenant` /
 whatever the app itself writes, with no coupling to `@supabase/ssr`'s encoding.
 The signup spec opts out with `test.use({ storageState: { cookies: [], origins: [] } })`.
 
+**One shared tenant, single-worker.** `fullyParallel: false` and `workers: 1`,
+so the flows write to one database in file order. Two specs mint their own
+identity instead, because the shared one cannot be it: the capability flow needs
+a FREE account (the shared tenant is premium, and `resolve.ts` fails open to
+premium on a null flag), and the admin flow needs both an admin and a non-admin.
+Both opt out of the project storageState and call `mintSessionUrl` in-test. A
+spec that mutates shared state puts it back in `afterEach` — `settings-keys`
+re-seeds the Gmail connection it deletes, `calendar-sync` revokes the calendar
+scope it grants — otherwise a later spec passes or fails on whether an earlier
+one ran. `afterEach`, not `finally`: a body abandoned at the test timeout never
+reaches a `finally`.
+
 Selectors prefer `getByRole` / `getByLabel`; `data-testid` appears only where
 role plus name is genuinely unreachable (a `type=password` input has no role; a
-TipTap contenteditable is not a form control). Assertions are web-first —
-**no `waitForTimeout`, no sleep**. Waiting on something outside the DOM (a
-mail delivery, an async POST that fires after its trigger resolves) uses
-`expect.poll`.
+TipTap contenteditable is not a form control; two structurally identical cards
+on one page each expose a "Save"). Prefer scoping a role query to a container
+over adding an attribute. Note `Button` renders an `<a>` when given an `href`,
+so a control that looks like a button is often `getByRole("link")`.
+
+Assertions are web-first — **no `waitForTimeout`, no sleep**. Waiting on
+something outside the DOM (a mail delivery, an async POST that fires after its
+trigger resolves) uses `expect.poll`.
+
+**Asserting that something did NOT happen needs the causal event first.**
+`expect(...)` returns the moment it first passes, so an assertion issued right
+after the trigger passes before the thing it is guarding against could possibly
+have occurred. Both attempts at this in CAR-191 were green against deliberately
+broken code until they were re-sequenced: wait for the real event (a
+`page.waitForResponse`, the dialog disappearing), then two `requestAnimationFrame`s
+so React has committed anything that event scheduled, and only then assert.
+Where a count is available — "the endpoint was never called", via `page.route` —
+prefer it to a state comparison, which a slow write wins by default. Neither
+technique is an arbitrary wait: both are synchronised to browser events.
 
 - Authoritative: `careervine/playwright.config.ts` (header),
   `careervine/e2e/server-stubs/register.mjs` (header),
