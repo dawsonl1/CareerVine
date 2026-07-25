@@ -601,7 +601,12 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
               className={`${inputClasses} mt-2`}
               placeholder="Number of days"
               min="1"
-              data-autofocus
+              /* autoFocus, not data-autofocus: this input MOUNTS MID-DIALOG when the
+                 user picks "Custom". The marker is only read by the trap's open-time
+                 effect, which never re-runs for a later mount, so it would do nothing
+                 here — and would steal the dialog's initial focus on the other branch,
+                 where a non-preset cadence renders this field already present. */
+              autoFocus
             />
           )}
         </div>

@@ -43,7 +43,7 @@ import {
 } from "@/lib/bundle-apply-client";
 import { addTargetCompany } from "@/lib/company-queries";
 import { Tooltip } from "@/components/ui/tooltip";
-import { DialogSurface } from "@/components/ui/modal";
+import { DialogSurface, useModalPortalContainer } from "@/components/ui/modal";
 import { Users, Building2, GraduationCap, Mail, Calendar, Check, Search, Sparkles, ChevronDown, ArrowUpDown } from "lucide-react";
 
 /* ── Exit-guard confirm dialog (CAR-84) ──
@@ -423,6 +423,7 @@ function SortDropdown({
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const portalContainer = useModalPortalContainer();
   const MENU_WIDTH = 232;
 
   const updatePos = useCallback(() => {
@@ -503,7 +504,11 @@ function SortDropdown({
               </button>
             ))}
           </div>,
-          document.body,
+          // Into the dialog surface, never unconditionally to the body: StepShell is a
+          // real modal dialog now, so a body-portalled menu sits outside its focus trap
+          // (keyboard-unreachable) and outside its aria-modal boundary (invisible to a
+          // screen reader), while looking perfectly correct on screen (CAR-197 review).
+          portalContainer ?? document.body,
         )}
     </>
   );
@@ -808,7 +813,15 @@ function FinaleStep({ onDone }: { onDone: () => void }) {
         </p>
       </div>
 
+      {/* inert while transparent (CAR-197 review): the trap focuses the first tabbable
+          on open, and `tabbableWithin` deliberately ignores opacity, so without this the
+          finale opened with focus on a fully invisible button — and a reflexive Enter
+          dismissed the celebration before it had faded in. `inert` is the one gate the
+          trap honours (it skips `el.closest("[inert]")`), so the tabbable set is empty
+          until the content appears and initial focus falls through to the surface, which
+          the heading names. */}
       <div
+        inert={!showMore}
         className={`mt-7 transition-opacity duration-700 ${showMore ? "opacity-100" : "opacity-0"}`}
       >
         <p className="text-sm font-medium text-foreground">

@@ -191,14 +191,18 @@ const overlays = scans.flatMap((s) => s.overlays);
 
 describe("full-screen overlays are dialogs", () => {
   it("finds the overlays at all", () => {
-    // A scanner that matches nothing passes everything below vacuously. Exactly one
-    // hand-written overlay survives: the inline unsaved-changes dialog inside the
-    // primitive, which is a DOM sibling of the surface rather than a DialogSurface of
-    // its own (registering as a layer would make the Modal non-topmost and its own
-    // Escape branch unreachable). Everything else in the app reaches a wrapper
-    // through DialogSurface.
+    // A scanner that matches nothing passes everything below vacuously, so this is an
+    // anti-vacuity FLOOR, not a pin — the same distinction `select-aria-label.test.ts`
+    // draws ("The count is a floor, not a pin"). Pinning the file set instead would
+    // make the policy test below unreachable: every file it can flag is a file the pin
+    // has already rejected, so a correctly-roled hand-rolled overlay would fail here
+    // with a scanner-looks-broken message, and the documented `non-dialog-overlay:`
+    // escape hatch could suppress that test while never turning the suite green
+    // (CAR-197 review). The floor is the primitive's own inline unsaved-changes dialog,
+    // a DOM sibling of the surface rather than a DialogSurface of its own — registering
+    // as a layer would make the Modal non-topmost and its own Escape branch unreachable.
     expect(overlays.length).toBeGreaterThanOrEqual(1);
-    expect(new Set(overlays.map((o) => o.file))).toEqual(new Set([PRIMITIVE]));
+    expect(overlays.some((o) => o.file === PRIMITIVE)).toBe(true);
   });
 
   it("accounts for every occurrence of the overlay class", () => {

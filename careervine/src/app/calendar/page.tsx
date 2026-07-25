@@ -51,8 +51,8 @@ type ContactFilter = "all" | "contacts" | "no-contacts";
 const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", title: "", notes: "", privateNotes: "", calendarDescription: "", transcript: "" };
 
 /** Comparable snapshot of everything the meeting form owns, for the discard guard. */
-const serializeMeetingForm = (form: typeof emptyForm, contactIds: number[]) =>
-  JSON.stringify({ form, contactIds: [...contactIds].sort((a, b) => a - b) });
+const serializeMeetingForm = (form: typeof emptyForm, contactIds: number[], duration: number) =>
+  JSON.stringify({ form, contactIds: [...contactIds].sort((a, b) => a - b), duration });
 
 function minsToTimeStr(totalMins: number) {
   const h = GRID_START_HOUR + Math.floor(totalMins / 60);
@@ -273,7 +273,7 @@ export default function CalendarPage() {
     const nextForm = { ...emptyForm, ...prefill };
     setFormData(nextForm);
     setSelectedContactIds([]);
-    setPristineMeetingForm(serializeMeetingForm(nextForm, []));
+    setPristineMeetingForm(serializeMeetingForm(nextForm, [], duration ?? 0));
     setInviteEmailMap({});
     setMeetingDuration(duration ?? 0);
     setShowMeetingForm(true);
@@ -299,7 +299,7 @@ export default function CalendarPage() {
       const nextContactIds = linked.meeting_contacts.map(mc => mc.contact_id);
       setFormData(nextForm);
       setSelectedContactIds(nextContactIds);
-      setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds));
+      setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds, meetingDuration));
     } else {
       const start = new Date(event.start_at);
       const end = new Date(event.end_at);
@@ -315,7 +315,7 @@ export default function CalendarPage() {
       const nextContactIds = event.contact_id ? [event.contact_id] : [];
       setFormData(nextForm);
       setSelectedContactIds(nextContactIds);
-      setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds));
+      setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds, meetingDuration));
       setMeetingDuration(Math.round((end.getTime() - start.getTime()) / 60000));
     }
     setContactSearch(""); setInviteEmailMap({});
@@ -335,7 +335,7 @@ export default function CalendarPage() {
   const hasUnsavedMeetingChanges =
     !savingMeeting &&
     pristineMeetingForm !== null &&
-    pristineMeetingForm !== serializeMeetingForm(formData, selectedContactIds);
+    pristineMeetingForm !== serializeMeetingForm(formData, selectedContactIds, meetingDuration);
 
   const handleDeleteEvent = async (event: CalendarEvent) => {
     if (!(await confirm({

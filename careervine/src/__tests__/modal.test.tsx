@@ -687,3 +687,119 @@ describe("DialogSurface", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
+
+/**
+ * Regressions found by the CAR-197 deep review. Each of these was a real defect in
+ * the first cut of this branch, so each test below is written to fail against it.
+ */
+describe("CAR-197 review fixes", () => {
+  /**
+   * Dialogs do not always unmount in the order they opened. Compose closes on a 1.5s
+   * timer after the guided-onboarding finale has mounted over it, and the trap's
+   * restore threw focus onto a page control behind the finale's scrim — outside the
+   * surviving dialog's surface, where its trap (a handler ON that surface) stops
+   * intercepting Tab entirely.
+   */
+  it("does not pull focus out of a dialog that is still open above it", () => {
+    function Stack({ under, over }: { under: boolean; over: boolean }) {
+      return (
+        <>
+          <button type="button">page control</button>
+          {under && (
+            <DialogSurface isOpen onClose={vi.fn()} label="Under">
+              <button type="button">under control</button>
+            </DialogSurface>
+          )}
+          {over && (
+            <DialogSurface isOpen onClose={vi.fn()} label="Over">
+              <button type="button">over control</button>
+            </DialogSurface>
+          )}
+        </>
+      );
+    }
+
+    const { rerender } = render(<Stack under={false} over={false} />);
+    screen.getByText("page control").focus();
+
+    rerender(<Stack under over={false} />);
+    rerender(<Stack under over />);
+    expect(document.activeElement).toBe(screen.getByText("over control"));
+
+    // The lower dialog closes while the upper one is still up.
+    rerender(<Stack under={false} over />);
+
+    expect(document.activeElement).toBe(screen.getByText("over control"));
+    expect(document.activeElement).not.toBe(screen.getByText("page control"));
+  });
+
+  it("still restores focus when the dialog closing IS the topmost one", () => {
+    // The veto above must not disarm the ordinary case, including a dialog closing
+    // over another that stays open.
+    function Stack({ over }: { over: boolean }) {
+      return (
+        <DialogSurface isOpen onClose={vi.fn()} label="Under">
+          <button type="button">under control</button>
+          {over && (
+            <DialogSurface isOpen onClose={vi.fn()} label="Over">
+              <button type="button">over control</button>
+            </DialogSurface>
+          )}
+        </DialogSurface>
+      );
+    }
+
+    const { rerender } = render(<Stack over={false} />);
+    const trigger = screen.getByText("under control");
+    trigger.focus();
+
+    rerender(<Stack over />);
+    expect(document.activeElement).toBe(screen.getByText("over control"));
+
+    rerender(<Stack over={false} />);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  /**
+   * `dismissible` governs the AMBIENT gestures — scrim and Escape on the surface.
+   * Dismissing the surface's own discard confirmation is not one of those, and gating
+   * it too left that confirmation un-Escapable.
+   */
+  it("lets Escape close the discard confirmation even on a non-dismissible surface", () => {
+    const onClose = vi.fn();
+    function Skip() {
+      const dismiss = useModalDismiss();
+      return <button type="button" onClick={dismiss}>Skip</button>;
+    }
+    render(
+      <DialogSurface isOpen dismissible={false} onClose={onClose} label="Guided onboarding" hasUnsavedChanges>
+        <Skip />
+      </DialogSurface>,
+    );
+
+    fireEvent.click(screen.getByText("Skip"));
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    // ...and Escape still must not close the non-dismissible surface itself.
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("keeps an inert subtree out of the tab cycle, so nothing focuses a hidden control", () => {
+    // The onboarding finale holds its content at opacity 0 for four seconds.
+    // `tabbableWithin` ignores opacity by design, so the trap focused a button the
+    // user could not see; `inert` is the gate it does honour.
+    render(
+      <DialogSurface isOpen onClose={vi.fn()} label="Finale">
+        <div inert>
+          <button type="button">not yet visible</button>
+        </div>
+      </DialogSurface>,
+    );
+
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    expect(document.activeElement).not.toBe(screen.getByText("not yet visible"));
+  });
+});

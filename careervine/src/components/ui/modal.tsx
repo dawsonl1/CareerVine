@@ -53,6 +53,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { X } from "lucide-react";
@@ -132,8 +133,27 @@ function tabbableWithin(root: HTMLElement): HTMLElement[] {
  * landing focus somewhere real leaves it on `<body>`, and since the trap is a
  * keydown handler *on the surface*, focus outside the surface means the trap
  * silently stops running and Tab walks straight out of the dialog.
+ *
+ * `shouldRestoreFocus` is optional and vetoes the restore. Dialogs do not always
+ * unmount in the order they opened: compose closes on a 1.5s timer after the guided
+ * onboarding finale has already mounted over it, and restoring focus there threw the
+ * user onto a company-page button behind an `aria-modal` dialog — outside the
+ * finale's surface, so its trap (a handler *on* that surface) stopped intercepting
+ * Tab and could not recapture it. A layer that closes UNDER a surviving one must
+ * leave focus where the survivor put it (CAR-197 review).
+ *
+ * It is a predicate rather than a boolean because the answer is only knowable at
+ * cleanup time, and it cannot be "am I topmost": `useDialogLayer` is declared first
+ * in `DialogSurface`, so by the time this cleanup runs the layer has already
+ * deregistered itself and every closing dialog would report "not topmost". See the
+ * depth comparison at the call site. Omitted by `ConfirmDiscardDialog`, which
+ * deliberately registers no layer at all and must always hand focus back.
  */
-export function useFocusTrap(active: boolean, returnFocusFallback?: HTMLElement | null) {
+export function useFocusTrap(
+  active: boolean,
+  returnFocusFallback?: HTMLElement | null,
+  shouldRestoreFocus?: () => boolean,
+) {
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -166,13 +186,18 @@ export function useFocusTrap(active: boolean, returnFocusFallback?: HTMLElement 
       // option as its `previouslyFocused`, and that option is gone by the time it
       // closes, so without this focus would land nowhere inside a modal that is
       // still open.
+      //
+      // Asked at cleanup time, not effect time: whether a layer opened above this one
+      // is only knowable now. See the note on `shouldRestoreFocus` above.
+      if (shouldRestoreFocus && !shouldRestoreFocus()) return;
+
       if (previouslyFocused?.isConnected && previouslyFocused !== document.body) {
         previouslyFocused.focus();
       } else if (returnFocusFallback?.isConnected) {
         (tabbableWithin(returnFocusFallback)[0] ?? returnFocusFallback).focus();
       }
     };
-  }, [active, surface, returnFocusFallback]);
+  }, [active, surface, returnFocusFallback, shouldRestoreFocus]);
 
   const onKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab") return;
@@ -236,7 +261,11 @@ let overflowBeforeLock = "";
  * A dialog rendered *inside* another as its own confirmation step should not register
  * — see the note on `ConfirmDiscardDialog`.
  */
-export function useDialogLayer(active: boolean): () => boolean {
+export function useDialogLayer(
+  active: boolean,
+  /** Written with this layer's 1-based position on push, for the focus-restore veto. */
+  depthRef?: { current: number },
+): () => boolean {
   const [id] = useState(() => Symbol("dialog-layer"));
 
   useEffect(() => {
@@ -247,13 +276,14 @@ export function useDialogLayer(active: boolean): () => boolean {
       document.body.style.overflow = "hidden";
     }
     layerStack.push(id);
+    if (depthRef) depthRef.current = layerStack.length;
 
     return () => {
       const at = layerStack.lastIndexOf(id);
       if (at !== -1) layerStack.splice(at, 1);
       if (layerStack.length === 0) document.body.style.overflow = overflowBeforeLock;
     };
-  }, [active, id]);
+  }, [active, id, depthRef]);
 
   return useCallback(() => layerStack[layerStack.length - 1] === id, [id]);
 }
@@ -480,8 +510,19 @@ export function DialogSurface({
   testId,
 }: DialogSurfaceProps) {
   const [showConfirm, setShowConfirm] = useState(false);
-  const { surfaceRef, surface, onKeyDown } = useFocusTrap(isOpen);
-  const isTopLayer = useDialogLayer(isOpen);
+  /** This layer's position in the stack, captured on open. */
+  const layerDepth = useRef(0);
+  const isTopLayer = useDialogLayer(isOpen, layerDepth);
+  /**
+   * Restore focus only if nothing that opened ABOVE this dialog is still up. The
+   * layer has already deregistered by the time the trap's cleanup runs (its effect is
+   * declared first), so the surviving stack is shorter than this layer's own depth
+   * exactly when this was the topmost layer. A confirm dialog closing over a modal
+   * (depth 2, stack falls to 1) restores; compose closing under the onboarding finale
+   * (depth 1, stack stays at 1) does not.
+   */
+  const shouldRestoreFocus = useCallback(() => layerStack.length < layerDepth.current, []);
+  const { surfaceRef, surface, onKeyDown } = useFocusTrap(isOpen, undefined, shouldRestoreFocus);
 
   const attemptClose = useCallback(() => {
     if (hasUnsavedChanges) {
@@ -504,16 +545,19 @@ export function DialogSurface({
   // The scroll lock lives in useDialogLayer above, not here: it belongs to the stack
   // as a whole, and releasing it per-modal unlocked the page under anything still open.
   useEffect(() => {
-    if (!isOpen || !dismissible) return;
+    if (!isOpen) return;
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       // Read now, not when this listener was attached — another layer may have opened
       // above this one since, and it owns the key until it closes.
       if (!isTopLayer()) return;
+      // `dismissible` gates the AMBIENT gesture only. Dismissing this surface's own
+      // confirmation is not a gesture on the surface, so gating it too would have left
+      // a non-dismissible dialog's discard prompt un-Escapable (CAR-197 review).
       if (showConfirm) {
         setShowConfirm(false);
-      } else {
+      } else if (dismissible) {
         attemptClose();
       }
     };

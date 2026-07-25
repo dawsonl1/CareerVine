@@ -18,9 +18,13 @@ interface PortalDropdownOptions {
  * Callers must portal into the returned `portalContainer`, falling back to
  * `document.body` (CAR-198). Portalling to the body unconditionally puts the
  * dropdown outside the focus trap of any enclosing Modal, which leaves it
- * keyboard-unreachable while looking perfectly correct on screen. None of the
- * current consumers is rendered inside a Modal, so this is a trap being closed
- * before anyone falls into it rather than a live fix.
+ * keyboard-unreachable while looking perfectly correct on screen. That was
+ * anticipatory when CAR-198 wrote it and is load-bearing now: CAR-197 migrated
+ * every dialog in the app onto modal.tsx, so ten DatePicker/TimePicker instances
+ * across six files (compose, the conversation modal and its action-items section,
+ * calendar, action-items, contact-actions-tab) render inside a DialogSurface and
+ * get a real container back. Deleting the fallback would make each of them
+ * keyboard-unreachable inside its dialog, and nothing tests those call sites.
  */
 export function usePortalDropdown(
   containerRef: RefObject<HTMLElement | null>,

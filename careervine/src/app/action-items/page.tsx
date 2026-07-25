@@ -846,7 +846,7 @@ export default function ActionItemsPage() {
                 onChange={(e) => setNewTitle(e.target.value)}
                 className={inputClasses}
                 placeholder="Follow up about..."
-                autoFocus
+                data-autofocus
               />
             </div>
             <div>
@@ -941,7 +941,7 @@ export default function ActionItemsPage() {
                 onChange={(e) => setEditTitle(e.target.value)}
                 className={inputClasses}
                 placeholder="Follow up about..."
-                autoFocus
+                data-autofocus
               />
             </div>
             <div>

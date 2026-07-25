@@ -349,7 +349,7 @@ only, never a rejected promise in a handler; that is the contract above.
   comment, and every `Modal`/`DialogSurface` call site must pass a name. It also
   asserts that every occurrence of the overlay class is one the scanner can *see*, so
   a class assembled in a const fails loudly rather than slipping past a guard that
-  only reads `className` attributes. Two more rules have behavior coverage without an
+  only reads `className` attributes. Three more rules have behavior coverage without an
   adoption check: `modal.test.tsx` covers the focus trap, the `data-autofocus` marker
   and dialog semantics for both layers, `careervine/src/__tests__/dialog-layer.test.tsx`
   covers the layer stack (topmost-only Escape, shared scroll lock, and the
