@@ -18,10 +18,9 @@ vi.mock("@googleapis/gmail", () => ({
   gmail: () => ({}),
 }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({}),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => ({})));
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { getAuthUrl, deriveGrantedScopeFlags } from "@/lib/gmail";
 
 describe("getAuthUrl scope sets (CAR-102)", () => {

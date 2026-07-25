@@ -5,19 +5,17 @@ const mockFrom = vi.fn();
 const mockRpc = vi.fn().mockResolvedValue({ error: null });
 const mockServiceClient = { from: mockFrom, rpc: mockRpc };
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => mockServiceClient),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => mockServiceClient));
 
 vi.mock("@/lib/crypto", () => ({
   decryptSecret: vi.fn((value: string) => value.replace("enc:", "")),
   CryptoError: class CryptoError extends Error {},
 }));
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule());
 
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import * as openaiModule from "@/lib/openai";
 import { AiUnavailableError, AI_TRIAL_DURATION_MS } from "@/lib/openai";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";

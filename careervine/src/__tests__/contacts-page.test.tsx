@@ -28,17 +28,15 @@ const q = vi.hoisted(() => ({
 
 vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <nav /> }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("@/components/auth-provider", () => {
-  const user = { id: "u-1" };
-  return { useAuth: () => ({ user }) };
-});
-vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), toast: vi.fn(), dismiss: vi.fn() }),
-}));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
+vi.mock("@/components/ui/toast", () => mockToastModule());
 vi.mock("@/lib/company-queries", () => ({ promoteContactToProspect: vi.fn(), demoteContactToBench: vi.fn() }));
-vi.mock("@/lib/analytics/client", () => ({ track: vi.fn() }));
+vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule());
 vi.mock("@/lib/queries", () => q);
 
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
+import { mockToastModule } from "./helpers/mock-toast";
 import ContactsPage from "@/app/contacts/page";
 
 beforeEach(() => {

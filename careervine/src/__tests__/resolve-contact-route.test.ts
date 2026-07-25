@@ -7,19 +7,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * survive or the eq match silently breaks).
  */
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn().mockResolvedValue({
-    auth: {
-      getUser: vi
-        .fn()
-        .mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }),
-    },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => ({ id: "user-1" }) }));
 
 const orCalls: string[] = [];
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => {
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test chainable stub
     const builder: any = {
       _table: "",
@@ -52,9 +44,10 @@ vi.mock("@/lib/supabase/service-client", () => ({
       },
     };
     return builder;
-  },
-}));
+  }),
+);
 
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 import { GET } from "@/app/api/gmail/ai-write/resolve-contact/route";
 
 function makeReq(email: string) {

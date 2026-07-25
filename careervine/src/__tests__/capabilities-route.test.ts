@@ -3,18 +3,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 /** CAR-103: GET /api/capabilities ships the server-resolved capability set. */
 
 const resolveCapabilitiesMock = vi.fn();
-let authedUser: Record<string, unknown> | null = { id: "u-1", app_metadata: {} };
+let authedUser: FakeAuthUser | null = { id: "u-1", app_metadata: {} };
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
 vi.mock("@/lib/capabilities", () => ({
   resolveCapabilities: (...args: unknown[]) => resolveCapabilitiesMock(...args),
 }));
 
+import { mockServerClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { GET } from "@/app/api/capabilities/route";
 
 function makeRequest() {

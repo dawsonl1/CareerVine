@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { signUnsubscribeToken } from "@/lib/notify/tokens";
 
 /**
@@ -10,8 +11,8 @@ import { signUnsubscribeToken } from "@/lib/notify/tokens";
 const updates: { patch: Record<string, unknown>; id: unknown }[] = [];
 let updateError: unknown = null;
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       let capturedPatch: Record<string, unknown> = {};
       const b: Record<string, unknown> = {
@@ -26,8 +27,8 @@ vi.mock("@/lib/supabase/service-client", () => ({
       };
       return b;
     },
-  }),
-}));
+  })),
+);
 
 import { GET, POST } from "@/app/api/notifications/unsubscribe/route";
 

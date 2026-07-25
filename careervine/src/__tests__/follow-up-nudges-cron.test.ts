@@ -26,9 +26,7 @@ vi.mock("@/lib/notify/email", () => ({
 vi.mock("@/lib/notify/tokens", () => ({
   signUnsubscribeToken: (uid: string) => `${uid}.tok`,
 }));
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: async () => {},
-}));
+vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule({ trackServer: async () => {} }));
 
 // ── In-memory table engine ───────────────────────────────────────────────
 type Row = Record<string, unknown>;
@@ -97,10 +95,10 @@ function makeClient() {
   };
 }
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => makeClient(),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => makeClient()));
 
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/cron/follow-up-nudges/route";
 
 const DAY = 24 * 60 * 60 * 1000;

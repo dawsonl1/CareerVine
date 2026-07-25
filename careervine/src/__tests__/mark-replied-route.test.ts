@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * fires reply_received exactly once (idempotent on that row).
  */
 
-let authedUser: Record<string, unknown> | null = { id: "u-1" };
+let authedUser: FakeAuthUser | null = { id: "u-1" };
 const state: {
   outbound: { ai_assisted?: boolean; matched_contact_id?: number | null } | null;
   inbound: unknown;
@@ -21,22 +21,18 @@ const state: {
 const activateSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
 const trackSpy = vi.fn<(...a: unknown[]) => Promise<void>>(async () => {});
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
 vi.mock("@/lib/gmail", () => ({
   activateContactByEmail: (...a: unknown[]) => activateSpy(...a),
 }));
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: (...a: unknown[]) => trackSpy(...a),
-}));
+vi.mock("@/lib/analytics/server", () =>
+  mockAnalyticsServerModule({ trackServer: (...a: unknown[]) => trackSpy(...a) }),
+);
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: (table: string) => {
       let selectStr = "";
       let direction = "";
@@ -94,8 +90,10 @@ vi.mock("@/lib/supabase/service-client", () => ({
       return b;
     },
   })),
-}));
+);
 
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/gmail/follow-ups/mark-replied/route";
 
 function makeRequest(body: unknown) {

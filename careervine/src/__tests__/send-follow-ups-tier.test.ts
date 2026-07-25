@@ -68,8 +68,8 @@ vi.mock("@/lib/email-send", () => ({
   },
 }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: (table: string) => {
       let mode: "read" | "update" = "read";
       let isCount = false;
@@ -119,9 +119,10 @@ vi.mock("@/lib/supabase/service-client", () => ({
       };
       return b;
     },
-  }),
-}));
+  })),
+);
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/cron/send-follow-ups/route";
 // Resolves to the mocked class above, so `instanceof` inside the route matches.
 import { SendPolicyError } from "@/lib/email-send";

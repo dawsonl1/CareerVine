@@ -6,7 +6,7 @@ import { NextRequest } from "next/server";
  * expired) and preserve awaiting_review when send_after_days is unchanged.
  */
 
-let authedUser: Record<string, unknown> | null = { id: "u-1" };
+let authedUser: FakeAuthUser | null = { id: "u-1" };
 
 const inserts: unknown[] = [];
 const deletes: { statusIn?: unknown }[] = [];
@@ -19,14 +19,10 @@ let followUpRow: Record<string, unknown> | null = {
 let priorOpen: Record<string, unknown>[] = [];
 let sentCount = 0;
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: (table: string) => {
       const state: {
         op: "select" | "delete" | "insert" | "update" | null;
@@ -82,8 +78,9 @@ vi.mock("@/lib/supabase/service-client", () => ({
       return b;
     },
   })),
-}));
+);
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { PUT } from "@/app/api/gmail/follow-ups/[id]/route";
 
 describe("PUT /api/gmail/follow-ups/[id] (CAR-125)", () => {

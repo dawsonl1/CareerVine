@@ -2,6 +2,9 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup, fireEvent, act } from "@testing-library/react";
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
+import { mockToastModule } from "./helpers/mock-toast";
 import { UI_EVENTS, onUiEvent, emitUiEvent, type UnreadChangedDetail } from "@/lib/ui-events";
 
 /**
@@ -21,26 +24,16 @@ vi.mock("@/components/follow-up-modal", () => ({
     isOpen ? <div role="dialog" aria-label="Edit follow-ups" /> : null,
 }));
 // Stable user reference so the load effect doesn't re-run every render.
-vi.mock("@/components/auth-provider", () => {
-  const user = { id: "u-1" };
-  return { useAuth: () => ({ user }) };
-});
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 vi.mock("@/components/compose-email-context", () => ({
   useCompose: () => ({ gmailConnected: true, gmailLoading: false, openCompose }),
 }));
-vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({
-    error: toast.error,
-    success: toast.success,
-    info: vi.fn(),
-    warning: vi.fn(),
-    toast: vi.fn(),
-    dismiss: vi.fn(),
-  }),
-}));
+vi.mock("@/components/ui/toast", () =>
+  mockToastModule(() => ({ error: toast.error, success: toast.success })),
+);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/lib/gmail-sync-client", () => ({ runFullGmailSync: vi.fn(async () => {}) }));
-vi.mock("@/lib/analytics/client", () => ({ trackBeforeNavigate: vi.fn() }));
+vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule());
 
 import { InboxShell } from "@/components/email/inbox/inbox-shell";
 

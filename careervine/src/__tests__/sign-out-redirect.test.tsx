@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { AuthProvider, useAuth } from "@/components/auth-provider";
 import { hardNavigate } from "@/lib/hard-navigate";
 
 const { signOutMock } = vi.hoisted(() => ({ signOutMock: vi.fn() }));
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     auth: {
       getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
       onAuthStateChange: vi.fn().mockReturnValue({
@@ -15,10 +17,10 @@ vi.mock("@/lib/supabase/browser-client", () => ({
       }),
       signOut: signOutMock,
     },
-  }),
-}));
+  })),
+);
 
-vi.mock("@/lib/analytics/client", () => ({ track: vi.fn() }));
+vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule());
 vi.mock("@/lib/hard-navigate", () => ({ hardNavigate: vi.fn() }));
 
 function SignOutConsumer() {

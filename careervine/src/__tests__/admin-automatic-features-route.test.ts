@@ -6,27 +6,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * write on success.
  */
 
-let authedUser: Record<string, unknown> | null = { id: "admin-1", app_metadata: { role: "admin" } };
+let authedUser: FakeAuthUser | null = { id: "admin-1", app_metadata: { role: "admin" } };
 let updateResult: { count: number | null; error: unknown } = { count: 1, error: null };
 const writeAuditMock = vi.fn();
 const eqMock = vi.fn(() => Promise.resolve(updateResult));
 const updateMock = vi.fn(() => ({ eq: eqMock }));
 const fromMock = vi.fn(() => ({ update: updateMock }));
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({ from: fromMock })),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => ({ from: fromMock })));
 
 vi.mock("@/lib/admin", () => ({
   writeAudit: (...args: unknown[]) => writeAuditMock(...args),
 }));
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { PATCH } from "@/app/api/admin/users/[id]/automatic-features/route";
 
 function makeRequest(body: unknown) {

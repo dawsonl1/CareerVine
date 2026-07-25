@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import ResetPasswordPage from "@/app/reset-password/page";
 
 /**
@@ -13,14 +14,14 @@ import ResetPasswordPage from "@/app/reset-password/page";
 const getSessionMock = vi.fn();
 const updateUserMock = vi.fn();
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     auth: {
       getSession: (...args: unknown[]) => getSessionMock(...args),
       updateUser: (...args: unknown[]) => updateUserMock(...args),
     },
-  }),
-}));
+  })),
+);
 
 beforeEach(() => {
   vi.clearAllMocks();

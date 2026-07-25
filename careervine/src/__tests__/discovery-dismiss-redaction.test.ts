@@ -6,17 +6,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * identity tombstone that makes the dismiss sticky.
  */
 
-let authedUser: Record<string, unknown> = { id: "user-1", app_metadata: {} };
+let authedUser: FakeAuthUser = { id: "user-1", app_metadata: {} };
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
 const updateSpy = vi.fn();
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       const chain: Record<string, unknown> = {};
       (chain as { then: unknown }).then = (resolve: (v: unknown) => unknown) =>
@@ -29,8 +25,9 @@ vi.mock("@/lib/supabase/service-client", () => ({
       return chain;
     },
   })),
-}));
+);
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/discovery/candidates/[id]/dismiss/route";
 
 function makeRequest() {

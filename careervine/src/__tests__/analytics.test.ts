@@ -10,9 +10,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const insertMock = vi.fn();
 const fromMock = vi.fn(() => ({ insert: insertMock }));
 const rpcMock = vi.fn();
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({ from: fromMock, rpc: rpcMock }),
-}));
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({ from: fromMock, rpc: rpcMock })),
+);
 
 // posthog-node — capture $set assertions (CAR-58 person-state properties).
 const captureMock = vi.fn();
@@ -24,6 +24,7 @@ vi.mock("posthog-node", () => ({
   },
 }));
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { MIRRORED_EVENTS, MILESTONE_THRESHOLDS } from "@/lib/analytics/events";
 import { editRatio } from "@/lib/analytics/edit-ratio";
 import { isInternalUser, _resetInternalUsersForTests } from "@/lib/analytics/internal";

@@ -3,11 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFrom = vi.fn();
 const mockServiceClient = { from: mockFrom };
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => mockServiceClient),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => mockServiceClient));
 
 import { NextRequest } from "next/server";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/admin/ai-access/route";
 
 const TOKEN = "admin-secret";

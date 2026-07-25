@@ -27,6 +27,7 @@ import { InboxSidebar, InboxMobileTabs } from "./inbox-nav";
 import { useInboxFilters } from "./use-inbox-filters";
 import { useInboxData } from "./use-inbox-data";
 import { LoadErrorState, LoadErrorBanner } from "@/components/ui/load-error-state";
+import { SectionBoundary } from "@/components/ui/section-boundary";
 import type { FollowUpModalPayload, SidebarItem, SidebarTab } from "./inbox-types";
 
 // ── Inbox shell (the premium paid experience; selected by EmailExperience, CAR-103) ──
@@ -592,7 +593,24 @@ export function InboxShell() {
                 <span className="text-base">Loading inbox…</span>
               </div>
             ) : (
-              <>
+              /* One tab panel throwing must not blank the whole inbox (CAR-184).
+                 Keyed by activeTab because the boundary self-clears on pathname
+                 change and switching tabs is same-route state, so without the key
+                 a tripped Drafts panel would keep showing the error after the
+                 user switched back to Inbox.
+
+                 onReset re-asserts the spinner before re-fetching, the same
+                 closure the LoadErrorState retry above uses. That matters twice:
+                 it makes "Try again" actually re-fetch, and because `loading`
+                 gates this whole branch, setting it unmounts the boundary and so
+                 discards a stale error once good data lands. loadInbox alone
+                 would not (it deliberately never sets loading=true), which is
+                 what would otherwise leave the panel stuck after a Sync. */
+              <SectionBoundary
+                key={activeTab}
+                label={`inbox-tab:${activeTab}`}
+                onReset={() => { setLoading(true); void loadInbox(); }}
+              >
                 {activeTab === "inbox" && <ThreadListTab threads={filteredInboxThreads} tabCtx="inbox" {...threadListProps} />}
                 {activeTab === "sent" && <ThreadListTab threads={filteredSentThreads} tabCtx="sent" {...threadListProps} />}
                 {activeTab === "trash" && <ThreadListTab threads={filteredTrashThreads} tabCtx="trash" {...threadListProps} />}
@@ -622,7 +640,7 @@ export function InboxShell() {
                     formatDateFull={formatDateFull}
                   />
                 )}
-              </>
+              </SectionBoundary>
             )}
           </div>
         </div>

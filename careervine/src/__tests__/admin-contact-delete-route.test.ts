@@ -9,23 +9,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFrom = vi.fn();
 const mockServiceClient = { from: mockFrom };
 
-let authedUser: Record<string, unknown> = {
+let authedUser: FakeAuthUser = {
   id: "admin-1",
   email: "admin@example.com",
   app_metadata: { role: "admin" },
 };
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: {
-      getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })),
-    },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => mockServiceClient),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => mockServiceClient));
 
 vi.mock("@/lib/admin", () => ({
   writeAudit: vi.fn(),
@@ -36,6 +28,7 @@ vi.mock("@/lib/contact-photo-cleanup", () => ({
   cleanupContactPhoto,
 }));
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { DELETE } from "@/app/api/admin/users/[id]/contacts/[contactId]/route";
 
 const CONTACT = {

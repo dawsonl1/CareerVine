@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import { mockSupabaseConfigModule } from "../../__tests__/helpers/mock-supabase";
 
-vi.mock("@/lib/supabase/config", () => ({
-  getSupabaseEnv: () => ({ url: "https://test.supabase.co" }),
-}));
+vi.mock("@/lib/supabase/config", () => mockSupabaseConfigModule({ url: "https://test.supabase.co" }));
 
 import { getAppOrigin, getMcpResourceUrl, getSupabaseAuthIssuer } from "../auth-config";
 

@@ -86,8 +86,13 @@ const appEnv: Record<string, string> = {
   QSTASH_TOKEN: "placeholder",
   QSTASH_CURRENT_SIGNING_KEY: "sig_placeholder",
   QSTASH_NEXT_SIGNING_KEY: "sig_placeholder",
-  UPSTASH_REDIS_REST_URL: "http://127.0.0.1:59998",
-  UPSTASH_REDIS_REST_TOKEN: "placeholder",
+  // UPSTASH_REDIS_REST_{URL,TOKEN} are deliberately ABSENT, not placeholders.
+  // `src/lib/rate-limit.ts` degrades to allow-all when they are unset, which is
+  // exactly what this tier wants; pointing them at a placeholder instead builds
+  // a live Redis client that then throws `TypeError: fetch failed` on every
+  // limited route. A loopback placeholder is worse still — loopback is what the
+  // stub layer passes through, so a dead local port bypasses deny-by-default
+  // and fails as a connection error rather than a named DENIED line.
   BYOK_ENCRYPTION_KEY: PLACEHOLDER_ENCRYPTION_KEY,
   BUNDLE_ADMIN_TOKEN: "placeholder",
   R2_ACCOUNT_ID: "placeholder",
