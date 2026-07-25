@@ -407,12 +407,24 @@ function QuickAddCard({
     return () => document.removeEventListener("keydown", handler);
   }, [onCancel]);
 
+  // Synchronous re-entry guard, not just `disabled={saving}` (CAR-190). The
+  // title input fires this on every Enter keydown, which the disabled button
+  // cannot gate and which key repeat delivers many of; /api/calendar/create-event
+  // takes no idempotency key, so each extra call created a distinct Google
+  // Calendar event, a distinct cache row, and a distinct Meet link to delete by
+  // hand. `saving` is state, so it is not set until after the next render.
+  const savingRef = useRef(false);
+
   const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError("");
     try {
       await onSave(title || "(No title)", addMeet);
     } catch {
+      // Only the failure path re-arms: on success the popover unmounts.
+      savingRef.current = false;
       setError("Failed to create event");
       setSaving(false);
     }
@@ -608,21 +620,35 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
     };
   }, [dragState, startHour]);
 
+  // The POST chokepoint gets its own guard as well as the popover's (CAR-190):
+  // this is the call that creates the Google event, so it is the one place a
+  // second entry from any future caller must not get through.
+  const creatingRef = useRef(false);
+
   const handleSaveNewEvent = useCallback(async (title: string, addMeet: boolean) => {
     if (!newEventDraft) return;
+    if (creatingRef.current) return;
+    creatingRef.current = true;
     const today = new Date();
     const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const startMs = startDate.getTime() + newEventDraft.startHour * 60 * 60 * 1000;
     const endMs = startDate.getTime() + newEventDraft.endHour * 60 * 60 * 1000;
 
-    await apiSend("/api/calendar/create-event", jsonBody({
-      summary: title,
-      startTime: new Date(startMs).toISOString(),
-      endTime: new Date(endMs).toISOString(),
-      conferenceType: addMeet ? "meet" : "none",
-    }));
-    setNewEventDraft(null);
-    onEventCreated?.();
+    try {
+      await apiSend("/api/calendar/create-event", jsonBody({
+        summary: title,
+        startTime: new Date(startMs).toISOString(),
+        endTime: new Date(endMs).toISOString(),
+        conferenceType: addMeet ? "meet" : "none",
+      }));
+      setNewEventDraft(null);
+      onEventCreated?.();
+    } finally {
+      // Re-arm even on success: apiSend throws on a non-2xx and the popover
+      // catches it to offer a retry, so a guard that stayed latched would make
+      // that retry a no-op. On success the popover has already unmounted.
+      creatingRef.current = false;
+    }
   }, [newEventDraft, onEventCreated]);
 
   if (loading) {

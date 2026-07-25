@@ -31,6 +31,15 @@ let state: StoreState = { data: null, loading: true };
 let fetchPromise: Promise<GmailConnectionData | null> | null = null;
 const listeners = new Set<() => void>();
 
+// Monotonic request id: the store's `useLatestRequest` equivalent (CAR-190).
+// `fetchPromise` alone does not order anything, because refresh() and
+// invalidateGmailConnectionCache() both null it *before* the request they
+// supersede has resolved — so two responses can be live against one store with
+// nothing to say which is newer. The onboarding poll refreshes every 3s, and a
+// stale `connection: null` landing after a connected one flipped the whole app
+// back to "Connect Gmail" for a poll interval.
+let requestSeq = 0;
+
 function getSnapshot(): StoreState {
   return state;
 }
@@ -47,21 +56,31 @@ function setState(patch: Partial<StoreState>) {
 
 function fetchConnection(): Promise<GmailConnectionData | null> {
   if (fetchPromise) return fetchPromise;
-  fetchPromise = apiFetch<{ connection?: GmailConnectionData | null }>("/api/gmail/connection")
+  const seq = ++requestSeq;
+  const pending: Promise<GmailConnectionData | null> = apiFetch<{
+    connection?: GmailConnectionData | null;
+  }>("/api/gmail/connection")
     .then((data) => {
       const conn = data.connection || null;
-      setState({ data: conn, loading: false });
-      fetchPromise = null;
+      // A superseded response still resolves its own callers, it just does not
+      // write the shared store.
+      if (seq === requestSeq) setState({ data: conn, loading: false });
       return conn;
     })
     .catch(() => {
       // Keep whatever data we already have — a failed background refresh
       // must not make connected integrations flash as disconnected.
-      setState({ loading: false });
-      fetchPromise = null;
+      if (seq === requestSeq) setState({ loading: false });
       return null;
+    })
+    .finally(() => {
+      // Only clear the dedupe handle if it still points at THIS request;
+      // a stale one clearing it would let a third caller start a third fetch
+      // while the newest is still in flight.
+      if (fetchPromise === pending) fetchPromise = null;
     });
-  return fetchPromise;
+  fetchPromise = pending;
+  return pending;
 }
 
 // SSR-safe snapshot (always loading, no data)
@@ -106,6 +125,10 @@ export function useGmailConnection() {
 
 /** Reset the cache (call after disconnect operations) */
 export function invalidateGmailConnectionCache() {
+  // Bump the sequence so any request still in flight cannot write the store
+  // after this point. Without it, a disconnect that races an in-flight refresh
+  // is undone by that refresh's stale "still connected" response.
+  requestSeq += 1;
   fetchPromise = null;
   setState({ data: null, loading: true });
 }

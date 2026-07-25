@@ -163,13 +163,15 @@ permanently erased every email-to-meeting link in it (CAR-175).
 - Enforced: `careervine/src/mcp/__tests__/db-scoping.test.ts` (a new export
   without a classification entry fails), `careervine/src/__tests__/contact-write-chokepoint.test.ts`,
   the `no-restricted-imports` fences in `careervine/eslint.config.mjs`, and
-  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), whose four
+  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), whose five
   data-layer checks cover what tsc and eslint cannot express: the barrel freeze,
   no module-scope Supabase client under `careervine/src/lib/data` or
-  `careervine/src/lib/rules`, the CAS readback shape, and raw query-builder
-  growth in the MCP db module. (It carries two further checks, on MCP launch
-  flags and on test mocks; see sections g and h.) Its
-  escape hatches
+  `careervine/src/lib/rules`, the CAS readback shape, unchecked `const { data }`
+  reads, and raw query-builder growth in the MCP db module. (The script carries
+  twelve checks in total: two further ones on MCP launch flags and test mocks,
+  see sections g and h, and five client-state ones, see section f. CAR-190
+  corrected a long-standing "four" here and in its own ticket description.) Its
+  data-layer escape hatches
   both demand a written reason: `// cas-checked:` and `// error-tolerated:`.
   The app-owned-column rule is enforced by
   `careervine/src/__tests__/migration-destructive-guard.test.ts` (authoritative
@@ -261,7 +263,9 @@ and traps separately. Read the file header before extending it: the tabbable
 filter deliberately avoids layout checks, because jsdom has no layout and the
 usual `offsetParent` filter disarms the trap under test while still reading as
 correct. Adoption is currently even with hand-rolled dialogs, so this rule is
-forward-looking rather than descriptive.
+forward-looking rather than descriptive; the CI ratchet on `fixed inset-0`
+without a dialog role (see Enforced, below) is what keeps the hand-rolled side
+from growing while CAR-197 migrates the 12 that exist.
 
 Two things a modal child must use rather than hand-roll (CAR-198). A child that
 portals — a dropdown menu, a popover — portals to `useModalPortalContainer() ??
@@ -327,32 +331,63 @@ only, never a rejected promise in a handler; that is the contract above.
   `careervine/src/components/ui/confirm-dialog.tsx`,
   `careervine/src/lib/api-client.ts`, and
   `careervine/src/components/ui/section-boundary.tsx` (headers)
-- Enforced: two rules have their *adoption* mechanically checked.
-  `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw event-name
-  prefix outside the module, and `careervine/src/__tests__/select-aria-label.test.ts`
-  scans source and fails on any `<Select>` or `<MonthYearPicker>` call site with no
-  `ariaLabel` — that one is a source scan rather than a render test because a missing
-  accessible name changes nothing on screen and so survives sighted review. Three more
-  have behavior coverage without an adoption check: `modal.test.tsx` covers the focus
+- Enforced (adoption, CI): `careervine/scripts/check-ui-events.mjs` bans the raw
+  event-name prefix outside the module, and
+  `careervine/src/__tests__/select-aria-label.test.ts` scans source and fails on any
+  `<Select>` or `<MonthYearPicker>` call site with no `ariaLabel` — a source scan
+  rather than a render test because a missing accessible name changes nothing on
+  screen and so survives sighted review.
+
+  `careervine/scripts/check-conventions.mjs` adds five more (CAR-190), all scoped to
+  `careervine/src/components` + `careervine/src/hooks` + `careervine/src/app` minus
+  the API routes, where a `fetch` to a third party is the correct call:
+
+  | Rule | Shape it fails on | Escape hatch |
+  | -- | -- | -- |
+  | no raw `fetch(` | a call to `fetch` / `window.fetch` | `// raw-fetch:` |
+  | no native confirm | `window.confirm`, or bare `confirm(` that nothing in the file binds (`useConfirm()` returns one, so binding is what separates the two) | none |
+  | double-submit ref | an async `handle*`/`on*` awaiting a *mutating* seam with no `<x>Ref.current = true` or `.add(…)` claim | ratchet |
+  | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, with no `isLatest` | ratchet |
+  | dialog semantics | a `fixed inset-0` element outside `modal.tsx` with no `role="dialog"` anywhere in its subtree | `// overlay-not-a-dialog:` + ratchet |
+
+  The first two are frozen at zero: CAR-188 cleared the tree, so the first new one
+  fails. The last three ship as **ratchets** over a named baseline (35 handlers, 8
+  reads, 12 overlays) rather than as the warning CAR-190 originally proposed, because
+  a warning exits 0 and that is precisely how CAR-154's helper decayed to 6 files and
+  CAR-158's to 1. A ratchet fails both ways: an offender absent from the baseline
+  fails, and a baselined site that no longer offends fails too, so a fix can never be
+  given back. `careervine/scripts/lib/ratchet.mjs` holds that algebra and its
+  rationale. CAR-197 drains the overlay baseline to zero as it migrates those same 12
+  dialogs.
+
+- Enforced (behavior, no adoption check): `modal.test.tsx` covers the focus
   trap and dialog semantics, `careervine/src/__tests__/dialog-layer.test.tsx` covers
   the layer stack (topmost-only Escape, shared scroll lock, and the nested-confirmation
   exception), and `careervine/src/__tests__/error-boundaries.test.tsx` pins the
   boundary behaviors, including the `notFound()` re-throw that rules out a
   hand-rolled class, plus source tripwires holding the three existing adoption sites
-  to their `key` and `onReset`. Nothing requires a NEW modal to use `modal.tsx`, a NEW
-  dialog to register a layer, or a NEW failure-prone subtree to be wrapped. The
-  remaining two rules have behavior coverage without an adoption check:
-  `careervine/src/__tests__/use-latest-request.test.tsx` pins that the newest
-  request's result survives an older one resolving last, and
+  to their `key` and `onReset`. Nothing requires a NEW dialog to register a layer or a
+  NEW failure-prone subtree to be wrapped. `careervine/src/__tests__/use-latest-request.test.tsx`
+  pins that the newest request's result survives an older one resolving last, and
   `careervine/src/__tests__/compose-modal-send-guards.test.tsx` pins that a
   double-clicked Send dispatches one POST. (CAR-188 rewrote this sentence from
   three rules to two, correctly dropping optimistic-write rollback, but carried
   the "no coverage at all" claim over to two rules that were already covered.)
-- Enforced (mutation contract, CAR-188 + CAR-204): behavior only, not adoption.
-  Zero raw `fetch(` and zero `window.confirm` remain under
-  `careervine/src/components`, `careervine/src/hooks`, and `careervine/src/app`
-  outside the API routes, but nothing yet fails CI when the 1st new one lands:
-  that guard is CAR-190, which this ticket unblocks.
+
+  `careervine/src/__tests__/double-submit-guards.test.tsx` and
+  `careervine/src/__tests__/outreach-detail-race.test.tsx` cover the four live defects
+  CAR-190's audit found while inventorying for those ratchets: two ungated
+  identity-keyed reads (the outreach page raced two `getCompanyDetail` calls and
+  rendered one company's header over another's employees; the Gmail connection store
+  let a stale poll response flip the app back to "Connect Gmail") and two mutation
+  handlers whose only guard was `disabled={saving}` (the schedule popover fired one
+  POST per Enter keydown at a create-event route with no idempotency key, so key
+  repeat produced a row of real Google Calendar events). Note for anyone writing more
+  of these: two successive `fireEvent.click` calls do NOT reproduce a double click,
+  because fireEvent act-wraps each dispatch and the second lands on an
+  already-disabled button. Dispatch both inside one `act()`.
+
+- Enforced (mutation contract, CAR-188 + CAR-204): behavior.
   `careervine/src/__tests__/api-client.test.ts` pins that `jsonBody`'s method
   argument reaches the wire, which ten call sites depend on. `careervine/src/__tests__/confirm-dialog.test.tsx` pins the
   promise contract (every exit path settles, exactly once) and the dialog's

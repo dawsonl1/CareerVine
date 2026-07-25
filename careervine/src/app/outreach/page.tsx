@@ -16,6 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { useCompose } from "@/components/compose-email-context";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 import { PersonModal } from "@/components/companies/person-modal";
 import { getCompanies, getCompanyDetail, type CompanyDetail, type CompanyPerson, type CompanySummary } from "@/lib/company-queries";
 import { buildOutreachQueue } from "@/lib/outreach-queue";
@@ -96,20 +97,41 @@ function OutreachFlow() {
   );
 
   // ── Company detail ──
+  //
+  // Identity-keyed on the company, so it needs the CAR-145 token gate: ←/→ and
+  // the jump Select both change `company` and refire this, and getCompanyDetail
+  // runs three sequential waves that scale with employee count, so the latency
+  // spread between two in-flight companies is structural rather than incidental.
+  // Ungated, the slower response won last and the page rendered company B's
+  // header over company A's employees — and clicking a person there opened a
+  // compose prefilled to someone at the other company (CAR-190).
+  const detailRequest = useLatestRequest();
+
   const loadDetail = useCallback(async () => {
     if (!user || !company) return;
+    const token = detailRequest.begin();
     setDetailLoading(true);
     try {
-      setDetail(await getCompanyDetail(user.id, company.id));
+      const next = await getCompanyDetail(user.id, company.id);
+      if (!detailRequest.isLatest(token)) return;
+      setDetail(next);
     } catch (e) {
+      if (!detailRequest.isLatest(token)) return;
       console.error("Error loading company detail:", e);
     } finally {
-      setDetailLoading(false);
+      // Only the newest request owns the spinner: a superseded one clearing it
+      // would show the previous company's people as though they had finished.
+      if (detailRequest.isLatest(token)) setDetailLoading(false);
     }
-  }, [user, company]);
+  }, [user, company, detailRequest]);
 
   useEffect(() => {
     setFormerOpen(false);
+    // Drop the previous company's people before fetching the new one's. The
+    // render gate below is `detailLoading && !detail`, so leaving them in place
+    // rendered them under the new company's header for the whole fetch on every
+    // navigation after the first.
+    setDetail(null);
     // loadDetail() reports its own failures, so both call sites fire and forget
     void loadDetail();
   }, [loadDetail]);

@@ -128,4 +128,86 @@ describe("useGmailConnection", () => {
     expect(hook.result.current.data).toBeNull();
     expect(hook.result.current.loading).toBe(true);
   });
+
+  // ── Out-of-order responses (CAR-190) ──
+  //
+  // refresh() nulls the dedupe handle BEFORE the request it supersedes has
+  // resolved, so two responses can be live against one shared store. Nothing
+  // ordered them, and the onboarding flow polls this every 3s.
+
+  it("a superseded refresh cannot overwrite a newer one", async () => {
+    const { hook } = await freshHook();
+    await act(async () => fetchCalls[0].resolve(NOT_CONNECTED));
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+
+    let older!: Promise<void>;
+    let newer!: Promise<void>;
+    act(() => {
+      older = hook.result.current.refresh();
+    });
+    act(() => {
+      newer = hook.result.current.refresh();
+    });
+    expect(fetchCalls).toHaveLength(3);
+
+    // The newer request answers first and connects the account.
+    await act(async () => {
+      fetchCalls[2].resolve(CONNECTED);
+      await newer;
+    });
+    expect(hook.result.current.calendarConnected).toBe(true);
+
+    // Then the older one lands, still carrying the pre-connect snapshot. It
+    // used to win, flipping the whole app back to "Connect Gmail" for a poll.
+    await act(async () => {
+      fetchCalls[1].resolve(NOT_CONNECTED);
+      await older;
+    });
+    expect(hook.result.current.calendarConnected).toBe(true);
+  });
+
+  it("a response in flight when the cache is invalidated cannot restore it", async () => {
+    const { mod, hook } = await freshHook();
+    await act(async () => fetchCalls[0].resolve(CONNECTED));
+    await waitFor(() => expect(hook.result.current.calendarConnected).toBe(true));
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = hook.result.current.refresh();
+    });
+    act(() => mod.invalidateGmailConnectionCache());
+    expect(hook.result.current.data).toBeNull();
+
+    // The disconnect raced a refresh that was already on the wire. Letting it
+    // land would undo the disconnect the user just performed.
+    await act(async () => {
+      fetchCalls[1].resolve(CONNECTED);
+      await pending;
+    });
+    expect(hook.result.current.data).toBeNull();
+  });
+
+  it("a stale response does not release the dedupe handle out from under a live one", async () => {
+    // No data yet, so the mount effect's `fetchPromise` check is reachable —
+    // that is the only place the handle is read without first being nulled.
+    const { hook } = await freshHook();
+    expect(fetchCalls).toHaveLength(1);
+
+    // Supersede the initial request before it answers.
+    act(() => {
+      void hook.result.current.refresh();
+    });
+    expect(fetchCalls).toHaveLength(2);
+
+    // Resolve only the STALE one, with a body the seq guard discards, so the
+    // store still holds no data.
+    await act(async () => fetchCalls[0].resolve({ connection: null }));
+    expect(hook.result.current.data).toBeNull();
+
+    // A new consumer mounts while the newer request is still in flight. If the
+    // stale response had cleared the shared handle, this would fire a third
+    // request against an endpoint that already has one outstanding.
+    await freshHook();
+    expect(fetchCalls).toHaveLength(2);
+  });
 });
