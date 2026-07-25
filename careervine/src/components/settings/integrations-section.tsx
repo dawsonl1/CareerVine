@@ -153,7 +153,10 @@ export default function IntegrationsSection() {
 
       {/* Gmail */}
       <Card variant="outlined">
-        <CardContent className="p-7">
+        {/* CAR-191: Gmail and Calendar each render a button named
+            "Disconnect", so role+name is ambiguous across the page. The
+            testid scopes a query to one card; inside it the role is exact. */}
+        <CardContent className="p-7" data-testid="gmail-integration-card">
           <div className="flex items-center gap-3 mb-6">
             <MailCheck className="h-6 w-6 text-muted-foreground" />
             <h2 className="text-lg font-medium text-foreground">Gmail</h2>
@@ -214,7 +217,7 @@ export default function IntegrationsSection() {
 
       {/* Google Calendar */}
       <Card variant="outlined">
-        <CardContent className="p-7">
+        <CardContent className="p-7" data-testid="calendar-integration-card">
           <div className="flex items-center gap-3 mb-6">
             <Calendar className="h-6 w-6 text-muted-foreground" />
             <h2 className="text-lg font-medium text-foreground">Google Calendar</h2>

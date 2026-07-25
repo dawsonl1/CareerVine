@@ -47,8 +47,16 @@ test("opening a thread marks it read and trashing it survives a reload", async (
   const { userId } = tenant();
   const gmailId = uniq("e2e-inbox-msg");
   const subject = uniq("E2E triage");
+  // A second message that this test never touches. It is the positive anchor
+  // for the post-reload absence assertion: without it, "the trashed thread is
+  // gone" is indistinguishable from "the list has not rendered yet".
+  const siblingId = uniq("e2e-inbox-sibling");
 
   await seedInboxMessage(userId, { gmailMessageId: gmailId, subject });
+  await seedInboxMessage(userId, {
+    gmailMessageId: siblingId,
+    subject: uniq("E2E triage sibling"),
+  });
 
   const thread = page.getByTestId(`inbox-thread-${gmailId}`);
 
@@ -85,7 +93,24 @@ test("opening a thread marks it read and trashing it survives a reload", async (
   });
 
   await test.step("and it stays gone after a reload", async () => {
+    // Sequenced on the inbox payload, not on the load event (CAR-191 review).
+    // Both shells are `dynamic(..., { ssr: false })` behind a skeleton and fetch
+    // their own data, so at the instant `reload()` resolves there are ZERO
+    // `inbox-thread-*` nodes — and `toBeHidden()` passes on a locator that
+    // resolves to nothing. The old form could not fail: stripping the
+    // `.eq("is_trashed", false)` filter from /api/gmail/inbox left it green.
+    // Waiting for the response, then for the list to actually paint, is what
+    // makes the absence meaningful.
+    const inboxLoad = page.waitForResponse(
+      (r) => new URL(r.url()).pathname === "/api/gmail/inbox" && r.ok(),
+    );
     await page.reload();
+    await inboxLoad;
+
+    // A positive anchor first: the trashed thread's sibling proves the list
+    // rendered, so the absence below is about THIS row rather than about an
+    // empty page.
+    await expect(page.getByTestId(`inbox-thread-${siblingId}`)).toBeVisible();
     await expect(page.getByTestId(`inbox-thread-${gmailId}`)).toBeHidden();
     expect((await messageRow(gmailId)).is_trashed).toBe(true);
   });
@@ -139,7 +164,14 @@ test("a delayed body response must not overwrite the thread opened after it (CAR
   await expect(body).toBeVisible();
   await expect(body).toHaveAttribute("data-message-id", new RegExp(idB));
 
-  expect(interceptedA, "A's body request was never intercepted, so no race was staged").toBe(1);
+  // Polled, not read once: this observes a cross-process event (the route
+  // handler firing), and a bare `expect` here is a non-retrying read that can
+  // lose to a slow read POST.
+  await expect
+    .poll(() => interceptedA, {
+      message: "A's body request was never intercepted, so no race was staged",
+    })
+    .toBe(1);
 
   // Now let A's response through. This is the moment the bug would fire — and
   // the assertion has to be sequenced AFTER it lands, not merely issued after
@@ -153,9 +185,20 @@ test("a delayed body response must not overwrite the thread opened after it (CAR
   // then for two animation frames, which is when React has committed any state
   // update that response scheduled. Both are real browser events; neither is a
   // guess at a duration, so this stays inside the no-arbitrary-wait rule.
-  const aResponse = page.waitForResponse((r) => r.url().includes(`/api/gmail/emails/${idA}`));
+  // Matched on the exact PATHNAME, not `includes()` (CAR-191 review): the read
+  // POST goes to `/api/gmail/emails/<idA>/read`, which CONTAINS the body URL as
+  // a substring, so the loose predicate could resolve on the wrong response. It
+  // happens to be safe today only because of an ordering coincidence two lines
+  // up — exactly the kind of thing that silently reverts this to
+  // green-for-the-wrong-reason on a future edit.
+  const aResponse = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === `/api/gmail/emails/${idA}`,
+  );
   releaseA();
-  await aResponse;
+  // `.finished()` as well as the response: `waitForResponse` resolves on
+  // headers, and the overwrite this guards against happens after the BODY is
+  // read and parsed.
+  await (await aResponse).finished();
   await page.evaluate(
     () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
   );

@@ -25,8 +25,11 @@
  * ── Why this file mints its own tenant ────────────────────────────────────
  *
  * The shared tenant is PREMIUM: `seedGmailConnection` sets
- * `modify_scope_granted`, and `resolve.ts` fails open to premium when
- * `premium_enabled` is null. A free session cannot be borrowed from it, so this
+ * `modify_scope_granted`, and `premium_enabled` is `NOT NULL DEFAULT true`
+ * (migration 20260712030000), so a connection that does not set it explicitly is
+ * premium. (`resolve.ts` also has a `?? true`, but the column can never hold
+ * null, so that branch never fires for an existing row — the DEFAULT is the real
+ * mechanism.) A free session cannot be borrowed from it, so this
  * file provisions its own and signs in the same way `auth.setup.ts` does — by
  * navigating the app's real `/auth/confirm` route with a service-role token.
  * Note this is NOT the suite's convention (the harness deliberately runs one
@@ -74,9 +77,13 @@ test("a free account gets the Outreach experience, not the Inbox", async ({ page
   // branches, so this assertion is about the resolved tier, not a race.
   await expect(page.getByRole("heading", { name: "Outreach", level: 1 })).toBeVisible();
 
-  // And not merely "Outreach is also present": the premium shell's mailbox
-  // sidebar must be absent entirely.
   await expect(page.getByRole("navigation", { name: "Outreach views" })).toBeVisible();
+
+  // And genuinely not the Inbox: the shells are a mutually exclusive ternary
+  // (email-experience.tsx), so this is belt-and-braces — but the comment here
+  // used to CLAIM an absence check the code never made, which is worse than not
+  // making one. The premium shell renders its mailbox folders as links.
+  await expect(page.getByRole("link", { name: "Drafts" })).toBeHidden();
 });
 
 test("premium routes 403 for a free account, and name the capability they wanted", async ({
@@ -110,23 +117,37 @@ test("premium routes 403 for a free account, and name the capability they wanted
   }
 });
 
+/**
+ * Tenants this file creates INSIDE a test, drained after each one.
+ *
+ * `afterEach`, not `try/finally` (CAR-191 review): the sibling specs document
+ * that a body abandoned at the 60s test timeout never reaches a `finally`, and
+ * this file was using exactly that pattern while shipping the rule. The teardown
+ * project's `itest-e2e-*` sweep converges either way, but not until the run ends.
+ */
+const inTestTenants: string[] = [];
+
+test.afterEach(async () => {
+  for (const userId of inTestTenants.splice(0)) await deleteTenant(userId);
+});
+
 test("the same premium routes succeed for the premium tenant", async ({ page }) => {
   // The control. Without it, every assertion above is also satisfied by a route
   // that is simply broken, or by a session that was never authenticated at all.
   const premium = await createTenant("e2e-premium-control");
-  try {
-    await seedGmailConnection(premium.userId);
-    await completeOnboarding(premium.userId);
+  // Registered before anything that can throw, so the hook can clean up however
+  // this test stops.
+  inTestTenants.push(premium.userId);
 
-    await page.goto(await mintSessionUrl(premium.email));
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await seedGmailConnection(premium.userId);
+  await completeOnboarding(premium.userId);
 
-    const res = await page.request.get("/api/gmail/labels");
-    expect(
-      res.status(),
-      "a premium account must reach the route the free account was refused",
-    ).toBe(200);
-  } finally {
-    await deleteTenant(premium.userId);
-  }
+  await page.goto(await mintSessionUrl(premium.email));
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+
+  const res = await page.request.get("/api/gmail/labels");
+  expect(
+    res.status(),
+    "a premium account must reach the route the free account was refused",
+  ).toBe(200);
 });

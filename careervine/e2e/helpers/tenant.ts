@@ -129,9 +129,11 @@ export async function completeOnboarding(userId: string): Promise<void> {
  * tenant with no row at all resolves to the empty set and falls through to the
  * Inbox shell rather than Outreach.
  *
- * `premium_enabled` is set explicitly rather than left null on purpose:
- * `resolve.ts` fails OPEN to premium on a null, so the default would produce the
- * exact tier this seeds a tenant to avoid.
+ * `premium_enabled` is set explicitly rather than left to the column default on
+ * purpose: it is `NOT NULL DEFAULT true` (migration 20260712030000), so an
+ * omitted value produces the exact tier this seeds a tenant to avoid. (`resolve.ts`
+ * carries a `?? true` as well, but the column cannot hold null, so that branch
+ * never fires for an existing row.)
  */
 export async function seedFreeTierConnection(
   userId: string,
@@ -164,8 +166,15 @@ export async function seedFreeTierConnection(
  */
 export async function promoteToAdmin(userId: string): Promise<void> {
   const svc = serviceClient();
+  // Existing claims are spread through, mirroring the production role route
+  // (src/app/api/admin/users/[id]/role/route.ts) rather than assuming GoTrue's
+  // merge semantics. Nothing on an E2E tenant depends on another app_metadata
+  // key today, so this is about matching the app's own idiom, not fixing a bug.
+  const { data: existing, error: readErr } = await svc.auth.admin.getUserById(userId);
+  if (readErr) throw new Error(`promoteToAdmin read: ${readErr.message}`);
+
   const { error } = await svc.auth.admin.updateUserById(userId, {
-    app_metadata: { role: "admin" },
+    app_metadata: { ...(existing.user?.app_metadata ?? {}), role: "admin" },
   });
   if (error) throw new Error(`promoteToAdmin: ${error.message}`);
 }
@@ -181,11 +190,22 @@ export async function promoteToAdmin(userId: string): Promise<void> {
  */
 export async function grantCalendarScope(userId: string): Promise<void> {
   const svc = serviceClient();
-  const { error } = await svc
+  // `count`, because an UPDATE matching zero rows is not an error in PostgREST
+  // (CAR-191 review). Its two siblings upsert and can create the row; this one
+  // can only modify an existing connection, so without the check a caller that
+  // ran it before seeding one would get a silent no-op and then a confusing
+  // `400 Calendar not connected` from the sync route, far from the cause.
+  const { count, error } = await svc
     .from("gmail_connections")
-    .update({ calendar_scopes_granted: true, calendar_last_synced_at: null })
+    .update({ calendar_scopes_granted: true, calendar_last_synced_at: null }, { count: "exact" })
     .eq("user_id", userId);
   if (error) throw new Error(`grantCalendarScope: ${error.message}`);
+  if (!count) {
+    throw new Error(
+      `grantCalendarScope(${userId}): no gmail_connections row to update — ` +
+        "seed a connection first (seedGmailConnection / seedFreeTierConnection).",
+    );
+  }
 }
 
 /**

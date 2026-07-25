@@ -14,9 +14,34 @@
  *
  * CAR-188's `ConfirmDialog` is real DOM (`role="alertdialog"`), so all three
  * halves are now assertable: the dialog appears, Cancel leaves the connection
- * intact, and Confirm removes it. The last two are checked in Postgres rather
- * than on screen, because a card that re-renders to "not connected" and a row
- * that was actually deleted are different claims.
+ * intact, and Confirm removes it.
+ *
+ * ── Why this spec owns its tenant (CAR-191 review) ────────────────────────
+ *
+ * It used to run against the shared tenant and re-seed the connection in an
+ * `afterEach`, which did NOT restore what it destroyed. `POST
+ * /api/gmail/disconnect` calls `revokeAccess` (src/lib/gmail.ts), which does
+ * four things, not one:
+ *
+ *   contacts.email_synced_through = null, email_backfilled_at = null
+ *   DELETE FROM email_messages    WHERE user_id = …
+ *   DELETE FROM calendar_events   WHERE user_id = …
+ *   DELETE FROM gmail_connections WHERE user_id = …
+ *
+ * Re-seeding the connection restored only the last. Every message and calendar
+ * row belonging to the shared tenant — the graph's, and everything the compose,
+ * follow-up, inbox and calendar flows created — was silently gone afterwards.
+ * It survived purely on alphabetical luck (this file sorts second-to-last, and
+ * the one after it runs signed out), which is exactly the order dependence the
+ * tier claims not to have. A dedicated tenant removes the hazard rather than
+ * documenting it, matching what `admin-surface` and `capability-gating` do for
+ * the same reason.
+ *
+ * It also fixes a latent strict-mode break: `integrations-section.tsx` renders a
+ * SECOND "Disconnect" button for Calendar whenever the calendar is connected, so
+ * an unscoped `getByRole("button", { name: "Disconnect" })` resolves to two
+ * elements. On the shared tenant that depended on another spec's cleanup having
+ * run. Here the tenant is fresh, and the locators are card-scoped regardless.
  *
  * ── Why the key-save half runs at all ─────────────────────────────────────
  *
@@ -28,12 +53,20 @@
  * `POST /v1/responses`), and both vendors are stubbed — which is what makes a
  * *successful* save observable without spending anything.
  */
-import fs from "node:fs";
 import { test, expect } from "./fixtures/test";
-import { TENANT_FILE, seedGmailConnection, serviceClient, type E2ETenantRecord } from "./helpers/tenant";
+import {
+  createTenant,
+  deleteTenant,
+  completeOnboarding,
+  mintSessionUrl,
+  seedGmailConnection,
+  serviceClient,
+  type Tenant,
+} from "./helpers/tenant";
 import type { Page } from "@playwright/test";
 
-const tenant = (): E2ETenantRecord => JSON.parse(fs.readFileSync(TENANT_FILE, "utf8"));
+// Signed out at the project level: this file mints its own session.
+test.use({ storageState: { cookies: [], origins: [] } });
 
 /**
  * The fake OpenAI key, ASSEMBLED AT RUNTIME rather than written inline.
@@ -50,25 +83,18 @@ const tenant = (): E2ETenantRecord => JSON.parse(fs.readFileSync(TENANT_FILE, "u
  */
 const OPENAI_TEST_KEY = ["sk", "e2e", "not", "a", "real", "key", "WXYZ"].join("-");
 
-/**
- * Put the shared tenant back the way this spec found it.
- *
- * This is the one flow that DESTROYS shared state: the setup project seeds one
- * Gmail connection for the whole run, and the last step here deletes it. Every
- * other authenticated flow assumes it exists — `/api/gmail/inbox` 400s without
- * one, and capabilities resolve to the empty set — so leaving it deleted would
- * make this suite order-dependent, which is precisely the property the tier is
- * supposed to guarantee it does not have.
- *
- * In `afterEach` rather than a trailing statement or a `finally`, for the reason
- * `signup-onboard.spec.ts` documents: a `finally` does not run when Playwright
- * abandons the body at the test timeout, and a timeout mid-flow is exactly when
- * the connection would be left deleted.
- */
-test.afterEach(async () => {
-  const { userId } = tenant();
-  await seedGmailConnection(userId);
-  await serviceClient().from("user_api_keys").delete().eq("user_id", userId);
+let tenant: Tenant;
+
+test.beforeAll(async () => {
+  tenant = await createTenant("e2e-settings");
+  await seedGmailConnection(tenant.userId);
+  await completeOnboarding(tenant.userId);
+});
+
+test.afterAll(async () => {
+  // The teardown project also sweeps `itest-e2e-*`, which this label falls
+  // under, so a crash before here still converges.
+  if (tenant?.userId) await deleteTenant(tenant.userId);
 });
 
 async function storedKeyLast4(userId: string, provider: string): Promise<string | null> {
@@ -97,6 +123,10 @@ async function gmailConnectionCount(userId: string): Promise<number> {
  * both expose an input labelled "API key" and a button named "Save" — role plus
  * name is genuinely ambiguous here, which is the one case CONVENTIONS §i allows
  * a `data-testid` for. Inside the card, the label and the role are exact.
+ *
+ * The label matcher accepts either state: the card reads "API key" with nothing
+ * stored and "Replace key" once one is, and this tenant carries no seeded keys,
+ * so a first attempt sees the former and a CI retry the latter.
  */
 async function saveKey(page: Page, inputId: string, value: string): Promise<void> {
   const card = page.getByTestId(`provider-key-card-${inputId}`);
@@ -106,7 +136,28 @@ async function saveKey(page: Page, inputId: string, value: string): Promise<void
 }
 
 test("both BYO keys save, and the Gmail disconnect confirm honours cancel", async ({ page }) => {
-  const { userId } = tenant();
+  const { userId } = tenant;
+
+  await page.goto(await mintSessionUrl(tenant.email));
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+
+  /**
+   * Every disconnect request, counted.
+   *
+   * This is the load-bearing assertion for the cancel, not the row count beside
+   * it. `POST /api/gmail/disconnect` is issued from the page, while the test's
+   * check is a separate PostgREST round-trip from Node — so a regression that
+   * dropped the confirm's early return would race, and the read would usually
+   * win and report "still connected". The sibling admin flow measured exactly
+   * that: its DB-only form of this assertion passed with the guard deleted.
+   * Counting the request removes the race.
+   */
+  let disconnectCalls = 0;
+  page.on("request", (req) => {
+    if (req.method() === "POST" && new URL(req.url()).pathname === "/api/gmail/disconnect") {
+      disconnectCalls += 1;
+    }
+  });
 
   await test.step("store a Deepgram key", async () => {
     await page.goto("/settings?tab=ai");
@@ -128,11 +179,15 @@ test("both BYO keys save, and the Gmail disconnect confirm honours cancel", asyn
     expect(await storedKeyLast4(userId, "openai")).toBe("WXYZ");
   });
 
+  // Scoped to the Gmail card. `integrations-section.tsx` renders a second
+  // "Disconnect" for Calendar when the calendar is connected, so the unscoped
+  // query is a strict-mode violation waiting on an unrelated state change.
+  const gmailCard = page.getByTestId("gmail-integration-card");
   const dialog = page.getByTestId("confirm-dialog");
 
   await test.step("the disconnect confirm appears", async () => {
     await page.goto("/settings?tab=integrations");
-    await page.getByRole("button", { name: "Disconnect" }).click();
+    await gmailCard.getByRole("button", { name: "Disconnect" }).click();
 
     // role, not testid: `ConfirmDialog` is an alertdialog by deliberate choice
     // (APG draws that distinction for consequential interruptions), so the role
@@ -143,19 +198,23 @@ test("both BYO keys save, and the Gmail disconnect confirm honours cancel", asyn
 
   await test.step("cancelling does NOT disconnect", async () => {
     await page.getByTestId("confirm-dialog-cancel").click();
-    await expect(dialog).toBeHidden();
 
-    // Server truth. A card still reading "connected" would also be satisfied by
-    // an optimistic no-op; only the row proves nothing was deleted.
-    expect(
-      await gmailConnectionCount(userId),
-      "cancelling the confirm dialog still disconnected Gmail",
-    ).toBe(1);
-    await expect(page.getByRole("button", { name: "Disconnect" })).toBeVisible();
+    // Sequenced, not raced. The dialog disappearing proves the confirm promise
+    // resolved and the handler ran on past it; two animation frames then
+    // guarantee any fetch that continuation scheduled has been issued. Both are
+    // real browser events, so this stays inside the no-arbitrary-wait rule.
+    await expect(dialog).toBeHidden();
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    );
+
+    expect(disconnectCalls, "cancelling the confirm dialog still fired the disconnect").toBe(0);
+    expect(await gmailConnectionCount(userId)).toBe(1);
+    await expect(gmailCard.getByRole("button", { name: "Disconnect" })).toBeVisible();
   });
 
   await test.step("confirming does", async () => {
-    await page.getByRole("button", { name: "Disconnect" }).click();
+    await gmailCard.getByRole("button", { name: "Disconnect" }).click();
     await expect(dialog).toBeVisible();
     await page.getByTestId("confirm-dialog-confirm").click();
 
@@ -163,13 +222,12 @@ test("both BYO keys save, and the Gmail disconnect confirm honours cancel", asyn
     // href, and the reconnect CTA points at /api/gmail/auth. Querying it by the
     // button role finds nothing even though it looks like one on screen.
     //
-    // Matched as a prefix: the CTA reads "Connect Gmail" when the calendar is
-    // still connected and "Connect Gmail & Calendar" when it is not, and which
-    // one shows depends on whether the calendar flow ran first against the same
-    // shared tenant. Pinning the exact copy would make this assertion a
-    // statement about test ORDER rather than about the disconnect.
+    // This tenant never grants the calendar scope, so the copy is always the
+    // both-missing variant; the prefix match is belt-and-braces.
     await expect(page.getByRole("link", { name: /^Connect Gmail/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Disconnect" })).toBeHidden();
+    await expect(gmailCard.getByRole("button", { name: "Disconnect" })).toBeHidden();
+
+    expect(disconnectCalls, "confirming should have fired exactly one disconnect").toBe(1);
     expect(await gmailConnectionCount(userId)).toBe(0);
   });
 });

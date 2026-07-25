@@ -95,7 +95,6 @@ test("adding a contact by hand canonicalizes its LinkedIn URL on write", async (
     if (error) throw new Error(`created contact not found by name: ${error.message}`);
 
     expect(data.linkedin_url).toBe(canonicalUrl(slug));
-    expect(data.linkedin_url).not.toBe(typed);
   });
 });
 
@@ -143,7 +142,6 @@ test("importing a LinkedIn profile canonicalizes it, and a re-import dedupes", a
     // sleeping for it.
     await expect(page).toHaveURL(/\/contacts\/\d+$/);
     contactId = Number(new URL(page.url()).pathname.split("/").pop());
-    expect(Number.isInteger(contactId)).toBe(true);
   });
 
   await test.step("the imported row carries the canonical URL", async () => {
@@ -165,11 +163,47 @@ test("importing a LinkedIn profile canonicalizes it, and a re-import dedupes", a
     await expect(page).toHaveURL(new RegExp(`/contacts/${contactId}$`));
   });
 
-  await test.step("and there is still exactly one contact for that profile", async () => {
-    const rows = await contactsWithUrl(canonicalUrl(slug));
+  await test.step("re-importing the variant through the route updates rather than duplicates", async () => {
+    // The step above proves the CLIENT probe canonicalizes — the preview page
+    // redirects before Save is reachable, so `/api/contacts/import` is never
+    // POSTed a second time by it. That left the import route's OWN dedupe with
+    // no coverage at all: inverting its exact-linkedin_url branch kept this spec
+    // fully green, despite the title (CAR-191 review). So post the variant
+    // directly, which is also exactly what a re-scraping extension does.
+    //
+    // `page.request` carries the session cookies, so this is the authenticated
+    // identity.
+    const res = await page.request.post("/api/contacts/import", {
+      data: {
+        profileData: {
+          ...profile,
+          linkedin_url: `https://linkedin.com/in/${slug.toUpperCase()}/`,
+        },
+      },
+    });
+    expect(res.status(), await res.text()).toBe(200);
+
+    const body = (await res.json()) as { success?: boolean; contact?: { id: number } };
     expect(
-      rows,
+      body.contact?.id,
+      "the import route created a NEW contact for a formatting variant of a URL it already had",
+    ).toBe(contactId);
+  });
+
+  await test.step("and there is still exactly one contact for that profile", async () => {
+    // Counted by NAME, not by canonical URL. Keying the count on the canonical
+    // URL would make a duplicate stored under a NON-canonical URL invisible —
+    // precisely the duplicate this flow exists to catch.
+    const { data, error } = await serviceClient()
+      .from("contacts")
+      .select("id, linkedin_url")
+      .eq("name", name);
+    if (error) throw new Error(`counting contacts named ${name}: ${error.message}`);
+
+    expect(
+      data,
       "a formatting variant of an already-imported LinkedIn URL created a duplicate contact",
     ).toHaveLength(1);
+    expect(data?.[0].linkedin_url).toBe(canonicalUrl(slug));
   });
 });

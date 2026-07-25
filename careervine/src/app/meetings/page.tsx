@@ -24,6 +24,7 @@ import { useState, useEffect, useCallback } from "react";
 import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
+import { parseCalendarAttendees, type CalendarAttendee } from "@/lib/calendar-attendees";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -72,7 +73,7 @@ export default function MeetingsPage() {
   const [allInteractions, setAllInteractions] = useState<InteractionWithContact[]>([]);
 
   // Calendar event data for timeline RSVP badges
-  const [meetingCalendarMap, setMeetingCalendarMap] = useState<Record<number, { google_event_id: string; attendees: Array<{ email: string; name: string; responseStatus: string }> }>>({});
+  const [meetingCalendarMap, setMeetingCalendarMap] = useState<Record<number, { google_event_id: string; attendees: CalendarAttendee[] }>>({});
 
   // Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -131,12 +132,12 @@ export default function MeetingsPage() {
             .in("google_event_id", calEventIds)
             .eq("user_id", user.id);
           if (calEvents) {
-            const calMap: Record<number, { google_event_id: string; attendees: Array<{ email: string; name: string; responseStatus: string }> }> = {};
+            const calMap: Record<number, { google_event_id: string; attendees: CalendarAttendee[] }> = {};
             for (const m of data) {
               const ce = calEvents.find((c) => c.google_event_id === m.calendar_event_id);
               if (ce) calMap[m.id] = {
                 google_event_id: ce.google_event_id,
-                attendees: (ce.attendees ?? []) as unknown as Array<{ email: string; name: string; responseStatus: string }>,
+                attendees: parseCalendarAttendees(ce.attendees),
               };
             }
             setMeetingCalendarMap(calMap);

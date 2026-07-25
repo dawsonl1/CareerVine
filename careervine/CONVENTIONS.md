@@ -579,11 +579,18 @@ one ran. `afterEach`, not `finally`: a body abandoned at the test timeout never
 reaches a `finally`.
 
 Selectors prefer `getByRole` / `getByLabel`; `data-testid` appears only where
-role plus name is genuinely unreachable (a `type=password` input has no role; a
-TipTap contenteditable is not a form control; two structurally identical cards
-on one page each expose a "Save"). Prefer scoping a role query to a container
-over adding an attribute. Note `Button` renders an `<a>` when given an `href`,
-so a control that looks like a button is often `getByRole("link")`.
+role plus name is genuinely unreachable. Four kinds qualify, and they are the
+whole list: an element with no role (a `type=password` input, a TipTap
+contenteditable); an accessible name that is not stable (a row whose name
+concatenates a locale-formatted date); two structurally identical components on
+one page (the AI tab's provider cards, the integrations tab's two "Disconnect"
+buttons); and application STATE that is otherwise reachable only through a style
+(`data-unread`, `data-message-id`) — mirror the state into an attribute rather
+than asserting on a font weight. Prefer scoping a role query to a container over
+adding an attribute. Note `Button` renders an `<a>` when given an `href`, so a
+control that looks like a button is often `getByRole("link")`, and that a
+`getByText` REGEX matches non-normalized text, so anchoring one on copy that
+spans JSX lines breaks on reformatting.
 
 Assertions are web-first — **no `waitForTimeout`, no sleep**. Waiting on
 something outside the DOM (a mail delivery, an async POST that fires after its
@@ -606,6 +613,9 @@ technique is an arbitrary wait: both are synchronised to browser events.
   `careervine/e2e/helpers/env-allowlist.ts` (header),
   `careervine/e2e/helpers/tenant.ts` (header), and
   `careervine/e2e/helpers/stack-env.ts` (header)
+- Counted: Nine flows live in `careervine/e2e/*.spec.ts`. Pinned by
+  `careervine/src/__tests__/conventions-doc.test.ts`, so a tenth cannot silently
+  falsify this section.
 - Enforced: CI runs it as the separate `e2e` job, with `failOnFlakyTests` so a
   test that only passes on retry exits non-zero rather than printing "flaky" and
   going green. The deny-by-default stub layers are self-enforcing — a new

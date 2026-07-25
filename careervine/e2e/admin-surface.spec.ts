@@ -57,8 +57,15 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   // The teardown project sweeps `itest-e2e-*` as a backstop; both labels fall
   // under it, so an early crash still converges.
-  if (admin?.userId) await deleteTenant(admin.userId);
-  if (plain?.userId) await deleteTenant(plain.userId);
+  // Settled, not sequential: a throw on the first delete would otherwise skip
+  // the second and strand a tenant for the rest of the run.
+  const results = await Promise.allSettled(
+    [admin?.userId, plain?.userId].filter(Boolean).map((id) => deleteTenant(id as string)),
+  );
+  const failed = results.filter((r) => r.status === "rejected");
+  if (failed.length > 0) {
+    throw new Error(`tenant cleanup failed: ${failed.map((f) => String(f.reason)).join("; ")}`);
+  }
 });
 
 /** How many accounts currently have Apify enrichment on. */
@@ -80,7 +87,12 @@ test("a non-admin is bounced off /admin", async ({ page }) => {
   // The layout redirects server-side, so the admin UI never reaches the
   // browser at all — assert on the landing URL, not on a hidden element.
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: /Accounts/i })).toBeHidden();
+  // "Users", not /Accounts/i (CAR-191 review): no heading matching /Accounts/i
+  // exists anywhere under /admin — the h1 is "Users" and every "accounts"
+  // string is a <p>. `toBeHidden()` passes on a locator that resolves to zero
+  // nodes, so the old assertion passed identically on /admin/users and on /,
+  // reading as proof while proving nothing.
+  await expect(page.getByRole("heading", { name: "Users", level: 1 })).toBeHidden();
 });
 
 test("an admin reaches /admin, and cancelling the bulk toggle changes nothing", async ({ page }) => {
@@ -119,11 +131,11 @@ test("an admin reaches /admin, and cancelling the bulk toggle changes nothing", 
 
   await test.step("the bulk toggle asks before touching every account", async () => {
     // "All off" appears once per control row (enrichment, change detection,
-    // discovery), so it is scoped by the row's own label rather than clicked
-    // blind. The label span's parent IS the row, which is a tighter anchor than
-    // filtering divs by text — the row contains the buttons too, so any
-    // whole-text match would have to enumerate them.
-    const row = page.getByText(/^Enrichment: on for \d+\/\d+$/).locator("..");
+    // discovery), so it is scoped to one row. By testid rather than by the
+    // chip's copy (CAR-191 review): Playwright's regex text engine matches
+    // non-normalized text, so anchoring on "Enrichment: on for N/M" would break
+    // into an unexplained 60s timeout the first time someone reformats that JSX.
+    const row = page.getByTestId("scrape-control-row-apify_enrichment_enabled");
     await row.getByRole("button", { name: "All off" }).click();
 
     const dialog = page.getByRole("alertdialog");
@@ -151,6 +163,12 @@ test("an admin reaches /admin, and cancelling the bulk toggle changes nothing", 
       bulkCalls,
       "cancelling the confirm still fired the bulk update at every account",
     ).toBe(0);
+
+    // Belt and braces only, and deliberately labelled as such (CAR-191 review):
+    // the route is aborted above, so no request can reach the server under any
+    // behaviour of the code under test and this comparison cannot fail. It is
+    // kept because it would start biting the moment someone drops the abort —
+    // but `bulkCalls` is what carries the signal today.
     expect(await enrichmentOnCount()).toBe(before);
   });
 });

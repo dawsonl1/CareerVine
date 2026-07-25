@@ -187,11 +187,24 @@ const upstashHost = (() => {
   }
 })();
 
+/** Monotonic per-send counter; see the send handler below. */
+let sentMessageCount = 0;
+
 const server = setupServer(
   // ── Gmail ──────────────────────────────────────────────────────────────
-  mswHttp.post("https://gmail.googleapis.com/gmail/v1/users/:userId/messages/send", () =>
-    HttpResponse.json(gmailSendResponse()),
-  ),
+  // A DISTINCT id per send (CAR-191 review). `gmailSendResponse()` defaults to a
+  // fixed `SENT_MESSAGE_ID`, and `email-send.ts` upserts on
+  // `(user_id, gmail_message_id)` — so every send in the run collapsed onto ONE
+  // `email_messages` row, each overwriting the last. Three sends across the
+  // compose and follow-up flows looked like one message, which would mask a
+  // duplicate-send regression entirely. The counter lives in the server process,
+  // which is the only place that sees every send.
+  mswHttp.post("https://gmail.googleapis.com/gmail/v1/users/:userId/messages/send", () => {
+    sentMessageCount += 1;
+    return HttpResponse.json(
+      gmailSendResponse({ id: `e2e-gmail-msg-${String(sentMessageCount).padStart(4, "0")}` }),
+    );
+  }),
   mswHttp.get("https://gmail.googleapis.com/gmail/v1/users/:userId/messages", () =>
     HttpResponse.json(gmailListResponse()),
   ),
@@ -232,9 +245,13 @@ const server = setupServer(
   mswHttp.post("https://oauth2.googleapis.com/token", () =>
     HttpResponse.json(oauthTokenResponse()),
   ),
-  // Disconnecting Gmail or Calendar revokes the grant with Google before
-  // deleting the local row (CAR-191 flow 7). Google answers 200 with an empty
-  // body; the caller only reads the status.
+  // The GMAIL disconnect revokes the grant with Google before deleting the local
+  // rows (CAR-191 flow 7) — `revokeAccess` in src/lib/gmail.ts. The Calendar
+  // disconnect does NOT revoke; it clears three columns and deletes cached
+  // events. Google answers 200 with an empty body, and the caller reads neither
+  // the body nor the status (the call is wrapped in a bare try/catch), so this
+  // handler exists to keep the request from reaching the deny-by-default
+  // catch-all, not because anything inspects the reply.
   mswHttp.post("https://oauth2.googleapis.com/revoke", () => new HttpResponse(null, { status: 200 })),
 
   // ── Calendar ───────────────────────────────────────────────────────────

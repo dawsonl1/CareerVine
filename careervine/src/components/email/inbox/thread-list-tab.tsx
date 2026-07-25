@@ -291,8 +291,24 @@ export function ThreadListTab({
         /* CAR-191: `data-message-id` is what makes the stale-response race
            assertable. Clicking message A then B while A's body fetch is still
            in flight must render B — and the only way to tell whose body is on
-           screen, without asserting on fixture copy, is to name it. */
-        <div data-testid="inbox-email-body" data-message-id={expandedEmailContent.messageId}>
+           screen, without asserting on fixture copy, is to name it.
+
+           It must name the message whose body is ACTUALLY RENDERED, which is a
+           property of `expandedEmailContent` alone (CAR-191 review). Neither
+           `msg` nor `expandedEmailId` will do: both describe the row the user
+           opened, so during exactly the race under test they would report B
+           while A's body was on screen — the attribute would be incapable of
+           observing the bug and the test would pass unconditionally.
+
+           It was `expandedEmailContent.messageId`, which is the RFC 822
+           `Message-ID` HEADER (see `getFullMessage` in src/lib/gmail.ts):
+           sender-controlled, `""` when the message omits the header, unrelated
+           to the Gmail id on the real API, and set to something different again
+           on the simulated path. It only appeared usable because the E2E fixture
+           synthesises `<gmailId@mail.gmail.com>`. `gmailMessageId` is now
+           carried on the fetched content itself, so this identifies the loaded
+           body on every path. */
+        <div data-testid="inbox-email-body" data-message-id={expandedEmailContent.gmailMessageId}>
           <div className="text-sm text-muted-foreground space-y-1 mb-4">
             <p><span className="font-medium">From:</span> {expandedEmailContent.from}</p>
             <p><span className="font-medium">To:</span> {expandedEmailContent.to}</p>

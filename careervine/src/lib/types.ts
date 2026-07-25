@@ -168,7 +168,20 @@ export type EmailMessageFull = {
   date: string;
   bodyHtml: string | null;
   bodyText: string | null;
+  /**
+   * The RFC 822 `Message-ID` header. Sender-controlled, and `""` when the
+   * message omits it — do NOT use it to identify which message this is. It is
+   * carried for threading headers (In-Reply-To / References) only.
+   */
   messageId: string;
+  /**
+   * The Gmail id of the message this content was fetched for (CAR-191 review).
+   * Unlike `messageId` this is the app's own identity for the message, always
+   * present, and identical on the live and simulated paths — so it is what a
+   * caller should key on to answer "whose body is this?", which the inbox's
+   * stale-response guard depends on being answerable.
+   */
+  gmailMessageId: string;
   threadId: string;
 };
 
