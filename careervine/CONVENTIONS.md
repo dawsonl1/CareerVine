@@ -208,14 +208,24 @@ separate from the boolean UI state because a state update is async and would not
 block a fast second click.
 
 New modals use `careervine/src/components/ui/modal.tsx`, which provides the scrim,
-escape handling, body scroll lock, and the unsaved-changes guard. It does not
-provide a focus trap. Adoption is currently even with hand-rolled dialogs, so this
-rule is forward-looking rather than descriptive.
+escape handling, body scroll lock, the unsaved-changes guard, and a focus trap
+(CAR-185). The trap moves focus into the dialog on open, cycles Tab and Shift+Tab
+at the edges, and restores focus to the trigger on close; the surface carries
+`role="dialog"` and `aria-modal`, named by the title or by the `ariaLabel` prop
+when a modal has no visible title. The unsaved-changes dialog is a second dialog
+and traps separately. Read the file header before extending it: the tabbable
+filter deliberately avoids layout checks, because jsdom has no layout and the
+usual `offsetParent` filter disarms the trap under test while still reading as
+correct. Adoption is currently even with hand-rolled dialogs, so this rule is
+forward-looking rather than descriptive.
 
-- Authoritative: `careervine/src/lib/ui-events.ts` and
-  `careervine/src/hooks/use-latest-request.ts` (headers)
+- Authoritative: `careervine/src/lib/ui-events.ts`,
+  `careervine/src/hooks/use-latest-request.ts`, and
+  `careervine/src/components/ui/modal.tsx` (headers)
 - Enforced: `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw
-  event-name prefix outside the module. The other four rules are not enforced.
+  event-name prefix outside the module. The focus trap is covered by
+  `careervine/src/__tests__/modal.test.tsx`. The other four rules are not
+  enforced.
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 

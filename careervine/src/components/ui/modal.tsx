@@ -9,10 +9,132 @@
  *   - 28 px corner radius (M3 extra-large shape)
  *   - Headline in on-surface, body in on-surface-variant
  *   - Optional unsaved-changes guard on dismiss
+ *
+ * Focus (CAR-185): both surfaces here are real dialogs, and each traps its own
+ * focus through useFocusTrap. They are DOM *siblings* rather than nested, so a
+ * keydown inside the confirm dialog never bubbles through the modal surface and
+ * the two traps compose with no trap stack and no "am I topmost" check.
  */
 
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { X } from "lucide-react";
+
+/**
+ * Elements that can hold keyboard focus.
+ *
+ * `[contenteditable]` is load-bearing: the compose modal's rich-text editor is a
+ * contenteditable div rather than an <input>, so omitting it would drop the
+ * editor out of the tab cycle entirely.
+ */
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "area[href]",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "iframe",
+  "summary",
+  "audio[controls]",
+  "video[controls]",
+  '[contenteditable]:not([contenteditable="false"])',
+  "[tabindex]",
+].join(",");
+
+/**
+ * Tabbable descendants of `root`, in document order.
+ *
+ * Filters on semantics rather than layout, deliberately. `offsetParent` and
+ * `getClientRects()` are the usual way to drop invisible candidates, but jsdom
+ * has no layout engine and returns null/empty for *every* element, so that
+ * filter would empty the set and quietly disarm the trap under test while still
+ * reading as correct. CSS visibility is instead an optional refinement via
+ * `checkVisibility`, which jsdom does not implement, hence the `?? true`.
+ * `checkOpacity` stays off: an `opacity: 0` control is still focusable.
+ *
+ * The tabindex check reads the *attribute*, not `el.tabIndex`. jsdom reports
+ * tabIndex 0 for a disabled button and -1 for a contenteditable div, so trusting
+ * the property would both admit disabled controls and drop the editor.
+ */
+function tabbableWithin(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((el) => {
+    const tabindex = el.getAttribute("tabindex");
+    if (tabindex !== null && Number(tabindex) < 0) return false;
+    if (el.hasAttribute("disabled") || el.hasAttribute("hidden")) return false;
+    if (el.getAttribute("aria-hidden") === "true") return false;
+    if (el.closest("[inert]")) return false;
+    return el.checkVisibility?.({ checkVisibilityCSS: true }) ?? true;
+  });
+}
+
+/**
+ * Traps keyboard focus inside the returned ref's element while `active`, and
+ * hands focus back to whatever opened it on close.
+ *
+ * Attach `onKeyDown` to the dialog surface and give that surface `tabIndex={-1}`
+ * so it can hold focus when it has no focusable content of its own.
+ */
+function useFocusTrap(active: boolean) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+
+    // Whatever opened this layer: the page's trigger for the modal, or a control
+    // inside the modal for the confirm dialog.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const [firstTabbable] = tabbableWithin(surface);
+    (firstTabbable ?? surface).focus();
+
+    return () => {
+      // isConnected skips a trigger that unmounted along with the dialog. It also
+      // makes cleanup order irrelevant on the Discard path, where the confirm
+      // dialog and the modal unmount in the same commit.
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [active]);
+
+  const onKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab") return;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+
+    // Recomputed per keypress rather than cached on open: these dialogs render
+    // conditional controls, so a set captured at open goes stale.
+    const tabbables = tabbableWithin(surface);
+    if (tabbables.length === 0) {
+      e.preventDefault();
+      return;
+    }
+
+    const first = tabbables[0];
+    const last = tabbables[tabbables.length - 1];
+    const focused = document.activeElement;
+
+    // Only the edges are handled here. Everything in between is the browser's own
+    // sequential navigation, which is already correct and which jsdom does not
+    // implement, so faking it in a test would only assert the fake.
+    if (e.shiftKey && (focused === first || focused === surface)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && focused === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }, []);
+
+  return { surfaceRef, onKeyDown };
+}
 
 interface ModalProps {
   isOpen: boolean;
@@ -20,6 +142,12 @@ interface ModalProps {
   title?: string;
   children: ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
+  /**
+   * Accessible name for a modal with no visible `title`. A dialog must have a
+   * name, and there is nothing to point `aria-labelledby` at without a title.
+   * Ignored when `title` is set, where the headline supplies the name.
+   */
+  ariaLabel?: string;
   /** When true, dismissing via scrim/Escape/X shows a confirmation dialog */
   hasUnsavedChanges?: boolean;
   /** Custom message for the confirmation dialog */
@@ -36,13 +164,28 @@ function ConfirmDiscardDialog({
   onDiscard: () => void;
   onKeepEditing: () => void;
 }) {
+  const titleId = useId();
+  const messageId = useId();
+  const { surfaceRef, onKeyDown } = useFocusTrap(true);
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onKeepEditing} />
-      <div className="relative bg-surface-container-high rounded-[28px] shadow-xl max-w-sm w-full p-6">
-        <h3 className="text-base font-medium text-foreground mb-2">Unsaved changes</h3>
-        <p className="text-sm text-muted-foreground mb-6">{message}</p>
+      <div
+        ref={surfaceRef}
+        onKeyDown={onKeyDown}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
+        tabIndex={-1}
+        className="relative bg-surface-container-high rounded-[28px] shadow-xl max-w-sm w-full p-6 focus:outline-none"
+      >
+        <h3 id={titleId} className="text-base font-medium text-foreground mb-2">Unsaved changes</h3>
+        <p id={messageId} className="text-sm text-muted-foreground mb-6">{message}</p>
         <div className="flex justify-end gap-2">
+          {/* Keep editing leads in DOM order, so the trap's initial focus lands on
+              it: APG says focus the least destructive action on an irreversible one. */}
           <button
             type="button"
             onClick={onKeepEditing}
@@ -71,10 +214,13 @@ export function Modal({
   title,
   children,
   size = "md",
+  ariaLabel,
   hasUnsavedChanges = false,
   confirmMessage = "You have unsaved changes that will be lost.",
 }: ModalProps) {
   const [showConfirm, setShowConfirm] = useState(false);
+  const titleId = useId();
+  const { surfaceRef, onKeyDown } = useFocusTrap(isOpen);
 
   const attemptClose = useCallback(() => {
     if (hasUnsavedChanges) {
@@ -137,13 +283,24 @@ export function Modal({
       />
 
       {/* Dialog surface */}
-      <div className={`relative w-full ${sizeClasses[size]} bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-hidden flex flex-col`}>
+      <div
+        ref={surfaceRef}
+        onKeyDown={onKeyDown}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-label={title ? undefined : ariaLabel}
+        tabIndex={-1}
+        className={`relative w-full ${sizeClasses[size]} bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-hidden flex flex-col focus:outline-none`}
+      >
         {/* Headline */}
         {title && (
           <div className="flex items-center justify-between px-6 pt-6 pb-4">
-            <h2 className="text-[22px] leading-7 font-normal text-foreground">{title}</h2>
+            <h2 id={titleId} className="text-[22px] leading-7 font-normal text-foreground">{title}</h2>
             <button
+              type="button"
               onClick={attemptClose}
+              aria-label="Close"
               className="state-layer p-2 -mr-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
             >
               <X className="h-5 w-5" />
