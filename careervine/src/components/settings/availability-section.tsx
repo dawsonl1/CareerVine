@@ -13,6 +13,7 @@ import {
   type AvailabilityDayConfig,
   type AvailabilityProfile,
 } from "@/lib/availability-profile";
+import { apiSend, jsonBody } from "@/lib/api-client";
 
 const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -60,12 +61,7 @@ export default function AvailabilitySection() {
     }
     try {
       setSaving(true);
-      const res = await fetch("/api/calendar/availability-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: activeTab, data: profile }),
-      });
-      if (!res.ok) throw new Error("Failed to save availability");
+      await apiSend("/api/calendar/availability-profile", jsonBody({ profile: activeTab, data: profile }));
       await refresh();
       setSavedAvailability(true);
       setTimeout(() => setSavedAvailability(false), 2500);
@@ -80,12 +76,7 @@ export default function AvailabilitySection() {
   const handleSaveBusyCalendars = async () => {
     try {
       setSavingBusyCalendars(true);
-      const res = await fetch("/api/calendar/busy-calendars", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ busyCalendarIds }),
-      });
-      if (!res.ok) throw new Error("Failed to save calendar selection");
+      await apiSend("/api/calendar/busy-calendars", jsonBody({ busyCalendarIds }));
       setSavedBusyCalendars(true);
       setTimeout(() => setSavedBusyCalendars(false), 2500);
     } catch (err) {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
+import { apiFetch } from "@/lib/api-client";
 
 /**
  * Home page discovery digest (plan 41 §5.2): one row per company —
@@ -22,8 +23,7 @@ export function DiscoveryDigest() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/discovery/candidates")
-      .then((r) => (r.ok ? r.json() : null))
+    apiFetch<{ candidates?: unknown }>("/api/discovery/candidates")
       .then((data) => {
         if (cancelled || !data?.candidates) return;
         const byCompany = new Map<number, DigestRow>();

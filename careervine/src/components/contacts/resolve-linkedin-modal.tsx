@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { useToast } from "@/components/ui/toast";
 import { ExternalLink, Search } from "lucide-react";
+import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 interface Candidate {
   linkedinUrl: string;
@@ -45,13 +46,14 @@ export function ResolveLinkedinModal({ contactId, contactName, onClose, onLinked
     // Fire-and-forget: the IIFE catches its own failures into the error phase.
     void (async () => {
       try {
-        const res = await fetch(`/api/contacts/${contactId}/resolve-linkedin`, { method: "POST" });
-        const data = await res.json().catch(() => ({}));
+        const data = await apiFetch<{ status?: string; candidates?: Candidate[] }>(
+          `/api/contacts/${contactId}/resolve-linkedin`,
+          { method: "POST" },
+        );
         if (cancelled) return;
-        if (!res.ok) setPhase("error");
-        else if (data.status === "candidates") {
+        if (data.status === "candidates") {
           setCandidates(data.candidates || []);
-          if ((data.candidates || []).length === 1) setSelected(data.candidates[0].linkedinUrl);
+          if ((data.candidates || []).length === 1) setSelected(data.candidates![0].linkedinUrl);
           setPhase("results");
         } else setPhase(data.status === "cap_reached" ? "cap_reached" : "disabled");
       } catch {
@@ -68,19 +70,19 @@ export function ResolveLinkedinModal({ contactId, contactName, onClose, onLinked
       if (linking) return;
       setLinking(true);
       try {
-        const res = await fetch(`/api/contacts/${contactId}/link-linkedin`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ linkedinUrl: url }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          toastError(data.error || "Couldn't link that profile");
+        let data: { enrich?: string };
+        try {
+          data = await apiFetch<{ enrich?: string }>(
+            `/api/contacts/${contactId}/link-linkedin`,
+            jsonBody({ linkedinUrl: url }),
+          );
+        } catch (err) {
+          toastError(isApiRequestError(err) ? err.message : "Couldn't link that profile");
           return;
         }
         // Only promise an enrich that actually started — the trigger can be
         // cap-blocked, debounced, disabled, or already in flight.
-        const enrich = (data as { enrich?: string }).enrich;
+        const enrich = data.enrich;
         toastSuccess(
           enrich === "started" || enrich === "pending"
             ? "LinkedIn profile linked, enriching from LinkedIn…"

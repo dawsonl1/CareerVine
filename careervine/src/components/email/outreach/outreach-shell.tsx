@@ -33,9 +33,20 @@ import Link from "next/link";
 import DOMPurify from "dompurify";
 import { useCapabilities } from "@/hooks/use-capabilities";
 import { PremiumUpgradeBanner } from "@/components/email/premium-upgrade-banner";
+import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
 
 type OutreachTab = "sent" | "scheduled" | "followups" | "drafts";
 type ContactDetailsMap = Record<number, ContactEmployment>;
+
+/** See use-inbox-data.ts for why this is declared rather than inferred. */
+type OutreachInboxResponse = {
+  success?: boolean;
+  emails?: EmailMessage[];
+  scheduledEmails?: ScheduledEmail[];
+  followUps?: EmailFollowUp[];
+  contactMap?: Record<number, string>;
+  contactDetails?: ContactDetailsMap;
+};
 
 /** Short "Jul 12" / "Jul 12, 2025" date, safe for a client-only render. */
 function fmtDate(value: string | null | undefined): string {
@@ -119,14 +130,18 @@ export function OutreachShell() {
 
   const loadDrafts = useCallback(async () => {
     try {
-      const res = await fetch("/api/gmail/drafts");
-      const data = await res.json();
+      const data = await apiFetch<{
+        drafts?: EmailDraft[];
+        contactDetails?: Record<number, ContactEmployment>;
+      }>("/api/gmail/drafts");
       setDrafts(data.drafts || []);
       if (data.contactDetails) {
         setContactDetails((prev) => ({ ...prev, ...data.contactDetails }));
       }
     } catch {
-      // best-effort — drafts are additive to the main inbox payload
+      // error-tolerated: drafts are additive to the main inbox payload, which
+      // owns this shell's `error` state. A failed drafts read leaves that tab
+      // empty rather than taking the sent list down with it.
     }
   }, []);
 
@@ -134,8 +149,7 @@ export function OutreachShell() {
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch("/api/gmail/inbox");
-      const data = await res.json();
+      const data = await apiFetch<OutreachInboxResponse>("/api/gmail/inbox");
       if (data.success) {
         setEmails(data.emails || []);
         setScheduledEmails(data.scheduledEmails || []);
@@ -170,12 +184,7 @@ export function OutreachShell() {
       if (confirmingId) return;
       setConfirmingId(messageId);
       try {
-        const res = await fetch("/api/gmail/follow-ups/confirm", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messageId, replied }),
-        });
-        if (!res.ok) throw new Error();
+        await apiSend("/api/gmail/follow-ups/confirm", jsonBody({ messageId, replied }));
         toastSuccess(replied ? "Marked as replied" : "Follow-up sent");
         await load();
         // The confirm changed how many follow-ups await review — refresh the nav badge.
@@ -197,8 +206,7 @@ export function OutreachShell() {
       if (retryingScheduledId) return;
       setRetryingScheduledId(id);
       try {
-        const res = await fetch(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
-        if (!res.ok) throw new Error();
+        await apiSend(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
         // The cron is the sole send driver (CAR-139); the requeued email goes
         // out on the next tick (within ~15 minutes).
         toastSuccess("Email requeued. It will send within 15 minutes.");
@@ -244,8 +252,7 @@ export function OutreachShell() {
       const previous = drafts;
       setDrafts((prev) => prev.filter((d) => d.id !== draftId));
       try {
-        const res = await fetch(`/api/gmail/drafts/${draftId}`, { method: "DELETE" });
-        if (!res.ok) throw new Error();
+        await apiSend(`/api/gmail/drafts/${draftId}`, { method: "DELETE" });
         toastSuccess("Draft cancelled");
       } catch {
         setDrafts(previous);

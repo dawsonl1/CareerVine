@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { Sparkles, ChevronDown, X, Loader2, MessageSquare, Calendar, Check } from "lucide-react";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
+import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 
 type PresetTemplate = {
@@ -39,6 +40,8 @@ type Props = {
 export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject, onGenerated }: Props) {
   const [open, setOpen] = useState(false);
   const [presets, setPresets] = useState<PresetTemplate[]>([]);
+  const [templatesFailed, setTemplatesFailed] = useState(false);
+  const [templatesReloadKey, setTemplatesReloadKey] = useState(0);
   const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -64,31 +67,42 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
   // Load templates on first open
   useEffect(() => {
     if (!open) return;
-    fetch("/api/gmail/templates")
-      .then((r) => r.json())
+    // `.catch(() => {})` over an unchecked read rendered an empty dropdown with
+    // no message, no retry and no explanation, and because `d.presets` was read
+    // straight off whatever came back, a `{ error }` body produced the same
+    // empty list as a genuine empty result (CAR-188). The built-in presets are
+    // server-side constants, so an empty list here is ALWAYS a failure.
+    setTemplatesFailed(false);
+    apiFetch<{ presets?: PresetTemplate[]; templates?: UserTemplate[] }>("/api/gmail/templates")
       .then((d) => {
         setPresets(d.presets || []);
         setUserTemplates(d.templates || []);
       })
-      .catch(() => {});
-  }, [open]);
+      .catch(() => setTemplatesFailed(true));
+  }, [open, templatesReloadKey]);
 
   // Resolve contact ID from recipient email and load their meetings
   const resolveContact = useCallback(async () => {
     if (!recipientEmail.trim()) return;
     try {
-      const res = await fetch(`/api/gmail/ai-write/resolve-contact?email=${encodeURIComponent(recipientEmail.trim())}`);
-      const data = await res.json();
+      const data = await apiFetch<{ contactId?: number }>(
+        `/api/gmail/ai-write/resolve-contact?email=${encodeURIComponent(recipientEmail.trim())}`,
+      );
       if (data.contactId) {
         setContactId(data.contactId);
         setMeetingsLoading(true);
-        const mRes = await fetch(`/api/gmail/ai-write/meetings?contactId=${data.contactId}`);
-        const mData = await mRes.json();
+        const mData = await apiFetch<{ meetings?: Meeting[] }>(
+          `/api/gmail/ai-write/meetings?contactId=${data.contactId}`,
+        );
         setMeetings(mData.meetings || []);
         setMeetingsLoading(false);
       }
     } catch {
-      // silent
+      // error-tolerated: this resolves optional meeting context for the prompt.
+      // Failing it means the picker offers no meetings, which is the same as a
+      // contact having none, and generation works either way. Clearing the
+      // spinner matters more than reporting it.
+      setMeetingsLoading(false);
     }
   }, [recipientEmail]);
 
@@ -117,29 +131,29 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
     setLastPrompt(prompt);
     setGenerating(true);
     try {
-      const res = await fetch("/api/gmail/ai-write", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await apiFetch<{ bodyHtml: string; subject?: string }>(
+        "/api/gmail/ai-write",
+        jsonBody({
           prompt,
           contactId: contactId || undefined,
           meetingIds: selectedMeetingIds.length > 0 ? selectedMeetingIds : undefined,
           subject: existingSubject || undefined,
         }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const code = parseAiFailure(res.status, data);
-        if (code) {
-          setAiFailure(code);
-          return;
-        }
-        throw new Error(data.error);
-      }
+      );
       onGenerated(data.bodyHtml, data.subject);
       setOpen(false);
       resetState();
     } catch (err) {
+      // ApiRequestError carries the status and parsed body parseAiFailure used
+      // to read off the raw Response, so the AI-unavailable branch survives the
+      // move into catch unchanged.
+      if (isApiRequestError(err)) {
+        const code = parseAiFailure(err.status, err.body);
+        if (code) {
+          setAiFailure(code);
+          return;
+        }
+      }
       setError(err instanceof Error ? err.message : "Failed to generate email");
     } finally {
       setGenerating(false);
@@ -379,6 +393,19 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                 </div>
               ) : (
                 error && <p className="text-sm text-destructive px-4 pt-2.5">{error}</p>
+              )}
+
+              {templatesFailed && (
+                <div className="px-4 py-6 text-center">
+                  <p role="alert" className="text-sm text-foreground">Couldn&apos;t load your templates.</p>
+                  <button
+                    type="button"
+                    onClick={() => setTemplatesReloadKey((k) => k + 1)}
+                    className="text-sm text-primary hover:underline cursor-pointer mt-1"
+                  >
+                    Try again
+                  </button>
+                </div>
               )}
 
               <div className="max-h-72 overflow-y-auto py-1">

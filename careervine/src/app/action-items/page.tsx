@@ -94,6 +94,9 @@ export default function ActionItemsPage() {
 
   const { suggestions, loading: suggestionsLoading, aiStatus: suggestionsAiStatus, dismissAiStatus, save: saveSuggestionRaw, complete: completeSuggestionRaw, dismiss: dismissSuggestion, triggerOnce: triggerSuggestions } = useSuggestions({
     onSave: handleSuggestionSaved,
+    // The hook puts the card back when the server refuses the dismissal, so
+    // without this the row would silently reappear with no explanation.
+    onDismissFailed: () => toastError("Couldn't dismiss that suggestion. Please try again."),
   });
 
   const saveSuggestion = useCallback(async (s: Parameters<typeof saveSuggestionRaw>[0]) => {

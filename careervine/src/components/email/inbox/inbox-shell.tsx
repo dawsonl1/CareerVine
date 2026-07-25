@@ -6,7 +6,9 @@ import { useAuth } from "@/components/auth-provider";
 import { useCompose } from "@/components/compose-email-context";
 import Navigation from "@/components/navigation";
 import { FollowUpModal } from "@/components/follow-up-modal";
-import type { EmailFollowUp, EmailDraft } from "@/lib/types";
+import type { EmailFollowUp, EmailDraft, EmailMessageFull } from "@/lib/types";
+import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 import { Inbox, Clock, Send, Mail, Trash2, EyeOff, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -166,11 +168,11 @@ export function InboxShell() {
       setEmails((prev) => prev.map((e) => (e.gmail_message_id === gmailMessageId ? { ...e, is_read: true } : e)));
       // Only unread inbound mail decrements the nav badge (F18).
       emitUiEvent(UI_EVENTS.unreadChanged, { delta: unreadDeltaFor(msg) });
-      try {
-        await fetch(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" });
-      } catch (err) {
-        console.error("Failed to mark as read:", err);
-      }
+      // error-tolerated: mirrors Gmail's own read state rather than something
+      // the user asked for, and the next sync re-derives it. The optimistic row
+      // update above is what they see; a toast here would interrupt a read.
+      await apiSend(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" })
+        .catch((err) => console.error("Failed to mark as read:", err));
       // Confirm badge count from server now that DB is updated
       emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
     }
@@ -194,10 +196,11 @@ export function InboxShell() {
     }
 
     try {
-      const res = await fetch(`/api/gmail/emails/${gmailMessageId}`);
-      const data = await res.json();
+      const data = await apiFetch<{ success?: boolean; message?: EmailMessageFull }>(
+        `/api/gmail/emails/${gmailMessageId}`,
+      );
       if (!expandReq.isLatest(token)) return;
-      if (data.success) setExpandedContent(data.message);
+      if (data.success && data.message) setExpandedContent(data.message);
     } catch (err) {
       console.error("Error loading email:", err);
     } finally {
@@ -237,8 +240,7 @@ export function InboxShell() {
     const delta = unreadDeltaFor(trashed);
     emitUiEvent(UI_EVENTS.unreadChanged, { delta });
     try {
-      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/trash`, { method: "POST" });
-      if (!res.ok) throw new Error(`trash failed: ${res.status}`);
+      await apiSend(`/api/gmail/emails/${gmailMessageId}/trash`, { method: "POST" });
     } catch {
       setTrashedEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
       setEmails((prev) => [trashed, ...prev]);
@@ -259,8 +261,7 @@ export function InboxShell() {
     const delta = -unreadDeltaFor(restored);
     emitUiEvent(UI_EVENTS.unreadChanged, { delta });
     try {
-      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/trash`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`restore failed: ${res.status}`);
+      await apiSend(`/api/gmail/emails/${gmailMessageId}/trash`, { method: "DELETE" });
     } catch {
       setEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
       setTrashedEmails((prev) => [restored, ...prev]);
@@ -279,8 +280,7 @@ export function InboxShell() {
     const delta = unreadDeltaFor(hidden);
     emitUiEvent(UI_EVENTS.unreadChanged, { delta });
     try {
-      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/hide`, { method: "POST" });
-      if (!res.ok) throw new Error(`hide failed: ${res.status}`);
+      await apiSend(`/api/gmail/emails/${gmailMessageId}/hide`, { method: "POST" });
     } catch {
       setHiddenEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
       setEmails((prev) => [hidden, ...prev]);
@@ -301,8 +301,7 @@ export function InboxShell() {
     const delta = -unreadDeltaFor(unhidden);
     emitUiEvent(UI_EVENTS.unreadChanged, { delta });
     try {
-      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/hide`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`unhide failed: ${res.status}`);
+      await apiSend(`/api/gmail/emails/${gmailMessageId}/hide`, { method: "DELETE" });
     } catch {
       setEmails((prev) => prev.filter((em) => em.gmail_message_id !== gmailMessageId));
       setHiddenEmails((prev) => [unhidden, ...prev]);
@@ -320,12 +319,7 @@ export function InboxShell() {
     // the authoritative number.
     emitUiEvent(UI_EVENTS.unreadChanged);
     try {
-      const res = await fetch(`/api/gmail/emails/${gmailMessageId}/move`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ labelId }),
-      });
-      if (!res.ok) throw new Error(`move failed: ${res.status}`);
+      await apiSend(`/api/gmail/emails/${gmailMessageId}/move`, jsonBody({ labelId }));
     } catch {
       setEmails((prev) => [moved, ...prev]);
       emitUiEvent(UI_EVENTS.unreadChanged);
@@ -344,8 +338,7 @@ export function InboxShell() {
     const removed = drafts[removedIndex];
     setDrafts((prev) => prev.filter((d) => d.id !== draftId));
     try {
-      const res = await fetch(`/api/gmail/drafts/${draftId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`draft delete failed: ${res.status}`);
+      await apiSend(`/api/gmail/drafts/${draftId}`, { method: "DELETE" });
     } catch {
       setDrafts((prev) => {
         const next = [...prev];
@@ -372,42 +365,47 @@ export function InboxShell() {
   // ── Scheduled / Follow-up cancel ──
 
   const cancelScheduledEmail = async (id: number) => {
-    try {
-      const res = await fetch(`/api/gmail/schedule/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setScheduledEmails((prev) => prev.filter((e) => e.id !== id));
-        setFollowUps((prev) => prev.filter((fu) => fu.scheduled_email_id !== id));
-      }
-    } catch (err) {
-      console.error("Error cancelling scheduled email:", err);
-    }
+    // `if (res.ok)` with no else, so a refused cancel left the row queued and
+    // said nothing: the user's next signal was the email arriving anyway. The
+    // same shape CAR-183 fixed on the follow-up card (CAR-188).
+    const cancelled = await withToastOnError(
+      () => apiSend(`/api/gmail/schedule/${id}`, { method: "DELETE" }),
+      toastError,
+      "Couldn't cancel that scheduled email. Please try again.",
+    );
+    if (!cancelled) return;
+
+    setScheduledEmails((prev) => prev.filter((e) => e.id !== id));
+    setFollowUps((prev) => prev.filter((fu) => fu.scheduled_email_id !== id));
   };
 
   // A failed scheduled email (the send process died mid-flight, CAR-134) can
   // be requeued; the user decides, since the original may or may not have
   // actually gone out.
   const retryScheduledEmail = async (id: number) => {
-    try {
-      const res = await fetch(`/api/gmail/schedule/${id}/retry`, { method: "POST" });
-      if (res.ok) {
-        // The cron is the sole send driver (CAR-139); the requeued email goes
-        // out on the next tick (within ~15 minutes).
-        setScheduledEmails((prev) =>
-          prev.map((e) => (e.id === id ? { ...e, status: "pending" } : e)),
-        );
-      }
-    } catch (err) {
-      console.error("Error retrying scheduled email:", err);
-    }
+    const requeued = await withToastOnError(
+      () => apiSend(`/api/gmail/schedule/${id}/retry`, { method: "POST" }),
+      toastError,
+      "Could not retry this email. Please try again.",
+    );
+    if (!requeued) return;
+
+    // The cron is the sole send driver (CAR-139); the requeued email goes
+    // out on the next tick (within ~15 minutes).
+    setScheduledEmails((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, status: "pending" } : e)),
+    );
   };
 
   const cancelFollowUp = async (followUpId: number) => {
-    try {
-      const res = await fetch(`/api/gmail/follow-ups/${followUpId}`, { method: "DELETE" });
-      if (res.ok) setFollowUps((prev) => prev.filter((fu) => fu.id !== followUpId));
-    } catch (err) {
-      console.error("Error cancelling follow-up:", err);
-    }
+    const cancelled = await withToastOnError(
+      () => apiSend(`/api/gmail/follow-ups/${followUpId}`, { method: "DELETE" }),
+      toastError,
+      "Couldn't cancel that follow-up. Please try again.",
+    );
+    if (!cancelled) return;
+
+    setFollowUps((prev) => prev.filter((fu) => fu.id !== followUpId));
   };
 
   // ── Date helpers ──

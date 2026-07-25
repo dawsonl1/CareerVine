@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useCapabilities } from "@/hooks/use-capabilities";
 import { getGmailConnection } from "@/lib/queries";
 import type { GmailConnection } from "@/lib/types";
+import { apiFetch } from "@/lib/api-client";
 
 export type AiDraftContext = {
   draftId: number;
@@ -136,9 +137,12 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
     // Free tier holds no live inbox, so /unread is always 0 — count the follow-ups
     // awaiting the user's confirm-to-send instead (CAR-102).
     const url = isFreeOutreach ? "/api/gmail/follow-ups/awaiting-review" : "/api/gmail/unread";
-    fetch(url, { cache: "no-store" })
-      .then((res) => res.json())
+    apiFetch<{ count?: number }>(url, { cache: "no-store" })
       .then((data) => setUnreadCount(data.count || 0))
+      // error-tolerated: this is the nav unread badge. It refires on every
+      // unreadChanged event and on remount, and a stale or absent count is a
+      // far smaller problem than a toast fired from a global provider on every
+      // page load whenever the mailbox is briefly unavailable.
       .catch(() => {});
   }, [gmailConn, isFreeOutreach]);
 

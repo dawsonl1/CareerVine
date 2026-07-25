@@ -32,10 +32,15 @@ interface InteractionsPageProps {
 }
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 
 const emptyForm = { interaction_date: "", interaction_type: "", summary: "" };
 
 export default function InteractionsPage({ contactId, contactName }: InteractionsPageProps) {
+  const { error: toastError } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -88,11 +93,18 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
   };
 
   const handleDeleteInteraction = async (id: number) => {
-    if (!confirm("Delete this interaction?")) return;
-    try {
+    if (!(await confirm({
+      message: "Delete this interaction?",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
+    // console.error only, so a refused delete left the row on screen with no
+    // explanation and no retry (CAR-188). The sibling handler in
+    // contact-timeline-tab.tsx already toasted; these two now match.
+    await withToastOnError(async () => {
       await deleteInteraction(id);
       await loadInteractions();
-    } catch (e) { console.error("Error deleting interaction:", e); }
+    }, toastError, "Couldn't delete that interaction. Please try again.");
   };
 
   if (loading) {
@@ -218,6 +230,7 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
           ))}
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 }

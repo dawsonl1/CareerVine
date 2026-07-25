@@ -3,6 +3,33 @@ import type { EmailMessage, EmailFollowUp, ScheduledEmail, EmailDraft } from "@/
 import { runFullGmailSync } from "@/lib/gmail-sync-client";
 import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import type { GmailLabel, LinkedCalendarEvent } from "./inbox-types";
+import { apiFetch } from "@/lib/api-client";
+
+/**
+ * Declared here rather than as `InferApiResponse<typeof GET>` (CONVENTIONS.md
+ * §a's preferred form), because these two routes' inferred types are lossy:
+ * their enrichment passes annotate the map callback parameter narrowly
+ * (`(f: { recipient_email?: string | null }) => ({ ...f, matched_contact_id })`),
+ * which erases the row type, so the inferred response says a message has
+ * exactly `contact_ids` and `matched_contact_id` and nothing else. Inferring
+ * from that would be worse than this: it would make every field the component
+ * actually reads a type error, and the natural fix under deadline is a cast,
+ * which is the hole CAR-158 closed. The route-side fix is tracked separately.
+ */
+type InboxResponse = {
+  success?: boolean;
+  emails?: EmailMessage[];
+  trashedEmails?: EmailMessage[];
+  hiddenEmails?: EmailMessage[];
+  scheduledEmails?: ScheduledEmail[];
+  followUps?: EmailFollowUp[];
+  contactMap?: Record<number, string>;
+  calendarByThread?: Record<string, LinkedCalendarEvent>;
+  gmailAddress?: string;
+};
+
+type DraftsResponse = { drafts?: EmailDraft[] };
+type LabelsResponse = { labels?: GmailLabel[] };
 
 interface UseInboxDataParams {
   user: { id: string } | null | undefined;
@@ -41,8 +68,9 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
   const loadInbox = useCallback(async () => {
     setError(false);
     try {
-      const res = await fetch("/api/gmail/inbox");
-      const data = await res.json();
+      // apiFetch throws on any non-2xx, so `data.success` is no longer the only
+      // thing standing between a 500 and eight setState calls full of undefined.
+      const data = await apiFetch<InboxResponse>("/api/gmail/inbox");
       if (data.success) {
         setEmails(data.emails || []);
         setTrashedEmails(data.trashedEmails || []);
@@ -66,11 +94,12 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
 
   const loadDrafts = useCallback(async () => {
     try {
-      const res = await fetch("/api/gmail/drafts");
-      const data = await res.json();
+      const data = await apiFetch<DraftsResponse>("/api/gmail/drafts");
       setDrafts(data.drafts || []);
     } catch {
-      // ignore
+      // error-tolerated: drafts are a secondary tab beside the inbox payload,
+      // which owns this hook's `error` state. A failed drafts read leaves that
+      // tab empty rather than taking the whole inbox down with it.
     }
   }, []);
 
@@ -80,9 +109,11 @@ export function useInboxData({ user, gmailConnected }: UseInboxDataParams) {
       // best-effort), so the effect fires them without awaiting.
       void loadInbox();
       void loadDrafts();
-      fetch("/api/gmail/labels")
-        .then((r) => r.json())
+      apiFetch<LabelsResponse>("/api/gmail/labels")
         .then((d) => setGmailLabels(d.labels || []))
+        // error-tolerated: labels populate the "Move to" menu only. The route is
+        // capability-gated, so a free account 403s here by design and must not
+        // see an error for a control it does not have.
         .catch(() => {});
     } else {
       setLoading(false);

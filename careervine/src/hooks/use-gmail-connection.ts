@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useSyncExternalStore } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { apiFetch } from "@/lib/api-client";
 
 /**
  * Connection data returned by /api/gmail/connection.
@@ -46,11 +47,7 @@ function setState(patch: Partial<StoreState>) {
 
 function fetchConnection(): Promise<GmailConnectionData | null> {
   if (fetchPromise) return fetchPromise;
-  fetchPromise = fetch("/api/gmail/connection")
-    .then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    })
+  fetchPromise = apiFetch<{ connection?: GmailConnectionData | null }>("/api/gmail/connection")
     .then((data) => {
       const conn = data.connection || null;
       setState({ data: conn, loading: false });

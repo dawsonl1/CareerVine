@@ -15,9 +15,15 @@ import { useCapabilities } from "@/hooks/use-capabilities";
 import { trackBeforeNavigate } from "@/lib/analytics/client";
 import McpConnectCard from "@/components/settings/mcp-connect-card";
 import { PremiumUpgradeBanner } from "@/components/email/premium-upgrade-banner";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { apiSend } from "@/lib/api-client";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 
 export default function IntegrationsSection() {
   const { user } = useAuth();
+  const { error: toastError } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
   const searchParams = useSearchParams();
   const { calendarConnected, calendarLastSynced, loading: calendarLoading, refresh: refreshConnection } = useGmailConnection();
   const { can } = useCapabilities();
@@ -84,35 +90,44 @@ export default function IntegrationsSection() {
   };
 
   const handleGmailDisconnect = async () => {
-    if (!confirm("Disconnect Gmail? This will remove all cached email data.")) return;
+    if (!(await confirm({
+      message: "Disconnect Gmail? This will remove all cached email data.",
+      title: "Disconnect Gmail",
+      confirmLabel: "Disconnect",
+      destructive: true,
+    }))) return;
     setDisconnecting(true);
-    try {
-      const res = await fetch("/api/gmail/disconnect", { method: "POST" });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error);
-      }
-      setGmailConn(null);
-    } catch (err) {
-      console.error("Disconnect error:", err);
-    } finally {
-      setDisconnecting(false);
-    }
+    // A failed disconnect used to reach console.error only, leaving the card
+    // showing "Connected" with no hint the request was refused (CAR-188).
+    const disconnected = await withToastOnError(
+      () => apiSend("/api/gmail/disconnect", { method: "POST" }),
+      toastError,
+      "Couldn't disconnect Gmail. Please try again.",
+    );
+    setDisconnecting(false);
+    if (!disconnected) return;
+
+    setGmailConn(null);
   };
 
   const handleDisconnectCalendar = async () => {
-    if (!confirm("Disconnect Google Calendar?")) return;
-    try {
-      setDisconnectingCalendar(true);
-      const res = await fetch("/api/calendar/disconnect", { method: "POST" });
-      if (!res.ok) throw new Error("Failed to disconnect calendar");
-      invalidateGmailConnectionCache();
-      void refreshConnection(); // swallows its own fetch errors
-    } catch (err) {
-      console.error("Error disconnecting calendar:", err);
-    } finally {
-      setDisconnectingCalendar(false);
-    }
+    if (!(await confirm({
+      message: "Disconnect Google Calendar?",
+      title: "Disconnect Google Calendar",
+      confirmLabel: "Disconnect",
+      destructive: true,
+    }))) return;
+    setDisconnectingCalendar(true);
+    const disconnected = await withToastOnError(
+      () => apiSend("/api/calendar/disconnect", { method: "POST" }),
+      toastError,
+      "Couldn't disconnect Google Calendar. Please try again.",
+    );
+    setDisconnectingCalendar(false);
+    if (!disconnected) return;
+
+    invalidateGmailConnectionCache();
+    void refreshConnection(); // swallows its own fetch errors
   };
 
   if (!user) return null;
@@ -259,6 +274,7 @@ export default function IntegrationsSection() {
       </Card>
 
       {!bothConnected && <McpConnectCard />}
+      {confirmDialog}
     </div>
   );
 }

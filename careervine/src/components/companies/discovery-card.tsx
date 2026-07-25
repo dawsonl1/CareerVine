@@ -5,6 +5,7 @@ import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 import { ExternalLink, UserPlus, X } from "lucide-react";
+import { apiFetch, isApiRequestError } from "@/lib/api-client";
 
 /**
  * Company page "New PM hires" card (plan 41 §5.1): candidates the weekly
@@ -31,11 +32,15 @@ export function DiscoveryCard({ companyId }: { companyId: number }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/discovery/candidates?company_id=${companyId}`)
-      .then((r) => (r.ok ? r.json() : null))
+    apiFetch<{ candidates?: DiscoveryCandidate[] }>(
+      `/api/discovery/candidates?company_id=${companyId}`,
+    )
       .then((data) => {
         if (!cancelled && data?.candidates) setCandidates(data.candidates);
       })
+      // error-tolerated: the whole card returns null when there are no
+      // candidates, so it is additive suggestion surface on the company page
+      // rather than data the user navigated here to read.
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -56,32 +61,34 @@ export function DiscoveryCard({ companyId }: { companyId: number }) {
 
   const act = async (candidate: DiscoveryCandidate, action: "add" | "dismiss") => {
     setBusy(candidate.id, true);
+    const failureCopy = `Couldn't ${action === "add" ? "add" : "dismiss"} ${candidate.name}`;
     try {
-      const res = await fetch(`/api/discovery/candidates/${candidate.id}/${action}`, {
-        method: "POST",
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok) {
-        removeRow(candidate.id);
-        if (action === "add") {
-          toastSuccess(
-            data?.enrich === "started"
-              ? `${candidate.name} added, enriching profile…`
-              : `${candidate.name} added`,
-          );
-        } else {
-          toastInfo(`${candidate.name} won't be suggested again`);
-        }
-      } else if (res.status === 409 || res.status === 404) {
+      const data = await apiFetch<{ enrich?: string }>(
+        `/api/discovery/candidates/${candidate.id}/${action}`,
+        { method: "POST" },
+      );
+      removeRow(candidate.id);
+      if (action === "add") {
+        toastSuccess(
+          data?.enrich === "started"
+            ? `${candidate.name} added, enriching profile…`
+            : `${candidate.name} added`,
+        );
+      } else {
+        toastInfo(`${candidate.name} won't be suggested again`);
+      }
+    } catch (err) {
+      // The status-specific branches move into catch, since apiFetch throws on
+      // any non-2xx. ApiRequestError carries the status and the curated
+      // message, which is what both branches were reading off the body.
+      if (isApiRequestError(err) && (err.status === 409 || err.status === 404)) {
         // Already handled (or a previously deleted contact) — the row is stale
         // either way, so drop it and relay the server's explanation.
         removeRow(candidate.id);
-        toastInfo(data?.error ?? "Already handled");
+        toastInfo(err.message);
       } else {
-        toastError(data?.error ?? `Couldn't ${action === "add" ? "add" : "dismiss"} ${candidate.name}`);
+        toastError(isApiRequestError(err) ? err.message : failureCopy);
       }
-    } catch {
-      toastError(`Couldn't ${action === "add" ? "add" : "dismiss"} ${candidate.name}`);
     } finally {
       setBusy(candidate.id, false);
     }
