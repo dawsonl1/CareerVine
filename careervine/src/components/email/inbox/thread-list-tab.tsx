@@ -368,7 +368,12 @@ export function ThreadListTab({
                    read state the E2E tier asserts on, which would otherwise be
                    reachable only through a font-weight class. */
                 data-testid={`inbox-thread-${thread.threadId}`}
-                data-unread={isUnread ? "true" : "false"}
+                /* Emitted only on the inbox tab (CAR-191 review). `isUnread` is
+                   itself gated on `tabCtx === "inbox"`, so on sent/trash/hidden
+                   this rendered a hardcoded "false" for every row regardless of
+                   read state — an attribute that answered a question it could
+                   not actually see. Absent is honest; "false" was not. */
+                data-unread={tabCtx === "inbox" ? (isUnread ? "true" : "false") : undefined}
                 className={`group/thread w-full text-left px-5 py-3.5 hover:bg-surface-container-low transition-colors cursor-pointer ${isUnread ? "bg-primary/[0.04]" : ""}`}
                 onClick={() => { setMoveDropdownMsgId(null); onThreadClick(thread); }}
               >

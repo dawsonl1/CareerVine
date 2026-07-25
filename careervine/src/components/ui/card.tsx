@@ -60,7 +60,11 @@ export const CardContent = forwardRef<HTMLDivElement, CardContentProps>(
     return (
       <div
         ref={ref}
-        className={`px-6 pb-6 ${className}`}
+        // A caller-supplied padding REPLACES the default rather than racing it
+        // (CAR-191 review). `px-6 pb-6 p-7` is not resolved by class-string
+        // order — Tailwind resolves by stylesheet order — so a caller asking for
+        // `p-7` got whichever the sheet happened to emit last.
+        className={`${/\bp-\d/.test(className) ? "" : "px-6 pb-6"} ${className}`.trim()}
         {...props}
       >
         {children}
