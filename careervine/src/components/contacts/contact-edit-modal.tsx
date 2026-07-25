@@ -113,9 +113,22 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
     getTags(userId).then(setAllTags).catch(() => {});
   }, [userId]);
 
-  // Populate form when modal opens
+  // Populate form when modal opens.
+  //
+  // Keyed on `contact.id` rather than the whole object: the parent re-fetches
+  // through `onContactUpdate` and hands back a fresh object each time, and
+  // several of those calls resolve after an await, so one can land while the
+  // modal is open. Re-running on identity there would wipe in-progress edits AND
+  // re-baseline `pristine` from the wiped values, leaving the guard below with
+  // nothing to warn about — the one loss it exists to prevent.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      // Nothing to compare against while closed. Without this the first commit of
+      // a reopen renders the previous session's values against a stale baseline
+      // and reads as dirty before the repopulate lands.
+      setPristine(null);
+      return;
+    }
     const schoolInfo = contact.contact_schools?.[0];
     const nextFormData = {
       name: contact.name,
@@ -177,9 +190,18 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       preferredContactKey: nextPreferredContactKey,
       selectedTagIds: nextTagIds,
     }));
-  }, [isOpen, contact]);
+    // Narrower than exhaustive-deps wants, deliberately: see the note above the
+    // effect. Repopulating on `contact` identity is the bug, not the lint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, contact.id]);
 
+  // Gated on `saving` because handleSave is a long serial chain of writes: during
+  // it the form is legitimately dirty, but Escape/scrim/X would offer to discard
+  // changes that are already being persisted, and "Discard" cannot actually stop
+  // them — the save completes and toasts success behind the closed modal. Matches
+  // add-company-modal's `dirty && !saving`.
   const hasUnsavedChanges =
+    !saving &&
     pristine !== null &&
     pristine !== serializeForm({ formData, companies, emails, phones, preferredContactKey, selectedTagIds });
 
@@ -296,8 +318,10 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
     }
   };
 
+  // Deliberately does not close first. The parent asks for confirmation and only
+  // then deletes (navigating away on success), so closing here meant a declined
+  // confirm left the modal shut with the user's edits silently gone.
   const handleDelete = () => {
-    onClose();
     onContactDelete();
   };
 
@@ -481,7 +505,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
             <div key={i} className="flex items-center gap-2 mb-2">
               <input type="tel" value={entry.phone} onChange={(e) => { const u = [...phones]; u[i] = { ...u[i], phone: e.target.value }; setPhones(u); }} className={`${inputClasses} !h-11 flex-1`} placeholder="555-123-4567" />
               <div className="shrink-0 w-[100px]">
-                <Select value={entry.type} onChange={(val) => { const u = [...phones]; u[i] = { ...u[i], type: val }; setPhones(u); }} options={[{ value: "mobile", label: "Mobile" }, { value: "work", label: "Work" }, { value: "home", label: "Home" }]} />
+                <Select value={entry.type} onChange={(val) => { const u = [...phones]; u[i] = { ...u[i], type: val }; setPhones(u); }} options={[{ value: "mobile", label: "Mobile" }, { value: "work", label: "Work" }, { value: "home", label: "Home" }]} ariaLabel={`Phone ${i + 1} type`} />
               </div>
               <Checkbox checked={preferredContactKey === `phone-${i}`} onChange={(checked) => setPreferredContactKey(checked ? `phone-${i}` : "")} label="Preferred" />
               <button type="button" onClick={() => {
@@ -564,6 +588,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
         <div className="pt-2 border-t border-outline-variant">
           <label className={labelClasses}>Follow-up frequency</label>
           <Select
+            ariaLabel="Follow-up frequency"
             value={
               showCustomFrequency ? "custom"
               : FOLLOW_UP_OPTIONS.find((o) => o.days === Number(formData.follow_up_frequency_days)) ? formData.follow_up_frequency_days

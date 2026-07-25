@@ -94,10 +94,17 @@ function tabbableWithin(root: HTMLElement): HTMLElement[] {
  * because it is published to descendants as a portal target and so has to be
  * readable during render. `ref.current` would be populated by the time any menu
  * opens, but reading it in render is impure and would not re-render a consumer.
+ * `setSurface` is used as the ref directly: `useState` guarantees it is stable,
+ * and a DOM node can never be mistaken for a functional updater.
+ *
+ * `returnFocusFallback` is where focus goes when the element that opened this
+ * layer is no longer a usable target. A layer that closes without landing focus
+ * somewhere real leaves it on `<body>`, and since the trap is a keydown handler
+ * *on the surface*, focus outside the surface means the trap silently stops
+ * running and Tab walks straight out of the dialog.
  */
-function useFocusTrap(active: boolean) {
+function useFocusTrap(active: boolean, returnFocusFallback?: HTMLElement | null) {
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
-  const surfaceRef = useCallback((node: HTMLDivElement | null) => setSurface(node), []);
 
   useEffect(() => {
     if (!active || !surface) return;
@@ -112,9 +119,21 @@ function useFocusTrap(active: boolean) {
       // isConnected skips a trigger that unmounted along with the dialog. It also
       // makes cleanup order irrelevant on the Discard path, where the confirm
       // dialog and the modal unmount in the same commit.
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      //
+      // <body> is treated as "nothing to restore" rather than a target: a scrim
+      // mousedown blurs to <body> before this captures, and focusing it drops the
+      // user at the top of the document. The fallback then covers a layer that
+      // opened over a live one — the confirm dialog can capture an open Select's
+      // option as its `previouslyFocused`, and that option is gone by the time it
+      // closes, so without this focus would land nowhere inside a modal that is
+      // still open.
+      if (previouslyFocused?.isConnected && previouslyFocused !== document.body) {
+        previouslyFocused.focus();
+      } else if (returnFocusFallback?.isConnected) {
+        (tabbableWithin(returnFocusFallback)[0] ?? returnFocusFallback).focus();
+      }
     };
-  }, [active, surface]);
+  }, [active, surface, returnFocusFallback]);
 
   const onKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab") return;
@@ -145,7 +164,7 @@ function useFocusTrap(active: boolean) {
     }
   }, [surface]);
 
-  return { surfaceRef, surface, onKeyDown };
+  return { surfaceRef: setSurface, surface, onKeyDown };
 }
 
 interface ModalContextValue {
@@ -167,10 +186,15 @@ const ModalContext = createContext<ModalContextValue>({ portalContainer: null, d
  * into it are `position: fixed`, and a fixed element's containing block is the
  * viewport, so ancestor overflow never clips it. That holds only while the
  * surface forms no containing block for fixed descendants: a `transform`,
- * `filter`, `backdrop-filter`, `perspective`, `contain`, or `will-change` on it
- * or on the wrapper around it would silently start clipping every menu inside
- * every modal. An entrance animation is the obvious way that happens, so
- * `modal.test.tsx` pins both elements against it.
+ * `filter`, `backdrop-filter`, `perspective`, `contain` (of `layout`/`paint`/
+ * `strict`/`content`), `container-type`, or a `will-change` naming one of those,
+ * on it or on the wrapper around it, would silently start clipping every menu
+ * inside every modal. An entrance animation is the obvious way that happens, so
+ * `careervine/src/__tests__/modal.test.tsx` pins both elements against it.
+ *
+ * Not covered by that tripwire, because Tailwind has no first-class utility for
+ * it: `clip-path` on an ancestor clips fixed descendants through a different
+ * mechanism, without establishing a containing block.
  */
 export function useModalPortalContainer(): HTMLElement | null {
   return useContext(ModalContext).portalContainer;
@@ -210,14 +234,21 @@ function ConfirmDiscardDialog({
   message,
   onDiscard,
   onKeepEditing,
+  returnFocusTo,
 }: {
   message: string;
   onDiscard: () => void;
   onKeepEditing: () => void;
+  /**
+   * Where focus goes on dismiss when whatever opened this dialog is gone by then
+   * — most often an open Select option, which unmounts while this is up. Without
+   * it focus lands on `<body>`, outside the still-open modal's trap.
+   */
+  returnFocusTo?: HTMLElement | null;
 }) {
   const titleId = useId();
   const messageId = useId();
-  const { surfaceRef, onKeyDown } = useFocusTrap(true);
+  const { surfaceRef, onKeyDown } = useFocusTrap(true, returnFocusTo);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -379,6 +410,7 @@ export function Modal({
           message={confirmMessage}
           onDiscard={confirmDiscard}
           onKeepEditing={() => setShowConfirm(false)}
+          returnFocusTo={surface}
         />
       )}
     </div>

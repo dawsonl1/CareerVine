@@ -35,60 +35,106 @@ gets a source tripwire rather than a comment.
 - New `ModalPortalContext` (the surface element) provided around `children` only, not
   around the confirm dialog, which is a DOM sibling with its own trap.
 - Export `useModalPortalContainer()`: the surface when inside a Modal, else `null`.
-- `tabbableWithin` is **unchanged**. The menu becomes a real DOM child of the surface,
-  so the existing `querySelectorAll` already finds it. No merging of node sets, no
-  ordering question: portals append, so options land last in document order, which is
-  where the pre-CAR-185 body portal put them too.
+- `tabbableWithin` is **unchanged**, and after the slice-2 revision nothing portalled
+  is tabbable at all, so the trap's contract stays exactly one sentence.
+- The trap's focus restore gains a fallback. A layer can capture as its
+  `previouslyFocused` an element that is gone by the time it closes (an open list's
+  option is the live case), and restoring nothing there leaves focus on `<body>` —
+  outside the surface, where the trap is a keydown handler and therefore silently
+  stops running. `<body>` is likewise treated as "nothing to restore" rather than a
+  target, which also fixes a scrim-click path that predates this ticket.
 
 ### 2. `select.tsx` — real keyboard support, matching what the header already claimed
 
-- Portal target becomes `useModalPortalContainer() ?? document.body`.
-- Options stay plainly tabbable `<button>`s. A roving `tabIndex={-1}` would be the
-  usual listbox pattern but `tabbableWithin` filters negative tabindex, so it would
-  re-break the exact thing this ticket is fixing.
-- Trigger: `aria-haspopup="listbox"`, `aria-expanded`, `aria-controls`. ArrowDown /
-  ArrowUp open the menu and land on the first / last option.
-- Menu: ArrowDown / ArrowUp move focus with wraparound, Home / End jump to the ends,
-  Enter / Space commit the focused option.
-- Escape is handled by a **document keydown listener in the capture phase**, registered
-  only while open. Capture on `document` runs before the Modal's bubble-phase document
-  listener, so `stopPropagation()` there is deterministic. Relying on React's
-  `stopPropagation` from a synthetic handler would work by way of where React 17+
-  attaches delegated listeners, which is exactly the kind of subtlety that should not
-  be load-bearing for a WCAG fix.
-- Every close path that unmounts the focused option (Escape, Enter, click) returns
-  focus to the trigger. Without that, focus falls to `document.body` and escapes the
-  trap that this ticket exists to repair.
-- Header rewritten to describe what is implemented rather than what was aspired to.
+> **Revised after the deep review.** The first pass moved real DOM focus into the
+> portalled options and kept them tabbable. Four independent reviewers traced the same
+> consequence: options that hold focus must live somewhere in the tab order, a portal
+> can only *append*, so they landed after every other control in the dialog; and
+> nothing closed a list the user had tabbed away from, so a stale list's Escape
+> handler swallowed Escape for every layer above it — including the unsaved-changes
+> dialog, whose buttons then could not be reached at all. Every fix for the stale list
+> (close on blur, or close on Tab) also makes "Tab reaches the options" false, so that
+> acceptance criterion and a correct dropdown are mutually exclusive. Hence the shape
+> below, and the ticket's test list is amended to match.
+
+- Portal target becomes `useModalPortalContainer() ?? document.body`. Required
+  independently of focus: `aria-modal` hides everything outside the dialog from
+  assistive tech, so a list on the body is invisible to a screen reader.
+- Select-only **combobox** per the WAI-ARIA APG: the trigger is the only focusable
+  part and keeps DOM focus throughout, with `aria-activedescendant` naming the active
+  option. Options are `role="option"` inside a `role="listbox"`, carry no tabindex and
+  never take focus — so there is no second focus location to strand, to order, or to
+  leak Escape from.
+- Trigger: `role="combobox"`, `aria-haspopup="listbox"`, `aria-expanded`,
+  `aria-controls`, `aria-activedescendant`, plus a new `ariaLabel` prop — a `<label>`
+  cannot be associated with a button, and once a value is chosen the trigger's text
+  *is* the value, so without it a screen reader names the field after its contents.
+- Arrows move the active option with wraparound, Home / End jump to the ends,
+  Enter / Space commit, Escape closes the list, Tab closes it and moves on.
+- Escape stays on a **document keydown listener in the capture phase**, which beats
+  the Modal's bubble-phase document listener deterministically, but now fires only
+  while this trigger holds focus. The blur-close is what makes a stale list
+  impossible; the focus check is belt-and-braces behind it.
+- The four other portalling components (`date-picker`, `time-picker`,
+  `application-date-picker`, `applications-open-picker`) reach the same contract
+  through `usePortalDropdown`, so the rule holds for every portalling child rather
+  than just the one that had the live bug.
+- Header rewritten to describe what is implemented, and to record why focus stays on
+  the trigger instead of asserting the earlier (false) claim that roving tabindex was
+  the only alternative.
 
 ### 3. `contact-edit-modal.tsx` — the unsaved-changes gap the ticket names
 
 Called out in the ticket's "Live call sites": the modal passes no `hasUnsavedChanges`,
 so Escape discards in-progress edits with no confirm. Snapshot the form state in the
 same effect that populates it on open, compare against it, pass the result through.
+- `useModalDismiss()` is added to `modal.tsx` and the footer Cancel routed through it,
+  here and in `add-company-modal.tsx` — the only other modal that sets the guard, and
+  the one live violator of the rule this PR writes into CONVENTIONS.
+- `handleDelete` no longer closes first: the parent confirms and navigates, so closing
+  ahead of it meant a declined confirm shut the modal with the edits gone.
+- The populate effect keys on `contact.id`, not the whole object, and clears the
+  baseline on close.
+- `serializeForm` / `FormSnapshot` are exported for a unit test, and a second
+  render-level test file covers the wiring the unit test structurally cannot see.
 
 ## Tests
 
-`src/__tests__/select.test.tsx` (new) and additions to `src/__tests__/modal.test.tsx`:
+`src/__tests__/select.test.tsx`, `src/__tests__/contact-edit-unsaved-guard.test.tsx`
+(both new), and additions to `src/__tests__/modal.test.tsx`:
 
-- Tab reaches the options with a Select open inside a Modal
-- **Regression pin**: the trap's tabbable set includes the portalled option nodes, and
-  Shift+Tab off the Close button lands on the last option
-- Escape with the menu open closes the menu only and the dialog stays open
-- Escape with the menu closed closes the dialog
-- Arrow keys move the active option, with wraparound; Enter commits it
-- Escape / Enter / click all return focus to the trigger
-- Menu portals to the modal surface inside a Modal, to `document.body` outside one
-- Source tripwire: the modal surface declares no containing-block-forming property
+- **Regression pin** for the original bug, restated for the revised design: the open
+  list is a DOM child of the dialog surface (`dialog.contains(option)`, the exact
+  inverse of the repro), and portals to `document.body` outside a Modal
+- The list stays *out* of the dialog's tab cycle, and focus stays on the trigger for
+  the whole interaction
+- Escape with the list open closes the list only; with it closed, closes the dialog;
+  twice in a row does both in order
+- Opening a layer above an open list takes the list down, so Escape reaches that layer
+- Arrows with wraparound, Home / End, Enter and Space commit, Tab and blur close
+- Empty option list never opens; an empty-string option value and duplicate values
+  both navigate correctly
+- Combobox semantics: role, `aria-expanded`, `aria-controls`, `aria-selected`, and a
+  field name that survives choosing a value
+- Unsaved-changes guard at render level: no warning on an untouched open, warning
+  after a real edit, Cancel routed through the guard, no warning mid-save, delete
+  leaves the form intact, reopen re-baselines
+- Source tripwire: neither the surface nor its wrapper declares a containing-block
+  property, in class, variant, arbitrary-property or inline-style form
 
 ## Verify
 
-`npm run test` and `npm run build` from `careervine/`. Manually: Edit Contact, tab to
-the phone-type select, confirm the options are reachable and Escape behaves in two
-stages.
+`npm run test`, `npm run build`, `tsc --noEmit` and `eslint` from `careervine/`.
+In a real browser, since jsdom has neither layout nor sequential Tab: the list renders
+unclipped past the dialog's bottom edge, Tab from the trigger moves to the next field
+and closes the list, arrows move the active option, Enter commits, and Escape resolves
+one layer at a time.
 
-## Not doing
+## Reversed after review
 
-Closing the menu on focus leaving it. It is a nicety, not the defect, and a
-`focusin` listener interacts with the trap's own programmatic focus moves in ways
-that would need their own test surface.
+The first draft declined to close the list when focus leaves it, calling that "a
+nicety, not the defect". It was the defect: four reviewers independently traced a
+stale list swallowing Escape for the layer above it. The stated reason for deferring
+— that a focus listener would fight the trap's own programmatic focus moves — was also
+wrong, since the trap only ever moves focus *out* of the list. Both the call and its
+rationale are superseded by slice 2.

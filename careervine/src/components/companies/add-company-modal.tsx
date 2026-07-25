@@ -9,13 +9,27 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Modal } from "@/components/ui/modal";
+import { Modal, useModalDismiss } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { addCompanyManually } from "@/lib/company-queries";
 
 const INPUT_CLASSES =
   "h-10 px-3 w-full rounded-lg bg-surface-container-highest text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/40";
+
+/**
+ * Lives inside <Modal> so it can reach the dialog's unsaved-changes guard. Wiring
+ * Cancel straight to `onClose` skipped the confirmation that the scrim, Escape and
+ * the X all honour, so a typed-in company name was discarded without warning.
+ */
+function CancelButton({ disabled }: { disabled: boolean }) {
+  const dismiss = useModalDismiss();
+  return (
+    <Button type="button" variant="text" onClick={dismiss} disabled={disabled}>
+      Cancel
+    </Button>
+  );
+}
 
 interface AddCompanyModalProps {
   userId: string;
@@ -123,9 +137,7 @@ export function AddCompanyModal({ userId, onClose }: AddCompanyModalProps) {
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="text" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
+          <CancelButton disabled={saving} />
           <Button type="submit" disabled={!name.trim() || saving}>
             {saving ? "Adding…" : "Add company"}
           </Button>

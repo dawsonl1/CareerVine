@@ -172,11 +172,72 @@ describe("Modal surface as a portal container", () => {
     /^(filter|blur|brightness|contrast|grayscale|invert|saturate|sepia|drop-shadow|hue-rotate)(-|$)/,
     /^backdrop-/,
     /^(perspective|contain|will-change|animate)(-|$)/,
+    // Tailwind v4's container-query utility compiles to `container-type: inline-size`,
+    // which applies layout containment. Spelled `@container`, so none of the above
+    // catch it.
+    /^@container(\/|-|$)/,
+    // Arbitrary-property syntax, e.g. `[will-change:transform]`. Kept as a whole-token
+    // pattern because the variant strip below cannot run on these.
+    /^\[(transform|filter|backdrop-filter|perspective|contain|will-change|container-type|content-visibility):/,
   ];
 
-  /** Utility classes with any variant prefix (`hover:`, `md:`, `motion-safe:`) stripped. */
+  /**
+   * These match a pattern above but compile to a value that establishes nothing:
+   * `contain` only contains for layout/paint/strict/content, and `will-change` only
+   * for transform/perspective/filter. Without this the guard fails on a class added
+   * to *reset* an inherited style, with a message asserting the opposite of the truth.
+   */
+  const INERT_VALUES = /-(none|auto|scroll|contents|normal|size|style)$/;
+
+  /**
+   * A class with any variant prefix (`hover:`, `md:`, `motion-safe:`) stripped, by
+   * splitting on the last colon at bracket depth zero.
+   *
+   * Brackets carry colons in both directions, so neither naive rule works: splitting
+   * on every colon turns `[will-change:transform]` into `transform]`, and slicing from
+   * the first `[` turns `data-[state=open]:animate-in` into `[state=open]:animate-in`.
+   * Both then match nothing.
+   */
+  const withoutVariants = (token: string) => {
+    let depth = 0;
+    let start = 0;
+    for (let i = 0; i < token.length; i++) {
+      if (token[i] === "[") depth++;
+      else if (token[i] === "]") depth--;
+      else if (token[i] === ":" && depth === 0) start = i + 1;
+    }
+    return token.slice(start);
+  };
+
   const utilities = (el: HTMLElement) =>
-    el.className.split(/\s+/).filter(Boolean).map((token) => token.split(":").pop()!);
+    el.className.split(/\s+/).filter(Boolean).map(withoutVariants);
+
+  const assertNoContainingBlock = (el: HTMLElement, label: string) => {
+    // Guard against a vacuous pass: Vitest does not fail a test that ran no
+    // assertions, so classes moving to a CSS module or a `cn()` that resolved
+    // empty would turn this green while checking nothing.
+    expect(utilities(el).length, `${label} has no classes to check`).toBeGreaterThan(0);
+
+    for (const utility of utilities(el)) {
+      if (INERT_VALUES.test(utility)) continue;
+      for (const pattern of CONTAINING_BLOCK_UTILITIES) {
+        expect(
+          pattern.test(utility),
+          `"${utility}" on the ${label} makes it a containing block for fixed descendants, which clips every menu portalled into the dialog`,
+        ).toBe(false);
+      }
+    }
+
+    // The other idiomatic way to write an entrance animation, and invisible to a
+    // className scan.
+    const style = el.getAttribute("style") ?? "";
+    for (const property of ["transform", "filter", "backdrop-filter", "perspective", "contain", "will-change", "container-type"]) {
+      expect(
+        new RegExp(`(^|[;\\s])${property}\\s*:`).test(style),
+        `inline ${property} on the ${label} makes it a containing block for fixed descendants`,
+      ).toBe(false);
+    }
+  };
 
   it("neither the surface nor its wrapper establishes one", () => {
     render(
@@ -184,18 +245,9 @@ describe("Modal surface as a portal container", () => {
         <p>body</p>
       </Modal>,
     );
-    const wrapper = surface().parentElement as HTMLElement;
 
-    for (const el of [surface(), wrapper]) {
-      for (const utility of utilities(el)) {
-        for (const pattern of CONTAINING_BLOCK_UTILITIES) {
-          expect(
-            pattern.test(utility),
-            `"${utility}" makes this element a containing block for fixed descendants, which clips every menu portalled into the dialog`,
-          ).toBe(false);
-        }
-      }
-    }
+    assertNoContainingBlock(surface(), "dialog surface");
+    assertNoContainingBlock(surface().parentElement as HTMLElement, "dialog wrapper");
   });
 
   it("keeps the surface clipping its own overflow, which is why children portal out of it", () => {

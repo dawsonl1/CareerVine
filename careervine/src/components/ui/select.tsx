@@ -1,33 +1,34 @@
 /**
  * M3 Select / Dropdown component
  *
- * Custom dropdown whose menu renders through a React portal so it escapes parent
- * `overflow: hidden` containers. Inside a Modal it portals to that dialog's own
- * surface rather than to `document.body` (CAR-198): the modal's focus trap is
- * "everything inside the surface", so a menu on `document.body` sits outside it
- * and Tab can never reach the options. `useModalPortalContainer` in `modal.tsx`
- * documents why portalling into an `overflow: hidden` surface stays visually
- * correct, and what would break it.
+ * A select-only combobox, following the WAI-ARIA APG pattern: the trigger is the
+ * only focusable part, and it keeps DOM focus for the whole interaction while
+ * `aria-activedescendant` names which option is active. Arrow keys move that
+ * pointer, Enter/Space commit, Escape and Tab close.
  *
- * Keyboard:
- *   - ArrowDown / ArrowUp open the menu onto the first / last option, and move
- *     between options with wraparound once it is open
- *   - Home / End jump to the ends
- *   - Enter / Space commit the focused option
- *   - Escape closes the menu and returns focus to the trigger
+ * Portal target (CAR-198). The option list renders through a portal so it escapes
+ * parent `overflow: hidden` containers, and inside a Modal it portals to that
+ * dialog's own surface rather than to `document.body`. A list on the body sits
+ * outside the modal's focus trap AND outside its `aria-modal` subtree, so it is
+ * both keyboard-unreachable and invisible to a screen reader while looking
+ * perfectly correct on screen. `useModalPortalContainer` in `modal.tsx` documents
+ * why portalling into an `overflow: hidden` surface stays visually correct.
  *
- * The options are ordinary tabbable buttons, not a roving-tabindex listbox. The
- * modal trap drops anything carrying a negative tabindex, so roving would quietly
- * re-open the hole this component was fixed for.
+ * Why focus stays on the trigger rather than moving into the options (CAR-198
+ * review): options that hold real focus have to live somewhere in the tab order,
+ * and a portal can only append, so they landed *after* every other control in the
+ * dialog — a keyboard user tabbing out of the list arrived at the Close button
+ * having skipped the whole form. Worse, nothing closed a list the user had tabbed
+ * away from, and the stale list's Escape handler then swallowed Escape for every
+ * layer above it, including the unsaved-changes dialog, leaving that dialog's
+ * buttons unreachable. Keeping focus on the trigger removes the entire class:
+ * there is no second focus location to strand, to order, or to leak Escape from.
  *
- * Escape is handled on a document listener in the CAPTURE phase. That is what
- * makes "Escape closes the menu, not the dialog" deterministic rather than
- * incidental: Modal listens for Escape on `document` in the bubble phase, and
- * capture on the same node always runs first, so stopping propagation there
- * cannot be reordered by which component mounted when.
- *
- * Every close path that unmounts the focused option hands focus back to the
- * trigger. Skipping that drops focus to `<body>`, which is outside the trap.
+ * Escape is claimed on a document listener in the CAPTURE phase, and only while
+ * this trigger actually holds focus. Capture beats the Modal's bubble-phase
+ * document listener deterministically, so "Escape closes the list, not the
+ * dialog" does not depend on which component mounted first; the focus check is
+ * what stops it firing on behalf of a layer that has since opened above it.
  *
  * @example
  * <Select
@@ -66,24 +67,26 @@ interface SelectProps {
   className?: string;
   /** Extra classes for the trigger button (e.g. to override radius). Use `!` to win over defaults. */
   triggerClassName?: string;
+  /**
+   * Accessible name for the field. A visible `<label>` cannot be associated with a
+   * button, and once a value is chosen the trigger's own text *is* the value, so
+   * without this a screen reader announces the value with no idea which field it
+   * belongs to.
+   */
+  ariaLabel?: string;
 }
 
-export function Select({ value, onChange, options, placeholder = "Select…", required, className, triggerClassName }: SelectProps) {
+export function Select({ value, onChange, options, placeholder = "Select…", required, className, triggerClassName, ariaLabel }: SelectProps) {
   const [open, setOpen] = useState(false);
+  /** Which option `aria-activedescendant` points at. -1 while nothing is active. */
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [pos, setPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
-  const menuId = useId();
+  const baseId = useId();
+  const listboxId = `${baseId}-listbox`;
+  const optionId = (index: number) => `${baseId}-option-${index}`;
   const portalContainer = useModalPortalContainer();
-
-  /**
-   * Option nodes keyed by value rather than by index, so an option leaving the
-   * list removes its own entry on unmount and a lookup can never resolve to a
-   * detached node.
-   */
-  const optionNodes = useRef(new Map<string, HTMLButtonElement>());
-  /** Where to land once the menu has actually mounted, set by the opening keypress. */
-  const pendingFocus = useRef<number | null>(null);
 
   const updatePos = useCallback(() => {
     if (btnRef.current) {
@@ -92,22 +95,31 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
     }
   }, []);
 
-  const focusOption = useCallback((index: number) => {
-    const count = options.length;
-    if (count === 0) return;
-    const wrapped = ((index % count) + count) % count;
-    optionNodes.current.get(options[wrapped].value)?.focus();
-  }, [options]);
-
-  const closeAndRefocus = useCallback(() => {
+  const close = useCallback(() => {
     setOpen(false);
-    btnRef.current?.focus();
+    setActiveIndex(-1);
   }, []);
 
-  const commit = useCallback((next: string) => {
-    onChange(next);
-    closeAndRefocus();
-  }, [onChange, closeAndRefocus]);
+  const openAt = useCallback((index: number) => {
+    if (options.length === 0) return;
+    updatePos();
+    setActiveIndex(Math.min(Math.max(index, 0), options.length - 1));
+    setOpen(true);
+    // Guaranteed rather than assumed: Safari does not focus a button on click, and
+    // every keyboard path below reads `document.activeElement === btnRef.current`.
+    btnRef.current?.focus();
+  }, [options.length, updatePos]);
+
+  const commit = useCallback((index: number) => {
+    const option = options[index];
+    if (!option) return;
+    onChange(option.value);
+    close();
+    btnRef.current?.focus();
+  }, [options, onChange, close]);
+
+  /** Index of the committed value, or 0 so an opening keypress lands somewhere sane. */
+  const selectedIndex = options.findIndex((o) => o.value === value);
 
   // Close on outside click, dismiss on Escape, reposition on scroll/resize.
   useEffect(() => {
@@ -119,16 +131,16 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
         btnRef.current && !btnRef.current.contains(e.target as Node) &&
         dropRef.current && !dropRef.current.contains(e.target as Node)
       ) {
-        setOpen(false);
+        close();
       }
     };
     const handleEscapeCapture = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // Keeps the surrounding Modal's own Escape handler from firing, so a menu
-      // dismissal does not also discard the dialog.
+      // Only claim Escape while this trigger holds focus. Without the check a list
+      // left open under a newer layer would swallow that layer's Escape.
+      if (document.activeElement !== btnRef.current) return;
       e.stopPropagation();
-      setOpen(false);
-      btnRef.current?.focus();
+      close();
     };
 
     document.addEventListener("mousedown", handleOutside);
@@ -141,60 +153,47 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
       window.removeEventListener("scroll", updatePos, true);
       window.removeEventListener("resize", updatePos);
     };
-  }, [open, updatePos]);
+  }, [open, updatePos, close]);
 
-  // A keypress that opens the menu cannot focus an option in the same tick,
-  // because the options do not exist until this commit lands.
+  // Keep the active option in view when arrow keys walk past the list's edges.
   useEffect(() => {
-    if (!open) return;
-    const index = pendingFocus.current;
-    pendingFocus.current = null;
-    if (index !== null) focusOption(index);
-  }, [open, focusOption]);
+    if (!open || activeIndex < 0) return;
+    dropRef.current?.children[activeIndex]?.scrollIntoView?.({ block: "nearest" });
+  }, [open, activeIndex]);
 
-  const handleTriggerKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    e.preventDefault();
-    const target = e.key === "ArrowDown" ? 0 : options.length - 1;
-    if (open) {
-      focusOption(target);
-      return;
-    }
-    pendingFocus.current = target;
-    updatePos();
-    setOpen(true);
-  };
-
-  const handleMenuKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    const index = options.findIndex(
-      (o) => optionNodes.current.get(o.value) === document.activeElement,
-    );
+  const handleKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const last = options.length - 1;
 
     switch (e.key) {
       case "ArrowDown":
-        // index === -1 (focus is not on an option yet) lands on the first.
         e.preventDefault();
-        focusOption(index + 1);
+        if (!open) openAt(selectedIndex >= 0 ? selectedIndex : 0);
+        else setActiveIndex((i) => (i >= last ? 0 : i + 1));
         break;
       case "ArrowUp":
         e.preventDefault();
-        focusOption(index <= 0 ? options.length - 1 : index - 1);
+        if (!open) openAt(selectedIndex >= 0 ? selectedIndex : last);
+        else setActiveIndex((i) => (i <= 0 ? last : i - 1));
         break;
       case "Home":
+        if (!open) return;
         e.preventDefault();
-        focusOption(0);
+        setActiveIndex(0);
         break;
       case "End":
+        if (!open) return;
         e.preventDefault();
-        focusOption(options.length - 1);
+        setActiveIndex(last);
         break;
       case "Enter":
       case " ":
-        if (index < 0) return;
-        // Also suppresses the click a button would synthesize from this key,
-        // which would otherwise commit a second time.
         e.preventDefault();
-        commit(options[index].value);
+        if (!open) openAt(selectedIndex >= 0 ? selectedIndex : 0);
+        else commit(activeIndex);
+        break;
+      case "Tab":
+        // Not prevented: the list closes and focus moves on, as a native select does.
+        if (open) close();
         break;
     }
   };
@@ -223,11 +222,16 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
       <button
         ref={btnRef}
         type="button"
-        onClick={() => { if (!open) updatePos(); setOpen(!open); }}
-        onKeyDown={handleTriggerKeyDown}
+        role="combobox"
         aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        className={`w-full h-14 px-4 bg-white text-left text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm flex items-center justify-between gap-2 ${triggerClassName ?? ""}`}
+        aria-haspopup="listbox"
+        aria-controls={open ? listboxId : undefined}
+        aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
+        aria-label={ariaLabel}
+        onClick={() => (open ? close() : openAt(selectedIndex >= 0 ? selectedIndex : 0))}
+        onKeyDown={handleKeyDown}
+        onBlur={close}
+        className={`w-full h-14 px-4 bg-white text-left text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus-visible:border-primary focus-visible:border-2 transition-colors text-sm flex items-center justify-between gap-2 ${triggerClassName ?? ""}`}
       >
         <span className={selectedLabel ? "text-foreground" : "text-muted-foreground"}>
           {selectedLabel || placeholder}
@@ -238,30 +242,32 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
       {open && createPortal(
         <div
           ref={dropRef}
-          id={menuId}
-          onKeyDown={handleMenuKeyDown}
+          id={listboxId}
+          role="listbox"
+          aria-label={ariaLabel}
+          // Keeps the trigger from blurring on the way to a click, which would close
+          // the list through onBlur before the option's onClick ever ran.
+          onMouseDown={(e) => e.preventDefault()}
           style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width }}
           className="z-[100] bg-white rounded-[12px] border border-outline-variant shadow-lg max-h-64 overflow-y-auto py-1"
         >
-          {options.map((option) => (
-            <button
+          {options.map((option, index) => (
+            <div
               key={option.value}
-              ref={(node) => {
-                if (node) optionNodes.current.set(option.value, node);
-                else optionNodes.current.delete(option.value);
-              }}
-              type="button"
-              onClick={() => commit(option.value)}
-              aria-current={option.value === value ? "true" : undefined}
+              id={optionId(index)}
+              role="option"
+              aria-selected={option.value === value}
+              onClick={() => commit(index)}
+              onMouseEnter={() => setActiveIndex(index)}
               className={`w-full text-left px-4 py-3 text-sm flex items-center justify-between gap-2 cursor-pointer transition-all duration-100 ${
                 option.value === value
                   ? "bg-primary/8 text-primary font-medium"
-                  : "text-foreground hover:bg-surface-container"
-              }`}
+                  : "text-foreground"
+              } ${index === activeIndex ? "bg-surface-container" : ""}`}
             >
               <span>{option.label}</span>
               {option.value === value && <Check className="h-4 w-4 text-primary shrink-0" />}
-            </button>
+            </div>
           ))}
         </div>,
         portalContainer ?? document.body,
