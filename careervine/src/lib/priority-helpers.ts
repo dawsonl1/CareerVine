@@ -10,7 +10,11 @@ const NULL_ORDER = 3;
 
 export function getPriorityOrder(priority: string | null): number {
   if (!priority) return NULL_ORDER;
-  return PRIORITY_ORDER[priority] ?? NULL_ORDER;
+  // hasOwn, not `??`: a bare index into an object literal walks the prototype
+  // chain, so PRIORITY_ORDER["constructor"] is a function rather than nullish
+  // and would escape the fallback — returning a non-number from a function
+  // typed `: number` and poisoning the comparator below with NaN.
+  return Object.hasOwn(PRIORITY_ORDER, priority) ? PRIORITY_ORDER[priority] : NULL_ORDER;
 }
 
 export const PRIORITY_COLORS = {
