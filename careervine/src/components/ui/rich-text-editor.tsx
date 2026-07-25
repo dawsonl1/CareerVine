@@ -59,8 +59,13 @@ export function RichTextEditor({ content = "", placeholder = "Write your message
   useEffect(() => {
     if (!editor) return;
     if (content !== lastEmittedHtml.current) {
-      lastEmittedHtml.current = content; // Set before setContent so onUpdate echo doesn't retrigger
-      editor.commands.setContent(content);
+      lastEmittedHtml.current = content;
+      // emitUpdate:false is what the ref assignment above only half-achieved. Without
+      // it TipTap fires onUpdate for this programmatic set, and `getHTML()` normalises
+      // an empty doc to "<p></p>" — so seeding the editor with "" wrote "<p></p>" back
+      // into the caller's state. That made follow-up-modal's discard guard report
+      // unsaved changes on a dialog nobody had touched (CAR-197 review).
+      editor.commands.setContent(content, { emitUpdate: false });
     }
   }, [content, editor]);
 

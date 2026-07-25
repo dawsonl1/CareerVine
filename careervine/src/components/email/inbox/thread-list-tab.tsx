@@ -613,6 +613,7 @@ export function ThreadListTab({
             {hoveredArrow === "outbound" ? "Outgoing: you sent this" : "Incoming: sent to you"}
           </p>
         </div>,
+        // body-portal: hover tooltip, text only, nothing focusable inside.
         document.body
       )}
     </>

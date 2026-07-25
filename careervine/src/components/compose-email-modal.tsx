@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useId, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import DOMPurify from "dompurify";
 import { useCompose } from "@/components/compose-email-context";
@@ -19,7 +19,7 @@ import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { apiFetch, apiSend, jsonBody, isApiRequestError } from "@/lib/api-client";
 import type { DraftFollowUpsResponse } from "@/app/api/ai/draft-follow-ups/route";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
-import { useDialogLayer } from "@/components/ui/modal";
+import { DialogSurface, ModalCloseButton } from "@/components/ui/modal";
 import { track } from "@/lib/analytics/client";
 import { editRatio } from "@/lib/analytics/edit-ratio";
 import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
@@ -714,374 +714,414 @@ function ComposeEmailModalBody() {
     closeCompose();
   }, [to, cc, bcc, subject, bodyHtml, saveDraft, closeCompose, aiDraftContext]);
 
-  // Close on Escape
-  // Mounted only while open (the wrapper returns null otherwise), so the layer is
-  // unconditionally active here. Escape only while topmost, plus the scroll lock this
-  // full-screen overlay never had (CAR-202).
-  const isTopLayer = useDialogLayer(true);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isTopLayer()) handleClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleClose, isTopLayer]);
+  // Escape, the layer registration and the scroll lock are DialogSurface's now
+  // (CAR-197), which also brings the focus trap and dialog semantics. No
+  // `hasUnsavedChanges`: `handleClose` persists an in-progress message as a draft,
+  // which is strictly better than asking the user to choose between keeping and
+  // losing it.
+  const titleId = useId();
 
   const isDone = sent || scheduled;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/32" onClick={handleClose} />
+    <DialogSurface
+      isOpen
+      onClose={handleClose}
+      labelledBy={titleId}
+      testId="compose-modal"
+      wrapperClassName="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg flex flex-col max-h-[90vh]"
+    >
+    {/* Header */}
+    <div className="flex items-center justify-between px-7 pt-6 pb-4">
+      <h2 id={titleId} className="text-2xl leading-8 font-normal text-foreground flex items-center gap-2.5">
+        {isDone
+          ? (scheduled ? "Email scheduled" : "Email sent")
+          : isReply
+          ? <><Reply className="h-6 w-6" /> Reply</>
+          : "New message"}
+      </h2>
+      <ModalCloseButton className="p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" />
+    </div>
 
-      <div
-        data-testid="compose-modal"
-        className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg flex flex-col max-h-[90vh]"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-7 pt-6 pb-4">
-          <h2 className="text-2xl leading-8 font-normal text-foreground flex items-center gap-2.5">
-            {isDone
-              ? (scheduled ? "Email scheduled" : "Email sent")
-              : isReply
-              ? <><Reply className="h-6 w-6" /> Reply</>
-              : "New message"}
-          </h2>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
-          >
-            <X className="h-6 w-6" />
-          </button>
+    {isDone ? (
+      <div className="px-7 pb-10 flex flex-col items-center gap-4 py-10">
+        <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
+          {scheduled ? <Clock className="h-7 w-7 text-primary" /> : <Check className="h-7 w-7 text-primary" />}
         </div>
-
-        {isDone ? (
-          <div className="px-7 pb-10 flex flex-col items-center gap-4 py-10">
-            <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
-              {scheduled ? <Clock className="h-7 w-7 text-primary" /> : <Check className="h-7 w-7 text-primary" />}
-            </div>
-            <p className="text-base text-foreground font-medium">
-              {scheduled
-                ? `Scheduled for ${confirmedSendAt ? confirmedSendAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`
-                : "Your email has been sent"}
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* AI Draft Context banner */}
-            {aiDraftContext && (
-              <div className="mx-5 mt-1 mb-2.5">
-                <button
-                  type="button"
-                  className="w-full text-left"
-                  onClick={() => setShowAiContext(!showAiContext)}
-                >
-                  <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-primary-container/30 border border-primary/10">
-                    <Sparkles className="h-4 w-4 text-primary shrink-0" />
-                    <span className="text-sm text-foreground font-medium flex-1 truncate">
-                      AI draft: {aiDraftContext.extractedTopic}
-                    </span>
-                    <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${showAiContext ? "rotate-180" : ""}`} />
-                  </div>
-                </button>
-                {showAiContext && (
-                  <div className="mt-2 px-4 py-2.5 rounded-xl bg-surface-container-low text-sm text-muted-foreground space-y-1.5">
-                    <p><span className="font-medium text-foreground">Interest:</span> &ldquo;{aiDraftContext.topicEvidence}&rdquo;</p>
-                    {aiDraftContext.sourceMeetingDate && (
-                      <p><span className="font-medium text-foreground">From:</span> {aiDraftContext.sourceMeetingDate}</p>
-                    )}
-                    {aiDraftContext.articleTitle && (
-                      <p>
-                        <span className="font-medium text-foreground">Article:</span> {aiDraftContext.articleTitle}
-                        {aiDraftContext.articleSource && ` via ${aiDraftContext.articleSource}`}
-                      </p>
-                    )}
-                  </div>
+        <p className="text-base text-foreground font-medium">
+          {scheduled
+            ? `Scheduled for ${confirmedSendAt ? confirmedSendAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`
+            : "Your email has been sent"}
+        </p>
+      </div>
+    ) : (
+      <>
+        {/* AI Draft Context banner */}
+        {aiDraftContext && (
+          <div className="mx-5 mt-1 mb-2.5">
+            <button
+              type="button"
+              className="w-full text-left"
+              onClick={() => setShowAiContext(!showAiContext)}
+            >
+              <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-primary-container/30 border border-primary/10">
+                <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                <span className="text-sm text-foreground font-medium flex-1 truncate">
+                  AI draft: {aiDraftContext.extractedTopic}
+                </span>
+                <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${showAiContext ? "rotate-180" : ""}`} />
+              </div>
+            </button>
+            {showAiContext && (
+              <div className="mt-2 px-4 py-2.5 rounded-xl bg-surface-container-low text-sm text-muted-foreground space-y-1.5">
+                <p><span className="font-medium text-foreground">Interest:</span> &ldquo;{aiDraftContext.topicEvidence}&rdquo;</p>
+                {aiDraftContext.sourceMeetingDate && (
+                  <p><span className="font-medium text-foreground">From:</span> {aiDraftContext.sourceMeetingDate}</p>
+                )}
+                {aiDraftContext.articleTitle && (
+                  <p>
+                    <span className="font-medium text-foreground">Article:</span> {aiDraftContext.articleTitle}
+                    {aiDraftContext.articleSource && ` via ${aiDraftContext.articleSource}`}
+                  </p>
                 )}
               </div>
             )}
+          </div>
+        )}
 
-            {/* From */}
-            <div className={fieldRowClasses}>
-              <span className="text-sm text-muted-foreground pl-5 w-14 shrink-0">From</span>
-              <span className="text-base text-muted-foreground px-4 py-3">{gmailAddress}</span>
-            </div>
+        {/* From */}
+        <div className={fieldRowClasses}>
+          <span className="text-sm text-muted-foreground pl-5 w-14 shrink-0">From</span>
+          <span className="text-base text-muted-foreground px-4 py-3">{gmailAddress}</span>
+        </div>
 
-            {/* To — with contact autocomplete */}
-            <div className={`${fieldRowClasses} relative`}>
-              <label className="text-sm text-muted-foreground pl-5 w-14 shrink-0" htmlFor="compose-to">To</label>
-              <div className="flex-1 min-w-0 relative">
-                <input
-                  ref={toRef}
-                  id="compose-to"
-                  type="text"
-                  value={to}
-                  onChange={(e) => handleToChange(e.target.value)}
-                  onFocus={() => { if (contactSuggestions.length > 0 && !to.includes("@")) setShowSuggestions(true); }}
-                  className={inputClasses}
-                  placeholder="Name or email…"
-                  autoComplete="off"
-                />
-                {selectedContactName && to.includes("@") && (
-                  <span className="absolute right-0 top-1/2 -translate-y-1/2 text-xs text-primary font-medium pr-1.5">
-                    {selectedContactName}
-                  </span>
-                )}
-                {showSuggestions && contactSuggestions.length > 0 && (
-                  <div
-                    ref={suggestionsRef}
-                    className="absolute left-0 top-full z-50 w-full bg-surface-container-high rounded-b-xl shadow-lg border border-outline-variant border-t-0 overflow-hidden"
-                  >
-                    {contactSuggestions.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        data-testid="compose-contact-suggestion"
-                        onClick={() => handleSelectContact(c)}
-                        className="w-full text-left px-4 py-2.5 flex items-center gap-3.5 hover:bg-primary/[0.06] transition-colors cursor-pointer"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-sm font-medium shrink-0">
-                          {c.name[0]?.toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-base font-medium text-foreground truncate">{c.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{c.email}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCcBcc(!showCcBcc)}
-                className="pr-5 text-muted-foreground hover:text-foreground cursor-pointer"
-                title={showCcBcc ? "Hide CC/BCC" : "Show CC/BCC"}
+        {/* To — with contact autocomplete */}
+        <div className={`${fieldRowClasses} relative`}>
+          <label className="text-sm text-muted-foreground pl-5 w-14 shrink-0" htmlFor="compose-to">To</label>
+          <div className="flex-1 min-w-0 relative">
+            <input
+              ref={toRef}
+              id="compose-to"
+              type="text"
+              value={to}
+              onChange={(e) => handleToChange(e.target.value)}
+              onFocus={() => { if (contactSuggestions.length > 0 && !to.includes("@")) setShowSuggestions(true); }}
+              className={inputClasses}
+              placeholder="Name or email…"
+              autoComplete="off"
+            />
+            {selectedContactName && to.includes("@") && (
+              <span className="absolute right-0 top-1/2 -translate-y-1/2 text-xs text-primary font-medium pr-1.5">
+                {selectedContactName}
+              </span>
+            )}
+            {showSuggestions && contactSuggestions.length > 0 && (
+              <div
+                ref={suggestionsRef}
+                className="absolute left-0 top-full z-50 w-full bg-surface-container-high rounded-b-xl shadow-lg border border-outline-variant border-t-0 overflow-hidden"
               >
-                {showCcBcc ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-              </button>
-            </div>
-
-            {/* Multi-email picker — shown when selected contact has >1 email */}
-            {contactEmailOptions.length > 1 && (
-              <div className="flex items-center gap-2 px-5 py-2 border-b border-outline-variant/50 flex-wrap">
-                <span className="text-xs text-muted-foreground shrink-0">Send to:</span>
-                {contactEmailOptions.map((email) => (
+                {contactSuggestions.map((c) => (
                   <button
-                    key={email}
+                    key={c.id}
                     type="button"
-                    onClick={() => setTo(email)}
-                    className={`text-xs px-2.5 py-0.5 rounded-full transition-colors ${
-                      to === email
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-surface-container-low text-muted-foreground hover:text-foreground"
-                    }`}
+                    data-testid="compose-contact-suggestion"
+                    onClick={() => handleSelectContact(c)}
+                    className="w-full text-left px-4 py-2.5 flex items-center gap-3.5 hover:bg-primary/[0.06] transition-colors cursor-pointer"
                   >
-                    {email}
+                    <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-sm font-medium shrink-0">
+                      {c.name[0]?.toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-base font-medium text-foreground truncate">{c.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{c.email}</p>
+                    </div>
                   </button>
                 ))}
               </div>
             )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCcBcc(!showCcBcc)}
+            className="pr-5 text-muted-foreground hover:text-foreground cursor-pointer"
+            title={showCcBcc ? "Hide CC/BCC" : "Show CC/BCC"}
+          >
+            {showCcBcc ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+          </button>
+        </div>
 
-            {/* Address provenance warnings (plan 24 Phase 4) */}
-            {emailMeta?.bounced_at && (
-              <div className="flex items-center gap-2 px-5 py-2 bg-error-container/60 text-on-error-container text-xs border-b border-outline-variant/50">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>
-                  This address bounced on {new Date(emailMeta.bounced_at).toLocaleDateString()}. Messages likely won&apos;t be delivered.
-                </span>
-              </div>
-            )}
-            {emailMeta && !emailMeta.bounced_at && emailMeta.source === "pattern_guessed" && (
-              <div className="flex items-center gap-2 px-5 py-2 bg-yellow-500/10 text-yellow-800 dark:text-yellow-300 text-xs border-b border-outline-variant/50">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span className="flex-1">This address was pattern-guessed by the scraper and may not exist.</span>
+        {/* Multi-email picker — shown when selected contact has >1 email */}
+        {contactEmailOptions.length > 1 && (
+          <div className="flex items-center gap-2 px-5 py-2 border-b border-outline-variant/50 flex-wrap">
+            <span className="text-xs text-muted-foreground shrink-0">Send to:</span>
+            {contactEmailOptions.map((email) => (
+              <button
+                key={email}
+                type="button"
+                onClick={() => setTo(email)}
+                className={`text-xs px-2.5 py-0.5 rounded-full transition-colors ${
+                  to === email
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-surface-container-low text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {email}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Address provenance warnings (plan 24 Phase 4) */}
+        {emailMeta?.bounced_at && (
+          <div className="flex items-center gap-2 px-5 py-2 bg-error-container/60 text-on-error-container text-xs border-b border-outline-variant/50">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              This address bounced on {new Date(emailMeta.bounced_at).toLocaleDateString()}. Messages likely won&apos;t be delivered.
+            </span>
+          </div>
+        )}
+        {emailMeta && !emailMeta.bounced_at && emailMeta.source === "pattern_guessed" && (
+          <div className="flex items-center gap-2 px-5 py-2 bg-yellow-500/10 text-yellow-800 dark:text-yellow-300 text-xs border-b border-outline-variant/50">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            <span className="flex-1">This address was pattern-guessed by the scraper and may not exist.</span>
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:opacity-80 shrink-0"
+              onClick={async () => {
+                try {
+                  await markEmailVerified(emailMeta.id);
+                  setEmailMeta({ ...emailMeta, source: "verified" });
+                } catch {
+                  /* non-blocking */
+                }
+              }}
+              title="Mark this address verified (e.g. you've confirmed it or gotten a reply)"
+            >
+              Mark verified
+            </button>
+          </div>
+        )}
+
+        {/* CC / BCC */}
+        {showCcBcc && (
+          <>
+            <div className={fieldRowClasses}>
+              <label className="text-sm text-muted-foreground pl-5 w-14 shrink-0" htmlFor="compose-cc">CC</label>
+              <input
+                id="compose-cc"
+                type="email"
+                value={cc}
+                onChange={(e) => setCc(e.target.value)}
+                className={inputClasses}
+                placeholder="cc@example.com"
+              />
+            </div>
+            <div className={fieldRowClasses}>
+              <label className="text-sm text-muted-foreground pl-5 w-14 shrink-0" htmlFor="compose-bcc">BCC</label>
+              <input
+                id="compose-bcc"
+                type="email"
+                value={bcc}
+                onChange={(e) => setBcc(e.target.value)}
+                className={inputClasses}
+                placeholder="bcc@example.com"
+              />
+            </div>
+          </>
+        )}
+
+        {/* Subject */}
+        <div className={fieldRowClasses}>
+          <label className="text-sm text-muted-foreground pl-5 w-14 shrink-0" htmlFor="compose-subject">Subj</label>
+          <input
+            id="compose-subject"
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className={inputClasses}
+            placeholder="Subject"
+          />
+        </div>
+
+        {/* Toolbar — AI Write + Insert Availability */}
+        <div className="px-5 pt-2.5 relative z-10 overflow-visible flex items-center gap-2.5 flex-wrap">
+          <AiWriteDropdown
+            recipientEmail={to}
+            recipientName={selectedContactName || prefillName}
+            existingSubject={subject}
+            onGenerated={(body, generatedSubject) => {
+              setBodyHtml(body);
+              aiBodyRef.current = body;
+              aiKindRef.current = "write";
+              if (generatedSubject && !subject.trim()) {
+                setSubject(generatedSubject);
+              }
+            }}
+          />
+          <AvailabilityPicker
+            recipientEmail={to.includes("@") ? to.trim() : undefined}
+            onInsert={(text) => {
+              setBodyHtml((prev) => {
+                const separator = prev.trim() ? "<br><br>" : "";
+                return prev + separator + text.split("\n").join("<br>");
+              });
+            }}
+          />
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-2.5">
+          {/* Intro context form — shown when compose opened for intro */}
+          {isIntro && (introPhase === "context" || introPhase === "generating") && (
+            <IntroContextForm
+              contactName={prefillName || "this contact"}
+              onGenerate={async (ctx) => {
+                setIntroPhase("generating");
+                introContextRef.current = { howMet: ctx.howMet, goal: ctx.goal };
+                try {
+                  // Save context to contact
+                  if (contactId && (ctx.howMet || ctx.goal)) {
+                    // error-tolerated: stashing the context the user just
+                    // typed so it prefills next time. The draft it feeds is
+                    // generated from the same values in the request below,
+                    // so a failed save costs nothing in this session.
+                    apiSend(`/api/contacts/${contactId}`, jsonBody({
+                      met_through: ctx.howMet || undefined,
+                      intro_goal: ctx.goal || undefined,
+                    }, "PATCH")).catch(() => {});
+                  }
+                  if (contactId && ctx.notes) {
+                    // error-tolerated: same reason as the context save above.
+                    apiSend(`/api/contacts/${contactId}/note`, jsonBody({ note: ctx.notes }))
+                      .catch(() => {});
+                  }
+
+                  const data = await apiFetch<AiIntroDraft>("/api/ai/draft-intro", jsonBody({
+                    contactId,
+                    howMet: ctx.howMet || undefined,
+                    goal: ctx.goal || undefined,
+                    notes: ctx.notes || undefined,
+                  }));
+                  applyIntroDraft(data);
+                } catch (err) {
+                  applyIntroFailure(err);
+                }
+              }}
+              onSkip={async () => {
+                setIntroPhase("generating");
+                setIntroError(null);
+                setIntroAiFailure(null);
+                try {
+                  applyIntroDraft(
+                    await apiFetch<AiIntroDraft>("/api/ai/draft-intro", jsonBody({ contactId })),
+                  );
+                } catch (err) {
+                  applyIntroFailure(err);
+                }
+              }}
+              generating={introPhase === "generating"}
+              error={introAiFailure ? null : introError}
+            />
+          )}
+          {isIntro && introPhase === "context" && introAiFailure && (
+            <div className="mb-3">
+              <AiUnavailableNotice code={introAiFailure} />
+            </div>
+          )}
+
+          <div
+            className={`transition-opacity duration-300 ${isIntro && introPhase === "context" ? "opacity-0 h-0 overflow-hidden" : "opacity-100"}`}
+          >
+            <RichTextEditor
+              content={bodyHtml}
+              onChange={(html) => {
+                setBodyHtml(html);
+              }}
+              placeholder={isReply ? "Write your reply…" : "Write your message…"}
+            />
+          </div>
+
+          {/* Quoted original message for replies */}
+          {isReply && replyQuotedHtml && (
+            <div className="mt-2.5">
+              <button
+                type="button"
+                className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 cursor-pointer transition-colors"
+                onClick={() => setShowQuoted(!showQuoted)}
+              >
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showQuoted ? "rotate-180" : ""}`} />
+                {showQuoted ? "Hide" : "Show"} original message
+              </button>
+              {showQuoted && (
+                <div className="mt-2 pl-4 border-l-2 border-outline-variant/50">
+                  <div
+                    className="text-sm text-muted-foreground prose prose-sm max-w-none [&_*]:!text-muted-foreground overflow-auto max-h-52"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(replyQuotedHtml) }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Follow-up plan (intro flow) */}
+        {isIntro && introPhase !== "context" && introPhase !== "generating" && (
+          <div className="px-5">
+            {/* Approve & generate follow-ups button */}
+            {introPhase === "editing" && (
+              <div className="flex justify-center py-3">
                 <button
                   type="button"
-                  className="underline underline-offset-2 hover:opacity-80 shrink-0"
-                  onClick={async () => {
-                    try {
-                      await markEmailVerified(emailMeta.id);
-                      setEmailMeta({ ...emailMeta, source: "verified" });
-                    } catch {
-                      /* non-blocking */
-                    }
-                  }}
-                  title="Mark this address verified (e.g. you've confirmed it or gotten a reply)"
+                  onClick={generateFollowUps}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
                 >
-                  Mark verified
+                  <Sparkles className="h-4 w-4" />
+                  Approve intro & generate follow-ups
                 </button>
               </div>
             )}
 
-            {/* CC / BCC */}
-            {showCcBcc && (
-              <>
-                <div className={fieldRowClasses}>
-                  <label className="text-sm text-muted-foreground pl-5 w-14 shrink-0" htmlFor="compose-cc">CC</label>
-                  <input
-                    id="compose-cc"
-                    type="email"
-                    value={cc}
-                    onChange={(e) => setCc(e.target.value)}
-                    className={inputClasses}
-                    placeholder="cc@example.com"
-                  />
-                </div>
-                <div className={fieldRowClasses}>
-                  <label className="text-sm text-muted-foreground pl-5 w-14 shrink-0" htmlFor="compose-bcc">BCC</label>
-                  <input
-                    id="compose-bcc"
-                    type="email"
-                    value={bcc}
-                    onChange={(e) => setBcc(e.target.value)}
-                    className={inputClasses}
-                    placeholder="bcc@example.com"
-                  />
-                </div>
-              </>
+            {followUpAiFailure && (
+              <div className="pb-3">
+                <AiUnavailableNotice code={followUpAiFailure} onRetry={generateFollowUps} />
+              </div>
             )}
 
-            {/* Subject */}
-            <div className={fieldRowClasses}>
-              <label className="text-sm text-muted-foreground pl-5 w-14 shrink-0" htmlFor="compose-subject">Subj</label>
-              <input
-                id="compose-subject"
-                type="text"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                className={inputClasses}
-                placeholder="Subject"
-              />
-            </div>
+            <FollowUpPlanSection
+              followUps={followUps}
+              badgeLabel={templateFollowUps?.length ? "Pre-written, edit freely" : undefined}
+              enabled={followUpsEnabled}
+              loading={introPhase === "generating-followups"}
+              error={followUpAiFailure ? null : followUpError}
+              placeholder={introPhase === "editing" && followUps.length === 0}
+              recipientFirstName={(selectedContactName || prefillName || "").split(/\s+/)[0] || null}
+              onToggle={setFollowUpsEnabled}
+              onEdit={editFollowUp}
+              onAdd={addManualFollowUp}
+              onRemove={removeFollowUp}
+              onRetry={generateFollowUps}
+            />
+          </div>
+        )}
 
-            {/* Toolbar — AI Write + Insert Availability */}
-            <div className="px-5 pt-2.5 relative z-10 overflow-visible flex items-center gap-2.5 flex-wrap">
-              <AiWriteDropdown
-                recipientEmail={to}
-                recipientName={selectedContactName || prefillName}
-                existingSubject={subject}
-                onGenerated={(body, generatedSubject) => {
-                  setBodyHtml(body);
-                  aiBodyRef.current = body;
-                  aiKindRef.current = "write";
-                  if (generatedSubject && !subject.trim()) {
-                    setSubject(generatedSubject);
-                  }
-                }}
-              />
-              <AvailabilityPicker
-                recipientEmail={to.includes("@") ? to.trim() : undefined}
-                onInsert={(text) => {
-                  setBodyHtml((prev) => {
-                    const separator = prev.trim() ? "<br><br>" : "";
-                    return prev + separator + text.split("\n").join("<br>");
-                  });
-                }}
-              />
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-2.5">
-              {/* Intro context form — shown when compose opened for intro */}
-              {isIntro && (introPhase === "context" || introPhase === "generating") && (
-                <IntroContextForm
-                  contactName={prefillName || "this contact"}
-                  onGenerate={async (ctx) => {
-                    setIntroPhase("generating");
-                    introContextRef.current = { howMet: ctx.howMet, goal: ctx.goal };
-                    try {
-                      // Save context to contact
-                      if (contactId && (ctx.howMet || ctx.goal)) {
-                        // error-tolerated: stashing the context the user just
-                        // typed so it prefills next time. The draft it feeds is
-                        // generated from the same values in the request below,
-                        // so a failed save costs nothing in this session.
-                        apiSend(`/api/contacts/${contactId}`, jsonBody({
-                          met_through: ctx.howMet || undefined,
-                          intro_goal: ctx.goal || undefined,
-                        }, "PATCH")).catch(() => {});
-                      }
-                      if (contactId && ctx.notes) {
-                        // error-tolerated: same reason as the context save above.
-                        apiSend(`/api/contacts/${contactId}/note`, jsonBody({ note: ctx.notes }))
-                          .catch(() => {});
-                      }
-
-                      const data = await apiFetch<AiIntroDraft>("/api/ai/draft-intro", jsonBody({
-                        contactId,
-                        howMet: ctx.howMet || undefined,
-                        goal: ctx.goal || undefined,
-                        notes: ctx.notes || undefined,
-                      }));
-                      applyIntroDraft(data);
-                    } catch (err) {
-                      applyIntroFailure(err);
-                    }
-                  }}
-                  onSkip={async () => {
-                    setIntroPhase("generating");
-                    setIntroError(null);
-                    setIntroAiFailure(null);
-                    try {
-                      applyIntroDraft(
-                        await apiFetch<AiIntroDraft>("/api/ai/draft-intro", jsonBody({ contactId })),
-                      );
-                    } catch (err) {
-                      applyIntroFailure(err);
-                    }
-                  }}
-                  generating={introPhase === "generating"}
-                  error={introAiFailure ? null : introError}
-                />
-              )}
-              {isIntro && introPhase === "context" && introAiFailure && (
-                <div className="mb-3">
-                  <AiUnavailableNotice code={introAiFailure} />
-                </div>
-              )}
-
-              <div
-                className={`transition-opacity duration-300 ${isIntro && introPhase === "context" ? "opacity-0 h-0 overflow-hidden" : "opacity-100"}`}
-              >
-                <RichTextEditor
-                  content={bodyHtml}
-                  onChange={(html) => {
-                    setBodyHtml(html);
-                  }}
-                  placeholder={isReply ? "Write your reply…" : "Write your message…"}
-                />
+        {/* Follow-up plan (regular compose, CAR-120) */}
+        {followUpsAvailable && (
+          <div className="px-5">
+            {!showFollowUps ? (
+              <div className="flex justify-center py-3">
+                <button
+                  type="button"
+                  onClick={() => setShowFollowUps(true)}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
+                >
+                  <Clock className="h-4 w-4" />
+                  Add follow-ups
+                </button>
               </div>
-
-              {/* Quoted original message for replies */}
-              {isReply && replyQuotedHtml && (
-                <div className="mt-2.5">
-                  <button
-                    type="button"
-                    className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 cursor-pointer transition-colors"
-                    onClick={() => setShowQuoted(!showQuoted)}
-                  >
-                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showQuoted ? "rotate-180" : ""}`} />
-                    {showQuoted ? "Hide" : "Show"} original message
-                  </button>
-                  {showQuoted && (
-                    <div className="mt-2 pl-4 border-l-2 border-outline-variant/50">
-                      <div
-                        className="text-sm text-muted-foreground prose prose-sm max-w-none [&_*]:!text-muted-foreground overflow-auto max-h-52"
-                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(replyQuotedHtml) }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Follow-up plan (intro flow) */}
-            {isIntro && introPhase !== "context" && introPhase !== "generating" && (
-              <div className="px-5">
-                {/* Approve & generate follow-ups button */}
-                {introPhase === "editing" && (
+            ) : (
+              <>
+                {followUps.length === 0 && introPhase !== "generating-followups" && (
                   <div className="flex justify-center py-3">
                     <button
                       type="button"
@@ -1089,24 +1129,22 @@ function ComposeEmailModalBody() {
                       className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
                     >
                       <Sparkles className="h-4 w-4" />
-                      Approve intro & generate follow-ups
+                      Generate with AI
                     </button>
                   </div>
                 )}
-
                 {followUpAiFailure && (
                   <div className="pb-3">
                     <AiUnavailableNotice code={followUpAiFailure} onRetry={generateFollowUps} />
                   </div>
                 )}
-
                 <FollowUpPlanSection
                   followUps={followUps}
-                  badgeLabel={templateFollowUps?.length ? "Pre-written, edit freely" : undefined}
+                  badgeLabel={null}
                   enabled={followUpsEnabled}
                   loading={introPhase === "generating-followups"}
                   error={followUpAiFailure ? null : followUpError}
-                  placeholder={introPhase === "editing" && followUps.length === 0}
+                  placeholder={false}
                   recipientFirstName={(selectedContactName || prefillName || "").split(/\s+/)[0] || null}
                   onToggle={setFollowUpsEnabled}
                   onEdit={editFollowUp}
@@ -1114,183 +1152,132 @@ function ComposeEmailModalBody() {
                   onRemove={removeFollowUp}
                   onRetry={generateFollowUps}
                 />
-              </div>
+              </>
             )}
+          </div>
+        )}
 
-            {/* Follow-up plan (regular compose, CAR-120) */}
-            {followUpsAvailable && (
-              <div className="px-5">
-                {!showFollowUps ? (
-                  <div className="flex justify-center py-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowFollowUps(true)}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
-                    >
-                      <Clock className="h-4 w-4" />
-                      Add follow-ups
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {followUps.length === 0 && introPhase !== "generating-followups" && (
-                      <div className="flex justify-center py-3">
-                        <button
-                          type="button"
-                          onClick={generateFollowUps}
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors cursor-pointer"
-                        >
-                          <Sparkles className="h-4 w-4" />
-                          Generate with AI
-                        </button>
-                      </div>
-                    )}
-                    {followUpAiFailure && (
-                      <div className="pb-3">
-                        <AiUnavailableNotice code={followUpAiFailure} onRetry={generateFollowUps} />
-                      </div>
-                    )}
-                    <FollowUpPlanSection
-                      followUps={followUps}
-                      badgeLabel={null}
-                      enabled={followUpsEnabled}
-                      loading={introPhase === "generating-followups"}
-                      error={followUpAiFailure ? null : followUpError}
-                      placeholder={false}
-                      recipientFirstName={(selectedContactName || prefillName || "").split(/\s+/)[0] || null}
-                      onToggle={setFollowUpsEnabled}
-                      onEdit={editFollowUp}
-                      onAdd={addManualFollowUp}
-                      onRemove={removeFollowUp}
-                      onRetry={generateFollowUps}
-                    />
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Schedule send row — custom date + time pickers (CAR-120) */}
-            {showSchedule && (
-              <div className="px-7 pt-2.5 pb-1.5">
-                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-tertiary-container/20 border border-tertiary/15">
-                  <Clock className="h-5 w-5 text-tertiary shrink-0 mt-2.5" />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-foreground block mb-1.5">Send at</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <DatePicker value={scheduleDate} onChange={setScheduleDate} placeholder="Pick a date" />
-                      <TimePicker value={scheduleTime} onChange={setScheduleTime} placeholder="Pick a time" />
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setShowSchedule(false); setScheduleDate(""); setScheduleTime(""); }}
-                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer shrink-0 mt-2.5"
-                    title="Cancel scheduling"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+        {/* Schedule send row — custom date + time pickers (CAR-120) */}
+        {showSchedule && (
+          <div className="px-7 pt-2.5 pb-1.5">
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-tertiary-container/20 border border-tertiary/15">
+              <Clock className="h-5 w-5 text-tertiary shrink-0 mt-2.5" />
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-medium text-foreground block mb-1.5">Send at</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <DatePicker value={scheduleDate} onChange={setScheduleDate} placeholder="Pick a date" />
+                  <TimePicker value={scheduleTime} onChange={setScheduleTime} placeholder="Pick a time" />
                 </div>
               </div>
-            )}
+              <button
+                type="button"
+                onClick={() => { setShowSchedule(false); setScheduleDate(""); setScheduleTime(""); }}
+                className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer shrink-0 mt-2.5"
+                title="Cancel scheduling"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
-            {/* Error */}
-            {error && (
-              <p className="text-base text-destructive px-7 pt-2.5">{error}</p>
-            )}
+        {/* Error */}
+        {error && (
+          <p className="text-base text-destructive px-7 pt-2.5">{error}</p>
+        )}
 
-            {/* Footer */}
-            <div className="flex flex-wrap items-center justify-between gap-3 px-7 py-5">
-              <div className="flex items-center gap-1">
-                <Button type="button" variant="text" size="sm" onClick={() => { void deleteDraft(); closeCompose(); }}>
-                  Discard
-                </Button>
-                <Button
-                  type="button"
-                  variant="text"
-                  size="sm"
-                  onClick={async () => {
-                    // Keep the modal open when the save failed (CAR-204): this
-                    // closes on return and the body lives only in local state,
-                    // so closing over a failure silently destroyed what the
-                    // user wrote. The autosave caller may stay silent; this one
-                    // may not.
-                    if (!(await saveDraft({ to, cc, bcc, subject, bodyHtml }))) {
-                      pushToast("Couldn't save that draft. Please try again.", { variant: "error" });
-                      return;
-                    }
-                    closeCompose();
-                  }}
-                >
-                  Save draft
-                </Button>
-                {draftSavedVisible && (
-                  <span className="text-sm text-muted-foreground animate-in fade-in-0 duration-300">
-                    <Check className="inline h-3.5 w-3.5 mr-1" />
-                    Draft saved
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {!showSchedule ? (
-                  <>
-                    {isIntro && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const tomorrow = new Date();
-                          tomorrow.setDate(tomorrow.getDate() + 1);
-                          tomorrow.setHours(9, 5, 0, 0);
-                          // handleScheduleSend surfaces its own failures via setError.
-                          void handleScheduleSend(tomorrow);
-                        }}
-                        loading={sending}
-                      >
-                        <Clock className="h-4 w-4 mr-1.5" />
-                        Tomorrow 9:05 AM
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        // Default to tomorrow 9:05 AM so the pickers open populated.
-                        if (!scheduleDate && !scheduleTime) {
-                          const t = new Date();
-                          t.setDate(t.getDate() + 1);
-                          setScheduleDate(toLocalDateString(t));
-                          setScheduleTime("09:05");
-                        }
-                        setShowSchedule(true);
-                      }}
-                    >
-                      <Clock className="h-4 w-4 mr-1.5" />
-                      Schedule
-                    </Button>
-                    <Button type="button" size="sm" onClick={handleSendNow} loading={sending}>
-                      <Send className="h-4 w-4 mr-1.5" />
-                      Send
-                    </Button>
-                  </>
-                ) : (
+        {/* Footer */}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-7 py-5">
+          <div className="flex items-center gap-1">
+            <Button type="button" variant="text" size="sm" onClick={() => { void deleteDraft(); closeCompose(); }}>
+              Discard
+            </Button>
+            <Button
+              type="button"
+              variant="text"
+              size="sm"
+              onClick={async () => {
+                // Keep the modal open when the save failed (CAR-204): this
+                // closes on return and the body lives only in local state,
+                // so closing over a failure silently destroyed what the
+                // user wrote. The autosave caller may stay silent; this one
+                // may not.
+                if (!(await saveDraft({ to, cc, bcc, subject, bodyHtml }))) {
+                  pushToast("Couldn't save that draft. Please try again.", { variant: "error" });
+                  return;
+                }
+                closeCompose();
+              }}
+            >
+              Save draft
+            </Button>
+            {draftSavedVisible && (
+              <span className="text-sm text-muted-foreground animate-in fade-in-0 duration-300">
+                <Check className="inline h-3.5 w-3.5 mr-1" />
+                Draft saved
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {!showSchedule ? (
+              <>
+                {isIntro && (
                   <Button
                     type="button"
+                    variant="outline"
                     size="sm"
-                    onClick={() => handleScheduleSend()}
+                    onClick={() => {
+                      const tomorrow = new Date();
+                      tomorrow.setDate(tomorrow.getDate() + 1);
+                      tomorrow.setHours(9, 5, 0, 0);
+                      // handleScheduleSend surfaces its own failures via setError.
+                      void handleScheduleSend(tomorrow);
+                    }}
                     loading={sending}
-                    disabled={!scheduledAt}
                   >
                     <Clock className="h-4 w-4 mr-1.5" />
-                    Schedule send
+                    Tomorrow 9:05 AM
                   </Button>
                 )}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    // Default to tomorrow 9:05 AM so the pickers open populated.
+                    if (!scheduleDate && !scheduleTime) {
+                      const t = new Date();
+                      t.setDate(t.getDate() + 1);
+                      setScheduleDate(toLocalDateString(t));
+                      setScheduleTime("09:05");
+                    }
+                    setShowSchedule(true);
+                  }}
+                >
+                  <Clock className="h-4 w-4 mr-1.5" />
+                  Schedule
+                </Button>
+                <Button type="button" size="sm" onClick={handleSendNow} loading={sending}>
+                  <Send className="h-4 w-4 mr-1.5" />
+                  Send
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleScheduleSend()}
+                loading={sending}
+                disabled={!scheduledAt}
+              >
+                <Clock className="h-4 w-4 mr-1.5" />
+                Schedule send
+              </Button>
+            )}
+          </div>
+        </div>
+      </>
+    )}
+    </DialogSurface>
   );
 }

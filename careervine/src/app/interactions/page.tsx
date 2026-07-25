@@ -23,6 +23,7 @@ import { getInteractions, createInteraction, updateInteraction, deleteInteractio
 import type { Database } from "@/lib/database.types";
 import { Plus, MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
+import { Modal, ModalCancelButton } from "@/components/ui/modal";
 
 type Interaction = Database["public"]["Tables"]["interactions"]["Row"];
 
@@ -46,6 +47,29 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
   const [editingInteraction, setEditingInteraction] = useState<Interaction | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Every dismissal path lands here now (CAR-197). The scrim used to only flip
+  // `showForm`, leaving `editingInteraction` set, so the next "Add interaction"
+  // opened prefilled with the interaction the user had walked away from.
+  const closeForm = useCallback(() => {
+    setShowForm(false);
+    setEditingInteraction(null);
+    setFormData(emptyForm);
+  }, []);
+
+  // Derived rather than snapshotted on open: the form's pristine value IS the
+  // interaction being edited, or the empty form when creating. Gated on `saving`
+  // because during a submit the form is legitimately dirty and "Discard" could
+  // not stop a write that is already going through.
+  const pristineForm = editingInteraction
+    ? {
+        interaction_date: editingInteraction.interaction_date,
+        interaction_type: editingInteraction.interaction_type,
+        summary: editingInteraction.summary || "",
+      }
+    : emptyForm;
+  const hasUnsavedChanges = !saving && JSON.stringify(formData) !== JSON.stringify(pristineForm);
 
   const loadInteractions = useCallback(async () => {
     if (!contactId) return;
@@ -60,6 +84,7 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!contactId) return;
+    setSaving(true);
     try {
       if (editingInteraction) {
         await updateInteraction(editingInteraction.id, {
@@ -76,10 +101,9 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
         });
       }
       await loadInteractions();
-      setShowForm(false);
-      setFormData(emptyForm);
-      setEditingInteraction(null);
+      closeForm();
     } catch (e) { console.error("Error saving interaction:", e); }
+    finally { setSaving(false); }
   };
 
   const handleEditInteraction = (interaction: Interaction) => {
@@ -136,52 +160,49 @@ export default function InteractionsPage({ contactId, contactName }: Interaction
       </div>
 
       {/* Modal */}
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
-          <div className="absolute inset-0 bg-black/32" onClick={() => setShowForm(false)} />
-          <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
-            <div className="px-7 pt-7 pb-5">
-              <h2 className="text-[22px] leading-7 font-normal text-foreground">{editingInteraction ? "Edit interaction" : "New interaction"}</h2>
+      <Modal
+        isOpen={showForm}
+        onClose={closeForm}
+        title={editingInteraction ? "Edit interaction" : "New interaction"}
+        hasUnsavedChanges={hasUnsavedChanges}
+      >
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClasses}>Date & Time *</label>
+              <input type="datetime-local" required value={formData.interaction_date} onChange={(e) => setFormData({ ...formData, interaction_date: e.target.value })} className={inputClasses} />
             </div>
-            <form onSubmit={handleSubmit} className="px-7 pb-7 space-y-5">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClasses}>Date & Time *</label>
-                  <input type="datetime-local" required value={formData.interaction_date} onChange={(e) => setFormData({ ...formData, interaction_date: e.target.value })} className={inputClasses} />
-                </div>
-                <div>
-                  <label className={labelClasses}>Type *</label>
-                  <Select
-                    required
-                    ariaLabel="Interaction type"
-                    value={formData.interaction_type}
-                    onChange={(val) => setFormData({ ...formData, interaction_type: val })}
-                    placeholder="Select…"
-                    options={[
-                      { value: "email", label: "Email" },
-                      { value: "phone", label: "Phone Call" },
-                      { value: "video", label: "Video Call" },
-                      { value: "coffee", label: "Coffee Chat" },
-                      { value: "lunch", label: "Lunch/Dinner" },
-                      { value: "conference", label: "Conference" },
-                      { value: "social", label: "Social Media" },
-                      { value: "other", label: "Other" },
-                    ]}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className={labelClasses}>Summary</label>
-                <textarea value={formData.summary} onChange={(e) => setFormData({ ...formData, summary: e.target.value })} className={`${inputClasses} !h-auto py-3`} rows={4} placeholder="What was discussed? Key takeaways?" />
-              </div>
-              <div className="flex justify-end gap-2.5 pt-3">
-                <Button type="button" variant="text" onClick={() => { setShowForm(false); setEditingInteraction(null); setFormData(emptyForm); }}>Cancel</Button>
-                <Button type="submit">{editingInteraction ? "Save" : "Create"}</Button>
-              </div>
-            </form>
+            <div>
+              <label className={labelClasses}>Type *</label>
+              <Select
+                required
+                ariaLabel="Interaction type"
+                value={formData.interaction_type}
+                onChange={(val) => setFormData({ ...formData, interaction_type: val })}
+                placeholder="Select…"
+                options={[
+                  { value: "email", label: "Email" },
+                  { value: "phone", label: "Phone Call" },
+                  { value: "video", label: "Video Call" },
+                  { value: "coffee", label: "Coffee Chat" },
+                  { value: "lunch", label: "Lunch/Dinner" },
+                  { value: "conference", label: "Conference" },
+                  { value: "social", label: "Social Media" },
+                  { value: "other", label: "Other" },
+                ]}
+              />
+            </div>
           </div>
-        </div>
-      )}
+          <div>
+            <label className={labelClasses}>Summary</label>
+            <textarea value={formData.summary} onChange={(e) => setFormData({ ...formData, summary: e.target.value })} className={`${inputClasses} !h-auto py-3`} rows={4} placeholder="What was discussed? Key takeaways?" />
+          </div>
+          <div className="flex justify-end gap-2.5 pt-3">
+            <ModalCancelButton disabled={saving} />
+            <Button type="submit" loading={saving}>{editingInteraction ? "Save" : "Create"}</Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Empty state */}
       {interactions.length === 0 ? (

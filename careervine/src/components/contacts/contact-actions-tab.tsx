@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
+import { Modal, ModalCancelButton } from "@/components/ui/modal";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select } from "@/components/ui/select";
 import { ContactPicker } from "@/components/ui/contact-picker";
@@ -71,6 +72,23 @@ export function ContactActionsTab({
   const [newMeetingId, setNewMeetingId] = useState<number | null>(null);
   const [newPriority, setNewPriority] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // One reset for every dismissal path (CAR-197). The two hand-rolled ones each
+  // cleared four of the five fields and left `newPriority` behind, so a chosen
+  // priority survived into the next new action item.
+  const closeCreateModal = useCallback(() => {
+    setShowModal(false);
+    setNewTitle("");
+    setNewDescription("");
+    setNewDueDate("");
+    setNewMeetingId(null);
+    setNewPriority("");
+  }, []);
+
+  // The create form's pristine state is empty, so anything typed is unsaved work.
+  const hasUnsavedChanges =
+    !saving &&
+    (!!newTitle || !!newDescription || !!newDueDate || newMeetingId !== null || !!newPriority);
 
   const { error: toastError } = useToast();
 
@@ -360,132 +378,104 @@ export function ContactActionsTab({
       )}
 
       {/* Create action item modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/32"
-            onClick={() => {
-              setShowModal(false);
-              setNewTitle("");
-              setNewDescription("");
-              setNewDueDate("");
-              setNewMeetingId(null);
-            }}
-          />
-          <div className="relative w-full max-w-md bg-surface-container-high rounded-[28px] shadow-lg">
-            <div className="px-6 pt-6 pb-4">
-              <h2 className="text-[22px] leading-7 font-normal text-foreground">New action item</h2>
+      <Modal
+        isOpen={showModal}
+        onClose={closeCreateModal}
+        title="New action item"
+        size="sm"
+        hasUnsavedChanges={hasUnsavedChanges}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Title *</label>
+            <input
+              type="text"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              className={inputClasses}
+              placeholder="Follow up about…"
+              data-autofocus
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
+            <textarea
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              className={`${inputClasses} !h-auto py-3`}
+              rows={2}
+              placeholder="Optional details…"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
+              <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
             </div>
-            <div className="px-6 pb-6 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Title *</label>
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className={inputClasses}
-                  placeholder="Follow up about…"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
-                <textarea
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  className={`${inputClasses} !h-auto py-3`}
-                  rows={2}
-                  placeholder="Optional details…"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
-                  <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Priority</label>
-                  <Select
-                    value={newPriority}
-                    onChange={setNewPriority}
-                    options={PRIORITY_OPTIONS}
-                    placeholder="No priority"
-                    ariaLabel="Priority"
-                  />
-                </div>
-              </div>
-              {meetings.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Link to meeting</label>
-                  <Select
-                    ariaLabel="Link to meeting"
-                    value={String(newMeetingId ?? "")}
-                    onChange={(val) => setNewMeetingId(val ? Number(val) : null)}
-                    placeholder="No linked meeting"
-                    options={[
-                      { value: "", label: "No linked meeting" },
-                      ...meetings.map((m) => ({
-                        value: String(m.id),
-                        label: `${(m.meeting_type ? m.meeting_type.charAt(0).toUpperCase() + m.meeting_type.slice(1) : (m.title || "Meeting"))} · ${new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
-                      })),
-                    ]}
-                  />
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="text"
-                  onClick={() => {
-                    setShowModal(false);
-                    setNewTitle("");
-                    setNewDescription("");
-                    setNewDueDate("");
-                    setNewMeetingId(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  disabled={!newTitle.trim() || saving}
-                  loading={saving}
-                  onClick={async () => {
-                    setSaving(true);
-                    try {
-                      await createActionItem({
-                        user_id: userId,
-                        contact_id: contactId,
-                        meeting_id: newMeetingId,
-                        title: newTitle.trim(),
-                        description: newDescription.trim() || null,
-                        due_at: newDueDate || null,
-                        is_completed: false,
-                        created_at: new Date().toISOString(),
-                        completed_at: null,
-                        priority: newPriority || null,
-                      });
-                      setShowModal(false);
-                      setNewTitle("");
-                      setNewDescription("");
-                      setNewDueDate("");
-                      setNewMeetingId(null);
-                      setNewPriority("");
-                      await reloadActions();
-                    } catch (err) {
-                      console.error("Error creating action item:", err);
-                    } finally {
-                      setSaving(false);
-                    }
-                  }}
-                >
-                  Create
-                </Button>
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Priority</label>
+              <Select
+                value={newPriority}
+                onChange={setNewPriority}
+                options={PRIORITY_OPTIONS}
+                placeholder="No priority"
+                ariaLabel="Priority"
+              />
             </div>
           </div>
+          {meetings.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Link to meeting</label>
+              <Select
+                ariaLabel="Link to meeting"
+                value={String(newMeetingId ?? "")}
+                onChange={(val) => setNewMeetingId(val ? Number(val) : null)}
+                placeholder="No linked meeting"
+                options={[
+                  { value: "", label: "No linked meeting" },
+                  ...meetings.map((m) => ({
+                    value: String(m.id),
+                    label: `${(m.meeting_type ? m.meeting_type.charAt(0).toUpperCase() + m.meeting_type.slice(1) : (m.title || "Meeting"))} · ${new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+                  })),
+                ]}
+              />
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <ModalCancelButton disabled={saving} />
+            <Button
+              type="button"
+              disabled={!newTitle.trim() || saving}
+              loading={saving}
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await createActionItem({
+                    user_id: userId,
+                    contact_id: contactId,
+                    meeting_id: newMeetingId,
+                    title: newTitle.trim(),
+                    description: newDescription.trim() || null,
+                    due_at: newDueDate || null,
+                    is_completed: false,
+                    created_at: new Date().toISOString(),
+                    completed_at: null,
+                    priority: newPriority || null,
+                  });
+                  closeCreateModal();
+                  await reloadActions();
+                } catch (err) {
+                  console.error("Error creating action item:", err);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              Create
+            </Button>
+          </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

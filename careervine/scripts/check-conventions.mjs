@@ -1562,19 +1562,17 @@ function hasDialogRole(element, sf, rootTag) {
   return found;
 }
 
-/** Files allowed a fixed-inset overlay with no role, and how many. */
-const DIALOG_ROLE_BASELINE = {
-  "src/app/action-items/page.tsx": 3,
-  "src/app/calendar/page.tsx": 1,
-  "src/app/contacts/page.tsx": 1,
-  "src/app/interactions/page.tsx": 1,
-  "src/components/compose-email-modal.tsx": 1,
-  "src/components/contacts/contact-actions-tab.tsx": 1,
-  "src/components/contacts/contact-timeline-tab.tsx": 1,
-  "src/components/conversation-modal/index.tsx": 1,
-  "src/components/follow-up-modal.tsx": 1,
-  "src/components/onboarding/onboarding-flow.tsx": 1,
-};
+/**
+ * Files allowed a fixed-inset overlay with no role, and how many.
+ *
+ * Empty since CAR-197 landed. CAR-190 wrote this ratchet at 12 to stop the
+ * hand-rolled side growing *while* that migration was in flight; the migration
+ * finished, every one of those twelve now renders through modal.tsx, and this
+ * script's own `deadBaselinePaths` check is what forced the entries out. A
+ * ratchet that still tolerated twelve would be a strictly weaker guard than the
+ * code deserves.
+ */
+const DIALOG_ROLE_BASELINE = {};
 
 {
   const counts = {};

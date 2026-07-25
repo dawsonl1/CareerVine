@@ -62,6 +62,7 @@ export function StatCounters({ stats }: StatCountersProps) {
                     </p>
                   ))}
                 </div>,
+                // body-portal: hover tooltip, text only, nothing focusable inside.
                 document.body
               )
             )}

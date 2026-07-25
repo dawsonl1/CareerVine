@@ -101,6 +101,7 @@ export function NetworkDonut({ data }: NetworkDonutProps) {
               {hoveredArc.description}
             </p>
           </div>,
+          // body-portal: hover tooltip for a chart arc, text only, nothing focusable.
           document.body
         )}
       </div>

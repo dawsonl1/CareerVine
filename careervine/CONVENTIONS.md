@@ -260,19 +260,34 @@ Double submits are blocked with a synchronous `useRef(false)` (`submittingRef` o
 separate from the boolean UI state because a state update is async and would not
 block a fast second click.
 
-New modals use `careervine/src/components/ui/modal.tsx`, which provides the scrim,
-escape handling, body scroll lock, the unsaved-changes guard, and a focus trap
-(CAR-185). The trap moves focus into the dialog on open, cycles Tab and Shift+Tab
-at the edges, and restores focus to the trigger on close; the surface carries
-`role="dialog"` and `aria-modal`, named by the title or by the `ariaLabel` prop
-when a modal has no visible title. The unsaved-changes dialog is a second dialog
-and traps separately. Read the file header before extending it: the tabbable
-filter deliberately avoids layout checks, because jsdom has no layout and the
-usual `offsetParent` filter disarms the trap under test while still reading as
-correct. Adoption is currently even with hand-rolled dialogs, so this rule is
-forward-looking rather than descriptive; the CI ratchet on `fixed inset-0`
-without a dialog role (see Enforced, below) is what keeps the hand-rolled side
-from growing while CAR-197 migrates the 12 that exist.
+Every dialog goes through `careervine/src/components/ui/modal.tsx`, which splits
+into two layers (CAR-197). `DialogSurface` is what makes something a dialog: the
+focus trap, the layer registration, Escape, `role`/`aria-modal`/the accessible
+name, the unsaved-changes guard, and the portal context. `Modal` is the M3 chrome
+over it — scrim, 28px surface, headline with a close X, padded scrolling body —
+and is what a dialog should reach for by default. Reach past it to `DialogSurface`
+only when the chrome genuinely cannot be `Modal`'s: a header/scroll/footer layout
+its single scrolling body cannot express (compose, follow-up), a bottom sheet (the
+conversation modal), or a flow that must not be dismissible (guided onboarding).
+Supply the chrome through `wrapperClassName`/`scrimClassName`/`className`, and a
+nested confirmation through `overlay` — as a DOM sibling of the surface, because a
+nested dialog inside `children` has its keydowns bubble through the outer trap and
+the two fight over every Tab.
+
+The trap moves focus into the dialog on open, cycles Tab and Shift+Tab at the
+edges, and restores focus to the trigger on close. A form dialog that should open
+on a field marks it `data-autofocus`; React's `autoFocus` cannot serve, because
+React strips the attribute and focuses imperatively during commit, so the trap's
+later effect silently overrode it at every call site. Read the file header before
+extending any of this: the tabbable filter deliberately avoids layout checks,
+because jsdom has no layout and the usual `offsetParent` filter disarms the trap
+under test while still reading as correct.
+
+Both halves of that rule are mechanically enforced (see Enforced, below): a source
+scan fails any overlay without a dialog role, and `check-conventions.mjs` carries a
+ratchet on the same shape. CAR-190 opened that ratchet at twelve to stop the
+hand-rolled side growing while this migration was in flight; the migration landed and
+the baseline is now empty, so the two agree.
 
 Two things a modal child must use rather than hand-roll (CAR-198). A child that
 portals — a dropdown menu, a popover — portals to `useModalPortalContainer() ??
@@ -284,15 +299,16 @@ and so is not clipped by the surface's `overflow: hidden`, which holds only whil
 neither the surface nor its wrapper forms a containing block for fixed
 descendants; `careervine/src/__tests__/modal.test.tsx` pins both against
 `transform`, `filter`, `contain`, `container-type`, `will-change` and friends, in
-class, variant, arbitrary-property and inline-style form. And a footer Cancel
-button calls `useModalDismiss()` rather than the caller's own `onClose`, or it
-silently skips the unsaved-changes confirmation that the scrim, Escape and the X
-all honour. Worked examples: `careervine/src/hooks/use-portal-dropdown.ts` and
-`careervine/src/components/ui/select.tsx` for the portal target,
+class, variant, arbitrary-property and inline-style form. And a footer Cancel button or a header X reaches the
+dismiss through `ModalCancelButton` / `ModalCloseButton`, not through the caller's
+own `onClose`, or it silently skips the unsaved-changes confirmation that the
+scrim, Escape and the X all honour. Both are exported from `modal.tsx` and call
+`useModalDismiss()` internally; write that hook by hand only for a control those
+two do not cover. Worked examples: `careervine/src/hooks/use-portal-dropdown.ts`
+and `careervine/src/components/ui/select.tsx` for the portal target,
 `careervine/src/components/contacts/contact-edit-modal.tsx` and
-`careervine/src/components/companies/add-company-modal.tsx` for the dismiss hook.
-Both rules are adopted by every current call site, so unlike the paragraph above
-they are descriptive rather than forward-looking.
+`careervine/src/app/interactions/page.tsx` for the buttons. Both rules are adopted
+by every current call site.
 
 Every dialog surface registers as a dismissal layer with `useDialogLayer()` from
 `careervine/src/components/ui/modal.tsx` (CAR-202). Escape is a document-level
@@ -300,15 +316,13 @@ event, so without a topmost check one keypress dismisses every open layer, and a
 per-dialog scroll lock releases the page under whatever is still open. The hook
 answers "am I topmost" at *event* time rather than effect time, since a layer stops
 being topmost the moment another opens above it and nothing re-runs its effect; it
-also owns the body scroll lock for the stack as a whole. Adopted by `Modal`,
-`ConfirmDialog` and all three hand-rolled full-screen modals
-(`careervine/src/components/compose-email-modal.tsx`,
-`careervine/src/components/follow-up-modal.tsx`,
-`careervine/src/components/conversation-modal/index.tsx`), so on dismissal at least,
-the hand-rolled dialogs the paragraph above calls out behave like the real ones. The
-one exception is a dialog rendered *inside* another as its confirmation step, which
-must not register: the parent's handler already dismisses it, and registering would
-make the parent non-topmost and that branch unreachable.
+also owns the body scroll lock for the stack as a whole. Call it directly only if
+you are writing a dialog primitive: `DialogSurface` registers for everything built
+on it, which since CAR-197 is every dialog in the app. The one exception is a dialog
+rendered *inside* another as its confirmation step, which must not register: the
+parent's handler already dismisses it, and registering would make the parent
+non-topmost and that branch unreachable. `ConfirmDiscardDialog` is the live example
+and the one hand-written overlay left in the codebase.
 
 `<Select>` and `<MonthYearPicker>` take an `ariaLabel` naming the field (CAR-201).
 Both render their trigger as a `<button>`, which no visible `<label>` can be
@@ -343,7 +357,16 @@ only, never a rejected promise in a handler; that is the contract above.
   `careervine/src/__tests__/select-aria-label.test.ts` scans source and fails on any
   `<Select>` or `<MonthYearPicker>` call site with no `ariaLabel` — a source scan
   rather than a render test because a missing accessible name changes nothing on
-  screen and so survives sighted review.
+  screen and so survives sighted review. `careervine/src/__tests__/dialog-adoption.test.ts`
+  (CAR-197) is the third, and covers both halves of the dialog rule: every
+  `fixed inset-0` overlay outside the primitive must carry `role="dialog"`/`"alertdialog"`
+  or an explicit `non-dialog-overlay:` comment, and every `Modal`/`DialogSurface` call
+  site must pass a name. It also asserts that every occurrence of the overlay class is
+  one the scanner can *see*, so a class assembled in a const fails loudly rather than
+  slipping past a guard that only reads `className` attributes, and that every
+  `createPortal` either targets a dialog surface or carries a `body-portal:`
+  justification — the rule whose unenforced version let a portalled menu inside a
+  trapped dialog become keyboard-unreachable.
 
   `careervine/scripts/check-conventions.mjs` adds five more (CAR-190). Scope is
   `careervine/src/components` + `careervine/src/hooks` + `careervine/src/app`, minus
@@ -361,7 +384,7 @@ only, never a rejected promise in a handler; that is the contract above.
   | dialog semantics | a `fixed inset-0` element outside `modal.tsx` with no `role="dialog"` in its own subtree | `// overlay-not-a-dialog:` + ratchet |
 
   The first two are frozen at zero. The last three ship as **ratchets** over a
-  baseline (54 handlers, 7 reads, 12 overlays) rather than as the warning CAR-190
+  baseline (54 handlers, 7 reads, and — since CAR-197 landed — 0 overlays) rather than as the warning CAR-190
   originally proposed, because a warning exits 0 and that is precisely how CAR-154's
   helper decayed to 6 files and CAR-158's to 1. A ratchet fails both ways: an
   offender absent from the baseline fails, and a baselined site that no longer
@@ -371,7 +394,9 @@ only, never a rejected promise in a handler; that is the contract above.
   name cannot ride another's entry); the overlay one is **counted per file**, because
   an overlay `<div>` has no name to key on — which means a same-file swap there is
   invisible, and is the one thing the named form buys that the counted form cannot.
-  CAR-197 drains the overlay baseline to zero as it migrates those same 12 dialogs.
+  CAR-197 drained the overlay baseline to zero by migrating those same twelve dialogs,
+  and this script's own dead-baseline check is what forced the entries out: a ratchet
+  fails when a baselined site stops offending, so the fix could not be given back.
 
   Read those three numbers as a property of the DETECTOR, not of the codebase. The
   handler baseline was first published as 35; a review found five blind spots
@@ -383,13 +408,14 @@ only, never a rejected promise in a handler; that is the contract above.
   destructive contact-removal loop; they are the first two to drain.
 
 - Enforced (behavior, no adoption check): `modal.test.tsx` covers the focus
-  trap and dialog semantics, `careervine/src/__tests__/dialog-layer.test.tsx` covers
+  trap, the `data-autofocus` marker and dialog semantics for both layers, `careervine/src/__tests__/dialog-layer.test.tsx` covers
   the layer stack (topmost-only Escape, shared scroll lock, and the nested-confirmation
   exception), and `careervine/src/__tests__/error-boundaries.test.tsx` pins the
   boundary behaviors, including the `notFound()` re-throw that rules out a
   hand-rolled class, plus source tripwires holding the three existing adoption sites
-  to their `key` and `onReset`. Nothing requires a NEW dialog to register a layer or a
-  NEW failure-prone subtree to be wrapped. `careervine/src/__tests__/use-latest-request.test.tsx`
+  to their `key` and `onReset`. Layer registration now comes free with `DialogSurface`, so
+  nothing needs to require it separately; nothing yet requires a NEW failure-prone
+  subtree to be wrapped in a boundary. `careervine/src/__tests__/use-latest-request.test.tsx`
   pins that the newest request's result survives an older one resolving last, and
   `careervine/src/__tests__/compose-modal-send-guards.test.tsx` pins that a
   double-clicked Send dispatches one POST. (CAR-188 rewrote this sentence from

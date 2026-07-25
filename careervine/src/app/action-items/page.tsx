@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
+import { Modal, ModalCancelButton } from "@/components/ui/modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { getActionItems, updateActionItem, createActionItem, getContacts, getCompletedActionItems, deleteActionItem, replaceContactsForActionItem } from "@/lib/queries";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -262,6 +263,28 @@ export default function ActionItemsPage() {
     setNewMeetingId(null);
     setNewPriority("");
   };
+
+  // The create form starts empty, so anything entered is unsaved work. The edit
+  // form's pristine value is the item it opened on. Both gated on their save flag:
+  // mid-save the form is legitimately dirty and "Discard" could not stop the write.
+  const hasUnsavedCreate =
+    !newSaving &&
+    (!!newTitle || !!newDescription || !!newDueDate || newContactIds.length > 0 ||
+      newMeetingId !== null || !!newPriority);
+
+  const hasUnsavedEdit =
+    !editSaving &&
+    !!editingItem &&
+    (editTitle !== editingItem.title ||
+      editDescription !== (editingItem.description || "") ||
+      editDueDate !== (editingItem.due_at ? editingItem.due_at.split("T")[0] : "") ||
+      editPriority !== (editingItem.priority || "") ||
+      editMeetingId !== editingItem.meeting_id ||
+      JSON.stringify([...editContactIds].sort((a, b) => a - b)) !==
+        JSON.stringify(
+          [...(editingItem.action_item_contacts?.map(ac => ac.contact_id) ??
+            (editingItem.contact_id ? [editingItem.contact_id] : []))].sort((a, b) => a - b),
+        ));
 
   if (loading) {
     return (
@@ -726,260 +749,250 @@ export default function ActionItemsPage() {
         )}
 
         {/* Detail modal */}
-        {selectedItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/32" onClick={() => setSelectedItem(null)} />
-            <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
-              <div className="px-7 pt-7 pb-3 flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2.5">
-                    <h2 className="text-[22px] leading-7 font-normal text-foreground">{selectedItem.title}</h2>
-                    {selectedItem.priority && (
-                      <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${
-                        PRIORITY_COLORS[selectedItem.priority as keyof typeof PRIORITY_COLORS].badge
-                      } capitalize`}>
-                        {selectedItem.priority}
-                      </span>
-                    )}
+        <Modal
+          isOpen={!!selectedItem}
+          onClose={() => setSelectedItem(null)}
+          title={selectedItem && (
+            <span className="flex items-center gap-2.5">
+              {selectedItem.title}
+              {selectedItem.priority && (
+                <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${
+                  PRIORITY_COLORS[selectedItem.priority as keyof typeof PRIORITY_COLORS].badge
+                } capitalize`}>
+                  {selectedItem.priority}
+                </span>
+              )}
+            </span>
+          )}
+        >
+          {selectedItem && (
+          <div className="space-y-5">
+            <p className="text-base text-muted-foreground -mt-2">{(() => { const names = selectedItem.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", "); return names ? `For ${names}` : selectedItem.contacts ? `For ${selectedItem.contacts.name}` : "No contact assigned"; })()}</p>
+            {selectedItem.description && (
+              <p className="text-base text-muted-foreground">{selectedItem.description}</p>
+            )}
+            <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+              <span>
+                {selectedItem.due_at
+                  ? `Due: ${new Date(selectedItem.due_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
+                  : "No due date"}
+              </span>
+              {selectedItem.created_at && (
+                <span>Created: {new Date(selectedItem.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+              )}
+            </div>
+
+            {selectedItem.meetings && (
+              <div className="pt-4 border-t border-outline-variant">
+                <h3 className="text-base font-medium text-foreground flex items-center gap-2.5 mb-4">
+                  <Calendar className="h-5 w-5 text-primary" /> Linked meeting
+                </h3>
+                <div className="p-5 rounded-[12px] bg-surface-container">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-base font-medium text-foreground capitalize">{selectedItem.meetings.title || selectedItem.meetings.meeting_type || "Meeting"}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {new Date(selectedItem.meetings.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </span>
                   </div>
-                  <p className="text-base text-muted-foreground mt-1">{(() => { const names = selectedItem.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", "); return names ? `For ${names}` : selectedItem.contacts ? `For ${selectedItem.contacts.name}` : "No contact assigned"; })()}</p>
-                </div>
-                <button onClick={() => setSelectedItem(null)} className="p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
-              <div className="px-7 pb-7 space-y-5">
-                {selectedItem.description && (
-                  <p className="text-base text-muted-foreground">{selectedItem.description}</p>
-                )}
-                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                  <span>
-                    {selectedItem.due_at
-                      ? `Due: ${new Date(selectedItem.due_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
-                      : "No due date"}
-                  </span>
-                  {selectedItem.created_at && (
-                    <span>Created: {new Date(selectedItem.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                  {selectedItem.meetings.notes && (
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedItem.meetings.notes}</p>
+                  )}
+                  {selectedItem.meetings.transcript && (
+                    <div className="mt-4 bg-surface-container-low rounded-[8px] p-4 max-h-[60vh] overflow-y-auto">
+                      <pre className="whitespace-pre-wrap text-sm text-muted-foreground">{selectedItem.meetings.transcript}</pre>
+                    </div>
                   )}
                 </div>
+              </div>
+            )}
 
-                {selectedItem.meetings && (
-                  <div className="pt-4 border-t border-outline-variant">
-                    <h3 className="text-base font-medium text-foreground flex items-center gap-2.5 mb-4">
-                      <Calendar className="h-5 w-5 text-primary" /> Linked meeting
-                    </h3>
-                    <div className="p-5 rounded-[12px] bg-surface-container">
-                      <div className="flex items-center gap-3 mb-3">
-                        <span className="text-base font-medium text-foreground capitalize">{selectedItem.meetings.title || selectedItem.meetings.meeting_type || "Meeting"}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {new Date(selectedItem.meetings.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        </span>
-                      </div>
-                      {selectedItem.meetings.notes && (
-                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedItem.meetings.notes}</p>
-                      )}
-                      {selectedItem.meetings.transcript && (
-                        <div className="mt-4 bg-surface-container-low rounded-[8px] p-4 max-h-[60vh] overflow-y-auto">
-                          <pre className="whitespace-pre-wrap text-sm text-muted-foreground">{selectedItem.meetings.transcript}</pre>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-between pt-3">
-                  <Button variant="danger" size="sm" onClick={(e) => { removeItem(e, selectedItem); }}>
-                    <Trash2 className="h-5 w-5" /> Delete
+            <div className="flex justify-between pt-3">
+              <Button variant="danger" size="sm" onClick={(e) => { removeItem(e, selectedItem); }}>
+                <Trash2 className="h-5 w-5" /> Delete
+              </Button>
+              <div className="flex gap-3">
+                <Button variant="text" onClick={() => { setSelectedItem(null); openEdit({ stopPropagation: () => {} } as React.MouseEvent, selectedItem); }}>
+                  <Pencil className="h-5 w-5" /> Edit
+                </Button>
+                {selectedItem.is_completed ? (
+                  <Button variant="tonal" onClick={(e) => { void restoreItem(e, selectedItem.id); setSelectedItem(null); }}>
+                    <RotateCcw className="h-5 w-5" /> Restore
                   </Button>
-                  <div className="flex gap-3">
-                    <Button variant="text" onClick={() => { setSelectedItem(null); openEdit({ stopPropagation: () => {} } as React.MouseEvent, selectedItem); }}>
-                      <Pencil className="h-5 w-5" /> Edit
-                    </Button>
-                    {selectedItem.is_completed ? (
-                      <Button variant="tonal" onClick={(e) => { void restoreItem(e, selectedItem.id); setSelectedItem(null); }}>
-                        <RotateCcw className="h-5 w-5" /> Restore
-                      </Button>
-                    ) : (
-                      <Button onClick={(e) => markDone(e, selectedItem)}>
-                        <Check className="h-5 w-5" /> Mark done
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                ) : (
+                  <Button onClick={(e) => markDone(e, selectedItem)}>
+                    <Check className="h-5 w-5" /> Mark done
+                  </Button>
+                )}
               </div>
             </div>
           </div>
-        )}
+          )}
+        </Modal>
 
         {/* Create modal */}
-        {showCreate && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/32" onClick={resetCreate} />
-            <div className="relative w-full max-w-md bg-surface-container-high rounded-[28px] shadow-lg">
-              <div className="px-7 pt-7 pb-5">
-                <h2 className="text-[22px] leading-7 font-normal text-foreground">New action item</h2>
-              </div>
-              <div className="px-7 pb-7 space-y-5">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">Title *</label>
-                  <input
-                    type="text"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className={inputClasses}
-                    placeholder="Follow up about..."
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">Contacts *</label>
-                  <div className="flex flex-wrap gap-2.5">
-                    {allContacts.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => setNewContactIds(
-                          newContactIds.includes(c.id)
-                            ? newContactIds.filter((id) => id !== c.id)
-                            : [...newContactIds, c.id]
-                        )}
-                        className={`inline-flex items-center gap-2 h-9 px-4 rounded-full text-sm font-medium cursor-pointer transition-colors border ${
-                          newContactIds.includes(c.id)
-                            ? "bg-secondary-container text-on-secondary-container border-secondary-container"
-                            : "bg-transparent text-foreground border-outline-variant hover:bg-surface-container"
-                        }`}
-                      >
-                        {newContactIds.includes(c.id) && <Check className="h-4 w-4" />}
-                        {c.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">Description</label>
-                  <textarea
-                    value={newDescription}
-                    onChange={(e) => setNewDescription(e.target.value)}
-                    className={`${inputClasses} !h-auto py-3`}
-                    rows={2}
-                    placeholder="Optional details..."
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-2">Due date</label>
-                    <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
-                  </div>
-                  {prioritySelect(newPriority, setNewPriority)}
-                </div>
-                <div className="flex justify-end gap-3 pt-3">
-                  <Button type="button" variant="text" onClick={resetCreate}>Cancel</Button>
-                  <Button
+        <Modal
+          isOpen={showCreate}
+          onClose={resetCreate}
+          title="New action item"
+          size="sm"
+          hasUnsavedChanges={hasUnsavedCreate}
+        >
+          <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Title *</label>
+              <input
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                className={inputClasses}
+                placeholder="Follow up about..."
+                data-autofocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Contacts *</label>
+              <div className="flex flex-wrap gap-2.5">
+                {allContacts.map((c) => (
+                  <button
+                    key={c.id}
                     type="button"
-                    disabled={!newTitle.trim() || newContactIds.length === 0 || newSaving}
-                    loading={newSaving}
-                    onClick={async () => {
-                      if (!user || newContactIds.length === 0 || !newTitle.trim()) return;
-                      setNewSaving(true);
-                      try {
-                        await createActionItem({
-                          user_id: user.id,
-                          contact_id: newContactIds[0],
-                          meeting_id: newMeetingId,
-                          title: newTitle.trim(),
-                          description: newDescription.trim() || null,
-                          due_at: newDueDate || null,
-                          is_completed: false,
-                          created_at: new Date().toISOString(),
-                          completed_at: null,
-                          priority: newPriority || null,
-                        }, newContactIds);
-                        resetCreate();
-                        await loadActionItems();
-                        toastSuccess("Action item created");
-                      } catch { toastError("Failed to create action item"); }
-                      finally { setNewSaving(false); }
-                    }}
+                    onClick={() => setNewContactIds(
+                      newContactIds.includes(c.id)
+                        ? newContactIds.filter((id) => id !== c.id)
+                        : [...newContactIds, c.id]
+                    )}
+                    className={`inline-flex items-center gap-2 h-9 px-4 rounded-full text-sm font-medium cursor-pointer transition-colors border ${
+                      newContactIds.includes(c.id)
+                        ? "bg-secondary-container text-on-secondary-container border-secondary-container"
+                        : "bg-transparent text-foreground border-outline-variant hover:bg-surface-container"
+                    }`}
                   >
-                    Create
-                  </Button>
-                </div>
+                    {newContactIds.includes(c.id) && <Check className="h-4 w-4" />}
+                    {c.name}
+                  </button>
+                ))}
               </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Description</label>
+              <textarea
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                className={`${inputClasses} !h-auto py-3`}
+                rows={2}
+                placeholder="Optional details..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-2">Due date</label>
+                <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="No due date" />
+              </div>
+              {prioritySelect(newPriority, setNewPriority)}
+            </div>
+            <div className="flex justify-end gap-3 pt-3">
+              <ModalCancelButton disabled={newSaving} />
+              <Button
+                type="button"
+                disabled={!newTitle.trim() || newContactIds.length === 0 || newSaving}
+                loading={newSaving}
+                onClick={async () => {
+                  if (!user || newContactIds.length === 0 || !newTitle.trim()) return;
+                  setNewSaving(true);
+                  try {
+                    await createActionItem({
+                      user_id: user.id,
+                      contact_id: newContactIds[0],
+                      meeting_id: newMeetingId,
+                      title: newTitle.trim(),
+                      description: newDescription.trim() || null,
+                      due_at: newDueDate || null,
+                      is_completed: false,
+                      created_at: new Date().toISOString(),
+                      completed_at: null,
+                      priority: newPriority || null,
+                    }, newContactIds);
+                    resetCreate();
+                    await loadActionItems();
+                    toastSuccess("Action item created");
+                  } catch { toastError("Failed to create action item"); }
+                  finally { setNewSaving(false); }
+                }}
+              >
+                Create
+              </Button>
+            </div>
           </div>
-        )}
+        </Modal>
 
         {/* Edit modal */}
-        {editingItem && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/32" onClick={() => { setEditingItem(null); }} />
-            <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[95vh] overflow-y-auto">
-              <div className="px-7 pt-7 pb-5">
-                <h2 className="text-[22px] leading-7 font-normal text-foreground">Edit action item</h2>
-              </div>
-              <div className="px-7 pb-7 space-y-5">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">Title *</label>
-                  <input
-                    type="text"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    className={inputClasses}
-                    placeholder="Follow up about..."
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">Contacts</label>
-                  <div className="flex flex-wrap gap-2.5">
-                    {allContacts.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => setEditContactIds(
-                          editContactIds.includes(c.id)
-                            ? editContactIds.filter((id) => id !== c.id)
-                            : [...editContactIds, c.id]
-                        )}
-                        className={`inline-flex items-center gap-2 h-9 px-4 rounded-full text-sm font-medium cursor-pointer transition-colors border ${
-                          editContactIds.includes(c.id)
-                            ? "bg-secondary-container text-on-secondary-container border-secondary-container"
-                            : "bg-transparent text-foreground border-outline-variant hover:bg-surface-container"
-                        }`}
-                      >
-                        {editContactIds.includes(c.id) && <Check className="h-4 w-4" />}
-                        {c.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">Description</label>
-                  <textarea
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    className={`${inputClasses} !h-auto py-3`}
-                    rows={3}
-                    placeholder="Optional details..."
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-2">Due date</label>
-                    <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="No due date" />
-                  </div>
-                  {prioritySelect(editPriority, setEditPriority)}
-                </div>
-                <div className="flex justify-end gap-3 pt-3">
-                  <Button type="button" variant="text" onClick={() => { setEditingItem(null); }}>Cancel</Button>
-                  <Button type="button" disabled={!editTitle.trim() || editSaving} loading={editSaving} onClick={saveEdit}>
-                    Save
-                  </Button>
-                </div>
+        <Modal
+          isOpen={!!editingItem}
+          onClose={() => setEditingItem(null)}
+          title="Edit action item"
+          hasUnsavedChanges={hasUnsavedEdit}
+        >
+          <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Title *</label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className={inputClasses}
+                placeholder="Follow up about..."
+                data-autofocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Contacts</label>
+              <div className="flex flex-wrap gap-2.5">
+                {allContacts.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setEditContactIds(
+                      editContactIds.includes(c.id)
+                        ? editContactIds.filter((id) => id !== c.id)
+                        : [...editContactIds, c.id]
+                    )}
+                    className={`inline-flex items-center gap-2 h-9 px-4 rounded-full text-sm font-medium cursor-pointer transition-colors border ${
+                      editContactIds.includes(c.id)
+                        ? "bg-secondary-container text-on-secondary-container border-secondary-container"
+                        : "bg-transparent text-foreground border-outline-variant hover:bg-surface-container"
+                    }`}
+                  >
+                    {editContactIds.includes(c.id) && <Check className="h-4 w-4" />}
+                    {c.name}
+                  </button>
+                ))}
               </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Description</label>
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className={`${inputClasses} !h-auto py-3`}
+                rows={3}
+                placeholder="Optional details..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-2">Due date</label>
+                <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="No due date" />
+              </div>
+              {prioritySelect(editPriority, setEditPriority)}
+            </div>
+            <div className="flex justify-end gap-3 pt-3">
+              <ModalCancelButton disabled={editSaving} />
+              <Button type="button" disabled={!editTitle.trim() || editSaving} loading={editSaving} onClick={saveEdit}>
+                Save
+              </Button>
+            </div>
           </div>
-        )}
+        </Modal>
       </div>
     </div>
   );

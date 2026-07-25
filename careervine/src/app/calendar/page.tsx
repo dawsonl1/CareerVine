@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
+import { Modal, ModalCancelButton } from "@/components/ui/modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
@@ -57,6 +58,10 @@ type ContactFilter = "all" | "contacts" | "no-contacts";
 
 const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", title: "", notes: "", privateNotes: "", calendarDescription: "", transcript: "" };
 
+/** Comparable snapshot of everything the meeting form owns, for the discard guard. */
+const serializeMeetingForm = (form: typeof emptyForm, contactIds: number[], duration: number) =>
+  JSON.stringify({ form, contactIds: [...contactIds].sort((a, b) => a - b), duration });
+
 function minsToTimeStr(totalMins: number) {
   const h = GRID_START_HOUR + Math.floor(totalMins / 60);
   const m = totalMins % 60;
@@ -101,6 +106,14 @@ export default function CalendarPage() {
 
   // ── Meeting form
   const [showMeetingForm, setShowMeetingForm] = useState(false);
+  const [savingMeeting, setSavingMeeting] = useState(false);
+  /**
+   * The form as it stood when it opened. Snapshotted rather than derived: the
+   * form is prefilled from four different places (a new meeting, a drag on the
+   * week grid, a linked meeting, a bare Google event), so "what did this start
+   * as" is not recoverable from `editingMeeting` alone.
+   */
+  const [pristineMeetingForm, setPristineMeetingForm] = useState<string | null>(null);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
   /** Stashed when editing a Google event that has no linked CareerVine meeting yet */
   const [editingGoogleEventId, setEditingGoogleEventId] = useState<string | null>(null);
@@ -265,8 +278,10 @@ export default function CalendarPage() {
   const openNewMeetingForm = (prefill?: Partial<typeof emptyForm>, duration?: number) => {
     setEditingMeeting(null);
     setEditingGoogleEventId(null);
-    setFormData({ ...emptyForm, ...prefill });
+    const nextForm = { ...emptyForm, ...prefill };
+    setFormData(nextForm);
     setSelectedContactIds([]);
+    setPristineMeetingForm(serializeMeetingForm(nextForm, [], duration ?? 0));
     setInviteEmailMap({});
     setMeetingDuration(duration ?? 0);
     setShowMeetingForm(true);
@@ -279,7 +294,7 @@ export default function CalendarPage() {
       const d = new Date(linked.meeting_date);
       setEditingMeeting(linked);
       setEditingGoogleEventId(null);
-      setFormData({
+      const nextForm = {
         meeting_date: dateToStr(d),
         meeting_time: `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`,
         meeting_type: linked.meeting_type || "",
@@ -288,22 +303,34 @@ export default function CalendarPage() {
         privateNotes: linked.private_notes || "",
         calendarDescription: linked.calendar_description || "",
         transcript: linked.transcript || "",
-      });
-      setSelectedContactIds(linked.meeting_contacts.map(mc => mc.contact_id));
+      };
+      const nextContactIds = linked.meeting_contacts.map(mc => mc.contact_id);
+      setFormData(nextForm);
+      setSelectedContactIds(nextContactIds);
+      setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds, meetingDuration));
     } else {
       const start = new Date(event.start_at);
       const end = new Date(event.end_at);
       setEditingMeeting(null);
       setEditingGoogleEventId(event.google_event_id);
-      setFormData({
+      const nextForm = {
         ...emptyForm,
         title: event.title || "",
         meeting_date: dateToStr(start),
         meeting_time: `${String(start.getHours()).padStart(2,"0")}:${String(start.getMinutes()).padStart(2,"0")}`,
         calendarDescription: event.description || "",
-      });
-      setSelectedContactIds(event.contact_id ? [event.contact_id] : []);
-      setMeetingDuration(Math.round((end.getTime() - start.getTime()) / 60000));
+      };
+      const nextContactIds = event.contact_id ? [event.contact_id] : [];
+      const nextDuration = Math.round((end.getTime() - start.getTime()) / 60000);
+      setFormData(nextForm);
+      setSelectedContactIds(nextContactIds);
+      // Snapshot the duration this open is ABOUT to set, not the one still in state.
+      // Reading `meetingDuration` here captured the previous value (60 after a close),
+      // so opening any Google event of a different length made the discard guard fire
+      // on an untouched form — and the Duration select is hidden on this path, so the
+      // user could not reconcile it.
+      setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds, nextDuration));
+      setMeetingDuration(nextDuration);
     }
     setContactSearch(""); setInviteEmailMap({});
     setShowMeetingForm(true);
@@ -312,9 +339,17 @@ export default function CalendarPage() {
   const closeMeetingForm = () => {
     setShowMeetingForm(false); setEditingMeeting(null); setEditingGoogleEventId(null);
     setFormData(emptyForm); setSelectedContactIds([]);
+    setPristineMeetingForm(null);
     setContactSearch(""); setInviteEmailMap({});
     setMeetingDuration(60);
   };
+
+  // Gated on `savingMeeting`: mid-save the form is legitimately dirty, and
+  // "Discard" cannot stop writes that are already going through.
+  const hasUnsavedMeetingChanges =
+    !savingMeeting &&
+    pristineMeetingForm !== null &&
+    pristineMeetingForm !== serializeMeetingForm(formData, selectedContactIds, meetingDuration);
 
   const handleDeleteEvent = async (event: CalendarEvent) => {
     if (!(await confirm({
@@ -340,6 +375,7 @@ export default function CalendarPage() {
   const handleSaveMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    setSavingMeeting(true);
     const dateTime = formData.meeting_date && formData.meeting_time
       ? `${formData.meeting_date}T${formData.meeting_time}` : formData.meeting_date;
     const meetingType = formData.meeting_type || null;
@@ -421,6 +457,8 @@ export default function CalendarPage() {
     } catch (err) {
       console.error("Error saving meeting:", err);
       toast("Failed to save meeting", { variant: "error" });
+    } finally {
+      setSavingMeeting(false);
     }
   };
 
@@ -822,108 +860,105 @@ export default function CalendarPage() {
         )}
 
         {/* ── Meeting Form Modal ── */}
-        {showMeetingForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
-            <div className="absolute inset-0 bg-black/32" onClick={closeMeetingForm} />
-            <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
-              <div className="px-7 pt-7 pb-5">
-                <h2 className="text-[22px] leading-7 font-normal text-foreground">{editingMeeting || editingGoogleEventId ? "Edit meeting" : "New meeting"}</h2>
-              </div>
-              <form onSubmit={handleSaveMeeting} className="px-7 pb-7 space-y-5">
-                <div>
-                  <label className={labelClasses}>Meeting name</label>
-                  <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className={inputClasses} placeholder="e.g. Coffee with Alex…" />
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div><label className={labelClasses}>Date *</label><DatePicker value={formData.meeting_date} onChange={v => setFormData({...formData, meeting_date: v})} required /></div>
-                  <div><label className={labelClasses}>Time</label><TimePicker value={formData.meeting_time} onChange={v => setFormData({...formData, meeting_time: v})} /></div>
-                  <div>
-                    <label className={labelClasses}>Type</label>
-                    <Select value={formData.meeting_type} onChange={v => setFormData({...formData, meeting_type: v})} placeholder="Optional…" options={[...CONVERSATION_TYPE_OPTIONS]} ariaLabel="Meeting type" />
-                  </div>
-                </div>
-                {/* Contacts */}
-                <div>
-                  <label className={labelClasses}>Contacts</label>
-                  {selectedContactIds.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mb-2.5">
-                      {selectedContactIds.map(id => {
-                        const c = allContacts.find(c => c.id === id);
-                        if (!c) return null;
-                        const emails = contactEmailsMap[id] || [];
-                        const selEmail = inviteEmailMap[id] || emails[0];
-                        return (
-                          <div key={id} className="flex flex-col gap-0.5">
-                            <span className="inline-flex items-center gap-1.5 h-9 pl-4 pr-2 rounded-full bg-secondary-container text-sm text-on-secondary-container font-medium">
-                              {c.name}
-                              <button type="button" onClick={() => { setSelectedContactIds(selectedContactIds.filter(i => i !== id)); setInviteEmailMap(p => { const n = {...p}; delete n[id]; return n; }); }} className="p-0.5 rounded-full hover:bg-black/10 cursor-pointer"><X className="h-3.5 w-3.5" /></button>
-                            </span>
-                            {emails.length > 1 && calendarConnected && (
-                              <div className="flex items-center gap-1 pl-1 flex-wrap">
-                                <span className="text-[10px] text-muted-foreground">Invite:</span>
-                                {emails.map(email => (
-                                  <button key={email} type="button" onClick={() => setInviteEmailMap(p => ({...p, [id]: email}))}
-                                    className={`text-[10px] px-1.5 py-0.5 rounded-full transition-colors ${selEmail === email ? "bg-primary text-primary-foreground" : "bg-surface-container-low text-muted-foreground hover:text-foreground"}`}>
-                                    {email}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
-                    <input type="text" value={contactSearch} onChange={e => setContactSearch(e.target.value)} className={`${inputClasses} !pl-11`} placeholder="Search contacts…" />
-                  </div>
-                  {contactSearch.trim() && (
-                    <div className="mt-1 max-h-36 overflow-y-auto rounded-[12px] border border-outline-variant bg-surface-container-high">
-                      {allContacts.filter(c => !selectedContactIds.includes(c.id) && c.name.toLowerCase().includes(contactSearch.toLowerCase())).slice(0, 6).map(c => (
-                        <button key={c.id} type="button" onClick={() => { setSelectedContactIds([...selectedContactIds, c.id]); setContactSearch(""); }}
-                          className="w-full text-left px-5 py-3 flex items-center gap-2.5 hover:bg-surface-container cursor-pointer transition-colors text-base">{c.name}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {/* Notes (future vs past) */}
-                {isFutureMeeting ? (
-                  <div><label className={labelClasses}>Private reminder notes</label>
-                    <textarea value={formData.privateNotes} onChange={e => setFormData({...formData, privateNotes: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={4} placeholder="Topics to discuss, things to remember…" />
-                  </div>
-                ) : (
-                  <>
-                    <div><label className={labelClasses}>Notes</label><textarea value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={4} placeholder="Key takeaways…" /></div>
-                    <div><label className={labelClasses}>Transcript</label><textarea value={formData.transcript} onChange={e => setFormData({...formData, transcript: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={8} placeholder="Paste transcript…" /></div>
-                  </>
-                )}
-                {/* Calendar options — shown when connected and time is set */}
-                {calendarConnected && !editingMeeting && !editingGoogleEventId && formData.meeting_time && (
-                  <div className="rounded-[12px] border border-outline-variant/60 p-5 space-y-4">
-                    <div><label className={labelClasses}>Calendar invite description</label>
-                      <textarea value={formData.calendarDescription} onChange={e => setFormData({...formData, calendarDescription: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={2} placeholder="Agenda or notes for the invite…" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-base text-muted-foreground flex items-center gap-2.5"><Video className="h-5 w-5" /> Include Google Meet link</label>
-                      <Toggle checked={includeMeetLink} onChange={setIncludeMeetLink} />
-                    </div>
-                    <div><label className={labelClasses}>Duration</label>
-                      <select value={meetingDuration} onChange={e => setMeetingDuration(Number(e.target.value))} className={inputClasses}>
-                        {meetingDuration === 0 && <option value={0} disabled>Select duration…</option>}
-                        {[15,30,45,60,90,120].map(m => <option key={m} value={m}>{m < 60 ? `${m} min` : m === 60 ? "1 hour" : `${m/60} hours`}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                )}
-                <div className="flex justify-end gap-2.5 pt-3">
-                  <Button type="button" variant="text" onClick={closeMeetingForm}>Cancel</Button>
-                  <Button type="submit">{editingMeeting || editingGoogleEventId ? "Save" : "Create"}</Button>
-                </div>
-              </form>
+        <Modal
+          isOpen={showMeetingForm}
+          onClose={closeMeetingForm}
+          title={editingMeeting || editingGoogleEventId ? "Edit meeting" : "New meeting"}
+          hasUnsavedChanges={hasUnsavedMeetingChanges}
+        >
+        <form onSubmit={handleSaveMeeting} className="space-y-5">
+          <div>
+            <label className={labelClasses}>Meeting name</label>
+            <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className={inputClasses} placeholder="e.g. Coffee with Alex…" />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className={labelClasses}>Date *</label><DatePicker value={formData.meeting_date} onChange={v => setFormData({...formData, meeting_date: v})} required /></div>
+            <div><label className={labelClasses}>Time</label><TimePicker value={formData.meeting_time} onChange={v => setFormData({...formData, meeting_time: v})} /></div>
+            <div>
+              <label className={labelClasses}>Type</label>
+              <Select value={formData.meeting_type} onChange={v => setFormData({...formData, meeting_type: v})} placeholder="Optional…" options={[...CONVERSATION_TYPE_OPTIONS]} ariaLabel="Meeting type" />
             </div>
           </div>
-        )}
+          {/* Contacts */}
+          <div>
+            <label className={labelClasses}>Contacts</label>
+            {selectedContactIds.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2.5">
+                {selectedContactIds.map(id => {
+                  const c = allContacts.find(c => c.id === id);
+                  if (!c) return null;
+                  const emails = contactEmailsMap[id] || [];
+                  const selEmail = inviteEmailMap[id] || emails[0];
+                  return (
+                    <div key={id} className="flex flex-col gap-0.5">
+                      <span className="inline-flex items-center gap-1.5 h-9 pl-4 pr-2 rounded-full bg-secondary-container text-sm text-on-secondary-container font-medium">
+                        {c.name}
+                        <button type="button" onClick={() => { setSelectedContactIds(selectedContactIds.filter(i => i !== id)); setInviteEmailMap(p => { const n = {...p}; delete n[id]; return n; }); }} className="p-0.5 rounded-full hover:bg-black/10 cursor-pointer"><X className="h-3.5 w-3.5" /></button>
+                      </span>
+                      {emails.length > 1 && calendarConnected && (
+                        <div className="flex items-center gap-1 pl-1 flex-wrap">
+                          <span className="text-[10px] text-muted-foreground">Invite:</span>
+                          {emails.map(email => (
+                            <button key={email} type="button" onClick={() => setInviteEmailMap(p => ({...p, [id]: email}))}
+                              className={`text-[10px] px-1.5 py-0.5 rounded-full transition-colors ${selEmail === email ? "bg-primary text-primary-foreground" : "bg-surface-container-low text-muted-foreground hover:text-foreground"}`}>
+                              {email}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+              <input type="text" value={contactSearch} onChange={e => setContactSearch(e.target.value)} className={`${inputClasses} !pl-11`} placeholder="Search contacts…" />
+            </div>
+            {contactSearch.trim() && (
+              <div className="mt-1 max-h-36 overflow-y-auto rounded-[12px] border border-outline-variant bg-surface-container-high">
+                {allContacts.filter(c => !selectedContactIds.includes(c.id) && c.name.toLowerCase().includes(contactSearch.toLowerCase())).slice(0, 6).map(c => (
+                  <button key={c.id} type="button" onClick={() => { setSelectedContactIds([...selectedContactIds, c.id]); setContactSearch(""); }}
+                    className="w-full text-left px-5 py-3 flex items-center gap-2.5 hover:bg-surface-container cursor-pointer transition-colors text-base">{c.name}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Notes (future vs past) */}
+          {isFutureMeeting ? (
+            <div><label className={labelClasses}>Private reminder notes</label>
+              <textarea value={formData.privateNotes} onChange={e => setFormData({...formData, privateNotes: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={4} placeholder="Topics to discuss, things to remember…" />
+            </div>
+          ) : (
+            <>
+              <div><label className={labelClasses}>Notes</label><textarea value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={4} placeholder="Key takeaways…" /></div>
+              <div><label className={labelClasses}>Transcript</label><textarea value={formData.transcript} onChange={e => setFormData({...formData, transcript: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={8} placeholder="Paste transcript…" /></div>
+            </>
+          )}
+          {/* Calendar options — shown when connected and time is set */}
+          {calendarConnected && !editingMeeting && !editingGoogleEventId && formData.meeting_time && (
+            <div className="rounded-[12px] border border-outline-variant/60 p-5 space-y-4">
+              <div><label className={labelClasses}>Calendar invite description</label>
+                <textarea value={formData.calendarDescription} onChange={e => setFormData({...formData, calendarDescription: e.target.value})} className={`${inputClasses} !h-auto py-3`} rows={2} placeholder="Agenda or notes for the invite…" />
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="text-base text-muted-foreground flex items-center gap-2.5"><Video className="h-5 w-5" /> Include Google Meet link</label>
+                <Toggle checked={includeMeetLink} onChange={setIncludeMeetLink} />
+              </div>
+              <div><label className={labelClasses}>Duration</label>
+                <select value={meetingDuration} onChange={e => setMeetingDuration(Number(e.target.value))} className={inputClasses}>
+                  {meetingDuration === 0 && <option value={0} disabled>Select duration…</option>}
+                  {[15,30,45,60,90,120].map(m => <option key={m} value={m}>{m < 60 ? `${m} min` : m === 60 ? "1 hour" : `${m/60} hours`}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end gap-2.5 pt-3">
+            <ModalCancelButton disabled={savingMeeting} />
+            <Button type="submit" loading={savingMeeting}>{editingMeeting || editingGoogleEventId ? "Save" : "Create"}</Button>
+          </div>
+        </form>
+        </Modal>
       </main>
     </div>
     {/* Outside the root div deliberately (CAR-204): that div carries an onClick

@@ -24,6 +24,7 @@ export function CursorTooltip({ children, visible, initialX, initialY }: CursorT
     >
       {children}
     </div>,
+    // body-portal: a cursor-following tooltip, no focusable content and no tab stop.
     document.body
   );
 }

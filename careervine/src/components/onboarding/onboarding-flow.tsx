@@ -15,7 +15,7 @@
  * from users.onboarding_state.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
@@ -43,12 +43,19 @@ import {
 } from "@/lib/bundle-apply-client";
 import { addTargetCompany } from "@/lib/company-queries";
 import { Tooltip } from "@/components/ui/tooltip";
+import { DialogSurface, useModalPortalContainer } from "@/components/ui/modal";
 import { Users, Building2, GraduationCap, Mail, Calendar, Check, Search, Sparkles, ChevronDown, ArrowUpDown } from "lucide-react";
 
 /* ── Exit-guard confirm dialog (CAR-84) ──
  * A modal-on-modal that intercepts every path out of guided onboarding. The
  * "stay" action is the emphasized button and clicking the scrim also stays —
- * the whole point is to talk the user out of leaving. */
+ * the whole point is to talk the user out of leaving. Escape now stays too
+ * (CAR-197): it is the ambient dismissal of THIS dialog, and dismissing an exit
+ * guard means cancelling the exit.
+ *
+ * `alertdialog` rather than `dialog`, and the trap/layer/name come from
+ * DialogSurface. The role and `aria-modal` used to sit on the wrapper, which
+ * included the scrim, and nothing pointed at the heading at all. */
 export function ConfirmDialog({
   title,
   body,
@@ -64,12 +71,21 @@ export function ConfirmDialog({
   onStay: () => void;
   onLeave: () => void;
 }) {
+  const titleId = useId();
+  const bodyId = useId();
   return (
-    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/60" onClick={onStay} />
-      <div className="relative bg-surface-container-high rounded-3xl shadow-2xl w-full max-w-sm p-6">
-        <h3 className="text-lg font-semibold text-foreground">{title}</h3>
-        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{body}</p>
+    <DialogSurface
+      isOpen
+      onClose={onStay}
+      role="alertdialog"
+      labelledBy={titleId}
+      describedBy={bodyId}
+      wrapperClassName="fixed inset-0 z-[160] flex items-center justify-center p-4"
+      scrimClassName="absolute inset-0 bg-black/60"
+      className="relative bg-surface-container-high rounded-3xl shadow-2xl w-full max-w-sm p-6"
+    >
+        <h3 id={titleId} className="text-lg font-semibold text-foreground">{title}</h3>
+        <p id={bodyId} className="text-sm text-muted-foreground mt-2 leading-relaxed">{body}</p>
         <div className="mt-6 flex flex-col gap-2.5">
           <button
             type="button"
@@ -86,8 +102,7 @@ export function ConfirmDialog({
             {leaveLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </DialogSurface>
   );
 }
 
@@ -96,22 +111,57 @@ function StepShell({
   children,
   wide,
   onSkip,
+  headingId,
+  overlay,
 }: {
   children: React.ReactNode;
   wide?: boolean;
   onSkip?: () => void;
+  /** Id of the step's own <h2>, which is what names the dialog. */
+  headingId?: string;
+  /**
+   * A step's own confirmation dialog, forwarded to the surface as a SIBLING.
+   * Rendering it in `children` would nest one focus trap inside another and the
+   * two would fight over every Tab — see the note on DialogSurface's `overlay`.
+   */
+  overlay?: React.ReactNode;
 }) {
   // Intercept the skip hatch with a stay-nudge (CAR-84). One place covers
   // every step's "Skip for now" — offer, connect, and picker.
   const [confirmingSkip, setConfirmingSkip] = useState(false);
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" />
-      <div
-        className={`relative bg-surface-container-high rounded-[28px] shadow-2xl w-full ${
-          wide ? "max-w-2xl" : "max-w-lg"
-        } max-h-[90vh] overflow-y-auto p-8`}
-      >
+    <DialogSurface
+      isOpen
+      // Guided onboarding has exactly one way out and it is the skip hatch below,
+      // which routes through the stay-nudge. A stray click on the scrim or a
+      // reflexive Escape must not end the run.
+      dismissible={false}
+      labelledBy={headingId}
+      label={headingId ? undefined : "Guided onboarding"}
+      wrapperClassName="fixed inset-0 z-[150] flex items-center justify-center p-4"
+      scrimClassName="absolute inset-0 bg-black/50"
+      className={`relative bg-surface-container-high rounded-[28px] shadow-2xl w-full ${
+        wide ? "max-w-2xl" : "max-w-lg"
+      } max-h-[90vh] overflow-y-auto p-8`}
+      overlay={
+        <>
+          {confirmingSkip && onSkip && (
+            <ConfirmDialog
+              title="Are you sure you want to cancel the onboarding?"
+              body="It only takes about 4 minutes, and it teaches you important ways to use CareerVine that you'd likely miss on your own."
+              stayLabel="Keep going"
+              leaveLabel="Cancel onboarding"
+              onStay={() => setConfirmingSkip(false)}
+              onLeave={() => {
+                setConfirmingSkip(false);
+                onSkip();
+              }}
+            />
+          )}
+          {overlay}
+        </>
+      }
+    >
         {children}
         {onSkip && (
           <div className="mt-6 text-center">
@@ -124,21 +174,7 @@ function StepShell({
             </button>
           </div>
         )}
-      </div>
-      {confirmingSkip && onSkip && (
-        <ConfirmDialog
-          title="Are you sure you want to cancel the onboarding?"
-          body="It only takes about 4 minutes, and it teaches you important ways to use CareerVine that you'd likely miss on your own."
-          stayLabel="Keep going"
-          leaveLabel="Cancel onboarding"
-          onStay={() => setConfirmingSkip(false)}
-          onLeave={() => {
-            setConfirmingSkip(false);
-            onSkip();
-          }}
-        />
-      )}
-    </div>
+    </DialogSurface>
   );
 }
 
@@ -157,13 +193,30 @@ function BundleOfferStep({
   // "No thanks" declines the recruiting database (the one exit whose warning
   // is bundle-specific, not the generic cancel-onboarding one) — CAR-84.
   const [confirmingDecline, setConfirmingDecline] = useState(false);
+  const headingId = useId();
   return (
-    <StepShell onSkip={onSkip}>
+    <StepShell
+      onSkip={onSkip}
+      headingId={headingId}
+      overlay={confirmingDecline && (
+        <ConfirmDialog
+          title="Skip the recruiting database?"
+          body="Only skip this if you're not planning to recruit for Product Management jobs. It's the fastest way to start with a real network of PMs, recruiters, and alumni instead of an empty CRM."
+          stayLabel="Keep the database"
+          leaveLabel="Skip it"
+          onStay={() => setConfirmingDecline(false)}
+          onLeave={() => {
+            setConfirmingDecline(false);
+            onDecline();
+          }}
+        />
+      )}
+    >
       <div className="text-center">
         <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-5">
           <GraduationCap className="h-7 w-7 text-primary" />
         </div>
-        <h2 className="text-2xl font-semibold text-foreground">
+        <h2 id={headingId} className="text-2xl font-semibold text-foreground">
           Start with a network, not an empty page
         </h2>
         <p className="text-base text-muted-foreground mt-3 leading-relaxed">
@@ -200,28 +253,16 @@ function BundleOfferStep({
           </button>
         </div>
       </div>
-      {confirmingDecline && (
-        <ConfirmDialog
-          title="Skip the recruiting database?"
-          body="Only skip this if you're not planning to recruit for Product Management jobs. It's the fastest way to start with a real network of PMs, recruiters, and alumni instead of an empty CRM."
-          stayLabel="Keep the database"
-          leaveLabel="Skip it"
-          onStay={() => setConfirmingDecline(false)}
-          onLeave={() => {
-            setConfirmingDecline(false);
-            onDecline();
-          }}
-        />
-      )}
     </StepShell>
   );
 }
 
 /* ── No-path: brief intro splash ── */
 function IntroSplashStep({ onDone }: { onDone: () => void }) {
+  const headingId = useId();
   return (
-    <StepShell>
-      <h2 className="text-xl font-semibold text-foreground">Welcome to CareerVine</h2>
+    <StepShell headingId={headingId}>
+      <h2 id={headingId} className="text-xl font-semibold text-foreground">Welcome to CareerVine</h2>
       <p className="text-sm text-muted-foreground mt-2">
         Your personal CRM for networking. Three fast ways to get value:
       </p>
@@ -305,6 +346,7 @@ function ConnectButton({
  * header and vanish the moment the import finished — leaving users past it,
  * unconnected. Skippable, but a step the user passes through on purpose. */
 function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }) {
+  const headingId = useId();
   const { data: gmailConn, calendarConnected, refresh: refreshConnection } = useGmailConnection();
   // CAR-100: connected == Gmail send scope granted, not just a row existing (the
   // shared row could be Calendar-only if Gmail was unchecked on the consent screen).
@@ -319,12 +361,12 @@ function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: (
   }, [refreshConnection]);
 
   return (
-    <StepShell onSkip={onSkip}>
+    <StepShell onSkip={onSkip} headingId={headingId}>
       <div className="text-center">
         <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-5">
           <Mail className="h-7 w-7 text-primary" />
         </div>
-        <h2 className="text-2xl font-semibold text-foreground">Connect Gmail and Calendar</h2>
+        <h2 id={headingId} className="text-2xl font-semibold text-foreground">Connect Gmail and Calendar</h2>
         <p className="text-base text-muted-foreground mt-3 leading-relaxed">
           You&apos;ll finish setup by sending your first networking email. Connect Gmail to send it
           and keep your follow-ups going until they reply, and Calendar to drop your open times into any
@@ -381,6 +423,7 @@ function SortDropdown({
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const portalContainer = useModalPortalContainer();
   const MENU_WIDTH = 232;
 
   const updatePos = useCallback(() => {
@@ -461,7 +504,11 @@ function SortDropdown({
               </button>
             ))}
           </div>,
-          document.body,
+          // Into the dialog surface, never unconditionally to the body: StepShell is a
+          // real modal dialog now, so a body-portalled menu sits outside its focus trap
+          // (keyboard-unreachable) and outside its aria-modal boundary (invisible to a
+          // screen reader), while looking perfectly correct on screen (CAR-197 review).
+          portalContainer ?? document.body,
         )}
     </>
   );
@@ -482,6 +529,7 @@ function CompanyPickerStep({
   onPicked: (company: PickerCompany) => void | Promise<void>;
   onSkip: () => void;
 }) {
+  const headingId = useId();
   const [companies, setCompanies] = useState<PickerCompany[] | null>(null);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<CompanySortKey>("alumni");
@@ -619,8 +667,8 @@ function CompanyPickerStep({
   const pct = total > 0 ? Math.min(100, Math.round((applied / total) * 100)) : null;
 
   return (
-    <StepShell wide onSkip={onSkip}>
-      <h2 className="text-xl font-semibold text-foreground">Pick your first target company</h2>
+    <StepShell wide onSkip={onSkip} headingId={headingId}>
+      <h2 id={headingId} className="text-xl font-semibold text-foreground">Pick your first target company</h2>
       <p className="text-sm text-muted-foreground mt-1.5">
         Companies with BYU alumni are at the top: alumni are the warmest door in. You can add
         more targets anytime.
@@ -744,6 +792,7 @@ function CompanyPickerStep({
 
 /* ── Finale: confetti + what's next ── */
 function FinaleStep({ onDone }: { onDone: () => void }) {
+  const headingId = useId();
   const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
@@ -752,11 +801,11 @@ function FinaleStep({ onDone }: { onDone: () => void }) {
   }, []);
 
   return (
-    <StepShell wide>
+    <StepShell wide headingId={headingId}>
       <ConfettiBurst className="rounded-[28px]" />
 
       <div className="text-center">
-        <h2 className="text-2xl font-semibold text-foreground">
+        <h2 id={headingId} className="text-2xl font-semibold text-foreground">
           🎉 Your first networking email is on its way
         </h2>
         <p className="text-sm text-muted-foreground mt-2">
@@ -764,7 +813,15 @@ function FinaleStep({ onDone }: { onDone: () => void }) {
         </p>
       </div>
 
+      {/* inert while transparent (CAR-197 review): the trap focuses the first tabbable
+          on open, and `tabbableWithin` deliberately ignores opacity, so without this the
+          finale opened with focus on a fully invisible button — and a reflexive Enter
+          dismissed the celebration before it had faded in. `inert` is the one gate the
+          trap honours (it skips `el.closest("[inert]")`), so the tabbable set is empty
+          until the content appears and initial focus falls through to the surface, which
+          the heading names. */}
       <div
+        inert={!showMore}
         className={`mt-7 transition-opacity duration-700 ${showMore ? "opacity-100" : "opacity-0"}`}
       >
         <p className="text-sm font-medium text-foreground">
