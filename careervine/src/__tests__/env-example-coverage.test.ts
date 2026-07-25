@@ -9,12 +9,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import fg from "fast-glob";
 import { describe, it, expect } from "vitest";
+import { scanEnvVars, SRC_DIR, SCRIPTS_DIR } from "./helpers/env-scan";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const srcDir = path.resolve(here, "..");
-const scriptsDir = path.resolve(here, "../../scripts");
 const envExamplePath = path.resolve(here, "../../.env.example");
 
 /**
@@ -30,29 +28,6 @@ const PLATFORM_SKIP = new Set([
   "VERCEL_GIT_COMMIT_MESSAGE",
 ]);
 
-/** All env var names read via process.env.X or requireEnv("X") under src + scripts. */
-function scannedVars(): Set<string> {
-  // Exclude test files: they stub/mention env vars (and this file names example
-  // placeholders in its own docstring), and every real config var has a
-  // non-test reader — so tests add only noise, never coverage. The integration
-  // tier's ITEST_* vars (CAR-178) are published by its own global-setup from
-  // `supabase status`, never set by hand, so they are excluded the same way.
-  const globOpts = { absolute: true, ignore: ["**/__tests__/**", "**/__integration__/**"] };
-  const files = [
-    ...fg.sync("**/*.{ts,tsx,js,mjs,cjs}", { cwd: srcDir, ...globOpts }),
-    ...fg.sync("**/*.{ts,tsx,js,mjs,cjs}", { cwd: scriptsDir, ...globOpts }),
-  ];
-  const names = new Set<string>();
-  const processEnv = /process\.env\.([A-Z][A-Z_0-9]*)/g;
-  const requireEnv = /requireEnv\(\s*["']([A-Z][A-Z_0-9]*)["']\s*\)/g;
-  for (const f of files) {
-    const text = readFileSync(f, "utf8");
-    for (const m of text.matchAll(processEnv)) names.add(m[1]);
-    for (const m of text.matchAll(requireEnv)) names.add(m[1]);
-  }
-  return names;
-}
-
 /** Var names documented in .env.example, whether `NAME=` or commented `# NAME=`. */
 function documentedVars(): Set<string> {
   const text = readFileSync(envExamplePath, "utf8");
@@ -65,7 +40,7 @@ function documentedVars(): Set<string> {
 }
 
 describe(".env.example coverage", () => {
-  const scanned = scannedVars();
+  const scanned = scanEnvVars([SRC_DIR, SCRIPTS_DIR]);
   const documented = documentedVars();
 
   it("scans a plausible number of env vars (guards against a broken scan)", () => {

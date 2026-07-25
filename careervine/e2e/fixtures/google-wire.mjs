@@ -7,11 +7,15 @@
  * the object the app calls, not the HTTP body Google returns. Nothing in it can
  * be handed to `route.fulfill()` or `HttpResponse.json()`.
  *
- * So the wire bodies live here, once, and both interception layers import this
- * module:
- *   - `e2e/server-stubs/register.mjs` — MSW inside the Next server process,
- *     which is where the Google calls are actually made.
- *   - `e2e/helpers/network.ts` — `page.route()` for browser-side traffic.
+ * So the wire bodies live here, once, and `e2e/server-stubs/register.mjs`
+ * imports them into the MSW handlers running inside the Next server process —
+ * which is where every Google call in this app is actually made. The browser-side
+ * guard in `e2e/fixtures/test.ts` does not import this module and has no reason
+ * to: it denies rather than fulfils, because no Google traffic originates in the
+ * page. (An earlier version of this header claimed a second importer,
+ * `e2e/helpers/network.ts`, that was never committed — CAR-196.)
+ *
+ * Non-Google vendors live in the sibling `third-party-wire.mjs`.
  *
  * Plain `.mjs`, not `.ts`, on purpose: the server preload is loaded by raw Node
  * via `--import` before any TypeScript loader exists, and installing a loader
@@ -78,22 +82,102 @@ export function gmailSendAsResponse(addresses = ["e2e@gmail.com"]) {
   };
 }
 
+/**
+ * Response body of `gmail.users.messages.get`.
+ *
+ * `syncGmailMessages` and `getMessageDetail` both read `payload.headers` (as
+ * `{name, value}` pairs), `payload.body.data` as base64url, `labelIds`,
+ * `snippet` and `internalDate` — so the default carries all of them rather than
+ * a stub that only survives the happy path.
+ */
+export function gmailMessageResponse({
+  id = SENT_MESSAGE_ID,
+  threadId = SENT_THREAD_ID,
+  from = "E2E Sender <e2e-sender@gmail.com>",
+  to = "e2e-contact@example.com",
+  subject = "E2E stub message",
+  body = "E2E stub body.",
+  labelIds = ["INBOX"],
+  internalDate = "1767225600000",
+} = {}) {
+  return {
+    id,
+    threadId,
+    labelIds,
+    snippet: body.slice(0, 100),
+    internalDate,
+    payload: {
+      mimeType: "text/plain",
+      headers: [
+        { name: "From", value: from },
+        { name: "To", value: to },
+        { name: "Subject", value: subject },
+        { name: "Date", value: new Date(Number(internalDate)).toUTCString() },
+        { name: "Message-ID", value: `<${id}@mail.gmail.com>` },
+      ],
+      body: { size: body.length, data: Buffer.from(body, "utf8").toString("base64url") },
+    },
+    sizeEstimate: body.length,
+  };
+}
+
+/**
+ * Response body of `messages.modify` / `.trash` / `.untrash` — each returns the
+ * updated message resource. `labelIds` is the only field the callers act on, so
+ * it is the only one worth varying.
+ */
+export function gmailModifyResponse({ id = SENT_MESSAGE_ID, labelIds = ["INBOX"] } = {}) {
+  return { id, threadId: SENT_THREAD_ID, labelIds };
+}
+
+/** Response body of `gmail.users.threads.get`. */
+export function gmailThreadResponse({ id = SENT_THREAD_ID, messages } = {}) {
+  return { id, historyId: "1", messages: messages ?? [gmailMessageResponse()] };
+}
+
+/** Response body of `gmail.users.drafts.create`. */
+export function gmailDraftResponse({ id = "e2e-gmail-draft-0001" } = {}) {
+  return { id, message: gmailModifyResponse({ labelIds: ["DRAFT"] }) };
+}
+
 /** Response body of `calendar.events.list` — empty by default. */
 export function calendarEventsResponse({ items = [], nextSyncToken = "e2e-sync-token" } = {}) {
   return { kind: "calendar#events", items, nextSyncToken };
 }
 
-/**
- * The origins this tier is allowed to talk to at all. Anything outside this set
- * AND outside loopback is denied — see the catch-all in server-stubs/register.mjs
- * and in helpers/network.ts.
- */
-export const STUBBED_ORIGINS = [
-  "https://gmail.googleapis.com",
-  "https://oauth2.googleapis.com",
-  "https://www.googleapis.com",
-  "https://accounts.google.com",
-  "https://api.openai.com",
-  "https://api.resend.com",
-  "https://api.apify.com",
-];
+/** Response body of a single-event `calendar.events.{get,insert,update}`. */
+export function calendarEventResponse({
+  id = "e2e-calendar-event-0001",
+  summary = "E2E stub event",
+  start = "2026-01-01T17:00:00Z",
+  end = "2026-01-01T17:30:00Z",
+} = {}) {
+  return {
+    kind: "calendar#event",
+    id,
+    status: "confirmed",
+    summary,
+    start: { dateTime: start },
+    end: { dateTime: end },
+    attendees: [],
+    htmlLink: `https://calendar.google.com/event?eid=${id}`,
+  };
+}
+
+/** Response body of `calendar.calendarList.list`. */
+export function calendarListResponse(ids = ["e2e@gmail.com"]) {
+  return {
+    kind: "calendar#calendarList",
+    items: ids.map((id, i) => ({ id, summary: id, primary: i === 0, accessRole: "owner" })),
+  };
+}
+
+/** Response body of `calendar.freebusy.query` — nothing busy by default. */
+export function calendarFreeBusyResponse(calendars = { "e2e@gmail.com": { busy: [] } }) {
+  return { kind: "calendar#freeBusy", calendars };
+}
+
+/** Response body of `calendar.settings.get` — the timezone setting. */
+export function calendarSettingsResponse(value = "America/Denver") {
+  return { kind: "calendar#setting", id: "timezone", value };
+}

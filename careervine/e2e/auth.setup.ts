@@ -14,7 +14,11 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { test as setup, expect } from "@playwright/test";
+// The guarded `test`, not `@playwright/test` (CAR-196). This project was the one
+// place the network guard did not apply — and it is the project that provisions
+// the state every other spec then trusts, so an unstubbed call here would have
+// been invisible AND load-bearing.
+import { test as setup, expect } from "./fixtures/test";
 import {
   AUTH_FILE,
   TENANT_FILE,
