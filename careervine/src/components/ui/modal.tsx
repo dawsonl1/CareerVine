@@ -14,15 +14,23 @@
  * focus through useFocusTrap. They are DOM *siblings* rather than nested, so a
  * keydown inside the confirm dialog never bubbles through the modal surface and
  * the two traps compose with no trap stack and no "am I topmost" check.
+ *
+ * Portalled children (CAR-198): the trap is "everything inside the surface", so a
+ * child that portals out of the surface leaves the cycle and becomes keyboard
+ * unreachable. Rather than teach the trap about satellite containers, the surface
+ * publishes itself through `useModalPortalContainer` and such children portal
+ * *into* it — see the note on that hook for what keeps that visually safe.
  */
 
 import {
+  createContext,
   type KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useId,
-  useRef,
+  useMemo,
   useState,
 } from "react";
 import { X } from "lucide-react";
@@ -87,14 +95,26 @@ function tabbableWithin(root: HTMLElement): HTMLElement[] {
  * above is not the obvious implementation: the layout-free filter is what keeps
  * the trap armed under jsdom, and a fresh copy would reach for `offsetParent`
  * and silently disarm itself in exactly the tests written to prove it works.
+ *
+ * The surface is held in state behind a callback ref rather than in a `useRef`,
+ * because it is published to descendants as a portal target and so has to be
+ * readable during render. `ref.current` would be populated by the time any menu
+ * opens, but reading it in render is impure and would not re-render a consumer.
+ * `setSurface` is used as the ref directly: `useState` guarantees it is stable,
+ * and a DOM node can never be mistaken for a functional updater. Callers that
+ * only attach it to a `<div ref=>` are unaffected by the change.
+ *
+ * `returnFocusFallback` is optional and where focus goes when the element that
+ * opened this layer is no longer a usable target. A layer that closes without
+ * landing focus somewhere real leaves it on `<body>`, and since the trap is a
+ * keydown handler *on the surface*, focus outside the surface means the trap
+ * silently stops running and Tab walks straight out of the dialog.
  */
-export function useFocusTrap(active: boolean) {
-  const surfaceRef = useRef<HTMLDivElement>(null);
+export function useFocusTrap(active: boolean, returnFocusFallback?: HTMLElement | null) {
+  const [surface, setSurface] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!active) return;
-    const surface = surfaceRef.current;
-    if (!surface) return;
+    if (!active || !surface) return;
 
     // Whatever opened this layer: the page's trigger for the modal, or a control
     // inside the modal for the confirm dialog.
@@ -106,17 +126,29 @@ export function useFocusTrap(active: boolean) {
       // isConnected skips a trigger that unmounted along with the dialog. It also
       // makes cleanup order irrelevant on the Discard path, where the confirm
       // dialog and the modal unmount in the same commit.
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      //
+      // <body> is treated as "nothing to restore" rather than a target: a scrim
+      // mousedown blurs to <body> before this captures, and focusing it drops the
+      // user at the top of the document. The fallback then covers a layer that
+      // opened over a live one — the confirm dialog can capture an open Select's
+      // option as its `previouslyFocused`, and that option is gone by the time it
+      // closes, so without this focus would land nowhere inside a modal that is
+      // still open.
+      if (previouslyFocused?.isConnected && previouslyFocused !== document.body) {
+        previouslyFocused.focus();
+      } else if (returnFocusFallback?.isConnected) {
+        (tabbableWithin(returnFocusFallback)[0] ?? returnFocusFallback).focus();
+      }
     };
-  }, [active]);
+  }, [active, surface, returnFocusFallback]);
 
   const onKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab") return;
-    const surface = surfaceRef.current;
     if (!surface) return;
 
     // Recomputed per keypress rather than cached on open: these dialogs render
-    // conditional controls, so a set captured at open goes stale.
+    // conditional controls, so a set captured at open goes stale. An open Select
+    // menu is the extreme case — it appears and vanishes mid-cycle.
     const tabbables = tabbableWithin(surface);
     if (tabbables.length === 0) {
       e.preventDefault();
@@ -137,9 +169,53 @@ export function useFocusTrap(active: boolean) {
       e.preventDefault();
       first.focus();
     }
-  }, []);
+  }, [surface]);
 
-  return { surfaceRef, onKeyDown };
+  return { surfaceRef: setSurface, surface, onKeyDown };
+}
+
+interface ModalContextValue {
+  /** The dialog surface, or null outside a Modal. */
+  portalContainer: HTMLElement | null;
+  /** Close, routed through the unsaved-changes guard. No-op outside a Modal. */
+  dismiss: () => void;
+}
+
+const ModalContext = createContext<ModalContextValue>({ portalContainer: null, dismiss: () => {} });
+
+/**
+ * Portal target for a modal child that must escape an `overflow` ancestor — a
+ * dropdown menu, a popover — without escaping the focus trap. Returns the dialog
+ * surface inside a Modal and `null` outside one, so the caller's fallback is the
+ * usual `?? document.body`.
+ *
+ * This works because the surface is `overflow: hidden` but the things portalled
+ * into it are `position: fixed`, and a fixed element's containing block is the
+ * viewport, so ancestor overflow never clips it. That holds only while the
+ * surface forms no containing block for fixed descendants: a `transform`,
+ * `filter`, `backdrop-filter`, `perspective`, `contain` (of `layout`/`paint`/
+ * `strict`/`content`), `container-type`, or a `will-change` naming one of those,
+ * on it or on the wrapper around it, would silently start clipping every menu
+ * inside every modal. An entrance animation is the obvious way that happens, so
+ * `careervine/src/__tests__/modal.test.tsx` pins both elements against it.
+ *
+ * Not covered by that tripwire, because Tailwind has no first-class utility for
+ * it: `clip-path` on an ancestor clips fixed descendants through a different
+ * mechanism, without establishing a containing block.
+ */
+export function useModalPortalContainer(): HTMLElement | null {
+  return useContext(ModalContext).portalContainer;
+}
+
+/**
+ * Dismiss the enclosing Modal through its unsaved-changes guard, for a footer
+ * Cancel button. Calling the caller's own `onClose` there instead bypasses the
+ * confirmation that the scrim, Escape and the X all honour, so a modal that sets
+ * `hasUnsavedChanges` would warn on three dismissal paths and silently discard on
+ * the fourth.
+ */
+export function useModalDismiss(): () => void {
+  return useContext(ModalContext).dismiss;
 }
 
 interface ModalProps {
@@ -165,14 +241,21 @@ function ConfirmDiscardDialog({
   message,
   onDiscard,
   onKeepEditing,
+  returnFocusTo,
 }: {
   message: string;
   onDiscard: () => void;
   onKeepEditing: () => void;
+  /**
+   * Where focus goes on dismiss when whatever opened this dialog is gone by then
+   * — most often an open Select option, which unmounts while this is up. Without
+   * it focus lands on `<body>`, outside the still-open modal's trap.
+   */
+  returnFocusTo?: HTMLElement | null;
 }) {
   const titleId = useId();
   const messageId = useId();
-  const { surfaceRef, onKeyDown } = useFocusTrap(true);
+  const { surfaceRef, onKeyDown } = useFocusTrap(true, returnFocusTo);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -226,7 +309,7 @@ export function Modal({
 }: ModalProps) {
   const [showConfirm, setShowConfirm] = useState(false);
   const titleId = useId();
-  const { surfaceRef, onKeyDown } = useFocusTrap(isOpen);
+  const { surfaceRef, surface, onKeyDown } = useFocusTrap(isOpen);
 
   const attemptClose = useCallback(() => {
     if (hasUnsavedChanges) {
@@ -240,6 +323,11 @@ export function Modal({
     setShowConfirm(false);
     onClose();
   }, [onClose]);
+
+  const contextValue = useMemo(
+    () => ({ portalContainer: surface, dismiss: attemptClose }),
+    [surface, attemptClose],
+  );
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -314,9 +402,12 @@ export function Modal({
           </div>
         )}
 
-        {/* Body — headline supplies top spacing when present */}
+        {/* Body — headline supplies top spacing when present.
+            The provider wraps only `children`: the confirm dialog below is a DOM
+            sibling with its own trap, so a menu portalled to this surface from
+            inside it would land in the wrong one. */}
         <div className={`flex-1 overflow-y-auto px-6 pb-6 ${title ? "" : "pt-6"}`}>
-          {children}
+          <ModalContext.Provider value={contextValue}>{children}</ModalContext.Provider>
         </div>
       </div>
 
@@ -326,6 +417,7 @@ export function Modal({
           message={confirmMessage}
           onDiscard={confirmDiscard}
           onKeepEditing={() => setShowConfirm(false)}
+          returnFocusTo={surface}
         />
       )}
     </div>

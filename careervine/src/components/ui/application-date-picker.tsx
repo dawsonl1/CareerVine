@@ -137,7 +137,7 @@ export function ApplicationDatePicker({
   className,
 }: ApplicationDatePickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos } = usePortalDropdown(
+  const { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos, portalContainer } = usePortalDropdown(
     containerRef,
     { dropdownHeight: DROPDOWN_HEIGHT, dropdownWidth: DROPDOWN_WIDTH },
   );
@@ -263,7 +263,7 @@ export function ApplicationDatePicker({
               </button>
             </div>
           </div>,
-          document.body,
+          portalContainer ?? document.body,
         )}
     </div>
   );

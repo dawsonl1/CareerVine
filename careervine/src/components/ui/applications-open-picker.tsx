@@ -253,7 +253,7 @@ export function ApplicationsOpenPicker({
   className = "",
 }: ApplicationsOpenPickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { open, setOpen, triggerRef, dropdownRef, dropdownPos } = usePortalDropdown(containerRef, {
+  const { open, setOpen, triggerRef, dropdownRef, dropdownPos, portalContainer } = usePortalDropdown(containerRef, {
     dropdownHeight: DROPDOWN_HEIGHT,
     dropdownWidth: DROPDOWN_WIDTH,
   });
@@ -526,7 +526,7 @@ export function ApplicationsOpenPicker({
               </Button>
             </div>
           </div>,
-          document.body,
+          portalContainer ?? document.body,
         )}
     </div>
   );

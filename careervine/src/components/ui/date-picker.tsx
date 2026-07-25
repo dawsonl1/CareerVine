@@ -35,7 +35,7 @@ const MONTHS = [
 
 export function DatePicker({ value, onChange, required, placeholder = "Select date" }: DatePickerProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos } = usePortalDropdown(ref, {
+  const { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos, portalContainer } = usePortalDropdown(ref, {
     dropdownHeight: 380,
     dropdownWidth: 300,
   });
@@ -173,7 +173,7 @@ export function DatePicker({ value, onChange, required, placeholder = "Select da
             </button>
           </div>
         </div>,
-        document.body
+        portalContainer ?? document.body
       )}
     </div>
   );

@@ -48,6 +48,7 @@ export function StateSelect({ value, onChange, country, required }: StateSelectP
       onChange={onChange}
       options={options}
       placeholder="Select state"
+      ariaLabel="State"
       required={required}
       triggerClassName="!bg-surface-container-low"
     />

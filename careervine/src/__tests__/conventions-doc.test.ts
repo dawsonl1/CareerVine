@@ -85,6 +85,7 @@ const SYMBOL_CLAIMS: Array<[file: string, symbols: string[]]> = [
   ["careervine/src/lib/notify/email.ts", ["sendAppEmail"]],
   ["careervine/src/lib/email-send.ts", ["sendTrackedEmail", "SendPolicyError"]],
   ["careervine/src/lib/ui-events.ts", ["emitUiEvent", "onUiEvent"]],
+  ["careervine/src/components/ui/modal.tsx", ["useModalPortalContainer", "useModalDismiss"]],
   ["careervine/src/hooks/use-latest-request.ts", ["useLatestRequest", "begin", "isLatest"]],
   ["careervine/src/__tests__/route-auth-inventory.test.ts", ["HAND_ROLLED"]],
   ["careervine/src/lib/admin-auth.ts", ["isAuthorizedAdminToken"]],
