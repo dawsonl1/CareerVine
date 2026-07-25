@@ -51,6 +51,16 @@ const stack = stackEnv();
  * NEXT_PUBLIC_POSTHOG_KEY is deliberately absent: unset makes `trackServer` and
  * the browser SDK no-ops, so no analytics traffic is generated to deny.
  */
+
+/**
+ * `BYOK_ENCRYPTION_KEY` must parse as a 32-byte base64 key or the module-scope
+ * validation in the BYOK path throws during `next build`. Constructed rather
+ * than pasted as a literal: a hardcoded 44-char base64 string is
+ * indistinguishable from a real AES key to a secret scanner (GitGuardian
+ * flagged exactly that), and building it from constant bytes says plainly that
+ * there is no key here. Byte-identical to the placeholder the CI `web` job uses.
+ */
+const PLACEHOLDER_ENCRYPTION_KEY = Buffer.alloc(32, 1).toString("base64");
 const appEnv: Record<string, string> = {
   NEXT_PUBLIC_SUPABASE_URL: stack.url,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: stack.anonKey,
@@ -78,7 +88,7 @@ const appEnv: Record<string, string> = {
   QSTASH_NEXT_SIGNING_KEY: "sig_placeholder",
   UPSTASH_REDIS_REST_URL: "http://127.0.0.1:59998",
   UPSTASH_REDIS_REST_TOKEN: "placeholder",
-  BYOK_ENCRYPTION_KEY: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+  BYOK_ENCRYPTION_KEY: PLACEHOLDER_ENCRYPTION_KEY,
   BUNDLE_ADMIN_TOKEN: "placeholder",
   R2_ACCOUNT_ID: "placeholder",
   R2_ACCESS_KEY_ID: "placeholder",
