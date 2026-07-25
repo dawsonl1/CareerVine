@@ -90,6 +90,7 @@ const SYMBOL_CLAIMS: Array<[file: string, symbols: string[]]> = [
   ["careervine/src/lib/admin-auth.ts", ["isAuthorizedAdminToken"]],
   ["careervine/src/components/compose-email-modal.tsx", ["submittingRef"]],
   ["careervine/src/components/contacts/contact-edit-modal.tsx", ["savingRef"]],
+  ["careervine/src/__tests__/helpers/fake-fetch.ts", ["installFakeFetch", "unmatched"]],
 ];
 
 const WORDS = [

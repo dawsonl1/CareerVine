@@ -6,21 +6,30 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { EmailTemplate } from "@/lib/types";
 import { Sparkles, Plus, Pencil, Trash2, X } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { useToast } from "@/components/ui/toast";
+import { apiFetch, apiSend } from "@/lib/api-client";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 
 export default function TemplatesSection() {
+  const { error: toastError } = useToast();
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<{ id?: number; name: string; prompt: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const loadTemplates = useCallback(async () => {
     try {
-      const res = await fetch("/api/gmail/templates");
-      const data = await res.json();
+      const data = await apiFetch<{ templates?: EmailTemplate[] }>("/api/gmail/templates");
       setTemplates(data.templates || []);
+      setLoadFailed(false);
     } catch {
-      // ignore
+      // A failed read used to fall through to `data.templates || []`, which
+      // rendered the "No custom templates yet" empty state over templates that
+      // exist (CAR-183). That is the same lie the delete path was fixed for, so
+      // a failed load gets its own state rather than borrowing the empty one.
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -64,12 +73,19 @@ export default function TemplatesSection() {
 
   const handleDelete = async (id: number) => {
     if (!confirm("Delete this template?")) return;
-    try {
-      await fetch(`/api/gmail/templates/${id}`, { method: "DELETE" });
-      setTemplates((prev) => prev.filter((t) => t.id !== id));
-    } catch {
-      // ignore
-    }
+    // Dropping the row without checking the response made a failed delete look
+    // like a success until the next refresh brought the template back
+    // (CAR-183). The inline `error` state renders only inside the editor panel,
+    // which is usually closed while deleting from the list, so the failure
+    // surfaces as a toast instead.
+    const deleted = await withToastOnError(
+      () => apiSend(`/api/gmail/templates/${id}`, { method: "DELETE" }),
+      toastError,
+      "Couldn't delete that template. Please try again.",
+    );
+    if (!deleted) return;
+
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
   };
 
   return (
@@ -148,6 +164,19 @@ export default function TemplatesSection() {
           <div className="flex items-center gap-4 text-muted-foreground">
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
             <span className="text-base">Loading templates...</span>
+          </div>
+        ) : loadFailed ? (
+          <div className="text-center py-8">
+            <p className="text-base text-muted-foreground">Couldn&apos;t load your templates.</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => { setLoading(true); void loadTemplates(); }}
+            >
+              Try again
+            </Button>
           </div>
         ) : templates.length === 0 ? (
           <div className="text-center py-8">
