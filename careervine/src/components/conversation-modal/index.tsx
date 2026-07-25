@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useId, useRef } from "react";
 import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { useQuickCapture } from "@/components/quick-capture-context";
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ContactPicker } from "@/components/ui/contact-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
-import { ConfirmDiscardDialog, useDialogLayer } from "@/components/ui/modal";
+import { DialogSurface, ModalCancelButton, ModalCloseButton } from "@/components/ui/modal";
 import {
   createMeeting,
   updateMeeting,
@@ -27,7 +27,6 @@ import {
 import { CONVERSATION_TYPE_OPTIONS, ActionItemSource } from "@/lib/constants";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import {
-  X,
   Coffee,
   Phone,
   Video,
@@ -88,7 +87,6 @@ export function ConversationModal() {
   const [inviteEmailMap, setInviteEmailMap] = useState<Record<number, string>>({});
   const [excludedInviteIds, setExcludedInviteIds] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
-  const [showConfirmDiscard, setShowConfirmDiscard] = useState(false);
 
   // Calendar state
   const [addToCalendar, setAddToCalendar] = useState(false);
@@ -121,34 +119,10 @@ export function ConversationModal() {
     close();
   }, [close, transcriptState.pendingAudioAttachment]);
 
-  const attemptClose = useCallback(() => {
-    if (hasUnsavedChanges) {
-      setShowConfirmDiscard(true);
-    } else {
-      closeAndCleanup();
-    }
-  }, [hasUnsavedChanges, closeAndCleanup]);
-
-  // Close on Escape. One layer covers this surface and its ConfirmDiscardDialog, the
-  // same arrangement Modal uses: the branch below is what dismisses the inner one, so
-  // registering that separately would make this handler non-topmost and unreachable
-  // (CAR-202). The scroll lock comes with the registration.
-  const isTopLayer = useDialogLayer(isOpen);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isTopLayer()) {
-        if (showConfirmDiscard) {
-          setShowConfirmDiscard(false);
-        } else {
-          attemptClose();
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, attemptClose, showConfirmDiscard, isTopLayer]);
+  // The discard guard, the layer registration, Escape and the scroll lock were all
+  // re-derived here; they are DialogSurface's now (CAR-197), which also brings the
+  // focus trap and dialog semantics this surface never had.
+  const titleId = useId();
 
   // Reset form when opened
   useEffect(() => {
@@ -392,179 +366,162 @@ export function ConversationModal() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40" onClick={attemptClose} />
+    <DialogSurface
+      isOpen
+      onClose={closeAndCleanup}
+      labelledBy={titleId}
+      hasUnsavedChanges={hasUnsavedChanges}
+      wrapperClassName="fixed inset-0 z-[60] flex items-end sm:items-center justify-center"
+      scrimClassName="absolute inset-0 bg-black/40"
+      className="relative w-full sm:max-w-2xl max-h-[100dvh] sm:max-h-[85vh] bg-background rounded-t-[28px] sm:rounded-[28px] shadow-xl overflow-y-auto"
+    >
+    {/* Header */}
+    <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-7 pt-7 pb-5 border-b border-outline-variant">
+      <h2 id={titleId} className="text-xl font-medium text-foreground">
+        {isEditMode ? "Edit meeting" : "Log a conversation"}
+      </h2>
+      <ModalCloseButton className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer transition-colors" />
+    </div>
 
-      {/* Modal */}
-      <div className="relative w-full sm:max-w-2xl max-h-[100dvh] sm:max-h-[85vh] bg-background rounded-t-[28px] sm:rounded-[28px] shadow-xl overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-7 pt-7 pb-5 border-b border-outline-variant">
-          <h2 className="text-xl font-medium text-foreground">
-            {isEditMode ? "Edit meeting" : "Log a conversation"}
-          </h2>
-          <button
-            onClick={attemptClose}
-            className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-          >
-            <X className="h-6 w-6" />
-          </button>
-        </div>
+    <div className="p-7 space-y-6">
+      {/* Contact picker */}
+      <div>
+        <label className={labelClasses}>
+          Who did you talk to?
+        </label>
+        <ContactPicker
+          allContacts={allContacts}
+          selectedIds={form.selectedContactIds}
+          onChange={(ids) => setForm((prev) => ({ ...prev, selectedContactIds: ids }))}
+          placeholder="Search contacts..."
+        />
+      </div>
 
-        <div className="p-7 space-y-6">
-          {/* Contact picker */}
-          <div>
-            <label className={labelClasses}>
-              Who did you talk to?
-            </label>
-            <ContactPicker
-              allContacts={allContacts}
-              selectedIds={form.selectedContactIds}
-              onChange={(ids) => setForm((prev) => ({ ...prev, selectedContactIds: ids }))}
-              placeholder="Search contacts..."
-            />
-          </div>
+      {/* Meeting name */}
+      <div>
+        <label className={labelClasses}>
+          Meeting name (optional)
+        </label>
+        <input
+          type="text"
+          value={form.title}
+          onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+          className={inputClasses}
+          placeholder="e.g. Coffee with Alex, Informational with Jane..."
+        />
+      </div>
 
-          {/* Meeting name */}
-          <div>
-            <label className={labelClasses}>
-              Meeting name (optional)
-            </label>
-            <input
-              type="text"
-              value={form.title}
-              onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-              className={inputClasses}
-              placeholder="e.g. Coffee with Alex, Informational with Jane..."
-            />
-          </div>
-
-          {/* Type chips */}
-          <div>
-            <label className={labelClasses}>
-              Type
-            </label>
-            <div className="flex flex-wrap gap-2.5">
-              {CONVERSATION_TYPE_OPTIONS.map((type) => {
-                const Icon = ICON_MAP[type.iconName];
-                const active = form.meetingType === type.value;
-                return (
-                  <button
-                    key={type.value}
-                    type="button"
-                    onClick={() => setForm((prev) => ({ ...prev, meetingType: type.value }))}
-                    className={`inline-flex items-center gap-2 h-10 px-5 rounded-full text-base font-medium cursor-pointer transition-colors ${
-                      active
-                        ? "bg-secondary-container text-on-secondary-container"
-                        : "bg-surface-container text-foreground hover:bg-surface-container-high"
-                    }`}
-                  >
-                    {Icon && <Icon className="h-5 w-5" />}
-                    {type.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Date + optional Time */}
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label className={labelClasses}>
-                When
-              </label>
-              <DatePicker
-                value={form.date}
-                onChange={(val) => setForm((prev) => ({ ...prev, date: val }))}
-              />
-            </div>
-            {hasDate && (
-              <div className="w-[140px]">
-                <label className={labelClasses}>
-                  Time (optional)
-                </label>
-                <TimePicker
-                  value={form.time}
-                  onChange={(val) => setForm((prev) => ({ ...prev, time: val }))}
-                  placeholder="Time"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Conditional fields based on past/future — hidden until date is picked */}
-          {isFutureMeeting && (
-            <FutureMeetingFields
-              form={form}
-              setForm={setForm}
-              calendarConnected={calendarConnected}
-              addToCalendar={addToCalendar}
-              setAddToCalendar={setAddToCalendar}
-              includeMeetLink={includeMeetLink}
-              setIncludeMeetLink={setIncludeMeetLink}
-              meetingDuration={meetingDuration}
-              setMeetingDuration={setMeetingDuration}
-              contactEmailsMap={contactEmailsMap}
-              inviteEmailMap={inviteEmailMap}
-              setInviteEmailMap={setInviteEmailMap}
-              excludedInviteIds={excludedInviteIds}
-              setExcludedInviteIds={setExcludedInviteIds}
-              allContacts={allContacts}
-            />
-          )}
-          {isPastMeeting && (
-            <>
-              <PastMeetingFields
-                form={form}
-                setForm={setForm}
-                transcriptState={transcriptState}
-                setTranscriptState={setTranscriptState}
-                meetingId={editMeeting?.id ?? null}
-                userId={user?.id || ""}
-                userName={user?.user_metadata?.full_name || undefined}
-                allContacts={allContacts}
-                onAiActionAccepted={(action) => setPendingActions((prev) => [...prev, action])}
-                onActionCreated={() => {
-                  emitUiEvent(UI_EVENTS.conversationLogged);
-                }}
-              />
-              <ActionItemsSection
-                pendingActions={pendingActions}
-                onAddAction={(action) => setPendingActions((prev) => [...prev, action])}
-                onRemoveAction={(index) =>
-                  setPendingActions((prev) => prev.filter((_, i) => i !== index))
-                }
-              />
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="sticky bottom-0 bg-background border-t border-outline-variant px-7 py-5 flex justify-end gap-3">
-          <Button variant="text" onClick={attemptClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            loading={saving}
-            disabled={form.selectedContactIds.length === 0 || !form.meetingType || !form.date}
-          >
-            {isEditMode ? "Update" : "Save conversation"}
-          </Button>
+      {/* Type chips */}
+      <div>
+        <label className={labelClasses}>
+          Type
+        </label>
+        <div className="flex flex-wrap gap-2.5">
+          {CONVERSATION_TYPE_OPTIONS.map((type) => {
+            const Icon = ICON_MAP[type.iconName];
+            const active = form.meetingType === type.value;
+            return (
+              <button
+                key={type.value}
+                type="button"
+                onClick={() => setForm((prev) => ({ ...prev, meetingType: type.value }))}
+                className={`inline-flex items-center gap-2 h-10 px-5 rounded-full text-base font-medium cursor-pointer transition-colors ${
+                  active
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "bg-surface-container text-foreground hover:bg-surface-container-high"
+                }`}
+              >
+                {Icon && <Icon className="h-5 w-5" />}
+                {type.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Confirm discard dialog */}
-      {showConfirmDiscard && (
-        <ConfirmDiscardDialog
-          message="You have unsaved changes that will be lost."
-          onDiscard={() => {
-            setShowConfirmDiscard(false);
-            closeAndCleanup();
-          }}
-          onKeepEditing={() => setShowConfirmDiscard(false)}
+      {/* Date + optional Time */}
+      <div className="flex gap-4">
+        <div className="flex-1">
+          <label className={labelClasses}>
+            When
+          </label>
+          <DatePicker
+            value={form.date}
+            onChange={(val) => setForm((prev) => ({ ...prev, date: val }))}
+          />
+        </div>
+        {hasDate && (
+          <div className="w-[140px]">
+            <label className={labelClasses}>
+              Time (optional)
+            </label>
+            <TimePicker
+              value={form.time}
+              onChange={(val) => setForm((prev) => ({ ...prev, time: val }))}
+              placeholder="Time"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Conditional fields based on past/future — hidden until date is picked */}
+      {isFutureMeeting && (
+        <FutureMeetingFields
+          form={form}
+          setForm={setForm}
+          calendarConnected={calendarConnected}
+          addToCalendar={addToCalendar}
+          setAddToCalendar={setAddToCalendar}
+          includeMeetLink={includeMeetLink}
+          setIncludeMeetLink={setIncludeMeetLink}
+          meetingDuration={meetingDuration}
+          setMeetingDuration={setMeetingDuration}
+          contactEmailsMap={contactEmailsMap}
+          inviteEmailMap={inviteEmailMap}
+          setInviteEmailMap={setInviteEmailMap}
+          excludedInviteIds={excludedInviteIds}
+          setExcludedInviteIds={setExcludedInviteIds}
+          allContacts={allContacts}
         />
       )}
+      {isPastMeeting && (
+        <>
+          <PastMeetingFields
+            form={form}
+            setForm={setForm}
+            transcriptState={transcriptState}
+            setTranscriptState={setTranscriptState}
+            meetingId={editMeeting?.id ?? null}
+            userId={user?.id || ""}
+            userName={user?.user_metadata?.full_name || undefined}
+            allContacts={allContacts}
+            onAiActionAccepted={(action) => setPendingActions((prev) => [...prev, action])}
+            onActionCreated={() => {
+              emitUiEvent(UI_EVENTS.conversationLogged);
+            }}
+          />
+          <ActionItemsSection
+            pendingActions={pendingActions}
+            onAddAction={(action) => setPendingActions((prev) => [...prev, action])}
+            onRemoveAction={(index) =>
+              setPendingActions((prev) => prev.filter((_, i) => i !== index))
+            }
+          />
+        </>
+      )}
     </div>
+
+    {/* Footer */}
+    <div className="sticky bottom-0 bg-background border-t border-outline-variant px-7 py-5 flex justify-end gap-3">
+      <ModalCancelButton disabled={saving} />
+      <Button
+        onClick={handleSave}
+        loading={saving}
+        disabled={form.selectedContactIds.length === 0 || !form.meetingType || !form.date}
+      >
+        {isEditMode ? "Update" : "Save conversation"}
+      </Button>
+    </div>
+    </DialogSurface>
   );
 }

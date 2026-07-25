@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +10,7 @@ import type { EmailFollowUp } from "@/lib/types";
 import { isUnresolvedFollowUpMessage } from "@/lib/constants";
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
-import { useDialogLayer } from "@/components/ui/modal";
+import { DialogSurface, ModalCancelButton, ModalCloseButton } from "@/components/ui/modal";
 import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 export type FollowUpDraft = {
@@ -82,6 +82,8 @@ export function FollowUpModal({
   existingFollowUp,
 }: FollowUpModalProps) {
   const [drafts, setDrafts] = useState<FollowUpDraft[]>([]);
+  /** Drafts as seeded on open, for the discard guard. Null before the first open. */
+  const [pristineDrafts, setPristineDrafts] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -109,32 +111,35 @@ export function FollowUpModal({
 
       if (msgs.length === 0) {
         setDrafts([]);
+        setPristineDrafts("[]");
         return;
       }
 
       const absoluteDays = msgs.map((m) => m.send_after_days);
       const relativeDelays = toRelativeDelays(absoluteDays);
 
-      setDrafts(
-        msgs.map((m, i) => ({
-          delayDays: relativeDelays[i],
-          sendTime: "09:00",
-          subject: m.subject,
-          bodyHtml: m.body_html,
-        }))
-      );
+      const seeded = msgs.map((m, i) => ({
+        delayDays: relativeDelays[i],
+        sendTime: "09:00",
+        subject: m.subject,
+        bodyHtml: m.body_html,
+      }));
+      setDrafts(seeded);
+      setPristineDrafts(JSON.stringify(seeded));
     } else {
       // New mode
       const defaultDays = Math.max(minDaysForFirst, 3);
       const reSubj = originalSubject.replace(/^(Re:\s*)+/i, "");
-      setDrafts([
+      const seeded = [
         {
           delayDays: defaultDays,
           sendTime: "09:00",
           subject: `Re: ${reSubj}`,
           bodyHtml: "",
         },
-      ]);
+      ];
+      setDrafts(seeded);
+      setPristineDrafts(JSON.stringify(seeded));
     }
 
     setActiveTab(0);
@@ -253,18 +258,15 @@ export function FollowUpModal({
     }
   };
 
-  // Escape only while topmost, and the scroll lock comes with it (CAR-202). This is a
-  // full-screen overlay that previously let the page scroll behind it.
-  const isTopLayer = useDialogLayer(isOpen);
+  // Escape, the layer registration and the scroll lock all come from DialogSurface
+  // now (CAR-197), along with the focus trap and dialog semantics this never had.
+  const titleId = useId();
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isTopLayer()) onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, onClose, isTopLayer]);
+  // Drafts are seeded on open, so the snapshot taken there is the pristine value.
+  // Not while saving (the write is already going through) and not once saved,
+  // where the surface is a confirmation panel with nothing left to discard.
+  const hasUnsavedChanges =
+    !saving && !saved && pristineDrafts !== null && pristineDrafts !== JSON.stringify(drafts);
 
   if (!isOpen) return null;
 
@@ -274,275 +276,270 @@ export function FollowUpModal({
   const scheduledDate = getScheduledDate(activeTab);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/32" onClick={onClose} />
+    <DialogSurface
+      isOpen
+      onClose={onClose}
+      labelledBy={titleId}
+      hasUnsavedChanges={hasUnsavedChanges}
+      wrapperClassName="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg flex flex-col max-h-[90vh]"
+    >
+    {/* Header */}
+    <div className="flex items-center justify-between px-7 pt-6 pb-4">
+      <h2 id={titleId} className="text-2xl leading-8 font-normal text-foreground flex items-center gap-2.5">
+        {saved ? (
+          isEditing ? "Follow-ups updated" : "Follow-ups scheduled"
+        ) : (
+          <>
+            {isEditing ? <Pencil className="h-6 w-6" /> : <Clock className="h-6 w-6" />}
+            {isEditing ? "Edit" : "Schedule"} Follow-up{drafts.length > 1 ? "s" : ""}
+          </>
+        )}
+      </h2>
+      <ModalCloseButton className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" />
+    </div>
 
-      <div className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-7 pt-6 pb-4">
-          <h2 className="text-2xl leading-8 font-normal text-foreground flex items-center gap-2.5">
-            {saved ? (
-              isEditing ? "Follow-ups updated" : "Follow-ups scheduled"
-            ) : (
-              <>
-                {isEditing ? <Pencil className="h-6 w-6" /> : <Clock className="h-6 w-6" />}
-                {isEditing ? "Edit" : "Schedule"} Follow-up{drafts.length > 1 ? "s" : ""}
-              </>
-            )}
-          </h2>
+    {saved ? (
+      <div className="px-7 pb-8 flex flex-col items-center gap-4 py-8">
+        <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
+          <Check className="h-7 w-7 text-primary" />
+        </div>
+        <p className="text-base text-foreground font-medium">
+          {drafts.length} follow-up{drafts.length !== 1 ? "s" : ""} {isEditing ? "updated" : "scheduled"}
+        </p>
+        <p className="text-sm text-muted-foreground text-center max-w-xs">
+          They will be automatically cancelled if {contactName || recipientEmail} replies to the thread.
+        </p>
+      </div>
+    ) : (
+      <>
+        {/* Auto-cancel notice */}
+        <div className="mx-7 mb-4 p-4 rounded-xl bg-tertiary-container/30 border border-tertiary/20">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="h-5 w-5 text-tertiary shrink-0 mt-0.5" />
+            <div className="text-sm text-on-tertiary-container">
+              <p className="font-medium">Auto-cancel on reply</p>
+              <p className="mt-1 text-muted-foreground text-sm">
+                If {contactName || recipientEmail} responds to this thread, all pending follow-ups will be automatically cancelled. The system checks for replies before each send.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Context */}
+        <div className="px-7 pb-2.5 text-sm text-muted-foreground space-y-1">
+          <p><span className="font-medium">To:</span> {recipientEmail}</p>
+          <p><span className="font-medium">Original:</span> {originalSubject}</p>
+          <p><span className="font-medium">Sent:</span> {new Date(originalSentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} ({daysSinceOriginal} day{daysSinceOriginal !== 1 ? "s" : ""} ago)</p>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-1.5 px-7 pt-2.5 pb-1.5 overflow-x-auto">
+          {drafts.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setActiveTab(i)}
+              className={`relative px-4 py-2 rounded-full text-sm font-medium cursor-pointer transition-colors shrink-0 ${
+                activeTab === i
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-surface-container-low text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Follow-up {i + 1}
+              {drafts.length > 1 && activeTab === i && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeFollowUp(i);
+                  }}
+                  className="ml-2 inline-flex items-center justify-center w-4 h-4 rounded-full hover:bg-primary-foreground/20 cursor-pointer"
+                  title="Remove this follow-up"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </button>
+          ))}
           <button
             type="button"
-            onClick={onClose}
-            className="p-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
+            onClick={addFollowUp}
+            className="px-3 py-2 rounded-full text-sm text-primary hover:bg-primary/10 cursor-pointer transition-colors flex items-center gap-1.5 shrink-0"
           >
-            <X className="h-6 w-6" />
+            <Plus className="h-3.5 w-3.5" />
+            Add
           </button>
         </div>
 
-        {saved ? (
-          <div className="px-7 pb-8 flex flex-col items-center gap-4 py-8">
-            <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
-              <Check className="h-7 w-7 text-primary" />
+        {/* Active tab content */}
+        <div className="flex-1 overflow-y-auto min-h-0 px-7 pt-2.5 pb-4 space-y-4">
+          {/* Days + time selector */}
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">
+              Send after
+            </label>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <input
+                type="number"
+                min={getMinDelay(activeTab)}
+                value={currentDraft.delayDays}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  if (!isNaN(val)) updateDraft(activeTab, { delayDays: val });
+                }}
+                className="w-20 h-10 px-3 rounded-lg border border-outline bg-surface-container-low text-base text-foreground focus:outline-none focus:border-primary"
+              />
+              <span className="text-base text-muted-foreground">
+                {activeTab === 0 ? "days after original email" : "days after previous follow-up"}
+              </span>
+              <span className="text-base text-muted-foreground">at</span>
+              <input
+                type="time"
+                value={currentDraft.sendTime}
+                onChange={(e) => updateDraft(activeTab, { sendTime: e.target.value })}
+                className="h-10 px-3 rounded-lg border border-outline bg-surface-container-low text-base text-foreground focus:outline-none focus:border-primary"
+              />
             </div>
-            <p className="text-base text-foreground font-medium">
-              {drafts.length} follow-up{drafts.length !== 1 ? "s" : ""} {isEditing ? "updated" : "scheduled"}
-            </p>
-            <p className="text-sm text-muted-foreground text-center max-w-xs">
-              They will be automatically cancelled if {contactName || recipientEmail} replies to the thread.
+            <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1.5">
+              <ChevronRight className="h-3.5 w-3.5" />
+              Will send on {scheduledDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+              {" "}at {currentDraft.sendTime}
+              {" "}(day {absoluteDays[activeTab]} from original)
+              {currentDraft.delayDays < getMinDelay(activeTab) && (
+                <span className="text-destructive ml-1">
+                  (minimum {getMinDelay(activeTab)})
+                </span>
+              )}
             </p>
           </div>
-        ) : (
-          <>
-            {/* Auto-cancel notice */}
-            <div className="mx-7 mb-4 p-4 rounded-xl bg-tertiary-container/30 border border-tertiary/20">
-              <div className="flex items-start gap-2.5">
-                <AlertCircle className="h-5 w-5 text-tertiary shrink-0 mt-0.5" />
-                <div className="text-sm text-on-tertiary-container">
-                  <p className="font-medium">Auto-cancel on reply</p>
-                  <p className="mt-1 text-muted-foreground text-sm">
-                    If {contactName || recipientEmail} responds to this thread, all pending follow-ups will be automatically cancelled. The system checks for replies before each send.
-                  </p>
-                </div>
-              </div>
-            </div>
 
-            {/* Context */}
-            <div className="px-7 pb-2.5 text-sm text-muted-foreground space-y-1">
-              <p><span className="font-medium">To:</span> {recipientEmail}</p>
-              <p><span className="font-medium">Original:</span> {originalSubject}</p>
-              <p><span className="font-medium">Sent:</span> {new Date(originalSentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} ({daysSinceOriginal} day{daysSinceOriginal !== 1 ? "s" : ""} ago)</p>
-            </div>
+          {/* Subject */}
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2" htmlFor={`fu-subject-${activeTab}`}>
+              Subject
+            </label>
+            <input
+              id={`fu-subject-${activeTab}`}
+              type="text"
+              value={currentDraft.subject}
+              onChange={(e) => updateDraft(activeTab, { subject: e.target.value })}
+              className="w-full h-10 px-4 rounded-lg border border-outline bg-surface-container-low text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+              placeholder="Subject"
+            />
+          </div>
 
-            {/* Tabs */}
-            <div className="flex items-center gap-1.5 px-7 pt-2.5 pb-1.5 overflow-x-auto">
-              {drafts.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setActiveTab(i)}
-                  className={`relative px-4 py-2 rounded-full text-sm font-medium cursor-pointer transition-colors shrink-0 ${
-                    activeTab === i
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-surface-container-low text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Follow-up {i + 1}
-                  {drafts.length > 1 && activeTab === i && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeFollowUp(i);
-                      }}
-                      className="ml-2 inline-flex items-center justify-center w-4 h-4 rounded-full hover:bg-primary-foreground/20 cursor-pointer"
-                      title="Remove this follow-up"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
-                </button>
-              ))}
+          {/* Body */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-foreground">
+                Message
+              </label>
               <button
                 type="button"
-                onClick={addFollowUp}
-                className="px-3 py-2 rounded-full text-sm text-primary hover:bg-primary/10 cursor-pointer transition-colors flex items-center gap-1.5 shrink-0"
+                disabled={generatingAi}
+                onClick={async () => {
+                  setGeneratingAi(true);
+                  setAiFailure(null);
+                  setError("");
+                  try {
+                    const data = await apiFetch<{ bodyHtml?: string; subject?: string }>(
+                      "/api/gmail/ai-write",
+                      jsonBody({
+                        recipientEmail,
+                        recipientName: contactName || undefined,
+                        prompt: `Write follow-up #${activeTab + 1} for an email with subject "${originalSubject}". This is a professional networking follow-up. Keep it brief (2-3 sentences), friendly, and add value. Do not start with "I hope this email finds you well".`,
+                      }),
+                    );
+                    if (data.bodyHtml) {
+                      updateDraft(activeTab, { bodyHtml: data.bodyHtml });
+                      if (data.subject && !currentDraft.bodyHtml.trim()) {
+                        updateDraft(activeTab, { subject: data.subject });
+                      }
+                    }
+                  } catch (err) {
+                    // ApiRequestError carries the status and body that
+                    // parseAiFailure read off the raw Response.
+                    // Two sibling sites in the same commit (compose's
+                    // applyIntroFailure and generateFollowUps) branch on
+                    // isApiRequestError before falling back to fixed copy;
+                    // this one did not, so a network TypeError put the raw
+                    // "Failed to fetch" in the UI (CAR-204).
+                    const code = isApiRequestError(err)
+                      ? parseAiFailure(err.status, err.body)
+                      : null;
+                    if (code) setAiFailure(code);
+                    else setError(isApiRequestError(err) ? err.message : "Couldn't generate. Please try again.");
+                  }
+                  setGeneratingAi(false);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer disabled:opacity-50"
               >
-                <Plus className="h-3.5 w-3.5" />
-                Add
+                {generatingAi ? (
+                  <div className="animate-spin rounded-full h-3.5 w-3.5 border border-primary border-t-transparent" />
+                ) : (
+                  <Wand2 className="h-3.5 w-3.5" />
+                )}
+                {generatingAi ? "Generating…" : "Write with AI"}
               </button>
             </div>
+            <RichTextEditor
+              key={`fu-editor-${activeTab}-${isEditing ? "edit" : "new"}`}
+              content={currentDraft.bodyHtml}
+              onChange={(html) => updateDraft(activeTab, { bodyHtml: html })}
+              placeholder={`Write your follow-up message to ${contactName || recipientEmail}…`}
+            />
+            {aiFailure && (
+              <div className="mt-2">
+                <AiUnavailableNotice compact code={aiFailure} />
+              </div>
+            )}
+          </div>
+        </div>
 
-            {/* Active tab content */}
-            <div className="flex-1 overflow-y-auto min-h-0 px-7 pt-2.5 pb-4 space-y-4">
-              {/* Days + time selector */}
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-2">
-                  Send after
-                </label>
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <input
-                    type="number"
-                    min={getMinDelay(activeTab)}
-                    value={currentDraft.delayDays}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (!isNaN(val)) updateDraft(activeTab, { delayDays: val });
-                    }}
-                    className="w-20 h-10 px-3 rounded-lg border border-outline bg-surface-container-low text-base text-foreground focus:outline-none focus:border-primary"
-                  />
-                  <span className="text-base text-muted-foreground">
-                    {activeTab === 0 ? "days after original email" : "days after previous follow-up"}
-                  </span>
-                  <span className="text-base text-muted-foreground">at</span>
-                  <input
-                    type="time"
-                    value={currentDraft.sendTime}
-                    onChange={(e) => updateDraft(activeTab, { sendTime: e.target.value })}
-                    className="h-10 px-3 rounded-lg border border-outline bg-surface-container-low text-base text-foreground focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1.5">
-                  <ChevronRight className="h-3.5 w-3.5" />
-                  Will send on {scheduledDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-                  {" "}at {currentDraft.sendTime}
-                  {" "}(day {absoluteDays[activeTab]} from original)
-                  {currentDraft.delayDays < getMinDelay(activeTab) && (
-                    <span className="text-destructive ml-1">
-                      (minimum {getMinDelay(activeTab)})
-                    </span>
+        {/* Summary strip for multiple follow-ups */}
+        {drafts.length > 1 && (
+          <div className="px-7 py-2.5 border-t border-outline-variant/50">
+            <p className="text-xs text-muted-foreground font-medium mb-1.5">
+              Schedule summary
+            </p>
+            <div className="flex flex-wrap gap-2.5">
+              {drafts.map((d, i) => (
+                <span
+                  key={i}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs ${
+                    activeTab === i
+                      ? "bg-primary/15 text-primary font-medium"
+                      : "bg-surface-container-low text-muted-foreground"
+                  }`}
+                >
+                  #{i + 1}: {i === 0 ? `Day ${absoluteDays[i]}` : `+${d.delayDays}d (Day ${absoluteDays[i]})`}
+                  {d.bodyHtml && d.bodyHtml !== "<p></p>" ? (
+                    <Check className="h-3 w-3 text-primary" />
+                  ) : (
+                    <span className="text-destructive">*</span>
                   )}
-                </p>
-              </div>
-
-              {/* Subject */}
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-2" htmlFor={`fu-subject-${activeTab}`}>
-                  Subject
-                </label>
-                <input
-                  id={`fu-subject-${activeTab}`}
-                  type="text"
-                  value={currentDraft.subject}
-                  onChange={(e) => updateDraft(activeTab, { subject: e.target.value })}
-                  className="w-full h-10 px-4 rounded-lg border border-outline bg-surface-container-low text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
-                  placeholder="Subject"
-                />
-              </div>
-
-              {/* Body */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-foreground">
-                    Message
-                  </label>
-                  <button
-                    type="button"
-                    disabled={generatingAi}
-                    onClick={async () => {
-                      setGeneratingAi(true);
-                      setAiFailure(null);
-                      setError("");
-                      try {
-                        const data = await apiFetch<{ bodyHtml?: string; subject?: string }>(
-                          "/api/gmail/ai-write",
-                          jsonBody({
-                            recipientEmail,
-                            recipientName: contactName || undefined,
-                            prompt: `Write follow-up #${activeTab + 1} for an email with subject "${originalSubject}". This is a professional networking follow-up. Keep it brief (2-3 sentences), friendly, and add value. Do not start with "I hope this email finds you well".`,
-                          }),
-                        );
-                        if (data.bodyHtml) {
-                          updateDraft(activeTab, { bodyHtml: data.bodyHtml });
-                          if (data.subject && !currentDraft.bodyHtml.trim()) {
-                            updateDraft(activeTab, { subject: data.subject });
-                          }
-                        }
-                      } catch (err) {
-                        // ApiRequestError carries the status and body that
-                        // parseAiFailure read off the raw Response.
-                        // Two sibling sites in the same commit (compose's
-                        // applyIntroFailure and generateFollowUps) branch on
-                        // isApiRequestError before falling back to fixed copy;
-                        // this one did not, so a network TypeError put the raw
-                        // "Failed to fetch" in the UI (CAR-204).
-                        const code = isApiRequestError(err)
-                          ? parseAiFailure(err.status, err.body)
-                          : null;
-                        if (code) setAiFailure(code);
-                        else setError(isApiRequestError(err) ? err.message : "Couldn't generate. Please try again.");
-                      }
-                      setGeneratingAi(false);
-                    }}
-                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {generatingAi ? (
-                      <div className="animate-spin rounded-full h-3.5 w-3.5 border border-primary border-t-transparent" />
-                    ) : (
-                      <Wand2 className="h-3.5 w-3.5" />
-                    )}
-                    {generatingAi ? "Generating…" : "Write with AI"}
-                  </button>
-                </div>
-                <RichTextEditor
-                  key={`fu-editor-${activeTab}-${isEditing ? "edit" : "new"}`}
-                  content={currentDraft.bodyHtml}
-                  onChange={(html) => updateDraft(activeTab, { bodyHtml: html })}
-                  placeholder={`Write your follow-up message to ${contactName || recipientEmail}…`}
-                />
-                {aiFailure && (
-                  <div className="mt-2">
-                    <AiUnavailableNotice compact code={aiFailure} />
-                  </div>
-                )}
-              </div>
+                </span>
+              ))}
             </div>
-
-            {/* Summary strip for multiple follow-ups */}
-            {drafts.length > 1 && (
-              <div className="px-7 py-2.5 border-t border-outline-variant/50">
-                <p className="text-xs text-muted-foreground font-medium mb-1.5">
-                  Schedule summary
-                </p>
-                <div className="flex flex-wrap gap-2.5">
-                  {drafts.map((d, i) => (
-                    <span
-                      key={i}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs ${
-                        activeTab === i
-                          ? "bg-primary/15 text-primary font-medium"
-                          : "bg-surface-container-low text-muted-foreground"
-                      }`}
-                    >
-                      #{i + 1}: {i === 0 ? `Day ${absoluteDays[i]}` : `+${d.delayDays}d (Day ${absoluteDays[i]})`}
-                      {d.bodyHtml && d.bodyHtml !== "<p></p>" ? (
-                        <Check className="h-3 w-3 text-primary" />
-                      ) : (
-                        <span className="text-destructive">*</span>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Error */}
-            {error && (
-              <p className="text-base text-destructive px-7 pt-1">{error}</p>
-            )}
-
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-4 px-7 py-5">
-              <Button type="button" variant="text" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleSave} loading={saving}>
-                {isEditing ? <Pencil className="h-5 w-5 mr-2" /> : <Clock className="h-5 w-5 mr-2" />}
-                {isEditing ? "Update" : "Schedule"} {drafts.length} follow-up{drafts.length !== 1 ? "s" : ""}
-              </Button>
-            </div>
-          </>
+          </div>
         )}
-      </div>
-    </div>
+
+        {/* Error */}
+        {error && (
+          <p className="text-base text-destructive px-7 pt-1">{error}</p>
+        )}
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-4 px-7 py-5">
+          <ModalCancelButton disabled={saving} />
+          <Button type="button" onClick={handleSave} loading={saving}>
+            {isEditing ? <Pencil className="h-5 w-5 mr-2" /> : <Clock className="h-5 w-5 mr-2" />}
+            {isEditing ? "Update" : "Schedule"} {drafts.length} follow-up{drafts.length !== 1 ? "s" : ""}
+          </Button>
+        </div>
+      </>
+    )}
+    </DialogSurface>
   );
 }

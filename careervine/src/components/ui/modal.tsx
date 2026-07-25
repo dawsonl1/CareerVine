@@ -393,10 +393,8 @@ function ConfirmDiscardDialog({
 
 export { ConfirmDiscardDialog };
 
-interface DialogSurfaceProps {
+interface DialogSurfaceBaseProps {
   isOpen: boolean;
-  /** Close for real. Reached only after the unsaved-changes guard, if any. */
-  onClose: () => void;
   /** The dialog's content, chrome included. Rendered inside the surface. */
   children: ReactNode;
   /**
@@ -410,13 +408,6 @@ interface DialogSurfaceProps {
   label?: string;
   /** Id of the element describing it, for an alertdialog's message. */
   describedBy?: string;
-  /**
-   * Whether the *ambient* dismissal gestures are live: scrim click and Escape.
-   * False for a flow that owns its own exits — guided onboarding, where landing
-   * on the scrim must not throw away the run. A child calling `useModalDismiss()`
-   * still closes, because that is a deliberate action rather than a stray gesture.
-   */
-  dismissible?: boolean;
   /** When true, every dismissal path routes through a discard confirmation. */
   hasUnsavedChanges?: boolean;
   confirmMessage?: string;
@@ -437,6 +428,21 @@ interface DialogSurfaceProps {
   /** Test hook on the surface, for a caller whose tests already query one. */
   testId?: string;
 }
+
+/**
+ * `dismissible` governs the *ambient* dismissal gestures — scrim click and Escape.
+ * It is false for a flow that owns its own exits: guided onboarding, where landing
+ * on the scrim must not throw away the run.
+ *
+ * The union is what keeps `onClose` honest. A dismissible dialog that forgot it
+ * would be unclosable, and a non-dismissible one has nothing to call it, so
+ * requiring a stub there would only invite `() => {}` at every such site.
+ */
+type DialogSurfaceProps = DialogSurfaceBaseProps &
+  (
+    | { dismissible?: true; onClose: () => void }
+    | { dismissible: false; onClose?: () => void }
+  );
 
 /**
  * Everything that makes an overlay a dialog, with none of the chrome.
@@ -481,13 +487,13 @@ export function DialogSurface({
     if (hasUnsavedChanges) {
       setShowConfirm(true);
     } else {
-      onClose();
+      onClose?.();
     }
   }, [hasUnsavedChanges, onClose]);
 
   const confirmDiscard = useCallback(() => {
     setShowConfirm(false);
-    onClose();
+    onClose?.();
   }, [onClose]);
 
   const contextValue = useMemo(
@@ -631,22 +637,41 @@ export function ModalCancelButton({
 }
 
 /**
+ * The header X, for a dialog supplying its own chrome. Same reason as
+ * `ModalCancelButton`: it routes through the unsaved-changes guard, and it has to
+ * live inside the surface to read the context.
+ *
+ * It also carries the accessible name that an icon-only button needs. All three
+ * hand-rolled full-screen dialogs shipped this button with no name at all, so a
+ * screen reader announced their only close affordance as "button" (CAR-197).
+ */
+export function ModalCloseButton({
+  className,
+  iconClassName = "h-6 w-6",
+}: {
+  className?: string;
+  iconClassName?: string;
+}) {
+  const dismiss = useModalDismiss();
+  return (
+    <button type="button" onClick={dismiss} aria-label="Close" className={className}>
+      <X className={iconClassName} />
+    </button>
+  );
+}
+
+/**
  * The headline row. Split out only because its close button needs `useModalDismiss`,
  * which has to be read from *inside* the provider — `Modal` itself renders above it.
  */
 function ModalHeadline({ id, children }: { id: string; children: ReactNode }) {
-  const dismiss = useModalDismiss();
   return (
     <div className="flex items-center justify-between px-6 pt-6 pb-4">
       <h2 id={id} className="text-[22px] leading-7 font-normal text-foreground">{children}</h2>
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Close"
+      <ModalCloseButton
         className="state-layer p-2 -mr-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
-      >
-        <X className="h-5 w-5" />
-      </button>
+        iconClassName="h-5 w-5"
+      />
     </div>
   );
 }
