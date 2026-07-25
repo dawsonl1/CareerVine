@@ -453,10 +453,43 @@ network. That denial is also what makes this tier structurally unable to touch
 production, the same guarantee `careervine/src/__integration__/global-setup.ts`
 gives the integration tier.
 
-Wire-shaped fixtures live in `careervine/e2e/fixtures/google-wire.mjs`, imported
-by both layers. `careervine/src/__tests__/helpers/fake-gmail.ts` is *not*
-reusable here: it doubles the `@googleapis/gmail` client object, not the HTTP
-body.
+The server half fails the test by being **read back**, not by being logged. Every
+denial is appended to a shared file (`STUB_LOG_PATH` in
+`careervine/e2e/helpers/ports.ts`), and `networkGuard` asserts this test's slice
+of it is empty. A file rather than an endpoint because `NODE_OPTIONS=--import`
+arms the stub layer in *every* Node process the webServer command starts —
+eleven for one `next build` — so no single process can own the channel. Until
+CAR-196 denials were only printed, which produced a real false green: CI run
+30139719644 emitted four denied Gmail `labels` calls and reported `5 passed`.
+When a spec needs a new external origin, add a handler in
+`careervine/e2e/server-stubs/register.mjs`; `networkGuard.allow()` is
+browser-side only and does nothing for a call the server makes.
+
+Three checks sit outside the per-test windows, because denials can land outside
+them: `careervine/e2e/global-setup.ts` fails the run when the server did not arm
+the stub layer at all (which `reuseExistingServer` makes reachable) and when the
+build phase reached anything external, and
+`careervine/e2e/global-teardown.ts` fails it when a denial arrived after the last
+test — background `waitUntil` work is the realistic source.
+
+Wire-shaped fixtures live in `careervine/e2e/fixtures/google-wire.mjs` and its
+non-Google sibling `careervine/e2e/fixtures/third-party-wire.mjs`, imported by
+the server stub layer — the only layer that fulfils rather than denies, because
+no third-party traffic originates in the page.
+`careervine/src/__tests__/helpers/fake-gmail.ts` is *not* reusable here: it
+doubles the `@googleapis/gmail` client object, not the HTTP body.
+
+The server's **environment is a closed set**, not the developer's shell:
+Playwright merges into the child env and Next loads `.env.local` inside the
+server process, so `careervine/e2e/helpers/env-allowlist.ts` closes over all
+three sources — it pins every var the app reads, blanks every other key any
+`.env*` file defines, and blanks every ambient var that is not OS or toolchain
+plumbing. Before CAR-196, seven production values reached the E2E server locally
+and none in CI, and sixty-two ambient vars (eleven of them live credentials) went
+unfiltered, so a local green and a CI green were not testing the same app. A var
+a *dependency* reads must be pinned to a real value rather than blanked: `""` is
+absent to a falsy check but not to a `??`, which is how a blanked `QSTASH_URL`
+turned into `TypeError: Invalid URL` locally while CI took the SDK default.
 
 Authentication never drives the login form. `careervine/e2e/auth.setup.ts`
 provisions a tenant with the integration tier's own `createTenant` /
@@ -474,8 +507,14 @@ mail delivery, an async POST that fires after its trigger resolves) uses
 
 - Authoritative: `careervine/playwright.config.ts` (header),
   `careervine/e2e/server-stubs/register.mjs` (header),
+  `careervine/e2e/fixtures/test.ts` (header),
+  `careervine/e2e/helpers/env-allowlist.ts` (header),
   `careervine/e2e/helpers/tenant.ts` (header), and
   `careervine/e2e/helpers/stack-env.ts` (header)
-- Enforced: CI runs it as the separate `e2e` job. The deny-by-default stub
-  layers are self-enforcing — a new external dependency fails the suite by
-  name. Nothing enforces the no-arbitrary-wait rule; that one rests on review.
+- Enforced: CI runs it as the separate `e2e` job, with `failOnFlakyTests` so a
+  test that only passes on retry exits non-zero rather than printing "flaky" and
+  going green. The deny-by-default stub layers are self-enforcing — a new
+  external dependency fails the suite by name, on both sides of the split.
+  `careervine/src/__tests__/e2e-env-allowlist.test.ts` fails when the app reads
+  an env var the allowlist does not pin. Nothing enforces the no-arbitrary-wait
+  rule; that one rests on review.

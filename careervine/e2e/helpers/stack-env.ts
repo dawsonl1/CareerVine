@@ -11,9 +11,9 @@
  * PRODUCTION Supabase. Next loads `.env.local` automatically. Three things stop
  * that from mattering, in order:
  *
- *  1. `playwright.config.ts` passes every Supabase var explicitly to both the
- *     build and the server. `@next/env` never overwrites a var that is already
- *     on `process.env`, so ours win.
+ *  1. `e2e/helpers/env-allowlist.ts` hands the build and the server a closed set
+ *     of env vars, every Supabase var among them. `@next/env` never overwrites a
+ *     var that is already on `process.env`, so ours win.
  *  2. This function refuses to hand back a non-loopback URL at all.
  *  3. `e2e/server-stubs/register.mjs` denies every non-loopback origin inside
  *     the server process, so even a misconfigured build cannot reach

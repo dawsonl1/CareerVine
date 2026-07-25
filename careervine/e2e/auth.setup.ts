@@ -14,7 +14,11 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { test as setup, expect } from "@playwright/test";
+// The guarded `test`, not `@playwright/test` (CAR-196). This project was the one
+// place the network guard did not apply — and it is the project that provisions
+// the state every other spec then trusts, so an unstubbed call here would have
+// been invisible AND load-bearing.
+import { test as setup, expect } from "./fixtures/test";
 import {
   AUTH_FILE,
   TENANT_FILE,
@@ -30,6 +34,18 @@ import {
 
 setup("provision and authenticate a tenant", async ({ page }) => {
   const tenant = await createTenant("e2e");
+
+  // Record the tenant BEFORE anything that can throw (CAR-196 review).
+  //
+  // Everything below — seeding, the session mint, the two assertions — can fail,
+  // and the teardown project still runs when this one does. Writing the record
+  // only at the end meant the teardown found no file, took its "setup never got
+  // far enough to create anything" branch, and left the tenant behind forever.
+  // With `retries: 2` in CI a setup that fails twice then passes created three
+  // tenants and tracked one. The full record is rewritten at the end; this
+  // partial one exists purely so a failure between here and there is cleanable.
+  fs.mkdirSync(path.dirname(TENANT_FILE), { recursive: true });
+  fs.writeFileSync(TENANT_FILE, JSON.stringify({ userId: tenant.userId, email: tenant.email }));
 
   // Reuse the integration tier's full object graph rather than hand-rolling a
   // second seeder: it puts at least one row in every user-owned table, so the
