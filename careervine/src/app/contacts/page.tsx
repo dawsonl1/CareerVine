@@ -896,7 +896,7 @@ export default function ContactsPage() {
                         {formData.contact_status === "student" && (
                           <div>
                             <label className={labelClasses}>Expected graduation</label>
-                            <MonthYearPicker value={formData.expected_graduation} onChange={(val) => setFormData({ ...formData, expected_graduation: val })} placeholder="Select graduation month" />
+                            <MonthYearPicker value={formData.expected_graduation} onChange={(val) => setFormData({ ...formData, expected_graduation: val })} placeholder="Select graduation month" ariaLabel="Expected graduation" />
                           </div>
                         )}
                       </div>
@@ -934,7 +934,7 @@ export default function ContactsPage() {
                     <div key={i} className="flex items-center gap-2 mb-2">
                       <input type="tel" value={entry.phone} onChange={(e) => { const u = [...phones]; u[i] = { ...u[i], phone: e.target.value }; setPhones(u); }} className={`${inputClasses} !h-11 flex-1`} placeholder="555-123-4567" />
                       <div className="shrink-0 w-[100px]">
-                        <Select value={entry.type} onChange={(val) => { const u = [...phones]; u[i] = { ...u[i], type: val }; setPhones(u); }} options={[{ value: "mobile", label: "Mobile" }, { value: "work", label: "Work" }, { value: "home", label: "Home" }]} />
+                        <Select value={entry.type} onChange={(val) => { const u = [...phones]; u[i] = { ...u[i], type: val }; setPhones(u); }} options={[{ value: "mobile", label: "Mobile" }, { value: "work", label: "Work" }, { value: "home", label: "Home" }]} ariaLabel={`Phone ${i + 1} type`} />
                       </div>
                       <Checkbox checked={preferredContactKey === `phone-${i}`} onChange={(checked) => setPreferredContactKey(checked ? `phone-${i}` : "")} label="Preferred" />
                       <button type="button" onClick={() => {
@@ -1000,6 +1000,7 @@ export default function ContactsPage() {
                 <div className="pt-2 border-t border-outline-variant">
                   <label className={labelClasses}>Follow-up frequency</label>
                   <Select
+                    ariaLabel="Follow-up frequency"
                     value={showCustomFrequency ? "custom" : FOLLOW_UP_OPTIONS.find((o) => o.days === Number(formData.follow_up_frequency_days)) ? formData.follow_up_frequency_days : formData.follow_up_frequency_days ? "custom" : ""}
                     onChange={(val) => {
                       if (val === "custom") { setShowCustomFrequency(true); setFormData({ ...formData, follow_up_frequency_days: "" }); }

@@ -829,7 +829,7 @@ export default function CalendarPage() {
                   <div><label className={labelClasses}>Time</label><TimePicker value={formData.meeting_time} onChange={v => setFormData({...formData, meeting_time: v})} /></div>
                   <div>
                     <label className={labelClasses}>Type</label>
-                    <Select value={formData.meeting_type} onChange={v => setFormData({...formData, meeting_type: v})} placeholder="Optional…" options={[...CONVERSATION_TYPE_OPTIONS]} />
+                    <Select value={formData.meeting_type} onChange={v => setFormData({...formData, meeting_type: v})} placeholder="Optional…" options={[...CONVERSATION_TYPE_OPTIONS]} ariaLabel="Meeting type" />
                   </div>
                 </div>
                 {/* Contacts */}

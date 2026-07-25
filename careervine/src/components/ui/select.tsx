@@ -253,7 +253,10 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
         >
           {options.map((option, index) => (
             <div
-              key={option.value}
+              // Index, not value: the pipeline's scope Select can list two options
+              // with the same value, and duplicate keys make React reuse one node for
+              // both — the same duplicate-value case `select.test.tsx` pins.
+              key={index}
               id={optionId(index)}
               role="option"
               aria-selected={option.value === value}
