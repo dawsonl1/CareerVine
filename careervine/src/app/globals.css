@@ -101,17 +101,28 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* The base surface. Its absence made every `bg-surface` utility a no-op —
+     Tailwind only emits a utility for a token declared here, so ~24 call sites
+     rendered transparent and merely inherited body's identical white (CAR-193). */
+  --color-surface: var(--md-surface);
   --color-surface-container: var(--md-surface-container);
   --color-surface-container-low: var(--md-surface-container-low);
   --color-surface-container-high: var(--md-surface-container-high);
   --color-surface-container-highest: var(--md-surface-container-highest);
   --color-primary-container: var(--md-primary-container);
+  --color-on-primary: var(--md-on-primary);
   --color-on-primary-container: var(--md-on-primary-container);
   --color-secondary-container: var(--md-secondary-container);
   --color-on-secondary-container: var(--md-on-secondary-container);
   --color-tertiary: var(--md-tertiary);
   --color-tertiary-container: var(--md-tertiary-container);
+  --color-on-tertiary: var(--md-on-tertiary);
   --color-on-tertiary-container: var(--md-on-tertiary-container);
+  /* `error` is the M3 name for the same red as the shadcn-era `destructive`
+     alias above. Both vocabularies are in use across the app, so both must be
+     declared — 23 `*-error` utilities emitted nothing until this landed. */
+  --color-error: var(--md-error);
+  --color-on-error: var(--md-on-error);
   --color-error-container: var(--md-error-container);
   --color-on-error-container: var(--md-on-error-container);
   --color-outline: var(--md-outline);
