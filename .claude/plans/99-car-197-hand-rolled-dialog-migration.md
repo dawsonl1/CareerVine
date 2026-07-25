@@ -163,6 +163,57 @@ Tab helper and the jsdom-safe assumptions in that file are load-bearing.
 Then re-run CAR-192's axe measurement against a migrated dialog and confirm it now
 appears to axe as a dialog — the specific claim that unblocks that ticket.
 
+## What actually happened
+
+Landed as planned, with four things the plan did not anticipate.
+
+**A 14th dialog.** `ui/confirm-dialog.tsx` was a second hand-rolled *primitive* —
+its own wrapper, scrim, trap, layer and Escape — and the new tripwire flagged it on
+its first run. Migrated rather than exempted, so the guard has exactly one
+exemption (`modal.tsx`) rather than a growing list of "primitives".
+
+**`autoFocus` has never worked inside a dialog.** React strips the attribute and
+focuses imperatively during commit; `useFocusTrap`'s effect runs after and always
+won. So every `autoFocus` inside a `Modal` had been silently overridden since
+CAR-185 — including the two pre-existing call sites, `contact-edit-modal.tsx` and
+`add-company-modal.tsx`. The trap now honours a `data-autofocus` marker, which is
+what survives to the DOM. A test pins the premise, so if a future React starts
+emitting the attribute the marker can be reconsidered rather than cargo-culted.
+
+**Two `ModalCancelButton` / `ModalCloseButton` components, not eight local copies.**
+Two identical four-line `CancelButton`s already existed; eight more were about to.
+Hoisted into `modal.tsx` and both existing adopters moved onto the shared one. The
+close X also gains `aria-label="Close"` — all three full-screen dialogs shipped
+their only close affordance as an unnamed icon button.
+
+**Three small bugs fixed in passing**, all consequences of the dismissal paths
+having been written one at a time: the interactions scrim only flipped `showForm`
+and left `editingInteraction` set (the next "Add interaction" opened prefilled with
+an abandoned edit); the actions-tab's two dismissal paths each reset four of five
+fields and left `newPriority` behind; and `follow-up-modal.tsx` registered a
+dismissal layer, taking the body scroll lock, in a state where it rendered nothing
+at all.
+
+`dismissible` is a `DialogSurface` prop rather than a `Modal` one, and `onClose` is
+a discriminated union against it, so a dismissible dialog cannot forget its close
+and a non-dismissible one is not made to invent a stub.
+
+**Verification.** 269 files / 2657 tests green (`conventions-doc.test.ts` generates
+one test per path the doc cites, and the rewrite is a net −2 citations — that is the
+whole delta from 2659). Build, lint and `tsc --noEmit` clean. Ten falsification
+probes: every new behaviour and every arm of the tripwire was patched out
+individually and the intended test went red each time, including a freshly
+hand-rolled roleless overlay and an overlay class hidden in a const.
+
+Browser-verified in the dev server for the parts jsdom cannot see: a `Select` inside
+a migrated dialog portals into the surface and renders unclipped, and Escape over a
+dirty form raises the discard dialog with focus on "Keep editing".
+
+axe measurement, run against both shapes: the pre-migration markup exposes **0**
+dialog elements to axe (confirming the ticket's premise that its gate is
+structurally blind to them), the migrated one exposes 1, named "New interaction".
+CAR-192 can now see these dialogs.
+
 ## Docs
 
 `CONVENTIONS.md` §f currently says modal adoption "is currently even with hand-rolled
