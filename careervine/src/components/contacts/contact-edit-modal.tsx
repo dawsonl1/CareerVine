@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
-import { Modal } from "@/components/ui/modal";
+import { Modal, useModalDismiss } from "@/components/ui/modal";
 import {
   updateContact, findOrCreateSchool, addSchoolToContact,
   removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact, resolveManualCompanyLocation,
@@ -28,6 +28,50 @@ import { withToastOnError } from "@/lib/with-toast-on-error";
 import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
+type EmailEntry = { email: string; is_primary: boolean };
+type PhoneEntry = { phone: string; type: string; is_primary: boolean };
+
+export interface FormSnapshot {
+  formData: Record<string, string>;
+  companies: CompanyEntry[];
+  emails: EmailEntry[];
+  phones: PhoneEntry[];
+  preferredContactKey: string;
+  selectedTagIds: number[];
+}
+
+/**
+ * Comparable form state for the unsaved-changes guard (CAR-198), as an array so
+ * the shape is fixed here rather than by the key order of a call site's literal.
+ * Tag ids are sorted and `formData` keys normalized: neither ordering is
+ * something the user edited, and both would otherwise read as a change.
+ *
+ * Deliberately excludes the disclosure toggles (`showEducation`,
+ * `showCustomFrequency`) and the tag search box. Opening a section without typing
+ * in it is not an edit, and any real content typed there lands in `formData`.
+ */
+export function serializeForm(snapshot: FormSnapshot): string {
+  return JSON.stringify([
+    Object.entries(snapshot.formData).sort(([a], [b]) => a.localeCompare(b)),
+    snapshot.companies,
+    snapshot.emails,
+    snapshot.phones,
+    snapshot.preferredContactKey,
+    [...snapshot.selectedTagIds].sort((a, b) => a - b),
+  ]);
+}
+
+/**
+ * Lives inside <Modal> so it can reach the dialog's unsaved-changes guard. Wiring
+ * Cancel straight to `onClose` from the parent would skip the confirmation that
+ * the scrim, Escape and the X all honour.
+ */
+function CancelButton({ disabled }: { disabled: boolean }) {
+  const dismiss = useModalDismiss();
+  return (
+    <Button type="button" variant="text" onClick={dismiss} disabled={disabled}>Cancel</Button>
+  );
+}
 
 interface ContactEditModalProps {
   isOpen: boolean;
@@ -48,11 +92,11 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
     location_city: "", location_state: "", location_country: "United States",
   });
   const [companies, setCompanies] = useState<CompanyEntry[]>([]);
-  type EmailEntry = { email: string; is_primary: boolean };
-  type PhoneEntry = { phone: string; type: string; is_primary: boolean };
   const [emails, setEmails] = useState<EmailEntry[]>([]);
   const [phones, setPhones] = useState<PhoneEntry[]>([]);
   const [preferredContactKey, setPreferredContactKey] = useState("");
+  /** Serialized form state as of the last populate; null until the modal opens. */
+  const [pristine, setPristine] = useState<string | null>(null);
   const [showEducation, setShowEducation] = useState(false);
   const [showCustomFrequency, setShowCustomFrequency] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,7 +117,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
   useEffect(() => {
     if (!isOpen) return;
     const schoolInfo = contact.contact_schools?.[0];
-    setFormData({
+    const nextFormData = {
       name: contact.name,
       industry: contact.industry || "",
       linkedin_url: contact.linkedin_url || "",
@@ -90,47 +134,54 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
         ? (canonicalUsState(contact.locations?.state) ?? contact.locations?.state ?? "")
         : (contact.locations?.state || ""),
       location_country: contact.locations?.country || "United States",
-    });
-    setCompanies(
-      contact.contact_companies.length > 0
-        ? contact.contact_companies.map((cc) => ({
-            company_name: cc.companies.name,
-            title: cc.title || "",
-            location: cc.location || "",
-            is_current: cc.is_current,
-            start_month: cc.start_month || "",
-            end_month: cc.end_month || "",
-          }))
-        : []
-    );
-    setEmails(
-      contact.contact_emails.length > 0
-        ? contact.contact_emails.map((e) => ({ email: e.email || "", is_primary: e.is_primary }))
-        : []
-    );
-    setPhones(
-      contact.contact_phones.length > 0
-        ? contact.contact_phones.map((p) => ({ phone: p.phone, type: p.type, is_primary: p.is_primary }))
-        : []
-    );
+    };
+    const nextCompanies = contact.contact_companies.map((cc) => ({
+      company_name: cc.companies.name,
+      title: cc.title || "",
+      location: cc.location || "",
+      is_current: cc.is_current,
+      start_month: cc.start_month || "",
+      end_month: cc.end_month || "",
+    }));
+    const nextEmails = contact.contact_emails.map((e) => ({ email: e.email || "", is_primary: e.is_primary }));
+    const nextPhones = contact.contact_phones.map((p) => ({ phone: p.phone, type: p.type, is_primary: p.is_primary }));
+    let nextPreferredContactKey = "";
     if (contact.preferred_contact_method && contact.preferred_contact_value) {
       if (contact.preferred_contact_method === "email") {
         const idx = contact.contact_emails.findIndex((e) => e.email === contact.preferred_contact_value);
-        setPreferredContactKey(idx >= 0 ? `email-${idx}` : "");
+        nextPreferredContactKey = idx >= 0 ? `email-${idx}` : "";
       } else if (contact.preferred_contact_method === "phone") {
         const idx = contact.contact_phones.findIndex((p) => p.phone === contact.preferred_contact_value);
-        setPreferredContactKey(idx >= 0 ? `phone-${idx}` : "");
-      } else {
-        setPreferredContactKey("");
+        nextPreferredContactKey = idx >= 0 ? `phone-${idx}` : "";
       }
-    } else {
-      setPreferredContactKey("");
     }
-    setSelectedTagIds(contact.contact_tags.map((ct) => ct.tag_id));
+    const nextTagIds = contact.contact_tags.map((ct) => ct.tag_id);
+
+    setFormData(nextFormData);
+    setCompanies(nextCompanies);
+    setEmails(nextEmails);
+    setPhones(nextPhones);
+    setPreferredContactKey(nextPreferredContactKey);
+    setSelectedTagIds(nextTagIds);
     setShowEducation(!!schoolInfo);
     const freq = contact.follow_up_frequency_days;
     setShowCustomFrequency(!!freq && !FOLLOW_UP_OPTIONS.some((o) => o.days === freq));
+
+    // Baseline for the unsaved-changes guard, taken from the same values that
+    // just seeded the form so the form can never read as dirty on open.
+    setPristine(serializeForm({
+      formData: nextFormData,
+      companies: nextCompanies,
+      emails: nextEmails,
+      phones: nextPhones,
+      preferredContactKey: nextPreferredContactKey,
+      selectedTagIds: nextTagIds,
+    }));
   }, [isOpen, contact]);
+
+  const hasUnsavedChanges =
+    pristine !== null &&
+    pristine !== serializeForm({ formData, companies, emails, phones, preferredContactKey, selectedTagIds });
 
   const handleSave = async () => {
     if (savingRef.current) return;
@@ -251,7 +302,14 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit contact" size="lg">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Edit contact"
+      size="lg"
+      hasUnsavedChanges={hasUnsavedChanges}
+      confirmMessage="You have unsaved edits to this contact that will be lost."
+    >
       <form
         onSubmit={async (e) => { e.preventDefault(); await handleSave(); }}
         className="space-y-4"
@@ -550,7 +608,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
             Delete contact
           </button>
           <div className="flex gap-2">
-            <Button type="button" variant="text" onClick={onClose} disabled={saving}>Cancel</Button>
+            <CancelButton disabled={saving} />
             <Button type="submit" loading={saving} disabled={saving}>Save</Button>
           </div>
         </div>

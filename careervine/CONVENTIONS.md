@@ -222,6 +222,19 @@ usual `offsetParent` filter disarms the trap under test while still reading as
 correct. Adoption is currently even with hand-rolled dialogs, so this rule is
 forward-looking rather than descriptive.
 
+Two things a modal child must use rather than hand-roll (CAR-198). A child that
+portals — a dropdown menu, a popover — portals to `useModalPortalContainer() ??
+document.body`, never to `document.body` unconditionally: the trap is
+"everything inside the surface", so a menu on the body is keyboard-unreachable
+while looking perfectly fine on screen. That works because the portalled thing is
+`position: fixed` and so is not clipped by the surface's `overflow: hidden`, which
+holds only while neither the surface nor its wrapper forms a containing block for
+fixed descendants; `modal.test.tsx` pins both against `transform`, `filter`,
+`contain`, `will-change` and friends. And a footer Cancel button calls
+`useModalDismiss()` rather than the caller's own `onClose`, or it silently skips
+the unsaved-changes confirmation that the scrim, Escape and the X all honour.
+`careervine/src/components/ui/select.tsx` is the worked example of both.
+
 A subtree that can independently fail gets wrapped in
 `careervine/src/components/ui/section-boundary.tsx` so a render throw shows a
 retryable panel in that subtree's frame instead of unmounting the page. Do not

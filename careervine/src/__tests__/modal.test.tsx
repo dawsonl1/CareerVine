@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { Modal } from "@/components/ui/modal";
+import { Modal, useModalDismiss } from "@/components/ui/modal";
 
 afterEach(cleanup);
 
@@ -150,6 +150,106 @@ describe("Modal focus trap", () => {
 
     rerender(<Harness open={false} />);
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+/**
+ * CAR-198: children that must escape the surface's `overflow: hidden` — a Select
+ * menu, any popover — portal INTO the surface so they stay inside the trap, and
+ * rely on `position: fixed` not being clipped by an ancestor's overflow. That
+ * holds only while neither the surface nor the wrapper around it forms a
+ * containing block for fixed descendants.
+ *
+ * This is a source tripwire rather than a behavioral test on purpose: jsdom has no
+ * layout engine, so the clipping it guards against cannot be observed here at all.
+ * Verified in a real browser when the fix landed; this keeps a later entrance
+ * animation from undoing it silently, since the failure is invisible to every
+ * other test in this file.
+ */
+describe("Modal surface as a portal container", () => {
+  const CONTAINING_BLOCK_UTILITIES = [
+    /^-?(transform|rotate|scale|skew|translate)(-|$)/,
+    /^(filter|blur|brightness|contrast|grayscale|invert|saturate|sepia|drop-shadow|hue-rotate)(-|$)/,
+    /^backdrop-/,
+    /^(perspective|contain|will-change|animate)(-|$)/,
+  ];
+
+  /** Utility classes with any variant prefix (`hover:`, `md:`, `motion-safe:`) stripped. */
+  const utilities = (el: HTMLElement) =>
+    el.className.split(/\s+/).filter(Boolean).map((token) => token.split(":").pop()!);
+
+  it("neither the surface nor its wrapper establishes one", () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Edit contact">
+        <p>body</p>
+      </Modal>,
+    );
+    const wrapper = surface().parentElement as HTMLElement;
+
+    for (const el of [surface(), wrapper]) {
+      for (const utility of utilities(el)) {
+        for (const pattern of CONTAINING_BLOCK_UTILITIES) {
+          expect(
+            pattern.test(utility),
+            `"${utility}" makes this element a containing block for fixed descendants, which clips every menu portalled into the dialog`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("keeps the surface clipping its own overflow, which is why children portal out of it", () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Edit contact">
+        <p>body</p>
+      </Modal>,
+    );
+    expect(surface().className).toContain("overflow-hidden");
+  });
+});
+
+/**
+ * A footer Cancel button lives inside the dialog, so wiring it to the caller's own
+ * `onClose` skips the unsaved-changes confirmation that the scrim, Escape and the
+ * X all honour. `useModalDismiss` is how such a child reaches the guarded close.
+ */
+describe("useModalDismiss", () => {
+  function DismissButton() {
+    const dismiss = useModalDismiss();
+    return <button type="button" onClick={dismiss}>Cancel</button>;
+  }
+
+  it("routes a child's dismissal through the unsaved-changes guard", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen onClose={onClose} title="Edit contact" hasUnsavedChanges>
+        <DismissButton />
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByText("Cancel"));
+
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes straight through when there is nothing to lose", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen onClose={onClose} title="Edit contact">
+        <DismissButton />
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByText("Cancel"));
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("is inert outside a Modal rather than throwing", () => {
+    render(<DismissButton />);
+    expect(() => fireEvent.click(screen.getByText("Cancel"))).not.toThrow();
   });
 });
 
