@@ -263,16 +263,33 @@ describe("portals target the dialog surface", () => {
    * `createPortal(node, target,)` ends on a blank segment, and reading that as the
    * target reports "no target" for a call that plainly has one.
    */
-  function lastArgument(source: string, open: number): string | null {
+  function lastArgument(source: string, open: number): { text: string; at: number } | null {
     let depth = 0;
     let quote: string | null = null;
     let segmentStart = open + 1;
-    const segments: string[] = [];
+    const segments: Array<{ text: string; at: number }> = [];
 
     for (let i = open; i < source.length; i++) {
       const ch = source[i];
       if (quote) {
         if (ch === quote && source[i - 1] !== "\\") quote = null;
+        continue;
+      }
+      // Comments are skipped DURING the walk, not stripped from the result. Prose is
+      // full of parentheses and commas, and a comma in a comment sitting at argument
+      // depth splits the argument list — which is exactly how the first cut of this
+      // guard failed to catch the very portal it was written for: the explanatory
+      // comment above that call site contained "(invisible to a screen reader),".
+      if (ch === "/" && source[i + 1] === "/") {
+        const nl = source.indexOf("\n", i);
+        if (nl === -1) break;
+        i = nl;
+        continue;
+      }
+      if (ch === "/" && source[i + 1] === "*") {
+        const end = source.indexOf("*/", i + 2);
+        if (end === -1) break;
+        i = end + 1;
         continue;
       }
       if (ch === '"' || ch === "'" || ch === "`") {
@@ -283,12 +300,14 @@ describe("portals target the dialog surface", () => {
       else if (ch === ")" || ch === "}" || ch === "]") {
         depth--;
         if (depth === 0) {
-          segments.push(source.slice(segmentStart, i));
-          const meaningful = segments.map((x) => withoutComments(x).trim()).filter(Boolean);
+          segments.push({ text: source.slice(segmentStart, i), at: segmentStart });
+          const meaningful = segments
+            .map((x) => ({ text: withoutComments(x.text).trim(), at: x.at }))
+            .filter((x) => x.text);
           return meaningful[meaningful.length - 1] ?? null;
         }
       } else if (ch === "," && depth === 1) {
-        segments.push(source.slice(segmentStart, i));
+        segments.push({ text: source.slice(segmentStart, i), at: segmentStart });
         segmentStart = i + 1;
       }
     }
@@ -301,10 +320,15 @@ describe("portals target the dialog surface", () => {
       const source = readFileSync(path.join(SRC, rel), "utf8");
       return [...source.matchAll(/createPortal\(/g)].map((m) => {
         const open = m.index + "createPortal".length;
+        const arg = lastArgument(source, open);
         return {
           file: rel,
           line: source.slice(0, m.index).split("\n").length,
-          target: (lastArgument(source, open) ?? "").trim(),
+          target: arg?.text ?? "",
+          // The justification is read around the TARGET, not around `createPortal(`.
+          // A portalled subtree is often dozens of lines, so anchoring on the call
+          // put the window nowhere near the argument the comment is about.
+          targetLine: arg ? source.slice(0, arg.at).split("\n").length : 0,
           source,
         };
       });
@@ -323,7 +347,7 @@ describe("portals target the dialog surface", () => {
       .filter((p) => {
         const lines = p.source.split("\n");
         return !lines
-          .slice(Math.max(0, p.line - 4), p.line + 2)
+          .slice(Math.max(0, p.targetLine - 4), p.targetLine + 1)
           .some((l) => l.includes(BODY_PORTAL_HATCH));
       })
       .map((p) => `${p.file}:${p.line}`);
