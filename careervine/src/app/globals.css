@@ -136,8 +136,26 @@
   --font-mono: var(--font-geist-mono);
 }
 
-* {
-  border-color: var(--md-outline-variant);
+/*
+ * The app-wide default border color, for elements that set a border width but
+ * no color. It MUST stay inside `@layer base` (CAR-194).
+ *
+ * `@import "tailwindcss"` puts every Tailwind rule into a layer, and in the CSS
+ * cascade an unlayered rule outranks every layered one regardless of
+ * specificity. So while this lived at the top level it beat `utilities`, and
+ * all 447 `border-<color>` utilities in the app were silently dead — including
+ * Tailwind's own `border-red-500` and the `focus:border-primary` focus rings.
+ * The clearest symptom was the app-wide spinner: `border-primary
+ * border-t-transparent` collapsed to a uniform gray ring with no contrast gap,
+ * so it span invisibly.
+ *
+ * Inside `base` it still overrides preflight's `currentColor` default (same
+ * layer, declared later), while `utilities` now correctly wins over it.
+ */
+@layer base {
+  * {
+    border-color: var(--md-outline-variant);
+  }
 }
 
 body {
