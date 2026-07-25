@@ -18,9 +18,32 @@
  * the stub layer denies every non-loopback origin before the wire — but "local
  * and CI run the same app" is the whole basis for trusting a green E2E run.
  *
+ * THREE SOURCES ARE CLOSED OVER, not one. An earlier draft of this file pinned
+ * only what the app reads and what `.env*` defines, and called that "closed" —
+ * it was not. Measured on a developer machine: 74 vars in the parent process, 62
+ * of them still reaching the server, including eleven live production
+ * credentials (`CLOUDFLARE_API_TOKEN`, `GITHUB_TOKEN`, `LINEAR_API_KEY`,
+ * `SENTRY_AUTH_TOKEN`, `VERCEL_TOKEN`, …) that this repo's shell exports for
+ * every process. Nothing under `src/` reads them, but `next build` executes
+ * every transitive dependency's build-time code, and `@aws-sdk/client-s3` alone
+ * is a reminder that dependencies read ambient vars the app never names. So
+ * `neutralisedAmbient()` blanks everything that is not OS/toolchain plumbing.
+ *
  * `""` is a real value here, not an omission: it is how a var is made to read as
  * ABSENT while still blocking `@next/env` from filling it in from `.env.local`
- * (empty string is falsy, and `typeof "" !== "undefined"`).
+ * (empty string is falsy, and `typeof "" !== "undefined"`). Playwright's
+ * `webServer.env` is `Record<string, string>`, so blanking is the only available
+ * verb — there is no unset.
+ *
+ * BUT `""` IS NOT ABSENCE TO A `??`. That distinction bit `QSTASH_URL`:
+ * `@upstash/qstash` resolves `config?.baseUrl ?? QSTASH_URL ?? DEFAULT`, so
+ * blanking it produced `baseUrl: ""` and a `TypeError: Invalid URL` locally
+ * while CI, where the var was simply absent, got the working default and a clean
+ * DENIED line. Same code, two behaviours — the exact divergence this file
+ * exists to remove. Any var a DEPENDENCY reads must therefore be pinned to a
+ * REAL value, not blanked. `src/__tests__/e2e-env-allowlist.test.ts` cannot
+ * catch those (it scans `src/` only), which is why they are called out by name
+ * below.
  *
  * `src/__tests__/e2e-env-allowlist.test.ts` fails when the app learns to read a
  * var this file does not pin.
@@ -51,6 +74,7 @@ export const E2E_ENV_INHERITED: readonly string[] = [
   "PATH",
   "HOME",
   "CI",
+  "TMPDIR",
   "ITEST_SUPABASE_URL",
   "ITEST_ANON_KEY",
   "ITEST_SERVICE_ROLE_KEY",
@@ -122,6 +146,39 @@ export function e2eAppEnv({ stack, baseUrl, upstashUrl }: AllowlistInputs): Reco
     QSTASH_TOKEN: "placeholder",
     QSTASH_CURRENT_SIGNING_KEY: "sig_placeholder",
     QSTASH_NEXT_SIGNING_KEY: "sig_placeholder",
+    /**
+     * Pinned to the SDK's own default rather than blanked, because
+     * `@upstash/qstash` resolves it with `??`, not `||`:
+     * `config?.baseUrl ?? QSTASH_URL ?? DEFAULT_QSTASH_URL`.
+     *
+     * Measured against the installed SDK: absent yields
+     * `https://qstash.upstash.io` and the enqueue reaches the wire, where the
+     * stub layer denies it by name; `""` yields `baseUrl: ""` and a
+     * `TypeError: Invalid URL` thrown inside the route with no denial recorded
+     * at all. Blanking it therefore produced two different behaviours in CI
+     * (absent) and locally (empty) — the precise divergence this file exists to
+     * remove, reintroduced by the mechanism meant to remove it. Any var a
+     * DEPENDENCY reads needs a real value; `""` is only "absent" to a falsy
+     * check.
+     */
+    QSTASH_URL: "https://qstash.upstash.io",
+    /**
+     * Read by the `openai` SDK itself (`node_modules/openai/client.js`), never
+     * by `src/`, so the allowlist test cannot see them. A developer who points
+     * `OPENAI_BASE_URL` at a proxy or gateway would otherwise send every OpenAI
+     * call to an origin with no handler, hit the catch-all, and watch the SDK
+     * retry a 599 into a 60-second timeout — while CI, without the var, passed.
+     */
+    OPENAI_BASE_URL: "https://api.openai.com/v1",
+    OPENAI_ORG_ID: "",
+    OPENAI_PROJECT_ID: "",
+    /**
+     * `Redis.fromEnv()` falls back to these when the `UPSTASH_*` pair is absent.
+     * Inert today because the pair is pinned truthy, but pinning them keeps a
+     * developer's Vercel KV vars from selecting a different backend.
+     */
+    KV_REST_API_URL: "",
+    KV_REST_API_TOKEN: "",
 
     /**
      * Pointed at the stub rather than left absent (CAR-196).
@@ -192,12 +249,69 @@ export function dotenvKeys(appDir: string): string[] {
 }
 
 /**
+ * OS and toolchain plumbing the child process keeps.
+ *
+ * Everything in the ambient environment that is NOT matched here is blanked, so
+ * the closure is over the whole parent environment rather than over the subset
+ * this file happened to think of. The list is deliberately about *machinery* —
+ * paths, locale, temp dirs, package managers, CI identity — never about
+ * application configuration.
+ *
+ * Over-blanking is a safe failure: `next build` dies loudly and immediately
+ * rather than producing a subtly different app, which is the whole point.
+ */
+const AMBIENT_EXACT = new Set([
+  // POSIX basics
+  "PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "OLDPWD", "SHLVL", "_",
+  "TMPDIR", "TMP", "TEMP", "LANG", "TERM", "TZ", "DISPLAY", "SSH_AUTH_SOCK",
+  // macOS
+  "COMMAND_MODE", "MallocNanoZone", "OSLogRateLimit", "SDKROOT",
+  // CI identity (the runner sets these; the build reads them for cache keys)
+  "CI", "GITHUB_ACTIONS", "RUNNER_OS", "RUNNER_ARCH", "RUNNER_TEMP",
+  "RUNNER_TOOL_CACHE", "RUNNER_WORKSPACE",
+  // Windows, for completeness
+  "SystemRoot", "SystemDrive", "COMSPEC", "ComSpec", "PATHEXT",
+  "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "APPDATA", "LOCALAPPDATA",
+  "USERPROFILE", "NoDefaultCurrentDirectoryInExePath",
+  // Toolchain
+  "COREPACK_ENABLE_AUTO_PIN",
+]);
+
+/** Prefix families of the same kind: package managers, Node flags, locale. */
+const AMBIENT_PREFIXES = [
+  "npm_", "NODE_", "NVM_", "PNPM_", "YARN_", "BUN_", "VOLTA_", "ASDF_",
+  "HOMEBREW_", "LC_", "XPC_", "__CF",
+];
+
+function isAmbientPlumbing(key: string): boolean {
+  return AMBIENT_EXACT.has(key) || AMBIENT_PREFIXES.some((p) => key.startsWith(p));
+}
+
+/**
+ * `""` for every ambient var that is not plumbing and not pinned.
+ *
+ * This is what turns "closed over what we listed" into "closed". Without it,
+ * 62 of the 74 vars on a developer machine reached the E2E server, eleven of
+ * them live production credentials, and `NODE_USE_SYSTEM_CA` — present locally,
+ * absent in CI — was a standing counterexample to "the same environment".
+ */
+function neutralisedAmbient(pinned: Record<string, string>): Record<string, string> {
+  const inherited = new Set<string>(E2E_ENV_INHERITED);
+  const out: Record<string, string> = {};
+  for (const key of Object.keys(process.env)) {
+    if (key in pinned || inherited.has(key) || isAmbientPlumbing(key)) continue;
+    out[key] = "";
+  }
+  return out;
+}
+
+/**
  * The complete environment handed to the E2E webServer.
  *
- * Pinned app vars, plus `""` for every remaining key any `.env*` file defines —
- * so a var this file does not know about (`VERCEL_OIDC_TOKEN`,
- * `SUPABASE_DB_PASSWORD`) cannot reach the server either, and a local run and a
- * CI run see the same environment.
+ * Closed over all three sources that can reach the child: the ambient process
+ * environment, the keys any `.env*` file defines, and the app's own config. A
+ * local run and a CI run therefore see the same environment, which is the only
+ * basis on which a green local run predicts a green CI run.
  */
 export function e2eServerEnv(inputs: AllowlistInputs, appDir: string): Record<string, string> {
   const app = e2eAppEnv(inputs);
@@ -205,5 +319,5 @@ export function e2eServerEnv(inputs: AllowlistInputs, appDir: string): Record<st
   for (const key of dotenvKeys(appDir)) {
     if (!(key in app)) neutralised[key] = "";
   }
-  return { ...neutralised, ...app };
+  return { ...neutralisedAmbient(app), ...neutralised, ...app };
 }

@@ -29,7 +29,18 @@ export const SCRIPTS_DIR = path.resolve(here, "..", "..", "..", "scripts");
  * status`, never set by hand, so `__integration__` is excluded the same way.
  */
 export function scanEnvVars(dirs: readonly string[]): Set<string> {
-  const globOpts = { absolute: true, ignore: ["**/__tests__/**", "**/__integration__/**"] };
+  // `dot: true` is load-bearing (CAR-196 review). fast-glob defaults to skipping
+  // dot-directories, which silently excluded `src/app/.well-known/**` — the same
+  // two routes CAR-158 found had never been typechecked in CI, for the same
+  // reason. A `process.env.X` added there would slip BOTH gates this scanner
+  // feeds: it would go undocumented in .env.example and unpinned in the E2E
+  // allowlist, and an unpinned var's value is whatever the developer's shell
+  // holds.
+  const globOpts = {
+    absolute: true,
+    dot: true,
+    ignore: ["**/__tests__/**", "**/__integration__/**"],
+  };
   const files = dirs.flatMap((cwd) =>
     fg.sync("**/*.{ts,tsx,js,mjs,cjs}", { cwd, ...globOpts }),
   );

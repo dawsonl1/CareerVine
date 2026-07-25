@@ -56,3 +56,34 @@ export const STUB_LOG_PATH = path.resolve(
   "test-results",
   "e2e-stub-denials.log",
 );
+
+/**
+ * Proof that the stub layer actually armed in the server this run is testing.
+ *
+ * A SEPARATE file from the denial log, not a line in it — `e2e/fixtures/test.ts`
+ * treats every line of that log as a denial.
+ *
+ * This exists because "no denials" and "no stub layer" were indistinguishable,
+ * and one path reaches the second state routinely: `reuseExistingServer` is on
+ * locally, and Playwright's webServer plugin returns *before* `launchProcess`
+ * when the port is already busy — so `webServer.env` is never applied. A server
+ * left running from another shell has no MSW, no pinned env, and is built from
+ * `.env.local`, which on this repo's dev machines points at PRODUCTION Supabase.
+ * Every spec would report the server half clean, forever. That is the same
+ * false-green class CAR-196 exists to close, just relocated from "denials only
+ * printed" to "denials never generated".
+ *
+ * The ordering that makes this work is Playwright's own, verified in
+ * `runner/index.js`: `createRemoveOutputDirsTask()` wipes `test-results/`, THEN
+ * the webServer plugin builds and starts the server, THEN `globalSetup` runs. So
+ * a marker under `test-results/` cannot survive from a previous run, and
+ * `e2e/global-setup.ts` is the first code that can observe whether this run's
+ * server armed.
+ */
+export const STUB_ARMED_PATH = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "test-results",
+  "e2e-stub-armed",
+);

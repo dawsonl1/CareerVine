@@ -102,5 +102,57 @@ file's name keeps meaning what it says).
 
 The denial log found a bug in this ticket's own work while verifying it: `validateOpenAIKey` uses the
 Responses API, not chat/completions, and the missing handler showed up as a 60-second test timeout
-(the OpenAI SDK retries a 599 with backoff). The log named the endpoint immediately. Both OpenAI APIs
-are stubbed now, plus Deepgram `/v1/listen`, found in the same sweep.
+(the OpenAI SDK retries a denial with backoff). The log named the endpoint immediately. Both OpenAI
+APIs are stubbed now, plus Deepgram `/v1/listen`, found in the same sweep.
+
+## Deep review (7 agents: 4 scope, 1 integration, 2 behavioural)
+
+The review found real defects, most of them in this branch's own comments — a PR about stale headers
+that assert things which do not exist, shipping stale headers that assert things which do not exist.
+Everything below is fixed.
+
+**False greens the mechanism still permitted.** `reuseExistingServer` returns *before*
+`launchProcess`, so a server already on the port gets no `webServer.env` — no MSW, no pinned env, and
+`.env.local`, i.e. production Supabase. Every spec passed with zero signal. Fixed with an arming
+receipt the stub layer writes and `global-setup.ts` asserts; proven by starting a bare `next start`
+and watching the run fail by name. A browser-side denial also threw before the server-side assertion
+ran, so a paired server denial was discarded by every window in the run (`expect.soft`), and
+`readServerDenials`'s bare `catch` failed open on the post-body read (ENOENT only now). Denials
+arriving outside every window — `waitUntil` background work, or after the last spec — went unasserted
+entirely; `global-teardown.ts` now fails the run on them (proven: exit 1).
+
+**Divergence reintroduced by the fix for divergence.** `QSTASH_URL: ""` breaks `@upstash/qstash`,
+which resolves `?? QSTASH_URL ??` — measured: absent gives the working default and a clean denial,
+`""` gives `TypeError: Invalid URL`. `""` is absent to a falsy check, not to a `??`, so any var a
+*dependency* reads needs a real value. Pinned, along with `OPENAI_BASE_URL` (same trap, would route
+every OpenAI call past its handler) and the `KV_REST_API_*` fallbacks.
+
+**"Closed set" was false.** 62 of 74 ambient vars still reached the server, eleven of them live
+production credentials. `neutralisedAmbient()` now blanks everything that is not OS or toolchain
+plumbing; verified 11 present secrets, 0 reaching the server, `next build` unaffected.
+
+**599 sat inside the app's own retry band.** `gmail.ts` retries `>= 500 && < 600`, so one unstubbed
+Gmail call became four denials over ~8s of backoff — quadrupling noise and stretching the arrival
+window across test boundaries. Now 418: measured 1 denial line where there were 4.
+
+**Tenant lifecycle.** `createTenant` ran before the record was written, so any failure after it
+orphaned a tenant while the teardown reported "nothing to clean up" — and with `retries: 2`, a setup
+failing twice created three tenants and tracked one. The record is written immediately now, and the
+teardown sweeps the `itest-e2e-*` / `e2e-signup-*` address space, which converges from SIGINT and
+from records displaced by a later run. It swept the 21 pre-existing orphans on first run (23 → 2).
+Separately, `try/finally` does **not** run on a timeout, and this spec's step budgets sum past its
+60s limit — which is how the signup users actually leaked. Cleanup moved to `test.afterEach`.
+
+**Corrected claims** (all measured false): CONVENTIONS.md still described the abandoned
+`GET /__e2e__/stub-calls` side port; `global-setup.ts` claimed to run "before anything else" when
+Playwright's order is remove-output-dirs → webServer → globalSetup (so its `rmSync` was *erasing*
+build-phase denials, now asserted instead); `google-wire.mjs` named two functions that do not exist;
+`register.mjs` asserted an MSW ordering constraint that does not exist and an Upstash comment that
+said the opposite of the behaviour (the handler is now gated on a `.invalid` host, which makes the
+comment true); `third-party-wire.mjs` documented parameterisation no spec can reach;
+`stack-env.ts` still credited `playwright.config.ts` for the env pinning.
+
+**Test gates that did not gate.** `fast-glob` defaults to `dot: false`, so both env gates were blind
+to `src/app/.well-known/**` — rule 48's trap in a second place. And the allowlist test's fourth case
+early-returned in CI, asserting nothing in the only environment that gates a merge; it now runs
+against a tmpdir fixture, identically everywhere.

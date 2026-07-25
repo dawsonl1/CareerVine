@@ -12,9 +12,11 @@
  *   - OpenAI      → BOTH APIs. `src/lib/ai-followup/*` uses
  *                   `chat.completions.create`; the transcript routes, the
  *                   extension's profile parser and the BYOK key-save validator
- *                   use `responses.create`. Stubbing only one leaves the other a
- *                   599 that the OpenAI SDK then retries with backoff — which is
- *                   how it first showed up, as a 60-second test timeout.
+ *                   use `responses.create`. Stubbing only one left the other
+ *                   denied, and the OpenAI SDK retried that denial with backoff
+ *                   into a 60-second test timeout — which is how the gap first
+ *                   showed up. (The catch-all now answers 418, outside every
+ *                   client's retry band, so a miss fails once and by name.)
  *   - Deepgram    → `src/app/api/settings/deepgram-key/route.ts` (status only)
  *                   and `transcribe/route.ts` (`listen.v1.media.transcribeUrl`)
  *   - Apify       → `src/lib/apify/client.ts` (`{ data: run }`, dataset arrays)
@@ -28,8 +30,13 @@
  *
  * The app asks for prose in some call sites and strict JSON in others
  * (`response_format: json_object`), so the content is a parameter rather than a
- * fixed string: a spec that drives an AI surface passes whatever that surface
- * must parse.
+ * fixed string.
+ *
+ * Note that no SPEC can vary it today: the handlers in `register.mjs` pass a
+ * fixed `"{}"`, and they run inside the Next server process, which a Playwright
+ * worker has no channel into. Varying the response needs a control endpoint on
+ * the stub layer, which nothing has asked for yet. The parameter is here so the
+ * fixture is reusable when something does, not because it is reachable now.
  */
 export function openAiChatResponse({
   content = "This is E2E stub output.",

@@ -85,10 +85,15 @@ export function gmailSendAsResponse(addresses = ["e2e@gmail.com"]) {
 /**
  * Response body of `gmail.users.messages.get`.
  *
- * `syncGmailMessages` and `getMessageDetail` both read `payload.headers` (as
- * `{name, value}` pairs), `payload.body.data` as base64url, `labelIds`,
- * `snippet` and `internalDate` — so the default carries all of them rather than
- * a stub that only survives the happy path.
+ * Two consumers, and they read different things. `syncEmailsForContact`
+ * (src/lib/gmail.ts) requests `format: "metadata"` and reads `payload.headers`
+ * (as `{name, value}` pairs), `labelIds`, `snippet` and `internalDate`.
+ * `getFullMessage` requests `format: "full"` and additionally walks
+ * `payload.body.data` as base64url. The default below carries all of it.
+ *
+ * It carries a `text/plain` body only, so `getFullMessage`'s `bodyHtml` is
+ * always null in this tier — fine for both current callers, but pass a richer
+ * payload rather than assuming the HTML branch is covered.
  */
 export function gmailMessageResponse({
   id = SENT_MESSAGE_ID,

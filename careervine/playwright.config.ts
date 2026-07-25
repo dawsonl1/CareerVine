@@ -11,20 +11,28 @@
  * is on (matching production), so the signup flow reads the real confirmation
  * email out of Mailpit. See CONVENTIONS.md section i.
  *
- * Three things keep this tier off production, independently:
+ * Three things keep this tier off production:
  *  1. `stackEnv()` refuses any non-loopback Supabase URL.
- *  2. `e2e/helpers/env-allowlist.ts` hands the server a CLOSED set of env vars.
- *     `@next/env` never overwrites a var already on `process.env`, so these beat
- *     `.env.local` — which on a developer machine points at PRODUCTION.
+ *  2. `e2e/helpers/env-allowlist.ts` hands the server a closed set of env vars —
+ *     closed over the ambient environment, over every `.env*` key, and over
+ *     everything the app reads. `@next/env` never overwrites a var already on
+ *     `process.env`, so these beat `.env.local` — which on a developer machine
+ *     points at PRODUCTION.
  *  3. `e2e/server-stubs/register.mjs` denies every non-loopback origin from
  *     inside the server process, so the wire itself is closed, and every denial
  *     is asserted by the `networkGuard` fixture rather than merely logged.
+ *
+ * Guards 2 and 3 apply to a server PLAYWRIGHT STARTS. `reuseExistingServer`
+ * below deliberately skips the whole webServer block when the port is already
+ * busy, and a server started from another shell has neither. That is why
+ * `e2e/global-setup.ts` fails the run when the arming receipt is missing: the
+ * guarantee is real, but it needed something to enforce that it was in force.
  */
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { stackEnv } from "./e2e/helpers/stack-env";
 import { e2eServerEnv } from "./e2e/helpers/env-allowlist";
-import { BASE_URL, E2E_PORT, STUB_LOG_PATH } from "./e2e/helpers/ports";
+import { BASE_URL, E2E_PORT, STUB_LOG_PATH, STUB_ARMED_PATH } from "./e2e/helpers/ports";
 
 const stack = stackEnv();
 
@@ -39,15 +47,23 @@ const stack = stackEnv();
  * module's header; `src/__tests__/e2e-env-allowlist.test.ts` keeps it complete.
  */
 const serverEnv = e2eServerEnv(
-  { stack, baseUrl: BASE_URL, upstashUrl: "https://e2e-stub.upstash.io" },
+  // `.invalid` is reserved by RFC 6761 and can never resolve, so the rate-limit
+  // stub's host is provably not a real service even if a request somehow escaped
+  // MSW. `register.mjs` also refuses to build a handler for any host that is not
+  // `.invalid`, which is what keeps a stray real Upstash URL denied by name.
+  { stack, baseUrl: BASE_URL, upstashUrl: "https://e2e-stub.upstash.invalid" },
   path.resolve(__dirname),
 );
 
 export default defineConfig({
   testDir: "./e2e",
-  // Clears the stub layer's denial log once per run. See that file for why this
-  // cannot live in the config's module scope or in the preload itself.
+  // Asserts the stub layer armed in the server this run will test, and that the
+  // build phase reached nothing external. Runs after the webServer is up, which
+  // is what makes both checks possible; see that file for the task ordering.
   globalSetup: "./e2e/global-setup.ts",
+  // Catches denials that belong to no test's window — background `waitUntil`
+  // work, or anything after the last spec.
+  globalTeardown: "./e2e/global-teardown.ts",
   // One shared database, and the flows write to it. Serial within a file is not
   // enough — run the whole tier single-worker so one spec's sweep cannot eat
   // another's rows, exactly as vitest.integration.config.ts does with
@@ -123,6 +139,10 @@ export default defineConfig({
       // Shared log the stub layer appends denials to, so the networkGuard
       // fixture can assert on server-side denials rather than only logging them.
       E2E_STUB_LOG: STUB_LOG_PATH,
+      // Receipt proving THIS run's server armed the stub layer. Checked by
+      // global-setup.ts, because an empty denial log and an absent stub layer
+      // are otherwise the same observation.
+      E2E_STUB_ARMED: STUB_ARMED_PATH,
       // Arms the server-side third-party interception before Next loads any
       // route module. See e2e/server-stubs/register.mjs for why this is not
       // page.route().

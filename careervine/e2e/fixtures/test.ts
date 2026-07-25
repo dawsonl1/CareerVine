@@ -34,22 +34,26 @@ export interface NetworkGuard {
 /**
  * Every call the server has been denied so far this run, oldest first.
  *
- * Absent file means nothing has been denied yet — the stub layer creates it
- * lazily on the first denial, and `e2e/global-setup.ts` removes any left over
- * from a previous run. The stub layer refuses to arm at all without a log path,
- * so "no file" can never mean "denials went unrecorded".
+ * An absent file means nothing has been denied yet: the stub layer creates it at
+ * arm time (a writability probe, so a permissions failure is loud there rather
+ * than silent here), and Playwright wipes `test-results/` before the run.
  *
- * One case this cannot distinguish: `reuseExistingServer` is on locally, so a
- * server started before this file existed reports nothing. That is the general
- * hazard of the flag — such a server is also running stale code and a stale env
- * — and the fix is the same as always: stop it and let Playwright start one.
+ * "No denials" is only trustworthy because something else proves the stub layer
+ * armed — `e2e/global-setup.ts` asserts the arming receipt. Without that check,
+ * an empty log and an absent stub layer are the same observation.
+ *
+ * Only ENOENT is swallowed. Any other read error is rethrown: a post-body read
+ * that failed for EACCES or EMFILE and quietly returned `[]` would pass a test
+ * with a denial sitting on disk, which is fail-OPEN in a mechanism whose whole
+ * premise is fail-closed.
  */
 function readServerDenials(): string[] {
   let text: string;
   try {
     text = fs.readFileSync(STUB_LOG_PATH, "utf8");
-  } catch {
-    return [];
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
   }
   return text.split("\n").filter((line) => line.length > 0);
 }
@@ -82,8 +86,18 @@ export const test = base.extend<{ networkGuard: NetworkGuard }>({
 
     // Where this test's window into the server's denial log begins. The log is
     // append-only for the whole run, so slicing by index keeps one spec's
-    // denials from being charged to the next — and keeps denials from the
-    // `next build` phase, which happens before any test, out of every window.
+    // denials from being charged to the next.
+    //
+    // The window is not airtight, and the gap is worth knowing about. It closes
+    // when the body returns, but the server can still be working: routes that
+    // wrap background work in `waitUntil` (see src/app/api/gmail/emails/route.ts)
+    // leave a detached promise running in `next start`, and a paged Gmail sync
+    // takes seconds. A denial from that work lands after this test's read, so it
+    // is charged to whichever test is running when it arrives, or to nobody if
+    // the suite has moved on. `e2e/global-teardown.ts` is the backstop that
+    // catches the "nobody" case; misattribution within the run is a known
+    // limitation, so read a denial as "something in this run reached for X",
+    // not as proof that THIS spec did.
     const serverDenialsBefore = readServerDenials().length;
 
     const guard: NetworkGuard = {
@@ -95,7 +109,14 @@ export const test = base.extend<{ networkGuard: NetworkGuard }>({
 
     // Assert after the body, so the test's own failure (if any) is reported
     // first and this does not mask it.
-    expect(
+    //
+    // `expect.soft` on the browser half specifically (CAR-196 review): a hard
+    // assertion throws, the server read below never runs, and the next test's
+    // baseline then advances past those unread lines — so a server denial that
+    // happened alongside a browser denial was discarded by every window in the
+    // run. That pairing is not rare; it is the likeliest case, because both
+    // fire exactly when something new and external is being reached for.
+    expect.soft(
       [...new Set(denied)],
       "the browser attempted un-stubbed external requests; stub them with page.route or " +
         "allow them explicitly via networkGuard.allow()",

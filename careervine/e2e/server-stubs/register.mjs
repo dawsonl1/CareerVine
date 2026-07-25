@@ -109,6 +109,34 @@ if (!logPath) {
 }
 
 /**
+ * Prove, at arm time, that denials can actually be recorded — and leave a
+ * receipt saying this server armed at all.
+ *
+ * Both halves close a silent-failure path. Without the write probe, a
+ * permissions or disk error would first surface at the moment a denial needed
+ * recording, where `recordDenial` can only `console.error` and the run still
+ * reads green. Without the receipt, a server that never armed is
+ * indistinguishable from a clean run — see `STUB_ARMED_PATH` in
+ * `e2e/helpers/ports.ts` for the path that reaches that state routinely.
+ *
+ * Every process the webServer command starts runs this (eleven of them for one
+ * `next build`); the writes are idempotent, so that is harmless.
+ */
+const armedPath = process.env.E2E_STUB_ARMED;
+try {
+  fs.mkdirSync(nodePath.dirname(logPath), { recursive: true });
+  // Creates the file if absent, appends nothing: a pure writability probe.
+  fs.appendFileSync(logPath, "");
+  if (armedPath) fs.writeFileSync(armedPath, `armed pid ${process.pid}\n`);
+} catch (err) {
+  throw new Error(
+    `[e2e-stubs] cannot write the denial log at ${logPath} — refusing to arm, because ` +
+      "denials would be silently unrecorded and the run would read green. " +
+      `Underlying error: ${err.message}`,
+  );
+}
+
+/**
  * Record one denied call in the shared log.
  *
  * Append-only and one line per call, so the Playwright side can slice by index:
@@ -138,10 +166,21 @@ function recordDenial(call) {
   }
 }
 
-/** Origin the Upstash rate-limit stub answers on; see the allowlist's rationale. */
+/**
+ * Origin the Upstash rate-limit stub answers on; see the allowlist's rationale.
+ *
+ * Gated on the `.invalid` TLD, and that gate is the whole point. The host is
+ * read from `UPSTASH_REDIS_REST_URL`, so without it a real Upstash URL leaking
+ * in from a developer's `.env.local` would have a handler built FOR it — the
+ * one path the limiter uses would be answered silently instead of being denied
+ * by name. RFC 6761 guarantees `.invalid` never resolves, so a handler can only
+ * ever be built for a host that provably is not a real service; anything else
+ * falls through to the catch-all and names itself.
+ */
 const upstashHost = (() => {
   try {
-    return new URL(process.env.UPSTASH_REDIS_REST_URL ?? "").host;
+    const host = new URL(process.env.UPSTASH_REDIS_REST_URL ?? "").host;
+    return host.endsWith(".invalid") ? host : "";
   } catch {
     return "";
   }
@@ -165,8 +204,10 @@ const server = setupServer(
     HttpResponse.json(gmailLabelsResponse()),
   ),
   // The mutating half of the inbox (CAR-196), for CAR-191's read/trash/restore
-  // and move-to-folder flows. `:id` must come after the `/messages` collection
-  // route above — MSW matches in order and `/messages` would otherwise win.
+  // and move-to-folder flows. Order among these is free: MSW compiles paths with
+  // path-to-regexp `end: true`, so `/messages` does not match `/messages/abc`
+  // (measured). The catch-all's position is the file's only real ordering
+  // constraint, and it is called out where it matters, at the bottom.
   mswHttp.post("https://gmail.googleapis.com/gmail/v1/users/:userId/messages/:id/modify", () =>
     HttpResponse.json(gmailModifyResponse()),
   ),
@@ -263,8 +304,8 @@ const server = setupServer(
   mswHttp.post("https://google.serper.dev/search", () => HttpResponse.json(serperSearchResponse())),
 
   // ── Upstash (rate limiting) ────────────────────────────────────────────
-  // Scoped to the host the allowlist pinned, so a stray real Upstash URL from a
-  // developer's .env.local still lands in the catch-all and names itself.
+  // Scoped to a `.invalid` host, so a stray real Upstash URL from a developer's
+  // .env.local gets no handler at all and lands in the catch-all by name.
   ...(upstashHost
     ? [
         mswHttp.post(`https://${upstashHost}/pipeline`, async ({ request }) =>
@@ -286,9 +327,22 @@ const server = setupServer(
     console.error(`[e2e-stubs] DENIED ${call} — add a handler in e2e/server-stubs/register.mjs`);
     return HttpResponse.json(
       { error: `e2e: unstubbed external call to ${call}` },
-      // 599 rather than a plausible 4xx/5xx so it can never be mistaken for a
-      // real upstream response in a test's assertion.
-      { status: 599 },
+      // 418, not a 5xx, and the difference is load-bearing (CAR-196 review).
+      //
+      // This was 599 — implausible enough to never be mistaken for a real
+      // upstream response, which was the right instinct and the wrong number.
+      // `withRetry` in src/lib/gmail.ts treats `status >= 500 && status < 600`
+      // as retryable, so every unstubbed Gmail call became FOUR denials spread
+      // over ~8 seconds of backoff. That quadrupled the noise in the one signal
+      // that has to stay readable, and it stretched a denial's arrival window
+      // far enough to routinely straddle a test boundary, where it lands in the
+      // next test's window and blames an innocent spec.
+      //
+      // 418 keeps the "obviously not a real upstream" property (no service in
+      // this app's dependency graph returns it) while being outside every
+      // client's retry band: gmail.ts retries 429 and 5xx, the OpenAI SDK
+      // 408/409/429/5xx. So a miss now fails once, immediately, and by name.
+      { status: 418 },
     );
   }),
 );
