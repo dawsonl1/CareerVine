@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { AuthProvider, useAuth } from "@/components/auth-provider";
 
 /**
@@ -11,8 +13,8 @@ import { AuthProvider, useAuth } from "@/components/auth-provider";
 
 const signInWithPasswordMock = vi.fn();
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     auth: {
       signInWithPassword: (...args: unknown[]) => signInWithPasswordMock(...args),
       getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
@@ -20,13 +22,10 @@ vi.mock("@/lib/supabase/browser-client", () => ({
         data: { subscription: { unsubscribe: vi.fn() } },
       }),
     },
-  }),
-}));
+  })),
+);
 
-vi.mock("@/lib/analytics/client", () => ({
-  track: vi.fn(),
-  identifyNewUser: vi.fn(),
-}));
+vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule());
 
 beforeEach(() => {
   signInWithPasswordMock.mockReset();

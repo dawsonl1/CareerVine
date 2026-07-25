@@ -74,15 +74,16 @@ function makeBuilder(table: string) {
   return chain;
 }
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: (table: string) => {
       tablesTouched.push(table);
       return makeBuilder(table);
     },
-  }),
-}));
+  })),
+);
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { sendTrackedEmail, SendPolicyError, DAILY_SEND_CAP } from "@/lib/email-send";
 
 const USER = "user-1";

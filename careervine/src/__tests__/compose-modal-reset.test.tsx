@@ -35,7 +35,7 @@ const mock = vi.hoisted(() => {
 });
 
 vi.mock("@/components/compose-email-context", () => ({ useCompose: () => mock.state }));
-vi.mock("@/components/auth-provider", () => ({ useAuth: () => ({ user: { id: "u-1" } }) }));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 vi.mock("@/hooks/use-capabilities", () => ({
   useCapabilities: () => ({ capabilities: new Set(), loading: false, can: () => true, refresh: async () => {} }),
 }));
@@ -44,11 +44,14 @@ vi.mock("@/components/ai-write-dropdown", () => ({ AiWriteDropdown: () => <div /
 vi.mock("@/components/availability-picker", () => ({ AvailabilityPicker: () => <div /> }));
 vi.mock("@/components/intro-context-form", () => ({ IntroContextForm: () => <div /> }));
 vi.mock("@/lib/queries", () => ({ getEmailProvenance: async () => null, markEmailVerified: async () => {} }));
-vi.mock("@/lib/analytics/client", () => ({ track: () => {} }));
-vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({ toast: () => "", dismiss: () => {}, success: () => {}, error: () => {}, info: () => {}, warning: () => {} }),
-}));
+vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule({ track: () => {} }));
+vi.mock("@/components/ui/toast", () =>
+  mockToastModule(() => ({ toast: () => "", dismiss: () => {}, success: () => {}, error: () => {}, info: () => {}, warning: () => {} })),
+);
 
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { mockToastModule } from "./helpers/mock-toast";
 import { ComposeEmailModal } from "@/components/compose-email-modal";
 
 function resetState() {

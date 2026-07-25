@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * CI guard (CAR-158): four data-layer conventions that tsc and eslint cannot
- * express, each of which has already cost a real incident or a real audit
- * finding.
+ * CI guard (CAR-158): conventions that tsc and eslint cannot express, each of
+ * which has already cost a real incident or a real audit finding.
  *
  *   (a) queries.ts stays a frozen re-export barrel, and no module under
  *       src/lib/data or src/lib/rules acquires a module-scope Supabase client.
@@ -11,6 +10,8 @@
  *   (c) `const { data }` destructures that never bind `error`, in src/lib and
  *       the cron routes.
  *   (d) growth of raw query-builder use in the MCP data layer.
+ *   (e) every MCP server launch surface carries --conditions=react-server.
+ *   (f) a vi.mock of a shared-factory module uses that factory (CAR-187).
  *
  * Modelled on scripts/check-ui-events.mjs (same walk, same violation format,
  * same exit contract), but AST-based rather than line-based: (a) needs to know
@@ -437,6 +438,96 @@ function stripComments(text) {
   );
 }
 
+// ── (f) shared typed mock factories ──────────────────────────────────────
+//
+// The suite makes ~340 vi.mock calls, and `vi.mock(path, factory)` does not
+// typecheck the factory against the module it replaces — so a fake keeps
+// compiling after the real export is renamed, gains an argument, or is joined
+// by a new one the fake never provides. CAR-187 put shared, module-typed
+// factories behind the eight most-mocked modules (151 sites); this check is
+// what stops the 152nd from hand-rolling an untyped object again.
+//
+// Deliberately the INVERSE scope of every other rule here — and with no file
+// filter at all, rather than the isTestFile() one the others invert. Only a
+// test calls vi.mock, so the filter would buy nothing but a blind spot: it
+// excludes `.itest.ts`, and the integration tier having no vi.mock today is a
+// property of today, not a rule.
+//
+// Matching is on the factory text containing the required helper name rather
+// than on resolved bindings, because the AST-only parse (no type checker) has
+// no import graph — the escape hatch covers the rare legitimate miss.
+
+const TYPED_MOCK_OPT_OUT = /\/\/\s*typed-mock-exempt:/;
+
+/** module specifier → the shared factory its mocks must go through. */
+const SHARED_MOCK_FACTORIES = {
+  "@/lib/supabase/service-client": "mockServiceClientModule",
+  "@/lib/supabase/server-client": "mockServerClientModule",
+  "@/lib/supabase/browser-client": "mockBrowserClientModule",
+  "@/lib/supabase/config": "mockSupabaseConfigModule",
+  "@/components/auth-provider": "mockAuthProviderModule",
+  "@/components/ui/toast": "mockToastModule",
+  "@/lib/analytics/server": "mockAnalyticsServerModule",
+  "@/lib/analytics/client": "mockAnalyticsClientModule",
+};
+
+/**
+ * The mocked module specifier, for both spellings vitest accepts:
+ * `vi.mock("@/lib/x", …)` and `vi.mock(import("@/lib/x"), …)`.
+ */
+function mockedSpecifier(node) {
+  const arg = node.arguments[0];
+  if (!arg) return null;
+  if (ts.isStringLiteral(arg)) return arg.text;
+  if (
+    ts.isCallExpression(arg) &&
+    arg.expression.kind === ts.SyntaxKind.ImportKeyword &&
+    arg.arguments[0] &&
+    ts.isStringLiteral(arg.arguments[0])
+  ) {
+    return arg.arguments[0].text;
+  }
+  return null;
+}
+
+{
+  const violations = [];
+  for (const file of walk("src", [])) {
+    const r = rel(file);
+    const sf = parse(file);
+
+    const visit = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === "mock" &&
+        node.expression.expression.getText(sf) === "vi" &&
+        node.arguments.length >= 2
+      ) {
+        const spec = mockedSpecifier(node);
+        const required = spec && SHARED_MOCK_FACTORIES[spec];
+        if (required && !node.arguments[1].getText(sf).includes(required)) {
+          const stmt = ts.findAncestor(node, ts.isStatement) ?? node;
+          if (!TYPED_MOCK_OPT_OUT.test(leadingComments(sf, stmt))) {
+            violations.push(`${r}:${lineOf(sf, node)}: mocks ${spec} without ${required}()`);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  report(
+    "untyped mock of a shared-factory module",
+    violations,
+    "A hand-rolled factory is not typechecked against the module it replaces,\n" +
+      "  so it keeps compiling after the real export changes (CAR-187). Use the\n" +
+      "  shared factory from src/__tests__/helpers/ — it returns the module's full\n" +
+      "  type and takes your stub or overrides. If this mock genuinely cannot go\n" +
+      "  through it, say why:  // typed-mock-exempt: <reason>",
+  );
+}
+
 // ── Report ───────────────────────────────────────────────────────────────
 
 if (failures.length > 0) {
@@ -453,5 +544,6 @@ if (failures.length > 0) {
 console.log(
   "✓ conventions guard: queries.ts barrel frozen; no module-scope client in src/lib/{data,rules};\n" +
     "  CAS shape clean in src/{lib,app,mcp}; unchecked reads clean in src/lib + src/app/api/cron;\n" +
-    `  ${MCP_DB} within its ${MCP_DB_BASELINE} baseline; MCP launches carry ${REACT_SERVER_FLAG}.`,
+    `  ${MCP_DB} within its ${MCP_DB_BASELINE} baseline; MCP launches carry ${REACT_SERVER_FLAG};\n` +
+    `  every test mock of the ${Object.keys(SHARED_MOCK_FACTORIES).length} shared-factory modules goes through its typed factory.`,
 );

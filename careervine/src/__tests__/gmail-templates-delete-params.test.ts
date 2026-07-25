@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 
 /**
  * CAR-183: DELETE /api/gmail/templates/[id] used a bare `parseInt(id)`.
@@ -13,16 +14,12 @@ import { NextRequest } from "next/server";
 
 const deletedIds: unknown[] = [];
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: {
-      getUser: vi.fn(async () => ({ data: { user: { id: "u-1" } }, error: null })),
-    },
-  })),
-}));
+// Shared typed factories (CAR-187), so a change to either client module's
+// exports is a compile error here rather than an undefined at call time.
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule());
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       const b: Record<string, unknown> = {
         delete: () => b,
@@ -35,7 +32,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
       return b;
     },
   })),
-}));
+);
 
 import { DELETE } from "@/app/api/gmail/templates/[id]/route";
 

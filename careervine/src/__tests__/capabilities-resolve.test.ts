@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule());
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { resolveCapabilities } from "@/lib/capabilities/resolve";
 

@@ -3,6 +3,8 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { installFakeFetch } from "./helpers/fake-fetch";
+import { mockToastModule, toastMock } from "./helpers/mock-toast";
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
 
 /**
  * CAR-183: cancelling a follow-up sequence used to `await fetch(DELETE)` without
@@ -15,24 +17,12 @@ import { installFakeFetch } from "./helpers/fake-fetch";
  * failure shape, and only a 2xx applies the optimistic update.
  */
 
-const h = vi.hoisted(() => ({ toastError: vi.fn(), user: { id: "u-1" } }));
-
-// The user object is hoisted rather than built per call on purpose: the
-// component's load effect lists `user` in its dependency array, so a mock
-// returning a fresh literal each render re-runs the effect forever.
-vi.mock("@/components/auth-provider", () => ({
-  useAuth: () => ({ user: h.user }),
-}));
-vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({
-    toast: () => "",
-    dismiss: () => {},
-    success: () => {},
-    error: h.toastError,
-    info: () => {},
-    warning: () => {},
-  }),
-}));
+// Shared typed factories (CAR-187). mockAuthProviderModule's default user is
+// built once at module load, which this component specifically needs: its load
+// effect lists `user` in its dependency array, so a mock returning a fresh
+// object per render would re-fire the effect forever.
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
+vi.mock("@/components/ui/toast", () => mockToastModule());
 
 import { ContactFollowUpStatus } from "@/components/contacts/contact-follow-up-status";
 
@@ -95,7 +85,7 @@ async function renderAndCancel(cancelRoute: Parameters<typeof installFakeFetch>[
 
 describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
   beforeEach(() => {
-    h.toastError.mockClear();
+    vi.clearAllMocks();
   });
   afterEach(() => {
     cleanup();
@@ -111,7 +101,7 @@ describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
     // Still shown as active, NOT as cancelled.
     expect(screen.getByText("1 of 2 sent")).toBeTruthy();
     expect(screen.queryByText("Cancelled")).toBeNull();
-    expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    expect(toastMock.error).toHaveBeenCalledWith(TOAST_COPY);
     expect(http.countOf(CANCEL_ROUTE)).toBe(1);
   });
 
@@ -123,7 +113,7 @@ describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
 
     expect(screen.getByText("1 of 2 sent")).toBeTruthy();
     expect(screen.queryByText("Cancelled")).toBeNull();
-    expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    expect(toastMock.error).toHaveBeenCalledWith(TOAST_COPY);
     // Without this the toast assertion would also be satisfied by the harness's
     // own "no route" throw, i.e. by never reaching the 500 at all.
     expect(http.unmatched).toEqual([]);
@@ -137,7 +127,7 @@ describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
 
     expect(screen.getByText("1 of 2 sent")).toBeTruthy();
     expect(screen.queryByText("Cancelled")).toBeNull();
-    expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    expect(toastMock.error).toHaveBeenCalledWith(TOAST_COPY);
     expect(http.unmatched).toEqual([]);
     expect(http.countOf(CANCEL_ROUTE)).toBe(1);
   });
@@ -149,7 +139,7 @@ describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
     expect(screen.queryByText("1 of 2 sent")).toBeNull();
     // The Cancel control is only rendered for an active sequence.
     expect(screen.queryByText("Cancel")).toBeNull();
-    expect(h.toastError).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
     expect(http.countOf(CANCEL_ROUTE)).toBe(1);
     expect(http.unmatched).toEqual([]);
     // A successful cancel trusts its own optimistic update; no refetch.
@@ -168,7 +158,7 @@ describe("ContactFollowUpStatus — cancel (CAR-183)", () => {
 
 describe("ContactFollowUpStatus — failed load (CAR-183)", () => {
   beforeEach(() => {
-    h.toastError.mockClear();
+    vi.clearAllMocks();
   });
   afterEach(() => {
     cleanup();

@@ -44,8 +44,11 @@ jobs:
       - name: Conventions guard
         run: node scripts/check-conventions.mjs
 
+      # CAR-186: --coverage is what enforces the src/lib + src/hooks floors and
+      # uncovered-code budgets declared in careervine/vitest.config.ts. Without
+      # the flag the thresholds are inert and a new untested module lands green.
       - name: Test
-        run: npx vitest run
+        run: npx vitest run --coverage
 
       - name: Build
         run: npx next build

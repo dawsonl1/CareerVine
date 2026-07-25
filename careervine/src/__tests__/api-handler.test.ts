@@ -1,18 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { z } from 'zod';
+import { mockServerClientModule } from './helpers/mock-supabase';
 
 // ── Mocks (no top-level variable references in vi.mock factories) ─────
 
-vi.mock('@/lib/supabase/server-client', () => ({
-  createSupabaseServerClient: vi.fn().mockResolvedValue({
-    auth: {
-      getUser: vi.fn().mockResolvedValue({
-        data: { user: { id: 'user-123', email: 'test@example.com' } },
-        error: null,
-      }),
-    },
-  }),
-}));
+vi.mock('@/lib/supabase/server-client', () =>
+  mockServerClientModule({ user: () => ({ id: 'user-123', email: 'test@example.com' }) }),
+);
 
 vi.mock('@/lib/extension-auth', () => ({
   getExtensionAuth: vi.fn().mockResolvedValue({

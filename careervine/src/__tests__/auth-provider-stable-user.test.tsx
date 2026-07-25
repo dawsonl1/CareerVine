@@ -10,8 +10,8 @@ const { authCb, getSessionMock } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
 }));
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     auth: {
       getSession: getSessionMock,
       onAuthStateChange: (cb: (event: string, session: unknown) => void) => {
@@ -19,11 +19,13 @@ vi.mock("@/lib/supabase/browser-client", () => ({
         return { data: { subscription: { unsubscribe: vi.fn() } } };
       },
     },
-  }),
-}));
-vi.mock("@/lib/analytics/client", () => ({ track: vi.fn(), identifyNewUser: vi.fn() }));
+  })),
+);
+vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule());
 vi.mock("@/lib/hard-navigate", () => ({ hardNavigate: vi.fn() }));
 
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { AuthProvider, useAuth } from "@/components/auth-provider";
 
 // Records the `user` reference on every render so we can assert identity stability.

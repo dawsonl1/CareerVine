@@ -19,6 +19,7 @@ import { packOverlappingEvents, slotStyle } from "@/lib/calendar-layout";
 import { resolveCalendarSaveMode } from "@/lib/calendar-save-mode";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { LoadErrorState } from "@/components/ui/load-error-state";
+import { SectionBoundary } from "@/components/ui/section-boundary";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -507,6 +508,19 @@ export default function CalendarPage() {
         {/* ── Week Grid View ── */}
         {view === "week" && (
           <div ref={weekShellRef} className="relative">
+            {/* Event packing, overlap and drag-to-create all run inside here, so
+                contain them: the page header, the List/Week toggle and Sync stay
+                usable, and a user whose week grid breaks can still switch to List
+                (CAR-184). Note the week-scoped date math in the useMemo above is
+                OUTSIDE this boundary and still escalates to app/error.tsx.
+
+                No key needed here, unlike the inbox and contact tab strips: the
+                enclosing `view === "week"` conditional unmounts this boundary on
+                a toggle, which discards the error state on its own. onReset calls
+                loadData, which sets its own loading flag and early-returns a
+                spinner, so it likewise unmounts the boundary before the re-fetch
+                lands rather than re-throwing on stale data. */}
+            <SectionBoundary label="calendar-week-grid" onReset={() => void loadData()}>
             <div className="overflow-x-auto">
             <div className="min-w-[640px]">
               {/* Day headers */}
@@ -690,6 +704,7 @@ export default function CalendarPage() {
                 )}
               </div>
             )}
+            </SectionBoundary>
           </div>
         )}
 

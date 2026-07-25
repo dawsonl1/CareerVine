@@ -41,11 +41,7 @@ vi.mock("@/lib/calendar", () => ({
   DEFAULT_TIMEZONE: "America/New_York",
 }));
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }) },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => ({ id: "user-1" }) }));
 
 function createServiceClient() {
   return {
@@ -130,10 +126,9 @@ function createServiceClient() {
   };
 }
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => createServiceClient(),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => createServiceClient()));
 
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/calendar/sync/route";
 
 function makeRequest(search = "") {

@@ -3,6 +3,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { installFakeFetch } from "./helpers/fake-fetch";
+import { mockToastModule, toastMock } from "./helpers/mock-toast";
 
 /**
  * CAR-183: deleting a template used to `await fetch(DELETE)` without checking
@@ -13,18 +14,7 @@ import { installFakeFetch } from "./helpers/fake-fetch";
  * CAR-188; it is stubbed here rather than changed.
  */
 
-const h = vi.hoisted(() => ({ toastError: vi.fn() }));
-
-vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({
-    toast: () => "",
-    dismiss: () => {},
-    success: () => {},
-    error: h.toastError,
-    info: () => {},
-    warning: () => {},
-  }),
-}));
+vi.mock("@/components/ui/toast", () => mockToastModule());
 
 import TemplatesSection from "@/components/settings/templates-section";
 
@@ -67,7 +57,7 @@ async function renderAndDelete(deleteRoute: Parameters<typeof installFakeFetch>[
 
 describe("TemplatesSection — delete (CAR-183)", () => {
   beforeEach(() => {
-    h.toastError.mockClear();
+    vi.clearAllMocks();
     // The handler bails before fetching unless the confirm is accepted.
     vi.stubGlobal("confirm", () => true);
   });
@@ -83,7 +73,7 @@ describe("TemplatesSection — delete (CAR-183)", () => {
     });
 
     expect(screen.getByText("Job referral request")).toBeTruthy();
-    expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    expect(toastMock.error).toHaveBeenCalledWith(TOAST_COPY);
     // Without this the toast assertion would also be satisfied by the harness's
     // own "no route" throw, i.e. by never reaching the 500 at all.
     expect(http.countOf(DELETE_ROUTE)).toBe(1);
@@ -94,7 +84,7 @@ describe("TemplatesSection — delete (CAR-183)", () => {
     const http = await renderAndDelete({ reject: new TypeError("Failed to fetch") });
 
     expect(screen.getByText("Job referral request")).toBeTruthy();
-    expect(h.toastError).toHaveBeenCalledWith(TOAST_COPY);
+    expect(toastMock.error).toHaveBeenCalledWith(TOAST_COPY);
     expect(http.countOf(DELETE_ROUTE)).toBe(1);
     expect(http.unmatched).toEqual([]);
   });
@@ -104,7 +94,7 @@ describe("TemplatesSection — delete (CAR-183)", () => {
 
     expect(screen.queryByText("Job referral request")).toBeNull();
     expect(screen.getByText("No custom templates yet.")).toBeTruthy();
-    expect(h.toastError).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
     expect(http.countOf(DELETE_ROUTE)).toBe(1);
     expect(http.unmatched).toEqual([]);
   });

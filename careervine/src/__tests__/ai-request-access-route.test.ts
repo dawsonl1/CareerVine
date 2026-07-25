@@ -3,29 +3,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFrom = vi.fn();
 const mockServiceClient = { from: mockFrom };
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn().mockResolvedValue({
-    auth: {
-      getUser: vi.fn().mockResolvedValue({
-        data: { user: { id: "user-123", email: "test@example.com" } },
-        error: null,
-      }),
-    },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () =>
+  mockServerClientModule({ user: () => ({ id: "user-123", email: "test@example.com" }) }),
+);
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => mockServiceClient),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => mockServiceClient));
 
 vi.mock("@/lib/admin-notify", () => ({
   notifyOwner: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule());
 
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/ai/request-access/route";
 import { notifyOwner } from "@/lib/admin-notify";
 import { trackServer } from "@/lib/analytics/server";

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
 import {
   checkFastApplyEligibility,
   runFastApplyStep,
@@ -11,10 +12,9 @@ import type { BundleCore, SubscriptionCore } from "@/lib/bundle-sync";
 import { readSyncCheckpoint } from "@/lib/bundle-sync";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: vi.fn(async () => {}),
-  checkContactMilestone: vi.fn(async () => {}),
-}));
+vi.mock("@/lib/analytics/server", () =>
+  mockAnalyticsServerModule({ trackServer: vi.fn(async () => {}), checkContactMilestone: vi.fn(async () => {}) }),
+);
 
 // ── Programmable chained-builder mock (same shape as bundle-sync.test.ts) ──
 

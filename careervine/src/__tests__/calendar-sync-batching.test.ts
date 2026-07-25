@@ -6,6 +6,8 @@
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 import {
   createFakeCalendarApi,
   makeEvent,
@@ -28,15 +30,9 @@ vi.mock("@/lib/oauth-helpers", () => ({
   encryptOAuthToken: (v: string) => v,
 }));
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: vi.fn(async () => {}),
-}));
+vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule({ trackServer: vi.fn(async () => {}) }));
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }) },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => ({ id: "user-1" }) }));
 
 // ── recording fake Supabase service client ──
 
@@ -178,9 +174,7 @@ function createServiceClient() {
   };
 }
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => createServiceClient(),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => createServiceClient()));
 
 import { POST } from "@/app/api/calendar/sync/route";
 

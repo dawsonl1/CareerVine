@@ -30,8 +30,8 @@ vi.mock("@/lib/oauth-helpers", () => ({
   encryptOAuthToken: (v: string) => v,
 }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       const conn = {
         gmail_address: "me@gmail.com",
@@ -48,9 +48,10 @@ vi.mock("@/lib/supabase/service-client", () => ({
       chain.maybeSingle = async () => ({ data: conn, error: null });
       return chain;
     },
-  }),
-}));
+  })),
+);
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { createDraft } from "@/lib/gmail";
 import { buildMimeMessage } from "@/lib/gmail-send-core";
 

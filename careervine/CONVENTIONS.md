@@ -16,9 +16,10 @@ is the failure this file was written to end. A test
 still exists, so a rename turns this file red instead of quietly stale.
 
 Each section says whether its rules have a mechanical guard or rest on review.
-Five do. Independently of them, CI runs typecheck, ESLint at zero warnings, the
+Six of the eight do; c and e rest on review. Independently of them, CI runs typecheck, ESLint at zero warnings, the
 Next build, the MCP typecheck, a Supabase types-drift check, an extension-bundle
-freshness check, and the convention-guard script (`npm run check:conventions`).
+freshness check, a unit-test coverage gate (§h), and the convention-guard script
+(`npm run check:conventions`).
 
 ---
 
@@ -162,10 +163,12 @@ permanently erased every email-to-meeting link in it (CAR-175).
 - Enforced: `careervine/src/mcp/__tests__/db-scoping.test.ts` (a new export
   without a classification entry fails), `careervine/src/__tests__/contact-write-chokepoint.test.ts`,
   the `no-restricted-imports` fences in `careervine/eslint.config.mjs`, and
-  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), which checks four
-  invariants tsc and eslint cannot express: the barrel freeze, no module-scope
-  Supabase client under `careervine/src/lib/data` or `careervine/src/lib/rules`,
-  the CAS readback shape, and raw query-builder growth in the MCP db module. Its
+  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), whose four
+  data-layer checks cover what tsc and eslint cannot express: the barrel freeze,
+  no module-scope Supabase client under `careervine/src/lib/data` or
+  `careervine/src/lib/rules`, the CAS readback shape, and raw query-builder
+  growth in the MCP db module. (It carries two further checks, on MCP launch
+  flags and on test mocks; see sections g and h.) Its
   escape hatches
   both demand a written reason: `// cas-checked:` and `// error-tolerated:`.
   The app-owned-column rule is enforced by
@@ -208,14 +211,48 @@ separate from the boolean UI state because a state update is async and would not
 block a fast second click.
 
 New modals use `careervine/src/components/ui/modal.tsx`, which provides the scrim,
-escape handling, body scroll lock, and the unsaved-changes guard. It does not
-provide a focus trap. Adoption is currently even with hand-rolled dialogs, so this
-rule is forward-looking rather than descriptive.
+escape handling, body scroll lock, the unsaved-changes guard, and a focus trap
+(CAR-185). The trap moves focus into the dialog on open, cycles Tab and Shift+Tab
+at the edges, and restores focus to the trigger on close; the surface carries
+`role="dialog"` and `aria-modal`, named by the title or by the `ariaLabel` prop
+when a modal has no visible title. The unsaved-changes dialog is a second dialog
+and traps separately. Read the file header before extending it: the tabbable
+filter deliberately avoids layout checks, because jsdom has no layout and the
+usual `offsetParent` filter disarms the trap under test while still reading as
+correct. Adoption is currently even with hand-rolled dialogs, so this rule is
+forward-looking rather than descriptive.
 
-- Authoritative: `careervine/src/lib/ui-events.ts` and
-  `careervine/src/hooks/use-latest-request.ts` (headers)
+A subtree that can independently fail gets wrapped in
+`careervine/src/components/ui/section-boundary.tsx` so a render throw shows a
+retryable panel in that subtree's frame instead of unmounting the page. Do not
+hand-roll a class `ErrorBoundary`: it would swallow the sentinel errors
+`redirect()` / `notFound()` throw, and would stay stuck in the error state across a
+client navigation. Read that file's header before adding a boundary, including the
+part about passing a `key` when sections switch by same-route state rather than by
+navigation, and about wiring `onReset` so the retry can actually recover. Route-level
+boundaries are `careervine/src/app/error.tsx`,
+`careervine/src/app/global-error.tsx` and `careervine/src/app/admin/error.tsx`; the
+global one replaces the root layout, so it may not import the design system or assume
+the global stylesheet, the document head, or any provider survived. All of them report
+through the one seam in `careervine/src/lib/report-error.ts`, which is where an
+error tracker gets wired (none is installed today). Boundaries catch render throws
+only, never a rejected promise in a handler; that is the contract above.
+
+- Authoritative: `careervine/src/lib/ui-events.ts`,
+  `careervine/src/hooks/use-latest-request.ts`,
+  `careervine/src/components/ui/modal.tsx`, and
+  `careervine/src/components/ui/section-boundary.tsx` (headers)
 - Enforced: `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw
-  event-name prefix outside the module. The other four rules are not enforced.
+  event-name prefix outside the module. It is the only rule here whose *adoption* is
+  mechanically checked. Two more have behavior coverage without an adoption check:
+  `careervine/src/__tests__/modal.test.tsx` covers the focus trap and dialog
+  semantics, and `careervine/src/__tests__/error-boundaries.test.tsx` pins the
+  boundary behaviors, including the `notFound()` re-throw that rules out a
+  hand-rolled class, plus source tripwires holding the three existing adoption sites
+  to their `key` and `onReset`. Nothing requires a NEW modal to use `modal.tsx` or a
+  NEW failure-prone subtree to be wrapped. The remaining three rules
+  (`useLatestRequest`, optimistic-write rollback, and the double-submit guard) have
+  no coverage at all.
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 
@@ -265,6 +302,20 @@ New tests reuse the shared harness helpers instead of re-rolling a fake:
 `careervine/src/__tests__/helpers/fake-fetch.ts`, and
 `careervine/src/mcp/__tests__/helpers/recording-client.ts` for scoping assertions.
 
+A `vi.mock` factory is not typechecked against the module it replaces, so a fake
+goes on compiling after the real export is renamed, changes signature, or is
+joined by a new one the fake never provides — and because a factory REPLACES the
+module rather than merging into it, that new export is `undefined` for every
+caller. Mocks of the eight most-mocked modules (the four Supabase client modules,
+`auth-provider`, `toast`, and the two analytics modules) go through the shared
+factories in `careervine/src/__tests__/helpers/`, which return the module's full
+type; `typedMock<typeof import("…")>()` in
+`careervine/src/__tests__/helpers/typed-mock.ts` gives a one-off mock the same
+constraint. Call a helper INSIDE the factory body (`() => mockXModule()`), never
+in argument position: vitest hoists `vi.mock` above the imports, so the helper
+binding is not initialized yet. Locals are in TDZ there too, which is why the
+factories take per-test overrides as thunks.
+
 A component test that exercises an HTTP call uses `installFakeFetch`, which
 routes on `"METHOD /url"` and answers with a real `Response`. The older idiom
 in this suite assigns a `{ ok, json }` object literal to `global.fetch` through
@@ -291,10 +342,33 @@ conformance for every constants.ts vocabulary, and the account-deletion
 cascade. Do not port mocked tests into it; the mocked suite stays
 authoritative for logic. CI runs it as the separate `integration` job.
 
+Coverage is a gate rather than a report (CAR-186). `npm run test:coverage`, and
+the CI `web` job which runs the suite with `--coverage`, measure
+`careervine/src/lib` and `careervine/src/hooks` only. Two kinds of regression
+fail it: global percentage floors catch broad erosion, and per-area "maximum
+uncovered units" budgets catch newly added untested code, which a percentage
+cannot — one new module is far too small to move the ratio of a corpus this size
+past any usable buffer. `careervine/src/components` and `careervine/src/app` are
+deliberately unmeasured, because a line number there rewards
+render-and-assert-nothing tests; the browser tier owns them. Every threshold's
+measured baseline is recorded beside it in the config.
+
 - Authoritative: `careervine/vitest.config.ts`,
   `careervine/vitest.integration.config.ts` (header), the header of each
   helper, and `careervine/src/__integration__/helpers/stack.ts` (header)
+- Enforced (mocks, CAR-187): the sixth check in
+  `careervine/scripts/check-conventions.mjs` fails a `vi.mock` of any of those
+  eight modules that does not go through its shared factory (escape hatch
+  `// typed-mock-exempt: <reason>`), and
+  `careervine/src/__tests__/check-conventions.test.ts` pins that the check
+  itself trips. `careervine/src/__tests__/typed-mock.type-test.ts` pins the
+  type constraint that backs it: a fake missing an export, naming one that does
+  not exist, or disagreeing about a signature is a compile error, while a bare
+  `vi.fn()` still satisfies any export.
 - Enforced (integration tier): the completeness guard in
-  `careervine/src/__integration__/rls-tenant-isolation.itest.ts`. The unit
-  tier's conventions are not mechanically enforced; the backstop is the suite
-  itself passing.
+  `careervine/src/__integration__/rls-tenant-isolation.itest.ts`
+- Enforced (coverage): the thresholds in `careervine/vitest.config.ts`, run by
+  the `web` job in `.github/workflows/ci.yml`. The unit tier's remaining
+  conventions (reuse of the `fake-*` harness helpers, per-file environment
+  opt-in, matcher choice) are not mechanically enforced; the backstop is the
+  suite itself passing.

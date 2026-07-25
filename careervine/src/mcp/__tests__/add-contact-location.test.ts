@@ -17,18 +17,16 @@ const state = vi.hoisted(() => ({
   nextId: 100,
 }));
 
-vi.mock("@/lib/supabase/service-client", async () => {
-  const { createRecordingClient } = await import("./helpers/recording-client");
-  return {
-    createSupabaseServiceClient: () =>
-      createRecordingClient(state as Parameters<typeof createRecordingClient>[0]),
-  };
-});
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: async () => {},
-  checkContactMilestone: async () => {},
-}));
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => createRecordingClient(state as Parameters<typeof createRecordingClient>[0])),
+);
+vi.mock("@/lib/analytics/server", () =>
+  mockAnalyticsServerModule({ trackServer: async () => {}, checkContactMilestone: async () => {} }),
+);
 
+import { createRecordingClient } from "./helpers/recording-client";
+import { mockServiceClientModule } from "../../__tests__/helpers/mock-supabase";
+import { mockAnalyticsServerModule } from "../../__tests__/helpers/mock-analytics";
 import { initDb, createContactFull } from "../lib/db";
 import type { RecordedQuery, RouteCtx } from "./helpers/recording-client";
 

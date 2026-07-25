@@ -6,8 +6,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockRange = vi.fn();
 const mockSelect = vi.fn();
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     from: () => ({
       select: (columns: string) => {
         mockSelect(columns);
@@ -24,9 +24,10 @@ vi.mock("@/lib/supabase/browser-client", () => ({
         };
       },
     }),
-  }),
-}));
+  })),
+);
 
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { getContactsStreamed } from "@/lib/queries";
 
 const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ id: i }));

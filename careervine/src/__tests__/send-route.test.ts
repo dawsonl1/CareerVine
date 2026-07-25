@@ -31,20 +31,17 @@ function makeBuilder(table: string) {
   return chain;
 }
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({ from: (t: string) => makeBuilder(t) }),
-}));
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({ from: (t: string) => makeBuilder(t) })),
+);
 vi.mock("@/lib/gmail-send-core", () => ({
   sendEmail: async () => ({ messageId: "m1", threadId: "t1" }),
   getConnection: async () => ({ gmail_address: "me@example.com" }),
 }));
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "u1" } }, error: null }) },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => ({ id: "u1" }) }));
 
 import { NextRequest } from "next/server";
+import { mockServerClientModule, mockServiceClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/gmail/send/route";
 
 function makeReq(body: unknown) {

@@ -4,8 +4,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockMaybeSingle = vi.fn();
 const mockUpdateResult = vi.fn();
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     from: () => ({
       select: () => ({
         eq: () => ({ maybeSingle: mockMaybeSingle }),
@@ -16,9 +16,10 @@ vi.mock("@/lib/supabase/browser-client", () => ({
         }),
       }),
     }),
-  }),
-}));
+  })),
+);
 
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import {
   getExtensionOnboardingSnapshot,
   advanceExtensionOnboardingState,

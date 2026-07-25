@@ -53,10 +53,11 @@ const h = vi.hoisted(() => {
   return { state, makeBuilder };
 });
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({ from: (t: string) => h.makeBuilder(t) }),
-}));
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({ from: (t: string) => h.makeBuilder(t) })),
+);
 
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { getHomeStats, getActionListCounts } from "@/lib/queries";
 
 const filtersOf = (q: QueryState, method: string) =>

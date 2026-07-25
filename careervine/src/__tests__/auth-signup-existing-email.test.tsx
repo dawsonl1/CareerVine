@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, act, within } from "@testing-library/react";
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { AuthProvider, useAuth } from "@/components/auth-provider";
 import AuthForm from "@/components/auth-form";
 
@@ -10,13 +12,12 @@ const resetPasswordMock = vi.fn();
 const trackMock = vi.fn();
 const identifyNewUserMock = vi.fn();
 
-vi.mock("@/lib/analytics/client", () => ({
-  track: (...args: unknown[]) => trackMock(...args),
-  identifyNewUser: (...args: unknown[]) => identifyNewUserMock(...args),
-}));
+vi.mock("@/lib/analytics/client", () =>
+  mockAnalyticsClientModule({ track: (...args: unknown[]) => trackMock(...args), identifyNewUser: (...args: unknown[]) => identifyNewUserMock(...args) }),
+);
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     auth: {
       signUp: (...args: unknown[]) => signUpMock(...args),
       resend: (...args: unknown[]) => resendMock(...args),
@@ -26,8 +27,8 @@ vi.mock("@/lib/supabase/browser-client", () => ({
         data: { subscription: { unsubscribe: () => {} } },
       }),
     },
-  }),
-}));
+  })),
+);
 
 beforeEach(() => {
   signUpMock.mockReset();

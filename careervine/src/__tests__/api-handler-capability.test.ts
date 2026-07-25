@@ -6,19 +6,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * and never calling the resolver with an undefined id).
  */
 
-let authedUser: Record<string, unknown> | null = { id: "u-1", app_metadata: {} };
+let authedUser: FakeAuthUser | null = { id: "u-1", app_metadata: {} };
 const resolveCapabilitiesMock = vi.fn();
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
 vi.mock("@/lib/capabilities", () => ({
   resolveCapabilities: (...args: unknown[]) => resolveCapabilitiesMock(...args),
 }));
 
+import { mockServerClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { withApiHandler } from "@/lib/api-handler";
 
 function makeRequest() {
