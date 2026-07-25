@@ -110,7 +110,10 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
   if (sequences.length === 0) return null;
 
   return (
-    <div className="rounded-[20px] border border-outline-variant/60 bg-white p-5">
+    <div
+      data-testid="followup-sequences-card"
+      className="rounded-[20px] border border-outline-variant/60 bg-white p-5"
+    >
       <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
         <Mail className="h-4 w-4" />
         Follow-up sequences
@@ -126,6 +129,8 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
           return (
             <div
               key={seq.id}
+              data-testid={`followup-sequence-${seq.id}`}
+              data-status={seq.status}
               className="rounded-xl bg-surface-container-low p-3 text-sm"
             >
               <div className="flex items-start justify-between gap-2">
@@ -169,6 +174,7 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
                 {isActive && (
                   <button
                     type="button"
+                    data-testid="followup-sequence-cancel"
                     onClick={() => handleCancel(seq.id)}
                     className="text-xs text-muted-foreground hover:text-destructive transition-colors cursor-pointer shrink-0"
                   >

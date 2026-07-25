@@ -37,6 +37,8 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 const PROJECT_REF = "iycrlwqjetkwaauzxrhd";
 const API = `https://api.supabase.com/v1/projects/${PROJECT_REF}/config/auth`;
@@ -44,41 +46,33 @@ const API = `https://api.supabase.com/v1/projects/${PROJECT_REF}/config/auth`;
 // ── Branded templates ────────────────────────────────────────────────
 // Email-client-safe: table layout, inline styles, no external assets.
 // Palette mirrors globals.css (primary #2d6a30, on-surface #1a1c1a).
+//
+// The HTML lives in supabase/templates/, NOT here (CAR-189). `config.toml`
+// points the local stack at those same two files, so a locally-sent
+// confirmation email carries the same {{ .SiteURL }}/auth/confirm?token_hash=…
+// link production sends, and the E2E signup flow can follow a real one. Before
+// that, local ran stock GoTrue templates whose {{ .ConfirmationURL }} link
+// dead-ends on this app's /auth/confirm route.
+//
+// Edit the .html files; both consumers read them.
 
-const layout = (heading, intro, ctaLabel, ctaHref, footnote) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f7f7;padding:32px 16px;">
-  <tr><td align="center">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e5e7e5;">
-      <tr><td style="padding:36px 40px 28px 40px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-        <p style="margin:0 0 24px 0;font-size:20px;font-weight:600;color:#2d6a30;letter-spacing:-0.2px;">CareerVine</p>
-        <h1 style="margin:0 0 12px 0;font-size:22px;line-height:30px;font-weight:500;color:#1a1c1a;">${heading}</h1>
-        <p style="margin:0 0 28px 0;font-size:15px;line-height:23px;color:#5f6368;">${intro}</p>
-        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:24px;background-color:#2d6a30;">
-          <a href="${ctaHref}" style="display:inline-block;padding:13px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:500;color:#ffffff;text-decoration:none;border-radius:24px;">${ctaLabel}</a>
-        </td></tr></table>
-        <p style="margin:28px 0 0 0;font-size:12px;line-height:18px;color:#9aa0a6;">${footnote}</p>
-      </td></tr>
-    </table>
-    <p style="margin:20px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#9aa0a6;">CareerVine — your network is your biggest asset.</p>
-  </td></tr>
-</table>`;
+const TEMPLATE_DIR = path.resolve(import.meta.dirname, "..", "..", "supabase", "templates");
+
+function template(name) {
+  const file = path.join(TEMPLATE_DIR, `${name}.html`);
+  try {
+    return readFileSync(file, "utf8");
+  } catch (err) {
+    console.error(`Could not read ${file}: ${err.message}`);
+    process.exit(1);
+  }
+}
 
 const BRANDED = {
   mailer_subjects_confirmation: "Confirm your CareerVine account",
-  mailer_templates_confirmation_content: layout(
-    "You're one click away",
-    "Confirm your email and you'll be signed in to CareerVine automatically — ready to start growing your network.",
-    "Confirm my email",
-    "{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup",
-    "This link expires in 24 hours and can only be used once. If you didn't create a CareerVine account, you can safely ignore this email.",
-  ),
+  mailer_templates_confirmation_content: template("confirmation"),
   mailer_subjects_recovery: "Reset your CareerVine password",
-  mailer_templates_recovery_content: layout(
-    "Reset your password",
-    "Click below to choose a new password for your CareerVine account.",
-    "Reset password",
-    "{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password",
-    "This link expires in 24 hours and can only be used once. If you didn't request a password reset, you can safely ignore this email.",
-  ),
+  mailer_templates_recovery_content: template("recovery"),
   mailer_otp_exp: 86400,
 };
 

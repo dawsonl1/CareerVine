@@ -200,6 +200,11 @@ function ToastItem({
 
   return (
     <div
+      // CAR-189: the E2E tier needs "an error toast fired" to be distinguishable
+      // from "nothing happened at all" — that difference is the whole tell for a
+      // silent-failure bug, and copy alone cannot express it.
+      data-testid="toast"
+      data-variant={toast.variant}
       className={`pointer-events-auto flex flex-col rounded-[var(--md-shape-sm)] shadow-[var(--md-elevation-3)] min-w-[300px] max-w-[420px] animate-slide-in-right overflow-hidden ${bg}`}
     >
       <div className="flex items-center gap-3 px-4 py-3">

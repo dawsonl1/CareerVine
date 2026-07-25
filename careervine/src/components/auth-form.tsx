@@ -369,6 +369,11 @@ export default function AuthForm({ initialMode = "signin", initialError, onBack 
                         <input
                           id="password"
                           name="password"
+                          // CAR-189: `input[type=password]` exposes no ARIA role,
+                          // so getByRole cannot reach it — and the type flips to
+                          // `text` when revealed, which would change its role
+                          // mid-test. A testid is stable across both states.
+                          data-testid="auth-password"
                           type={showPassword ? "text" : "password"}
                           autoComplete={mode === "signin" ? "current-password" : "new-password"}
                           required

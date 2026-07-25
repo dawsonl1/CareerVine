@@ -196,7 +196,10 @@ password_requirements = ""
 
 [auth.rate_limit]
 # Number of emails that can be sent per hour. Requires auth.email.smtp to be enabled.
-email_sent = 2
+# Raised off the default of 2 for CAR-189: with enable_confirmations on (see
+# [auth.email]), every E2E signup sends a confirmation mail, and a 2/hour cap
+# would fail the third run of the suite within an hour as an inscrutable flake.
+email_sent = 500
 # Number of SMS messages that can be sent per hour. Requires auth.sms to be enabled.
 sms_sent = 30
 # Number of anonymous sign-ins that can be made per hour per IP address. Requires enable_anonymous_sign_ins = true.
@@ -223,7 +226,17 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+#
+# ON since CAR-189, to match production. With it off, `signUp()` returned a
+# session immediately and no verify step happened locally at all — so the whole
+# /auth/confirm route (CAR-52) and the duplicate-signup branch in
+# auth-provider.tsx, which exists *because* Supabase obfuscates duplicate
+# signups when confirmations are on, were unreachable on the local stack.
+#
+# Consequence: the local stack must run Mailpit (http://127.0.0.1:54324) or
+# signup fails with "Error sending confirmation email". Start the stack WITHOUT
+# excluding it — see CONVENTIONS.md section i.
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
@@ -243,6 +256,24 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# CAR-189: point the local stack at the SAME branded templates the production
+# project runs. Stock GoTrue renders `{{ .ConfirmationURL }}`, which lands on
+# GoTrue's own /auth/v1/verify and then redirects with tokens in a URL fragment
+# — a flow this app deliberately does not use (CAR-52). So a locally-sent
+# confirmation link used to dead-end on "that confirmation link is invalid or
+# has expired", and local signup was untestable end to end.
+#
+# These two files are the single source of truth: careervine/scripts/
+# configure-auth-emails.mjs reads them too, and pushes them to production via
+# the Management API. Edit the file, not either consumer.
+[auth.email.template.confirmation]
+subject = "Confirm your CareerVine account"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your CareerVine password"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"
@@ -252,7 +283,7 @@ otp_expiry = 3600
 # [auth.email.notification.password_changed]
 # enabled = true
 # subject = "Your password has been changed"
-# content_path = "./templates/password_changed_notification.html"
+# content_path = "./supabase/templates/password_changed_notification.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
