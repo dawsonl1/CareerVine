@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
+import { Modal, ModalCancelButton } from "@/components/ui/modal";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   getContactsStreamed, createContact, findOrCreateSchool, addSchoolToContact,
@@ -273,6 +274,18 @@ export default function ContactsPage() {
     setShowEducation(false);
     setShowCustomFrequency(false);
   };
+
+  // The create form starts empty, so anything entered anywhere in it is unsaved
+  // work. Gated on `submitting` because during the save the form is legitimately
+  // dirty and "Discard" could not stop a write already going through.
+  const hasUnsavedChanges =
+    !submitting &&
+    (JSON.stringify(formData) !== JSON.stringify(emptyForm) ||
+      companies.length > 0 ||
+      emails.length > 0 ||
+      phones.length > 0 ||
+      selectedTagIds.length > 0 ||
+      !!tagSearch);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -772,262 +785,260 @@ export default function ContactsPage() {
         </div>
 
         {/* Create contact modal */}
-        {showForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/32" onClick={closeForm} />
-            <div className="relative w-full max-w-2xl bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
-              <div className="px-6 pt-6 pb-4">
-                <h2 className="text-[22px] leading-7 font-normal text-foreground">New contact</h2>
-              </div>
-              <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-4">
-                {/* Basics */}
-                <div>
-                  <label className={labelClasses}>Name *</label>
-                  <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className={inputClasses} placeholder="Full name" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelClasses}>Status</label>
-                    <div className="inline-flex rounded-full border border-outline overflow-hidden">
-                      {[{ value: "student", label: "Student" }, { value: "professional", label: "Professional" }].map((opt, idx) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => {
-                            const newStatus = formData.contact_status === opt.value ? "" : opt.value;
-                            setFormData({ ...formData, contact_status: newStatus });
-                            if (opt.value === "student" && newStatus === "student") setShowEducation(true);
-                            else if (newStatus !== "student") {
-                              if (!formData.school_name.trim() && !formData.degree.trim() && !formData.field_of_study.trim()) setShowEducation(false);
-                            }
-                          }}
-                          className={`flex-1 h-10 px-4 text-sm font-medium cursor-pointer transition-colors inline-flex items-center justify-center gap-1.5 ${idx > 0 ? "border-l border-outline" : ""} ${
-                            formData.contact_status === opt.value
-                              ? "bg-secondary-container text-on-secondary-container"
-                              : "bg-transparent text-foreground hover:bg-surface-container"
-                          }`}
-                        >
-                          {formData.contact_status === opt.value && <Check className="h-4 w-4" />}
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className={labelClasses}>Industry</label>
-                    <input type="text" value={formData.industry} onChange={(e) => setFormData({ ...formData, industry: e.target.value })} className={inputClasses} placeholder="e.g. Technology" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className={labelClasses}>City</label>
-                    <input type="text" value={formData.location_city} onChange={(e) => setFormData({ ...formData, location_city: e.target.value })} className={inputClasses} placeholder="e.g. San Francisco" />
-                  </div>
-                  <div>
-                    <label className={labelClasses}>State</label>
-                    <StateSelect country={formData.location_country} value={formData.location_state} onChange={(val) => setFormData({ ...formData, location_state: val })} />
-                  </div>
-                  <div>
-                    <label className={labelClasses}>Country</label>
-                    <input type="text" value={formData.location_country} onChange={(e) => setFormData({ ...formData, location_country: e.target.value })} className={inputClasses} placeholder="e.g. United States" />
-                  </div>
-                </div>
-                <div>
-                  <label className={labelClasses}>Met at</label>
-                  <input type="text" value={formData.met_through} onChange={(e) => setFormData({ ...formData, met_through: e.target.value })} className={inputClasses} placeholder="e.g. Conference, mutual friend" />
-                </div>
-
-                {/* Work */}
-                <div className="pt-2 border-t border-outline-variant">
-                  <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><Briefcase className="h-3.5 w-3.5" /> Work experience</label>
-                  {companies.map((entry, i) => (
-                    <div key={i} className="mb-3 p-3 rounded-[12px] bg-surface-container-low space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex gap-2">
-                          {(["current", "past"] as const).map((type) => (
-                            <button key={type} type="button" onClick={() => { const u = [...companies]; u[i] = { ...u[i], is_current: type === "current" }; setCompanies(u); }}
-                              className={`h-8 px-3 rounded-full text-xs font-medium cursor-pointer transition-colors border ${(type === "current" ? entry.is_current : !entry.is_current) ? "bg-secondary-container text-on-secondary-container border-secondary-container" : "bg-transparent text-foreground border-outline-variant hover:bg-surface-container"}`}>
-                              {type === "current" ? "Current" : "Past"}
-                            </button>
-                          ))}
-                        </div>
-                        <button type="button" onClick={() => setCompanies(companies.filter((_, j) => j !== i))} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <input type="text" value={entry.company_name} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], company_name: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Company name" />
-                        <input type="text" value={entry.title} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], title: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Job title" />
-                      </div>
-                      <input type="text" value={entry.location} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], location: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Location (e.g., San Francisco, CA)" />
-                      <div className="grid grid-cols-2 gap-2">
-                        <input type="text" value={entry.start_month} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], start_month: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Start (e.g., Jan 2023)" />
-                        {!entry.is_current ? (
-                          <input type="text" value={entry.end_month} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], end_month: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="End (e.g., Dec 2024)" />
-                        ) : (
-                          <div className={`${inputClasses} !h-11 flex items-center text-muted-foreground`}>Present</div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  <Button type="button" variant="tonal" size="sm" onClick={() => setCompanies([...companies, { company_name: "", title: "", location: "", is_current: true, start_month: "", end_month: "" }])}>
-                    <Plus className="h-4 w-4" /> Add company
-                  </Button>
-                </div>
-
-                {/* Education */}
-                <div className="pt-2 border-t border-outline-variant">
-                  {(showEducation || formData.contact_status === "student") ? (
-                    <>
-                      <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><GraduationCap className="h-3.5 w-3.5" /> Education</label>
-                      <div className="space-y-3">
-                        <div>
-                          <label className={labelClasses}>School</label>
-                          <SchoolAutocomplete value={formData.school_name} onChange={(val) => setFormData({ ...formData, school_name: val })} className={inputClasses} />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className={labelClasses}>Degree</label>
-                            <DegreeAutocomplete value={formData.degree} onChange={(val) => setFormData({ ...formData, degree: val })} className={inputClasses} />
-                          </div>
-                          <div>
-                            <label className={labelClasses}>Field of study</label>
-                            <input type="text" value={formData.field_of_study} onChange={(e) => setFormData({ ...formData, field_of_study: e.target.value })} className={inputClasses} placeholder="e.g. Computer Science" />
-                          </div>
-                        </div>
-                        {formData.contact_status === "student" && (
-                          <div>
-                            <label className={labelClasses}>Expected graduation</label>
-                            <MonthYearPicker value={formData.expected_graduation} onChange={(val) => setFormData({ ...formData, expected_graduation: val })} placeholder="Select graduation month" ariaLabel="Expected graduation" />
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <Button type="button" variant="tonal" size="sm" onClick={() => setShowEducation(true)}>
-                      <GraduationCap className="h-4 w-4" /> Add education
-                    </Button>
-                  )}
-                </div>
-
-                {/* Emails */}
-                <div className="pt-2 border-t border-outline-variant">
-                  <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><Mail className="h-3.5 w-3.5" /> Emails</label>
-                  {emails.map((entry, i) => (
-                    <div key={i} className="flex items-center gap-2 mb-2">
-                      <input type="email" value={entry.email} onChange={(e) => { const u = [...emails]; u[i] = { ...u[i], email: e.target.value }; setEmails(u); }} className={`${inputClasses} !h-11 flex-1`} placeholder="email@example.com" />
-                      <Checkbox checked={preferredContactKey === `email-${i}`} onChange={(checked) => setPreferredContactKey(checked ? `email-${i}` : "")} label="Preferred" />
-                      <button type="button" onClick={() => {
-                        if (preferredContactKey === `email-${i}`) setPreferredContactKey("");
-                        else if (preferredContactKey.startsWith("email-")) { const oldIdx = parseInt(preferredContactKey.split("-")[1]); if (oldIdx > i) setPreferredContactKey(`email-${oldIdx - 1}`); }
-                        setEmails(emails.filter((_, j) => j !== i));
-                      }} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
-                    </div>
-                  ))}
-                  <Button type="button" variant="tonal" size="sm" onClick={() => setEmails([...emails, { email: "", is_primary: emails.length === 0 }])}>
-                    <Plus className="h-4 w-4" /> Add email
-                  </Button>
-                </div>
-
-                {/* Phones */}
-                <div className="pt-2 border-t border-outline-variant">
-                  <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><Phone className="h-3.5 w-3.5" /> Phones</label>
-                  {phones.map((entry, i) => (
-                    <div key={i} className="flex items-center gap-2 mb-2">
-                      <input type="tel" value={entry.phone} onChange={(e) => { const u = [...phones]; u[i] = { ...u[i], phone: e.target.value }; setPhones(u); }} className={`${inputClasses} !h-11 flex-1`} placeholder="555-123-4567" />
-                      <div className="shrink-0 w-[100px]">
-                        <Select value={entry.type} onChange={(val) => { const u = [...phones]; u[i] = { ...u[i], type: val }; setPhones(u); }} options={[{ value: "mobile", label: "Mobile" }, { value: "work", label: "Work" }, { value: "home", label: "Home" }]} ariaLabel={`Phone ${i + 1} type`} />
-                      </div>
-                      <Checkbox checked={preferredContactKey === `phone-${i}`} onChange={(checked) => setPreferredContactKey(checked ? `phone-${i}` : "")} label="Preferred" />
-                      <button type="button" onClick={() => {
-                        if (preferredContactKey === `phone-${i}`) setPreferredContactKey("");
-                        else if (preferredContactKey.startsWith("phone-")) { const oldIdx = parseInt(preferredContactKey.split("-")[1]); if (oldIdx > i) setPreferredContactKey(`phone-${oldIdx - 1}`); }
-                        setPhones(phones.filter((_, j) => j !== i));
-                      }} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
-                    </div>
-                  ))}
-                  <Button type="button" variant="tonal" size="sm" onClick={() => setPhones([...phones, { phone: "", type: "mobile", is_primary: phones.length === 0 }])}>
-                    <Plus className="h-4 w-4" /> Add phone
-                  </Button>
-                </div>
-
-                {/* Tags */}
-                <div className="pt-2 border-t border-outline-variant">
-                  <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><Tag className="h-3.5 w-3.5" /> Tags</label>
-                  {selectedTagIds.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {selectedTagIds.map((tagId) => {
-                        const tag = allTags.find((t) => t.id === tagId);
-                        return tag ? (
-                          <span key={tagId} className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium">
-                            {tag.name}
-                            <button type="button" onClick={() => setSelectedTagIds(selectedTagIds.filter((id) => id !== tagId))} className="p-0.5 rounded-full hover:bg-on-secondary-container/10 cursor-pointer"><X className="h-3 w-3" /></button>
-                          </span>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
-                  <div className="relative">
-                    <input type="text" value={tagSearch} onChange={(e) => { setTagSearch(e.target.value); setShowTagDropdown(true); }} onFocus={() => setShowTagDropdown(true)} className={`${inputClasses} !h-11`} placeholder="Search or create tags…" />
-                    {showTagDropdown && tagSearch.trim() && (
-                      <div className="absolute z-50 mt-1 w-full bg-white rounded-[12px] border border-outline-variant shadow-lg max-h-48 overflow-y-auto py-1">
-                        {allTags.filter((t) => t.name.toLowerCase().includes(tagSearch.toLowerCase()) && !selectedTagIds.includes(t.id)).map((tag) => (
-                          <button key={tag.id} type="button" onClick={() => { setSelectedTagIds([...selectedTagIds, tag.id]); setTagSearch(""); setShowTagDropdown(false); }} className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container cursor-pointer">{tag.name}</button>
-                        ))}
-                        {!allTags.some((t) => t.name.toLowerCase() === tagSearch.trim().toLowerCase()) && (
-                          <button type="button" onClick={async () => {
-                            if (!user) return;
-                            await withToastOnError(async () => {
-                              const newTag = await createTag({ user_id: user.id, name: tagSearch.trim() });
-                              setAllTags([...allTags, newTag]);
-                              setSelectedTagIds([...selectedTagIds, newTag.id]);
-                              setTagSearch(""); setShowTagDropdown(false);
-                            }, toastError, "Couldn't create that tag. Please try again.");
-                          }} className="w-full text-left px-4 py-2.5 text-sm text-primary font-medium hover:bg-surface-container cursor-pointer">
-                            Create &ldquo;{tagSearch.trim()}&rdquo;
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* LinkedIn */}
-                <div className="pt-2 border-t border-outline-variant">
-                  <label className={labelClasses}>LinkedIn URL</label>
-                  <input type="url" value={formData.linkedin_url} onChange={(e) => setFormData({ ...formData, linkedin_url: e.target.value })} className={inputClasses} placeholder="https://linkedin.com/in/..." />
-                </div>
-
-                {/* Follow-up */}
-                <div className="pt-2 border-t border-outline-variant">
-                  <label className={labelClasses}>Follow-up frequency</label>
-                  <Select
-                    ariaLabel="Follow-up frequency"
-                    value={showCustomFrequency ? "custom" : FOLLOW_UP_OPTIONS.find((o) => o.days === Number(formData.follow_up_frequency_days)) ? formData.follow_up_frequency_days : formData.follow_up_frequency_days ? "custom" : ""}
-                    onChange={(val) => {
-                      if (val === "custom") { setShowCustomFrequency(true); setFormData({ ...formData, follow_up_frequency_days: "" }); }
-                      else { setShowCustomFrequency(false); setFormData({ ...formData, follow_up_frequency_days: val }); }
+        <Modal
+          isOpen={showForm}
+          onClose={closeForm}
+          title="New contact"
+          size="lg"
+          hasUnsavedChanges={hasUnsavedChanges}
+        >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Basics */}
+          <div>
+            <label className={labelClasses}>Name *</label>
+            <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className={inputClasses} placeholder="Full name" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClasses}>Status</label>
+              <div className="inline-flex rounded-full border border-outline overflow-hidden">
+                {[{ value: "student", label: "Student" }, { value: "professional", label: "Professional" }].map((opt, idx) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      const newStatus = formData.contact_status === opt.value ? "" : opt.value;
+                      setFormData({ ...formData, contact_status: newStatus });
+                      if (opt.value === "student" && newStatus === "student") setShowEducation(true);
+                      else if (newStatus !== "student") {
+                        if (!formData.school_name.trim() && !formData.degree.trim() && !formData.field_of_study.trim()) setShowEducation(false);
+                      }
                     }}
-                    placeholder="No follow-up"
-                    options={[{ value: "", label: "No follow-up" }, ...FOLLOW_UP_OPTIONS.map((o) => ({ value: o.days === -1 ? "custom" : String(o.days), label: o.label }))]}
-                  />
-                  {(showCustomFrequency || (formData.follow_up_frequency_days && !FOLLOW_UP_OPTIONS.find((o) => o.days === Number(formData.follow_up_frequency_days)))) && (
-                    <input type="number" value={formData.follow_up_frequency_days} onChange={(e) => setFormData({ ...formData, follow_up_frequency_days: e.target.value })} className={`${inputClasses} mt-2`} placeholder="Number of days" min="1" autoFocus />
-                  )}
-                </div>
-
-                {/* Notes */}
-                <div className="pt-2 border-t border-outline-variant">
-                  <label className={labelClasses}>Notes</label>
-                  <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className={`${inputClasses} !h-auto py-3`} rows={3} placeholder="Anything worth remembering…" />
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button type="button" variant="text" onClick={closeForm} disabled={submitting}>Cancel</Button>
-                  <Button type="submit" loading={submitting} disabled={submitting}>Create</Button>
-                </div>
-              </form>
+                    className={`flex-1 h-10 px-4 text-sm font-medium cursor-pointer transition-colors inline-flex items-center justify-center gap-1.5 ${idx > 0 ? "border-l border-outline" : ""} ${
+                      formData.contact_status === opt.value
+                        ? "bg-secondary-container text-on-secondary-container"
+                        : "bg-transparent text-foreground hover:bg-surface-container"
+                    }`}
+                  >
+                    {formData.contact_status === opt.value && <Check className="h-4 w-4" />}
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className={labelClasses}>Industry</label>
+              <input type="text" value={formData.industry} onChange={(e) => setFormData({ ...formData, industry: e.target.value })} className={inputClasses} placeholder="e.g. Technology" />
             </div>
           </div>
-        )}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className={labelClasses}>City</label>
+              <input type="text" value={formData.location_city} onChange={(e) => setFormData({ ...formData, location_city: e.target.value })} className={inputClasses} placeholder="e.g. San Francisco" />
+            </div>
+            <div>
+              <label className={labelClasses}>State</label>
+              <StateSelect country={formData.location_country} value={formData.location_state} onChange={(val) => setFormData({ ...formData, location_state: val })} />
+            </div>
+            <div>
+              <label className={labelClasses}>Country</label>
+              <input type="text" value={formData.location_country} onChange={(e) => setFormData({ ...formData, location_country: e.target.value })} className={inputClasses} placeholder="e.g. United States" />
+            </div>
+          </div>
+          <div>
+            <label className={labelClasses}>Met at</label>
+            <input type="text" value={formData.met_through} onChange={(e) => setFormData({ ...formData, met_through: e.target.value })} className={inputClasses} placeholder="e.g. Conference, mutual friend" />
+          </div>
+
+          {/* Work */}
+          <div className="pt-2 border-t border-outline-variant">
+            <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><Briefcase className="h-3.5 w-3.5" /> Work experience</label>
+            {companies.map((entry, i) => (
+              <div key={i} className="mb-3 p-3 rounded-[12px] bg-surface-container-low space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-2">
+                    {(["current", "past"] as const).map((type) => (
+                      <button key={type} type="button" onClick={() => { const u = [...companies]; u[i] = { ...u[i], is_current: type === "current" }; setCompanies(u); }}
+                        className={`h-8 px-3 rounded-full text-xs font-medium cursor-pointer transition-colors border ${(type === "current" ? entry.is_current : !entry.is_current) ? "bg-secondary-container text-on-secondary-container border-secondary-container" : "bg-transparent text-foreground border-outline-variant hover:bg-surface-container"}`}>
+                        {type === "current" ? "Current" : "Past"}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setCompanies(companies.filter((_, j) => j !== i))} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" value={entry.company_name} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], company_name: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Company name" />
+                  <input type="text" value={entry.title} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], title: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Job title" />
+                </div>
+                <input type="text" value={entry.location} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], location: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Location (e.g., San Francisco, CA)" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" value={entry.start_month} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], start_month: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="Start (e.g., Jan 2023)" />
+                  {!entry.is_current ? (
+                    <input type="text" value={entry.end_month} onChange={(e) => { const u = [...companies]; u[i] = { ...u[i], end_month: e.target.value }; setCompanies(u); }} className={`${inputClasses} !h-11`} placeholder="End (e.g., Dec 2024)" />
+                  ) : (
+                    <div className={`${inputClasses} !h-11 flex items-center text-muted-foreground`}>Present</div>
+                  )}
+                </div>
+              </div>
+            ))}
+            <Button type="button" variant="tonal" size="sm" onClick={() => setCompanies([...companies, { company_name: "", title: "", location: "", is_current: true, start_month: "", end_month: "" }])}>
+              <Plus className="h-4 w-4" /> Add company
+            </Button>
+          </div>
+
+          {/* Education */}
+          <div className="pt-2 border-t border-outline-variant">
+            {(showEducation || formData.contact_status === "student") ? (
+              <>
+                <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><GraduationCap className="h-3.5 w-3.5" /> Education</label>
+                <div className="space-y-3">
+                  <div>
+                    <label className={labelClasses}>School</label>
+                    <SchoolAutocomplete value={formData.school_name} onChange={(val) => setFormData({ ...formData, school_name: val })} className={inputClasses} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelClasses}>Degree</label>
+                      <DegreeAutocomplete value={formData.degree} onChange={(val) => setFormData({ ...formData, degree: val })} className={inputClasses} />
+                    </div>
+                    <div>
+                      <label className={labelClasses}>Field of study</label>
+                      <input type="text" value={formData.field_of_study} onChange={(e) => setFormData({ ...formData, field_of_study: e.target.value })} className={inputClasses} placeholder="e.g. Computer Science" />
+                    </div>
+                  </div>
+                  {formData.contact_status === "student" && (
+                    <div>
+                      <label className={labelClasses}>Expected graduation</label>
+                      <MonthYearPicker value={formData.expected_graduation} onChange={(val) => setFormData({ ...formData, expected_graduation: val })} placeholder="Select graduation month" ariaLabel="Expected graduation" />
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <Button type="button" variant="tonal" size="sm" onClick={() => setShowEducation(true)}>
+                <GraduationCap className="h-4 w-4" /> Add education
+              </Button>
+            )}
+          </div>
+
+          {/* Emails */}
+          <div className="pt-2 border-t border-outline-variant">
+            <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><Mail className="h-3.5 w-3.5" /> Emails</label>
+            {emails.map((entry, i) => (
+              <div key={i} className="flex items-center gap-2 mb-2">
+                <input type="email" value={entry.email} onChange={(e) => { const u = [...emails]; u[i] = { ...u[i], email: e.target.value }; setEmails(u); }} className={`${inputClasses} !h-11 flex-1`} placeholder="email@example.com" />
+                <Checkbox checked={preferredContactKey === `email-${i}`} onChange={(checked) => setPreferredContactKey(checked ? `email-${i}` : "")} label="Preferred" />
+                <button type="button" onClick={() => {
+                  if (preferredContactKey === `email-${i}`) setPreferredContactKey("");
+                  else if (preferredContactKey.startsWith("email-")) { const oldIdx = parseInt(preferredContactKey.split("-")[1]); if (oldIdx > i) setPreferredContactKey(`email-${oldIdx - 1}`); }
+                  setEmails(emails.filter((_, j) => j !== i));
+                }} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            ))}
+            <Button type="button" variant="tonal" size="sm" onClick={() => setEmails([...emails, { email: "", is_primary: emails.length === 0 }])}>
+              <Plus className="h-4 w-4" /> Add email
+            </Button>
+          </div>
+
+          {/* Phones */}
+          <div className="pt-2 border-t border-outline-variant">
+            <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><Phone className="h-3.5 w-3.5" /> Phones</label>
+            {phones.map((entry, i) => (
+              <div key={i} className="flex items-center gap-2 mb-2">
+                <input type="tel" value={entry.phone} onChange={(e) => { const u = [...phones]; u[i] = { ...u[i], phone: e.target.value }; setPhones(u); }} className={`${inputClasses} !h-11 flex-1`} placeholder="555-123-4567" />
+                <div className="shrink-0 w-[100px]">
+                  <Select value={entry.type} onChange={(val) => { const u = [...phones]; u[i] = { ...u[i], type: val }; setPhones(u); }} options={[{ value: "mobile", label: "Mobile" }, { value: "work", label: "Work" }, { value: "home", label: "Home" }]} ariaLabel={`Phone ${i + 1} type`} />
+                </div>
+                <Checkbox checked={preferredContactKey === `phone-${i}`} onChange={(checked) => setPreferredContactKey(checked ? `phone-${i}` : "")} label="Preferred" />
+                <button type="button" onClick={() => {
+                  if (preferredContactKey === `phone-${i}`) setPreferredContactKey("");
+                  else if (preferredContactKey.startsWith("phone-")) { const oldIdx = parseInt(preferredContactKey.split("-")[1]); if (oldIdx > i) setPreferredContactKey(`phone-${oldIdx - 1}`); }
+                  setPhones(phones.filter((_, j) => j !== i));
+                }} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            ))}
+            <Button type="button" variant="tonal" size="sm" onClick={() => setPhones([...phones, { phone: "", type: "mobile", is_primary: phones.length === 0 }])}>
+              <Plus className="h-4 w-4" /> Add phone
+            </Button>
+          </div>
+
+          {/* Tags */}
+          <div className="pt-2 border-t border-outline-variant">
+            <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><Tag className="h-3.5 w-3.5" /> Tags</label>
+            {selectedTagIds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {selectedTagIds.map((tagId) => {
+                  const tag = allTags.find((t) => t.id === tagId);
+                  return tag ? (
+                    <span key={tagId} className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full bg-secondary-container text-xs text-on-secondary-container font-medium">
+                      {tag.name}
+                      <button type="button" onClick={() => setSelectedTagIds(selectedTagIds.filter((id) => id !== tagId))} className="p-0.5 rounded-full hover:bg-on-secondary-container/10 cursor-pointer"><X className="h-3 w-3" /></button>
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            )}
+            <div className="relative">
+              <input type="text" value={tagSearch} onChange={(e) => { setTagSearch(e.target.value); setShowTagDropdown(true); }} onFocus={() => setShowTagDropdown(true)} className={`${inputClasses} !h-11`} placeholder="Search or create tags…" />
+              {showTagDropdown && tagSearch.trim() && (
+                <div className="absolute z-50 mt-1 w-full bg-white rounded-[12px] border border-outline-variant shadow-lg max-h-48 overflow-y-auto py-1">
+                  {allTags.filter((t) => t.name.toLowerCase().includes(tagSearch.toLowerCase()) && !selectedTagIds.includes(t.id)).map((tag) => (
+                    <button key={tag.id} type="button" onClick={() => { setSelectedTagIds([...selectedTagIds, tag.id]); setTagSearch(""); setShowTagDropdown(false); }} className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container cursor-pointer">{tag.name}</button>
+                  ))}
+                  {!allTags.some((t) => t.name.toLowerCase() === tagSearch.trim().toLowerCase()) && (
+                    <button type="button" onClick={async () => {
+                      if (!user) return;
+                      await withToastOnError(async () => {
+                        const newTag = await createTag({ user_id: user.id, name: tagSearch.trim() });
+                        setAllTags([...allTags, newTag]);
+                        setSelectedTagIds([...selectedTagIds, newTag.id]);
+                        setTagSearch(""); setShowTagDropdown(false);
+                      }, toastError, "Couldn't create that tag. Please try again.");
+                    }} className="w-full text-left px-4 py-2.5 text-sm text-primary font-medium hover:bg-surface-container cursor-pointer">
+                      Create &ldquo;{tagSearch.trim()}&rdquo;
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* LinkedIn */}
+          <div className="pt-2 border-t border-outline-variant">
+            <label className={labelClasses}>LinkedIn URL</label>
+            <input type="url" value={formData.linkedin_url} onChange={(e) => setFormData({ ...formData, linkedin_url: e.target.value })} className={inputClasses} placeholder="https://linkedin.com/in/..." />
+          </div>
+
+          {/* Follow-up */}
+          <div className="pt-2 border-t border-outline-variant">
+            <label className={labelClasses}>Follow-up frequency</label>
+            <Select
+              ariaLabel="Follow-up frequency"
+              value={showCustomFrequency ? "custom" : FOLLOW_UP_OPTIONS.find((o) => o.days === Number(formData.follow_up_frequency_days)) ? formData.follow_up_frequency_days : formData.follow_up_frequency_days ? "custom" : ""}
+              onChange={(val) => {
+                if (val === "custom") { setShowCustomFrequency(true); setFormData({ ...formData, follow_up_frequency_days: "" }); }
+                else { setShowCustomFrequency(false); setFormData({ ...formData, follow_up_frequency_days: val }); }
+              }}
+              placeholder="No follow-up"
+              options={[{ value: "", label: "No follow-up" }, ...FOLLOW_UP_OPTIONS.map((o) => ({ value: o.days === -1 ? "custom" : String(o.days), label: o.label }))]}
+            />
+            {(showCustomFrequency || (formData.follow_up_frequency_days && !FOLLOW_UP_OPTIONS.find((o) => o.days === Number(formData.follow_up_frequency_days)))) && (
+              <input type="number" value={formData.follow_up_frequency_days} onChange={(e) => setFormData({ ...formData, follow_up_frequency_days: e.target.value })} className={`${inputClasses} mt-2`} placeholder="Number of days" min="1" autoFocus />
+            )}
+          </div>
+
+          {/* Notes */}
+          <div className="pt-2 border-t border-outline-variant">
+            <label className={labelClasses}>Notes</label>
+            <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className={`${inputClasses} !h-auto py-3`} rows={3} placeholder="Anything worth remembering…" />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <ModalCancelButton disabled={submitting} />
+            <Button type="submit" loading={submitting} disabled={submitting}>Create</Button>
+          </div>
+        </form>
+        </Modal>
       </div>
     </div>
   );

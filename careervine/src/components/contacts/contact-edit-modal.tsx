@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { DegreeAutocomplete } from "@/components/ui/degree-autocomplete";
-import { Modal, useModalDismiss } from "@/components/ui/modal";
+import { Modal, ModalCancelButton } from "@/components/ui/modal";
 import {
   updateContact, findOrCreateSchool, addSchoolToContact,
   removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact, resolveManualCompanyLocation,
@@ -59,18 +59,6 @@ export function serializeForm(snapshot: FormSnapshot): string {
     snapshot.preferredContactKey,
     [...snapshot.selectedTagIds].sort((a, b) => a - b),
   ]);
-}
-
-/**
- * Lives inside <Modal> so it can reach the dialog's unsaved-changes guard. Wiring
- * Cancel straight to `onClose` from the parent would skip the confirmation that
- * the scrim, Escape and the X all honour.
- */
-function CancelButton({ disabled }: { disabled: boolean }) {
-  const dismiss = useModalDismiss();
-  return (
-    <Button type="button" variant="text" onClick={dismiss} disabled={disabled}>Cancel</Button>
-  );
 }
 
 interface ContactEditModalProps {
@@ -613,7 +601,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
               className={`${inputClasses} mt-2`}
               placeholder="Number of days"
               min="1"
-              autoFocus
+              data-autofocus
             />
           )}
         </div>
@@ -633,7 +621,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
             Delete contact
           </button>
           <div className="flex gap-2">
-            <CancelButton disabled={saving} />
+            <ModalCancelButton disabled={saving} />
             <Button type="submit" loading={saving} disabled={saving}>Save</Button>
           </div>
         </div>

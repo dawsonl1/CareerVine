@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Modal, ModalCancelButton } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
@@ -48,6 +49,22 @@ export function ContactTimelineTab({
   const [editingInteraction, setEditingInteraction] = useState<InteractionRow | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [interactionForm, setInteractionForm] = useState({ interaction_date: "", interaction_type: "", summary: "" });
+  const [saving, setSaving] = useState(false);
+
+  const closeEditModal = useCallback(() => {
+    setShowEditModal(false);
+    setEditingInteraction(null);
+  }, []);
+
+  // The pristine value is the row being edited, so no snapshot state is needed.
+  // Gated on `saving`: mid-save the form is legitimately dirty, and offering to
+  // discard a write already in flight would be a lie.
+  const hasUnsavedChanges =
+    !saving &&
+    !!editingInteraction &&
+    (interactionForm.interaction_date !== editingInteraction.interaction_date ||
+      interactionForm.interaction_type !== editingInteraction.interaction_type ||
+      interactionForm.summary !== (editingInteraction.summary || ""));
 
   const entries: TimelineEntry[] = [
     ...meetings.map((m) => ({ kind: "meeting" as const, date: m.meeting_date, data: m })),
@@ -68,6 +85,7 @@ export function ContactTimelineTab({
 
   const handleSaveInteraction = async () => {
     if (!editingInteraction) return;
+    setSaving(true);
     try {
       await updateInteraction(editingInteraction.id, {
         interaction_date: interactionForm.interaction_date,
@@ -76,10 +94,11 @@ export function ContactTimelineTab({
       });
       const updated = await getInteractions(contactId);
       onInteractionsChange(updated);
-      setShowEditModal(false);
-      setEditingInteraction(null);
+      closeEditModal();
     } catch (err) {
       console.error("Error saving interaction:", err);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -225,71 +244,67 @@ export function ContactTimelineTab({
       )}
 
       {/* Interaction edit modal */}
-      {showEditModal && editingInteraction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/32" onClick={() => setShowEditModal(false)} />
-          <div className="relative w-full max-w-lg bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-y-auto">
-            <div className="px-6 pt-6 pb-4">
-              <h2 className="text-[22px] leading-7 font-normal text-foreground">
-                Edit interaction
-              </h2>
+      <Modal
+        isOpen={showEditModal && !!editingInteraction}
+        onClose={closeEditModal}
+        title="Edit interaction"
+        hasUnsavedChanges={hasUnsavedChanges}
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClasses}>Date & Time *</label>
+              <input
+                type="datetime-local"
+                required
+                value={interactionForm.interaction_date}
+                onChange={(e) => setInteractionForm({ ...interactionForm, interaction_date: e.target.value })}
+                className={inputClasses}
+              />
             </div>
-            <div className="px-6 pb-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClasses}>Date & Time *</label>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={interactionForm.interaction_date}
-                    onChange={(e) => setInteractionForm({ ...interactionForm, interaction_date: e.target.value })}
-                    className={inputClasses}
-                  />
-                </div>
-                <div>
-                  <label className={labelClasses}>Type *</label>
-                  <Select
-                    ariaLabel="Interaction type"
-                    value={interactionForm.interaction_type}
-                    onChange={(val) => setInteractionForm({ ...interactionForm, interaction_type: val })}
-                    placeholder="Select..."
-                    options={[
-                      { value: "email", label: "Email" },
-                      { value: "phone", label: "Phone Call" },
-                      { value: "video", label: "Video Call" },
-                      { value: "coffee", label: "Coffee Chat" },
-                      { value: "lunch", label: "Lunch/Dinner" },
-                      { value: "conference", label: "Conference" },
-                      { value: "social", label: "Social Media" },
-                      { value: "other", label: "Other" },
-                    ]}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className={labelClasses}>Summary</label>
-                <textarea
-                  value={interactionForm.summary}
-                  onChange={(e) => setInteractionForm({ ...interactionForm, summary: e.target.value })}
-                  className={`${inputClasses} !h-auto py-3`}
-                  rows={4}
-                  placeholder="What was discussed? Key takeaways?"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="text" onClick={() => setShowEditModal(false)}>Cancel</Button>
-                <Button
-                  type="button"
-                  disabled={!interactionForm.interaction_date || !interactionForm.interaction_type}
-                  onClick={handleSaveInteraction}
-                >
-                  Save
-                </Button>
-              </div>
+            <div>
+              <label className={labelClasses}>Type *</label>
+              <Select
+                ariaLabel="Interaction type"
+                value={interactionForm.interaction_type}
+                onChange={(val) => setInteractionForm({ ...interactionForm, interaction_type: val })}
+                placeholder="Select..."
+                options={[
+                  { value: "email", label: "Email" },
+                  { value: "phone", label: "Phone Call" },
+                  { value: "video", label: "Video Call" },
+                  { value: "coffee", label: "Coffee Chat" },
+                  { value: "lunch", label: "Lunch/Dinner" },
+                  { value: "conference", label: "Conference" },
+                  { value: "social", label: "Social Media" },
+                  { value: "other", label: "Other" },
+                ]}
+              />
             </div>
           </div>
+          <div>
+            <label className={labelClasses}>Summary</label>
+            <textarea
+              value={interactionForm.summary}
+              onChange={(e) => setInteractionForm({ ...interactionForm, summary: e.target.value })}
+              className={`${inputClasses} !h-auto py-3`}
+              rows={4}
+              placeholder="What was discussed? Key takeaways?"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <ModalCancelButton disabled={saving} />
+            <Button
+              type="button"
+              disabled={!interactionForm.interaction_date || !interactionForm.interaction_type || saving}
+              loading={saving}
+              onClick={handleSaveInteraction}
+            >
+              Save
+            </Button>
+          </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

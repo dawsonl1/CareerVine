@@ -3,6 +3,23 @@
 /**
  * M3 Dialog / Modal component
  *
+ * Two layers live here (CAR-197):
+ *
+ *   `DialogSurface` is what makes something a dialog — the trap, the layer
+ *   registration, Escape, the ARIA, the unsaved-changes guard, and the portal
+ *   context. It renders whatever chrome the caller hands it.
+ *
+ *   `Modal` is the M3 chrome — scrim, 28px surface, headline row with a close X,
+ *   padded scrolling body — over a `DialogSurface`. Most dialogs want this one.
+ *
+ * The split exists because four dialogs cannot use `Modal`'s chrome and were
+ * hand-rolled instead, which is how they ended up with no trap and no dialog
+ * semantics at all. Compose and follow-up are header / scrolling middle / sticky
+ * footer, which `Modal`'s single scrolling body cannot express; the conversation
+ * modal is a bottom sheet on mobile; guided onboarding is deliberately not
+ * dismissible. Each of those now supplies its own chrome to `DialogSurface`
+ * rather than re-deriving what a dialog is.
+ *
  * Follows Material Design 3 dialog specs:
  *   - Scrim overlay at 32 % opacity
  *   - surface-container-high background
@@ -39,6 +56,7 @@ import {
   useState,
 } from "react";
 import { X } from "lucide-react";
+import { Button, type ButtonProps } from "@/components/ui/button";
 
 /**
  * Elements that can hold keyboard focus.
@@ -124,8 +142,17 @@ export function useFocusTrap(active: boolean, returnFocusFallback?: HTMLElement 
     // Whatever opened this layer: the page's trigger for the modal, or a control
     // inside the modal for the confirm dialog.
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    const [firstTabbable] = tabbableWithin(surface);
-    (firstTabbable ?? surface).focus();
+    const tabbables = tabbableWithin(surface);
+    // `data-autofocus` names the control a form dialog should open on, the way
+    // native `<dialog>.showModal()` honours `autofocus`. React's `autoFocus` prop
+    // cannot serve here: React strips the attribute and calls `.focus()` itself
+    // during commit, so nothing is left in the DOM to find and this effect —
+    // which runs after — silently focused the close button instead. That had been
+    // true of every `autoFocus` inside a Modal since the trap landed (CAR-197).
+    // Read off the tabbable set rather than queried directly, so a marker on a
+    // hidden or disabled control falls through instead of black-holing focus.
+    const preferred = tabbables.find((el) => el.hasAttribute("data-autofocus"));
+    (preferred ?? tabbables[0] ?? surface).focus();
 
     return () => {
       // isConnected skips a trigger that unmounted along with the dialog. It also
@@ -278,7 +305,12 @@ export function useModalDismiss(): () => void {
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
-  title?: string;
+  /**
+   * The headline, and the dialog's accessible name. A ReactNode rather than a
+   * string because a headline sometimes carries a badge alongside its text —
+   * the action-items detail dialog is title plus priority chip.
+   */
+  title?: ReactNode;
   children: ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
   /**
@@ -361,18 +393,87 @@ function ConfirmDiscardDialog({
 
 export { ConfirmDiscardDialog };
 
-export function Modal({
+interface DialogSurfaceProps {
+  isOpen: boolean;
+  /** Close for real. Reached only after the unsaved-changes guard, if any. */
+  onClose: () => void;
+  /** The dialog's content, chrome included. Rendered inside the surface. */
+  children: ReactNode;
+  /**
+   * `alertdialog` for a surface that interrupts the user for a consequential
+   * decision, which is the distinction APG draws between the two.
+   */
+  role?: "dialog" | "alertdialog";
+  /** Id of the heading that names this dialog. Preferred over `label`. */
+  labelledBy?: string;
+  /** Accessible name when there is no heading to point at. Ignored if `labelledBy` is set. */
+  label?: string;
+  /** Id of the element describing it, for an alertdialog's message. */
+  describedBy?: string;
+  /**
+   * Whether the *ambient* dismissal gestures are live: scrim click and Escape.
+   * False for a flow that owns its own exits — guided onboarding, where landing
+   * on the scrim must not throw away the run. A child calling `useModalDismiss()`
+   * still closes, because that is a deliberate action rather than a stray gesture.
+   */
+  dismissible?: boolean;
+  /** When true, every dismissal path routes through a discard confirmation. */
+  hasUnsavedChanges?: boolean;
+  confirmMessage?: string;
+  /** Layer, alignment and padding. The z-index of the whole dialog lives here. */
+  wrapperClassName?: string;
+  /** Scrim tint. */
+  scrimClassName?: string;
+  /** The surface itself: width, background, radius, and how it scrolls. */
+  className?: string;
+  /**
+   * Rendered as a DOM *sibling* of the surface, for a nested dialog of the
+   * caller's own — onboarding's exit guard is the live one. Sibling rather than
+   * child is load-bearing: see the note on the trap above. A nested dialog
+   * rendered inside `children` would have its keydowns bubble through this
+   * surface's handler and the two traps would fight.
+   */
+  overlay?: ReactNode;
+  /** Test hook on the surface, for a caller whose tests already query one. */
+  testId?: string;
+}
+
+/**
+ * Everything that makes an overlay a dialog, with none of the chrome.
+ *
+ * Owns the focus trap, the dismissal-layer registration (topmost-only Escape plus
+ * the shared body scroll lock), `role`/`aria-modal`/the accessible name, the
+ * unsaved-changes guard, and the `ModalContext` that portalling children read.
+ *
+ * That last one is why a dialog cannot just add `useFocusTrap` locally and call it
+ * done. `useModalPortalContainer()` returns null outside this provider, so every
+ * Select, DatePicker and TimePicker inside falls back to `document.body` — outside
+ * the surface, and therefore outside the trap that was just added. The menu still
+ * looks right and is no longer reachable by keyboard. Adding the trap without the
+ * provider makes a dialog worse, not better.
+ *
+ * (Written without angle brackets on purpose: `select-aria-label.test.ts` scans raw
+ * source for call sites and does not skip comments, so a prose `<Select` reads as an
+ * unlabelled one.)
+ */
+export function DialogSurface({
   isOpen,
   onClose,
-  title,
   children,
-  size = "md",
-  ariaLabel,
+  role = "dialog",
+  labelledBy,
+  label,
+  describedBy,
+  dismissible = true,
   hasUnsavedChanges = false,
   confirmMessage = "You have unsaved changes that will be lost.",
-}: ModalProps) {
+  wrapperClassName = "fixed inset-0 z-50 flex items-center justify-center p-4",
+  scrimClassName = "absolute inset-0 bg-black/32",
+  className = "relative w-full bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-hidden flex flex-col",
+  overlay,
+  testId,
+}: DialogSurfaceProps) {
   const [showConfirm, setShowConfirm] = useState(false);
-  const titleId = useId();
   const { surfaceRef, surface, onKeyDown } = useFocusTrap(isOpen);
   const isTopLayer = useDialogLayer(isOpen);
 
@@ -397,7 +498,7 @@ export function Modal({
   // The scroll lock lives in useDialogLayer above, not here: it belongs to the stack
   // as a whole, and releasing it per-modal unlocked the page under anything still open.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !dismissible) return;
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -413,7 +514,7 @@ export function Modal({
 
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [isOpen, attemptClose, showConfirm, isTopLayer]);
+  }, [isOpen, dismissible, attemptClose, showConfirm, isTopLayer]);
 
   // Reset confirm dialog when the modal closes. Adjusting state during render
   // (tracking the previous isOpen) is React's pattern for prop-driven resets.
@@ -425,57 +526,32 @@ export function Modal({
 
   if (!isOpen) return null;
 
-  const sizeClasses: Record<string, string> = {
-    sm: "max-w-md",
-    md: "max-w-lg",
-    lg: "max-w-2xl",
-    xl: "max-w-4xl",
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* M3 Scrim */}
-      <div
-        className="absolute inset-0 bg-black/32"
-        onClick={attemptClose}
-      />
+    <div className={wrapperClassName}>
+      {/* Scrim. Inert rather than absent when not dismissible, so the surface is
+          still visually lifted off the page behind it. */}
+      <div className={scrimClassName} onClick={dismissible ? attemptClose : undefined} />
 
-      {/* Dialog surface */}
       <div
         ref={surfaceRef}
         onKeyDown={onKeyDown}
-        role="dialog"
+        role={role}
         aria-modal="true"
-        aria-labelledby={title ? titleId : undefined}
-        aria-label={title ? undefined : ariaLabel}
+        aria-labelledby={labelledBy}
+        aria-label={labelledBy ? undefined : label}
+        aria-describedby={describedBy}
         tabIndex={-1}
-        className={`relative w-full ${sizeClasses[size]} bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-hidden flex flex-col focus:outline-none`}
+        data-testid={testId}
+        className={`${className} focus:outline-none`}
       >
-        {/* Headline */}
-        {title && (
-          <div className="flex items-center justify-between px-6 pt-6 pb-4">
-            <h2 id={titleId} className="text-[22px] leading-7 font-normal text-foreground">{title}</h2>
-            <button
-              type="button"
-              onClick={attemptClose}
-              aria-label="Close"
-              className="state-layer p-2 -mr-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        )}
-
-        {/* Body — headline supplies top spacing when present.
-            The provider wraps only `children`: the confirm dialog below is a DOM
-            sibling with its own trap, so a menu portalled to this surface from
-            inside it would land in the wrong one. */}
-        <div className={`flex-1 overflow-y-auto px-6 pb-6 ${title ? "" : "pt-6"}`}>
-          <ModalContext.Provider value={contextValue}>{children}</ModalContext.Provider>
-        </div>
+        {/* The provider wraps only the content: the dialogs below are DOM siblings
+            with their own traps, so a menu portalled to this surface from inside one
+            would land in the wrong one. */}
+        <ModalContext.Provider value={contextValue}>{children}</ModalContext.Provider>
       </div>
 
-      {/* Confirm discard dialog */}
+      {overlay}
+
       {showConfirm && (
         <ConfirmDiscardDialog
           message={confirmMessage}
@@ -484,6 +560,93 @@ export function Modal({
           returnFocusTo={surface}
         />
       )}
+    </div>
+  );
+}
+
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  size = "md",
+  ariaLabel,
+  hasUnsavedChanges = false,
+  confirmMessage,
+}: ModalProps) {
+  const titleId = useId();
+
+  const sizeClasses: Record<string, string> = {
+    sm: "max-w-md",
+    md: "max-w-lg",
+    lg: "max-w-2xl",
+    xl: "max-w-4xl",
+  };
+
+  return (
+    <DialogSurface
+      isOpen={isOpen}
+      onClose={onClose}
+      labelledBy={title ? titleId : undefined}
+      label={ariaLabel}
+      hasUnsavedChanges={hasUnsavedChanges}
+      confirmMessage={confirmMessage}
+      className={`relative w-full ${sizeClasses[size]} bg-surface-container-high rounded-[28px] shadow-lg max-h-[90vh] overflow-hidden flex flex-col`}
+    >
+      {/* Headline */}
+      {title && <ModalHeadline id={titleId}>{title}</ModalHeadline>}
+
+      {/* Body — headline supplies top spacing when present. */}
+      <div className={`flex-1 overflow-y-auto px-6 pb-6 ${title ? "" : "pt-6"}`}>{children}</div>
+    </DialogSurface>
+  );
+}
+
+/**
+ * A footer Cancel that routes through the enclosing dialog's unsaved-changes guard.
+ *
+ * Wiring Cancel straight to the caller's own `onClose` skips the confirmation that
+ * the scrim, Escape and the X all honour, so a dialog with `hasUnsavedChanges`
+ * warns on three dismissal paths and discards silently on the fourth. Shared
+ * because it has to live *inside* the dialog to read the context, and eight call
+ * sites were otherwise going to grow eight identical four-line copies of it.
+ */
+export function ModalCancelButton({
+  children = "Cancel",
+  disabled,
+  variant = "text",
+  size,
+}: {
+  children?: ReactNode;
+  disabled?: boolean;
+  variant?: ButtonProps["variant"];
+  size?: ButtonProps["size"];
+}) {
+  const dismiss = useModalDismiss();
+  return (
+    <Button type="button" variant={variant} size={size} onClick={dismiss} disabled={disabled}>
+      {children}
+    </Button>
+  );
+}
+
+/**
+ * The headline row. Split out only because its close button needs `useModalDismiss`,
+ * which has to be read from *inside* the provider — `Modal` itself renders above it.
+ */
+function ModalHeadline({ id, children }: { id: string; children: ReactNode }) {
+  const dismiss = useModalDismiss();
+  return (
+    <div className="flex items-center justify-between px-6 pt-6 pb-4">
+      <h2 id={id} className="text-[22px] leading-7 font-normal text-foreground">{children}</h2>
+      <button
+        type="button"
+        onClick={dismiss}
+        aria-label="Close"
+        className="state-layer p-2 -mr-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
+      >
+        <X className="h-5 w-5" />
+      </button>
     </div>
   );
 }
