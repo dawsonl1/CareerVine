@@ -33,11 +33,10 @@ vi.mock("@/lib/bundle-publish", async (importActual) => {
   };
 });
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule());
 
 import { NextRequest } from "next/server";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
   isAuthorizedAdminToken,

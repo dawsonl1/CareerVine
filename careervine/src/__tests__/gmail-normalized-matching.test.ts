@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { createFakeGmail, createFakeSyncDb } from "./helpers/fake-gmail";
 
 /**
@@ -28,14 +30,11 @@ vi.mock("@/lib/gmail-send-core", () => ({
   sendEmail: async () => ({ messageId: "m", threadId: "t" }),
 }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => db.client,
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => db.client));
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: async () => {},
-  checkCompaniesEmailedMilestone: async () => {},
-}));
+vi.mock("@/lib/analytics/server", () =>
+  mockAnalyticsServerModule({ trackServer: async () => {}, checkCompaniesEmailedMilestone: async () => {} }),
+);
 
 import { activateContactByEmail, detectBounces } from "@/lib/gmail";
 

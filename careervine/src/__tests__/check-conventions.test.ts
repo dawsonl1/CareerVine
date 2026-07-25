@@ -285,6 +285,51 @@ describe("conventions guard", () => {
     expect(out).toContain("react-server");
   });
 
+  // ── tripwire (f): shared typed mock factories ──
+
+  it("flags a hand-rolled vi.mock of a shared-factory module", () => {
+    const { code, out } = withFile(
+      "src/__tests__/probe.test.ts",
+      'vi.mock("@/lib/analytics/server", () => ({ trackServer: vi.fn() }));\n',
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("mockAnalyticsServerModule()");
+  });
+
+  it("sees the vi.mock(import(...)) spelling, not just the string one", () => {
+    const { code, out } = withFile(
+      "src/__tests__/probe.test.ts",
+      'vi.mock(import("@/components/ui/toast"), () => ({ useToast: () => ({}) }));\n',
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("mockToastModule()");
+  });
+
+  it("accepts a mock that goes through the shared factory", () => {
+    const { code, out } = withFile(
+      "src/__tests__/probe.test.ts",
+      'vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule();\n',
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("accepts a typed-mock-exempt annotation, and ignores unlisted modules", () => {
+    expect(
+      withFile(
+        "src/__tests__/probe.test.ts",
+        "// typed-mock-exempt: exercises the module's own contract\n" +
+          'vi.mock("@/lib/analytics/server", () => ({ trackServer: vi.fn() }));\n',
+      ).code,
+    ).toBe(0);
+
+    expect(
+      withFile(
+        "src/__tests__/probe.test.ts",
+        'vi.mock("@/lib/crypto", () => ({ encryptToken: vi.fn() }));\n',
+      ).code,
+    ).toBe(0);
+  });
+
   it("does not let a comment mentioning the flag satisfy a script launch surface", () => {
     const f = path.join(root, "careervine-mcp/scripts/harness.ts");
     writeFileSync(

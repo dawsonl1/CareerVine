@@ -7,16 +7,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * (Audit fix: gating the whole route would silently empty every free user's Sent tab.)
  */
 
-let authedUser: Record<string, unknown> | null = { id: "u-1" };
+let authedUser: FakeAuthUser | null = { id: "u-1" };
 let caps = new Set<string>();
 const syncSpy = vi.fn();
 const backfillSpy = vi.fn();
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
 const results: Record<string, { data: unknown; error: unknown }> = {
   // Ownership gate (CAR-133 / R2.6): a truthy row = the contact belongs to the user.
@@ -24,8 +20,8 @@ const results: Record<string, { data: unknown; error: unknown }> = {
   contact_emails: { data: [{ email: "jane@corp.com" }], error: null },
   email_messages: { data: [{ id: 1, subject: "Hi" }], error: null },
 };
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: (table: string) => {
       const chain: Record<string, unknown> = {};
       for (const m of ["select", "eq", "order", "maybeSingle"]) chain[m] = () => chain;
@@ -34,7 +30,7 @@ vi.mock("@/lib/supabase/service-client", () => ({
       return chain;
     },
   })),
-}));
+);
 
 vi.mock("@/lib/gmail-send-core", () => ({
   getConnection: vi.fn(async () => ({
@@ -66,6 +62,7 @@ vi.mock("@/lib/capabilities/resolve", () => ({
   resolveCapabilities: vi.fn(async () => caps),
 }));
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { GET } from "@/app/api/gmail/emails/route";
 
 function makeRequest() {

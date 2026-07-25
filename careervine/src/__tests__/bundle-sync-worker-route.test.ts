@@ -16,9 +16,7 @@ vi.mock("@/lib/bundle-queue", () => ({
   SYNC_RESPONSE_DEADLINE_MS: 20,
 }));
 vi.mock("@/lib/bundle-sync", () => ({ SYNC_CLAIM_MS: 120_000 }));
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({}),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => ({})));
 vi.mock("@upstash/qstash", () => ({
   Receiver: class {
     verify() {
@@ -28,6 +26,7 @@ vi.mock("@upstash/qstash", () => ({
 }));
 
 import { NextRequest } from "next/server";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/queue/bundle-sync/route";
 
 const req = (ids: number[]) =>

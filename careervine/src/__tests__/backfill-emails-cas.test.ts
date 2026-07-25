@@ -78,10 +78,11 @@ const h = vi.hoisted(() => {
   return { state, makeBuilder };
 });
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({ from: (t: string) => h.makeBuilder(t) }),
-}));
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({ from: (t: string) => h.makeBuilder(t) })),
+);
 
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { backfillEmailsForContact } from "@/lib/gmail";
 
 const claimUpdates = () => h.state.updates.filter((u) => u.table === "email_messages");

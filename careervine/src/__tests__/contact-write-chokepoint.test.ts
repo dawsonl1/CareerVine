@@ -155,10 +155,11 @@ const h = vi.hoisted(() => {
   return { state, makeBuilder };
 });
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({ from: (t: string) => h.makeBuilder(t) }),
-}));
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({ from: (t: string) => h.makeBuilder(t) })),
+);
 
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { createContact, createContacts, updateContact } from "@/lib/data/contacts";
 import { findOrCreateLocation } from "@/lib/data/locations";
 import { normalizeParsedLocation } from "@/lib/location-normalizer";

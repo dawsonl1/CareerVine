@@ -6,6 +6,8 @@
  * single-chunk response.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServerClientModule } from "./helpers/mock-supabase";
 import type { ApplyStepResult } from "@/lib/bundle-sync";
 
 const applyMock = vi.fn<(...args: unknown[]) => Promise<ApplyStepResult>>();
@@ -18,9 +20,7 @@ vi.mock("@/lib/bundle-sync", () => ({
   releaseSubscriptionSync: (..._args: unknown[]) => releaseMock(),
 }));
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: vi.fn(async () => undefined),
-}));
+vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule());
 
 // Minimal chained-builder mock behind createSupabaseServerClient — the route
 // only reads data_bundles and bundle_subscriptions.
@@ -49,12 +49,9 @@ function makeBuilder(table: string) {
   return self;
 }
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }) },
-    from: (t: string) => makeBuilder(t),
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () =>
+  mockServerClientModule({ user: () => ({ id: "user-1" }), client: () => ({ from: (t: string) => makeBuilder(t) }) }),
+);
 
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/bundles/apply/route";

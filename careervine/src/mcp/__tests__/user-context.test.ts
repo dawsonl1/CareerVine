@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({ from: () => ({}) }),
-}));
+vi.mock("@/lib/supabase/service-client", () => mockServiceClientModule(() => ({ from: () => ({}) })));
 vi.mock("@/lib/company-queries", () => ({ setCompanyQueriesClient: () => {} }));
 
+import { mockServiceClientModule } from "../../__tests__/helpers/mock-supabase";
 import { initDb, uid } from "../lib/db";
 import { runWithUser, runWithUserAsync, requireRequestUserId } from "../user-context";
 

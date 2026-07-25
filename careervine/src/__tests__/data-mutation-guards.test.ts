@@ -54,15 +54,16 @@ const h = vi.hoisted(() => {
   return { state, makeBuilder };
 });
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     from: (t: string) => h.makeBuilder(t),
     storage: {
       from: () => ({ remove: async () => ({ error: null }) }),
     },
-  }),
-}));
+  })),
+);
 
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { deleteContact, findOrCreateSchool, findOrCreateLocation } from "@/lib/data/contacts";
 import { deleteAttachment } from "@/lib/data/attachments";
 

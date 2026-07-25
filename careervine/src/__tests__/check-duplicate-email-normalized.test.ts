@@ -9,30 +9,31 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const eqCalls: Array<[string, unknown]> = [];
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn().mockResolvedValue({
-    auth: {
-      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }),
-    },
-    from: (table: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test chainable stub
-      const builder: any = {
-        select: () => builder,
-        eq: (col: string, val: unknown) => {
-          if (table === "contact_emails") eqCalls.push([col, val]);
-          return builder;
-        },
-        in: () => builder,
-        or: () => builder,
-        not: () => builder,
-        limit: () => builder,
-        then: (resolve: (v: unknown) => void) => resolve({ data: [], error: null }),
-      };
+function makeBuilder(table: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test chainable stub
+  const builder: any = {
+    select: () => builder,
+    eq: (col: string, val: unknown) => {
+      if (table === "contact_emails") eqCalls.push([col, val]);
       return builder;
     },
-  }),
-}));
+    in: () => builder,
+    or: () => builder,
+    not: () => builder,
+    limit: () => builder,
+    then: (resolve: (v: unknown) => void) => resolve({ data: [], error: null }),
+  };
+  return builder;
+}
 
+vi.mock("@/lib/supabase/server-client", () =>
+  mockServerClientModule({
+    user: () => ({ id: "user-1" }),
+    client: () => ({ from: (table: string) => makeBuilder(table) }),
+  }),
+);
+
+import { mockServerClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/contacts/check-duplicate/route";
 
 function makeReq(body: Record<string, unknown>) {

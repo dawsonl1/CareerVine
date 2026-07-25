@@ -7,11 +7,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  */
 
 const trackCronErrorSpy = vi.fn().mockResolvedValue(undefined);
-vi.mock("@/lib/analytics/server", () => ({
-  trackCronError: (route: string) => trackCronErrorSpy(route),
-}));
+vi.mock("@/lib/analytics/server", () =>
+  mockAnalyticsServerModule({ trackCronError: (route: string) => trackCronErrorSpy(route) }),
+);
 
 import { NextResponse } from "next/server";
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
 import { withCronGuard } from "@/lib/cron-guard";
 
 describe("withCronGuard (CAR-58)", () => {

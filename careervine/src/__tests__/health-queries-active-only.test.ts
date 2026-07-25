@@ -43,12 +43,13 @@ const h = vi.hoisted(() => {
   return { state, makeBuilder };
 });
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({ from: (t: string) => h.makeBuilder(t) }),
-}));
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({ from: (t: string) => h.makeBuilder(t) })),
+);
 
 // getContactsWithLastTouch is internal to the data layer (not re-exported
 // from the queries barrel since CAR-146), so it's imported from its module.
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { getContactsWithLastTouch, getRelationshipsOnTrack } from "@/lib/data/follow-ups";
 
 const hasActiveFilter = (q: QueryState) =>

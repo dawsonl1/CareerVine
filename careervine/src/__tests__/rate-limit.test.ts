@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mockAnalyticsServerModule } from './helpers/mock-analytics';
 
 // ── Mocks (no top-level variable references in vi.mock factories) ─────
 
@@ -29,9 +30,7 @@ vi.mock('@upstash/ratelimit', () => {
 const { trackServerSpy } = vi.hoisted(() => ({
   trackServerSpy: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@/lib/analytics/server', () => ({
-  trackServer: trackServerSpy,
-}));
+vi.mock('@/lib/analytics/server', () => mockAnalyticsServerModule({ trackServer: trackServerSpy }));
 
 import { Ratelimit } from '@upstash/ratelimit';
 import { checkRateLimit, resetRateLimitersForTests } from '@/lib/rate-limit';

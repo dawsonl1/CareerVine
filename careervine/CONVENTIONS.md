@@ -162,10 +162,12 @@ permanently erased every email-to-meeting link in it (CAR-175).
 - Enforced: `careervine/src/mcp/__tests__/db-scoping.test.ts` (a new export
   without a classification entry fails), `careervine/src/__tests__/contact-write-chokepoint.test.ts`,
   the `no-restricted-imports` fences in `careervine/eslint.config.mjs`, and
-  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), which checks four
-  invariants tsc and eslint cannot express: the barrel freeze, no module-scope
-  Supabase client under `careervine/src/lib/data` or `careervine/src/lib/rules`,
-  the CAS readback shape, and raw query-builder growth in the MCP db module. Its
+  `careervine/scripts/check-conventions.mjs` (CI, CAR-158), whose four
+  data-layer checks cover what tsc and eslint cannot express: the barrel freeze,
+  no module-scope Supabase client under `careervine/src/lib/data` or
+  `careervine/src/lib/rules`, the CAS readback shape, and raw query-builder
+  growth in the MCP db module. (It carries two further checks, on MCP launch
+  flags and on test mocks; see sections g and h.) Its
   escape hatches
   both demand a written reason: `// cas-checked:` and `// error-tolerated:`.
   The app-owned-column rule is enforced by
@@ -264,6 +266,20 @@ New tests reuse the shared harness helpers instead of re-rolling a fake:
 `careervine/src/__tests__/helpers/fake-calendar.ts`, and
 `careervine/src/mcp/__tests__/helpers/recording-client.ts` for scoping assertions.
 
+A `vi.mock` factory is not typechecked against the module it replaces, so a fake
+goes on compiling after the real export is renamed, changes signature, or is
+joined by a new one the fake never provides — and because a factory REPLACES the
+module rather than merging into it, that new export is `undefined` for every
+caller. Mocks of the eight most-mocked modules (the four Supabase client modules,
+`auth-provider`, `toast`, and the two analytics modules) go through the shared
+factories in `careervine/src/__tests__/helpers/`, which return the module's full
+type; `typedMock<typeof import("…")>()` in
+`careervine/src/__tests__/helpers/typed-mock.ts` gives a one-off mock the same
+constraint. Call a helper INSIDE the factory body (`() => mockXModule()`), never
+in argument position: vitest hoists `vi.mock` above the imports, so the helper
+binding is not initialized yet. Locals are in TDZ there too, which is why the
+factories take per-test overrides as thunks.
+
 The global environment is node. A DOM test opts in per file with a
 `// @vitest-environment jsdom` docblock. jest-dom matchers are not wired, so
 assert with `getByText` / `queryByText` rather than `toBeInTheDocument`.
@@ -282,7 +298,16 @@ authoritative for logic. CI runs it as the separate `integration` job.
 - Authoritative: `careervine/vitest.config.ts`,
   `careervine/vitest.integration.config.ts` (header), the header of each
   helper, and `careervine/src/__integration__/helpers/stack.ts` (header)
+- Enforced (mocks, CAR-187): the sixth check in
+  `careervine/scripts/check-conventions.mjs` fails a `vi.mock` of any of those
+  eight modules that does not go through its shared factory (escape hatch
+  `// typed-mock-exempt: <reason>`), and
+  `careervine/src/__tests__/check-conventions.test.ts` pins that the check
+  itself trips. `careervine/src/__tests__/typed-mock.type-test.ts` pins the
+  type constraint that backs it: a fake missing an export, naming one that does
+  not exist, or disagreeing about a signature is a compile error, while a bare
+  `vi.fn()` still satisfies any export.
 - Enforced (integration tier): the completeness guard in
-  `careervine/src/__integration__/rls-tenant-isolation.itest.ts`. The unit
-  tier's conventions are not mechanically enforced; the backstop is the suite
-  itself passing.
+  `careervine/src/__integration__/rls-tenant-isolation.itest.ts`. The rest of
+  the unit tier's conventions (environment opt-in, matcher choice) are not
+  mechanically enforced; the backstop is the suite itself passing.

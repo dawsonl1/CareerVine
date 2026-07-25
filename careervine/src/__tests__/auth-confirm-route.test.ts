@@ -2,17 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const verifyOtpMock = vi.fn();
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn().mockResolvedValue({
-    auth: { verifyOtp: (...args: unknown[]) => verifyOtpMock(...args) },
-  }),
-}));
+vi.mock("@/lib/supabase/server-client", () =>
+  mockServerClientModule({ client: () => ({ auth: { verifyOtp: (...args: unknown[]) => verifyOtpMock(...args) } }) }),
+);
 
 const trackServerMock = vi.fn().mockResolvedValue(undefined);
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: (...args: unknown[]) => trackServerMock(...args),
-}));
+vi.mock("@/lib/analytics/server", () =>
+  mockAnalyticsServerModule({ trackServer: (...args: unknown[]) => trackServerMock(...args) }),
+);
 
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServerClientModule } from "./helpers/mock-supabase";
 import { GET } from "@/app/auth/confirm/route";
 
 const confirmUrl = (params: Record<string, string>) =>

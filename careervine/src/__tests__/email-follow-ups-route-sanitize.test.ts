@@ -7,17 +7,13 @@ import { NextRequest } from "next/server";
  * CRLF-laced subject/recipient must be rejected at the boundary.
  */
 
-let authedUser: Record<string, unknown> | null = { id: "u-1" };
+let authedUser: FakeAuthUser | null = { id: "u-1" };
 const messageInserts: unknown[] = [];
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: (table: string) => {
       const b: Record<string, unknown> = {
         insert: (rows: unknown) => {
@@ -33,8 +29,9 @@ vi.mock("@/lib/supabase/service-client", () => ({
       return b;
     },
   })),
-}));
+);
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/email-follow-ups/route";
 
 function post(body: Record<string, unknown>): NextRequest {

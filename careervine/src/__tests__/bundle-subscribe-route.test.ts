@@ -10,9 +10,7 @@ vi.mock("@/lib/bundle-queue", () => ({
   enqueueBundleSyncJobs: (...args: unknown[]) => enqueueMock(...args),
 }));
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: vi.fn(async () => undefined),
-}));
+vi.mock("@/lib/analytics/server", () => mockAnalyticsServerModule());
 
 // Chained-builder mock behind createSupabaseServerClient.
 interface QueryState {
@@ -48,14 +46,13 @@ function makeBuilder(table: string) {
   return builder;
 }
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }) },
-    from: (t: string) => makeBuilder(t),
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () =>
+  mockServerClientModule({ user: () => ({ id: "user-1" }), client: () => ({ from: (t: string) => makeBuilder(t) }) }),
+);
 
 import { NextRequest } from "next/server";
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServerClientModule } from "./helpers/mock-supabase";
 import { POST } from "@/app/api/bundles/subscribe/route";
 
 const BUNDLE = { id: 1, name: "APM Data Bundle", version: 3, prospect_count: 2000 };

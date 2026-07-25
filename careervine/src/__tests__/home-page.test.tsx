@@ -2,6 +2,8 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup, fireEvent, act } from "@testing-library/react";
+import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { mockToastModule } from "./helpers/mock-toast";
 import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 
 /**
@@ -32,11 +34,8 @@ const q = vi.hoisted(() => ({
 
 vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <nav /> }));
 vi.mock("@/components/landing-page", () => ({ __esModule: true, default: () => <div>landing</div> }));
-vi.mock("@/components/auth-provider", () => {
-  const user = { id: "u-1", user_metadata: {} };
-  return { useAuth: () => ({ user, loading: false }) };
-});
-vi.mock("@/components/ui/toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
+vi.mock("@/components/ui/toast", () => mockToastModule());
 vi.mock("@/components/quick-capture-context", () => ({ useQuickCapture: () => ({ open: vi.fn() }) }));
 vi.mock("@/components/onboarding/extension-onboarding-context", () => ({ useExtensionOnboarding: () => ({ open: vi.fn() }) }));
 vi.mock("@/components/compose-email-context", () => ({ useCompose: () => ({ openCompose: vi.fn() }) }));

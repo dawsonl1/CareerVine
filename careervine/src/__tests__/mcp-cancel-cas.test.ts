@@ -21,8 +21,8 @@ const state: {
   readData: Record<string, unknown[]>;
 } = { updates: [], results: [], readData: {} };
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: (table: string) => {
       let mode: "read" | "update" = "read";
       let recorded: RecordedUpdate | null = null;
@@ -46,14 +46,15 @@ vi.mock("@/lib/supabase/service-client", () => ({
       };
       return b;
     },
-  }),
-}));
+  })),
+);
 
-vi.mock("@/lib/analytics/server", () => ({
-  trackServer: async () => {},
-  checkContactMilestone: async () => {},
-}));
+vi.mock("@/lib/analytics/server", () =>
+  mockAnalyticsServerModule({ trackServer: async () => {}, checkContactMilestone: async () => {} }),
+);
 
+import { mockAnalyticsServerModule } from "./helpers/mock-analytics";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 import { initDb, cancelScheduledEmail, cancelFollowUpSequence } from "@/mcp/lib/db";
 
 describe("MCP cancel helpers — count-based CAS (CAR-132)", () => {

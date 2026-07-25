@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockServiceClientModule } from './helpers/mock-supabase';
 
 /**
  * Tests for the Gmail sync path (the "emails aren't syncing" fixes).
@@ -137,11 +138,9 @@ function makeBuilder(tableName: keyof MockTables) {
   return builder;
 }
 
-vi.mock('@/lib/supabase/service-client', () => ({
-  createSupabaseServiceClient: () => ({
-    from: (table: keyof MockTables) => makeBuilder(table),
-  }),
-}));
+vi.mock('@/lib/supabase/service-client', () =>
+  mockServiceClientModule(() => ({ from: (table: keyof MockTables) => makeBuilder(table) })),
+);
 
 // ── Tests ──────────────────────────────────────────────────────────────
 

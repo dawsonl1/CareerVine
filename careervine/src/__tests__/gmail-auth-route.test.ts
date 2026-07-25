@@ -10,25 +10,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * settings error page) rather than proceeding scope-light.
  */
 
-let authedUser: Record<string, unknown> | null = { id: "u-1" };
+let authedUser: FakeAuthUser | null = { id: "u-1" };
 const state: { conn: unknown; connError: unknown } = { conn: null, connError: null };
 const getAuthUrlSpy = vi.fn(
   (_state: string, opts?: { includeModify?: boolean; includeCalendar?: boolean }) =>
     `https://accounts.google.com/o/oauth2/v2/auth?modify=${opts?.includeModify ? "1" : "0"}&cal=${opts?.includeCalendar ? "1" : "0"}`,
 );
 
-vi.mock("@/lib/supabase/server-client", () => ({
-  createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: authedUser }, error: null })) },
-  })),
-}));
+vi.mock("@/lib/supabase/server-client", () => mockServerClientModule({ user: () => authedUser }));
 
 vi.mock("@/lib/gmail", () => ({
   getAuthUrl: (...a: unknown[]) => getAuthUrlSpy(...(a as [string, { includeModify?: boolean }])),
 }));
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: vi.fn(() => ({
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => {
       const b: Record<string, unknown> = {
         select: () => b,
@@ -38,8 +34,9 @@ vi.mock("@/lib/supabase/service-client", () => ({
       return b;
     },
   })),
-}));
+);
 
+import { mockServerClientModule, mockServiceClientModule, type FakeAuthUser } from "./helpers/mock-supabase";
 import { GET } from "@/app/api/gmail/auth/route";
 
 function makeRequest(search = "") {
