@@ -220,13 +220,37 @@ usual `offsetParent` filter disarms the trap under test while still reading as
 correct. Adoption is currently even with hand-rolled dialogs, so this rule is
 forward-looking rather than descriptive.
 
+A subtree that can independently fail gets wrapped in
+`careervine/src/components/ui/section-boundary.tsx` so a render throw shows a
+retryable panel in that subtree's frame instead of unmounting the page. Do not
+hand-roll a class `ErrorBoundary`: it would swallow the sentinel errors
+`redirect()` / `notFound()` throw, and would stay stuck in the error state across a
+client navigation. Read that file's header before adding a boundary, including the
+part about passing a `key` when sections switch by same-route state rather than by
+navigation, and about wiring `onReset` so the retry can actually recover. Route-level
+boundaries are `careervine/src/app/error.tsx`,
+`careervine/src/app/global-error.tsx` and `careervine/src/app/admin/error.tsx`; the
+global one replaces the root layout, so it may not import the design system or assume
+the global stylesheet, the document head, or any provider survived. All of them report
+through the one seam in `careervine/src/lib/report-error.ts`, which is where an
+error tracker gets wired (none is installed today). Boundaries catch render throws
+only, never a rejected promise in a handler; that is the contract above.
+
 - Authoritative: `careervine/src/lib/ui-events.ts`,
-  `careervine/src/hooks/use-latest-request.ts`, and
-  `careervine/src/components/ui/modal.tsx` (headers)
+  `careervine/src/hooks/use-latest-request.ts`,
+  `careervine/src/components/ui/modal.tsx`, and
+  `careervine/src/components/ui/section-boundary.tsx` (headers)
 - Enforced: `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw
-  event-name prefix outside the module. The focus trap is covered by
-  `careervine/src/__tests__/modal.test.tsx`. The other four rules are not
-  enforced.
+  event-name prefix outside the module. It is the only rule here whose *adoption* is
+  mechanically checked. Two more have behavior coverage without an adoption check:
+  `careervine/src/__tests__/modal.test.tsx` covers the focus trap and dialog
+  semantics, and `careervine/src/__tests__/error-boundaries.test.tsx` pins the
+  boundary behaviors, including the `notFound()` re-throw that rules out a
+  hand-rolled class, plus source tripwires holding the three existing adoption sites
+  to their `key` and `onReset`. Nothing requires a NEW modal to use `modal.tsx` or a
+  NEW failure-prone subtree to be wrapped. The remaining three rules
+  (`useLatestRequest`, optimistic-write rollback, and the double-submit guard) have
+  no coverage at all.
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 
