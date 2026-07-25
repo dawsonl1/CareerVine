@@ -48,16 +48,24 @@ export default function SecuritySection({
     setNewPassword("");
   };
 
-  /** The two admin action routes here answer `{ actionLink }` on the link mode. */
+  /**
+   * `actionLink` comes back only from `…/password` in `mode: "link"`; the same
+   * route in `mode: "set"` and `…/role` both answer `{ ok: true }` (CAR-204).
+   * The old `{ actionLink?: string }` generic asserted a shape two of the three
+   * callers never receive — hand-written drift of exactly the kind apiFetch and
+   * InferApiResponse exist to prevent. Only generateLink reads the body, so it
+   * narrows there and everything else ignores the return.
+   */
   const post = (path: string, body: unknown) =>
-    apiFetch<{ actionLink?: string }>(path, jsonBody(body));
+    apiFetch<Record<string, unknown>>(path, jsonBody(body));
 
   const generateLink = async () => {
     setBusy(true);
     try {
       const json = await post(`/api/admin/users/${user.id}/password`, { mode: "link" });
-      if (!json.actionLink) throw new Error("No link returned");
-      setActionLink(json.actionLink);
+      const link = typeof json.actionLink === "string" ? json.actionLink : null;
+      if (!link) throw new Error("No link returned");
+      setActionLink(link);
     } catch (err) {
       toastError((err as Error).message);
     } finally {

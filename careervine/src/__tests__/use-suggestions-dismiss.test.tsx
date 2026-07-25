@@ -85,7 +85,7 @@ describe("useSuggestions.dismiss (CAR-188)", () => {
   it("rolls back on a network reject too, not just a non-2xx", async () => {
     // The only failure the original bare try/catch could even observe, and it
     // did not act on that one either.
-    const { view } = await loadOne({ reject: new TypeError("Failed to fetch") });
+    const { http, view } = await loadOne({ reject: new TypeError("Failed to fetch") });
 
     let settled: boolean | undefined;
     await act(async () => {
@@ -94,6 +94,11 @@ describe("useSuggestions.dismiss (CAR-188)", () => {
 
     expect(settled).toBe(false);
     expect(view.result.current.suggestions).toHaveLength(1);
+    // Without these, a mistyped route key would throw from installFakeFetch and
+    // produce the identical rollback, so the test would pass while proving
+    // nothing about the reject path (CAR-204).
+    expect(http.countOf(DISMISS)).toBe(1);
+    expect(http.unmatched).toEqual([]);
   });
 
   it("keeps the card gone and reports true when the dismissal lands", async () => {
@@ -111,7 +116,7 @@ describe("useSuggestions.dismiss (CAR-188)", () => {
 
   it("notifies the caller so it can toast, since the hook has none of its own", async () => {
     const onDismissFailed = vi.fn();
-    installFakeFetch({
+    const http = installFakeFetch({
       [GENERATE]: { body: { suggestions: [] } },
       [CHANGE_EVENTS]: { body: { suggestions: [suggestion()] } },
       [DISMISS]: { status: 401, body: { error: "Unauthorized" } },
@@ -126,6 +131,8 @@ describe("useSuggestions.dismiss (CAR-188)", () => {
     });
 
     expect(onDismissFailed).toHaveBeenCalledTimes(1);
+    expect(http.countOf(DISMISS)).toBe(1);
+    expect(http.unmatched).toEqual([]);
   });
 
   it("skips the round trip for an ephemeral suggestion with no change event", async () => {
@@ -155,9 +162,83 @@ describe("useSuggestions.dismiss (CAR-188)", () => {
   });
 });
 
+describe("useSuggestions.dismiss rollback order (CAR-204)", () => {
+  it("puts the card back where it was, not at the head of the list", async () => {
+    // `[s, ...prev]` moved a rolled-back card to position 0. On the
+    // action-items list that is a visible jump, and the dashboard's priority
+    // sort does not hide it either: same-tier change events share a score and
+    // Array.prototype.sort is stable, so the hook's order leaks through.
+    const middle = suggestion({ id: "ce-42", contactId: 7 });
+    const http = installFakeFetch({
+      [GENERATE]: { body: { suggestions: [] } },
+      [CHANGE_EVENTS]: {
+        body: {
+          suggestions: [
+            suggestion({ id: "ce-1", contactId: 1 }),
+            middle,
+            suggestion({ id: "ce-3", contactId: 3 }),
+          ],
+        },
+      },
+      [DISMISS]: { status: 500, body: { error: "boom" } },
+    });
+
+    const view = renderHook(() => useSuggestions());
+    await act(async () => { await view.result.current.load(); });
+    expect(view.result.current.suggestions.map((s) => s.id)).toEqual(["ce-1", "ce-42", "ce-3"]);
+
+    await act(async () => { await view.result.current.dismiss(middle); });
+
+    expect(view.result.current.suggestions.map((s) => s.id)).toEqual(["ce-1", "ce-42", "ce-3"]);
+    expect(http.countOf(DISMISS)).toBe(1);
+    expect(http.unmatched).toEqual([]);
+  });
+});
+
+describe("useSuggestions.save (CAR-204)", () => {
+  it("returns false and keeps the card when the save is refused", async () => {
+    // app/page.tsx gates the whole snooze branch on this boolean, and nothing
+    // covered it. A regression to "always true" would make handleSnooze report
+    // a snooze it never performed.
+    const http = installFakeFetch({
+      [GENERATE]: { body: { suggestions: [] } },
+      [CHANGE_EVENTS]: { body: { suggestions: [suggestion()] } },
+      "POST /api/suggestions/save": { status: 500, body: { error: "boom" } },
+    });
+
+    const view = renderHook(() => useSuggestions());
+    await act(async () => { await view.result.current.load(); });
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await view.result.current.save(suggestion()); });
+
+    expect(ok).toBe(false);
+    expect(view.result.current.suggestions).toHaveLength(1);
+    expect(http.unmatched).toEqual([]);
+  });
+
+  it("returns true and removes the card when the save lands", async () => {
+    const http = installFakeFetch({
+      [GENERATE]: { body: { suggestions: [] } },
+      [CHANGE_EVENTS]: { body: { suggestions: [suggestion()] } },
+      "POST /api/suggestions/save": { body: { success: true } },
+    });
+
+    const view = renderHook(() => useSuggestions());
+    await act(async () => { await view.result.current.load(); });
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await view.result.current.save(suggestion()); });
+
+    expect(ok).toBe(true);
+    expect(view.result.current.suggestions).toHaveLength(0);
+    expect(http.unmatched).toEqual([]);
+  });
+});
+
 describe("useSuggestions.load (CAR-188)", () => {
   it("reports loadFailed only when BOTH sources fail", async () => {
-    installFakeFetch({
+    const http = installFakeFetch({
       [GENERATE]: { status: 500, body: {} },
       [CHANGE_EVENTS]: { body: { suggestions: [suggestion()] } },
     });
@@ -171,6 +252,7 @@ describe("useSuggestions.load (CAR-188)", () => {
     // real and must still render.
     expect(view.result.current.loadFailed).toBe(false);
     expect(view.result.current.suggestions).toHaveLength(1);
+    expect(http.unmatched).toEqual([]);
   });
 
   it("reports loadFailed when neither source answers", async () => {

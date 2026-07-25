@@ -21,7 +21,7 @@ import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { LoadErrorState } from "@/components/ui/load-error-state";
 import { SectionBoundary } from "@/components/ui/section-boundary";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
+import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -233,6 +233,19 @@ export default function CalendarPage() {
       // Unchecked, a refused sync still ran the reloads and cleared `syncing`,
       // so the button reported done over unchanged data (CAR-188).
       await apiSend("/api/calendar/sync?force=true", { method: "POST" });
+    } catch (err) {
+      // A 429 here is the route's 5-second force cooldown, which every
+      // successful sync opens (including the background one on mount). It means
+      // "already fresh", not "failed", and clicking Sync twice is the ordinary
+      // way to hit it. CAR-188 turned that into a persistent red banner that
+      // also skipped the reloads; treat it as success with no work (CAR-204).
+      if (!(isApiRequestError(err) && err.status === 429)) {
+        setError("Failed to sync calendar");
+        setSyncing(false);
+        return;
+      }
+    }
+    try {
       await loadEvents(); await loadLinkedMeetings();
     } catch { setError("Failed to sync calendar"); }
     finally { setSyncing(false); }
@@ -460,6 +473,7 @@ export default function CalendarPage() {
   }
 
   return (
+    <>
     <div className="min-h-screen bg-background" onClick={() => selectedEvent && setSelectedEvent(null)}>
       <Navigation />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -901,7 +915,12 @@ export default function CalendarPage() {
           </div>
         )}
       </main>
-      {confirmDialog}
     </div>
+    {/* Outside the root div deliberately (CAR-204): that div carries an onClick
+        that deselects the open event, so a dialog rendered inside it made every
+        Cancel/Confirm click bubble up and close the event bubble behind it.
+        The native dialog never dispatched a click into the page. */}
+    {confirmDialog}
+    </>
   );
 }

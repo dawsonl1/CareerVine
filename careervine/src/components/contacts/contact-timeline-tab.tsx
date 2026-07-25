@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
 import type { ContactMeeting, InteractionRow, EmailMessage, CompletedActionEntry, TimelineEntry } from "@/lib/types";
@@ -21,6 +20,17 @@ interface ContactTimelineTabProps {
   loading: boolean;
   onMeetingClick?: (meeting: ContactMeeting) => void;
   onInteractionsChange: (interactions: InteractionRow[]) => void;
+  /**
+   * Asks the user to confirm deleting an interaction.
+   *
+   * Owned by the PAGE, not this component (CAR-204). This tab renders inside a
+   * `SectionBoundary` whose key includes `dataGeneration`, which every completed
+   * background refresh bumps by design — so a `useConfirm` living here was
+   * unmounted mid-question whenever a refresh landed, and the open dialog just
+   * vanished with nothing deleted and nothing said. Hoisting the hook above the
+   * keyed boundary is what keeps the question alive.
+   */
+  onConfirmDeleteInteraction: () => Promise<boolean>;
 }
 
 export function ContactTimelineTab({
@@ -32,9 +42,9 @@ export function ContactTimelineTab({
   loading,
   onMeetingClick,
   onInteractionsChange,
+  onConfirmDeleteInteraction,
 }: ContactTimelineTabProps) {
   const { error: toastError } = useToast();
-  const { confirm, confirmDialog } = useConfirm();
   const [editingInteraction, setEditingInteraction] = useState<InteractionRow | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [interactionForm, setInteractionForm] = useState({ interaction_date: "", interaction_type: "", summary: "" });
@@ -49,11 +59,7 @@ export function ContactTimelineTab({
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const handleDeleteInteraction = async (id: number) => {
-    if (!(await confirm({
-      message: "Delete this interaction?",
-      confirmLabel: "Delete",
-      destructive: true,
-    }))) return;
+    if (!(await onConfirmDeleteInteraction())) return;
     await withToastOnError(async () => {
       await deleteInteraction(id);
       onInteractionsChange(interactions.filter((x) => x.id !== id));
@@ -284,7 +290,6 @@ export function ContactTimelineTab({
           </div>
         </div>
       )}
-      {confirmDialog}
     </div>
   );
 }

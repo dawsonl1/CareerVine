@@ -80,6 +80,12 @@ export const GET = withApiHandler({
     // "first day" note, 'expired' shows the locked state with a request-access
     // exit. Raw shared_access can lag the expiry (lazy flip), so the effective
     // value is recomputed here.
+    // Same reasoning as the key read below: an unchecked error here silently
+    // produced sharedAccess:false / trialState:null, so a user with an active
+    // trial or a granted entitlement saw the hard "bring your own key" state.
+    if (accessResult.error) {
+      throw new ApiError("Couldn't load your key status. Please try again.", 500);
+    }
     const access = accessResult.data;
     const expiresAtMs = access?.expires_at ? new Date(access.expires_at).getTime() : null;
     const expired = expiresAtMs !== null && expiresAtMs <= Date.now();
@@ -93,8 +99,21 @@ export const GET = withApiHandler({
       accessRequestedAt: access?.access_requested_at ?? null,
     };
 
+    // `error` and `!data` are split deliberately (CAR-204). Folding them
+    // together answered 200 { hasKey: false } on a genuine read failure —
+    // supabase-js RESOLVES with `{ error }` rather than throwing (learned rule
+    // 42), so a permission error, statement timeout or pool exhaustion all
+    // landed here. The card then rendered its no-key form over a key that was
+    // still on file, the user pasted a replacement, and the upsert destroyed
+    // the original. That is exactly the hazard CAR-188's client-side
+    // `loadFailed` guard was written for, and the guard could never fire for it
+    // because the response was a 200. `hasKey` is control flow, so it needs
+    // must()-style handling per CONVENTIONS.md §d.
     const { data, error } = keyResult;
-    if (error || !data) {
+    if (error) {
+      throw new ApiError("Couldn't load your key status. Please try again.", 500);
+    }
+    if (!data) {
       return { hasKey: false, ...accessFields };
     }
 

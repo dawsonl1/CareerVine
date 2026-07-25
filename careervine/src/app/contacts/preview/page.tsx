@@ -15,7 +15,7 @@ import { decodeProfileData } from "@/lib/profile-encoding";
 import { deriveCurrentRole } from "@/lib/profile-helpers";
 // CAR-148 (F11): the profile shape is single-sourced in the extension contract.
 import type { ProfileData } from "@/lib/extension-contract";
-import { apiFetch, jsonBody } from "@/lib/api-client";
+import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 export default function ContactPreviewPage() {
   const { user, loading: authLoading } = useAuth();
@@ -101,7 +101,7 @@ export default function ContactPreviewPage() {
         router.push(`/contacts/${savedId}`);
       }, 1500);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save contact");
+      setError(isApiRequestError(err) ? err.message : "Failed to save contact");
     } finally {
       setSaving(false);
     }

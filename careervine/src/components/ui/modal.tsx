@@ -13,7 +13,7 @@
  * Focus (CAR-185): both surfaces here are real dialogs, and each traps its own
  * focus through useFocusTrap. They are DOM *siblings* rather than nested, so a
  * keydown inside the confirm dialog never bubbles through the modal surface and
- * the two traps compose with no trap stack and no "am I topmost" check.
+ * the two TAB traps compose with no trap stack and no "am I topmost" check.
  *
  * Dismissal (CAR-202) is the opposite: Escape is a *document*-level event, so every
  * open layer's listener sees every keypress and one press dismissed the whole stack.

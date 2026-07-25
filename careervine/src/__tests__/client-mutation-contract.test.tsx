@@ -23,9 +23,11 @@ import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
  * Every case routes through `installFakeFetch` rather than an `{ ok, json }`
  * literal, because these handlers now go through `apiSend`, whose failure path
  * reads `res.status` AND `res.json()` (CONVENTIONS.md §h). `unmatched` is
- * asserted empty throughout: the handlers under test swallow rejections by
- * design, so a wrong URL would otherwise masquerade as the failure the test was
- * written to prove.
+ * asserted empty wherever a test's conclusion could otherwise be produced by a
+ * mis-stubbed URL: the handlers under test swallow rejections by design, so a
+ * wrong URL would masquerade as the failure the test was written to prove.
+ * (CAR-188's version of this docblock said "throughout" and three cases did
+ * not; they assert it now, so the claim and the file agree — CAR-204.)
  */
 
 vi.mock("@/components/ui/toast", () => mockToastModule());
@@ -118,8 +120,9 @@ describe("ProviderKeyCard — remove (CAR-188)", () => {
   it("asks first, using the provider's own config-driven copy", async () => {
     // The one confirm of the twelve whose message is not a string literal, and
     // the reason ConfirmDialog takes a `message` prop at all.
-    await clickRemove({ body: {} });
+    const http = await clickRemove({ body: {} });
     expect(screen.getByText(REMOVE_CONFIRM)).toBeTruthy();
+    expect(http.unmatched).toEqual([]);
   });
 
   it("keeps the key and reports the route's reason when the delete fails", async () => {
@@ -152,7 +155,9 @@ describe("ProviderKeyCard — remove (CAR-188)", () => {
 
 const FOLLOW_UPS_ROUTE = "GET /api/gmail/follow-ups";
 
-function renderEmailsTab(overrides: { emailsLoadFailed?: boolean } = {}) {
+function renderEmailsTab(
+  overrides: { emailsLoadFailed?: boolean; scheduledLoadFailed?: boolean } = {},
+) {
   return render(
     <ContactEmailsTab
       contactId={7}
@@ -164,6 +169,7 @@ function renderEmailsTab(overrides: { emailsLoadFailed?: boolean } = {}) {
       canReadMailbox
       loadingEmails={false}
       emailsLoadFailed={false}
+      scheduledLoadFailed={false}
       onScheduledEmailCancel={vi.fn()}
       onReloadEmails={vi.fn()}
       {...overrides}
@@ -198,6 +204,27 @@ describe("ContactEmailsTab — failed load (CAR-188)", () => {
 
     expect(screen.getByText("No email history found.")).toBeTruthy();
     expect(screen.queryByText("Couldn't load this contact's email history.")).toBeNull();
+    expect(http.unmatched).toEqual([]);
+  });
+
+  /**
+   * CAR-188 read the two contact-email endpoints through `Promise.all`, so a
+   * failed SCHEDULED read rejected the pair and discarded a successful EMAIL
+   * read. The banner then claimed the email history could not load, which was
+   * false, and the Timeline tab (fed by the same `contactEmails` state, with no
+   * failure prop of its own) silently rendered a relationship history with every
+   * email missing. The two now settle independently (CAR-204).
+   */
+  it("keeps the email list when only the scheduled read fails, and says so separately", async () => {
+    const http = installFakeFetch({ [FOLLOW_UPS_ROUTE]: { body: { followUps: [] } } });
+    await act(async () => {
+      renderEmailsTab({ emailsLoadFailed: false, scheduledLoadFailed: true });
+    });
+
+    // The email surface is intact and makes no false claim about itself.
+    expect(screen.queryByText("Couldn't load this contact's email history.")).toBeNull();
+    // The failure that DID happen is reported, on its own surface.
+    expect(screen.getByText("Couldn't load scheduled sends for this contact.")).toBeTruthy();
     expect(http.unmatched).toEqual([]);
   });
 

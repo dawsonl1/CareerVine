@@ -85,7 +85,11 @@ export function DiscoveryCard({ companyId }: { companyId: number }) {
         // Already handled (or a previously deleted contact) — the row is stale
         // either way, so drop it and relay the server's explanation.
         removeRow(candidate.id);
-        toastInfo(err.message);
+        // `err.message` falls back to the generic "Something went wrong" when
+        // the body is missing or unparseable (an edge 404 rather than the
+        // route's own ApiError), which read as data loss next to a row that had
+        // just vanished. Prefer the parsed body, then the old copy (CAR-204).
+        toastInfo(err.body?.error ?? "Already handled");
       } else {
         toastError(isApiRequestError(err) ? err.message : failureCopy);
       }

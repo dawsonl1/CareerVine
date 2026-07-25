@@ -22,6 +22,9 @@ interface UseSuggestionsOptions {
  */
 export function useSuggestions({ onSave, onDismissFailed }: UseSuggestionsOptions = {}) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  /** Mirrors `suggestions` so `dismiss` can read the pre-filter order. */
+  const suggestionsRef = useRef<Suggestion[]>([]);
+  suggestionsRef.current = suggestions;
   const [loading, setLoading] = useState(false);
   /** Both sources failed, so an empty list is a failure rather than a result. */
   const [loadFailed, setLoadFailed] = useState(false);
@@ -113,6 +116,17 @@ export function useSuggestions({ onSave, onDismissFailed }: UseSuggestionsOption
    * irreversible on the same click can gate on it.
    */
   const dismiss = useCallback(async (s: Suggestion): Promise<boolean> => {
+    // Read from the ref rather than assigning inside the updater: React treats
+    // updaters as pure and double-invokes them under StrictMode. The index is a
+    // deterministic function of `prev` so the double-invoke would be harmless
+    // here, but the same shortcut is genuinely wrong one file over (resolving a
+    // promise twice), so it is not a habit worth keeping.
+    //
+    // Captured before the optimistic filter so the rollback can put the card
+    // back where it was. `[s, ...prev]` moved it to the head, which is a visible
+    // jump on the action-items list, and survives the dashboard's priority sort
+    // too (same-tier events share a score and Array.sort is stable).
+    const originalIndex = suggestionsRef.current.findIndex((x) => x.id === s.id);
     setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
     if (s.changeEventId == null) return true;
 
@@ -120,7 +134,12 @@ export function useSuggestions({ onSave, onDismissFailed }: UseSuggestionsOption
       await apiSend("/api/change-events/dismiss", jsonBody({ changeEventId: s.changeEventId }));
       return true;
     } catch {
-      setSuggestions((prev) => (prev.some((x) => x.id === s.id) ? prev : [s, ...prev]));
+      setSuggestions((prev) => {
+        if (prev.some((x) => x.id === s.id)) return prev;
+        const next = [...prev];
+        next.splice(originalIndex < 0 ? 0 : Math.min(originalIndex, next.length), 0, s);
+        return next;
+      });
       onDismissFailed?.();
       return false;
     }

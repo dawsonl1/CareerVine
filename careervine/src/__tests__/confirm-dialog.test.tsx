@@ -126,16 +126,54 @@ describe("useConfirm", () => {
     expect(settled).toEqual([false, true]);
   });
 
-  it("settles exactly once per question", async () => {
+  /**
+   * As written in CAR-188 this proved the wrong thing (CAR-204): fireEvent
+   * flushes React synchronously, so by the time the Escape fired the dialog had
+   * already unmounted and removed its own listener — it demonstrated listener
+   * teardown, not the `pendingRef.current = null` guard inside `settle`. Both
+   * events go in one un-flushed act() so the guard is what does the work.
+   */
+  it("settles exactly once even when two exits fire before React commits", async () => {
     const settled: boolean[] = [];
     render(<Harness onSettled={(c) => settled.push(c)} />);
 
     ask();
-    fireEvent.click(screen.getByTestId("confirm-dialog-confirm"));
-    fireEvent.keyDown(document, { key: "Escape" });
-    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("confirm-dialog-confirm"));
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
 
     expect(settled).toEqual([true]);
+  });
+
+  it("moves focus back to Cancel when a new question supersedes an open one", async () => {
+    // Without a key on ConfirmDialog a supersede reconciles in place, and none
+    // of useFocusTrap's deps move when it does — so the trap never re-runs and
+    // question 2 would open with focus wherever question 1 left it, possibly on
+    // the destructive button (CAR-204).
+    const settled: boolean[] = [];
+    render(<Harness onSettled={(c) => settled.push(c)} />);
+
+    ask();
+    screen.getByTestId("confirm-dialog-confirm").focus();
+    expect(document.activeElement).toBe(screen.getByTestId("confirm-dialog-confirm"));
+
+    ask();
+    await flush();
+
+    expect(document.activeElement).toBe(screen.getByTestId("confirm-dialog-cancel"));
+  });
+
+  it("locks body scroll while open and restores it on close", async () => {
+    render(<Harness onSettled={() => {}} />);
+    expect(document.body.style.overflow).not.toBe("hidden");
+
+    ask();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    fireEvent.click(screen.getByTestId("confirm-dialog-cancel"));
+    await flush();
+    expect(document.body.style.overflow).not.toBe("hidden");
   });
 });
 

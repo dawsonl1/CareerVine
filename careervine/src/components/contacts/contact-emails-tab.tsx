@@ -28,6 +28,12 @@ interface ContactEmailsTabProps {
   loadingEmails: boolean;
   /** The parent's email read failed. Renders a retry instead of "no emails". */
   emailsLoadFailed: boolean;
+  /**
+   * The parent's SCHEDULED read failed. Separate from `emailsLoadFailed` because
+   * the two settle independently (CAR-204): a failed schedule read must not
+   * claim the email history is missing, and must not hide it.
+   */
+  scheduledLoadFailed: boolean;
   onScheduledEmailCancel: (id: number) => void;
   onReloadEmails: () => void;
 }
@@ -41,6 +47,7 @@ export function ContactEmailsTab({
   canReadMailbox,
   loadingEmails,
   emailsLoadFailed,
+  scheduledLoadFailed,
   onScheduledEmailCancel,
   onReloadEmails,
 }: ContactEmailsTabProps) {
@@ -251,6 +258,17 @@ export function ContactEmailsTab({
       <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-4">
         <Inbox className="h-4 w-4" /> Emails{emailThreads.length > 0 ? ` (${emailThreads.length} thread${emailThreads.length !== 1 ? "s" : ""})` : ""}
       </h4>
+
+      {/* A failed scheduled read must not read as "nothing is queued" for a
+          contact who has sends waiting — that was the original CAR-188 finding
+          on this route, and it stays fixed independently of the email list. */}
+      {scheduledLoadFailed && (
+        <LoadErrorBanner
+          className="mb-4"
+          message="Couldn't load scheduled sends for this contact."
+          onRetry={onReloadEmails}
+        />
+      )}
 
       {/* Scheduled (queued) emails */}
       {scheduledEmails.length > 0 && (

@@ -141,6 +141,9 @@ export function ConfirmDialog({
 }
 
 interface PendingConfirm {
+  /** Monotonic, so a superseding question remounts the dialog rather than
+   * reconciling into it. See the `key` at the bottom of `useConfirm`. */
+  id: number;
   options: ConfirmOptions;
   resolve: (confirmed: boolean) => void;
 }
@@ -167,13 +170,24 @@ export interface UseConfirmResult {
  * ── Why every exit path resolves ─────────────────────────────────────────
  *
  * `window.confirm` cannot fail to answer. This one can, and a promise that
- * never settles is worse than a wrong answer: the awaiting handler is suspended
- * forever, still holding whatever it took before the await. Several of these
- * handlers hold a `submittingRef` whose `finally` would never run, permanently
- * wedging the control against a second attempt. So an unmount resolves false
- * (task 3 of the CONVENTIONS §f contract: never leave a caller hanging), and a
- * second `confirm()` opened over a pending one resolves the first false rather
- * than dropping its resolver on the floor.
+ * never settles suspends the awaiting handler forever. So an unmount resolves
+ * false, and a second `confirm()` opened over a pending one resolves the first
+ * false rather than dropping its resolver on the floor.
+ *
+ * CAR-188 justified this by claiming several handlers hold a `submittingRef`
+ * whose `finally` would never run. That was wrong, and is corrected here
+ * (CAR-204): `confirm()` is the first awaited statement at all twelve sites, so
+ * nothing is held across it and a hang would strand no lock. The defense is
+ * still right — a suspended handler is a bug whether or not it holds a lock —
+ * but the invariant below is the part that actually needs care.
+ *
+ * ── The one invariant a caller must hold ─────────────────────────────────
+ *
+ * `confirmDialog` must be rendered on EVERY return path of the component that
+ * owns the hook. The unmount cleanup only fires when the hook itself unmounts;
+ * if the host stays mounted while an early return stops rendering the node, the
+ * promise never settles at all. Five adopters currently render it only on the
+ * happy path — none reachable today, each one refactor away.
  */
 export function useConfirm(): UseConfirmResult {
   const [pending, setPending] = useState<PendingConfirm | null>(null);
@@ -185,6 +199,7 @@ export function useConfirm(): UseConfirmResult {
    * what lets the unmount cleanup run on `[]` without a stale closure.
    */
   const pendingRef = useRef<PendingConfirm | null>(null);
+  const questionIdRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -199,6 +214,7 @@ export function useConfirm(): UseConfirmResult {
       // handler's stack and setPending batches with it as usual.
       pendingRef.current?.resolve(false);
       const next: PendingConfirm = {
+        id: ++questionIdRef.current,
         options: typeof options === "string" ? { message: options } : options,
         resolve,
       };
@@ -219,7 +235,15 @@ export function useConfirm(): UseConfirmResult {
   return {
     confirm,
     confirmDialog: pending ? (
-      <ConfirmDialog {...pending.options} onConfirm={onConfirm} onCancel={onCancel} />
+      // Keyed so a supersede REMOUNTS instead of reconciling in place
+      // (CAR-204). None of useFocusTrap's deps change on a supersede: `active`
+      // is the literal `true` below, `returnFocusFallback` is not passed, and
+      // `surface` is the same DOM node because reconciling in place is exactly
+      // what happens without a key. So the trap effect never re-runs and
+      // question 2 opens with focus wherever question 1 left it — possibly on
+      // the destructive button, which is what the APG ordering above exists to
+      // prevent.
+      <ConfirmDialog key={pending.id} {...pending.options} onConfirm={onConfirm} onCancel={onCancel} />
     ) : null,
   };
 }

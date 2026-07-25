@@ -66,7 +66,20 @@ export const GET = withApiHandler({
       .eq("provider", DEEPGRAM_PROVIDER)
       .maybeSingle();
 
-    if (error || !data) {
+    // `error` and `!data` are split deliberately (CAR-204). Folding them
+    // together answered 200 { hasKey: false } on a genuine read failure —
+    // supabase-js RESOLVES with `{ error }` rather than throwing (learned rule
+    // 42), so a permission error, statement timeout or pool exhaustion all
+    // landed here. The card then rendered its no-key form over a key that was
+    // still on file, the user pasted a replacement, and the upsert destroyed
+    // the original. That is exactly the hazard CAR-188's client-side
+    // `loadFailed` guard was written for, and the guard could never fire for it
+    // because the response was a 200. `hasKey` is control flow, so it needs
+    // must()-style handling per CONVENTIONS.md §d.
+    if (error) {
+      throw new ApiError("Couldn't load your key status. Please try again.", 500);
+    }
+    if (!data) {
       return { hasKey: false };
     }
 

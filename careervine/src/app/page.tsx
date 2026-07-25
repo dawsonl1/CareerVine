@@ -14,7 +14,7 @@ import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import LandingPage from "@/components/landing-page";
 import Navigation from "@/components/navigation";
-import { LoadErrorState } from "@/components/ui/load-error-state";
+import { LoadErrorState, LoadErrorBanner } from "@/components/ui/load-error-state";
 import {
   getHomeCoreData,
   getActionListCounts,
@@ -155,6 +155,8 @@ export default function Home() {
   const {
     suggestions,
     loading: suggestionsLoading,
+    loadFailed: suggestionsLoadFailed,
+    load: reloadSuggestions,
     save: saveSuggestionRaw,
     complete: completeSuggestionRaw,
     dismiss: dismissSuggestion,
@@ -244,8 +246,7 @@ export default function Home() {
         getContactEmailLookup(user.id),
       ]);
 
-      {
-        setScheduleEvents(
+      setScheduleEvents(
           (data.events || []).map((e) => {
             // Match contact: try attendee emails first, then fall back to contact_id.
             // `attendees` is a jsonb column, so it narrows through the shared
@@ -295,8 +296,7 @@ export default function Home() {
               contact_id: e.contact_id ?? null,
             };
           })
-        );
-      }
+      );
     } catch {
       // `if (eventsRes.ok)` with no else, plus a `// silent` catch and no error
       // state at all: a connected user whose events API 500s saw a bare hour
@@ -703,22 +703,29 @@ export default function Home() {
           // Save the suggestion as an action item, snooze it, and set cooldown.
           const ok = await saveSuggestionRaw(item.suggestion);
           if (!ok) {
-            // The save is what makes this a snooze rather than a deletion. It
-            // failed, so `dismissSuggestion` here would destroy a
-            // change-event-backed row server-side while the toast below claimed
-            // "Snoozed for 7 days" (CAR-188). Report the failure instead: the
-            // card stays, and the user can try again.
+            // The save IS the snooze for a suggestion: it creates the action
+            // item and marks the change event. Without it there is nothing to
+            // snooze, so reporting success here would be the CAR-188 lie in the
+            // other direction. `saveSuggestion` leaves the card in place on
+            // failure, so the user can retry.
             toast("Couldn't snooze that suggestion. Please try again.", { variant: "error" });
             return;
           }
-          // Reload action items to get the newly created one, then snooze it
           await setSuggestionCooldown(item.contactId);
           await snoozeContact(item.contactId, until);
-          // The card is only really snoozed once the change event is dismissed
-          // server-side. If that is refused the hook restores the card and
-          // toasts, so falling through to "Snoozed for 7 days" here would put a
-          // success message under a card that visibly came back.
-          if (!(await dismissSuggestion(item.suggestion))) return;
+          // No dismiss call here, and no gate on one (CAR-204). The save above
+          // already did both halves of it: `saveSuggestion` removes the card
+          // locally, and /api/suggestions/save marks the change event
+          // `actioned`, which `fetchChangeEventSuggestions` filters out (it
+          // selects status='new'). So the event cannot resurface, and the extra
+          // /api/change-events/dismiss round trip only moved 'actioned' to
+          // 'dismissed'.
+          //
+          // Gating the success toast on that redundant call was the bug: every
+          // write the user asked for had landed, and a failure on it re-inserted
+          // the card, said "Couldn't dismiss that suggestion", and swallowed
+          // "Snoozed for 7 days". `createActionItem` has no idempotency, so the
+          // retry that invited duplicated the action item.
         }
 
         toast(label, { variant: "info" });
@@ -726,16 +733,16 @@ export default function Home() {
         toast("Failed to snooze", { variant: "error" });
       }
     },
-    [toast, followUps, saveSuggestionRaw, dismissSuggestion]
+    [toast, followUps, saveSuggestionRaw]
   );
 
   const handleDismiss = useCallback(
     async (item: UnifiedActionItem) => {
       if (item.suggestion) {
-        // dismissSuggestion rolls the card back and returns false when the
-        // server refused it, so the cooldown only follows a landed dismissal.
-        // The toast for that failure is the hook's `onDismissFailed`, not here,
-        // or the user would get the same message twice.
+        // Unlike the snooze path above, the dismiss IS the operation here, so
+        // gating on it is right: the cooldown should only follow a dismissal
+        // that landed. The toast for the failure is the hook's
+        // `onDismissFailed`, not here, or the user would get it twice.
         if (!(await dismissSuggestion(item.suggestion))) return;
         try {
           await setSuggestionCooldown(item.contactId);
@@ -869,6 +876,17 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8 mb-8">
           {/* Left: Unified action list */}
           <div ref={leftColRef}>
+            {/* The suggestion rows are merged into unifiedItems, so both sources
+                failing just makes them absent — indistinguishable from having
+                none. A banner above the list keeps the rest of it usable while
+                still saying what happened (CAR-204). */}
+            {suggestionsLoadFailed && !suggestionsLoading && (
+              <LoadErrorBanner
+                className="mb-4"
+                message="Couldn't load your suggestions."
+                onRetry={() => { void reloadSuggestions(); }}
+              />
+            )}
             <UnifiedActionList
               items={unifiedItems}
               loading={!dataLoaded || suggestionsLoading}

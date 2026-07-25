@@ -9,7 +9,7 @@
  * card on top carries the tenant-wide bulk switches (plan 36 / CAR-25).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -68,6 +68,7 @@ export default function AdminUsersPage() {
   const [savingScrapeId, setSavingScrapeId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const bulkBusyRef = useRef(false);
 
   // Debounced search.
   useEffect(() => {
@@ -81,14 +82,17 @@ export default function AdminUsersPage() {
         const url = q.trim()
           ? `/api/admin/users?q=${encodeURIComponent(q.trim())}`
           : "/api/admin/users";
-        // An abort rejects inside apiFetch before the status branch, so it
-        // still surfaces as an AbortError for the guard below.
+        // An abort landing before response headers rejects as an AbortError.
+        // One landing DURING body streaming rejects out of res.json(), which
+        // apiFetch wraps as ApiRequestError("unreadable response") — so the
+        // name check alone missed it and painted a red error over the list for
+        // 250ms on every keystroke (CAR-204). The signal is authoritative.
         const body = await apiFetch<{ users: AdminUserListItem[] }>(url, {
           signal: controller.signal,
         });
         setUsers(body.users);
       } catch (e) {
-        if ((e as Error).name === "AbortError") return;
+        if (controller.signal.aborted || (e as Error).name === "AbortError") return;
         setError((e as Error).message);
         setUsers(null);
       } finally {
@@ -161,28 +165,39 @@ export default function AdminUsersPage() {
   /** Bulk Apify kill switches (plan 36): one call flips every account. */
   const bulkSet = async (key: ScrapeControlKey, value: boolean) => {
     const label = SCRAPE_CONTROL_LABEL[key];
-    if (bulkBusy) return;
-    // The only control on this page that writes to every account at once, so
-    // it gets the most deliberate confirm of the twelve: a destructive action
-    // whose button says what it is about to do rather than "Confirm".
-    if (!(await confirm({
-      message: `Turn ${label} ${value ? "ON" : "OFF"} for ALL accounts?`,
-      title: "Change every account",
-      confirmLabel: `Turn ${value ? "ON" : "OFF"} for all`,
-      destructive: true,
-    }))) return;
-    setBulkBusy(true);
+    // Synchronous ref, taken BEFORE the confirm's await (CAR-204). CONVENTIONS
+    // §f is explicit that a boolean state flag will not do, and the await
+    // widened the window the guard has to cover: `bulkBusy` was only set after
+    // it. Nothing is exploitable today (the dialog's scrim covers these buttons,
+    // and useConfirm resolves a superseded question false), but this is the one
+    // control that writes to every account, so it should not rest on those.
+    if (bulkBusyRef.current) return;
+    bulkBusyRef.current = true;
     try {
-      const body = await apiFetch<{ affected: number }>(
-        "/api/admin/scrape-controls/bulk",
-        jsonBody({ [key]: value }),
-      );
-      success(`${label[0].toUpperCase()}${label.slice(1)} ${value ? "on" : "off"} for ${body.affected} accounts`);
-      setRefreshKey((k) => k + 1);
-    } catch (e) {
-      toastError((e as Error).message);
+      // The most deliberate confirm of the twelve: a destructive action whose
+      // button says what it is about to do rather than "Confirm".
+      if (!(await confirm({
+        message: `Turn ${label} ${value ? "ON" : "OFF"} for ALL accounts?`,
+        title: "Change every account",
+        confirmLabel: `Turn ${value ? "ON" : "OFF"} for all`,
+        destructive: true,
+      }))) return;
+
+      setBulkBusy(true);
+      try {
+        const body = await apiFetch<{ affected: number }>(
+          "/api/admin/scrape-controls/bulk",
+          jsonBody({ [key]: value }),
+        );
+        success(`${label[0].toUpperCase()}${label.slice(1)} ${value ? "on" : "off"} for ${body.affected} accounts`);
+        setRefreshKey((k) => k + 1);
+      } catch (e) {
+        toastError((e as Error).message);
+      } finally {
+        setBulkBusy(false);
+      }
     } finally {
-      setBulkBusy(false);
+      bulkBusyRef.current = false;
     }
   };
 

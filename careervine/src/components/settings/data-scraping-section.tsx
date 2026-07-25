@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { RefreshCw, CircleDollarSign, Activity, PauseCircle, Search } from "lucide-react";
 import { EXTENSION_STORE_URL } from "@/lib/extension-store";
 import { apiFetch } from "@/lib/api-client";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 
 interface ScrapeStatus {
   configured: boolean;
@@ -28,30 +29,42 @@ interface ScrapeStatus {
 export default function DataScrapingSection() {
   const [status, setStatus] = useState<ScrapeStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     apiFetch<ScrapeStatus>("/api/scrape/status")
       .then((data) => {
-        if (!cancelled) setStatus(data);
+        if (cancelled) return;
+        setStatus(data);
+        setLoadFailed(false);
       })
-      // error-tolerated: the card renders its own "not available" copy from a
-      // null status, which is the same thing the user sees when scraping is
-      // genuinely off for their account.
-      .catch(() => {})
+      // Not error-tolerated (CAR-204). CAR-188's comment claimed a null status
+      // renders "not available" copy matching what a user sees when scraping is
+      // genuinely off — neither half is true. A null status renders an error
+      // string, and scraping being off is a 200 with `configured:false` that
+      // renders the whole dashboard plus an amber banner. So this is a real
+      // failed load and gets the retryable state §f requires.
+      .catch(() => { if (!cancelled) setLoadFailed(true); })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   if (loading) {
     return <p className="text-sm text-muted-foreground py-8">Loading scrape status…</p>;
   }
-  if (!status) {
-    return <p className="text-sm text-muted-foreground py-8">Couldn’t load scrape status.</p>;
+  if (loadFailed || !status) {
+    return (
+      <LoadErrorState
+        message="Couldn't load scrape status."
+        onRetry={() => { setLoading(true); setReloadKey((k) => k + 1); }}
+      />
+    );
   }
 
   const pct = Math.min(100, Math.round((status.spendUsd / status.capUsd) * 100));

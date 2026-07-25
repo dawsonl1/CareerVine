@@ -67,7 +67,15 @@ export default function AvailabilitySection() {
       setTimeout(() => setSavedAvailability(false), 2500);
     } catch (err) {
       console.error("Error saving availability:", err);
-      setSaveError(err instanceof Error ? err.message : "Failed to save availability");
+      // Fixed copy rather than the thrown message (CAR-204). Before CAR-188 the
+      // throw was a hardcoded string, so `err.message` WAS this copy on every
+      // HTTP failure; apiSend then routed the server's string into the same
+      // unchanged expression, and this route emits no curated errors, so users
+      // started seeing "Unauthorized". Note a literal revert would not be
+      // enough: `err instanceof Error` also matches the network TypeError,
+      // whose message is "Failed to fetch", so that leak predated CAR-188 and
+      // is closed here too.
+      setSaveError("Failed to save availability");
     } finally {
       setSaving(false);
     }
@@ -81,7 +89,8 @@ export default function AvailabilitySection() {
       setTimeout(() => setSavedBusyCalendars(false), 2500);
     } catch (err) {
       console.error("Error saving busy calendars:", err);
-      setSaveError(err instanceof Error ? err.message : "Failed to save calendar selection");
+      // Same reasoning as handleSaveAvailability above (CAR-204).
+      setSaveError("Failed to save calendar selection");
     } finally {
       setSavingBusyCalendars(false);
     }
