@@ -36,6 +36,7 @@ import {
   gmailSendResponse,
   oauthTokenResponse,
   gmailListResponse,
+  gmailLabelsResponse,
   gmailSendAsResponse,
   calendarEventsResponse,
 } from "../fixtures/google-wire.mjs";
@@ -75,6 +76,12 @@ const server = setupServer(
   ),
   http.get("https://gmail.googleapis.com/gmail/v1/users/:userId/settings/sendAs", () =>
     HttpResponse.json(gmailSendAsResponse()),
+  ),
+  // Added after the first CI run denied it four times during the compose flow —
+  // exactly the signal this layer exists to produce. Without it the inbox
+  // renders against a 599 and the tier quietly tests a degraded app.
+  http.get("https://gmail.googleapis.com/gmail/v1/users/:userId/labels", () =>
+    HttpResponse.json(gmailLabelsResponse()),
   ),
 
   // ── Google OAuth token refresh ─────────────────────────────────────────

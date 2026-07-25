@@ -145,6 +145,11 @@ export default defineConfig({
     env: {
       ...appEnv,
       NODE_ENV: "production",
+      // `next build` posts to telemetry.nextjs.org, which the stub layer then
+      // correctly denies — 12 times in the first CI run. Benign, but it buries
+      // the genuinely-unexpected calls in the DENIED summary, which is the one
+      // signal that has to stay readable. Turn the source off instead.
+      NEXT_TELEMETRY_DISABLED: "1",
       // Arms the server-side third-party interception before Next loads any
       // route module. See e2e/server-stubs/register.mjs for why this is not
       // page.route().

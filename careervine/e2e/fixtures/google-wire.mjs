@@ -50,6 +50,23 @@ export function gmailListResponse({ messages = [], nextPageToken = undefined } =
   };
 }
 
+/**
+ * Response body of `gmail.users.labels.list`.
+ *
+ * `getGmailLabels` (src/lib/gmail.ts) keeps `type === "user"` plus a visible-system
+ * allowlist, so the fixture carries one of each to exercise both legs of that filter.
+ */
+export function gmailLabelsResponse() {
+  return {
+    labels: [
+      { id: "INBOX", name: "INBOX", type: "system" },
+      { id: "SENT", name: "SENT", type: "system" },
+      { id: "IMPORTANT", name: "IMPORTANT", type: "system" },
+      { id: "Label_1", name: "Networking", type: "user" },
+    ],
+  };
+}
+
 /** Response body of `gmail.users.settings.sendAs.list`. */
 export function gmailSendAsResponse(addresses = ["e2e@gmail.com"]) {
   return {
