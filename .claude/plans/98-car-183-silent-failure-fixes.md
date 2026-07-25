@@ -121,3 +121,41 @@ all inside `src/__integration__/` and none from this change.
 Falsification pass: with the two component fixes stashed and the new tests kept,
 all four failure-path tests go red and the two happy-path tests stay green. The
 tests fail for the intended reason rather than passing vacuously.
+
+## Deep review round (second commit)
+
+A 5-agent review (3 scope, 1 integration, 1 behavioral) ran against the open PR.
+Every finding acted on was re-verified mechanically first, and all of them were
+fixed in the same pass rather than deferred.
+
+**Introduced by the first commit:** `fake-fetch` keyed on the raw URL so a `URL`
+or `Request` caller could never match a route (both are always absolute);
+it captured no `init`, leaving headers and bodies unassertable for CAR-188's
+POST sites; it had no test of its own, so its central "real Response" claim was
+unpinned and the helper could have been reduced back to an object literal with
+the suite still green; two component tests asserted only "a toast happened",
+which the harness's own no-route throw satisfies identically; three prose claims
+were falsifiable (jsdom does not supply `Response` — Vitest leaves Node's undici
+in place; `isolate` defaults to true so a bare `global.fetch =` leaks within a
+file, not across files; `calendar-page.test.tsx` does set `status`); and
+`installFakeFetch` was named in CONVENTIONS.md without being added to the
+`SYMBOL_CLAIMS` guard that exists to stop exactly that rot.
+
+**Pre-existing, same bug class, same two files:** both components swallowed
+their READ failures, so a failed GET rendered "No custom templates yet." over
+templates that exist and made a failed follow-up read indistinguishable from
+"no follow-ups". Both now use `apiFetch` with a distinct retry state. A refused
+cancel also left a dead row offering a Cancel button that could never succeed,
+so a failed cancel now re-syncs (and a failed re-sync keeps the list rather than
+blanking it). `DELETE /api/gmail/templates/[id]` used a bare `parseInt`, so
+`"3abc"` deleted a different valid template and `"abc"` reported a client input
+error as a 500; it now uses `paramsSchema: idParamSchema`.
+
+**Rejected after verification:** two agents wanted the cancel routes to stop
+returning 200 for a no-op on an already-terminal sequence. Both routes carry the
+same comment saying cancelling must not rewrite a terminal status, so that is a
+documented decision, not an oversight. The client-side mislabel it caused is
+fixed by the re-sync instead.
+
+Final: 250 files / 2372 tests, typecheck, lint, build, both guards green, and
+CI green on all five jobs (web, mcp, types-drift, integration, extension).
