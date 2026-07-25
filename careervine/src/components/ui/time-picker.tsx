@@ -41,7 +41,7 @@ function to24(h12: number, period: "AM" | "PM"): number {
 
 export function TimePicker({ value, onChange, placeholder = "Select time" }: TimePickerProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos } = usePortalDropdown(ref, {
+  const { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos, portalContainer } = usePortalDropdown(ref, {
     dropdownHeight: 340,
     dropdownWidth: 280,
   });
@@ -172,7 +172,7 @@ export function TimePicker({ value, onChange, placeholder = "Select time" }: Tim
             ))}
           </div>
         </div>,
-        document.body
+        portalContainer ?? document.body
       )}
     </div>
   );

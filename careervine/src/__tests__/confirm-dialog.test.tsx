@@ -147,8 +147,8 @@ describe("useConfirm", () => {
   });
 
   it("moves focus back to Cancel when a new question supersedes an open one", async () => {
-    // useFocusTrap's deps are `[active]`, a literal true, so without a key on
-    // ConfirmDialog a supersede reconciles in place and the trap never re-runs:
+    // Without a key on ConfirmDialog a supersede reconciles in place, and none
+    // of useFocusTrap's deps move when it does — so the trap never re-runs and
     // question 2 would open with focus wherever question 1 left it, possibly on
     // the destructive button (CAR-204).
     const settled: boolean[] = [];

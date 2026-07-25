@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, type RefObject } from "react";
+import { useModalPortalContainer } from "@/components/ui/modal";
 
 interface PortalDropdownOptions {
   /** Approximate height of the dropdown for flip-direction calculation */
@@ -13,12 +14,20 @@ interface PortalDropdownOptions {
  * Shared hook for portal-based dropdowns (date picker, time picker, etc.).
  * Handles positioning relative to a trigger button and click-outside detection
  * across both the container ref and the portaled dropdown ref.
+ *
+ * Callers must portal into the returned `portalContainer`, falling back to
+ * `document.body` (CAR-198). Portalling to the body unconditionally puts the
+ * dropdown outside the focus trap of any enclosing Modal, which leaves it
+ * keyboard-unreachable while looking perfectly correct on screen. None of the
+ * current consumers is rendered inside a Modal, so this is a trap being closed
+ * before anyone falls into it rather than a live fix.
  */
 export function usePortalDropdown(
   containerRef: RefObject<HTMLElement | null>,
   { dropdownHeight, dropdownWidth }: PortalDropdownOptions
 ) {
   const [open, setOpen] = useState(false);
+  const portalContainer = useModalPortalContainer();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
@@ -62,5 +71,5 @@ export function usePortalDropdown(
 
   const toggle = useCallback(() => setOpen((prev) => !prev), []);
 
-  return { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos };
+  return { open, setOpen, toggle, triggerRef, dropdownRef, dropdownPos, portalContainer };
 }

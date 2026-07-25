@@ -237,10 +237,12 @@ export function useConfirm(): UseConfirmResult {
     confirm,
     confirmDialog: pending ? (
       // Keyed so a supersede REMOUNTS instead of reconciling in place
-      // (CAR-204). useFocusTrap's deps are `[active]`, a literal `true` here,
-      // so without a changing key the trap effect never re-runs and question 2
-      // opens with focus wherever question 1 left it — possibly on the
-      // destructive button, which is what the APG ordering above exists to
+      // (CAR-204). None of useFocusTrap's deps change on a supersede: `active`
+      // is the literal `true` below, `returnFocusFallback` is not passed, and
+      // `surface` is the same DOM node because reconciling in place is exactly
+      // what happens without a key. So the trap effect never re-runs and
+      // question 2 opens with focus wherever question 1 left it — possibly on
+      // the destructive button, which is what the APG ordering above exists to
       // prevent.
       <ConfirmDialog key={pending.id} {...pending.options} onConfirm={onConfirm} onCancel={onCancel} />
     ) : null,

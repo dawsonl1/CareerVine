@@ -263,6 +263,26 @@ usual `offsetParent` filter disarms the trap under test while still reading as
 correct. Adoption is currently even with hand-rolled dialogs, so this rule is
 forward-looking rather than descriptive.
 
+Two things a modal child must use rather than hand-roll (CAR-198). A child that
+portals — a dropdown menu, a popover — portals to `useModalPortalContainer() ??
+document.body`, never to `document.body` unconditionally: the trap is
+"everything inside the surface", so a menu on the body is keyboard-unreachable
+while looking perfectly fine on screen, and `aria-modal` additionally hides it
+from assistive tech. That works because the portalled thing is `position: fixed`
+and so is not clipped by the surface's `overflow: hidden`, which holds only while
+neither the surface nor its wrapper forms a containing block for fixed
+descendants; `careervine/src/__tests__/modal.test.tsx` pins both against
+`transform`, `filter`, `contain`, `container-type`, `will-change` and friends, in
+class, variant, arbitrary-property and inline-style form. And a footer Cancel
+button calls `useModalDismiss()` rather than the caller's own `onClose`, or it
+silently skips the unsaved-changes confirmation that the scrim, Escape and the X
+all honour. Worked examples: `careervine/src/hooks/use-portal-dropdown.ts` and
+`careervine/src/components/ui/select.tsx` for the portal target,
+`careervine/src/components/contacts/contact-edit-modal.tsx` and
+`careervine/src/components/companies/add-company-modal.tsx` for the dismiss hook.
+Both rules are adopted by every current call site, so unlike the paragraph above
+they are descriptive rather than forward-looking.
+
 A subtree that can independently fail gets wrapped in
 `careervine/src/components/ui/section-boundary.tsx` so a render throw shows a
 retryable panel in that subtree's frame instead of unmounting the page. Do not
