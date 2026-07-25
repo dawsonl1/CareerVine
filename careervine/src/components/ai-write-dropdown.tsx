@@ -151,6 +151,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
   // Close on outside click
   useClickOutside(dropdownRef, useCallback(() => { setOpen(false); resetState(); }, []), open);
 
+  // reentry-safe: /api/gmail/ai-write reads context and drafts; its only writes are idempotent entitlement upserts
   const handleGenerate = async (prompt: string) => {
     setError("");
     setAiFailure(null);

@@ -203,7 +203,14 @@ Identity-keyed async reads go through `useLatestRequest`: claim a token with
 `begin()` when the request starts, gate the state update on `isLatest(token)`, so
 a slow earlier response cannot overwrite a newer one.
 
-Client code never calls `fetch` directly. Reads go through `apiFetch`, status-only
+Client code never calls `fetch` directly, and neither does a browser-reached
+helper under `careervine/src/lib`: a relative `/api/...` URL only resolves in a
+browser, so it is client code wherever it lives. (That sentence used to stop at
+"client code", and six such calls were sitting in `careervine/src/lib` outside the guard's
+scope, two of them hand-rolling the error-body parse `apiFetch` exists to
+delete. Hoisting a call out of a component into a helper is a refactor a
+reviewer would ask for, so the narrower rule was one review away from being
+wrong.) Reads go through `apiFetch`, status-only
 mutations through `apiSend` (`careervine/src/lib/api-client.ts`, section a), so a
 non-2xx throws `ApiRequestError` instead of an error body being read as the
 success shape. An interactive handler wraps the call in `withToastOnError`
@@ -338,27 +345,42 @@ only, never a rejected promise in a handler; that is the contract above.
   rather than a render test because a missing accessible name changes nothing on
   screen and so survives sighted review.
 
-  `careervine/scripts/check-conventions.mjs` adds five more (CAR-190), all scoped to
-  `careervine/src/components` + `careervine/src/hooks` + `careervine/src/app` minus
-  the API routes, where a `fetch` to a third party is the correct call:
+  `careervine/scripts/check-conventions.mjs` adds five more (CAR-190). Scope is
+  `careervine/src/components` + `careervine/src/hooks` + `careervine/src/app`, minus
+  the API routes and minus server files (a Route Handler anywhere, or anything under
+  `careervine/src/app` with no `"use client"`) — in a server component `fetch` IS the idiomatic
+  data call, and `apiFetch` throws outside a browser. The no-raw-`fetch` rule also
+  reaches any first-party `/api` call elsewhere under `careervine/src/`:
 
   | Rule | Shape it fails on | Escape hatch |
   | -- | -- | -- |
-  | no raw `fetch(` | a call to `fetch` / `window.fetch` | `// raw-fetch:` |
-  | no native confirm | `window.confirm`, or bare `confirm(` that nothing in the file binds (`useConfirm()` returns one, so binding is what separates the two) | none |
-  | double-submit ref | an async `handle*`/`on*` awaiting a *mutating* seam with no `<x>Ref.current = true` or `.add(…)` claim | ratchet |
-  | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, with no `isLatest` | ratchet |
-  | dialog semantics | a `fixed inset-0` element outside `modal.tsx` with no `role="dialog"` anywhere in its subtree | `// overlay-not-a-dialog:` + ratchet |
+  | no raw `fetch(` | any `fetch` in the client tree, plus a literal `/api/...` URL anywhere else under `careervine/src/` | `// raw-fetch:` |
+  | no native confirm | `window.confirm`, or a bare `confirm(` with no **lexically enclosing** binding (`useConfirm()` returns one, so binding is what separates the two) | none |
+  | double-submit ref | an async `handle*`/`on*` that writes, with no ref both READ in an early return and claimed before the first await | `// reentry-safe:` + ratchet |
+  | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, gated by neither `isLatest`, a cancellation flag, nor an `AbortSignal` | `// latest-request-exempt:` + ratchet |
+  | dialog semantics | a `fixed inset-0` element outside `modal.tsx` with no `role="dialog"` in its own subtree | `// overlay-not-a-dialog:` + ratchet |
 
-  The first two are frozen at zero: CAR-188 cleared the tree, so the first new one
-  fails. The last three ship as **ratchets** over a named baseline (35 handlers, 8
-  reads, 12 overlays) rather than as the warning CAR-190 originally proposed, because
-  a warning exits 0 and that is precisely how CAR-154's helper decayed to 6 files and
-  CAR-158's to 1. A ratchet fails both ways: an offender absent from the baseline
-  fails, and a baselined site that no longer offends fails too, so a fix can never be
-  given back. `careervine/scripts/lib/ratchet.mjs` holds that algebra and its
-  rationale. CAR-197 drains the overlay baseline to zero as it migrates those same 12
-  dialogs.
+  The first two are frozen at zero. The last three ship as **ratchets** over a
+  baseline (54 handlers, 7 reads, 12 overlays) rather than as the warning CAR-190
+  originally proposed, because a warning exits 0 and that is precisely how CAR-154's
+  helper decayed to 6 files and CAR-158's to 1. A ratchet fails both ways: an
+  offender absent from the baseline fails, and a baselined site that no longer
+  offends fails too, so a fix can never be given back.
+  `careervine/scripts/lib/ratchet.mjs` holds that algebra and its rationale. The
+  handler and read baselines are **named** (one row consumes one slot, so a repeated
+  name cannot ride another's entry); the overlay one is **counted per file**, because
+  an overlay `<div>` has no name to key on — which means a same-file swap there is
+  invisible, and is the one thing the named form buys that the counted form cannot.
+  CAR-197 drains the overlay baseline to zero as it migrates those same 12 dialogs.
+
+  Read those three numbers as a property of the DETECTOR, not of the codebase. The
+  handler baseline was first published as 35; a review found five blind spots
+  (mutations carried by `apiFetch`, verbs absent from a hand-written allowlist, every
+  `@/lib` module outside a list of five, a write one hop away in a local helper, and
+  a guard-recognition rule that accepted refs which guarded nothing) and the real
+  figure was 54. Two of the additions, `data-subscriptions-section.tsx`'s
+  `handleSubscribe` and `handleUnsubscribe`, are non-idempotent and one POSTs a
+  destructive contact-removal loop; they are the first two to drain.
 
 - Enforced (behavior, no adoption check): `modal.test.tsx` covers the focus
   trap and dialog semantics, `careervine/src/__tests__/dialog-layer.test.tsx` covers

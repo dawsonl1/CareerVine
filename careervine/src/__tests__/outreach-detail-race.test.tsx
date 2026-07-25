@@ -154,6 +154,36 @@ describe("outreach company detail race (CAR-190)", () => {
     expect(screen.getByText("Bob")).toBeTruthy();
   });
 
+  it("renders a retryable error state when the detail load fails, not a blank", async () => {
+    // Clearing `detail` on every company change (the test below) means a
+    // failed load leaves nothing to render, and the gate's final arm is
+    // `null`. A company header over empty space reads as "nobody here is
+    // contactable", which in an outreach queue is the one conclusion a 500
+    // must not produce. Section f: a failed load gets the retryable state.
+    q.getCompanyDetail.mockRejectedValue(new Error("boom"));
+    render(<OutreachPage />);
+
+    await waitFor(() => expect(screen.getByText(/Couldn't load the people/)).toBeTruthy());
+    // Not the load-empty copy, which is an affirmative claim about the data.
+    expect(screen.queryByText("Nobody contactable here yet.")).toBeNull();
+
+    // And the retry actually re-reads.
+    q.getCompanyDetail.mockResolvedValue(detail(1, "Acme", "Alice"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    });
+    await waitFor(() => expect(screen.getByText("Alice")).toBeTruthy());
+  });
+
+  it("treats a null detail resolve as a failure rather than an empty company", async () => {
+    // getCompanyDetail returns CompanyDetail | null; a null reaches the same
+    // empty render as a throw and must take the same retryable state.
+    q.getCompanyDetail.mockResolvedValue(null);
+    render(<OutreachPage />);
+
+    await waitFor(() => expect(screen.getByText(/Couldn't load the people/)).toBeTruthy());
+  });
+
   it("clears the previous company's people while the new company loads", async () => {
     const pending = deferredDetails();
     const view = render(<OutreachPage />);

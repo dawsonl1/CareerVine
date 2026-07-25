@@ -175,8 +175,15 @@ describe("useGmailConnection", () => {
     act(() => {
       pending = hook.result.current.refresh();
     });
+
+    // Unmount before invalidating. Otherwise the mounted hook's effect sees
+    // `data` go non-null → null, fires a THIRD request, and that request's
+    // sequence — not the retirement under test — is what rejects the stale
+    // response. The first version of this test passed with the retirement line
+    // deleted for exactly that reason.
+    hook.unmount();
     act(() => mod.invalidateGmailConnectionCache());
-    expect(hook.result.current.data).toBeNull();
+    expect(fetchCalls).toHaveLength(2);
 
     // The disconnect raced a refresh that was already on the wire. Letting it
     // land would undo the disconnect the user just performed.
@@ -184,7 +191,45 @@ describe("useGmailConnection", () => {
       fetchCalls[1].resolve(CONNECTED);
       await pending;
     });
-    expect(hook.result.current.data).toBeNull();
+
+    const { hook: remounted } = await freshHook();
+    expect(remounted.result.current.data).toBeNull();
+  });
+
+  it("commits a response slower than the refresh interval instead of starving", async () => {
+    // Ordering must be decided on ARRIVAL, not on issue. Gating on "is my
+    // sequence still the newest issued" starves a fixed-interval poller: the
+    // onboarding flow refreshes every 3s, every request is issued by a tick, so
+    // any latency above the interval left every response superseded in flight,
+    // nothing ever wrote the store, and the banner sat on "Connect Gmail"
+    // forever — the one thing that poll exists to change.
+    const { hook } = await freshHook();
+    expect(fetchCalls).toHaveLength(1);
+
+    // Three poll ticks fire before the first response comes back.
+    act(() => void hook.result.current.refresh());
+    act(() => void hook.result.current.refresh());
+    act(() => void hook.result.current.refresh());
+    expect(fetchCalls).toHaveLength(4);
+
+    // The oldest one finally lands. Nothing newer has committed, so it must.
+    await act(async () => fetchCalls[0].resolve(CONNECTED));
+    expect(hook.result.current.loading).toBe(false);
+    expect(hook.result.current.calendarConnected).toBe(true);
+  });
+
+  it("still drops a response older than one that already committed", async () => {
+    // The companion to the test above: relaxing the gate must not reintroduce
+    // the out-of-order write it was added to prevent.
+    const { hook } = await freshHook();
+    act(() => void hook.result.current.refresh());
+    expect(fetchCalls).toHaveLength(2);
+
+    await act(async () => fetchCalls[1].resolve(CONNECTED));
+    expect(hook.result.current.calendarConnected).toBe(true);
+
+    await act(async () => fetchCalls[0].resolve(NOT_CONNECTED));
+    expect(hook.result.current.calendarConnected).toBe(true);
   });
 
   it("a stale response does not release the dedupe handle out from under a live one", async () => {

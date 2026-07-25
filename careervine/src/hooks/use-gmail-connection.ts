@@ -40,6 +40,18 @@ const listeners = new Set<() => void>();
 // back to "Connect Gmail" for a poll interval.
 let requestSeq = 0;
 
+// The newest sequence that has WRITTEN. Ordering is decided on arrival, not on
+// issue, and getting that distinction wrong starves the store: a first version
+// gated on `seq === requestSeq` ("only the newest request I have issued may
+// write"), which under a fixed-interval poll means a response commits only if
+// it beats the interval. Every request is issued by a tick, so any latency
+// above 3s left every response superseded in flight, nothing ever wrote, and
+// the onboarding banner sat on "Connect Gmail" forever — the exact opposite of
+// what the poll exists to do. `useLatestRequest`, which this mirrors, drops a
+// response older than what is already committed; it does not require the
+// committer to still be the newest in flight.
+let committedSeq = 0;
+
 function getSnapshot(): StoreState {
   return state;
 }
@@ -62,15 +74,21 @@ function fetchConnection(): Promise<GmailConnectionData | null> {
   }>("/api/gmail/connection")
     .then((data) => {
       const conn = data.connection || null;
-      // A superseded response still resolves its own callers, it just does not
-      // write the shared store.
-      if (seq === requestSeq) setState({ data: conn, loading: false });
+      // A response older than what is already committed still resolves its own
+      // callers, it just does not write the shared store.
+      if (seq > committedSeq) {
+        committedSeq = seq;
+        setState({ data: conn, loading: false });
+      }
       return conn;
     })
     .catch(() => {
       // Keep whatever data we already have — a failed background refresh
       // must not make connected integrations flash as disconnected.
-      if (seq === requestSeq) setState({ loading: false });
+      if (seq > committedSeq) {
+        committedSeq = seq;
+        setState({ loading: false });
+      }
       return null;
     })
     .finally(() => {
@@ -123,12 +141,20 @@ export function useGmailConnection() {
   };
 }
 
-/** Reset the cache (call after disconnect operations) */
+/**
+ * Reset the cache (call after disconnect operations).
+ *
+ * Must be followed by a refresh: this deliberately starts no request of its
+ * own, so an already-mounted consumer whose `data` was already null sees no
+ * dependency change and never re-runs its mount effect. Every call site pairs
+ * it with `void refresh()`.
+ */
 export function invalidateGmailConnectionCache() {
-  // Bump the sequence so any request still in flight cannot write the store
-  // after this point. Without it, a disconnect that races an in-flight refresh
-  // is undone by that refresh's stale "still connected" response.
-  requestSeq += 1;
+  // Retire every sequence issued so far, so a request still in flight cannot
+  // write the store after this point. Without it, a disconnect that races an
+  // in-flight refresh is undone by that refresh's stale "still connected"
+  // response.
+  committedSeq = requestSeq;
   fetchPromise = null;
   setState({ data: null, loading: true });
 }

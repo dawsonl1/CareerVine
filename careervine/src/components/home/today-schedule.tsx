@@ -423,9 +423,18 @@ function QuickAddCard({
     try {
       await onSave(title || "(No title)", addMeet);
     } catch {
-      // Only the failure path re-arms: on success the popover unmounts.
-      savingRef.current = false;
       setError("Failed to create event");
+    } finally {
+      // ALWAYS re-arm, in `finally` like every other guarded handler in the
+      // app. A first draft re-armed only in `catch`, reasoning that success
+      // unmounts the popover — which missed a third outcome: the parent can
+      // REFUSE. Dismiss a popover mid-save, draw a second draft, and the
+      // parent's own in-flight guard early-returns; the promise then resolves
+      // without throwing, the catch never runs, and the second popover sat at
+      // a disabled "Saving…" forever with the user's event silently never
+      // created. On success these two setState calls are no-ops on an
+      // unmounted component, which is why the original reasoning looked right.
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -623,12 +632,19 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
   // The POST chokepoint gets its own guard as well as the popover's (CAR-190):
   // this is the call that creates the Google event, so it is the one place a
   // second entry from any future caller must not get through.
-  const creatingRef = useRef(false);
+  //
+  // Keyed on the DRAFT, not a bare boolean. A boolean is wrong here because
+  // this ref outlives the popover it guards: the popover unmounts on dismissal
+  // while its request is still in flight, so a bare flag left the NEXT draft
+  // refused by the PREVIOUS draft's request and the user's second event was
+  // silently never created. Two different drafts are two different events and
+  // must both be allowed; only a second save of the SAME draft is a duplicate.
+  const creatingRef = useRef<NewEventDraft | null>(null);
 
   const handleSaveNewEvent = useCallback(async (title: string, addMeet: boolean) => {
     if (!newEventDraft) return;
-    if (creatingRef.current) return;
-    creatingRef.current = true;
+    if (creatingRef.current === newEventDraft) return;
+    creatingRef.current = newEventDraft;
     const today = new Date();
     const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const startMs = startDate.getTime() + newEventDraft.startHour * 60 * 60 * 1000;
@@ -647,7 +663,7 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
       // Re-arm even on success: apiSend throws on a non-2xx and the popover
       // catches it to offer a retry, so a guard that stayed latched would make
       // that retry a no-op. On success the popover has already unmounted.
-      creatingRef.current = false;
+      creatingRef.current = null;
     }
   }, [newEventDraft, onEventCreated]);
 
@@ -695,6 +711,10 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
       {calendarConnected && (
         <div
           ref={gridRef}
+          // Named for the tests: the drag-to-create surface is otherwise only
+          // addressable as ".relative", which is a class it happens to share
+          // with nothing today and could share with anything tomorrow.
+          data-hour-grid
           className="relative select-none"
           style={{ height: totalHeight, cursor: dragState?.isDragging ? "ns-resize" : undefined }}
           onMouseDown={handleGridMouseDown}

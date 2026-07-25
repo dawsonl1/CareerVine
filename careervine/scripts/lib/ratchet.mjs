@@ -43,19 +43,34 @@
 export function diffNamedRatchet(found, baseline, presentFiles, where) {
   const violations = [];
 
+  // A MULTISET, not a set. Names are not unique: check (j) labels an unnamed
+  // `useEffect` with the enclosing const, falling back to the literal
+  // "useEffect", and a component with two of them collapses to one label. Under
+  // a Set the second offender matched the first's entry and passed free —
+  // reintroducing exactly the "trade a fixed violation for a fresh one" hole
+  // that choosing named over counted was supposed to close. One found row
+  // consumes one baseline slot; leftovers on either side are violations.
   for (const file of Object.keys(found).sort()) {
-    const allowed = new Set(baseline[file] ?? []);
+    const unclaimed = [...(baseline[file] ?? [])];
     for (const { name, line } of found[file]) {
-      if (!allowed.has(name)) violations.push(`${file}:${line}: ${name}`);
+      const slot = unclaimed.indexOf(name);
+      if (slot === -1) violations.push(`${file}:${line}: ${name}`);
+      else unclaimed.splice(slot, 1);
     }
   }
 
   for (const file of Object.keys(baseline).sort()) {
     if (!presentFiles.has(file)) continue;
-    const still = new Set((found[file] ?? []).map((f) => f.name));
+    // Same accounting from the other side: count how many of each name remain,
+    // so a baseline listing a name twice against one surviving offender still
+    // reports the one that was given back.
+    const remaining = [...(found[file] ?? []).map((f) => f.name)];
     for (const name of baseline[file]) {
-      if (!still.has(name)) {
+      const slot = remaining.indexOf(name);
+      if (slot === -1) {
         violations.push(`${file}: ${name} no longer violates — delete it from the baseline in ${where}`);
+      } else {
+        remaining.splice(slot, 1);
       }
     }
   }
@@ -87,7 +102,14 @@ export function diffCountRatchet(found, baseline, presentFiles, where, unit) {
   for (const file of Object.keys(baseline).sort()) {
     if (!presentFiles.has(file)) continue;
     const actual = found[file] ?? 0;
-    if (actual < baseline[file]) {
+    if (actual === 0) {
+      // Say DELETE, not "lower it to 0". A literal `: 0` entry authorizes
+      // nothing, but it is dead weight that survives the file's own deletion
+      // (see presentFiles above) and inflates a baseline whose whole job is to
+      // be an honest inventory. Drop-to-zero is also the common case: a ticket
+      // that migrates a file's last offender hits this, not the partial branch.
+      violations.push(`${file}: no longer offends — delete its baseline entry in ${where}`);
+    } else if (actual < baseline[file]) {
       violations.push(`${file}: down to ${actual} — lower its baseline entry in ${where} to ${actual}`);
     }
   }

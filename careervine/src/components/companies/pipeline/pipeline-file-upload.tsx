@@ -67,6 +67,7 @@ export function PipelinePdfUploadField({
     await deleteApplicationPdf(path);
   };
 
+  // reentry-safe: applicationPdfSignedUrl mints a signed URL to read; nothing is written
   const handleView = async () => {
     if (!file) return;
     try {

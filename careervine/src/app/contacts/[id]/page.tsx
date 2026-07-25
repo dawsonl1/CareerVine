@@ -126,7 +126,17 @@ export default function ContactDetailPage() {
     }
   }, [user, contactId, router]);
 
+  // Four call sites invoke this on one mount — the [contact] effect, the
+  // conversationLogged listener, onActionCompleted and onReset — so completing
+  // two action items in quick succession puts two reads in flight and the
+  // loser, landing last, puts a completed item back in the open list. Its
+  // `finally` also bumps dataGeneration, remounting the tab boundary onto stale
+  // data, which is the same failure the outreach page's gate exists to stop
+  // (CAR-190 review).
+  const relatedRequest = useLatestRequest();
+
   const loadRelatedData = useCallback(async () => {
+    const token = relatedRequest.begin();
     setLoadingData(true);
     try {
       const [mtgs, acts, completed, ints, atts] = await Promise.all([
@@ -136,25 +146,31 @@ export default function ContactDetailPage() {
         getInteractions(contactId),
         getAttachmentsForContact(contactId),
       ]);
+      if (!relatedRequest.isLatest(token)) return;
       setMeetings(mtgs);
       setActions(acts as ActionItem[]);
       setCompletedActions(completed as CompletedAction[]);
       setInteractions(ints);
       setAttachments(atts as Attachment[]);
     } catch (e) {
+      if (!relatedRequest.isLatest(token)) return;
       console.error("Error loading contact data:", e);
     } finally {
-      setLoadingData(false);
-      // Bump the generation so the tab SectionBoundary remounts on fresh data
-      // (CAR-184). Unlike the inbox and calendar, `loadingData` is passed to the
-      // tabs as a prop rather than gating them, so nothing here unmounts the
-      // boundary during a refresh: without this, a tripped tab would keep
-      // showing its error panel even after correct data arrived, and "Try again"
-      // could never recover. In the finally block on purpose, so a failed load
-      // also re-evaluates rather than pinning the panel forever.
-      setDataGeneration((g) => g + 1);
+      // Guarded by an `if` rather than an early return: a `return` inside
+      // `finally` discards any in-flight exception.
+      if (relatedRequest.isLatest(token)) {
+        setLoadingData(false);
+        // Bump the generation so the tab SectionBoundary remounts on fresh data
+        // (CAR-184). Unlike the inbox and calendar, `loadingData` is passed to the
+        // tabs as a prop rather than gating them, so nothing here unmounts the
+        // boundary during a refresh: without this, a tripped tab would keep
+        // showing its error panel even after correct data arrived, and "Try again"
+        // could never recover. In the finally block on purpose, so a failed load
+        // also re-evaluates rather than pinning the panel forever.
+        setDataGeneration((g) => g + 1);
+      }
     }
-  }, [contactId]);
+  }, [contactId, relatedRequest]);
 
   /**
    * The scheduled read was unchecked: a non-2xx `{ error }` body fell through

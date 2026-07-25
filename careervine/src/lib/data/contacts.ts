@@ -17,6 +17,7 @@ import type { Contact, ContactListItem } from "@/lib/types";
 import { findOrCreateCompany as findOrCreateCompanyShared } from "@/lib/company-helpers";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { validateContactPhotoFile } from "@/lib/contact-photo";
+import { apiFetch, apiSend } from "@/lib/api-client";
 import { findOrCreateLocation } from "./locations";
 
 export { findOrCreateLocation } from "./locations";
@@ -398,7 +399,7 @@ export async function deleteContact(id: number) {
   // server-only) and must run while the row still exists — the route
   // verifies ownership against it. Best-effort; never blocks deletion.
   try {
-    await fetch(`/api/contacts/${id}/photo`, { method: "DELETE" });
+    await apiSend(`/api/contacts/${id}/photo`, { method: "DELETE" });
   } catch (err) {
     console.warn(`[deleteContact] Photo cleanup failed for contact ${id}:`, err);
   }
@@ -466,11 +467,13 @@ export async function uploadContactPhoto(_userId: string, contactId: number, fil
 
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`/api/contacts/${contactId}/photo`, { method: "POST", body: form });
-  const body = (await res.json().catch(() => null)) as { photoUrl?: string; error?: string } | null;
-  if (!res.ok || !body?.photoUrl) {
-    throw new Error(body?.error || "Failed to upload photo");
-  }
+  // apiFetch throws ApiRequestError carrying the route's own `error` message on
+  // any non-2xx, which is what the hand-rolled parse below used to reconstruct.
+  const body = await apiFetch<{ photoUrl?: string }>(`/api/contacts/${contactId}/photo`, {
+    method: "POST",
+    body: form,
+  });
+  if (!body?.photoUrl) throw new Error("Failed to upload photo");
   return body.photoUrl;
 }
 
@@ -479,11 +482,7 @@ export async function uploadContactPhoto(_userId: string, contactId: number, fil
  * the contact's photo_url.
  */
 export async function removeContactPhoto(_userId: string, contactId: number) {
-  const res = await fetch(`/api/contacts/${contactId}/photo`, { method: "DELETE" });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error || "Failed to remove photo");
-  }
+  await apiSend(`/api/contacts/${contactId}/photo`, { method: "DELETE" });
 }
 
 /**

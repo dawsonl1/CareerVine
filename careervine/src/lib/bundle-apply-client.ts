@@ -5,6 +5,8 @@
  * battle-tested cursor loop (CAR-47 retry semantics included).
  */
 
+import { apiSend, jsonBody } from "@/lib/api-client";
+
 export type ApplyProgress = {
   applied: number;
   total: number;
@@ -63,12 +65,9 @@ export async function fetchStepWithRetry<T>(
 
 /** Subscribe to a bundle; throws with a user-facing message on failure. */
 export async function subscribeToBundle(bundleId: number): Promise<void> {
-  const res = await fetch("/api/bundles/subscribe", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ bundleId }),
-  });
-  if (!res.ok) throw new Error((await res.json()).error ?? "Subscribe failed");
+  // apiSend throws ApiRequestError carrying the route's own message on a
+  // non-2xx, which is exactly what the hand-rolled parse below reconstructed.
+  await apiSend("/api/bundles/subscribe", jsonBody({ bundleId }));
 }
 
 /**

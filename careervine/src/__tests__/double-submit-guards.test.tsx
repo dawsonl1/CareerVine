@@ -59,8 +59,15 @@ describe("NewEventPopover double submit (today-schedule)", () => {
     );
   });
 
-  /** Drag on the hour grid to open the new-event popover. */
-  function openDraftPopover() {
+  /**
+   * Mount the schedule ONCE and return its drag surface.
+   *
+   * Kept separate from the drag below because `creatingRef` lives on this
+   * component: a helper that re-rendered per draft gave each draft a fresh
+   * instance and a fresh ref, so the cross-draft test it was written for
+   * passed against the very bug it was meant to catch.
+   */
+  function renderSchedule() {
     const { container } = render(
       <TodaySchedule
         events={[]}
@@ -69,18 +76,27 @@ describe("NewEventPopover double submit (today-schedule)", () => {
         availableHeight={800}
       />,
     );
-
-    // The grid is the drag surface; jsdom reports a zeroed rect, which yToHour
-    // handles (it clamps into the hour range) and which is fine here because
-    // the test cares about call count, not about which hour was picked.
-    const grid = container.querySelector("[data-hour-grid]") ?? container.querySelector(".relative");
+    const grid = container.querySelector("[data-hour-grid]");
     if (!grid) throw new Error("hour grid not found");
+    return grid;
+  }
 
-    fireEvent.mouseDown(grid, { clientY: 100 });
-    fireEvent.mouseMove(grid, { clientY: 200 });
-    fireEvent.mouseUp(grid, { clientY: 200 });
-
+  /**
+   * Drag out a draft on an already-mounted grid.
+   *
+   * jsdom reports a zeroed rect, which `yToHour` handles by clamping into the
+   * hour range — fine here, because these tests count requests rather than
+   * assert which hour was picked.
+   */
+  function dragOpenDraft(grid: Element, startY = 100, endY = 200) {
+    fireEvent.mouseDown(grid, { clientY: startY });
+    fireEvent.mouseMove(grid, { clientY: endY });
+    fireEvent.mouseUp(grid, { clientY: endY });
     return screen.getByPlaceholderText("Add title");
+  }
+
+  function openDraftPopover() {
+    return dragOpenDraft(renderSchedule());
   }
 
   it("fires one create-event POST for three Enter keydowns", () => {
@@ -100,6 +116,51 @@ describe("NewEventPopover double submit (today-schedule)", () => {
     doubleClick(screen.getByRole("button", { name: "Save" }));
 
     expect(posts.filter((u) => u.includes("/api/calendar/create-event"))).toHaveLength(1);
+  });
+
+  // A note on what is deliberately NOT tested here.
+  //
+  // `handleSaveNewEvent` carries its own draft-keyed guard at the POST site,
+  // and deleting it outright leaves this file green. That is not a coverage
+  // gap to paper over: the popover is its only caller, and the popover's own
+  // ref already blocks every UI path, so a second entry is unreachable today.
+  // The guard is defense in depth for a future second caller against a route
+  // with no idempotency key.
+  //
+  // What IS pinned is the part that can go wrong: the test above proves the
+  // guard is keyed on the DRAFT rather than on a boolean, which is the
+  // distinction that made a latched flag swallow the user's second event. An
+  // attempt to pin "the guard exists" by clicking Save twice in two `act()`
+  // blocks passes with the guard deleted — React re-renders in between and the
+  // second click lands on a disabled button — so it proved nothing and is gone.
+
+  it("a second draft is not refused by the first draft's in-flight request", async () => {
+    // The regression a bare boolean chokepoint guard caused. The popover
+    // unmounts on dismissal while its request is still on the wire, so the ref
+    // outlives the thing it guards; keyed on a boolean, the NEXT draft was
+    // refused by the PREVIOUS draft's request, the child's promise resolved
+    // without throwing, and the second popover sat at a disabled "Saving…"
+    // with the user's event silently never created.
+    // ONE mount, two drafts — the ref under test is shared across them.
+    const grid = renderSchedule();
+    const first = dragOpenDraft(grid, 100, 200);
+    fireEvent.keyDown(first, { key: "Enter" });
+    expect(posts).toHaveLength(1);
+
+    // Dismiss mid-flight (Escape is not gated on `saving`), then draw another
+    // over a different slot. The first request is still on the wire.
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+    const second = dragOpenDraft(grid, 300, 400);
+    await act(async () => {
+      fireEvent.keyDown(second, { key: "Enter" });
+    });
+
+    // Two drafts are two events. Both must reach the wire. (The second popover
+    // legitimately reads "Saving…" here — its request really is in flight; it
+    // is the POST count that separates a working guard from a latched one.)
+    expect(posts.filter((u) => u.includes("/api/calendar/create-event"))).toHaveLength(2);
   });
 
   it("re-arms after a failed create so the retry actually retries", async () => {
