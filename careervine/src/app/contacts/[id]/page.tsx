@@ -25,6 +25,7 @@ import { ChevronLeft } from "lucide-react";
 import { useQuickCapture } from "@/components/quick-capture-context";
 import { deleteContact } from "@/lib/queries";
 import { useToast } from "@/components/ui/toast";
+import { SectionBoundary } from "@/components/ui/section-boundary";
 
 type ActionItem = {
   id: number;
@@ -315,6 +316,13 @@ export default function ContactDetailPage() {
 
             {/* Tab content */}
             <div>
+              {/* A throw in one tab must leave the profile card, the tab bar and
+                  the rest of the page intact (CAR-184). Keyed by activeTab: the
+                  boundary self-clears on pathname change, and switching tabs here
+                  is same-route state (it only rewrites the hash), so without the
+                  key a tripped Timeline tab would keep showing the error panel
+                  after the user switched to Actions. */}
+              <SectionBoundary key={activeTab} label={`contact-tab:${activeTab}`}>
               {activeTab === "actions" && (
                 <ContactActionsTab
                   contactId={contactId}
@@ -377,6 +385,7 @@ export default function ContactDetailPage() {
                   onAttachmentsChange={setAttachments}
                 />
               )}
+              </SectionBoundary>
             </div>
           </main>
         </div>

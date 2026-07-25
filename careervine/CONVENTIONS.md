@@ -212,10 +212,28 @@ escape handling, body scroll lock, and the unsaved-changes guard. It does not
 provide a focus trap. Adoption is currently even with hand-rolled dialogs, so this
 rule is forward-looking rather than descriptive.
 
-- Authoritative: `careervine/src/lib/ui-events.ts` and
-  `careervine/src/hooks/use-latest-request.ts` (headers)
+A subtree that can independently fail gets wrapped in
+`careervine/src/components/ui/section-boundary.tsx` so a render throw shows a
+retryable panel in that subtree's frame instead of unmounting the page. Do not
+hand-roll a class `ErrorBoundary`: it would swallow the sentinel errors
+`redirect()` / `notFound()` throw, and would stay stuck in the error state across a
+client navigation. Read that file's header before adding a boundary, including the
+part about passing a `key` when sections switch by same-route state rather than by
+navigation. Route-level boundaries are `app/error.tsx`, `app/global-error.tsx` and
+`app/admin/error.tsx`; `global-error.tsx` replaces the root layout, so it may not
+import the design system or assume the global stylesheet loaded. All of them report
+through the one seam in `careervine/src/lib/report-error.ts`, which is where an
+error tracker gets wired (none is installed today). Boundaries catch render throws
+only, never a rejected promise in a handler; that is the contract above.
+
+- Authoritative: `careervine/src/lib/ui-events.ts`,
+  `careervine/src/hooks/use-latest-request.ts` and
+  `careervine/src/components/ui/section-boundary.tsx` (headers)
 - Enforced: `careervine/scripts/check-ui-events.mjs` runs in CI and bans the raw
-  event-name prefix outside the module. The other four rules are not enforced.
+  event-name prefix outside the module. `careervine/src/__tests__/error-boundaries.test.tsx`
+  pins the boundary behaviors, including the `notFound()` re-throw that rules out a
+  hand-rolled class, but nothing checks that a failure-prone subtree actually got
+  wrapped. The other five rules are not enforced at all.
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 

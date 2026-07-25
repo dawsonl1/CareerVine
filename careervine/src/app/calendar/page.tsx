@@ -19,6 +19,7 @@ import { packOverlappingEvents, slotStyle } from "@/lib/calendar-layout";
 import { resolveCalendarSaveMode } from "@/lib/calendar-save-mode";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { LoadErrorState } from "@/components/ui/load-error-state";
+import { SectionBoundary } from "@/components/ui/section-boundary";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -507,6 +508,14 @@ export default function CalendarPage() {
         {/* ── Week Grid View ── */}
         {view === "week" && (
           <div ref={weekShellRef} className="relative">
+            {/* The week grid does the most date math on this page (event packing,
+                overlap, drag-to-create), so it is the most likely thing here to
+                throw on a malformed event. Contained so the page header, the
+                List/Week toggle and Sync stay usable: a user whose week grid
+                breaks can still switch to List (CAR-184). Keyed by view so
+                toggling away and back clears the panel, since the boundary only
+                self-clears on a pathname change. */}
+            <SectionBoundary key={view} label="calendar-week-grid">
             <div className="overflow-x-auto">
             <div className="min-w-[640px]">
               {/* Day headers */}
@@ -690,6 +699,7 @@ export default function CalendarPage() {
                 )}
               </div>
             )}
+            </SectionBoundary>
           </div>
         )}
 
