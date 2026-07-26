@@ -27,6 +27,7 @@ import { useQuickCapture } from "@/components/quick-capture-context";
 import { deleteContact } from "@/lib/queries";
 import { useToast } from "@/components/ui/toast";
 import { SectionBoundary } from "@/components/ui/section-boundary";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { apiFetch, apiSend } from "@/lib/api-client";
 import { withToastOnError } from "@/lib/with-toast-on-error";
@@ -88,6 +89,7 @@ export default function ContactDetailPage() {
   const [completedActions, setCompletedActions] = useState<CompletedAction[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [relatedLoadFailed, setRelatedLoadFailed] = useState(false);
   // Increments on every completed loadRelatedData; feeds the tab boundary's key so
   // fresh data clears a stale error panel (CAR-184, see loadRelatedData).
   const [dataGeneration, setDataGeneration] = useState(0);
@@ -138,6 +140,7 @@ export default function ContactDetailPage() {
   const loadRelatedData = useCallback(async () => {
     const token = relatedRequest.begin();
     setLoadingData(true);
+    setRelatedLoadFailed(false);
     try {
       const [mtgs, acts, completed, ints, atts] = await Promise.all([
         getMeetingsForContact(contactId),
@@ -155,6 +158,17 @@ export default function ContactDetailPage() {
     } catch (e) {
       if (!relatedRequest.isLatest(token)) return;
       console.error("Error loading contact data:", e);
+      // Section f. Every state this read owns keeps its previous value on a
+      // throw — on mount that is `[]`, so the Actions, Timeline and Attachments
+      // tabs each rendered their load-empty copy over a failed read: "no open
+      // action items" for a contact who has them is exactly the confident lie
+      // the user acts on (CAR-205).
+      //
+      // All four callers are the "must surface" case: the mount effect, the
+      // boundary's Try again, and two re-reads that follow a SUCCESSFUL write.
+      // Nothing here re-reads after a failed write, so there is no silent-resync
+      // case to carve out and no `mode` parameter to add.
+      setRelatedLoadFailed(true);
     } finally {
       // Guarded by an `if` rather than an early return: a `return` inside
       // `finally` discards any in-flight exception.
@@ -410,74 +424,89 @@ export default function ContactDetailPage() {
                 label={`contact-tab:${activeTab}`}
                 onReset={() => void loadRelatedData()}
               >
-              {activeTab === "actions" && (
-                <ContactActionsTab
-                  contactId={contactId}
-                  userId={user!.id}
-                  actions={actions}
-                  completedActions={completedActions}
-                  allContacts={allContacts}
-                  meetings={meetings}
-                  onActionsChange={(acts, completed) => {
-                    setActions(acts);
-                    setCompletedActions(completed);
-                  }}
+              {/* Three of the four tabs render nothing BUT what loadRelatedData
+                  fetched, so a failed read makes each of them claim the contact
+                  has no action items, no history and no files. The Emails tab is
+                  excluded because it reads from loadContactEmails, which owns
+                  its own `emailsLoadFailed` / `scheduledLoadFailed` surfaces —
+                  hiding it here would report a failure it did not have. */}
+              {relatedLoadFailed && activeTab !== "emails" ? (
+                <LoadErrorState
+                  message="Couldn't load this contact's activity."
+                  onRetry={() => void loadRelatedData()}
                 />
-              )}
-              {activeTab === "timeline" && (
-                <ContactTimelineTab
-                  onConfirmDeleteInteraction={() => confirm({
-                    message: "Delete this interaction?",
-                    confirmLabel: "Delete",
-                    destructive: true,
-                  })}
-                  contactId={contactId}
-                  meetings={meetings}
-                  interactions={interactions}
-                  emails={contactEmails}
-                  completedActions={completedActions}
-                  loading={loadingData}
-                  onInteractionsChange={setInteractions}
-                />
-              )}
-              {activeTab === "emails" && (
-                gmailConn ? (
-                  <ContactEmailsTab
+              ) : (
+                <>
+                {activeTab === "actions" && (
+                  <ContactActionsTab
                     contactId={contactId}
-                    contactName={contact.name}
-                    contactEmails={contact.contact_emails.map((e) => e.email || "").filter(Boolean)}
-                    emails={contactEmails}
-                    scheduledEmails={scheduledEmails}
-                    gmailConnected={gmailConnected}
-                    canReadMailbox={can("mailbox:read")}
-                    loadingEmails={loadingEmails}
-                    emailsLoadFailed={emailsLoadFailed}
-                    scheduledLoadFailed={scheduledLoadFailed}
-                    onScheduledEmailCancel={handleScheduledEmailCancel}
-                    onReloadEmails={loadContactEmails}
+                    userId={user!.id}
+                    actions={actions}
+                    completedActions={completedActions}
+                    allContacts={allContacts}
+                    meetings={meetings}
+                    onActionsChange={(acts, completed) => {
+                      setActions(acts);
+                      setCompletedActions(completed);
+                    }}
                   />
-                ) : gmailLoading ? (
-                  <div className="py-8 flex justify-center">
-                    <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-base text-muted-foreground mb-2">Gmail not connected.</p>
-                    <p className="text-sm text-muted-foreground">
-                      Connect your Gmail account in{" "}
-                      <button onClick={() => router.push("/settings")} className="text-primary hover:underline cursor-pointer">Settings</button>
-                      {" "}to view email history.
-                    </p>
-                  </div>
-                )
-              )}
-              {activeTab === "attachments" && (
-                <ContactAttachmentsTab
-                  contactId={contactId}
-                  userId={user!.id}
-                  attachments={attachments}
-                  onAttachmentsChange={setAttachments}
-                />
+                )}
+                {activeTab === "timeline" && (
+                  <ContactTimelineTab
+                    onConfirmDeleteInteraction={() => confirm({
+                      message: "Delete this interaction?",
+                      confirmLabel: "Delete",
+                      destructive: true,
+                    })}
+                    contactId={contactId}
+                    meetings={meetings}
+                    interactions={interactions}
+                    emails={contactEmails}
+                    completedActions={completedActions}
+                    loading={loadingData}
+                    onInteractionsChange={setInteractions}
+                  />
+                )}
+                {activeTab === "emails" && (
+                  gmailConn ? (
+                    <ContactEmailsTab
+                      contactId={contactId}
+                      contactName={contact.name}
+                      contactEmails={contact.contact_emails.map((e) => e.email || "").filter(Boolean)}
+                      emails={contactEmails}
+                      scheduledEmails={scheduledEmails}
+                      gmailConnected={gmailConnected}
+                      canReadMailbox={can("mailbox:read")}
+                      loadingEmails={loadingEmails}
+                      emailsLoadFailed={emailsLoadFailed}
+                      scheduledLoadFailed={scheduledLoadFailed}
+                      onScheduledEmailCancel={handleScheduledEmailCancel}
+                      onReloadEmails={loadContactEmails}
+                    />
+                  ) : gmailLoading ? (
+                    <div className="py-8 flex justify-center">
+                      <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-base text-muted-foreground mb-2">Gmail not connected.</p>
+                      <p className="text-sm text-muted-foreground">
+                        Connect your Gmail account in{" "}
+                        <button onClick={() => router.push("/settings")} className="text-primary hover:underline cursor-pointer">Settings</button>
+                        {" "}to view email history.
+                      </p>
+                    </div>
+                  )
+                )}
+                {activeTab === "attachments" && (
+                  <ContactAttachmentsTab
+                    contactId={contactId}
+                    userId={user!.id}
+                    attachments={attachments}
+                    onAttachmentsChange={setAttachments}
+                  />
+                )}
+                </>
               )}
               </SectionBoundary>
             </div>

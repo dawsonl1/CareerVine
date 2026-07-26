@@ -657,13 +657,29 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
         endTime: new Date(endMs).toISOString(),
         conferenceType: addMeet ? "meet" : "none",
       }));
-      setNewEventDraft(null);
+      // Close only the draft this request was for. The popover unmounts on
+      // dismissal while the request is still on the wire, so by the time this
+      // resolves the user may be composing a DIFFERENT draft, and an
+      // unconditional `setNewEventDraft(null)` closed that one under them
+      // (CAR-205). Drafts are fresh objects per drag, so identity is the key.
+      //
+      // Compared against the live draft rather than `creatingRef.current`: the
+      // ref still holds THIS draft whenever the next one has been drawn but not
+      // yet saved, so a ref comparison would pass and close it anyway.
+      setNewEventDraft((current) => (current === newEventDraft ? null : current));
+      // Unconditional on purpose. The event really was created in Google
+      // Calendar, so the parent must refetch whichever draft is on screen now;
+      // gating this would hide a real event until some unrelated refresh.
       onEventCreated?.();
     } finally {
       // Re-arm even on success: apiSend throws on a non-2xx and the popover
       // catches it to offer a retry, so a guard that stayed latched would make
       // that retry a no-op. On success the popover has already unmounted.
-      creatingRef.current = null;
+      //
+      // Release only our OWN claim. A superseded request clearing the ref
+      // outright unlatched the newer draft's claim while its request was still
+      // in flight, handing back the double-submit hole this ref exists to close.
+      if (creatingRef.current === newEventDraft) creatingRef.current = null;
     }
   }, [newEventDraft, onEventCreated]);
 

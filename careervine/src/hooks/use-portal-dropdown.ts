@@ -12,8 +12,10 @@ interface PortalDropdownOptions {
 
 /**
  * Shared hook for portal-based dropdowns (date picker, time picker, etc.).
- * Handles positioning relative to a trigger button and click-outside detection
- * across both the container ref and the portaled dropdown ref.
+ * Handles positioning relative to a trigger button, click-outside detection
+ * across both the container ref and the portaled dropdown ref, and Escape
+ * dismissal (see the effect below for why Escape is capture-phase and what
+ * "this dropdown owns the key" means here).
  *
  * Callers must portal into the returned `portalContainer`, falling back to
  * `document.body` (CAR-198). Portalling to the body unconditionally puts the
@@ -47,6 +49,53 @@ export function usePortalDropdown(
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, [open, containerRef]);
+
+  // Escape closes the dropdown, not the dialog around it (CAR-205).
+  //
+  // These dropdowns had no keydown handling at all. That was invisible until
+  // CAR-197 gave six dialogs Escape for the first time: `modal.tsx`'s handler is
+  // a document listener, so with a picker open over a dialog one press closed
+  // the dialog under the user and left the picker behind.
+  //
+  // Capture phase, exactly as `select.tsx` does it. A document capture listener
+  // runs before a document bubble listener whatever order the two components
+  // mounted in, so `stopPropagation` here beats the modal deterministically
+  // rather than by luck.
+  //
+  // The ownership check is NOT select.tsx's `activeElement === trigger`. That
+  // works there because a Select's trigger is its only focusable part; these
+  // dropdowns are full of real buttons (day cells, hour cells, month chevrons),
+  // so the same test would decline Escape whenever focus sat on one — the bug
+  // again, just narrower. "Focus is inside the widget" is the generalisation,
+  // and it is measured against the same two nodes the click-outside handler
+  // above already treats as inside.
+  //
+  // `<body>` counts as inside: clicking the panel's own padding blurs to it, and
+  // a dialog opening above would have pulled focus into itself (its trap focuses
+  // on open), so "focus is nowhere" cannot mean a newer layer owns the key. That
+  // preserves the property select.tsx's focus check exists for — a dropdown left
+  // open under a newer layer must not swallow that layer's Escape.
+  useEffect(() => {
+    if (!open) return;
+    const handleEscapeCapture = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const active = document.activeElement;
+      const inside =
+        !active ||
+        active === document.body ||
+        containerRef.current?.contains(active) ||
+        dropdownRef.current?.contains(active);
+      if (!inside) return;
+      e.stopPropagation();
+      setOpen(false);
+      // Hand focus back to the trigger. The dropdown's own buttons are about to
+      // unmount, and focus left on `<body>` disarms the enclosing dialog's trap,
+      // which is a keydown handler *on* the surface.
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("keydown", handleEscapeCapture, true);
+    return () => document.removeEventListener("keydown", handleEscapeCapture, true);
   }, [open, containerRef]);
 
   // Position the dropdown relative to the trigger button, updating on scroll/resize

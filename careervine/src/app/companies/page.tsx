@@ -8,6 +8,7 @@ import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 import CompanyFilterBar from "@/components/companies/company-filter-bar";
 import { CompanyCard } from "@/components/companies/company-card";
 import { AddCompanyModal } from "@/components/companies/add-company-modal";
@@ -53,6 +54,7 @@ function CompaniesPage() {
 
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [showAddCompany, setShowAddCompany] = useState(false);
 
   const replaceParams = useCallback(
@@ -119,12 +121,19 @@ function CompaniesPage() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setLoadFailed(false);
     try {
       // One list: every company you're targeting or already know someone at.
       const data = await getCompanies(user.id, { scope: "in_play", sort, minContacts: 1 });
       setCompanies(data);
     } catch (e) {
       console.error("Error loading companies:", e);
+      // Section f: `companies` stays at [] on a throw, and the render below
+      // reads an empty list as "No companies yet. Target a company or import
+      // your network to get started." That is an affirmative claim about the
+      // user's data, and over a 500 it invites them to re-add companies they
+      // already have (CAR-205).
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -217,6 +226,11 @@ function CompaniesPage() {
         {/* List */}
         {loading ? (
           <div className="text-on-surface-variant text-sm py-16 text-center">Loading companies…</div>
+        ) : loadFailed ? (
+          <LoadErrorState
+            message="Couldn't load your companies."
+            onRetry={() => void load()}
+          />
         ) : visible.length === 0 ? (
           <Card>
             <CardContent className="py-16 text-center text-on-surface-variant text-sm">

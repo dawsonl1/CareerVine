@@ -163,6 +163,85 @@ describe("NewEventPopover double submit (today-schedule)", () => {
     expect(posts.filter((u) => u.includes("/api/calendar/create-event"))).toHaveLength(2);
   });
 
+  /**
+   * CAR-205. The three post-await commits in `handleSaveNewEvent` ran
+   * unconditionally, so the response for a draft the user had already dismissed
+   * reached in and operated on whatever draft was on screen instead.
+   *
+   * These need a fetch whose resolution is under the test's control, because the
+   * whole defect lives in the window between draft A's response arriving and
+   * draft B still being open. The `beforeEach` stub never resolves at all.
+   */
+  function controllableFetch() {
+    const pending: Array<(r: Response) => void> = [];
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        urls.push(url);
+        return new Promise<Response>((resolve) => pending.push(resolve));
+      }),
+    );
+    const ok = () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        json: () => Promise.resolve({ success: true }),
+        text: () => Promise.resolve('{"success":true}'),
+      }) as unknown as Response;
+    return {
+      urls,
+      /** Resolve the nth in-flight request, oldest first. */
+      resolve: async (index: number) => {
+        await act(async () => {
+          pending[index]?.(ok());
+        });
+      },
+    };
+  }
+
+  it("a superseded response does not close the next draft's popover", async () => {
+    // Draft A is saved and then dismissed while its POST is still on the wire —
+    // the popover unmounts, the request does not. The user draws draft B and is
+    // typing into it when A's response lands. An unconditional
+    // `setNewEventDraft(null)` closed B under them.
+    //
+    // Note B is deliberately NOT saved here: `creatingRef.current` is therefore
+    // still draft A, so a gate written as `creatingRef.current === newEventDraft`
+    // passes and closes B anyway. Comparing against the LIVE draft is what makes
+    // this case work.
+    const net = controllableFetch();
+    const grid = renderSchedule();
+
+    const first = dragOpenDraft(grid, 100, 200);
+    fireEvent.keyDown(first, { key: "Enter" });
+    expect(net.urls).toHaveLength(1);
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+    dragOpenDraft(grid, 300, 400);
+    expect(screen.queryByPlaceholderText("Add title")).toBeTruthy();
+
+    await net.resolve(0);
+
+    expect(screen.queryByPlaceholderText("Add title")).toBeTruthy();
+  });
+
+  // The other half of CAR-205's fix — releasing `creatingRef` in the `finally`
+  // only when it still holds THIS draft — is deliberately not tested here, for
+  // the same reason the chokepoint guard itself is not (see the note above).
+  //
+  // A test for it was written and thrown away: draft A's response unlatches
+  // draft B's claim, but a further Enter on B never reaches the chokepoint at
+  // all, because QuickAddCard's own `savingRef` is still latched for B's
+  // in-flight request and early-returns first. The test passed against the
+  // unconditional `finally` it was written to catch. The correction is still
+  // right — an unconditional release does hand back the claim — but as with the
+  // guard it defends, no UI path can observe it while the popover is the only
+  // caller, and a test that cannot fail is worse than none.
+
   it("re-arms after a failed create so the retry actually retries", async () => {
     // Both guards latch on entry; if neither released, the popover's own
     // "Failed to create event" retry would be a silent no-op. apiSend throws on
