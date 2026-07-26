@@ -12,6 +12,7 @@ import { capabilitiesFor } from "@/lib/capabilities/map";
 import type { Capability } from "@/lib/capabilities/types";
 import {
   FollowUpMessageStatus,
+  FollowUpStatus,
   SEND_STALE_CLAIM_MINUTES,
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
@@ -54,7 +55,13 @@ async function completeSequenceIfResolved(
     await service
       .from("email_follow_ups")
       .update({ status: "completed", updated_at: now })
-      .eq("id", seqId);
+      .eq("id", seqId)
+      // CAS on `active` so a concurrent teardown is not overwritten. The
+      // sweeper gave this helper a second, earlier call site, and without the
+      // guard a cancel landing between the sweep read and here would be
+      // rewritten to 'completed' — the mirror of the rule
+      // cancelFollowUpSequenceCascade already documents for its own write.
+      .eq("status", FollowUpStatus.Active);
   }
 }
 
@@ -111,19 +118,27 @@ async function runJob(): Promise<NextResponse> {
   }
   // Both writes re-assert `.eq(status, 'sending')` so a row that a concurrent
   // driver resolved between the read and here is left untouched.
+  // Both writes bind their error. This PR's whole thesis is that an unchecked
+  // write caused a double-send, and these two were the last unchecked ones on
+  // the path: 'failed' is a value the CHECK only learned in this change, so a
+  // deploy that outran its migration would 23514 here, PostgREST would return
+  // it in `error` without throwing, and the row would be re-swept and
+  // re-rejected every ten minutes while the log below still counted it.
   if (staleActiveIds.length > 0) {
-    await service
+    const { error } = await service
       .from("email_follow_up_messages")
       .update({ status: FollowUpMessageStatus.Failed, claimed_at: null })
       .in("id", staleActiveIds)
       .eq("status", FollowUpMessageStatus.Sending);
+    if (error) throw new Error(`Stale-claim sweep (failed) write refused: ${error.message}`);
   }
   if (staleDeadIds.length > 0) {
-    await service
+    const { error } = await service
       .from("email_follow_up_messages")
       .update({ status: FollowUpMessageStatus.Cancelled, claimed_at: null })
       .in("id", staleDeadIds)
       .eq("status", FollowUpMessageStatus.Sending);
+    if (error) throw new Error(`Stale-claim sweep (cancelled) write refused: ${error.message}`);
   }
   if (staleActiveIds.length > 0 || staleDeadIds.length > 0) {
     console.warn(

@@ -121,6 +121,29 @@ async function purgeRemovedBundleProspects(service: SupabaseClient): Promise<num
   ).map((b) => b.id);
   if (bundleIds.length === 0) return 0;
 
+  // `paginateAll` is OFFSET-based, and unsubscribe FLIPS status rather than
+  // deleting, so a subscription leaving the active set mid-walk shifts every
+  // later offset left by one and a still-active row is never returned. If that
+  // row held its bundle's floor the threshold reads too high and rows a
+  // subscriber still needs get dropped.
+  //
+  // Guarded rather than re-engineered. Keyset pagination would close it, but it
+  // would introduce a second pagination convention for a window that needs
+  // >1000 active subscriptions (a scale at which the pre-CAR-207 code was
+  // unconditionally broken anyway) AND an unsubscribe landing between two pages
+  // of a daily job. Comparing the active count either side of the walk detects
+  // exactly that, and deferring is free: the purge is idempotent and runs again
+  // tomorrow. Turns a silent over-delete into a skipped run.
+  const activeCount = async () => {
+    const { count, error } = await service
+      .from("bundle_subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "active");
+    if (error) throw new Error(`subscriptions count: ${error.message}`);
+    return count ?? 0;
+  };
+
+  const before = await activeCount();
   const subs = await paginateAll<{ bundle_id: number; synced_version: number }>(async (from, to) => {
     const { data, error } = await service
       .from("bundle_subscriptions")
@@ -131,6 +154,12 @@ async function purgeRemovedBundleProspects(service: SupabaseClient): Promise<num
     if (error) throw new Error(`subscriptions read: ${error.message}`);
     return data as { bundle_id: number; synced_version: number }[] | null;
   });
+  if ((await activeCount()) < before) {
+    console.warn(
+      "[retention] Active subscriptions changed mid-read; skipping the bundle-prospect purge this run.",
+    );
+    return 0;
+  }
 
   const minSynced = new Map<number, number>();
   for (const s of subs) {

@@ -67,6 +67,14 @@ export function FollowUpsTab({ followUps, onCancel, onOpenFollowUp, formatDateFu
                         </span>
                       ))}
                     </div>
+                    {/* Visible rather than title=-only: a tooltip never appears on
+                        touch, and this is the one state that needs the user to act. */}
+                    {fu.email_follow_up_messages.some((m) => m.status === "failed") && (
+                      <p className="text-[11px] text-destructive mt-1.5">
+                        A step could not be confirmed. Check your Gmail Sent folder before
+                        emailing again.
+                      </p>
+                    )}
                     {!fu.email_follow_up_messages.some((m) => m.status === "awaiting_review") && (
                       <p className="text-[11px] text-muted-foreground mt-1.5">Auto-cancels if they reply</p>
                     )}

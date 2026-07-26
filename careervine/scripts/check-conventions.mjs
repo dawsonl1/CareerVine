@@ -788,7 +788,14 @@ const API_CLIENT = "src/lib/api-client.ts";
  * from the client, so this lands at zero rather than needing a baseline.
  */
 const BROWSER_REACHABLE = (() => {
-  /** Resolve an import specifier to a file in this repo, or null for a package. */
+  /**
+   * Resolve an import specifier to a file in this repo, or null for a package.
+   *
+   * Handles `@/` and relative specifiers only. tsconfig also declares `@ext`
+   * and `@panel` into ../chrome-extension, which are deliberately out of scope:
+   * the scan universe is walk("src"), so an entry over there could never be
+   * reported anyway, and following the edge would only slow the walk.
+   */
   const resolveSpec = (spec, fromFile) => {
     let base;
     if (spec.startsWith("@/")) {
@@ -813,18 +820,33 @@ const BROWSER_REACHABLE = (() => {
   /** In-repo modules this file pulls in at RUNTIME. */
   const runtimeImports = (sf, r) => {
     const out = [];
+    const add = (spec) => {
+      if (!spec || !ts.isStringLiteral(spec)) return;
+      const target = resolveSpec(spec.text, r);
+      if (target) out.push(target);
+    };
     for (const st of sf.statements) {
-      let spec = null;
       if (ts.isImportDeclaration(st) && !st.importClause?.isTypeOnly) {
-        spec = st.moduleSpecifier;
+        add(st.moduleSpecifier);
       } else if (ts.isExportDeclaration(st) && st.moduleSpecifier && !st.isTypeOnly) {
-        spec = st.moduleSpecifier;
-      }
-      if (spec && ts.isStringLiteral(spec)) {
-        const target = resolveSpec(spec.text, r);
-        if (target) out.push(target);
+        add(st.moduleSpecifier);
       }
     }
+    // Dynamic `import("…")` too, anywhere in the file: `next/dynamic` and a
+    // lazily-imported parser both put the target in a browser chunk exactly
+    // like a static import, so a rule about what the browser loads has to see
+    // them. Statement-level scanning alone cannot — these sit in expression
+    // position, usually inside a callback.
+    const visitExpressions = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword
+      ) {
+        add(node.arguments[0]);
+      }
+      ts.forEachChild(node, visitExpressions);
+    };
+    visitExpressions(sf);
     return out;
   };
 
@@ -1187,7 +1209,7 @@ const isAsyncFn = (fn) => fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.Asy
  *
  * These are the pre-existing tail CAR-190 did not rewrite: the defects its
  * audit named are FIXED rather than listed, and the rest are a mechanical sweep
- * across 29 files that would collide head-on with CAR-197's dialog migration.
+ * across 26 files that would collide head-on with CAR-197's dialog migration.
  * Draining this list is that sweep's job; the guard's job is that it can only
  * shrink.
  *

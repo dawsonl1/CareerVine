@@ -11,11 +11,17 @@ import { redirect } from "next/navigation";
  * (CAR-207).
  *
  * It is a redirect rather than a repaired page because the component had zero
- * importers and both of its jobs already belong to something else: the Activity
- * page (`/meetings`) owns the standalone meetings + interactions timeline with
- * full create/edit/delete, and `components/contacts/contact-timeline-tab.tsx`
- * owns the contact-scoped view it was originally written to be. Rendering "all
- * interactions" here would have built a second surface duplicating Activity.
+ * importers and its surviving jobs already belong to something else: the
+ * Activity page (`/meetings`) lists every interaction and deletes them, and
+ * `components/contacts/contact-timeline-tab.tsx` edits and deletes them per
+ * contact. Rendering "all interactions" here would have built a second surface
+ * duplicating Activity.
+ *
+ * One capability genuinely has no web home: CREATING an interaction. It was
+ * unreachable before this change too (the page could never render), so nothing
+ * regressed, but `createInteraction` in `lib/data/interactions.ts` now has no
+ * caller outside the MCP `log_interaction` tool. Worth knowing before someone
+ * deletes it as dead code, or restores a create affordance on Activity.
  *
  * Temporary rather than permanent: a 308 is cached by the browser indefinitely,
  * which is an awkward thing to undo if this URL ever earns a page of its own.

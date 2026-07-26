@@ -501,6 +501,20 @@ describe("conventions guard", () => {
     expect(out).toContain("src/lib/deep/step-helper.ts");
   });
 
+  it("counts a dynamic import() as a reachability edge", () => {
+    // `next/dynamic` and lazily-imported parsers both put the target in a
+    // browser chunk exactly like a static import. Statement-level scanning
+    // cannot see them: they sit in expression position inside a callback.
+    const { code, out } = withFiles({
+      "src/lib/step-helper.ts": "export async function step(url: string) {\n  return fetch(url);\n}\n",
+      "src/components/probe.tsx":
+        '"use client";\n' +
+        'export const go = async () => (await import("@/lib/step-helper")).step("/api/x");\n',
+    });
+    expect(code, out).toBe(1);
+    expect(out).toContain("src/lib/step-helper.ts");
+  });
+
   it("does not count a type-only import as reachability", () => {
     // `import type` is erased, so it cannot carry a module into the bundle.
     // Counting it would drag server modules in through their types alone and

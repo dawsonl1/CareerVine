@@ -5,9 +5,24 @@
 
 // ── Follow-up sequence statuses ────────────────────────────────────────
 
+/**
+ * Statuses for email_follow_ups (the parent sequence).
+ *
+ * All five, not the two this held until CAR-207's review. The other three were
+ * raw string literals scattered across the code, and that mattered: the
+ * integration conformance guard (check-constraints.itest.ts) enumerates
+ * `Object.values` here, so a literal outside the enum is invisible to it. That
+ * is exactly how `cancelled_bounce` reached production absent from the table's
+ * CHECK, failing every bounce-driven cancel with 23514 since the table was
+ * created. Add a new sequence status HERE, or the guard cannot see it.
+ */
 export const FollowUpStatus = {
   Active: "active",
   CancelledUser: "cancelled_user",
+  CancelledReply: "cancelled_reply",
+  /** Written by detectBounces when a delivery failure retires the sequence. */
+  CancelledBounce: "cancelled_bounce",
+  Completed: "completed",
 } as const;
 
 export const FollowUpMessageStatus = {
@@ -18,8 +33,9 @@ export const FollowUpMessageStatus = {
   // confirm route) for the duration of one Gmail round trip — never a resting
   // state. Stamped with claimed_at (CAR-139); claims older than
   // SEND_STALE_CLAIM_MINUTES were orphaned by a crash and are swept to
-  // 'awaiting_review' (never back to 'pending' — the send may have gone out,
-  // and an auto-retry would double-send). In the DB CHECK since
+  // 'failed' below (never back to 'pending', and since CAR-207 never to
+  // 'awaiting_review' either — the send may have gone out, so neither an
+  // automatic retry nor an invited one is safe). In the DB CHECK since
   // 20260712065000_car105_followup_nudge_expiry_columns.sql.
   Sending: "sending",
   /**

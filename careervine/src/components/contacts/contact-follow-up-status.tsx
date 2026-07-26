@@ -122,6 +122,10 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
         {sequences.map((seq) => {
           const sentCount = seq.messages.filter((m) => m.status === "sent").length;
           const totalCount = seq.messages.length;
+          // A step whose send driver died between Gmail accepting the message
+          // and the mark-sent write. Delivery is genuinely unknown, so it may
+          // never be counted as sent (CAR-207 review).
+          const unconfirmedCount = seq.messages.filter((m) => m.status === "failed").length;
           const nextPending = seq.messages.find((m) => m.status === "pending");
           const isActive = seq.status === "active";
           const isCancelledReply = seq.status === "cancelled_reply";
@@ -161,8 +165,18 @@ export function ContactFollowUpStatus({ contactId }: { contactId: number }) {
                   {seq.status === "completed" && (
                     <div className="flex items-center gap-1.5 text-muted-foreground">
                       <Check className="h-3.5 w-3.5" />
-                      {totalCount} follow-ups sent
+                      {/* sentCount, not totalCount. This counted every message in
+                          the sequence as sent, so a cancelled or unconfirmed step
+                          was reported as delivered. */}
+                      {sentCount} follow-up{sentCount === 1 ? "" : "s"} sent
                     </div>
+                  )}
+                  {unconfirmedCount > 0 && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {unconfirmedCount === 1
+                        ? "1 step could not be confirmed. It may already have been delivered, so check your Gmail Sent folder before emailing again."
+                        : `${unconfirmedCount} steps could not be confirmed. They may already have been delivered, so check your Gmail Sent folder before emailing again.`}
+                    </p>
                   )}
                   {seq.status === "cancelled_user" && (
                     <div className="flex items-center gap-1.5 text-muted-foreground">

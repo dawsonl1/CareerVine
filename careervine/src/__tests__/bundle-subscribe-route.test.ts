@@ -163,10 +163,11 @@ describe("POST /api/bundles/subscribe — the UNIQUE race (CAR-207)", () => {
 
     expect(res.status).toBe(200);
     expect(body.subscription).toMatchObject({ id: 77, status: "active" });
-    // The backup sync still gets enqueued against the row that exists, so a
-    // loser whose client loop dies is covered exactly like a winner's.
-    expect(enqueueMock).toHaveBeenCalledTimes(1);
-    expect((enqueueMock.mock.calls[0] as unknown[])[0]).toEqual([77]);
+    // Neither tracked nor enqueued: the winner did both for this exact
+    // subscription microseconds ago, so repeating them would double-count one
+    // conversion and burn a second QStash message. Same end state as the
+    // already-active early return, and answered the same way.
+    expect(enqueueMock).not.toHaveBeenCalled();
   });
 
   it("still fails loudly when the conflict is real but the row cannot be found", async () => {

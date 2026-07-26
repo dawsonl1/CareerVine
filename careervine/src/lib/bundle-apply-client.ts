@@ -5,7 +5,13 @@
  * battle-tested cursor loop (CAR-47 retry semantics included).
  */
 
-import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
+import {
+  apiFetch,
+  apiSend,
+  isApiRequestError,
+  jsonBody,
+  UNREADABLE_RESPONSE_CODE,
+} from "@/lib/api-client";
 
 export type ApplyProgress = {
   applied: number;
@@ -63,11 +69,22 @@ export async function fetchStepWithRetry<T>(
       return { ok: true, step: await apiFetch<T>(url, jsonBody(body)), retried: attempt > 0 };
     } catch (err) {
       // A curated 4xx is the route's verdict on this step, so report it rather
-      // than hammering it twice more. Everything else is transient: a 5xx, a
-      // network failure, or a 2xx whose body never parsed (an edge response
-      // that never reached the route, which apiFetch reports as
-      // `unreadable_response` at the original 2xx status).
-      if (isApiRequestError(err) && err.status < 500 && err.code !== "unreadable_response") {
+      // than hammering it twice more. Everything else is transient and gets
+      // retried: a 5xx, a network failure, a 2xx whose body never parsed, and
+      // — via the `body` test — any 4xx the ROUTE did not author.
+      //
+      // That last one matters. `withApiHandler` always answers JSON, so a 4xx
+      // with no parseable body came from the edge (a CDN/WAF page, a platform
+      // 429), which is exactly as transient as a 5xx. Testing only the status
+      // gave up immediately on those, and the cost landed on unsubscribe: the
+      // old code reached the honest "cleanup will finish in the background"
+      // message, the status-only test replaced it with "Something went wrong."
+      if (
+        isApiRequestError(err) &&
+        err.status < 500 &&
+        err.code !== UNREADABLE_RESPONSE_CODE &&
+        err.body !== undefined
+      ) {
         return { ok: false, status: err.status, error: err.message, retried: attempt > 0 };
       }
     }

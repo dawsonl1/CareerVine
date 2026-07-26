@@ -1,9 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { uploadAttachment, addAttachmentToContact, getAttachmentUrl, deleteAttachment, getAttachmentsForContact } from "@/lib/queries";
 import { useToast } from "@/components/ui/toast";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { Paperclip, Plus, Trash2 } from "lucide-react";
 
@@ -20,13 +19,22 @@ interface ContactAttachmentsTabProps {
   contactId: number;
   userId: string;
   attachments: Attachment[];
-  onAttachmentsChange: (attachments: Attachment[]) => void;
+  /** Takes the setter, not a plain callback: delete needs the functional
+   *  updater to avoid writing a list it captured before the confirm dialog. */
+  onAttachmentsChange: Dispatch<SetStateAction<Attachment[]>>;
+  /**
+   * Owned by the PAGE, not this component (the CAR-204 pattern, which the
+   * CAR-207 review found this tab had not followed). This tab renders inside a
+   * `SectionBoundary` whose key includes `dataGeneration`, so a `useConfirm`
+   * living here is unmounted whenever a background refresh lands, and the open
+   * dialog vanishes mid-question with nothing deleted and nothing said.
+   */
+  onConfirmDelete: () => Promise<boolean>;
 }
 
-export function ContactAttachmentsTab({ contactId, userId, attachments, onAttachmentsChange }: ContactAttachmentsTabProps) {
+export function ContactAttachmentsTab({ contactId, userId, attachments, onAttachmentsChange, onConfirmDelete }: ContactAttachmentsTabProps) {
   const [uploading, setUploading] = useState(false);
   const { error: toastError } = useToast();
-  const { confirm, confirmDialog } = useConfirm();
   const uploadingRef = useRef(false);
   // Per-id rather than one flag: each row deletes independently, and a shared
   // boolean would drop a second row's click while the first is in flight.
@@ -40,24 +48,34 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
     const files = Array.from(input.files);
     setUploading(true);
     try {
-      await withToastOnError(
+      // Two calls, because these are two different failures and one message
+      // cannot honestly describe both. The refresh used to sit in a `finally`
+      // INSIDE this action, and a `finally` that throws replaces the original
+      // exception: a failed refresh after a fully successful upload was
+      // reported as "couldn't upload", the list was left stale, and the
+      // natural retry produced a duplicate storage object and row. When both
+      // failed, the upload's own error was discarded entirely.
+      const wrote = await withToastOnError(
         async () => {
-          try {
-            for (const file of files) {
-              const attachment = await uploadAttachment(userId, file);
-              await addAttachmentToContact(contactId, attachment.id);
-            }
-          } finally {
-            // A throw on file 3 of 5 still leaves 1 and 2 attached, so the
-            // refresh belongs on the failure path too. Without it the batch
-            // that half-landed stayed invisible until the next page load.
-            onAttachmentsChange((await getAttachmentsForContact(contactId)) as Attachment[]);
+          for (const file of files) {
+            const attachment = await uploadAttachment(userId, file);
+            await addAttachmentToContact(contactId, attachment.id);
           }
         },
         toastError,
         files.length > 1
           ? "Some files couldn't be uploaded. Please try again."
           : "Couldn't upload that file. Please try again.",
+      );
+      // Runs on both paths: a throw on file 3 of 5 still leaves 1 and 2
+      // attached, and leaving those invisible until reload is the defect this
+      // refresh exists to close.
+      await withToastOnError(
+        async () => onAttachmentsChange((await getAttachmentsForContact(contactId)) as Attachment[]),
+        toastError,
+        wrote
+          ? "Your files uploaded, but the list couldn't be refreshed. Reload to see them."
+          : "Couldn't refresh the attachment list. Reload to see what landed.",
       );
     } finally {
       uploadingRef.current = false;
@@ -92,24 +110,21 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
     deletingRef.current.add(attachmentId);
     try {
       // Unrecoverable: the storage object goes with the row, and no junction
-      // cleanup can bring the file back.
-      if (
-        !(await confirm({
-          message: "This permanently deletes the file. It cannot be undone.",
-          title: "Delete attachment?",
-          confirmLabel: "Delete",
-          destructive: true,
-        }))
-      ) {
-        return;
-      }
+      // cleanup can bring the file back. The question itself is asked by the
+      // page, so a background refresh cannot unmount it mid-ask.
+      if (!(await onConfirmDelete())) return;
       const ok = await withToastOnError(
         () => deleteAttachment(attachmentId, objectPath),
         toastError,
         "Couldn't delete that attachment. Please try again.",
       );
       if (!ok) return;
-      onAttachmentsChange(attachments.filter((a) => a.id !== attachmentId));
+      // Functional updater rather than `attachments.filter(...)`: that prop is
+      // captured at the render where the click happened, and the confirm
+      // dialog stretches the gap to human decision time. An upload landing in
+      // that gap was silently reverted, so a file the user had just added
+      // disappeared from the list while sitting in the database.
+      onAttachmentsChange((prev) => prev.filter((a) => a.id !== attachmentId));
     } finally {
       deletingRef.current.delete(attachmentId);
     }
@@ -167,7 +182,6 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
           disabled={uploading}
         />
       </label>
-      {confirmDialog}
     </div>
   );
 }

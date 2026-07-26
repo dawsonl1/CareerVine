@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { serviceClient, createTenant, deleteTenant, uniq, type Tenant, type Db } from "./helpers/stack";
 import { purgeScrapedData } from "@/lib/data-retention";
+import { paginateAll } from "@/lib/data/postgrest";
 // company-queries.ts carries its OWN lazy client seam, separate from
 // src/lib/data/client.ts's. Injecting the wrong one leaves it on the browser
 // singleton, which answers an unauthenticated read with zero rows rather than
 // an error — a test written against that would have "passed" on an empty list.
-import { getCompanyDetail, setCompanyQueriesClient } from "@/lib/company-queries";
+import { getCompanyDetail, getContactStages, setCompanyQueriesClient } from "@/lib/company-queries";
 
 /**
  * CAR-207: the 1000-row PostgREST ceiling, against a real PostgREST.
@@ -93,9 +94,17 @@ describe("retention purge past the 1000-row ceiling (CAR-207)", () => {
         synced_version: 5,
       })),
     );
-    // Tenant B subscribes to the FIRST bundle only, and has synced nothing.
-    // Inserted last, so its id puts it on page two of the subscription read —
-    // which is precisely where the old unpaginated read stopped looking.
+    // Tenant B subscribes to the FIRST bundle only, and has synced nothing, so
+    // it holds that bundle's floor: nothing there is safe to delete.
+    //
+    // Inserted last, so it is physically last in the heap. That is what put it
+    // past the old read's cut: the pre-fix query carried no `.order()` at all,
+    // so PostgREST truncated one 1000-row response in whatever order the plan
+    // emitted, which for this shape is physical order under both a Seq Scan and
+    // a Bitmap Heap Scan. (An earlier version of this comment claimed the row
+    // landed on "page two" of an id-ordered read. There were no pages and no
+    // ordering before the fix; the review that caught it also ran the pre-fix
+    // function against this exact fixture and confirmed it deletes `pinnedByB`.)
     await insertMany("bundle_subscriptions", [
       { user_id: tenantB.userId, bundle_id: firstBundle, status: "active", synced_version: 0 },
     ]);
@@ -113,6 +122,22 @@ describe("retention purge past the 1000-row ceiling (CAR-207)", () => {
     const [pinnedByB] = await insertMany("bundle_prospects", [prospect(firstBundle, 3)]);
     const [onLastBundle] = await insertMany("bundle_prospects", [prospect(lastBundle, 3)]);
     const [notYetSynced] = await insertMany("bundle_prospects", [prospect(lastBundle, 12)]);
+
+    // Plan-independent proof that the walk itself is complete, asserted directly
+    // rather than inferred from a downstream delete. Everything below depends on
+    // the read seeing all 1002 subscriptions, and a truncated read would still
+    // satisfy some of those assertions under some query plans.
+    const allSubs = await paginateAll<{ bundle_id: number }>(async (from, to) => {
+      const { data, error } = await svc
+        .from("bundle_subscriptions")
+        .select("bundle_id, synced_version")
+        .eq("status", "active")
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return data as { bundle_id: number }[] | null;
+    });
+    expect(allSubs.length).toBe(OVER_CEILING + 1);
 
     const result = await purgeScrapedData({ service: svc });
     // Asserted, not assumed: purgeScrapedData swallows a step's throw into
@@ -181,5 +206,60 @@ describe("company detail past the 1000-row ceiling (CAR-207)", () => {
     // each time, so two loads of the same page disagreed about who works there.
     // Compared as a sequence, not a set: order is half of what was unspecified.
     expect(names(second)).toEqual(names(first));
+  }, 180_000);
+});
+
+/**
+ * The truncation DOWNSTREAM of the one above, found by the CAR-207 review.
+ *
+ * `chunked` bounds the URL at 200 ids; it does not bound the RESPONSE. Every
+ * leg inside a chunk was a single unpaginated request, and 200 contacts carry
+ * well over 1000 rows between them. These legs are pure Set membership, so a
+ * dropped row does not degrade a stage, it INVERTS one: a contact who has been
+ * called or DM'd reads `not_contacted` and re-enters outreach queues.
+ *
+ * Integration-tier because the whole failure is PostgREST's silent row cap: it
+ * returns 1000 rows with `error: null`, which no mock reproduces and `must()`
+ * cannot catch.
+ */
+describe("contact stages past the 1000-row ceiling (CAR-207 review)", () => {
+  it("classifies every contact as contacted when each has interactions", async () => {
+    // 200 is one full `chunked` slice; 6 each is 1200 rows, comfortably past
+    // the cap. Before the fix this returned 1000 rows covering ~168 contacts,
+    // so ~32 were reported as never contacted.
+    const PEOPLE = 200;
+    const PER_PERSON = 6;
+
+    const contacts = await insertMany(
+      "contacts",
+      Array.from({ length: PEOPLE }, (_, i) => ({
+        user_id: tenantA.userId,
+        name: `Stage Person ${String(i).padStart(4, "0")}`,
+      })),
+    );
+    await insertMany(
+      "interactions",
+      contacts.flatMap((c) =>
+        Array.from({ length: PER_PERSON }, (_, j) => ({
+          contact_id: c.id,
+          interaction_type: "phone",
+          interaction_date: new Date(Date.UTC(2026, 0, j + 1)).toISOString(),
+        })),
+      ),
+    );
+
+    setCompanyQueriesClient(tenantA.client as never);
+    const stages = await getContactStages(
+      tenantA.userId,
+      contacts.map((c) => ({ id: c.id })),
+    );
+
+    // Every leg ran without a 400, which is itself load-bearing: two of them
+    // (meeting_contacts, calendar_event_contacts) have no `id` column, so they
+    // paginate on their composite key. Ordering by a column that does not exist
+    // would reject the request rather than fail quietly.
+    expect(stages.size).toBe(PEOPLE);
+    const notContacted = [...stages.entries()].filter(([, s]) => s.stage === "not_contacted");
+    expect(notContacted).toEqual([]);
   }, 180_000);
 });

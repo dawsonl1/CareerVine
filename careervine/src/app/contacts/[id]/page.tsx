@@ -477,6 +477,16 @@ export default function ContactDetailPage() {
                   userId={user!.id}
                   attachments={attachments}
                   onAttachmentsChange={setAttachments}
+                  // Asked by the page for the same reason as the timeline tab
+                  // above: this boundary's key carries dataGeneration, so a
+                  // useConfirm inside the tab is unmounted by any background
+                  // refresh and the open dialog vanishes mid-question.
+                  onConfirmDelete={() => confirm({
+                    message: "This permanently deletes the file. It cannot be undone.",
+                    title: "Delete attachment?",
+                    confirmLabel: "Delete",
+                    destructive: true,
+                  })}
                 />
               )}
               </SectionBoundary>

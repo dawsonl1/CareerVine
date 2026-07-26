@@ -312,8 +312,8 @@ scrim, Escape and the X all honour. Both are exported from `modal.tsx` and call
 two do not cover. Worked examples: `careervine/src/hooks/use-portal-dropdown.ts`
 and `careervine/src/components/ui/select.tsx` for the portal target,
 `careervine/src/components/contacts/contact-edit-modal.tsx` and
-`careervine/src/app/interactions/page.tsx` for the buttons. Both rules are adopted
-by every current call site.
+`careervine/src/components/contacts/contact-timeline-tab.tsx` for the buttons.
+Both rules are adopted by every current call site.
 
 Every dialog surface registers as a dismissal layer with `useDialogLayer()` from
 `careervine/src/components/ui/modal.tsx` (CAR-202). Escape is a document-level

@@ -106,7 +106,18 @@ function doubleClick(el: Element) {
 
 // ── ContactAttachmentsTab ────────────────────────────────────────────────
 
-const attachment = {
+/** Mirrors the component's own Attachment shape, nullable fields included, so
+ *  the setter mock below is contravariantly assignable to its prop type. */
+type Att = {
+  id: number;
+  file_name: string;
+  content_type: string | null;
+  file_size_bytes: number | null;
+  object_path: string;
+  created_at: string | null;
+};
+
+const attachment: Att = {
   id: 11,
   file_name: "resume.pdf",
   content_type: "application/pdf",
@@ -115,61 +126,89 @@ const attachment = {
   created_at: "2026-07-01T00:00:00.000Z",
 };
 
-function renderAttachments(onChange = vi.fn()) {
+const changeMock = () => vi.fn((_value: Att[] | ((prev: Att[]) => Att[])) => {});
+type ChangeMock = ReturnType<typeof changeMock>;
+
+/**
+ * The confirm question is asked by the PAGE, not this tab (the CAR-204 pattern:
+ * the tab renders inside a `SectionBoundary` keyed on `dataGeneration`, so a
+ * `useConfirm` living in it is unmounted by any background refresh and the open
+ * dialog vanishes mid-question). So the tests drive the callback directly.
+ */
+function renderAttachments(
+  opts: { onChange?: ChangeMock; confirmed?: boolean | Promise<boolean> } = {},
+) {
+  const onChange = opts.onChange ?? changeMock();
+  const onConfirmDelete = vi.fn(() =>
+    opts.confirmed instanceof Promise
+      ? opts.confirmed
+      : Promise.resolve(opts.confirmed ?? true),
+  );
   render(
     <ContactAttachmentsTab
       contactId={7}
       userId="u-1"
       attachments={[attachment]}
       onAttachmentsChange={onChange}
+      onConfirmDelete={onConfirmDelete}
     />,
   );
-  return onChange;
+  return { onChange, onConfirmDelete };
+}
+
+/** Apply the functional updater the component passed to setState. */
+function applyUpdate(onChange: ChangeMock, prev: Att[]): Att[] {
+  const arg = onChange.mock.calls.at(-1)![0];
+  return typeof arg === "function" ? arg(prev) : arg;
 }
 
 describe("ContactAttachmentsTab — delete is irreversible (CAR-207)", () => {
   it("asks before destroying the file, and does nothing at all if declined", async () => {
-    const onChange = renderAttachments();
+    const { onChange, onConfirmDelete } = renderAttachments({ confirmed: false });
 
     await act(async () => {
       fireEvent.click(screen.getByTitle("Delete attachment"));
     });
-    // The storage object and the row go together and neither can be recovered,
-    // so the confirm has to happen BEFORE the call, not as an undo after it.
-    expect(deleteAttachment).not.toHaveBeenCalled();
-    expect(screen.getByText("This permanently deletes the file. It cannot be undone.")).toBeTruthy();
 
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("confirm-dialog-cancel"));
-    });
+    // The storage object and the row go together and neither can be recovered,
+    // so the question has to be asked BEFORE the call, not offered as an undo.
+    expect(onConfirmDelete).toHaveBeenCalledTimes(1);
     expect(deleteAttachment).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
   });
 
   it("deletes once confirmed, and drops the row from the list", async () => {
-    const onChange = renderAttachments();
+    const { onChange } = renderAttachments();
     await act(async () => {
       fireEvent.click(screen.getByTitle("Delete attachment"));
     });
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("confirm-dialog-confirm"));
-    });
 
     expect(deleteAttachment).toHaveBeenCalledWith(11, "u-1/abc_resume.pdf");
-    expect(onChange).toHaveBeenCalledWith([]);
+    expect(applyUpdate(onChange, [attachment])).toEqual([]);
+  });
+
+  it("removes only the deleted row from the list as it stands when the write lands", async () => {
+    // The regression this pins: the handler used to filter the `attachments`
+    // PROP captured at the click, and the confirm dialog stretches that gap
+    // across human decision time. An upload landing in the gap was reverted,
+    // so a file the user had just added vanished while sitting in the database.
+    const { onChange } = renderAttachments();
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Delete attachment"));
+    });
+
+    const uploadedMeanwhile = { ...attachment, id: 99, file_name: "just-uploaded.pdf" };
+    expect(applyUpdate(onChange, [attachment, uploadedMeanwhile])).toEqual([uploadedMeanwhile]);
   });
 
   it("keeps the row and says so when the delete is refused", async () => {
     // Previously a bare console.error: the row stayed on screen with no
     // message, so the file read as deleted when it was still there.
     deleteAttachment.mockRejectedValueOnce(new Error("storage unavailable"));
-    const onChange = renderAttachments();
+    const { onChange } = renderAttachments();
 
     await act(async () => {
       fireEvent.click(screen.getByTitle("Delete attachment"));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("confirm-dialog-confirm"));
     });
 
     expect(toastMock.error).toHaveBeenCalledWith(
@@ -180,15 +219,20 @@ describe("ContactAttachmentsTab — delete is irreversible (CAR-207)", () => {
     expect(screen.getByText("resume.pdf")).toBeTruthy();
   });
 
-  it("a double click deletes once", async () => {
-    renderAttachments();
+  it("a double click asks once, so it can only ever delete once", async () => {
+    // Isolates the ref, which the previous version of this test did not: it
+    // asserted one `deleteAttachment`, and that held with the ref removed too,
+    // because useConfirm resolves a superseded question false and the first
+    // handler then bails on its own. Holding the question open makes the ref
+    // the only thing that can stop the second invocation.
+    let release!: (v: boolean) => void;
+    const held = new Promise<boolean>((resolve) => { release = resolve; });
+    const { onConfirmDelete } = renderAttachments({ confirmed: held });
+
     doubleClick(screen.getByTitle("Delete attachment"));
 
-    // Both clicks land before any render, so only the synchronous ref can stop
-    // the second. One confirm dialog, and after confirming, one delete.
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("confirm-dialog-confirm"));
-    });
+    expect(onConfirmDelete).toHaveBeenCalledTimes(1);
+    await act(async () => { release(true); await held; });
     expect(deleteAttachment).toHaveBeenCalledTimes(1);
   });
 });
@@ -208,7 +252,7 @@ describe("ContactAttachmentsTab — partial upload (CAR-207)", () => {
     addAttachmentToContact.mockResolvedValueOnce(undefined);
     addAttachmentToContact.mockRejectedValueOnce(new Error("link failed"));
     getAttachmentsForContact.mockResolvedValue([{ ...attachment, id: 99, file_name: "f0.pdf" }]);
-    const onChange = renderAttachments();
+    const { onChange } = renderAttachments();
     const input = uploadFiles(3);
 
     await act(async () => {
@@ -227,9 +271,54 @@ describe("ContactAttachmentsTab — partial upload (CAR-207)", () => {
     expect(uploadAttachment).toHaveBeenCalledTimes(2);
   });
 
+  it("reports a failed REFRESH as a refresh failure, not as a failed upload", async () => {
+    // The refresh used to live in a `finally` inside the upload action, and a
+    // `finally` that throws replaces the original exception. So a fully
+    // successful upload whose refresh failed was reported as "couldn't upload",
+    // over a list that still looked unchanged. The natural retry then produced
+    // a duplicate storage object, row and junction row.
+    getAttachmentsForContact.mockRejectedValueOnce(new Error("read failed"));
+    const { onChange } = renderAttachments();
+    const input = uploadFiles(1);
+
+    await act(async () => {
+      fireEvent.change(input);
+    });
+
+    expect(uploadAttachment).toHaveBeenCalledTimes(1);
+    expect(addAttachmentToContact).toHaveBeenCalledTimes(1);
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Your files uploaded, but the list couldn't be refreshed. Reload to see them.",
+    );
+    expect(toastMock.error).not.toHaveBeenCalledWith(
+      "Couldn't upload that file. Please try again.",
+    );
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps the upload's own error when the refresh fails too", async () => {
+    // try/finally discarded the upload error entirely when both failed, so the
+    // thing that actually went wrong never reached the console or the user.
+    addAttachmentToContact.mockRejectedValueOnce(new Error("link failed"));
+    getAttachmentsForContact.mockRejectedValueOnce(new Error("read failed"));
+    renderAttachments();
+    const input = uploadFiles(1);
+
+    await act(async () => {
+      fireEvent.change(input);
+    });
+
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Couldn't upload that file. Please try again.",
+    );
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Couldn't refresh the attachment list. Reload to see what landed.",
+    );
+  });
+
   it("refreshes once and says nothing when the whole batch succeeds", async () => {
     getAttachmentsForContact.mockResolvedValue([attachment]);
-    const onChange = renderAttachments();
+    const { onChange } = renderAttachments();
     const input = uploadFiles(2);
 
     await act(async () => {

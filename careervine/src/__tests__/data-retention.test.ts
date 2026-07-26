@@ -18,6 +18,9 @@ interface Cfg {
   bundlesError?: string;
   subs?: { bundle_id: number; synced_version: number }[];
   prospectDeletes?: Record<number, number>;
+  /** Successive answers to the active-subscription count probe. Defaults to the
+   *  fixture size both times, i.e. a quiet run. */
+  subCounts?: number[];
 }
 
 function makeService(cfg: Cfg) {
@@ -28,17 +31,29 @@ function makeService(cfg: Cfg) {
   // single-page fixture would satisfy either way (CAR-207).
   const bundleRanges: [number, number][] = [];
   const subRanges: [number, number][] = [];
+  let countProbes = 0;
 
   /** A read that paginates: .select().order().range(from, to) over `rows`. */
   const pagedRead = <T>(rows: T[], record: [number, number][], error?: string) => {
     const chain: Record<string, unknown> = {};
-    chain.select = () => chain;
+    let isCount = false;
+    chain.select = (_cols?: string, opts?: { count?: string; head?: boolean }) => {
+      if (opts?.count) isCount = true;
+      return chain;
+    };
     chain.eq = () => chain;
     chain.order = () => chain;
     chain.range = (from: number, to: number) => {
       record.push([from, to]);
       if (error) return Promise.resolve({ data: null, error: { message: error } });
       return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+    };
+    // The mid-read race probe resolves without .range().
+    chain.then = (resolve: (v: unknown) => void) => {
+      if (!isCount) return resolve({ data: rows, error: null });
+      const scripted = cfg.subCounts?.[countProbes];
+      countProbes += 1;
+      return resolve({ count: scripted ?? rows.length, error: null });
     };
     return chain;
   };
@@ -159,6 +174,60 @@ describe("purgeScrapedData — bundle prospects", () => {
     // version of this test asserted the sentinel, so it pinned the bug in place
     // (CAR-207, found by the integration tier).
     expect(prospectDeleteCalls[0].threshold).toBeUndefined();
+    expect(result.bundleProspectsDeleted).toBe(9);
+  });
+
+  it("walks BOTH reads page by page rather than issuing one unbounded query", async () => {
+    // The recorders existed for this and nothing read them, so the unit tier
+    // proved nothing about pagination: every fixture was single-page, and
+    // deleting paginateAll entirely left all of these green. 1001 bundles is
+    // the smallest fixture that forces a second window.
+    const bundles = Array.from({ length: 1001 }, (_, i) => ({ id: i + 1 }));
+    const { service, bundleRanges, subRanges } = makeService({
+      bundles,
+      subs: bundles.map((b) => ({ bundle_id: b.id, synced_version: 5 })),
+    });
+    await purgeScrapedData({ service, now: () => NOW });
+
+    expect(bundleRanges).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    expect(subRanges).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+  });
+
+  it("skips the purge when the active-subscription set shrank mid-read", async () => {
+    // paginateAll is offset-based and unsubscribe FLIPS status rather than
+    // deleting, so a row leaving the active set between pages shifts later
+    // offsets and a still-active subscriber is never seen. If it held the floor,
+    // the threshold reads too high and rows it still needs get deleted. Skipping
+    // is free: the purge is idempotent and runs again tomorrow.
+    const { service, prospectDeleteCalls } = makeService({
+      bundles: [{ id: 1 }],
+      subs: [{ bundle_id: 1, synced_version: 5 }],
+      subCounts: [4, 3],
+      prospectDeletes: { 1: 9 },
+    });
+    const result = await purgeScrapedData({ service, now: () => NOW });
+
+    expect(prospectDeleteCalls).toEqual([]);
+    expect(result.bundleProspectsDeleted).toBe(0);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("purges normally when the active set is stable across the read", async () => {
+    const { service, prospectDeleteCalls } = makeService({
+      bundles: [{ id: 1 }],
+      subs: [{ bundle_id: 1, synced_version: 5 }],
+      subCounts: [4, 4],
+      prospectDeletes: { 1: 9 },
+    });
+    const result = await purgeScrapedData({ service, now: () => NOW });
+
+    expect(prospectDeleteCalls).toEqual([{ bundleId: 1, threshold: 5 }]);
     expect(result.bundleProspectsDeleted).toBe(9);
   });
 

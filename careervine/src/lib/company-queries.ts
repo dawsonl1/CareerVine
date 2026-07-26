@@ -138,74 +138,117 @@ export async function getContactStages(
         ) ?? [],
       ),
     ),
+    // Every leg below paginates inside its chunk, matching the two legs above
+    // and `buildLastTouchMap` in src/lib/data/follow-ups.ts, which carries the
+    // same comment for the same reason. `chunked` bounds the URL at 200 ids; it
+    // does NOT bound the RESPONSE, and 200 contacts routinely carry more than
+    // 1000 rows between them. PostgREST truncates there silently, and these
+    // legs are pure Set membership, so a dropped row does not degrade a stage,
+    // it INVERTS one: the contact reads `not_contacted` and goes back into
+    // outreach queues. `hasOutboundEmail || hasInteraction` means the paginated
+    // email leg rescues anyone emailed, so the loss landed precisely on the
+    // people whose only evidence is a non-email touch (a LinkedIn DM, a call, a
+    // coffee) — exactly the population this leg exists to protect.
+    // Measured before fixing: 200 contacts x 6 interactions returned 1000 rows
+    // covering 168 of them, so 32 were reported as never contacted.
     chunked(ids, async (chunk) => {
       // Explicitly user-scoped (CAR-151): this also runs under the MCP
       // service-role client, where RLS doesn't filter foreign interactions.
       return (
-        must(
-          await db()
-            .from("interactions")
-            .select("contact_id, contacts!inner()")
-            .eq("contacts.user_id", userId)
-            .in("contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("interactions")
+              .select("contact_id, contacts!inner()")
+              .eq("contacts.user_id", userId)
+              .in("contact_id", chunk)
+              .order("id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
     chunked(ids, async (chunk) => {
       return (
-        must(
-          await db()
-            .from("referrals")
-            .select("referred_by_contact_id")
-            .eq("user_id", userId)
-            .in("referred_by_contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("referrals")
+              .select("referred_by_contact_id")
+              .eq("user_id", userId)
+              .in("referred_by_contact_id", chunk)
+              .order("id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
     chunked(ids, async (chunk) => {
       // Explicitly user-scoped (CAR-151), same reason as the interactions leg.
       return (
-        must(
-          await db()
-            .from("contact_emails")
-            .select("contact_id, contacts!inner()")
-            .eq("contacts.user_id", userId)
-            .not("bounced_at", "is", null)
-            .in("contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("contact_emails")
+              .select("contact_id, contacts!inner()")
+              .eq("contacts.user_id", userId)
+              .not("bounced_at", "is", null)
+              .in("contact_id", chunk)
+              .order("id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
     chunked(ids, async (chunk) => {
       return (
-        must(
-          await db()
-            .from("calendar_events")
-            .select("contact_id, start_at, status")
-            .eq("user_id", userId)
-            .in("contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("calendar_events")
+              .select("contact_id, start_at, status")
+              .eq("user_id", userId)
+              .in("contact_id", chunk)
+              .order("id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
     chunked(ids, async (chunk) => {
+      // No `id` column: (calendar_event_id, contact_id) is the composite PK, so
+      // that pair is the stable pagination order. Ordering by a column this
+      // table does not have would 400 rather than fail quietly.
       return (
-        must(
-          await db()
-            .from("calendar_event_contacts")
-            .select("contact_id, calendar_events!inner(user_id, start_at, status)")
-            .eq("calendar_events.user_id", userId)
-            .in("contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("calendar_event_contacts")
+              .select("contact_id, calendar_events!inner(user_id, start_at, status)")
+              .eq("calendar_events.user_id", userId)
+              .in("contact_id", chunk)
+              .order("calendar_event_id")
+              .order("contact_id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
     chunked(ids, async (chunk) => {
+      // Same composite-key situation as calendar_event_contacts above.
       return (
-        must(
-          await db()
-            .from("meeting_contacts")
-            .select("contact_id, meetings!inner(user_id, meeting_date)")
-            .eq("meetings.user_id", userId)
-            .in("contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("meeting_contacts")
+              .select("contact_id, meetings!inner(user_id, meeting_date)")
+              .eq("meetings.user_id", userId)
+              .in("contact_id", chunk)
+              .order("meeting_id")
+              .order("contact_id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
   ]);
@@ -881,45 +924,74 @@ export async function getCompanyDetail(
   });
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
 
-  // Emails, alum badge, stages, latest logged interaction, current employer
+  // Emails, alum badge, stages, latest logged interaction, current employer.
+  // All four paginate inside their chunk for the reason spelled out in
+  // getContactStages above: `chunked` bounds the URL, never the response, and
+  // `contactIds` here is now unbounded (the employment read above used to cap
+  // it at PostgREST's 1000).
   const [emailRows, schoolRows, interactionRows, currentPositionRows] = await Promise.all([
     chunked(contactIds, async (chunk) => {
       return (
-        must(
-          await db()
-            .from("contact_emails")
-            .select("contact_id, email, source, is_primary, bounced_at")
-            .in("contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("contact_emails")
+              .select("contact_id, email, source, is_primary, bounced_at")
+              .in("contact_id", chunk)
+              .order("id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
     chunked(contactIds, async (chunk) => {
       return (
-        must(
-          await db().from("contact_schools").select("contact_id, schools(name)").in("contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("contact_schools")
+              .select("contact_id, schools(name)")
+              .in("contact_id", chunk)
+              .order("id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
     chunked(contactIds, async (chunk) => {
       return (
-        must(
-          await db()
-            .from("interactions")
-            .select("contact_id, interaction_type, interaction_date")
-            .in("contact_id", chunk)
-            .order("interaction_date", { ascending: false }),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("interactions")
+              .select("contact_id, interaction_type, interaction_date")
+              .in("contact_id", chunk)
+              // interaction_date DESC stays PRIMARY, with id DESC only as the
+              // tiebreaker range pagination needs. The consumer below keeps the
+              // first row seen per contact as `last_interaction`, so leading
+              // with `id` (the shape every other leg here uses) would silently
+              // hand every contact their OLDEST interaction instead of their
+              // newest, and nothing on screen would look wrong.
+              .order("interaction_date", { ascending: false })
+              .order("id", { ascending: false })
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
     chunked(contactIds, async (chunk) => {
       return (
-        must(
-          await db()
-            .from("contact_companies")
-            .select("contact_id, title, companies(id, name)")
-            .eq("is_current", true)
-            .in("contact_id", chunk),
-        ) ?? []
+        (await paginateAll(async (from, to) =>
+          must(
+            await db()
+              .from("contact_companies")
+              .select("contact_id, title, companies(id, name)")
+              .eq("is_current", true)
+              .in("contact_id", chunk)
+              .order("id")
+              .range(from, to),
+          ),
+        )) ?? []
       );
     }),
   ]);
