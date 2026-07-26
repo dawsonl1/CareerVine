@@ -39,9 +39,23 @@ vi.mock("@/lib/company-queries", () => ({
 }));
 vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <nav /> }));
-vi.mock("@/components/compose-email-context", () => ({
-  useCompose: () => ({ openCompose: vi.fn(), isOpen: false }),
-}));
+/**
+ * Real state rather than a frozen `isOpen: false`, so a test can open and close
+ * the composer and drive the page's compose-close refresh effect — the caller
+ * that CAR-205's regression lives on. `isOpen` stays false unless a test moves
+ * it, so every case written against the old constant mock is unaffected.
+ */
+const compose = vi.hoisted(() => ({ setOpen: null as null | ((v: boolean) => void) }));
+vi.mock("@/components/compose-email-context", async () => {
+  const React = await import("react");
+  return {
+    useCompose: () => {
+      const [isOpen, setIsOpen] = React.useState(false);
+      compose.setOpen = setIsOpen;
+      return { openCompose: () => {}, isOpen };
+    },
+  };
+});
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: nav.replace }),
   useSearchParams: () => nav.params,
@@ -173,6 +187,66 @@ describe("outreach company detail race (CAR-190)", () => {
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     });
     await waitFor(() => expect(screen.getByText("Alice")).toBeTruthy());
+  });
+
+  /**
+   * CAR-205. CAR-190 added `detailFailed` and put its render branch AHEAD of the
+   * `detail` branch, which is right for the company-change path (that effect
+   * clears `detail` first, so there is nothing to preserve) and wrong for the
+   * compose-close path, which refires `loadDetail()` over a populated list.
+   *
+   * Driven through the composer rather than through the Retry button, because
+   * Retry is only reachable from the error state — the exact case that already
+   * has no `detail` to lose.
+   */
+  async function closeComposerOver(view: ReturnType<typeof render>) {
+    await act(async () => compose.setOpen!(true));
+    await act(async () => {
+      view.rerender(<OutreachPage />);
+    });
+    await act(async () => compose.setOpen!(false));
+    await act(async () => {
+      view.rerender(<OutreachPage />);
+    });
+  }
+
+  it("keeps the people on screen when a compose-close refresh fails", async () => {
+    q.getCompanyDetail.mockResolvedValue(detail(1, "Acme", "Alice"));
+    const view = render(<OutreachPage />);
+    await waitFor(() => expect(screen.getByText("Alice")).toBeTruthy());
+
+    // The refresh that follows the composer closing now fails.
+    q.getCompanyDetail.mockRejectedValue(new Error("boom"));
+    await closeComposerOver(view);
+
+    // The people were loaded, are still valid, and are what the user came for.
+    expect(screen.getByText("Alice")).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load the people/)).toBeNull();
+  });
+
+  it("says so, rather than showing the stale list silently", async () => {
+    // The other half. Section f only lets a refresh stay quiet when it follows
+    // a FAILED write; this one follows a send, so the failure has to surface —
+    // as the inline banner, which is the documented shape for a partial failure
+    // beside content worth keeping.
+    q.getCompanyDetail.mockResolvedValue(detail(1, "Acme", "Alice"));
+    const view = render(<OutreachPage />);
+    await waitFor(() => expect(screen.getByText("Alice")).toBeTruthy());
+
+    q.getCompanyDetail.mockRejectedValue(new Error("boom"));
+    await closeComposerOver(view);
+
+    expect(screen.getByText(/Couldn't refresh this company's people/)).toBeTruthy();
+
+    // And its Retry clears the banner rather than being decoration.
+    q.getCompanyDetail.mockResolvedValue(detail(1, "Acme", "Alice"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    });
+    await waitFor(() =>
+      expect(screen.queryByText(/Couldn't refresh this company's people/)).toBeNull(),
+    );
+    expect(screen.getByText("Alice")).toBeTruthy();
   });
 
   it("treats a null detail resolve as a failure rather than an empty company", async () => {

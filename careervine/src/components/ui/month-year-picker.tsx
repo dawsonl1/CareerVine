@@ -32,6 +32,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { useDropdownEscape } from "@/hooks/use-dropdown-escape";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 
@@ -145,9 +146,11 @@ export function MonthYearPicker({ value, onChange, placeholder = "Select month",
       ? `${MONTH_FULL[parsed.month]} ${parsed.year}`
       : String(parsed.year)
     : (value?.trim() ?? "");
+  // Escape closes this list, not the dialog around it (CAR-205 review).
+  const handleEscape = useDropdownEscape(open, setOpen);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" onKeyDown={handleEscape}>
       <button
         type="button"
         onClick={toggle}

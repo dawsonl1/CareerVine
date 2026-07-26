@@ -8,6 +8,8 @@ import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { LoadErrorBanner, LoadErrorState } from "@/components/ui/load-error-state";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 import CompanyFilterBar from "@/components/companies/company-filter-bar";
 import { CompanyCard } from "@/components/companies/company-card";
 import { AddCompanyModal } from "@/components/companies/add-company-modal";
@@ -53,6 +55,7 @@ function CompaniesPage() {
 
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [showAddCompany, setShowAddCompany] = useState(false);
 
   const replaceParams = useCallback(
@@ -116,19 +119,51 @@ function CompaniesPage() {
   const statusCounts = useMemo(() => countByStatus(companies), [companies]);
   const filtersActive = hasActiveCompanyFilters(liveFilters);
 
+  // Same load-vs-resync split the outreach page uses (section f). `companies` is
+  // never cleared on a throw, so a failed REFRESH still has a valid list to show
+  // and gets the inline banner; only a failure with nothing loaded earns the
+  // full-region error state.
+  const showingStaleList = loadFailed && companies.length > 0;
+  const fullError = loadFailed && companies.length === 0;
+
+  // Identity-keyed on `sort`, and the sort control stays enabled while a read is
+  // in flight, so two reads genuinely overlap (CAR-205 review). Ungated, a stale
+  // REJECTION landing after a newer read succeeded set `loadFailed` with nothing
+  // left to clear it — the page then showed "Couldn't load your companies." on
+  // top of a correctly loaded list until the user hit Retry. Before this branch
+  // added `loadFailed` that race only reached console.error, so gating it is
+  // part of the same fix, not a separate concern.
+  //
+  // Deliberately NOT added to LATEST_REQUEST_BASELINE in check-conventions.mjs:
+  // the detector never flagged this callback (IDENTITY_DEP matches neither
+  // `user` nor `sort`), so a baseline entry would fail CI as a stale row.
+  const listRequest = useLatestRequest();
+
   const load = useCallback(async () => {
     if (!user) return;
+    const token = listRequest.begin();
     setLoading(true);
+    setLoadFailed(false);
     try {
       // One list: every company you're targeting or already know someone at.
       const data = await getCompanies(user.id, { scope: "in_play", sort, minContacts: 1 });
+      if (!listRequest.isLatest(token)) return;
       setCompanies(data);
     } catch (e) {
+      if (!listRequest.isLatest(token)) return;
       console.error("Error loading companies:", e);
+      // Section f: `companies` stays at [] on a throw, and the render below
+      // reads an empty list as "No companies yet. Target a company or import
+      // your network to get started." That is an affirmative claim about the
+      // user's data, and over a 500 it invites them to re-add companies they
+      // already have (CAR-205).
+      setLoadFailed(true);
     } finally {
-      setLoading(false);
+      // An `if` rather than an early return: a `return` inside `finally`
+      // discards any in-flight exception.
+      if (listRequest.isLatest(token)) setLoading(false);
     }
-  }, [user, sort]);
+  }, [user, sort, listRequest]);
 
   useEffect(() => {
     // load() reports its own failures, so the effect can fire and forget
@@ -199,16 +234,24 @@ function CompaniesPage() {
           />
         </div>
 
-        {/* Stage + facet filters — toggle stages to focus the list */}
+        {/* Stage + facet filters — toggle stages to focus the list.
+            The chips stay usable as controls while a load has failed with
+            nothing loaded, but their COUNTS are suppressed there: countByStatus
+            seeds every status to 0, so an unloaded list renders five confident
+            zeros directly above "Couldn't load your companies." (CAR-205
+            review). Zeroes are the lie, so the counts go, not the bar. */}
         <CompanyFilterBar
           filters={liveFilters}
           onFiltersChange={setFilters}
           tierOptions={tierOptions}
-          statusCounts={statusCounts}
+          statusCounts={showingStaleList || !loadFailed ? statusCounts : undefined}
         />
 
-        {/* Result count — only when filtering, so the default view stays quiet */}
-        {!loading && filtersActive && companies.length > 0 && (
+        {/* Result count — only when filtering, so the default view stays quiet.
+            Also suppressed under a full error state, where `companies` is
+            whatever the last successful read left and the count would describe
+            data the panel below says could not be loaded. */}
+        {!loading && !fullError && filtersActive && companies.length > 0 && (
           <p className="text-xs text-on-surface-variant mb-3">
             {visible.length} of {companies.length} companies
           </p>
@@ -217,7 +260,23 @@ function CompaniesPage() {
         {/* List */}
         {loading ? (
           <div className="text-on-surface-variant text-sm py-16 text-center">Loading companies…</div>
-        ) : visible.length === 0 ? (
+        ) : fullError ? (
+          <LoadErrorState
+            message="Couldn't load your companies."
+            onRetry={() => void load()}
+          />
+        ) : (
+          <>
+            {/* A refresh failed over a list that is still on screen and still
+                valid. Keeping it is right; keeping it silently is not. */}
+            {showingStaleList && (
+              <LoadErrorBanner
+                className="mb-3"
+                message="Couldn't refresh your companies. Showing what was already loaded."
+                onRetry={() => void load()}
+              />
+            )}
+            {visible.length === 0 ? (
           <Card>
             <CardContent className="py-16 text-center text-on-surface-variant text-sm">
               {companies.length > 0 ? (
@@ -237,12 +296,14 @@ function CompaniesPage() {
               )}
             </CardContent>
           </Card>
-        ) : (
-          <div className="grid gap-3">
-            {visible.map((c) => (
-              <CompanyCard key={c.id} company={c} />
-            ))}
-          </div>
+            ) : (
+              <div className="grid gap-3">
+                {visible.map((c) => (
+                  <CompanyCard key={c.id} company={c} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
 

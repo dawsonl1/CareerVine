@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Calendar,
@@ -293,14 +293,12 @@ export function ApplicationsOpenPicker({
     }
   }
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, setOpen]);
+  // Escape is owned by `usePortalDropdown` (CAR-205). This component used to
+  // carry its own document listener as well, on the BUBBLE phase and with no
+  // ownership check, which made it the only one of the hook's four consumers
+  // that reacted to an Escape it did not own: with focus outside the widget the
+  // hook correctly declines and lets the key through to the enclosing dialog,
+  // and this listener then threw away the in-progress draft on the way past.
 
   const display = formatApplicationsOpenDisplay(value);
 

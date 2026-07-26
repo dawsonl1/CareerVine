@@ -17,7 +17,7 @@ import { Select } from "@/components/ui/select";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { useCompose } from "@/components/compose-email-context";
 import { useLatestRequest } from "@/hooks/use-latest-request";
-import { LoadErrorState } from "@/components/ui/load-error-state";
+import { LoadErrorBanner, LoadErrorState } from "@/components/ui/load-error-state";
 import { PersonModal } from "@/components/companies/person-modal";
 import { getCompanies, getCompanyDetail, type CompanyDetail, type CompanyPerson, type CompanySummary } from "@/lib/company-queries";
 import { buildOutreachQueue } from "@/lib/outreach-queue";
@@ -284,13 +284,31 @@ function OutreachFlow() {
             {/* ── People ── */}
             {detailLoading && !detail ? (
               <p className="text-sm text-on-surface-variant text-center py-10">Loading people…</p>
-            ) : detailFailed ? (
+            ) : detailFailed && !detail ? (
+              // `&& !detail` because this branch sits AHEAD of the `detail` one.
+              // The company-change effect clears `detail` before loading, so a
+              // failed load there correctly has nothing to preserve — but the
+              // compose-close effect refires loadDetail() over a populated list,
+              // and without the guard a failed refresh replaced people who are
+              // on screen and still valid with a full-page error (CAR-205).
               <LoadErrorState
                 message="Couldn't load the people at this company."
                 onRetry={() => void loadDetail()}
               />
             ) : detail ? (
               <>
+                {/* The other half of that guard. Keeping the list is right;
+                    keeping it SILENTLY is not — section f only lets a refresh
+                    stay quiet when it follows a failed write, and this one
+                    follows a send. The banner is the documented surface for a
+                    partial failure beside content worth keeping. */}
+                {detailFailed && (
+                  <LoadErrorBanner
+                    className="mb-4"
+                    message="Couldn't refresh this company's people. Showing what was already loaded."
+                    onRetry={() => void loadDetail()}
+                  />
+                )}
                 <PersonCards
                   title={`Current employees (${detail.current.length})`}
                   people={detail.current}

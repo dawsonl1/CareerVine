@@ -310,6 +310,41 @@ and `careervine/src/components/ui/select.tsx` for the portal target,
 `careervine/src/app/interactions/page.tsx` for the buttons. Both rules are adopted
 by every current call site.
 
+**Any** child that opens and closes owns **Escape while it is open** (CAR-205).
+Portalling is not what makes Escape ambiguous; having an open list inside a dialog
+is. Without a handler, Escape over an open dropdown closes the dialog underneath it
+and leaves the dropdown behind, because the dialog's own handler is a document
+listener that fires regardless.
+
+Which mechanism depends on where the panel lives, and the split is not cosmetic:
+
+- **Portalled out of the component's subtree** (`select.tsx`, `use-portal-dropdown.ts`):
+  a CAPTURE-phase *document* listener that calls `stopPropagation`. A React handler on
+  the wrapper would never see the key, and capture beats the dialog's bubble-phase
+  document listener deterministically rather than by mount order.
+- **A plain DOM child of the wrapper** (`use-dropdown-escape.ts`, used by
+  `contact-picker.tsx`, `month-year-picker.tsx`, `school-autocomplete.tsx` and
+  `degree-autocomplete.tsx`): a wrapper `onKeyDown`. The event already passes through
+  on its way up, and React attaches its listeners at the root container, which sits
+  *below* `document`, so a synthetic `stopPropagation` still stops the dialog's
+  handler. No document listener and no `activeElement` heuristic needed.
+
+The portalled form additionally needs an ownership check, and the two worked examples
+differ in exactly the part that matters: "does this widget own the key" is
+`activeElement === trigger` in `select.tsx`, whose trigger is its only focusable part,
+and focus-anywhere-inside-the-widget in `use-portal-dropdown.ts`, whose panels are full
+of real buttons. Copying the narrow form into a widget with focusable children
+reintroduces the bug for every focus position but one. The check is also what stops a
+dropdown left open under a newer layer swallowing that layer's Escape; the wrapper form
+gets that for free, since a list that is not focused cannot receive the key. Either way
+the handler is gated on `open`, or a closed dropdown swallows the dialog's own Escape,
+and focus goes back to the trigger on close, since focus stranded on `<body>` disarms
+the enclosing trap.
+
+Not enforced. `careervine/src/__tests__/picker-escape.test.tsx` pins the behavior for
+both mechanisms, including that React's synthetic `stopPropagation` really does stop
+the document-level handler.
+
 Every dialog surface registers as a dismissal layer with `useDialogLayer()` from
 `careervine/src/components/ui/modal.tsx` (CAR-202). Escape is a document-level
 event, so without a topmost check one keypress dismisses every open layer, and a
