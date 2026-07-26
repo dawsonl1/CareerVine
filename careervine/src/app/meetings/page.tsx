@@ -44,6 +44,7 @@ import { inputClasses } from "@/lib/form-styles";
 import { getRsvpDisplay } from "@/lib/constants";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { dueDateKey, formatDueDate, isDueDateOverdue } from "@/lib/due-date";
+import { formatWallClock } from "@/lib/calendar-day";
 import { LoadErrorState, LoadErrorBanner } from "@/components/ui/load-error-state";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -457,9 +458,9 @@ export default function MeetingsPage() {
                     <div className="min-w-0">
                       <h3 className="text-lg font-medium text-foreground">{meeting.title || <span className="capitalize">{meeting.meeting_type || "Meeting"}</span>}</h3>
                       <p className="text-base text-muted-foreground">
-                        {new Date(meeting.meeting_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                        {formatWallClock(meeting.meeting_date, { weekday: "short", month: "short", day: "numeric", year: "numeric" }, "en-US")}
                         {" · "}
-                        {new Date(meeting.meeting_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        {formatWallClock(meeting.meeting_date, { hour: "numeric", minute: "2-digit" }, "en-US")}
                       </p>
                     </div>
                   </div>

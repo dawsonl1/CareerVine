@@ -7,6 +7,7 @@
  */
 
 import type { DossierBundle } from "./db";
+import { dateKeyOf, daysBetweenDateKeys } from "@/lib/calendar-day";
 
 interface ContactEmbed {
   id: number;
@@ -70,9 +71,12 @@ export function isByuLikeSchool(name: string): boolean {
 
 export function daysSince(iso: string | null | undefined, now: Date): number | null {
   if (!iso) return null;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return null;
-  return Math.floor((now.getTime() - then) / 86400_000);
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return null;
+  // Whole CALENDAR days, not elapsed milliseconds (CAR-206). Dividing a raw gap
+  // makes "1 day ago" mean "somewhere between 24 and 48 hours", so a touch
+  // yesterday evening reads as 0 days ago until this time tomorrow.
+  return daysBetweenDateKeys(dateKeyOf(then), dateKeyOf(now));
 }
 
 export function buildDossier(

@@ -20,6 +20,7 @@ import { Select } from "@/components/ui/select";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, sortByPriorityThenDate } from "@/lib/priority-helpers";
 import { dueDateKey, formatDueDate, todayDateKey, endOfWeekDateKey } from "@/lib/due-date";
+import { formatWallClock } from "@/lib/calendar-day";
 
 type MeetingRow = Database["public"]["Tables"]["meetings"]["Row"];
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
@@ -792,7 +793,7 @@ export default function ActionItemsPage() {
                   <div className="flex items-center gap-3 mb-3">
                     <span className="text-base font-medium text-foreground capitalize">{selectedItem.meetings.title || selectedItem.meetings.meeting_type || "Meeting"}</span>
                     <span className="text-sm text-muted-foreground">
-                      {new Date(selectedItem.meetings.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      {formatWallClock(selectedItem.meetings.meeting_date, { month: "short", day: "numeric", year: "numeric" }, "en-US")}
                     </span>
                   </div>
                   {selectedItem.meetings.notes && (

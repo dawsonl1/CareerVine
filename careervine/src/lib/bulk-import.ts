@@ -59,6 +59,7 @@ import {
   type MergePolicy,
 } from "./scrape-merge";
 import { addTagsToContacts, downloadAndStorePhoto, isValidImportEmail } from "./import-db-helpers";
+import { coerceDueDate } from "@/lib/due-date";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 import type { AnalyticsEvents } from "@/lib/analytics/events";
 import { isBundlePhotoUrl, bundlePhotoOverwriteAllowed } from "./photo-urls";
@@ -1267,7 +1268,9 @@ async function applyTrackerState(
       contact_id: contactId,
       title: tracker.next_action.trim(),
       description: "Imported from Outreach_Tracker",
-      due_at: tracker.next_action_date || null,
+      // coerce, not normalize: one unparseable cell in a spreadsheet import
+      // drops that due date rather than failing the whole row (CAR-206).
+      due_at: coerceDueDate(tracker.next_action_date),
       source: "manual",
     });
   }

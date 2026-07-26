@@ -49,7 +49,7 @@ import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 import { parseCalendarAttendees } from "@/lib/calendar-attendees";
-import { dueDateKey, isDueDateOnOrBefore, isDueDateOverdue, shiftDateKey, todayDateKey } from "@/lib/due-date";
+import { isDueDateOnOrBefore, isDueDateOverdue, normalizeDueDate, shiftDateKey, todayDateKey } from "@/lib/due-date";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -434,24 +434,6 @@ export async function logInteraction(
 
 // ── Action items ───────────────────────────────────────────────────────
 
-/**
- * Coerce a caller-supplied due date to the calendar date the column actually
- * means (CAR-206). The web UI can only ever write a `YYYY-MM-DD`; MCP is the
- * one path that could put a real time-of-day in there, which would make the
- * date the whole app reads back (`due_at.split("T")[0]`) depend on the writer's
- * offset rather than on what they meant. Normalising here is the cheaper half
- * of what a `date` column would have bought, without the migration.
- *
- * Throws rather than returning null on an unparseable value: silently clearing
- * a due date the caller was trying to set is the worse failure.
- */
-function normalizeDueAt(value: string | null | undefined): string | null {
-  if (value == null || value === "") return null;
-  const key = dueDateKey(value);
-  if (key === null) throw new Error(`Invalid due_at "${value}" — expected a date like 2026-01-05`);
-  return key;
-}
-
 export async function createActionItem(input: {
   title: string;
   description?: string;
@@ -469,7 +451,7 @@ export async function createActionItem(input: {
       meeting_id: null,
       title: input.title,
       description: input.description ?? null,
-      due_at: normalizeDueAt(input.due_at),
+      due_at: normalizeDueDate(input.due_at),
       is_completed: false,
       completed_at: null,
       created_at: new Date().toISOString(),
@@ -524,10 +506,19 @@ export async function listActionItems(opts: {
   }
   // Due windows compare CALENDAR DATES, not instants (CAR-206). `due_at` is a
   // date stored as midnight UTC, so `new Date(due_at) < startOfToday` was true
-  // for everything due TODAY for any operator at or west of UTC — every item
-  // due today reported as overdue, all day. The `today` and `week` bounds are
+  // for everything due TODAY in any process at or west of UTC — every item due
+  // today reported as overdue, all day. The `today` and `week` bounds are
   // inclusive upper bounds on the same key, preserving the windows those cases
   // always meant: due today or earlier, and due within the next seven days.
+  //
+  // Scope, honestly: "today" here is the calendar date of the PROCESS running
+  // this, which in production is the Vercel function, i.e. UTC. The operating
+  // user's own timezone is not knowable at this surface — nothing stores it —
+  // so an operator in Denver still gets UTC-relative windows from these tools
+  // even though the web UI gives them local ones. What the fix removes is the
+  // basis MISMATCH (an instant compared against a day boundary), which was
+  // wrong even when the process clock was UTC. Closing the remaining gap needs
+  // a caller-supplied timezone on the tool, which is a contract change.
   const todayKey = todayDateKey(now);
   const endOfWeekKey = shiftDateKey(todayKey, 6);
   switch (opts.due) {
@@ -562,7 +553,7 @@ export async function updateActionItem(
     updates.completed_at = new Date().toISOString();
   }
   if (patch.snooze_until !== undefined) updates.snoozed_until = patch.snooze_until;
-  if (patch.due_at !== undefined) updates.due_at = normalizeDueAt(patch.due_at);
+  if (patch.due_at !== undefined) updates.due_at = normalizeDueDate(patch.due_at);
   if (patch.title !== undefined) updates.title = patch.title;
   if (patch.description !== undefined) updates.description = patch.description;
   if (Object.keys(updates).length === 0) throw new Error("No updates provided");

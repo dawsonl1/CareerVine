@@ -1,9 +1,9 @@
 /**
- * Calendar-date handling for action-item due dates (CAR-206).
+ * Action-item due dates (CAR-206).
  *
  * `follow_up_action_items.due_at` is a `timestamptz`, but it is semantically a
- * CALENDAR DATE: every writer writes a bare `YYYY-MM-DD`, and every edit form
- * reads it back with `.split("T")[0]` to seed the `DatePicker`. With the
+ * CALENDAR DATE: every writer sends a bare `YYYY-MM-DD`, and every edit form
+ * reads it back with a date-part split to seed the `DatePicker`. With the
  * database session timezone at UTC (verified against the full migration chain),
  * Postgres stores `'2026-01-05'` as `2026-01-05 00:00:00+00` and PostgREST
  * returns `"2026-01-05T00:00:00+00:00"`, so the date part of the wire value is
@@ -23,14 +23,11 @@
  * The column type was deliberately left as `timestamptz`. Switching it to
  * `date` fixes neither bug on its own: ECMA-262 parses a bare date-only string
  * as UTC, so `new Date("2026-01-05").toLocaleDateString()` in Denver is still
- * "Jan 4, 2026". The formatter here is the fix, not a workaround for a column
- * type, and a `date` column would reach it as the same `YYYY-MM-DD` anyway.
- *
- * Formatting deliberately builds the instant with `Date.UTC` and renders it
- * with `timeZone: "UTC"`, rather than parsing `value + "T00:00:00"` as local
- * midnight. Both read correctly today, but only the first is immune to zones
- * where local midnight does not exist on a given day (Pacific/Apia skipped
- * 2011-12-30 outright), where a local-midnight parse lands on the next date.
+ * "Jan 4, 2026". The formatter is the fix, not a workaround for a column type,
+ * and a `date` column would reach it as the same `YYYY-MM-DD` anyway. What the
+ * column change WOULD have bought — no real time-of-day ever landing in there —
+ * is bought instead by `normalizeDueDate` on the interactive write paths and
+ * `coerceDueDate` on the batch one.
  *
  * `isDueDateOverdue` is the one definition of overdue: the due date is strictly
  * before the LOCAL calendar today. An item due today is due, not overdue.
@@ -38,63 +35,55 @@
  * today's items red from local midnight onward, disagreeing with the two that
  * did not.
  *
- * Scope note: application deadlines have their own, already-correct helpers in
- * `application-date-value.ts` and `company-next-action.ts`. They are a
- * different domain concept and are intentionally not routed through here.
+ * The zone-safe primitives underneath live in `calendar-day.ts`, shared with the
+ * relationship rules; read that header for why day arithmetic never runs on a
+ * local midnight.
  */
 
-const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+import {
+  dateKeyOf,
+  daysBetweenDateKeys,
+  formatDateKey,
+  shiftDateKey as shiftKey,
+  todayDateKey as todayKey,
+  toDateKey,
+} from "./calendar-day";
 
-const pad = (n: number) => String(n).padStart(2, "0");
+export { dateKeyOf, daysBetweenDateKeys };
 
 /**
- * The calendar date a `due_at` value denotes, as `YYYY-MM-DD`.
- *
- * Accepts what the wire actually carries (`2026-01-05T00:00:00+00:00`) as well
- * as a bare `2026-01-05` that never reached the database yet. Returns null for
- * null/empty input and for anything that is not a date key, so a malformed
- * value renders as absent rather than as `NaN`/`Invalid Date`.
+ * The calendar date a `due_at` value denotes, as `YYYY-MM-DD`, or null when
+ * there is no usable date. Round-trip validated, so `2026-02-30` reads as
+ * absent rather than silently rolling over to March 2 on the way to the screen.
  */
 export function dueDateKey(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const key = value.split("T")[0];
-  return DATE_KEY_RE.test(key) ? key : null;
+  return toDateKey(value);
 }
 
 /**
  * Render a due date without letting the viewer's timezone move it.
  *
  * `options` and `locale` mirror `toLocaleDateString`, so a call site keeps the
- * exact format it had; `timeZone` is fixed to UTC and cannot be overridden,
- * because that pin is the whole point. Returns "" when there is no due date.
+ * exact format it had; `timeZone` is pinned to UTC and a caller-supplied one is
+ * overridden on purpose (see `formatDateKey`). Returns "" when there is no due
+ * date.
  */
 export function formatDueDate(
   value: string | null | undefined,
   options?: Intl.DateTimeFormatOptions,
   locale?: string,
 ): string {
-  const key = dueDateKey(value);
-  if (!key) return "";
-  const [year, month, day] = key.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString(locale, {
-    ...options,
-    timeZone: "UTC",
-  });
+  return formatDateKey(dueDateKey(value), options, locale);
 }
 
 /** Today's LOCAL calendar date as `YYYY-MM-DD`. Never `toISOString()`. */
 export function todayDateKey(now: Date = new Date()): string {
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  return todayKey(now);
 }
 
-/**
- * Move a date key by whole days. Arithmetic runs in UTC so a DST transition in
- * the viewer's zone cannot add or drop a day.
- */
+/** Move a date key by whole days, immune to DST in the viewer's zone. */
 export function shiftDateKey(key: string, days: number): string {
-  const [year, month, day] = key.split("-").map(Number);
-  const shifted = new Date(Date.UTC(year, month - 1, day + days));
-  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+  return shiftKey(key, days);
 }
 
 /** Strictly before today, in the viewer's local calendar. Due today is not overdue. */
@@ -117,4 +106,35 @@ export function isDueDateOnOrBefore(value: string | null | undefined, boundaryKe
  */
 export function endOfWeekDateKey(now: Date = new Date()): string {
   return shiftDateKey(todayDateKey(now), 7 - now.getDay());
+}
+
+/**
+ * Coerce a caller-supplied due date to the calendar date the column means, or
+ * null to clear it. Returns null (rather than throwing) for anything
+ * unparseable, so a batch writer can drop one bad cell instead of failing a
+ * whole import.
+ */
+export function coerceDueDate(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  return dueDateKey(value);
+}
+
+/**
+ * The strict form, for interactive writers: an explicit `null` clears the due
+ * date, a usable date is normalised to its key, and anything else throws.
+ *
+ * Throwing is the point, and the empty string is the case that motivated it.
+ * `""` used to reach PostgREST and fail with a 22007, so the update was refused
+ * and nothing was lost. Mapping it to null instead would turn that loud,
+ * harmless failure into silent erasure of a due date the caller was trying to
+ * set — which is exactly the failure this function exists to prevent. Only an
+ * explicit `null` means "clear it".
+ */
+export function normalizeDueDate(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const key = dueDateKey(value);
+  if (key === null) {
+    throw new Error(`Invalid due date ${JSON.stringify(value)} — expected a date like 2026-01-05`);
+  }
+  return key;
 }

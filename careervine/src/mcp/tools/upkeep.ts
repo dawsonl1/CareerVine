@@ -55,7 +55,7 @@ export function registerUpkeepTools(server: McpServer): void {
       inputSchema: {
         title: z.string().min(1),
         description: z.string().optional(),
-        due_at: z.string().optional().describe("Due date, YYYY-MM-DD"),
+        due_at: z.string().min(1).optional().describe("Due date, YYYY-MM-DD"),
         direction: z
           .enum(["todo", "waiting_on"])
           .optional()
@@ -131,7 +131,9 @@ export function registerUpkeepTools(server: McpServer): void {
         action_item_id: z.number().int(),
         complete: z.boolean().optional().describe("true marks it done"),
         snooze_until: z.string().optional().describe("ISO timestamp to hide it until"),
-        due_at: z.string().nullable().optional().describe("New due date as YYYY-MM-DD, or null to clear"),
+        // .min(1): an empty string must not read as "clear it". Only an explicit null
+        // clears; "" is rejected here and would throw in normalizeDueDate anyway.
+        due_at: z.string().min(1).nullable().optional().describe("New due date as YYYY-MM-DD, or null to clear"),
         title: z.string().optional(),
         description: z.string().nullable().optional(),
       },

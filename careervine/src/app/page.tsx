@@ -52,6 +52,7 @@ import { type NewContact } from "@/components/home/new-contacts";
 import { NetworkingStats } from "@/components/home/networking-stats";
 import { apiFetch, apiSend } from "@/lib/api-client";
 import { dueDateKey, formatDueDate, todayDateKey } from "@/lib/due-date";
+import { dateKeyOf, daysBetweenDateKeys, localMidnightIso } from "@/lib/calendar-day";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   // Null for contactless rows, e.g. the seeded CAR-68 onboarding to-do.
@@ -561,8 +562,10 @@ export default function Home() {
 
     // Reach out contacts
     for (const f of followUps) {
+      // Calendar days, not elapsed milliseconds (CAR-206): "Contacted today"
+      // must not flip to "1 day ago" 24 hours later regardless of the hour.
       const daysSince = f.last_touch
-        ? Math.floor((Date.now() - new Date(f.last_touch).getTime()) / (1000 * 60 * 60 * 24))
+        ? daysBetweenDateKeys(dateKeyOf(new Date(f.last_touch)), todayDateKey())
         : null;
 
       let primaryText: string;
@@ -678,10 +681,17 @@ export default function Home() {
           // "Is the due date still ahead?" is a calendar question: comparing the
           // stored midnight-UTC instant against `now` answered it wrong from
           // local afternoon onward west of UTC (CAR-206).
+          //
+          // `snoozed_until` is a genuine instant, though, and it must not be
+          // the stored value: that is midnight UTC of the due date, which west
+          // of UTC has ALREADY PASSED by late afternoon the day before. Writing
+          // it made the snooze a silent no-op — the row failed the server's
+          // `snoozed_until.lt.now` visibility filter immediately and came right
+          // back. Local midnight ON the due date is provably still ahead
+          // whenever the calendar test above passed.
           const dueKey = item.type === "action_item" ? dueDateKey(item.dueAt) : null;
-          if (item.dueAt && dueKey !== null && dueKey > todayDateKey()) {
-            // Future due date — snooze until then
-            until = item.dueAt;
+          if (dueKey !== null && dueKey > todayDateKey()) {
+            until = localMidnightIso(dueKey);
           } else {
             // Overdue action item, reach out, or suggestion: snooze for one cadence cycle from now
             const contact = followUps.find((f) => f.id === item.contactId);
