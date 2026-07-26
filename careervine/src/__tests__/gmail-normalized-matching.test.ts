@@ -107,6 +107,10 @@ describe("contact_emails matcher hygiene", () => {
   it("no ILIKE matcher (in any form) remains on contact_emails in src", () => {
     const root = path.resolve(__dirname, "..");
     const offenders: string[] = [];
+    /** Files the walk actually read, for the anti-vacuity floor below. */
+    let scanned = 0;
+    /** Files that mention the table at all, so the matcher itself is exercised. */
+    let mentionsTable = 0;
 
     const walk = (dir: string) => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -117,6 +121,8 @@ describe("contact_emails matcher hygiene", () => {
         } else if (/\.(ts|tsx)$/.test(entry.name)) {
           const src = fs.readFileSync(full, "utf8");
           const rel = path.relative(root, full);
+          scanned++;
+          if (src.includes("contact_emails")) mentionsTable++;
 
           // 1. Builder chains rooted at contact_emails: any ilike-carrying
           //    method — .ilike(), or ilike smuggled through the .or()/.not()/
@@ -144,6 +150,19 @@ describe("contact_emails matcher hygiene", () => {
       }
     };
     walk(root);
+
+    // Anti-vacuity floor (CAR-208). `toEqual([])` passes when the tree is clean
+    // AND when the walk visited nothing — a renamed directory, a changed
+    // `__dirname`, an ignore rule that grew too broad. Ten of this repo's eleven
+    // source-scanning guards already carry a floor; this was the one that did
+    // not. The second figure matters as much as the first: a walk that reads
+    // hundreds of files but no longer reaches the ones mentioning the table is
+    // just as blind, and would still clear a bare file count.
+    expect(scanned).toBeGreaterThan(300);
+    expect(
+      mentionsTable,
+      "the walk no longer reaches any file mentioning contact_emails — this guard is inspecting nothing",
+    ).toBeGreaterThan(3);
 
     expect(offenders).toEqual([]);
   });
