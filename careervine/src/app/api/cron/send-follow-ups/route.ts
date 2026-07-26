@@ -30,6 +30,34 @@ export async function POST(req: NextRequest) {
   );
 }
 
+/**
+ * Mark a sequence completed once nothing is left to send or review.
+ *
+ * A lingering awaiting_review OR expired sibling keeps it open so it can't be
+ * completed out from under a still-confirmable/sendable message — completing it
+ * would fail the confirm route's parent-active guard and strand that sibling
+ * forever (CAR-105). 'sending' counts as open too: a live claim is about to
+ * resolve one way or the other.
+ */
+async function completeSequenceIfResolved(
+  service: ReturnType<typeof createSupabaseServiceClient>,
+  seqId: number,
+  now: string,
+): Promise<void> {
+  const { count } = await service
+    .from("email_follow_up_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("follow_up_id", seqId)
+    .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, FollowUpMessageStatus.Sending]);
+
+  if (count === 0) {
+    await service
+      .from("email_follow_ups")
+      .update({ status: "completed", updated_at: now })
+      .eq("id", seqId);
+  }
+}
+
 async function runJob(): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
   const now = new Date().toISOString();
@@ -39,48 +67,54 @@ async function runJob(): Promise<NextResponse> {
   const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
   // Sweep stale claims (CAR-139): a row stuck in 'sending' longer than any send
-  // driver can live was orphaned by a crash. The crash may have happened after
-  // the Gmail send but before the mark-sent write, so never auto-resend (an
-  // automatic retry could double-send a real email). Recovery splits on the
-  // parent's status, which is why this reads first (PostgREST can't filter an
-  // UPDATE by a joined table's column):
-  //   - active parent   -> park 'awaiting_review' with the full CAR-105 stamp,
-  //                        so the portal, contact page, and nudge emails surface
-  //                        it for the user to resolve.
+  // driver can live was orphaned by a crash, or by a mark-sent write that
+  // failed. Either way the Gmail send may already have gone out, so never
+  // auto-resend. Recovery splits on the parent's status, which is why this
+  // reads first (PostgREST can't filter an UPDATE by a joined table's column):
+  //   - active parent   -> 'failed'. Terminal, and honest about the ambiguity:
+  //                        delivery is unknown, so the row is surfaced as "may
+  //                        already have been sent" and offers no send button.
   //   - inactive parent -> the sequence was torn down (cancel/reply) while this
   //                        row was mid-'sending' (teardown message-cancels skip
   //                        'sending' rows), so cancel it to match its dead
-  //                        parent. Parking it would strand it behind the
-  //                        parent-active-gated surfaces as an invisible orphan.
+  //                        parent.
+  //
+  // CAR-207 changed the active-parent arm from 'awaiting_review'. Refusing the
+  // automatic retry was always right; parking the row in the confirm-to-send
+  // state was not, because that state's whole affordance is a one-click "Send
+  // now" captioned as not-yet-sent. A message the contact had already received
+  // was offered back for sending, and one click delivered it twice.
   const staleCutoff = new Date(Date.now() - SEND_STALE_CLAIM_MINUTES * 60_000).toISOString();
   const { data: staleRows, error: staleError } = await service
     .from("email_follow_up_messages")
-    .select("id, email_follow_ups!inner(status)")
+    .select("id, follow_up_id, email_follow_ups!inner(status)")
     .eq("status", FollowUpMessageStatus.Sending)
     .lt("claimed_at", staleCutoff);
   if (staleError) throw new Error(`Stale-claim sweep read failed: ${staleError.message}`);
 
   const staleActiveIds: number[] = [];
   const staleDeadIds: number[] = [];
-  type StaleRow = { id: number; email_follow_ups: { status: string } | { status: string }[] | null };
+  const sweptSequenceIds = new Set<number>();
+  type StaleRow = {
+    id: number;
+    follow_up_id: number;
+    email_follow_ups: { status: string } | { status: string }[] | null;
+  };
   for (const r of (staleRows ?? []) as StaleRow[]) {
     const parent = Array.isArray(r.email_follow_ups) ? r.email_follow_ups[0] : r.email_follow_ups;
-    (parent?.status === "active" ? staleActiveIds : staleDeadIds).push(r.id);
+    if (parent?.status === "active") {
+      staleActiveIds.push(r.id);
+      sweptSequenceIds.add(r.follow_up_id);
+    } else {
+      staleDeadIds.push(r.id);
+    }
   }
   // Both writes re-assert `.eq(status, 'sending')` so a row that a concurrent
   // driver resolved between the read and here is left untouched.
   if (staleActiveIds.length > 0) {
     await service
       .from("email_follow_up_messages")
-      .update({
-        status: FollowUpMessageStatus.AwaitingReview,
-        parked_at: now,
-        expires_at: expiresAt,
-        reminder_count: 0,
-        last_reminder_at: null,
-        seen_during_window: false,
-        claimed_at: null,
-      })
+      .update({ status: FollowUpMessageStatus.Failed, claimed_at: null })
       .in("id", staleActiveIds)
       .eq("status", FollowUpMessageStatus.Sending);
   }
@@ -93,8 +127,16 @@ async function runJob(): Promise<NextResponse> {
   }
   if (staleActiveIds.length > 0 || staleDeadIds.length > 0) {
     console.warn(
-      `[cron] Swept stale 'sending' follow-up claim(s): ${staleActiveIds.length} parked, ${staleDeadIds.length} cancelled`,
+      `[cron] Swept stale 'sending' follow-up claim(s): ${staleActiveIds.length} failed, ${staleDeadIds.length} cancelled`,
     );
+  }
+  // A swept row went terminal without passing through a send driver's own
+  // completion check, so a sequence whose last open step was that row would sit
+  // 'active' forever with nothing left to do. The due query below only revisits
+  // sequences that still have a 'pending' message, so this is the only place
+  // that can close them.
+  for (const seqId of sweptSequenceIds) {
+    await completeSequenceIfResolved(service, seqId, now);
   }
 
   // Query pending follow-up messages that are due. Fail loud (F6): a read
@@ -345,10 +387,24 @@ async function runJob(): Promise<NextResponse> {
           references: parent.original_gmail_message_id ?? undefined,
         }, { isFollowUp: true });
 
-        await service
+        // Gmail has the message from here on, so the claim must never be
+        // released and the row must never become sendable again. This write was
+        // unchecked (CAR-207): a failure here left the row in 'sending' with
+        // nothing logged, and the sweeper above then made it re-sendable. Now
+        // it is checked, said out loud, and deliberately left claimed — the
+        // sweeper resolves it to 'failed', the same terminal path a process
+        // killed mid-send takes, and the same shape gmail.ts uses for a
+        // scheduled email that delivered but could not be recorded.
+        const { error: markSentError } = await service
           .from("email_follow_up_messages")
-          .update({ status: "sent", sent_at: now })
+          .update({ status: FollowUpMessageStatus.Sent, sent_at: now })
           .eq("id", msg.id);
+        if (markSentError) {
+          console.error(
+            `[cron] Follow-up ${msg.id} delivered but mark-sent failed; leaving claim for the sweeper:`,
+            markSentError,
+          );
+        }
 
         sent++;
         break; // one send per sequence per tick
@@ -390,23 +446,8 @@ async function runJob(): Promise<NextResponse> {
       }
     }
 
-    // Check if all messages in the sequence are done (nothing still open). A
-    // lingering awaiting_review OR expired sibling keeps the sequence open so it
-    // can't be marked completed out from under a still-confirmable/sendable
-    // message — completing it would fail the confirm route's parent-active guard
-    // and strand that sibling forever (CAR-105).
-    const { count } = await service
-      .from("email_follow_up_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("follow_up_id", seqId)
-      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES, FollowUpMessageStatus.Sending]);
-
-    if (count === 0) {
-      await service
-        .from("email_follow_ups")
-        .update({ status: "completed", updated_at: now })
-        .eq("id", seqId);
-    }
+    // Check if all messages in the sequence are done (nothing still open).
+    await completeSequenceIfResolved(service, seqId, now);
   }
 
   return NextResponse.json({

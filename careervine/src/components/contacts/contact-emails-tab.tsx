@@ -614,11 +614,22 @@ export function ContactEmailsTab({
                                     .map((m) => (
                                       <span
                                         key={m.id}
+                                        // A 'failed' step is deliberately not offered a Retry, unlike
+                                        // the scheduled emails above: this one is a reply into a live
+                                        // thread that Gmail may already have delivered, and inviting
+                                        // the resend is the defect CAR-207 exists to close.
+                                        title={
+                                          m.status === FollowUpMessageStatus.Failed
+                                            ? "Sending was interrupted after this reached Gmail, so it may already have been delivered. Check your Gmail Sent folder before sending anything else in this thread."
+                                            : undefined
+                                        }
                                         className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                                           m.status === "sent"
                                             ? "bg-primary/15 text-primary"
                                             : m.status === "cancelled"
                                             ? "bg-surface-container-low text-muted-foreground line-through"
+                                            : m.status === FollowUpMessageStatus.Failed
+                                            ? "bg-destructive/10 text-destructive"
                                             : m.status === FollowUpMessageStatus.Expired
                                             ? "bg-surface-container-low text-muted-foreground"
                                             : m.status === "awaiting_review"
@@ -629,6 +640,7 @@ export function ContactEmailsTab({
                                         #{m.sequence_number}: Day {m.send_after_days}
                                         {m.status === "sent" && " (sent)"}
                                         {m.status === "cancelled" && " (cancelled)"}
+                                        {m.status === FollowUpMessageStatus.Failed && " (send unconfirmed)"}
                                         {m.status === FollowUpMessageStatus.Expired && " (expired)"}
                                         {m.status === "awaiting_review" && " (awaiting your review)"}
                                         {m.status === "pending" && ` (${new Date(m.scheduled_send_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}

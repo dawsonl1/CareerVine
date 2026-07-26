@@ -5,7 +5,7 @@
  * battle-tested cursor loop (CAR-47 retry semantics included).
  */
 
-import { apiSend, jsonBody } from "@/lib/api-client";
+import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
 
 export type ApplyProgress = {
   applied: number;
@@ -34,6 +34,19 @@ export const BACKGROUND_SYNC_MESSAGE =
   "The sync hit a server error. It will keep running in the background, and your contacts will appear shortly.";
 
 /**
+ * The outcome of one cursor-loop step, discriminated on whether the route
+ * accepted it. This used to hand back the raw `Response` so callers could read
+ * `res.ok` and `res.status` themselves, which is what kept a raw `fetch` on a
+ * browser path (CAR-207): the URL is a parameter here, so the conventions guard
+ * — which outside the client tree only fires on a literal `/api/…` — could not
+ * see it. `ApiRequestError` already carries status, code and the curated
+ * message, so nothing needed the Response object.
+ */
+export type StepOutcome<T> =
+  | { ok: true; step: T; retried: boolean }
+  | { ok: false; status: number; error: string; retried: boolean };
+
+/**
  * POST one cursor-loop step. A 5xx (e.g. a function timeout's 504, whose
  * body is HTML rather than JSON) or a network failure is retried twice with
  * backoff before giving up (CAR-47); null means all attempts failed.
@@ -44,19 +57,19 @@ export const BACKGROUND_SYNC_MESSAGE =
 export async function fetchStepWithRetry<T>(
   url: string,
   body: Record<string, unknown>,
-): Promise<{ res: Response; step: T & { error?: string }; retried: boolean } | null> {
+): Promise<StepOutcome<T> | null> {
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.status < 500) {
-        return { res, step: (await res.json()) as T & { error?: string }, retried: attempt > 0 };
+      return { ok: true, step: await apiFetch<T>(url, jsonBody(body)), retried: attempt > 0 };
+    } catch (err) {
+      // A curated 4xx is the route's verdict on this step, so report it rather
+      // than hammering it twice more. Everything else is transient: a 5xx, a
+      // network failure, or a 2xx whose body never parsed (an edge response
+      // that never reached the route, which apiFetch reports as
+      // `unreadable_response` at the original 2xx status).
+      if (isApiRequestError(err) && err.status < 500 && err.code !== "unreadable_response") {
+        return { ok: false, status: err.status, error: err.message, retried: attempt > 0 };
       }
-    } catch {
-      // Network failure or non-JSON body — treated like a 5xx.
     }
     if (attempt >= 2) return null;
     await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
@@ -87,31 +100,29 @@ export async function runBundleApplyLoop(
   let applied = 0;
   onProgress?.({ applied: 0, total: bundle.prospect_count });
   for (;;) {
-    const outcome: { res: Response; step: ApplyStep & { error?: string }; retried: boolean } | null =
-      await fetchStepWithRetry<ApplyStep>("/api/bundles/apply", {
-        bundleId: bundle.id,
-        cursor,
-        pinnedVersion,
-        claimToken,
-      });
+    // Annotated, not inferred: `cursor`/`pinnedVersion`/`claimToken` are fed
+    // back into the next iteration's arguments from this very result, and
+    // without the annotation tsc calls that a circular initializer (TS7022).
+    const outcome: StepOutcome<ApplyStep> | null = await fetchStepWithRetry<ApplyStep>(
+      "/api/bundles/apply",
+      { bundleId: bundle.id, cursor, pinnedVersion, claimToken },
+    );
     if (!outcome) {
       // Subscribe also enqueued a delayed background job (CAR-47),
       // so this failure message is honest.
       throw new Error(BACKGROUND_SYNC_MESSAGE);
     }
-    const res: Response = outcome.res;
-    const step: ApplyStep & { error?: string } = outcome.step;
-    const retried: boolean = outcome.retried;
-    if (!res.ok) {
-      if (res.status === 409) {
+    if (!outcome.ok) {
+      if (outcome.status === 409) {
         // After a server error, the 409 is our own dead call's zombie
         // claim — surface the background handoff instead of silence.
-        if (retried) throw new Error(BACKGROUND_SYNC_MESSAGE);
+        if (outcome.retried) throw new Error(BACKGROUND_SYNC_MESSAGE);
         // Otherwise another driver (worker/cron) is already syncing — fine.
         return { completed: false };
       }
-      throw new Error(step.error ?? "Sync failed");
+      throw new Error(outcome.error);
     }
+    const step: ApplyStep = outcome.step;
     applied += step.applied;
     pinnedVersion = step.pinnedVersion;
     claimToken = step.claimToken ?? claimToken;

@@ -123,3 +123,76 @@ describe("POST /api/bundles/subscribe (CAR-47 backup sync)", () => {
     expect(enqueueMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * CAR-207: the route reads with maybeSingle() and then inserts, so two
+ * concurrent subscribes both see no row and both insert. UNIQUE (user_id,
+ * bundle_id) refuses the loser with 23505, which the blanket `if (error)` arm
+ * turned into a 500. The client's catch then toasted "Could not create your
+ * subscription" over a subscription that existed and was already syncing.
+ */
+describe("POST /api/bundles/subscribe — the UNIQUE race (CAR-207)", () => {
+  beforeEach(() => {
+    enqueueMock.mockClear();
+  });
+
+  /** The loser's view: read finds nothing, insert hits the constraint, re-read
+   *  finds the winner's row. */
+  function raceRespond(reReadResult: { data?: unknown; error?: { message: string } | null }) {
+    let selects = 0;
+    return (state: QueryState) => {
+      if (state.table === "data_bundles") return { data: BUNDLE };
+      if (state.table === "bundle_subscriptions" && state.op === "select") {
+        selects += 1;
+        // First: the pre-insert existence probe, which raced and saw nothing.
+        // Second: the post-conflict re-read.
+        return selects === 1 ? { data: null } : reReadResult;
+      }
+      if (state.table === "bundle_subscriptions" && state.op === "insert") {
+        return { data: null, error: { message: "duplicate key value", code: "23505" } as never };
+      }
+      return { data: null };
+    };
+  }
+
+  it("reports the winner's subscription as success instead of a 500", async () => {
+    respond = raceRespond({ data: { id: 77, status: "active", synced_version: 0 } });
+
+    const res = await POST(makeReq());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.subscription).toMatchObject({ id: 77, status: "active" });
+    // The backup sync still gets enqueued against the row that exists, so a
+    // loser whose client loop dies is covered exactly like a winner's.
+    expect(enqueueMock).toHaveBeenCalledTimes(1);
+    expect((enqueueMock.mock.calls[0] as unknown[])[0]).toEqual([77]);
+  });
+
+  it("still fails loudly when the conflict is real but the row cannot be found", async () => {
+    // A 23505 with nothing to read back is not the benign race, so the honest
+    // answer is still an error rather than a fabricated success.
+    respond = raceRespond({ data: null });
+
+    const res = await POST(makeReq());
+
+    expect(res.status).toBe(500);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves every other insert failure a 500", async () => {
+    respond = (state) => {
+      if (state.table === "data_bundles") return { data: BUNDLE };
+      if (state.table === "bundle_subscriptions" && state.op === "select") return { data: null };
+      if (state.table === "bundle_subscriptions" && state.op === "insert") {
+        return { data: null, error: { message: "deadlock detected", code: "40P01" } as never };
+      }
+      return { data: null };
+    };
+
+    const res = await POST(makeReq());
+
+    expect(res.status).toBe(500);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+});

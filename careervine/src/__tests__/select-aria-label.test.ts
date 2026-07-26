@@ -105,8 +105,9 @@ describe("Select and MonthYearPicker accessible names", () => {
   it("finds the call sites at all", () => {
     // A scanner that matches nothing passes every assertion below vacuously. The
     // count is a floor, not a pin: adding a Select should not fail this test, and
-    // dropping below the count that existed when CAR-201 landed should.
-    expect(sites.length).toBeGreaterThanOrEqual(20);
+    // dropping below it should. 20 when CAR-201 landed; 19 since CAR-207 turned
+    // /interactions into a redirect, taking its interaction-type Select with it.
+    expect(sites.length).toBeGreaterThanOrEqual(19);
     expect(new Set(sites.map((s) => s.component))).toEqual(new Set(GUARDED));
   });
 

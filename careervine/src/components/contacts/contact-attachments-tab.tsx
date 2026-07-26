@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { uploadAttachment, addAttachmentToContact, getAttachmentUrl, deleteAttachment, getAttachmentsForContact } from "@/lib/queries";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 import { Paperclip, Plus, Trash2 } from "lucide-react";
 
 type Attachment = {
@@ -22,46 +25,93 @@ interface ContactAttachmentsTabProps {
 
 export function ContactAttachmentsTab({ contactId, userId, attachments, onAttachmentsChange }: ContactAttachmentsTabProps) {
   const [uploading, setUploading] = useState(false);
+  const { error: toastError } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
+  const uploadingRef = useRef(false);
+  // Per-id rather than one flag: each row deletes independently, and a shared
+  // boolean would drop a second row's click while the first is in flight.
+  const deletingRef = useRef(new Set<number>());
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return;
+    const input = e.target;
+    if (!input.files?.length) return;
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
+    const files = Array.from(input.files);
     setUploading(true);
     try {
-      for (const file of Array.from(e.target.files)) {
-        const attachment = await uploadAttachment(userId, file);
-        await addAttachmentToContact(contactId, attachment.id);
-      }
-      const updated = await getAttachmentsForContact(contactId) as Attachment[];
-      onAttachmentsChange(updated);
-    } catch (err) {
-      console.error("Error uploading attachment:", err);
+      await withToastOnError(
+        async () => {
+          try {
+            for (const file of files) {
+              const attachment = await uploadAttachment(userId, file);
+              await addAttachmentToContact(contactId, attachment.id);
+            }
+          } finally {
+            // A throw on file 3 of 5 still leaves 1 and 2 attached, so the
+            // refresh belongs on the failure path too. Without it the batch
+            // that half-landed stayed invisible until the next page load.
+            onAttachmentsChange((await getAttachmentsForContact(contactId)) as Attachment[]);
+          }
+        },
+        toastError,
+        files.length > 1
+          ? "Some files couldn't be uploaded. Please try again."
+          : "Couldn't upload that file. Please try again.",
+      );
     } finally {
+      uploadingRef.current = false;
       setUploading(false);
-      e.target.value = "";
+      input.value = "";
     }
   };
 
+  // reentry-safe: a download writes nothing. It reads a signed URL and clicks a
+  // synthetic anchor, so a second click costs one extra signature, not a second
+  // mutation. It counts as a "mutation handler" to the guard only because
+  // withToastOnError is on its always-mutating list.
   const handleDownload = async (objectPath: string, fileName: string) => {
-    try {
-      const url = await getAttachmentUrl(objectPath);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      a.target = "_blank";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error("Error downloading attachment:", err);
-    }
+    await withToastOnError(
+      async () => {
+        const url = await getAttachmentUrl(objectPath);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      },
+      toastError,
+      "Couldn't open that file. Please try again.",
+    );
   };
 
   const handleDelete = async (attachmentId: number, objectPath: string) => {
+    if (deletingRef.current.has(attachmentId)) return;
+    deletingRef.current.add(attachmentId);
     try {
-      await deleteAttachment(attachmentId, objectPath);
+      // Unrecoverable: the storage object goes with the row, and no junction
+      // cleanup can bring the file back.
+      if (
+        !(await confirm({
+          message: "This permanently deletes the file. It cannot be undone.",
+          title: "Delete attachment?",
+          confirmLabel: "Delete",
+          destructive: true,
+        }))
+      ) {
+        return;
+      }
+      const ok = await withToastOnError(
+        () => deleteAttachment(attachmentId, objectPath),
+        toastError,
+        "Couldn't delete that attachment. Please try again.",
+      );
+      if (!ok) return;
       onAttachmentsChange(attachments.filter((a) => a.id !== attachmentId));
-    } catch (err) {
-      console.error("Error deleting attachment:", err);
+    } finally {
+      deletingRef.current.delete(attachmentId);
     }
   };
 
@@ -117,6 +167,7 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
           disabled={uploading}
         />
       </label>
+      {confirmDialog}
     </div>
   );
 }

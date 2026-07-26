@@ -94,6 +94,27 @@ export const POST = withApiHandler({
       .select("id, status, synced_version")
       .single();
     if (error) {
+      // A concurrent POST won the race: both reads above saw no row, both
+      // inserted, and UNIQUE (user_id, bundle_id) refused the loser. The
+      // subscription EXISTS and is syncing, so answering 500 told the user a
+      // successful action had failed (CAR-207). Re-read the winner's row and
+      // report success; the backup sync below is idempotent, so enqueueing it
+      // from both requests is harmless.
+      if (error.code === "23505") {
+        const { data: raced, error: raceError } = await supabase
+          .from("bundle_subscriptions")
+          .select("id, status, synced_version")
+          .eq("user_id", user.id)
+          .eq("bundle_id", bundleId)
+          .maybeSingle();
+        if (raceError || !raced) {
+          console.error("[bundles/subscribe] Post-conflict read failed:", raceError);
+          throw new ApiError("Could not create your subscription. Please try again.", 500);
+        }
+        await enqueueBackupSync((raced as { id: number }).id);
+        track("bundle_subscribed", { bundle_id: String(bundleId) });
+        return { subscription: raced, reactivated: false };
+      }
       console.error("[bundles/subscribe] Subscribe insert failed:", error);
       throw new ApiError("Could not create your subscription. Please try again.", 500);
     }

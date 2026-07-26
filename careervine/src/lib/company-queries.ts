@@ -857,20 +857,28 @@ export async function getCompanyDetail(
   if (companyRes.error) throw companyRes.error;
   if (!companyRes.data) return null;
 
-  // Employment rows for this company across the user's contacts
-  const { data: empRows, error: empError } = await db()
-    .from("contact_companies")
-    .select(
-      `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
-       locations(city, state, country),
-       contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta, linkedin_url)`,
-    )
-    .eq("company_id", companyId)
-    .eq("contacts.user_id", userId)
-    .limit(2000);
-  if (empError) throw empError;
-
-  const rows = empRows ?? [];
+  // Employment rows for this company across the user's contacts.
+  //
+  // Paginated, and ordered (CAR-207). `.limit(2000)` asked for twice what
+  // PostgREST will ever return, so a company with more than 1000 employment
+  // rows silently lost the rest — and with no ORDER BY, Postgres guarantees no
+  // ordering at all, so WHICH 1000 came back could differ between two loads of
+  // the same page. `id` is the stable key range pagination needs.
+  const rows = await paginateAll(async (from, to) => {
+    const { data, error } = await db()
+      .from("contact_companies")
+      .select(
+        `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
+         locations(city, state, country),
+         contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta, linkedin_url)`,
+      )
+      .eq("company_id", companyId)
+      .eq("contacts.user_id", userId)
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    return data;
+  });
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
 
   // Emails, alum badge, stages, latest logged interaction, current employer

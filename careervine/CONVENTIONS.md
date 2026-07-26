@@ -210,7 +210,12 @@ browser, so it is client code wherever it lives. (That sentence used to stop at
 scope, two of them hand-rolling the error-body parse `apiFetch` exists to
 delete. Hoisting a call out of a component into a helper is a refactor a
 reviewer would ask for, so the narrower rule was one review away from being
-wrong.) Reads go through `apiFetch`, status-only
+wrong.) "Browser-reached" is decided by IMPORT GRAPH, not by directory: the
+guard walks out from the client files and bans every raw `fetch` in what it
+reaches (CAR-207). The earlier version tested the URL instead, which a call
+taking its path as a PARAMETER slips past entirely — `bundle-apply-client.ts`
+POSTed to two `/api/bundles/*` routes from the browser that way for as long as
+the guard had existed. Reads go through `apiFetch`, status-only
 mutations through `apiSend` (`careervine/src/lib/api-client.ts`, section a), so a
 non-2xx throws `ApiRequestError` instead of an error body being read as the
 success shape. An interactive handler wraps the call in `withToastOnError`
@@ -377,14 +382,14 @@ only, never a rejected promise in a handler; that is the contract above.
 
   | Rule | Shape it fails on | Escape hatch |
   | -- | -- | -- |
-  | no raw `fetch(` | any `fetch` in the client tree, plus a literal `/api/...` URL anywhere else under `careervine/src/` | `// raw-fetch:` |
+  | no raw `fetch(` | any `fetch` in the client tree **or in a module the client tree imports** (runtime edges only, so `import type` does not count), plus a literal `/api/...` URL anywhere else under `careervine/src/` | `// raw-fetch:` |
   | no native confirm | `window.confirm`, or a bare `confirm(` with no **lexically enclosing** binding (`useConfirm()` returns one, so binding is what separates the two) | none |
   | double-submit ref | an async `handle*`/`on*` that writes, with no ref both READ in an early return and claimed before the first await | `// reentry-safe:` + ratchet |
   | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, gated by neither `isLatest`, a cancellation flag, nor an `AbortSignal` | `// latest-request-exempt:` + ratchet |
   | dialog semantics | a `fixed inset-0` element outside `modal.tsx` with no `role="dialog"` in its own subtree | `// overlay-not-a-dialog:` + ratchet |
 
   The first two are frozen at zero. The last three ship as **ratchets** over a
-  baseline (54 handlers, 7 reads, and — since CAR-197 landed — 0 overlays) rather than as the warning CAR-190
+  baseline (48 handlers, 6 reads, and — since CAR-197 landed — 0 overlays) rather than as the warning CAR-190
   originally proposed, because a warning exits 0 and that is precisely how CAR-154's
   helper decayed to 6 files and CAR-158's to 1. A ratchet fails both ways: an
   offender absent from the baseline fails, and a baselined site that no longer
@@ -403,9 +408,12 @@ only, never a rejected promise in a handler; that is the contract above.
   (mutations carried by `apiFetch`, verbs absent from a hand-written allowlist, every
   `@/lib` module outside a list of five, a write one hop away in a local helper, and
   a guard-recognition rule that accepted refs which guarded nothing) and the real
-  figure was 54. Two of the additions, `data-subscriptions-section.tsx`'s
-  `handleSubscribe` and `handleUnsubscribe`, are non-idempotent and one POSTs a
-  destructive contact-removal loop; they are the first two to drain.
+  figure was 54. CAR-207 drained six of them, being the three files it already had
+  open: `data-subscriptions-section.tsx`'s `handleSubscribe` and `handleUnsubscribe`
+  (the two the baseline named as first to go — non-idempotent, and one POSTs a
+  destructive contact-removal loop), `contact-attachments-tab.tsx`'s pair, and
+  `interactions/page.tsx`, which left both baselines because that route is now a
+  redirect. The remaining 48 are still the mechanical sweep's job.
 
 - Enforced (behavior, no adoption check): `modal.test.tsx` covers the focus
   trap, the `data-autofocus` marker and dialog semantics for both layers, `careervine/src/__tests__/dialog-layer.test.tsx` covers

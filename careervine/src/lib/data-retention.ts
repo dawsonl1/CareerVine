@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/lib/database.types";
+import { paginateAll } from "@/lib/data/postgrest";
 
 /**
  * Retention purge for scraped third-party data (CAR-135 / R4.8).
@@ -98,36 +99,70 @@ export async function purgeScrapedData(opts: RetentionOptions): Promise<Retentio
  * with no active subscriptions can drop all its soft-removed rows.
  */
 async function purgeRemovedBundleProspects(service: SupabaseClient): Promise<number> {
-  const { data: bundles, error: bundlesErr } = await service.from("data_bundles").select("id");
-  if (bundlesErr) throw new Error(`bundles read: ${bundlesErr.message}`);
-  const bundleIds = ((bundles as { id: number }[] | null) ?? []).map((b) => b.id);
+  // Both reads paginate (CONVENTIONS §d): PostgREST truncates at 1000 rows and
+  // says nothing, and each read was silently wrong past that in a different
+  // direction (CAR-207). Truncating the BUNDLE list stops purging bundles past
+  // the first 1000. Truncating the SUBSCRIPTION list is worse, and is data
+  // loss: `minSynced` is the floor across active subscribers, so dropping the
+  // subscriber that holds the floor RAISES the threshold and hard-deletes
+  // soft-removed rows that subscriber still needs for its removal delta. Lose
+  // every subscription row for a bundle and it reads as unsubscribed, which
+  // drops all of them.
+  const bundleIds = (
+    await paginateAll<{ id: number }>(async (from, to) => {
+      const { data, error } = await service
+        .from("data_bundles")
+        .select("id")
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(`bundles read: ${error.message}`);
+      return data as { id: number }[] | null;
+    })
+  ).map((b) => b.id);
   if (bundleIds.length === 0) return 0;
 
-  const { data: subs, error: subsErr } = await service
-    .from("bundle_subscriptions")
-    .select("bundle_id, synced_version")
-    .eq("status", "active");
-  if (subsErr) throw new Error(`subscriptions read: ${subsErr.message}`);
+  const subs = await paginateAll<{ bundle_id: number; synced_version: number }>(async (from, to) => {
+    const { data, error } = await service
+      .from("bundle_subscriptions")
+      .select("bundle_id, synced_version")
+      .eq("status", "active")
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error(`subscriptions read: ${error.message}`);
+    return data as { bundle_id: number; synced_version: number }[] | null;
+  });
 
   const minSynced = new Map<number, number>();
-  for (const s of (subs as { bundle_id: number; synced_version: number }[] | null) ?? []) {
+  for (const s of subs) {
     const prev = minSynced.get(s.bundle_id);
     if (prev === undefined || s.synced_version < prev) minSynced.set(s.bundle_id, s.synced_version);
   }
 
   let deleted = 0;
   for (const bundleId of bundleIds) {
-    // No active subscriber → every soft-removed row is safe to drop.
-    const threshold = minSynced.has(bundleId) ? minSynced.get(bundleId)! : Number.MAX_SAFE_INTEGER;
+    const threshold = minSynced.get(bundleId);
     // A subscriber that has never synced (synced_version 0) pins everything;
     // versions start at 1, so nothing is deletable for that bundle yet.
-    if (threshold <= 0) continue;
-    const { count, error } = await service
+    if (threshold !== undefined && threshold <= 0) continue;
+
+    let query = service
       .from("bundle_prospects")
       .delete({ count: "exact" })
       .eq("bundle_id", bundleId)
-      .not("removed_in_version", "is", null)
-      .lte("removed_in_version", threshold);
+      .not("removed_in_version", "is", null);
+    // With no active subscriber there is no version to stay behind, so every
+    // soft-removed row is safe to drop and the filter is simply omitted.
+    //
+    // This used to pass Number.MAX_SAFE_INTEGER as the bound instead, and that
+    // path had never once worked: removed_in_version is int4, so PostgREST
+    // answered `value "9007199254740991" is out of range for type integer` and
+    // the throw aborted the WHOLE loop. One unsubscribed bundle anywhere in the
+    // catalog therefore stopped retention for every bundle after it — found by
+    // the integration test for the pagination fix, which asserts this function
+    // reports no errors (CAR-207).
+    if (threshold !== undefined) query = query.lte("removed_in_version", threshold);
+
+    const { count, error } = await query;
     if (error) throw new Error(`bundle ${bundleId} delete: ${error.message}`);
     deleted += count ?? 0;
   }
