@@ -107,10 +107,14 @@ describe("CONVENTIONS.md", () => {
 
   it("cites a meaningful number of paths", () => {
     // Guards against a regex or allowlist change silently shrinking coverage,
-    // which would make the per-path assertions vacuously narrow. Actual count at
-    // time of writing: 39. Keep the floor snug — a large gap here tolerates
-    // silent citation loss.
-    expect(paths.length).toBeGreaterThanOrEqual(35);
+    // which would make the per-path assertions vacuously narrow. Keep the floor
+    // snug — a large gap here tolerates silent citation loss.
+    //
+    // Re-snugged in CAR-208. The floor was 35 against a documented "actual count
+    // at time of writing: 39"; the doc has since grown to 105 citations, so two
+    // thirds of the pointers could have vanished with this still green — the
+    // exact erosion the comment warns about, in the guard against it.
+    expect(paths.length).toBeGreaterThanOrEqual(100);
   });
 
   it.each(paths)("cited path exists: %s", (rel) => {
@@ -236,9 +240,25 @@ describe("CONVENTIONS.md", () => {
       // is retired, and a scan that failed on those would force the explanation
       // out of the codebase — deleting the only record of the trap.
       const src = path.join(REPO_ROOT, "careervine", "src");
-      const hits = fg
-        .sync(["**/*.{ts,tsx}"], { cwd: src, ignore: ["__tests__/**", "**/*.test.{ts,tsx}"] })
-        .filter((f) => readFileSync(path.join(src, f), "utf8").includes("overlay-not-a-dialog:"));
+      const files = fg.sync(["**/*.{ts,tsx}"], {
+        cwd: src,
+        // `**/` on both, not the bare `__tests__/**` a first cut used: that
+        // anchors to the glob root, so it excluded only the top-level
+        // `src/__tests__/` and left every nested test tree in scope.
+        ignore: ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      });
+
+      // An anti-vacuity FLOOR, which every other pin in this file has and this
+      // one shipped without. `toEqual([])` over a glob that matched nothing
+      // passes and reports success — and fast-glob returns `[]` for a missing
+      // cwd rather than throwing, so a rename of `careervine/src` would retire
+      // the guard silently. This is the "absence assertions pass vacuously
+      // unless sequenced" trap, in the file written to close that class.
+      expect(files.length).toBeGreaterThan(300);
+
+      const hits = files.filter((f) =>
+        readFileSync(path.join(src, f), "utf8").includes("overlay-not-a-dialog:"),
+      );
 
       expect(
         hits,
@@ -246,6 +266,32 @@ describe("CONVENTIONS.md", () => {
           "The one spelling is `non-dialog-overlay:`, enforced by " +
           "src/__tests__/dialog-adoption.test.ts.",
       ).toEqual([]);
+    });
+
+    it("every per-area coverage threshold glob still matches files (CAR-208)", () => {
+      // Vitest resolves a non-metric threshold key as a picomatch glob against
+      // each file's path, and `checkThresholds` computes `uncovered = total -
+      // covered` over whatever that glob selected. A glob matching ZERO files
+      // yields an empty coverage map, `0 > 430` is false, and the budget passes
+      // as a silent no-op — no error, no reporter difference. Rename `src/mcp`
+      // and all four of its budgets stop gating with nothing to show for it.
+      //
+      // This asserts the keys still bind, which is the one property the config
+      // cannot state about itself.
+      const config = readFileSync(
+        path.join(REPO_ROOT, "careervine", "vitest.config.ts"),
+        "utf8",
+      );
+      const globs = [...config.matchAll(/^\s*'([^']+\/\*\*)':\s*\{/gm)].map((m) => m[1]);
+
+      expect(globs.length).toBeGreaterThanOrEqual(3);
+      for (const glob of globs) {
+        const matched = fg.sync(`${glob}/*.{ts,tsx}`, {
+          cwd: path.join(REPO_ROOT, "careervine"),
+          ignore: ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+        });
+        expect(matched.length, `coverage threshold "${glob}" matches no files — it is a no-op`).toBeGreaterThan(0);
+      }
     });
 
     it("capability key count", () => {

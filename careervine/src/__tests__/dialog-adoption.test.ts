@@ -32,8 +32,35 @@ import fg from "fast-glob";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.resolve(HERE, "..");
 
-/** The marker of a full-screen overlay: pinned to the viewport on all four sides. */
-const OVERLAY_CLASS = "fixed inset-0";
+/**
+ * The marker of a full-screen overlay: pinned to the viewport on all four sides.
+ *
+ * `fixed` and `inset-0` are matched as INDEPENDENT TOKENS, not as the contiguous
+ * string. This is check (k)'s detection rule, ported here when CAR-208 deleted
+ * that duplicate guard — deleting it as written would have silently dropped
+ * enforcement for every overlay whose class list is not in exactly that order,
+ * which is what (k) had been hardened to catch:
+ *
+ *   "The paired form is order-dependent, and nothing here canonicalises class
+ *    order: there is no prettier-plugin-tailwindcss and no eslint tailwind
+ *    plugin in this app, and hand-written order already varies. It also broke on
+ *    a quote falling between the two tokens, so `fixed ${full ? "inset-0" :
+ *    "inset-4"}` read as clean."
+ *
+ * Both remain true (checked at port time), so `className="inset-0 fixed z-50"`
+ * and the interpolated form are overlays here.
+ *
+ * `ACCOUNTING_TOKEN` is the anchor for the "can the scanner see this at all"
+ * pass below, and is deliberately the narrower of the two tokens: three files
+ * carry `inset-0` WITHOUT `fixed` (network-donut, confetti-burst, date-picker),
+ * so the accounting has to be per-className rather than per-file substring or
+ * those become spurious "the guard cannot see this" failures.
+ */
+const ACCOUNTING_TOKEN = "inset-0";
+
+function isOverlayClassList(classText: string): boolean {
+  return /\bfixed\b/.test(classText) && /\binset-0\b/.test(classText);
+}
 
 /**
  * The primitive itself. It renders the wrapper, the scrim and the surface as
@@ -96,12 +123,18 @@ function openingTags(source: string): Array<[number, string]> {
   return tags;
 }
 
+/** Every `className` value on this tag that the scanner can actually read. */
+function readableClassNames(tag: string): string[] {
+  const attr = /\bclassName=(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\})/g;
+  return [...tag.matchAll(attr)].map((m) => m[1] ?? m[2] ?? m[3] ?? "");
+}
+
 /** True when the tag's own `className` (string or template literal) has the class. */
 function classNameCarriesOverlay(tag: string): boolean {
   // `wrapperClassName=` does not match: the capital C makes it a different token.
   const attr = /\bclassName=(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\})/g;
   for (const m of tag.matchAll(attr)) {
-    if ((m[1] ?? m[2] ?? m[3] ?? "").includes(OVERLAY_CLASS)) return true;
+    if (isOverlayClassList(m[1] ?? m[2] ?? m[3] ?? "")) return true;
   }
   return false;
 }
@@ -131,7 +164,7 @@ function scan(): FileScan[] {
 
   for (const rel of files) {
     const source = readFileSync(path.join(SRC, rel), "utf8");
-    if (!source.includes(OVERLAY_CLASS)) continue;
+    if (!source.includes(ACCOUNTING_TOKEN)) continue;
 
     const tags = openingTags(source);
     const overlays: Overlay[] = [];
@@ -139,7 +172,7 @@ function scan(): FileScan[] {
     const accounted: Array<[number, number]> = [];
 
     for (const [start, tag] of tags) {
-      if (!tag.includes(OVERLAY_CLASS)) continue;
+      if (!tag.includes(ACCOUNTING_TOKEN)) continue;
 
       if (classNameCarriesOverlay(tag)) {
         overlays.push({
@@ -147,6 +180,16 @@ function scan(): FileScan[] {
           line: source.slice(0, start).split("\n").length,
           tag,
         });
+        accounted.push([start, start + tag.length]);
+        continue;
+      }
+
+      // A className the scanner CAN read which simply is not a full-screen
+      // overlay — `absolute inset-0`, `pointer-events-none inset-0`. Widening
+      // the accounting anchor from the pair to `inset-0` alone is what makes a
+      // reordered overlay visible, and it also sweeps in these three files; they
+      // were seen and correctly judged, so they are accounted, not blind spots.
+      if (readableClassNames(tag).length > 0) {
         accounted.push([start, start + tag.length]);
         continue;
       }
@@ -167,7 +210,7 @@ function scan(): FileScan[] {
     }
 
     const unaccounted: number[] = [];
-    for (const m of source.matchAll(new RegExp(OVERLAY_CLASS, "g"))) {
+    for (const m of source.matchAll(new RegExp(ACCOUNTING_TOKEN, "g"))) {
       const at = m.index;
       if (!accounted.some(([from, to]) => at >= from && at < to)) unaccounted.push(at);
     }
@@ -188,6 +231,43 @@ function hasEscapeHatch(scan: FileScan, overlay: Overlay): boolean {
 
 const scans = scan();
 const overlays = scans.flatMap((s) => s.overlays);
+
+/**
+ * The class-matching rule, tested directly rather than through the tree.
+ *
+ * The policy assertions below currently run over an EMPTY set — every overlay in
+ * the app renders through the primitive — so reverting this rule to the
+ * contiguous-substring form it replaced leaves the whole suite green. That makes
+ * the tree the wrong place to pin it: the rule has to be falsifiable on its own
+ * terms, or it can be quietly weakened between the day it lands and the day the
+ * next hand-rolled overlay appears, which is exactly when it is needed.
+ *
+ * The independent-token form came from `check-conventions.mjs`'s deleted check
+ * (k), whose header recorded why: nothing canonicalises Tailwind class order in
+ * this app (no prettier-plugin-tailwindcss, no eslint tailwind plugin), and the
+ * paired form also broke on a quote landing between the two tokens.
+ */
+describe("the overlay class rule", () => {
+  it("matches `fixed` and `inset-0` in any order, and only together", () => {
+    expect(isOverlayClassList("fixed inset-0 z-50 bg-black/50")).toBe(true);
+    expect(isOverlayClassList("inset-0 fixed z-50 bg-black/50")).toBe(true);
+    expect(isOverlayClassList("fixed z-50 inset-0")).toBe(true);
+
+    // Neither token alone is a full-screen overlay.
+    expect(isOverlayClassList("absolute inset-0 opacity-50")).toBe(false);
+    expect(isOverlayClassList("fixed bottom-4 right-4")).toBe(false);
+    expect(isOverlayClassList("")).toBe(false);
+    expect(isOverlayClassList("fixed inset-x-0 bottom-0")).toBe(false);
+
+    // A word boundary in a Tailwind class list is not a token boundary: `-` and
+    // `.` both count as `\b`, so `inset-0.5` satisfies `\binset-0\b`. Asserted
+    // rather than fixed — it is the over-inclusive direction (a `fixed
+    // inset-0.5` element gets asked for a role it may not need, which is a
+    // comment away), and tightening it would mean re-deriving Tailwind's
+    // grammar here. Check (k) shipped with the same behaviour.
+    expect(isOverlayClassList("fixed inset-0.5")).toBe(true);
+  });
+});
 
 describe("full-screen overlays are dialogs", () => {
   it("finds the overlays at all", () => {
@@ -214,7 +294,7 @@ describe("full-screen overlays are dialogs", () => {
 
     expect(
       blind,
-      `"${OVERLAY_CLASS}" appears here in a shape this scanner does not recognise, ` +
+      `"${ACCOUNTING_TOKEN}" appears here in a shape this scanner does not recognise, ` +
         `so the dialog check silently skips it. Extend the scanner rather than the class string.`,
     ).toEqual([]);
   });

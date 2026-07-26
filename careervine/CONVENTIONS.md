@@ -371,11 +371,17 @@ only, never a rejected promise in a handler; that is the contract above.
   trapped dialog become keyboard-unreachable.
 
   That file is the SOLE enforcer of the dialog rule. `check-conventions.mjs`
-  carried a second, weaker copy of it until CAR-208 deleted that copy: the two
-  accepted near-anagram escape hatches (`non-dialog-overlay:` there,
-  `overlay-not-a-dialog:` here) and neither honoured the other's, so the first
+  carried a second copy of it until CAR-208 deleted that copy: the two accepted
+  near-anagram escape hatches, and neither honoured the other's, so the first
   contributor with a legitimate non-dialog overlay would have written whichever
-  token the error they hit first named and stayed red against the other.
+  token the error they hit first named and stayed red against the other. The
+  surviving spelling is `non-dialog-overlay:` (the deleted check's was
+  `overlay-not-a-dialog:`, and `careervine/src/__tests__/conventions-doc.test.ts`
+  now fails if that retired token reappears in `careervine/src`). The two guards
+  were complementary rather than ordered, so the deleted one's detection rule —
+  `fixed` and `inset-0` as independent tokens, which catches a reordered or
+  interpolated class list — was ported into the survivor rather than lost with
+  it.
 
   `careervine/scripts/check-conventions.mjs` adds four more (CAR-190, CAR-208). Scope is
   `careervine/src/components` + `careervine/src/hooks` + `careervine/src/app`, minus
@@ -413,7 +419,12 @@ only, never a rejected promise in a handler; that is the contract above.
   `handleAdd` while ignoring an identical `addContact`, **inline JSX handlers** as an
   entire invisible form, and **non-named import shapes** that bound a seam the scan
   could not resolve — and the figure became 129. The first of those was hiding a live
-  bug: double-clicking Add in the admin contacts card created two contact rows.
+  gap: the two unguarded submits in the admin contacts card. (An earlier draft
+  of this paragraph called that a live double-click bug. It is not one - `Button`
+  disables itself from `loading`, and React commits that before the browser
+  dispatches a second click, so the second click never reaches the handler. The
+  claim was written from the detector's finding rather than from a test, which
+  is the failure mode this whole section is about.)
 
   129 is deliberately an OVER-count, and reading it as 129 double-click bugs would be
   wrong. A callee is judged a write by its verb against a denylist of read verbs, so
@@ -566,11 +577,14 @@ rewards render-and-assert-nothing tests; the browser tier owns them. Every
 threshold's measured baseline is recorded beside it in the config.
 
 `careervine/src/mcp` joined the gate in CAR-208 and had been outside it since
-the gate existed, at 47% statements with `careervine/src/mcp/tools` at 4% — a shipped
-product surface whose only CI job is `tsc --noEmit`, referenced by neither the
-integration nor the E2E tier, so a new untested MCP tool moved no number and
-failed no check. Each measured area carries its OWN budget rather than only
-feeding the global percentages: a weak area blended into one number hides
+the gate existed, at 47% statements with `careervine/src/mcp/tools` at 4%. It is
+a shipped product surface, it has its own unit tests (eleven files under
+`careervine/src/mcp/__tests__`, which is where that 47% comes from), and it is
+referenced by neither the integration nor the E2E tier — so what was missing was
+specifically a coverage FLOOR: no per-area budget, and far too small a share of
+the corpus to move a global percentage, meaning a new untested MCP tool moved no
+number and failed no check. Each measured area carries its OWN budget rather than
+only feeding the global percentages: a weak area blended into one number hides
 behind a strong one, which is exactly what had happened to `careervine/src/hooks`.
 
 - Authoritative: `careervine/vitest.config.ts`,

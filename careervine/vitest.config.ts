@@ -18,8 +18,12 @@ export default defineConfig({
     //
     // `src/mcp` IS measured, since CAR-208. It was outside `include` while
     // CAR-186's commit message asserted "only database.types.ts and test files
-    // are excluded" — 16 modules and ~3,300 lines sitting at 47.07% statements /
+    // are excluded" — 15 modules and ~2,900 lines sitting at 47.07% statements /
     // 39.86% branches, with `src/mcp/tools` at 4.25% and several tools at 0%.
+    // (15/2,896 is the MEASURED set. A first draft said 16/3,300, which counted
+    // `__tests__/helpers/recording-client.ts` — a 437-line test helper that the
+    // `exclude` below correctly drops, so the count and the percentage were
+    // computed over different file sets.)
     // Nothing else covered the gap either: the `mcp` CI job is `tsc --noEmit`
     // only, and neither the integration nor the E2E tier references it, so a new
     // untested MCP tool moved no number and failed no check. It is a shipped
@@ -75,7 +79,7 @@ export default defineConfig({
       // RE-BASELINED 2026-07-25 (CAR-208), `npm run test:coverage` on
       // darwin-arm64. Folding src/mcp in costs the globals about two points -
       // measured, from the same run, lib+hooks alone come to
-      // 69.18 / 61.86 / 66.41 / 72.25 against 67.35 / 60.14 / 64.35 / 70.45 with
+      // 69.18 / 61.86 / 66.41 / 72.25 against 67.35 / 60.12 / 64.35 / 70.45 with
       // src/mcp included. Left at the old floors that is a ~1.2 margin on
       // branches, so the floors move down with the measurement rather than
       // quietly eating the headroom the note above insists on.
@@ -86,19 +90,31 @@ export default defineConfig({
       // budget that loose is not a gate, and the stale comment beside it was its
       // own false claim.
       //
+      // BRANCHES is a RANGE, not a point, and the table below records the low
+      // end of the darwin range. Measured across six local runs and the CI run
+      // for this commit: global branches is 60.12-60.14 on darwin-arm64 (4337
+      // or 4338 of 7213 — it moves by one branch between otherwise identical
+      // runs) and 60.03 on CI's linux/node22, where src/lib branches is 2420
+      // uncovered against 2413 locally. Nearly the whole spread is one file,
+      // `src/lib/scrape-mapper.ts` (202 branches, 187 covered on darwin, 180 on
+      // linux). Statements, functions and lines agree within one unit and do
+      // not drift run to run. Do NOT "correct" a branch figure to whatever your
+      // machine printed this time; that is how a range gets rewritten as a
+      // point, twice, in opposite directions.
+      //
       //                    measured        threshold
       //   global      stmt 67.35%          65
-      //               brch 60.14%          58
+      //               brch 60.12-60.14%    58
       //               func 64.35%          62
       //               line 70.45%          68
       //   src/lib     stmt 70.81%  2305u   2375
-      //               brch 62.75%  2412u   2485
-      //               func 68.31%   379u    391
+      //               brch 62.74%  2413u   2485
+      //               func 68.31%   379u    400
       //               line 74.03%  1746u   1800
-      //   src/hooks   stmt 39.30%   261u    285
-      //               brch 28.57%   125u    138
-      //               func 45.37%    59u     65
-      //               line 40.16%   222u    245
+      //   src/hooks   stmt 39.30%   261u    295
+      //               brch 28.57%   125u    145
+      //               func 45.37%    59u     72
+      //               line 40.16%   222u    255
       //   src/mcp     stmt 47.07%   397u    430
       //               brch 39.86%   338u    368
       //               func 49.44%    91u    100
@@ -109,16 +125,32 @@ export default defineConfig({
         functions: 62,
         lines: 68,
         'src/lib/**': {
+          // functions stays at -400 rather than the ~3% -391 the other three
+          // use. 391 against 379 measured is 12 units, and the house data-layer
+          // module shape spends that on its own: contacts.ts carries 21
+          // uncovered functions, home.ts 16, meetings.ts 16, action-items.ts 14.
+          // meetings.ts would fail on functions (16 > 12) while passing every
+          // other metric, so functions alone would become the binding one for a
+          // routine addition. src/lib's uncovered function count is a few
+          // hundred, which is the small-N regime the src/mcp note below
+          // describes — it just arrives here per-metric rather than per-area.
           statements: -2375,
           branches: -2485,
-          functions: -391,
+          functions: -400,
           lines: -1800,
         },
+        // Loosened from the first cut of this re-baseline (-285/-138/-65/-245),
+        // which overshot. The comment above states the calibration in ABSOLUTE
+        // units — "200 new statements at 85% adds 30 uncovered" must pass — and
+        // -285 against 261 measured leaves 24, so the file's own named pass case
+        // failed this area's gate. Four of the nine files already in src/hooks
+        // would each, alone, have exceeded it. Percentage headroom is the wrong
+        // instrument on a few hundred units; the 30-unit calibration binds.
         'src/hooks/**': {
-          statements: -285,
-          branches: -138,
-          functions: -65,
-          lines: -245,
+          statements: -295,
+          branches: -145,
+          functions: -72,
+          lines: -255,
         },
         // Its own budget, not folded into the globals alone: src/mcp is the
         // weakest area by a wide margin and a single blended number would let it

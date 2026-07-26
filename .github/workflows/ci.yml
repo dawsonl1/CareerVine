@@ -42,8 +42,9 @@ jobs:
       # reads, MCP raw-query-builder growth, MCP launch flags. CAR-187: typed
       # test mocks. CAR-190: the client-state rules — no raw fetch(, no native
       # confirm(), plus ratchets on double-submit guards and useLatestRequest.
-      # CAR-208 dropped the twelfth, a duplicate of the dialog-role rule that
-      # src/__tests__/dialog-adoption.test.ts already enforces more strictly.
+      # CAR-208 dropped the twelfth, a duplicate of the dialog-role rule now
+      # enforced solely by src/__tests__/dialog-adoption.test.ts, which absorbed
+      # the deleted check's detection rule as part of the consolidation.
       # Sits next to the ui-events guard and before Test so a convention break
       # is not mistaken for a test failure.
       - name: Conventions guard

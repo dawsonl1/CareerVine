@@ -63,18 +63,45 @@ export default function ContactsSection({ userId }: { userId: string }) {
   const [bundles, setBundles] = useState<BundleAccessItem[] | null>(null);
   const [pickedBundle, setPickedBundle] = useState<BundleAccessItem | null>(null);
 
-  // Deferred deletes: contactId → { timeout, fire } so unmount can flush them
+  // Deferred deletes: contactId → { timeout, fire, toastId } so unmount can
+  // flush the delete AND retract the Undo it can no longer honour.
   const pendingDeletes = useRef(
-    new Map<number, { timeout: ReturnType<typeof setTimeout>; fire: () => void }>(),
+    new Map<
+      number,
+      { timeout: ReturnType<typeof setTimeout>; fire: () => void; toastId: string }
+    >(),
   );
 
-  // Re-entry guard for the two modal submits below. `busy` cannot do this job:
-  // it is state, so `disabled={busy}` has not rendered when the second click of
-  // a double click arrives, and both routes are non-idempotent — a double
-  // click on Add created two contact rows, and on Inject applied the bundle
-  // twice. One ref for both because they are mutually exclusive modals, which
-  // is the same reason they already share `busy`.
+  // Re-entry guard for the two modal submits below, both of which POST to
+  // non-idempotent routes.
+  //
+  // It is the house convention (CONVENTIONS.md section f, enforced by check (i)
+  // of scripts/check-conventions.mjs), NOT a fix for an observed incident here.
+  // An earlier draft of this comment claimed a double click created two contact
+  // rows; that does not reproduce. `Button` renders
+  // `disabled={disabled || loading}` and both call sites pass `loading={busy}`,
+  // React flushes a discrete click update before the browser dispatches the
+  // next click, and a disabled control has its queued clicks discarded — so
+  // click two never reaches the handler. Two POSTs need two dispatches in ONE
+  // task, which the browser input pipeline does not produce (`fireEvent.click`
+  // twice does, which is why that is not a model of a double click).
+  //
+  // The ref is still worth its two lines: it is what makes the guarantee local
+  // instead of depending on a prop three files away, and it survives a refactor
+  // that drops `loading={busy}` or adds a keyboard path.
   const submittingRef = useRef(false);
+
+  /** Mirrors `open` so a late-resolving submit can see the CURRENT modal. */
+  const openRef = useRef<OpenModal>(null);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  /** `dismiss` behind a ref, so the []-dep unmount effect below cannot go stale. */
+  const dismissRef = useRef(dismiss);
+  useEffect(() => {
+    dismissRef.current = dismiss;
+  }, [dismiss]);
 
   const load = useCallback(
     async (offset = 0) => {
@@ -110,18 +137,43 @@ export default function ContactsSection({ userId }: { userId: string }) {
 
   // Flush (not cancel) any still-pending deletes if the admin navigates away —
   // the toast promised a removal; unmount must not silently undo it.
+  //
+  // The toast is retracted in the same breath. It promised an UNDO too, and
+  // ToastProvider lives in the root layout, so it outlives this component and
+  // kept rendering an Undo button after the flush had already issued the
+  // DELETE. Clicking it found no pending entry, skipped the cancel branch, and
+  // dismissed itself — visually identical to a successful undo, with the row
+  // permanently gone.
   useEffect(() => {
     const pending = pendingDeletes.current;
     return () => {
-      for (const { timeout, fire } of pending.values()) {
+      for (const { timeout, fire, toastId } of pending.values()) {
         clearTimeout(timeout);
+        dismissRef.current(toastId);
         fire();
       }
       pending.clear();
     };
   }, []);
 
-  const close = () => {
+  /**
+   * Dismiss the modal `mode` opened, and only that one.
+   *
+   * A submit stays in flight after its own modal is dismissed (scrim click,
+   * Escape, the header X - none of which cancel the request), and `close()` runs
+   * on the success path, so an unconditional teardown reached across into
+   * whatever modal happened to be open by then. The inject route makes that a
+   * wide window rather than a race: it runs under a 35s budget and returns
+   * `completed: false` when it cannot finish. Escape out of a 250-prospect
+   * inject, open Add contact, type a name, email and LinkedIn URL, and 30
+   * seconds later the bundle response wiped all three fields and closed the
+   * dialog under the admin.
+   */
+  const close = (mode?: OpenModal) => {
+    // Read through the ref, not the closed-over `open`: this runs after an
+    // await, so the captured value is whatever was open when the request
+    // STARTED, which is precisely the thing that must not be trusted here.
+    if (mode !== undefined && openRef.current !== mode) return;
     setOpen(null);
     setName("");
     setEmail("");
@@ -141,7 +193,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
         linkedin_url: linkedinUrl.trim() || undefined,
       }));
       success(`Added ${name.trim()} to this account`);
-      close();
+      close("add");
       void load();
     } catch (err) {
       toastError((err as Error).message);
@@ -161,7 +213,11 @@ export default function ContactsSection({ userId }: { userId: string }) {
       setBundles(json.bundles ?? []);
     } catch (err) {
       toastError((err as Error).message);
-      setOpen(null);
+      // Same stale-commit hazard as `close()`: this failure can land after the
+      // admin has escaped the picker and opened Add contact, and an
+      // unconditional `setOpen(null)` would shut that dialog under an unrelated
+      // error toast.
+      setOpen((current) => (current === "bundle" ? null : current));
     }
   };
 
@@ -180,7 +236,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
           ? `Injected “${pickedBundle.name}”: ${json.applied ?? 0} contacts applied`
           : `Injecting “${pickedBundle.name}”: ${json.applied ?? 0} applied so far, the rest will finish in the background`,
       );
-      close();
+      close("bundle");
       void load();
     } catch (err) {
       toastError((err as Error).message);
@@ -209,7 +265,6 @@ export default function ContactsSection({ userId }: { userId: string }) {
     };
 
     const timeout = setTimeout(() => void fire(), UNDO_MS);
-    pendingDeletes.current.set(contact.id, { timeout, fire: () => void fire() });
 
     const toastId = toast(`Removed ${contact.name}`, {
       variant: "info",
@@ -229,6 +284,12 @@ export default function ContactsSection({ userId }: { userId: string }) {
           },
         },
       ],
+    });
+
+    pendingDeletes.current.set(contact.id, {
+      timeout,
+      fire: () => void fire(),
+      toastId,
     });
   };
 
@@ -354,7 +415,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
       )}
 
       {/* Add-contact modal */}
-      <Modal isOpen={open === "add"} onClose={close} title="Add contact" size="md">
+      <Modal isOpen={open === "add"} onClose={() => close()} title="Add contact" size="md">
         <div className="space-y-4">
           <div>
             <label className={labelClasses}>Name</label>
@@ -388,7 +449,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="text" onClick={close}>
+            <Button variant="text" onClick={() => close()}>
               Cancel
             </Button>
             <Button onClick={addContact} loading={busy} disabled={!name.trim()}>
@@ -399,7 +460,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
       </Modal>
 
       {/* Bundle-inject modal */}
-      <Modal isOpen={open === "bundle"} onClose={close} title="Inject a bundle" size="md">
+      <Modal isOpen={open === "bundle"} onClose={() => close()} title="Inject a bundle" size="md">
         {!bundles ? (
           <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
