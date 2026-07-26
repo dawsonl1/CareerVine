@@ -60,6 +60,15 @@ export default function DataSubscriptionsSection() {
   const [unsubscribeChoice, setUnsubscribeChoice] = useState<"keep" | "remove">("keep");
   const [unsubscribing, setUnsubscribing] = useState(false);
   const selfSyncStarted = useRef(false);
+  // `disabled={prog != null}` cannot gate these: `prog` is set AFTER the first
+  // await, so the button stayed live for the whole round trip and a double
+  // click sent two POSTs. Both routes are non-idempotent — subscribe raced its
+  // own UNIQUE constraint, and unsubscribe drives a destructive contact-removal
+  // loop (CAR-207). Per-bundle for subscribe, since two different bundles may
+  // legitimately be in flight at once; a single flag for unsubscribe, which is
+  // driven by one modal.
+  const subscribingRef = useRef(new Set<number>());
+  const unsubscribingRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!user) return { bundles: [] as BundleRow[], subs: new Map<number, SubscriptionRow>() };
@@ -105,6 +114,8 @@ export default function DataSubscriptionsSection() {
   );
 
   const handleSubscribe = async (bundle: BundleRow) => {
+    if (subscribingRef.current.has(bundle.id)) return;
+    subscribingRef.current.add(bundle.id);
     try {
       await subscribeToBundle(bundle.id);
       setProgress((p) => new Map(p).set(bundle.id, { applied: 0, total: bundle.prospect_count }));
@@ -113,14 +124,22 @@ export default function DataSubscriptionsSection() {
       if (completed) success(`Subscribed to ${bundle.name}: ${bundle.prospect_count} prospects added to your contacts`);
       await load();
     } catch (err) {
+      // The route's own message is the user-facing one here (the apply loop
+      // throws copy like BACKGROUND_SYNC_MESSAGE that names the real outcome),
+      // so this deliberately keeps its own catch rather than withToastOnError,
+      // which discards it in favour of caller copy.
       toastError(err instanceof Error ? err.message : "Subscribe failed");
       await load();
+    } finally {
+      subscribingRef.current.delete(bundle.id);
     }
   };
 
   const handleUnsubscribe = async () => {
     const bundle = unsubscribeTarget;
     if (!bundle) return;
+    if (unsubscribingRef.current) return;
+    unsubscribingRef.current = true;
     setUnsubscribing(true);
     try {
       let cursor: number | null | undefined;
@@ -144,8 +163,8 @@ export default function DataSubscriptionsSection() {
               : "Unsubscribe hit a server error before it could start. Please try again.",
           );
         }
-        const { res, step } = outcome;
-        if (!res.ok) throw new Error(step.error ?? "Unsubscribe failed");
+        if (!outcome.ok) throw new Error(outcome.error);
+        const { step } = outcome;
         removed += step.removed;
         kept += step.kept;
         if (step.done) break;
@@ -161,6 +180,7 @@ export default function DataSubscriptionsSection() {
     } catch (err) {
       toastError(err instanceof Error ? err.message : "Unsubscribe failed");
     } finally {
+      unsubscribingRef.current = false;
       setUnsubscribing(false);
     }
   };

@@ -73,10 +73,13 @@ function daysUntil(value: string | null | undefined): number | null {
   return Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-/** Status chip for an open follow-up step on Outreach (CAR-125). */
+/** Status chip for a listed follow-up step on Outreach (CAR-125). */
 function openStepChip(status: string): { label: string; className: string } {
   if (status === FollowUpMessageStatus.AwaitingReview) {
     return { label: "Needs confirm", className: "bg-primary/15 text-primary" };
+  }
+  if (status === FollowUpMessageStatus.Failed) {
+    return { label: "Send unconfirmed", className: "bg-destructive/10 text-destructive" };
   }
   if (status === FollowUpMessageStatus.Expired) {
     return { label: "Expired", className: "bg-surface-container-high text-muted-foreground" };
@@ -88,18 +91,27 @@ function openStepChip(status: string): { label: string; className: string } {
  * the messages the user can still act on, how many were actually sent, and the
  * total. Expired is deliberately NOT counted as sent (CAR-105). */
 function followUpProgress(fu: EmailFollowUp): {
-  openSteps: EmailFollowUpMessage[];
+  listedSteps: EmailFollowUpMessage[];
   actionable: EmailFollowUpMessage[];
   sentCount: number;
   total: number;
 } {
   const msgs = fu.email_follow_up_messages ?? [];
-  const openSteps = msgs
-    .filter((m) => isUnresolvedFollowUpMessage(m.status))
+  const openSteps = msgs.filter((m) => isUnresolvedFollowUpMessage(m.status));
+  // 'failed' is terminal, so it is not an OPEN step and must never widen the
+  // vocabularies that decide teardown or whether the parent stays open. It is
+  // listed anyway (CAR-207): this portal is where the user meets their
+  // follow-ups, and a step whose delivery is unknown silently vanishing from it
+  // is how they would fail to notice. Listed, never actionable.
+  const unconfirmed = msgs.filter((m) => m.status === FollowUpMessageStatus.Failed);
+  const listedSteps = [...openSteps, ...unconfirmed].sort(
+    (a, b) => (a.sequence_number ?? 0) - (b.sequence_number ?? 0),
+  );
+  const actionable = openSteps
+    .filter((m) => isActionableFollowUpMessage(m.status))
     .sort((a, b) => (a.sequence_number ?? 0) - (b.sequence_number ?? 0));
-  const actionable = openSteps.filter((m) => isActionableFollowUpMessage(m.status));
   const sentCount = msgs.filter((m) => m.status === FollowUpMessageStatus.Sent).length;
-  return { openSteps, actionable, sentCount, total: msgs.length };
+  return { listedSteps, actionable, sentCount, total: msgs.length };
 }
 
 export function OutreachShell() {
@@ -860,7 +872,7 @@ function FollowUpList({
   return (
     <ul className="flex flex-col gap-2">
       {items.map((fu) => {
-        const { openSteps, actionable, sentCount, total } = followUpProgress(fu);
+        const { listedSteps, actionable, sentCount, total } = followUpProgress(fu);
         return (
           <Row key={fu.id}>
             <div className="flex items-start justify-between gap-3">
@@ -886,9 +898,9 @@ function FollowUpList({
               </button>
             </div>
 
-            {openSteps.length > 0 && (
+            {listedSteps.length > 0 && (
               <div className="mt-3 space-y-2">
-                {openSteps.map((m) => {
+                {listedSteps.map((m) => {
                   const chip = openStepChip(m.status);
                   const actionableStep = isActionableFollowUpMessage(m.status);
                   const expired = m.status === FollowUpMessageStatus.Expired;
@@ -934,9 +946,11 @@ function FollowUpList({
                           <p className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
                             {m.status === FollowUpMessageStatus.Pending
                               ? `Scheduled ${fmtDate(m.scheduled_send_at)}`
-                              : m.status === FollowUpMessageStatus.Expired
-                                ? "Still sendable"
-                                : `Due ${fmtDate(m.scheduled_send_at)}`}
+                              : m.status === FollowUpMessageStatus.Failed
+                                ? "Sending was interrupted, so this may already have been delivered. Check your Gmail Sent folder."
+                                : m.status === FollowUpMessageStatus.Expired
+                                  ? "Still sendable"
+                                  : `Due ${fmtDate(m.scheduled_send_at)}`}
                           </p>
                           {actionableStep && (
                             <div className="pl-5">

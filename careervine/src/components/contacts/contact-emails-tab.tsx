@@ -597,28 +597,58 @@ export function ContactEmailsTab({
                           })()}
                         </div>
 
-                        {/* Active follow-ups indicator */}
+                        {/* Active follow-ups, plus any sequence still carrying an
+                            unconfirmed send. `failed` is terminal, so the sweep that
+                            writes it also completes the parent in the same tick, and a
+                            strict `status === "active"` filter hid the one state whose
+                            entire purpose is to warn the user (CAR-207 review). This is
+                            a RECORD, not a task: it stays here permanently. */}
                         {(threadFollowUps[thread.threadId] || [])
-                          .filter((fu) => fu.status === "active")
-                          .map((fu) => (
+                          .filter(
+                            (fu) =>
+                              fu.status === "active" ||
+                              fu.email_follow_up_messages.some(
+                                (m) => m.status === FollowUpMessageStatus.Failed,
+                              ),
+                          )
+                          .map((fu) => {
+                            const openCount = fu.email_follow_up_messages.filter((m) =>
+                              isOpenFollowUpMessage(m.status),
+                            ).length;
+                            return (
                             <div key={fu.id} className="flex items-start gap-2.5 p-3 rounded-lg bg-tertiary-container/20 border border-tertiary/15">
                               <Clock className="h-4 w-4 text-tertiary shrink-0 mt-0.5" />
                               <div className="flex-1 min-w-0">
+                                {/* Suppressed at zero: a completed sequence kept here
+                                    only for its unconfirmed step would otherwise read
+                                    "0 follow-ups scheduled". */}
+                                {openCount > 0 && (
                                 <p className="text-xs font-medium text-foreground">
-                                  {fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length} follow-up
-                                  {fu.email_follow_up_messages.filter((m) => isOpenFollowUpMessage(m.status)).length !== 1 ? "s" : ""} scheduled
+                                  {openCount} follow-up{openCount !== 1 ? "s" : ""} scheduled
                                 </p>
+                                )}
                                 <div className="flex flex-wrap gap-1.5 mt-1">
                                   {fu.email_follow_up_messages
                                     .sort((a, b) => a.sequence_number - b.sequence_number)
                                     .map((m) => (
                                       <span
                                         key={m.id}
+                                        // A 'failed' step is deliberately not offered a Retry, unlike
+                                        // the scheduled emails above: this one is a reply into a live
+                                        // thread that Gmail may already have delivered, and inviting
+                                        // the resend is the defect CAR-207 exists to close.
+                                        title={
+                                          m.status === FollowUpMessageStatus.Failed
+                                            ? "Sending was interrupted after this reached Gmail, so it may already have been delivered. Check your Gmail Sent folder before sending anything else in this thread."
+                                            : undefined
+                                        }
                                         className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                                           m.status === "sent"
                                             ? "bg-primary/15 text-primary"
                                             : m.status === "cancelled"
                                             ? "bg-surface-container-low text-muted-foreground line-through"
+                                            : m.status === FollowUpMessageStatus.Failed
+                                            ? "bg-destructive/10 text-destructive"
                                             : m.status === FollowUpMessageStatus.Expired
                                             ? "bg-surface-container-low text-muted-foreground"
                                             : m.status === "awaiting_review"
@@ -629,12 +659,25 @@ export function ContactEmailsTab({
                                         #{m.sequence_number}: Day {m.send_after_days}
                                         {m.status === "sent" && " (sent)"}
                                         {m.status === "cancelled" && " (cancelled)"}
+                                        {m.status === FollowUpMessageStatus.Failed && " (send unconfirmed)"}
                                         {m.status === FollowUpMessageStatus.Expired && " (expired)"}
                                         {m.status === "awaiting_review" && " (awaiting your review)"}
                                         {m.status === "pending" && ` (${new Date(m.scheduled_send_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}
                                       </span>
                                     ))}
                                 </div>
+
+                                {/* Visible, not just a title= tooltip: a tooltip never
+                                    appears on touch and is announced inconsistently,
+                                    and this is the one thing the user has to act on. */}
+                                {fu.email_follow_up_messages.some(
+                                  (m) => m.status === FollowUpMessageStatus.Failed,
+                                ) && (
+                                  <p className="mt-1 text-[11px] text-destructive">
+                                    A step could not be confirmed. Check your Gmail Sent folder
+                                    before emailing again.
+                                  </p>
+                                )}
 
                                 {/* Per-message confirm-to-send: parked (awaiting_review)
                                     and softly-retired (expired) items stay one-click
@@ -682,6 +725,10 @@ export function ContactEmailsTab({
                                   {canReadMailbox ? "Auto-cancels if they reply" : "Use “Mark as replied” if they respond"}
                                 </p>
                               </div>
+                              {/* Edit and Cancel act on a LIVE sequence. A completed
+                                  one is listed here only to carry its unconfirmed
+                                  step, and both actions would fail against it. */}
+                              {fu.status === "active" && (
                               <div className="flex flex-col gap-1 shrink-0">
                                 <button
                                   type="button"
@@ -710,8 +757,10 @@ export function ContactEmailsTab({
                                   <XCircle className="h-3.5 w-3.5" />
                                 </button>
                               </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
 
                         {/* Completed/cancelled follow-ups */}
                         {(threadFollowUps[thread.threadId] || []).filter((fu) => fu.status !== "active").length > 0 && (
@@ -721,7 +770,17 @@ export function ContactEmailsTab({
                                 <Check className="h-2.5 w-2.5" /> Follow-ups cancelled (reply received)
                               </span>
                             )}
-                            {(threadFollowUps[thread.threadId] || []).filter((fu) => fu.status === "completed").length > 0 && (
+                            {/* A sequence carrying an unconfirmed send is not "completed"
+                                in any sense the user cares about, and a green check over
+                                it is the affirmative lie CAR-207 exists to stop. The
+                                chip above tells that story instead. */}
+                            {(threadFollowUps[thread.threadId] || []).filter(
+                              (fu) =>
+                                fu.status === "completed" &&
+                                !fu.email_follow_up_messages.some(
+                                  (m) => m.status === FollowUpMessageStatus.Failed,
+                                ),
+                            ).length > 0 && (
                               <span className="inline-flex items-center gap-1 mr-2">
                                 <Check className="h-2.5 w-2.5" /> Follow-ups completed
                               </span>

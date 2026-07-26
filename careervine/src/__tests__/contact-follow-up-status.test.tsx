@@ -188,3 +188,85 @@ describe("ContactFollowUpStatus — failed load (CAR-183)", () => {
     expect(container.textContent).toBe("");
   });
 });
+
+/**
+ * CAR-207 review. This card is the surface a user is most likely to see after a
+ * send driver dies between Gmail accepting a follow-up and the mark-sent write,
+ * because the sweeper resolves that row to the terminal `failed` and then
+ * completes the parent sequence in the same tick.
+ *
+ * It was counting `messages.length` as the sent total, so it affirmatively told
+ * the user that a message of UNKNOWN delivery had been delivered.
+ */
+describe("ContactFollowUpStatus — an unconfirmed send (CAR-207)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const message = (id: number, status: string) => ({
+    id,
+    sequence_number: id,
+    status,
+    scheduled_send_at: "2026-07-03T12:00:00.000Z",
+    sent_at: status === "sent" ? "2026-07-03T12:00:00.000Z" : null,
+  });
+
+  async function renderWith(sequence: Record<string, unknown>) {
+    const http = installFakeFetch({ [LIST_ROUTE]: { body: { sequences: [sequence] } } });
+    await act(async () => {
+      render(<ContactFollowUpStatus contactId={CONTACT_ID} />);
+    });
+    return http;
+  }
+
+  it("counts only genuinely sent steps, and warns about the unconfirmed one", async () => {
+    const http = await renderWith({
+      id: SEQUENCE_ID,
+      status: "completed",
+      original_subject: "Coffee next week?",
+      original_sent_at: "2026-07-01T12:00:00.000Z",
+      messages: [message(1, "sent"), message(2, "failed")],
+    });
+
+    // The defect: this read "2 follow-ups sent" over a message that may never
+    // have arrived. Singular, too, which the old copy also got wrong.
+    expect(screen.getByText("1 follow-up sent")).toBeTruthy();
+    expect(screen.queryByText("2 follow-ups sent")).toBeNull();
+    expect(
+      screen.getByText(
+        "1 step could not be confirmed. It may already have been delivered, so check your Gmail Sent folder before emailing again.",
+      ),
+    ).toBeTruthy();
+    expect(http.unmatched).toEqual([]);
+  });
+
+  it("warns on a still-active sequence too, without disturbing its progress line", async () => {
+    await renderWith({
+      id: SEQUENCE_ID,
+      status: "active",
+      original_subject: "Coffee next week?",
+      original_sent_at: "2026-07-01T12:00:00.000Z",
+      messages: [message(1, "sent"), message(2, "failed"), message(3, "pending")],
+    });
+
+    expect(screen.getByText("1 of 3 sent")).toBeTruthy();
+    expect(screen.getByText(/1 step could not be confirmed/)).toBeTruthy();
+  });
+
+  it("says nothing extra when every step genuinely sent", async () => {
+    await renderWith({
+      id: SEQUENCE_ID,
+      status: "completed",
+      original_subject: "Coffee next week?",
+      original_sent_at: "2026-07-01T12:00:00.000Z",
+      messages: [message(1, "sent"), message(2, "sent")],
+    });
+
+    expect(screen.getByText("2 follow-ups sent")).toBeTruthy();
+    expect(screen.queryByText(/could not be confirmed/)).toBeNull();
+  });
+});

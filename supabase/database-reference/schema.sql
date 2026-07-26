@@ -1477,7 +1477,7 @@ CREATE TABLE IF NOT EXISTS "public"."email_follow_up_messages" (
     "last_reminder_at" timestamp with time zone,
     "seen_during_window" boolean DEFAULT false NOT NULL,
     "claimed_at" timestamp with time zone,
-    CONSTRAINT "email_follow_up_messages_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'sending'::"text", 'sent'::"text", 'cancelled'::"text", 'awaiting_review'::"text", 'expired'::"text"])))
+    CONSTRAINT "email_follow_up_messages_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'sending'::"text", 'sent'::"text", 'cancelled'::"text", 'awaiting_review'::"text", 'expired'::"text", 'failed'::"text"])))
 );
 
 
@@ -1500,7 +1500,7 @@ COMMENT ON COLUMN "public"."email_follow_up_messages"."seen_during_window" IS 'C
 
 
 
-COMMENT ON COLUMN "public"."email_follow_up_messages"."claimed_at" IS 'CAR-139: when a send driver claimed this row (status=sending). Stale claims are swept to awaiting_review by the send-follow-ups cron.';
+COMMENT ON COLUMN "public"."email_follow_up_messages"."claimed_at" IS 'CAR-139: when a send driver claimed this row (status=sending). Stale claims are swept to failed by the send-follow-ups cron (CAR-207).';
 
 
 
@@ -1534,7 +1534,7 @@ CREATE TABLE IF NOT EXISTS "public"."email_follow_ups" (
     "updated_at" timestamp with time zone DEFAULT "now"(),
     "scheduled_email_id" integer,
     "contact_id" integer,
-    CONSTRAINT "email_follow_ups_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'cancelled_reply'::"text", 'cancelled_user'::"text", 'completed'::"text"])))
+    CONSTRAINT "email_follow_ups_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'cancelled_reply'::"text", 'cancelled_user'::"text", 'completed'::"text", 'cancelled_bounce'::"text"])))
 );
 
 

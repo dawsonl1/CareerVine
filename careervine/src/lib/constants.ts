@@ -5,9 +5,24 @@
 
 // ── Follow-up sequence statuses ────────────────────────────────────────
 
+/**
+ * Statuses for email_follow_ups (the parent sequence).
+ *
+ * All five, not the two this held until CAR-207's review. The other three were
+ * raw string literals scattered across the code, and that mattered: the
+ * integration conformance guard (check-constraints.itest.ts) enumerates
+ * `Object.values` here, so a literal outside the enum is invisible to it. That
+ * is exactly how `cancelled_bounce` reached production absent from the table's
+ * CHECK, failing every bounce-driven cancel with 23514 since the table was
+ * created. Add a new sequence status HERE, or the guard cannot see it.
+ */
 export const FollowUpStatus = {
   Active: "active",
   CancelledUser: "cancelled_user",
+  CancelledReply: "cancelled_reply",
+  /** Written by detectBounces when a delivery failure retires the sequence. */
+  CancelledBounce: "cancelled_bounce",
+  Completed: "completed",
 } as const;
 
 export const FollowUpMessageStatus = {
@@ -18,10 +33,26 @@ export const FollowUpMessageStatus = {
   // confirm route) for the duration of one Gmail round trip — never a resting
   // state. Stamped with claimed_at (CAR-139); claims older than
   // SEND_STALE_CLAIM_MINUTES were orphaned by a crash and are swept to
-  // 'awaiting_review' (never back to 'pending' — the send may have gone out,
-  // and an auto-retry would double-send). In the DB CHECK since
+  // 'failed' below (never back to 'pending', and since CAR-207 never to
+  // 'awaiting_review' either — the send may have gone out, so neither an
+  // automatic retry nor an invited one is safe). In the DB CHECK since
   // 20260712065000_car105_followup_nudge_expiry_columns.sql.
   Sending: "sending",
+  /**
+   * CAR-207: a send driver died between the Gmail send and the mark-sent write,
+   * so whether the contact received this message is UNKNOWN. Terminal, and
+   * deliberately absent from OPEN / UNRESOLVED / ACTIONABLE below: it holds no
+   * parent sequence open, draws no nudge, and offers no "Send now".
+   *
+   * This is where a stale 'sending' claim lands, replacing the 'awaiting_review'
+   * CAR-139 used. That was correct to refuse an automatic retry and wrong about
+   * the resting state: awaiting_review renders a one-click send captioned "not
+   * sent yet", so it invited the user to perform the double-send by hand.
+   * Mirrors ScheduledEmailStatus.Failed, which has handled the same race since
+   * CAR-134. In the DB CHECK since
+   * 20260725120000_car207_followup_message_failed_status.sql.
+   */
+  Failed: "failed",
   // CAR-102: free-tier confirm-to-send. The cron parks a due message here instead
   // of sending; the user confirms (send) or reports a reply (cancel) from the portal.
   AwaitingReview: "awaiting_review",
@@ -94,8 +125,9 @@ export const ScheduledEmailStatus = {
 } as const;
 
 /** Claims in 'sending' older than this are dead (no lambda runs this long).
- * The crons sweep them: scheduled_emails → 'failed' (CAR-134),
- * email_follow_up_messages → 'awaiting_review' (CAR-139). */
+ * Both crons sweep them to 'failed': scheduled_emails since CAR-134,
+ * email_follow_up_messages since CAR-207 (which replaced CAR-139's
+ * 'awaiting_review' — see FollowUpMessageStatus.Failed for why). */
 export const SEND_STALE_CLAIM_MINUTES = 15;
 
 // ── Email direction ────────────────────────────────────────────────────

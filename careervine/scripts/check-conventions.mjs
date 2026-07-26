@@ -743,25 +743,136 @@ function fetchesFirstPartyApi(call, sf) {
 
 const RAW_FETCH_OPT_OUT = /(?:\/\/|\/\*|\*)\s*raw-fetch:/;
 
-// Where the rule applies, and why it is two scopes rather than one:
+// Where the rule applies, and why it is three scopes rather than one:
 //
 //   - the CLIENT TREE bans every raw fetch, first-party or not, because client
 //     code has no business hand-rolling a request at all;
+//   - every BROWSER-REACHABLE module outside it gets that same total ban,
+//     because the tree boundary is not the runtime boundary (see below);
 //   - EVERYWHERE ELSE under src/, a fetch at a literal `/api/...` URL is still
 //     a violation, because a relative URL only resolves in a browser. That
-//     second scope exists because the first one is trivially escaped by an
+//     third scope exists because the first one is trivially escaped by an
 //     ordinary refactor: hoisting a call out of a component into a `src/lib`
 //     helper is a change a reviewer would ASK for, and it silently left the
 //     freeze. Six such calls were already sitting there, two of them
 //     hand-rolling the exact `!res.ok → parse → throw` dance apiFetch exists to
 //     delete.
 //
+// The second scope is CAR-207's. CAR-190 added the third believing it closed
+// the `src/lib` hole, and it did not: a URL-literal test cannot see a call whose
+// URL is a PARAMETER. `bundle-apply-client.ts`'s retry helper took the path as
+// an argument and POSTed to /api/bundles/apply and /api/bundles/unsubscribe from
+// the browser, invisibly, for as long as the guard had existed. Widening the
+// DIRECTORY scope — which the ticket proposed — would have fixed nothing, since
+// src/lib was already scanned. What was missing is that reachability, not
+// location, is what makes a module client code, exactly as CONVENTIONS §f says.
+//
 // src/lib/api-client.ts is the sanctioned wrapper and is exempt by definition.
 const API_CLIENT = "src/lib/api-client.ts";
 
+/**
+ * Modules outside the client tree that a browser nonetheless loads, by import
+ * graph from the client files.
+ *
+ * Runtime edges only: a `import type` is erased, so it cannot carry a module
+ * into the bundle, and counting it would drag server modules in through their
+ * types alone. Seeds exclude server files for the same reason — in a React
+ * Server Component `fetch` IS the idiomatic data call, and nothing it imports
+ * reaches a browser through that edge.
+ *
+ * Measured before this rule was written, because a guard's blast radius is a
+ * claim that deserves evidence: 68 modules are reachable this way, and exactly
+ * two of them contain a raw `fetch` — api-client.ts (exempt above) and the
+ * defect. All six third-party fetchers under src/lib (serper, apify/client,
+ * notify/email, admin-actions, admin-notify, import-db-helpers) are unreachable
+ * from the client, so this lands at zero rather than needing a baseline.
+ */
+const BROWSER_REACHABLE = (() => {
+  /**
+   * Resolve an import specifier to a file in this repo, or null for a package.
+   *
+   * Handles `@/` and relative specifiers only. tsconfig also declares `@ext`
+   * and `@panel` into ../chrome-extension, which are deliberately out of scope:
+   * the scan universe is walk("src"), so an entry over there could never be
+   * reported anyway, and following the edge would only slow the walk.
+   */
+  const resolveSpec = (spec, fromFile) => {
+    let base;
+    if (spec.startsWith("@/")) {
+      base = `src/${spec.slice(2)}`;
+    } else if (spec.startsWith(".")) {
+      const parts = [];
+      for (const seg of `${fromFile.split("/").slice(0, -1).join("/")}/${spec}`.split("/")) {
+        if (seg === "." || seg === "") continue;
+        if (seg === "..") parts.pop();
+        else parts.push(seg);
+      }
+      base = parts.join("/");
+    } else {
+      return null;
+    }
+    for (const suffix of [".ts", ".tsx", "/index.ts", "/index.tsx"]) {
+      if (existsSync(base + suffix)) return base + suffix;
+    }
+    return null;
+  };
+
+  /** In-repo modules this file pulls in at RUNTIME. */
+  const runtimeImports = (sf, r) => {
+    const out = [];
+    const add = (spec) => {
+      if (!spec || !ts.isStringLiteral(spec)) return;
+      const target = resolveSpec(spec.text, r);
+      if (target) out.push(target);
+    };
+    for (const st of sf.statements) {
+      if (ts.isImportDeclaration(st) && !st.importClause?.isTypeOnly) {
+        add(st.moduleSpecifier);
+      } else if (ts.isExportDeclaration(st) && st.moduleSpecifier && !st.isTypeOnly) {
+        add(st.moduleSpecifier);
+      }
+    }
+    // Dynamic `import("…")` too, anywhere in the file: `next/dynamic` and a
+    // lazily-imported parser both put the target in a browser chunk exactly
+    // like a static import, so a rule about what the browser loads has to see
+    // them. Statement-level scanning alone cannot — these sit in expression
+    // position, usually inside a callback.
+    const visitExpressions = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword
+      ) {
+        add(node.arguments[0]);
+      }
+      ts.forEachChild(node, visitExpressions);
+    };
+    visitExpressions(sf);
+    return out;
+  };
+
+  const seen = new Set();
+  const queue = [];
+  for (const file of CLIENT_FILES) {
+    if (isServerFile(parse(file), file)) continue;
+    seen.add(file);
+    queue.push(file);
+  }
+  while (queue.length > 0) {
+    const cur = queue.pop();
+    for (const dep of runtimeImports(parse(cur), cur)) {
+      if (!seen.has(dep)) {
+        seen.add(dep);
+        queue.push(dep);
+      }
+    }
+  }
+  return new Set(
+    [...seen].filter((r) => !CLIENT_FILE_SET.has(r) && r !== API_CLIENT && !isTestFile(r)),
+  );
+})();
+
 {
   const violations = [];
-  const clientTree = new Set(CLIENT_FILES);
   const everywhere = [...new Set([...CLIENT_FILES, ...walk("src", []).map(rel)])]
     .filter((r) => !isTestFile(r) && !r.startsWith("src/app/api/") && r !== API_CLIENT)
     .sort();
@@ -769,7 +880,7 @@ const API_CLIENT = "src/lib/api-client.ts";
   for (const file of everywhere) {
     const sf = parse(file);
     if (isServerFile(sf, file)) continue;
-    const inClientTree = clientTree.has(file);
+    const bannedOutright = CLIENT_FILE_SET.has(file) || BROWSER_REACHABLE.has(file);
     const visit = (node) => {
       if (ts.isCallExpression(node)) {
         const callee = node.expression;
@@ -778,7 +889,7 @@ const API_CLIENT = "src/lib/api-client.ts";
           ts.isPropertyAccessExpression(callee) &&
           callee.name.text === "fetch" &&
           /^(window|globalThis|global|self)$/.test(callee.expression.getText(sf));
-        if ((isBare || isGlobal) && (inClientTree || fetchesFirstPartyApi(node, sf))) {
+        if ((isBare || isGlobal) && (bannedOutright || fetchesFirstPartyApi(node, sf))) {
           if (!RAW_FETCH_OPT_OUT.test(annotationAbove(sf, node))) {
             violations.push(`${file}:${lineOf(sf, node)}: ${oneLine(node.getText(sf), 100)}`);
           }
@@ -1098,12 +1209,17 @@ const isAsyncFn = (fn) => fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.Asy
  *
  * These are the pre-existing tail CAR-190 did not rewrite: the defects its
  * audit named are FIXED rather than listed, and the rest are a mechanical sweep
- * across 29 files that would collide head-on with CAR-197's dialog migration.
+ * across 26 files that would collide head-on with CAR-197's dialog migration.
  * Draining this list is that sweep's job; the guard's job is that it can only
- * shrink. Two entries deserve to go first —
- * `data-subscriptions-section.tsx`'s `handleSubscribe` and `handleUnsubscribe`
- * are non-idempotent and one of them POSTs a destructive contact-removal loop,
- * with no synchronous guard at all.
+ * shrink.
+ *
+ * Down to 48 from 54 (CAR-207), which drained the three files it had open for
+ * other defects. `data-subscriptions-section.tsx`'s pair went first, as the note
+ * here asked: both are non-idempotent, `handleSubscribe` raced its own UNIQUE
+ * constraint into a 500 the user read as failure, and `handleUnsubscribe` POSTs
+ * a destructive contact-removal loop. `contact-attachments-tab.tsx`'s pair went
+ * with the confirm dialog that delete should always have had, and
+ * `interactions/page.tsx` left entirely — that route is now a redirect.
  */
 const DOUBLE_SUBMIT_BASELINE = {
   "src/app/calendar/page.tsx": ["handleDeleteEvent", "handleSaveMeeting", "handleSync"],
@@ -1111,14 +1227,12 @@ const DOUBLE_SUBMIT_BASELINE = {
   "src/app/contacts/[id]/page.tsx": ["handleDelete"],
   "src/app/contacts/page.tsx": ["handleActivate", "handleSetTier"],
   "src/app/contacts/preview/page.tsx": ["handleSave"],
-  "src/app/interactions/page.tsx": ["handleDeleteInteraction", "handleSubmit"],
   "src/app/meetings/page.tsx": ["handleMeetingAttachmentDelete", "handleMeetingAttachmentUpload"],
   "src/app/page.tsx": ["handleDismiss", "handleSnooze"],
   "src/app/reset-password/page.tsx": ["handleSubmit"],
   "src/components/admin/profile-section.tsx": ["handleSave"],
   "src/components/companies/person-modal.tsx": ["handleMarkContacted"],
   "src/components/companies/pipeline/pipeline-file-upload.tsx": ["handleFile", "handleRemove"],
-  "src/components/contacts/contact-attachments-tab.tsx": ["handleDelete", "handleUpload"],
   "src/components/contacts/contact-emails-tab.tsx": ["handleExpandEmail"],
   "src/components/contacts/contact-follow-up-status.tsx": ["handleCancel"],
   "src/components/contacts/contact-pending-actions-banner.tsx": ["handleComplete"],
@@ -1138,7 +1252,6 @@ const DOUBLE_SUBMIT_BASELINE = {
   "src/components/onboarding/extension-onboarding-modal.tsx": ["handleDeclineApollo", "handleDeleteTask", "handleStart"],
   "src/components/settings/account-section.tsx": ["handlePasswordChange", "handleSave"],
   "src/components/settings/availability-section.tsx": ["handleSaveAvailability", "handleSaveBusyCalendars"],
-  "src/components/settings/data-subscriptions-section.tsx": ["handleSubscribe", "handleUnsubscribe"],
   "src/components/settings/integrations-section.tsx": ["handleDisconnectCalendar", "handleGmailDisconnect", "handleGmailSync"],
   "src/components/settings/provider-key-card.tsx": ["handleSave"],
   "src/components/settings/templates-section.tsx": ["handleDelete", "handleSave"],
@@ -1260,12 +1373,12 @@ const DOUBLE_SUBMIT_BASELINE = {
  *
  * 8 sites. The one the audit named — the outreach page, where two
  * getCompanyDetail calls raced and the page rendered one company's header over
- * another's employees — is FIXED rather than listed.
+ * another's employees — is FIXED rather than listed. Down to 6 with CAR-207,
+ * which turned `interactions/page.tsx` into a redirect.
  */
 const LATEST_REQUEST_BASELINE = {
   "src/app/admin/users/[id]/page.tsx": ["load"],
   "src/app/contacts/[id]/page.tsx": ["loadContact"],
-  "src/app/interactions/page.tsx": ["loadInteractions"],
   "src/components/admin/contacts-section.tsx": ["load"],
   "src/components/compose-email-modal.tsx": ["generateFollowUps"],
   "src/components/contacts/contact-follow-up-status.tsx": ["loadSequences"],
@@ -1655,7 +1768,8 @@ console.log(
     // beats a bare "all clean"; a specific claim that nothing verifies is worse
     // than a vague one, because it is more convincing.
     `  client tree (${CLIENT_ROOTS.join(" + ")} minus the API routes and server files,\n` +
-    `  ${CLIENT_FILES.length} files) free of raw fetch( and native confirm(), plus no first-party\n` +
+    `  ${CLIENT_FILES.length} files) free of raw fetch( and native confirm(), as are the\n` +
+    `  ${BROWSER_REACHABLE.size} modules outside it the browser still loads; plus no first-party\n` +
     "  /api fetch anywhere else under src/; double-submit, useLatestRequest and dialog-role\n" +
     `  ratchets at ${countBaseline(DOUBLE_SUBMIT_BASELINE)}/${countBaseline(LATEST_REQUEST_BASELINE)}/${countBaseline(DIALOG_ROLE_BASELINE)} known sites — each can only shrink.`,
 );

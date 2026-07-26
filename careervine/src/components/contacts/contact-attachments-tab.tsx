@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { uploadAttachment, addAttachmentToContact, getAttachmentUrl, deleteAttachment, getAttachmentsForContact } from "@/lib/queries";
+import { useToast } from "@/components/ui/toast";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 import { Paperclip, Plus, Trash2 } from "lucide-react";
 
 type Attachment = {
@@ -23,51 +25,114 @@ interface ContactAttachmentsTabProps {
    * list that has not loaded yet (CAR-205 review).
    */
   loading?: boolean;
-  onAttachmentsChange: (attachments: Attachment[]) => void;
+  /** Takes the setter, not a plain callback: delete needs the functional
+   *  updater to avoid writing a list it captured before the confirm dialog. */
+  onAttachmentsChange: Dispatch<SetStateAction<Attachment[]>>;
+  /**
+   * Owned by the PAGE, not this component (the CAR-204 pattern, which the
+   * CAR-207 review found this tab had not followed). This tab renders inside a
+   * `SectionBoundary` whose key includes `dataGeneration`, so a `useConfirm`
+   * living here is unmounted whenever a background refresh lands, and the open
+   * dialog vanishes mid-question with nothing deleted and nothing said.
+   */
+  onConfirmDelete: () => Promise<boolean>;
 }
 
-export function ContactAttachmentsTab({ contactId, userId, attachments, loading = false, onAttachmentsChange }: ContactAttachmentsTabProps) {
+export function ContactAttachmentsTab({ contactId, userId, attachments, loading = false, onAttachmentsChange, onConfirmDelete }: ContactAttachmentsTabProps) {
   const [uploading, setUploading] = useState(false);
+  const { error: toastError } = useToast();
+  const uploadingRef = useRef(false);
+  // Per-id rather than one flag: each row deletes independently, and a shared
+  // boolean would drop a second row's click while the first is in flight.
+  const deletingRef = useRef(new Set<number>());
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return;
+    const input = e.target;
+    if (!input.files?.length) return;
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
+    const files = Array.from(input.files);
     setUploading(true);
     try {
-      for (const file of Array.from(e.target.files)) {
-        const attachment = await uploadAttachment(userId, file);
-        await addAttachmentToContact(contactId, attachment.id);
-      }
-      const updated = await getAttachmentsForContact(contactId) as Attachment[];
-      onAttachmentsChange(updated);
-    } catch (err) {
-      console.error("Error uploading attachment:", err);
+      // Two calls, because these are two different failures and one message
+      // cannot honestly describe both. The refresh used to sit in a `finally`
+      // INSIDE this action, and a `finally` that throws replaces the original
+      // exception: a failed refresh after a fully successful upload was
+      // reported as "couldn't upload", the list was left stale, and the
+      // natural retry produced a duplicate storage object and row. When both
+      // failed, the upload's own error was discarded entirely.
+      const wrote = await withToastOnError(
+        async () => {
+          for (const file of files) {
+            const attachment = await uploadAttachment(userId, file);
+            await addAttachmentToContact(contactId, attachment.id);
+          }
+        },
+        toastError,
+        files.length > 1
+          ? "Some files couldn't be uploaded. Please try again."
+          : "Couldn't upload that file. Please try again.",
+      );
+      // Runs on both paths: a throw on file 3 of 5 still leaves 1 and 2
+      // attached, and leaving those invisible until reload is the defect this
+      // refresh exists to close.
+      await withToastOnError(
+        async () => onAttachmentsChange((await getAttachmentsForContact(contactId)) as Attachment[]),
+        toastError,
+        wrote
+          ? "Your files uploaded, but the list couldn't be refreshed. Reload to see them."
+          : "Couldn't refresh the attachment list. Reload to see what landed.",
+      );
     } finally {
+      uploadingRef.current = false;
       setUploading(false);
-      e.target.value = "";
+      input.value = "";
     }
   };
 
+  // reentry-safe: a download writes nothing. It reads a signed URL and clicks a
+  // synthetic anchor, so a second click costs one extra signature, not a second
+  // mutation. It counts as a "mutation handler" to the guard only because
+  // withToastOnError is on its always-mutating list.
   const handleDownload = async (objectPath: string, fileName: string) => {
-    try {
-      const url = await getAttachmentUrl(objectPath);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      a.target = "_blank";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error("Error downloading attachment:", err);
-    }
+    await withToastOnError(
+      async () => {
+        const url = await getAttachmentUrl(objectPath);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      },
+      toastError,
+      "Couldn't open that file. Please try again.",
+    );
   };
 
   const handleDelete = async (attachmentId: number, objectPath: string) => {
+    if (deletingRef.current.has(attachmentId)) return;
+    deletingRef.current.add(attachmentId);
     try {
-      await deleteAttachment(attachmentId, objectPath);
-      onAttachmentsChange(attachments.filter((a) => a.id !== attachmentId));
-    } catch (err) {
-      console.error("Error deleting attachment:", err);
+      // Unrecoverable: the storage object goes with the row, and no junction
+      // cleanup can bring the file back. The question itself is asked by the
+      // page, so a background refresh cannot unmount it mid-ask.
+      if (!(await onConfirmDelete())) return;
+      const ok = await withToastOnError(
+        () => deleteAttachment(attachmentId, objectPath),
+        toastError,
+        "Couldn't delete that attachment. Please try again.",
+      );
+      if (!ok) return;
+      // Functional updater rather than `attachments.filter(...)`: that prop is
+      // captured at the render where the click happened, and the confirm
+      // dialog stretches the gap to human decision time. An upload landing in
+      // that gap was silently reverted, so a file the user had just added
+      // disappeared from the list while sitting in the database.
+      onAttachmentsChange((prev) => prev.filter((a) => a.id !== attachmentId));
+    } finally {
+      deletingRef.current.delete(attachmentId);
     }
   };
 
