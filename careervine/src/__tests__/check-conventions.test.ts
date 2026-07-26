@@ -524,16 +524,19 @@ describe("conventions guard", () => {
     expect(blanket.out).not.toContain("/api/export");
   });
 
-  it("accepts the JSX comment form for the overlay hatch", () => {
-    // `{/* … */}` is the only comment syntax legal between JSX children, and
-    // every overlay in this app is nested in JSX.
+  it("accepts the JSX comment form of an annotation", () => {
+    // `{/* … */}` is the only comment syntax legal between JSX children, so
+    // `annotationAbove` strips the wrapping braces before matching. Covered
+    // here against `raw-fetch:` since CAR-208 deleted the overlay check this
+    // case used to ride on; the mechanism under test is the brace stripping,
+    // which every hatch depends on.
     const { code, out } = withFile(
       "src/components/probe.tsx",
       "export function Probe() {\n" +
         "  return (\n" +
         "    <div>\n" +
-        "      {/* overlay-not-a-dialog: click-outside catcher behind a popover */}\n" +
-        '      <div className="fixed inset-0 z-10" />\n' +
+        "      {/* raw-fetch: exports a CSV stream */}\n" +
+        '      <button onClick={() => fetch("/api/export")}>go</button>\n' +
         "    </div>\n" +
         "  );\n" +
         "}\n",
@@ -740,6 +743,117 @@ describe("conventions guard", () => {
     expect(code, out).toBe(0);
   });
 
+  it("flags a mutation handler whose name is not spelled like a handler (CAR-208)", () => {
+    // The blind spot that hid a live bug: `addContact` in
+    // admin/contacts-section.tsx was an unguarded apiSend POST gated only by
+    // React state, so double-clicking Add created two contact rows — and the
+    // check never looked at it, purely because it is not called `handleAdd`.
+    for (const name of ["addContact", "submit", "deleteAccount", "toggleNudges"]) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        'import { apiSend } from "@/lib/api-client";\n' +
+          "export function Probe() {\n" +
+          `  const ${name} = async () => {\n` +
+          '    await apiSend("/api/x", { method: "POST" });\n' +
+          "  };\n" +
+          `  return ${name};\n}\n`,
+      );
+      expect(code, `${name} should be flagged: ${out}`).toBe(1);
+      expect(out).toContain(name);
+    }
+  });
+
+  it("flags an inline JSX handler, and keys it by the prop (CAR-208)", () => {
+    // An inline handler has no declaration to hang a name on, so this whole
+    // FORM was invisible rather than any particular site. Keyed by the prop
+    // name because that survives the line moves a raw line number would not.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  return (\n" +
+        '    <button onClick={async () => { await apiSend("/api/x", { method: "POST" }); }}>go</button>\n' +
+        "  );\n}\n",
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("onClick");
+  });
+
+  it("leaves server files alone, where there is no second click to block (CAR-208)", () => {
+    // Dropping the name filter surfaced two shapes that cannot double-submit:
+    // a Route Handler outside src/app/api (three exist) and an async React
+    // Server Component. `GET` and `AdminLayout` are not spelled like handlers,
+    // so the old filter excluded them by accident rather than on purpose.
+    const route = withFile(
+      "src/app/auth/probe/route.ts",
+      'import { createContact } from "@/lib/data/contacts";\n' +
+        "export async function GET() {\n" +
+        "  await createContact(1);\n" +
+        "  return new Response('ok');\n}\n",
+    );
+    expect(route.code, route.out).toBe(0);
+
+    const rsc = withFile(
+      "src/app/probe/layout.tsx",
+      'import { createContact } from "@/lib/data/contacts";\n' +
+        "export default async function ProbeLayout() {\n" +
+        "  await createContact(1);\n" +
+        "  return null;\n}\n",
+    );
+    expect(rsc.code, rsc.out).toBe(0);
+
+    // …but the same file WITH "use client" is a client component again.
+    const client = withFile(
+      "src/app/probe/layout.tsx",
+      '"use client";\n' +
+        'import { createContact } from "@/lib/data/contacts";\n' +
+        "export default function ProbeLayout() {\n" +
+        "  const save = async () => { await createContact(1); };\n" +
+        "  return save;\n}\n",
+    );
+    expect(client.code, client.out).toBe(1);
+  });
+
+  it("resolves a seam through a default or namespace import (CAR-208)", () => {
+    // Only NAMED imports were resolved, so either of these bound a live seam
+    // the scan could not see — and because an empty seam set skips the file
+    // outright, one such import hid every handler in it.
+    const namespaced = withFile(
+      "src/components/probe.tsx",
+      'import * as api from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const save = async () => {\n" +
+        '    await api.apiSend("/api/x", { method: "POST" });\n' +
+        "  };\n  return save;\n}\n",
+    );
+    expect(namespaced.code, namespaced.out).toBe(1);
+
+    const defaulted = withFile(
+      "src/components/probe.tsx",
+      'import saveContact from "@/lib/data/contacts";\n' +
+        "export function Probe() {\n" +
+        "  const save = async () => {\n" +
+        "    await saveContact(1);\n" +
+        "  };\n  return save;\n}\n",
+    );
+    expect(defaulted.code, defaulted.out).toBe(1);
+  });
+
+  it("does not treat a type-only import as a callable seam (CAR-208)", () => {
+    // `import type { Contact }` makes the seam set non-empty, which is the
+    // test for whether the file is worth scanning at all. A type is never the
+    // mutating call, so it must not stand in for one.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import type { Contact } from "@/lib/types";\n' +
+        "export function Probe() {\n" +
+        "  const save = async (c: Contact) => {\n" +
+        "    await somethingUnimported(c);\n" +
+        "  };\n  return save;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
   // ── tripwire (j): useLatestRequest on an identity-keyed read (CAR-190) ──
 
   it("flags an identity-keyed read that commits an ungated result", () => {
@@ -848,6 +962,88 @@ describe("conventions guard", () => {
     expect(inlineGuard.code, inlineGuard.out).toBe(0);
   });
 
+  it("accepts the OTHER flag polarity, `let mounted = true` (CAR-208)", () => {
+    // The idiom was recognised only as `false` flipped to `true`. This is the
+    // same pattern written the other way round, at least as common in React,
+    // and it was reported as a violation — the worst outcome for a ratchet,
+    // since clearing the entry means rewriting correct code to the spelling
+    // the detector happens to know.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let mounted = true;\n" +
+        "    void (async () => {\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      if (!mounted) return;\n" +
+        "      setContact(data);\n" +
+        "    })();\n" +
+        "    return () => { mounted = false; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("does not let an unrelated boolean triple silence the effect (CAR-208)", () => {
+    // Declared-false / set-true / read-in-a-condition were collected over the
+    // whole body and intersected by NAME, so any boolean satisfying the triple
+    // cleared EVERY commit in the effect. Here `done` gates nothing: the
+    // setState below it is bare, and the read is not even about the response.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let done = false;\n" +
+        "    void (async () => {\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      done = true;\n" +
+        '      if (done) console.log("loaded");\n' +
+        "      setContact(data);\n" +
+        "    })();\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(1);
+    expect(out).toContain("useLatestRequest");
+  });
+
+  it("rejects a flag consulted only BEFORE the await (CAR-208)", () => {
+    // Nothing has raced yet at that point: the check was decided before the
+    // response existed, so it cannot gate the commit that follows it.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    void (async () => {\n" +
+        "      if (cancelled) return;\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      setContact(data);\n" +
+        "    })();\n" +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(1);
+  });
+
+  it("rejects a body that gates one commit and leaves the next bare (CAR-208)", () => {
+    // Every commit has to be gated, not any: the ungated one still races.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    void (async () => {\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      const extra = await getExtra(contactId);\n" +
+        "      if (!cancelled) setContact(data);\n" +
+        "      setExtra(extra);\n" +
+        "    })();\n" +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(1);
+  });
+
   it("treats a snake_case id in the dependency array as an identity", () => {
     // This app's DB columns are snake_case throughout, so `contact_id` is as
     // much an identity as `contactId`; the camelCase-only pattern exempted it.
@@ -878,44 +1074,14 @@ describe("conventions guard", () => {
     expect(code, out).toBe(0);
   });
 
-  // ── tripwire (k): dialog semantics on a fixed-inset overlay (CAR-190) ──
-
-  it("flags a full-screen overlay with no dialog role", () => {
-    const { code, out } = withFile(
-      "src/components/probe.tsx",
-      "export function Probe() {\n" +
-        '  return <div className="fixed inset-0 z-50 flex items-center justify-center" />;\n' +
-        "}\n",
-    );
-    expect(code).toBe(1);
-    expect(out).toContain("dialog semantics");
-  });
-
-  it("accepts a role on the surface INSIDE the overlay, not only on the wrapper", () => {
-    // confirm-dialog.tsx and modal.tsx both put the scrim and the centring on
-    // the fixed div and role on the panel within it. An earlier version of
-    // this check asked only the fixed element and reported both as violations.
-    const { code, out } = withFile(
-      "src/components/probe.tsx",
-      "export function Probe() {\n" +
-        '  return (<div className="fixed inset-0 z-50 flex items-center justify-center">\n' +
-        '    <div role="dialog" aria-modal="true">hi</div>\n' +
-        "  </div>);\n" +
-        "}\n",
-    );
-    expect(code, out).toBe(0);
-  });
-
-  it("accepts an overlay-not-a-dialog annotation", () => {
-    const { code, out } = withFile(
-      "src/components/probe.tsx",
-      "export function Probe() {\n" +
-        "  // overlay-not-a-dialog: click-outside catcher behind a popover\n" +
-        '  return <div className="fixed inset-0 z-10" />;\n' +
-        "}\n",
-    );
-    expect(code, out).toBe(0);
-  });
+  // Tripwire (k) — dialog semantics on a fixed-inset overlay — was DELETED by
+  // CAR-208 along with its three tests here. It duplicated
+  // `dialog-adoption.test.ts` over a narrower file set and in a weaker form,
+  // and the pair accepted near-anagram escape hatches (`overlay-not-a-dialog:`
+  // here, `non-dialog-overlay:` there) that neither would honour from the
+  // other. The rule is still enforced; it is enforced in exactly one place.
+  // The JSX-comment annotation form those tests also happened to cover is now
+  // covered directly, above, against a hatch that still exists.
 });
 
 /**

@@ -38,18 +38,22 @@ jobs:
       - name: UI events guard
         run: node scripts/check-ui-events.mjs
 
-      # Twelve checks. CAR-158: barrel freeze, rule-17 CAS shape, unchecked
+      # Eleven checks. CAR-158: barrel freeze, rule-17 CAS shape, unchecked
       # reads, MCP raw-query-builder growth, MCP launch flags. CAR-187: typed
       # test mocks. CAR-190: the client-state rules — no raw fetch(, no native
-      # confirm(), plus ratchets on double-submit guards, useLatestRequest and
-      # dialog roles. Sits next to the ui-events guard and before Test so a
-      # convention break is not mistaken for a test failure.
+      # confirm(), plus ratchets on double-submit guards and useLatestRequest.
+      # CAR-208 dropped the twelfth, a duplicate of the dialog-role rule that
+      # src/__tests__/dialog-adoption.test.ts already enforces more strictly.
+      # Sits next to the ui-events guard and before Test so a convention break
+      # is not mistaken for a test failure.
       - name: Conventions guard
         run: node scripts/check-conventions.mjs
 
-      # CAR-186: --coverage is what enforces the src/lib + src/hooks floors and
-      # uncovered-code budgets declared in careervine/vitest.config.ts. Without
-      # the flag the thresholds are inert and a new untested module lands green.
+      # CAR-186, CAR-208: --coverage is what enforces the src/lib + src/hooks +
+      # src/mcp floors and uncovered-code budgets declared in
+      # careervine/vitest.config.ts. Without the flag the thresholds are inert
+      # and a new untested module lands green. Note this job is also the only
+      # coverage gate over src/mcp — the `mcp` job below is typecheck-only.
       - name: Test
         run: npx vitest run --coverage
 

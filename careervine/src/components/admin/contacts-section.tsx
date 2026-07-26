@@ -68,6 +68,14 @@ export default function ContactsSection({ userId }: { userId: string }) {
     new Map<number, { timeout: ReturnType<typeof setTimeout>; fire: () => void }>(),
   );
 
+  // Re-entry guard for the two modal submits below. `busy` cannot do this job:
+  // it is state, so `disabled={busy}` has not rendered when the second click of
+  // a double click arrives, and both routes are non-idempotent — a double
+  // click on Add created two contact rows, and on Inject applied the bundle
+  // twice. One ref for both because they are mutually exclusive modals, which
+  // is the same reason they already share `busy`.
+  const submittingRef = useRef(false);
+
   const load = useCallback(
     async (offset = 0) => {
       if (offset > 0) setLoadingMore(true);
@@ -122,6 +130,8 @@ export default function ContactsSection({ userId }: { userId: string }) {
   };
 
   const addContact = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setBusy(true);
     try {
       await apiSend(`/api/admin/users/${userId}/contacts`, jsonBody({
@@ -136,6 +146,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
     } catch (err) {
       toastError((err as Error).message);
     } finally {
+      submittingRef.current = false;
       setBusy(false);
     }
   };
@@ -156,6 +167,8 @@ export default function ContactsSection({ userId }: { userId: string }) {
 
   const injectBundle = async () => {
     if (!pickedBundle) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setBusy(true);
     try {
       const json = await apiFetch<{ applied?: number; completed?: boolean }>(
@@ -172,6 +185,7 @@ export default function ContactsSection({ userId }: { userId: string }) {
     } catch (err) {
       toastError((err as Error).message);
     } finally {
+      submittingRef.current = false;
       setBusy(false);
     }
   };

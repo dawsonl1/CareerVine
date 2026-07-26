@@ -197,6 +197,57 @@ describe("CONVENTIONS.md", () => {
       ).toContain(`${WORDS[specs.length]} flows`);
     });
 
+    it("E2E own-identity spec count (CAR-208)", () => {
+      // Section i said "Two specs mint their own identity" while three did, and
+      // the flow-count pin above could not see it — it counts spec FILES, and
+      // this is a claim about what those files do. CAR-191 added the third in
+      // its own commits, so the sentence was false the day it was written.
+      //
+      // Minting is `mintSessionUrl` called from a spec BODY. auth.setup.ts calls
+      // it too, and is deliberately not a spec: it mints the one shared identity
+      // these three opt out of.
+      const e2e = path.join(REPO_ROOT, "careervine", "e2e");
+      const minting = fg
+        .sync("*.spec.ts", { cwd: e2e })
+        .filter((f) => /\bmintSessionUrl\s*\(/.test(readFileSync(path.join(e2e, f), "utf8")));
+
+      expect(minting.length).toBeGreaterThan(0);
+      // Matched against whitespace-normalized prose. The claim is six words
+      // long and the doc is hard-wrapped, so a raw `toContain` pins the line
+      // breaks as much as the words — it would go red on a pure reflow, which
+      // is the brittleness that makes people delete pins rather than fix them.
+      expect(
+        markdown.replace(/\s+/g, " "),
+        `doc must say "${WORDS[minting.length]} specs mint their own identity" — ` +
+          `these do: ${minting.join(", ")}`,
+      ).toContain(`${WORDS[minting.length]} specs mint their own identity`);
+    });
+
+    it("only one spelling of the non-dialog-overlay escape hatch exists (CAR-208)", () => {
+      // The dialog rule had two guards accepting near-anagram tokens, and
+      // neither honoured the other's: a contributor with a legitimate
+      // non-dialog overlay would write whichever the first error named and stay
+      // red against the second. CAR-208 deleted the duplicate guard; this stops
+      // its token coming back anywhere — including in the prose that would
+      // teach someone to write it.
+      // Scoped to the tree an annotation would be WRITTEN in, not to every
+      // mention: the prose in CONVENTIONS.md and the headers in
+      // check-conventions.mjs name the retired token in order to explain why it
+      // is retired, and a scan that failed on those would force the explanation
+      // out of the codebase — deleting the only record of the trap.
+      const src = path.join(REPO_ROOT, "careervine", "src");
+      const hits = fg
+        .sync(["**/*.{ts,tsx}"], { cwd: src, ignore: ["__tests__/**", "**/*.test.{ts,tsx}"] })
+        .filter((f) => readFileSync(path.join(src, f), "utf8").includes("overlay-not-a-dialog:"));
+
+      expect(
+        hits,
+        "this annotation does nothing — the guard that honoured it was deleted in CAR-208. " +
+          "The one spelling is `non-dialog-overlay:`, enforced by " +
+          "src/__tests__/dialog-adoption.test.ts.",
+      ).toEqual([]);
+    });
+
     it("capability key count", () => {
       const types = readFileSync(
         path.join(REPO_ROOT, "careervine", "src", "lib", "capabilities", "types.ts"),

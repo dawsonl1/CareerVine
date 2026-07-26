@@ -1,12 +1,28 @@
 #!/usr/bin/env node
 /**
- * CI guard (CAR-158, CAR-187, CAR-190): conventions that tsc and eslint cannot
- * express, each of which has already cost a real incident or a real audit
- * finding.
+ * CI guard (CAR-158, CAR-187, CAR-190, CAR-208): conventions that tsc and
+ * eslint cannot express, each of which has already cost a real incident or a
+ * real audit finding.
  *
- * TWELVE checks under eleven labels — (a) reports twice, once per half. Keep
- * this list and the count in CONVENTIONS.md section d in step with the code;
- * both drifted to "four" while the file carried seven (CAR-190).
+ * ELEVEN checks under ten labels — (a) reports twice, once per half. Keep this
+ * list and the count in CONVENTIONS.md section d in step with the code; both
+ * drifted to "four" while the file carried seven (CAR-190).
+ *
+ * ── What these checks are, and are not ──
+ *
+ * (a), (e), (f) and (g)/(h) are decidable: a statement either is a re-export or
+ * is not, a launch surface either carries the flag or does not. The rest are
+ * HEURISTICS over an AST with no type information, and a clean run from them is
+ * evidence, not proof. Each one's header names its own blind spots; the pattern
+ * across all of them is that they cannot see through a value (a class list in a
+ * variable, a payload built one statement earlier, a callee behind an alias),
+ * and that their verb-based judgements are lexical rather than semantic. Read
+ * a green run as "nothing matched the shapes we know how to look for".
+ *
+ * The cost of forgetting that is on the record twice. Tripwire (c) shipped
+ * blind to array destructuring with nine live violations inside its own scan
+ * scope, and check (i) shipped with five blind spots that understated its
+ * baseline by 31% — both reported clean the whole time.
  *
  *   Data layer (CAR-158)
  *   (a) queries.ts stays a frozen re-export barrel, and no module under
@@ -27,15 +43,26 @@
  *   (h) no window.confirm / global confirm(: use useConfirm().
  *   (i) a mutation handler carries a synchronous useRef double-submit guard.
  *   (j) an identity-keyed async read gates its setState on useLatestRequest.
- *   (k) a `fixed inset-0` overlay outside modal.tsx carries role="dialog".
+ *
+ * There is no (k). It checked that a `fixed inset-0` overlay outside modal.tsx
+ * carried role="dialog", and CAR-208 deleted it: its baseline was empty, and
+ * `src/__tests__/dialog-adoption.test.ts` enforces the same rule over a broader
+ * file set in a stricter form (it additionally fails on an overlay class its
+ * scanner cannot attribute, which this check would silently skip). Two guards
+ * for one rule was not merely redundant, it was a trap — they accepted
+ * near-anagram escape hatches, `// overlay-not-a-dialog:` here and
+ * `// non-dialog-overlay:` there, and neither accepted the other's. The first
+ * contributor with a legitimate non-dialog overlay would have written whichever
+ * token the error they hit first named, and stayed red against the other. The
+ * hatch vocabulary is seven tokens now, not eight.
  *
  * (g) and (h) are freezes at zero: CAR-188 cleared the tree, so the first new
- * violation fails. (i), (j) and (k) ship as RATCHETS over a named baseline,
- * for the reason check (d) documents at length — a live guard over an honest
- * baseline beats a clean guard that had to wait for a sweep. The ticket asked
- * for a "warning listing offenders"; a warning exits 0, which is what let
- * CAR-154 and CAR-158 decay to 6 and 1 files respectively, so these fail
- * instead. See BASELINES below for the contract in both directions.
+ * violation fails. (i) and (j) ship as RATCHETS over a named baseline, for the
+ * reason check (d) documents at length — a live guard over an honest baseline
+ * beats a clean guard that had to wait for a sweep. The ticket asked for a
+ * "warning listing offenders"; a warning exits 0, which is what let CAR-154 and
+ * CAR-158 decay to 6 and 1 files respectively, so these fail instead. See
+ * BASELINES below for the contract in both directions.
  *
  * Modelled on scripts/check-ui-events.mjs (same walk, same violation format,
  * same exit contract), but AST-based rather than line-based: (a) needs to know
@@ -51,7 +78,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import { diffNamedRatchet, diffCountRatchet } from "./lib/ratchet.mjs";
+import { diffNamedRatchet } from "./lib/ratchet.mjs";
 
 const EXTENSIONS = [".ts", ".tsx"];
 
@@ -912,11 +939,27 @@ const isFunctionLike = (n) =>
 // key, so key repeat produced a row of duplicate Google Calendar events and
 // Meet links (CAR-190).
 //
-// A handler counts when it is async, named like a handler, and awaits a
-// MUTATING seam — apiSend, withToastOnError, or a src/lib/data import whose
-// name opens with a mutation verb. Requiring the mutation narrows the
-// candidate set from 51 to 42 by dropping reads, where a second call is
-// wasteful rather than harmful.
+// A candidate is any async function in a CLIENT file that awaits a MUTATING
+// seam — apiSend, withToastOnError, or a @/lib import whose name does not open
+// with a read verb. Three forms count: a function declaration, a variable
+// initialised to a function (through useCallback/useMemo), and an inline
+// `onX={async () => …}` JSX handler. Requiring the mutation drops reads, where
+// a second call is wasteful rather than harmful.
+//
+// WHAT THIS CANNOT SEE. It is a heuristic, and a clean run is not a proof:
+//
+//   * a mutation reached through TWO local hops — one is followed, the second
+//     is not, so `handleX → a() → b() → apiSend()` reads as inert;
+//   * a seam behind a value rather than a name: a callee held in a variable, a
+//     method on an imported object, a dynamic `import()`;
+//   * a handler passed as a prop and invoked in another file, where neither
+//     half looks like a mutation on its own;
+//   * whether a candidate is reachable from a user GESTURE at all. It cannot
+//     be, without a call graph, which is why the baseline holds effect-driven
+//     loaders and background pollers alongside real submit handlers.
+//
+// It over-reports in the other direction too, deliberately — see the READ_VERB
+// note below and the baseline's own docblock.
 
 // Every `@/lib` module, not a hand-listed five. The narrow list silently
 // exempted whole categories: `@/lib/pipeline-queries` (PDF upload/delete),
@@ -933,10 +976,25 @@ const SEAM_MODULE = /^@\/lib\//;
 // and "upload" was not. Inverting makes the safe direction the default: an
 // unrecognised verb is treated as a write, and a genuine read is one word away
 // from being exempted here.
+//
+// Extending this list is the DANGEROUS direction, and `fetch` is the worked
+// example. It looks like the safest possible addition — the most common read
+// verb in the language, with three synonyms already listed (`get`, `load`,
+// `read`) — and adding it silently un-flagged
+// `data-subscriptions-section.tsx`'s `handleUnsubscribe`, whose mutation is a
+// paged POST loop through a helper called `fetchStepWithRetry`. That is the
+// single most destructive handler the baseline names. A verb here must be one
+// no MUTATION in this tree could be prefixed by, which "fetch" is not; when in
+// doubt leave it off and take the false positive, because over-inclusion costs
+// a baseline line and under-inclusion costs a live bug.
 const READ_VERB =
   /^(get|list|find|search|count|build|load|read|is|has|can|should|format|parse|derive|compute|select|resolve|to|map|filter|sort|group|pick|use|make|new|calc|estimate|score|rank|match|diff|compare|validate|check|infer|extract|summar|render|describe|label|title|display)/i;
 const ALWAYS_MUTATING = new Set(["apiSend", "withToastOnError"]);
-const HANDLER_NAME = /^(handle|on)[A-Z]/;
+
+// A JSX prop that takes an event handler, for the inline form below. Every DOM
+// and React event prop is `on` + a capital, and so is every handler prop this
+// app passes to its own components.
+const JSX_HANDLER_PROP = /^on[A-Z]/;
 
 // The cost of a denylist default is a read whose verb is not on the list, and
 // the cost of NOT having a hatch is that the only recourse is editing the
@@ -962,18 +1020,43 @@ function apiFetchMutates(call, sf) {
   return /\bjsonBody\s*\(/.test(text) || /method\s*:\s*["'`](POST|PUT|PATCH|DELETE)["'`]/i.test(text);
 }
 
-/** Names this file imports from a module that can mutate. */
+/**
+ * Names this file imports from a module that can mutate, in EVERY import shape.
+ *
+ * The named-imports-only version was a third silent exemption alongside the
+ * handler-name filter: `import api from "@/lib/x"` and
+ * `import * as api from "@/lib/x"` both bound a live seam that the scan could
+ * not see, so a mutation through either read as no seam at all — and since an
+ * empty seam set skips the file outright, one such import hid every handler in
+ * it. Namespaces come back separately because they are called as `api.send()`,
+ * a property access rather than a bare identifier.
+ *
+ * Type-only imports are excluded in both spellings (`import type { … }` and
+ * `import { type X }`). A type is not callable, so it can never be the mutating
+ * call this looks for — but it does make the seam set non-empty, which is the
+ * test for whether the file is worth scanning at all.
+ */
 function seamImports(sf) {
   const names = new Set();
+  const namespaces = new Set();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
     if (!SEAM_MODULE.test(st.moduleSpecifier.text)) continue;
-    const bindings = st.importClause?.namedBindings;
+    const clause = st.importClause;
+    if (!clause || clause.isTypeOnly) continue;
+    // `import api from "@/lib/x"`
+    if (clause.name) names.add(clause.name.text);
+    const bindings = clause.namedBindings;
     if (bindings && ts.isNamedImports(bindings)) {
-      for (const el of bindings.elements) names.add(el.name.text);
+      // The LOCAL name, so `import { apiSend as send }` is tracked as `send`.
+      for (const el of bindings.elements) {
+        if (!el.isTypeOnly) names.add(el.name.text);
+      }
+    } else if (bindings && ts.isNamespaceImport(bindings)) {
+      namespaces.add(bindings.name.text);
     }
   }
-  return names;
+  return { names, namespaces };
 }
 
 /**
@@ -1085,47 +1168,122 @@ function initialiserFunction(decl) {
 const isAsyncFn = (fn) => fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
 
 /**
- * Known-unguarded mutation handlers, as of CAR-190.
+ * Known-unguarded mutation handlers, as of CAR-208.
  *
- * 54 sites across 29 files — not the 35 first published here. That first figure
- * was not a measurement of the codebase, it was a measurement of a detector
- * with five blind spots: mutations carried by `apiFetch`, verbs missing from a
- * hand-written allowlist, every `@/lib` module outside a list of five, a
- * mutating call one hop away in a local helper, and a guard-recognition rule so
- * loose that unguarded handlers read as compliant. Correcting those found 19
- * more. Publishing a baseline is a claim about the tree, so the number has to
- * come from a detector you have tried to break.
+ * 129 sites across 55 files. It was 54 across 29 at CAR-190, and 35 before
+ * that; neither earlier figure was a measurement of the codebase, both were
+ * measurements of a detector. CAR-190 removed five blind spots and found 19
+ * more. CAR-208 removed three more and found 75:
  *
- * These are the pre-existing tail CAR-190 did not rewrite: the defects its
- * audit named are FIXED rather than listed, and the rest are a mechanical sweep
- * across 29 files that would collide head-on with CAR-197's dialog migration.
- * Draining this list is that sweep's job; the guard's job is that it can only
- * shrink. Two entries deserve to go first —
+ *   the HANDLER NAME FILTER, which required `/^(handle|on)[A-Z]/` and so
+ *     inspected a mutation called `handleAdd` while ignoring the identical one
+ *     called `addContact` — 58 functions, including the live double-click bug
+ *     this ticket fixed in admin/contacts-section.tsx;
+ *   INLINE JSX HANDLERS, `onClick={async () => { await apiSend(…) }}`, which
+ *     have no declaration to hang a name on and were invisible as a class — 17;
+ *   NON-NAMED IMPORT SHAPES, where a default or namespace import of a `@/lib`
+ *     module bound a seam the scan could not resolve, and an empty seam set
+ *     skips the whole file.
+ *
+ * The same pass removed two FALSE positives the name filter had been hiding by
+ * accident: server files were never excluded here, so an async React Server
+ * Component and a Route Handler outside src/app/api both surfaced the moment
+ * arbitrary names were in scope. Neither has double-submit semantics; the check
+ * now skips server files as (g) and (h) already did.
+ *
+ * The list is deliberately OVER-inclusive, and reading it as "129 double-click
+ * bugs" would be wrong. `mutates()` judges a callee by its verb against a
+ * denylist of read verbs, so pure helpers whose names happen not to look like
+ * reads (`jsonBody`, `defaultPipelineState`, `createSupabaseBrowserClient`)
+ * count as writes, and a handler one hop from a real write counts alongside the
+ * helper it calls. That asymmetry is chosen: over-inclusion costs a line here,
+ * under-inclusion costs a live bug, and the READ_VERB note above records what
+ * happened the one time this was tuned the other way.
+ *
+ * Draining the list is a sweep of its own, not this ticket's job; the guard's
+ * job is that it can only shrink. Two entries deserve to go first —
  * `data-subscriptions-section.tsx`'s `handleSubscribe` and `handleUnsubscribe`
  * are non-idempotent and one of them POSTs a destructive contact-removal loop,
  * with no synchronous guard at all.
  */
 const DOUBLE_SUBMIT_BASELINE = {
-  "src/app/calendar/page.tsx": ["handleDeleteEvent", "handleSaveMeeting", "handleSync"],
-  "src/app/companies/[id]/page.tsx": ["handleSetTier"],
+  "src/app/action-items/page.tsx": ["cyclePriority", "onClick", "restoreItem", "saveEdit"],
+  "src/app/admin/users/page.tsx": ["setAiPolicy", "setScrapeControl"],
+  "src/app/calendar/page.tsx": ["handleDeleteEvent", "handleSaveMeeting", "handleSync", "loadData"],
+  "src/app/companies/[id]/page.tsx": ["handleSetTier", "load"],
   "src/app/contacts/[id]/page.tsx": ["handleDelete"],
-  "src/app/contacts/page.tsx": ["handleActivate", "handleSetTier"],
+  "src/app/contacts/page.tsx": ["handleActivate", "handleSetTier", "onClick"],
   "src/app/contacts/preview/page.tsx": ["handleSave"],
   "src/app/interactions/page.tsx": ["handleDeleteInteraction", "handleSubmit"],
-  "src/app/meetings/page.tsx": ["handleMeetingAttachmentDelete", "handleMeetingAttachmentUpload"],
-  "src/app/page.tsx": ["handleDismiss", "handleSnooze"],
+  "src/app/meetings/page.tsx": [
+    "handleMeetingAttachmentDelete",
+    "handleMeetingAttachmentUpload",
+    "onClick",
+    "onClick",
+    "onClick",
+    "onResolve",
+  ],
+  "src/app/oauth/consent/page.tsx": ["decide"],
+  "src/app/page.tsx": ["handleDismiss", "handleSnooze", "loadSchedule", "markActionDone"],
   "src/app/reset-password/page.tsx": ["handleSubmit"],
+  "src/components/admin/account-section.tsx": ["deleteAccount", "setStatus"],
+  "src/components/admin/ai-section.tsx": ["setPolicy"],
+  "src/components/admin/automatic-features-section.tsx": ["setEnabled"],
+  "src/components/admin/bundle-access-list.tsx": ["put", "setOverride"],
+  "src/components/admin/contacts-section.tsx": ["fire"],
+  "src/components/admin/premium-section.tsx": ["setEnabled"],
   "src/components/admin/profile-section.tsx": ["handleSave"],
+  "src/components/admin/scraping-section.tsx": ["setControl"],
+  "src/components/admin/security-section.tsx": ["changeRole", "generateLink", "setPassword"],
+  "src/components/ai/ai-unavailable-notice.tsx": ["requestAccess"],
+  "src/components/auth-provider.tsx": ["signOut", "signUp"],
+  "src/components/availability-picker.tsx": ["onClick"],
+  "src/components/companies/add-company-modal.tsx": ["submit"],
+  "src/components/companies/discovery-card.tsx": ["act"],
   "src/components/companies/person-modal.tsx": ["handleMarkContacted"],
+  "src/components/companies/pipeline/manage-offices-panel.tsx": ["addOffice", "onClick"],
   "src/components/companies/pipeline/pipeline-file-upload.tsx": ["handleFile", "handleRemove"],
+  "src/components/compose-email-modal.tsx": [
+    "autoSave",
+    "createFollowUpRecords",
+    "deleteDraft",
+    "generateFollowUps",
+    "onClick",
+    "onClick",
+    "onGenerate",
+    "onSkip",
+    "runFollowUps",
+    "saveDraft",
+  ],
+  "src/components/contacts/contact-actions-tab.tsx": ["onClick", "onClick"],
   "src/components/contacts/contact-attachments-tab.tsx": ["handleDelete", "handleUpload"],
-  "src/components/contacts/contact-emails-tab.tsx": ["handleExpandEmail"],
+  "src/components/contacts/contact-edit-modal.tsx": ["onSubmit"],
+  "src/components/contacts/contact-emails-tab.tsx": [
+    "cancelFollowUp",
+    "confirmMessage",
+    "handleExpandEmail",
+    "markReplied",
+    "retryScheduledEmail",
+  ],
   "src/components/contacts/contact-follow-up-status.tsx": ["handleCancel"],
   "src/components/contacts/contact-pending-actions-banner.tsx": ["handleComplete"],
-  "src/components/contacts/contact-profile-card.tsx": ["handleActivate", "handlePhotoRemove", "handlePhotoSelected", "handleScrape"],
-  "src/components/contacts/contact-timeline-tab.tsx": ["handleDeleteInteraction", "handleSaveInteraction"],
+  "src/components/contacts/contact-profile-card.tsx": [
+    "handleActivate",
+    "handlePhotoRemove",
+    "handlePhotoSelected",
+    "handleScrape",
+    "saveCadence",
+    "saveEmail",
+  ],
+  "src/components/contacts/contact-timeline-tab.tsx": [
+    "handleDeleteInteraction",
+    "handleSaveInteraction",
+  ],
+  "src/components/contacts/resolve-linkedin-modal.tsx": ["link"],
   "src/components/conversation-modal/past-meeting-fields.tsx": ["handleAudioFile"],
   "src/components/email/inbox/inbox-shell.tsx": [
+    "cancelFollowUp",
+    "deleteDraft",
     "handleExpandEmail",
     "handleHideEmail",
     "handleMoveEmail",
@@ -1134,43 +1292,104 @@ const DOUBLE_SUBMIT_BASELINE = {
     "handleUnhideEmail",
   ],
   "src/components/email/inbox/use-inbox-data.ts": ["handleSync"],
-  "src/components/follow-up-modal.tsx": ["handleSave"],
-  "src/components/onboarding/extension-onboarding-modal.tsx": ["handleDeclineApollo", "handleDeleteTask", "handleStart"],
-  "src/components/settings/account-section.tsx": ["handlePasswordChange", "handleSave"],
-  "src/components/settings/availability-section.tsx": ["handleSaveAvailability", "handleSaveBusyCalendars"],
-  "src/components/settings/data-subscriptions-section.tsx": ["handleSubscribe", "handleUnsubscribe"],
-  "src/components/settings/integrations-section.tsx": ["handleDisconnectCalendar", "handleGmailDisconnect", "handleGmailSync"],
+  "src/components/email/outreach/outreach-shell.tsx": [
+    "cancelDraft",
+    "confirmFollowUp",
+    "retryScheduledEmail",
+  ],
+  "src/components/follow-up-modal.tsx": ["handleSave", "onClick"],
+  "src/components/meetings/transcript-action-suggestions.tsx": [
+    "acceptSuggestion",
+    "extractActions",
+  ],
+  "src/components/onboarding/extension-onboarding-modal.tsx": [
+    "advance",
+    "completeTodo",
+    "handleDeclineApollo",
+    "handleDeleteTask",
+    "handleStart",
+    "poll",
+  ],
+  "src/components/onboarding/onboarding-flow.tsx": ["onPicked", "tick"],
+  "src/components/settings/account-section.tsx": [
+    "handlePasswordChange",
+    "handleSave",
+    "toggleNudges",
+  ],
+  "src/components/settings/availability-section.tsx": [
+    "handleSaveAvailability",
+    "handleSaveBusyCalendars",
+  ],
+  "src/components/settings/data-subscriptions-section.tsx": [
+    "handleSubscribe",
+    "handleUnsubscribe",
+    "runApplyLoop",
+  ],
+  "src/components/settings/integrations-section.tsx": [
+    "handleDisconnectCalendar",
+    "handleGmailDisconnect",
+    "handleGmailSync",
+  ],
   "src/components/settings/provider-key-card.tsx": ["handleSave"],
   "src/components/settings/templates-section.tsx": ["handleDelete", "handleSave"],
+  "src/hooks/use-pipeline-autosave.ts": ["resolveTargetId"],
+  "src/hooks/use-suggestions.ts": ["dismiss", "load", "saveSuggestion"],
 };
 
 {
   const rows = [];
   for (const file of CLIENT_FILES) {
     const sf = parse(file);
-    const seams = seamImports(sf);
-    if (seams.size === 0) continue;
+    // Server files are skipped for the same reason (g) and (h) skip them, and
+    // this check should always have done so: a Route Handler outside
+    // src/app/api (three exist) and an async React Server Component have no
+    // double-submit semantics at all — there is no second click to block, and
+    // a `useRef` is not available to them. The handler-name filter hid this by
+    // accident, since `GET` and `AdminLayout` are not spelled like handlers;
+    // dropping that filter surfaced both as violations of a rule that cannot
+    // apply to them.
+    if (isServerFile(sf, file)) continue;
+    const { names: seams, namespaces } = seamImports(sf);
+    if (seams.size === 0 && namespaces.size === 0) continue;
 
     /** Does this subtree perform a write, directly or through one local hop? */
     const mutates = (fn, localHelpers) => {
       let hit = false;
       const visit = (n) => {
         if (hit) return;
-        if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
-          const callee = n.expression.text;
-          if (seams.has(callee)) {
-            if (callee === "apiFetch") {
+        if (ts.isCallExpression(n)) {
+          // `send(…)` from a named or default import, or a local helper.
+          if (ts.isIdentifier(n.expression)) {
+            const callee = n.expression.text;
+            if (seams.has(callee)) {
+              if (callee === "apiFetch") {
+                if (apiFetchMutates(n, sf)) hit = true;
+              } else if (ALWAYS_MUTATING.has(callee) || !READ_VERB.test(callee)) {
+                hit = true;
+              }
+              if (hit) return;
+            } else if (localHelpers?.has(callee)) {
+              // One hop through a helper declared in this file. The mutating call
+              // otherwise sits outside the handler's own subtree and is invisible
+              // — the shape `handleDeclineApollo` uses via `completeTodo()`.
+              hit = true;
+              return;
+            }
+          } else if (
+            // `api.send(…)` from a namespace import. Judged on the MEMBER name,
+            // which is the seam's own export name, so the read/write verb rules
+            // apply unchanged.
+            ts.isPropertyAccessExpression(n.expression) &&
+            ts.isIdentifier(n.expression.expression) &&
+            namespaces.has(n.expression.expression.text)
+          ) {
+            const member = n.expression.name.text;
+            if (member === "apiFetch") {
               if (apiFetchMutates(n, sf)) hit = true;
-            } else if (ALWAYS_MUTATING.has(callee) || !READ_VERB.test(callee)) {
+            } else if (ALWAYS_MUTATING.has(member) || !READ_VERB.test(member)) {
               hit = true;
             }
             if (hit) return;
-          } else if (localHelpers?.has(callee)) {
-            // One hop through a helper declared in this file. The mutating call
-            // otherwise sits outside the handler's own subtree and is invisible
-            // — the shape `handleDeclineApollo` uses via `completeTodo()`.
-            hit = true;
-            return;
           }
         }
         ts.forEachChild(n, visit);
@@ -1208,11 +1427,22 @@ const DOUBLE_SUBMIT_BASELINE = {
       } else if (ts.isVariableDeclaration(node) && node.name && ts.isIdentifier(node.name)) {
         fn = initialiserFunction(node);
         if (fn) name = node.name.text;
+      } else if (ts.isJsxAttribute(node) && JSX_HANDLER_PROP.test(node.name.getText(sf))) {
+        // `onClick={async () => { await apiSend(…) }}` — a handler with no
+        // declaration to hang a name on. Keyed by the PROP name, which is
+        // stable across the line moves a raw line number would not survive;
+        // two of the same prop in one file are two baseline slots, which the
+        // ratchet's multiset accounting already handles.
+        const init = node.initializer;
+        const expr = init && ts.isJsxExpression(init) ? init.expression : undefined;
+        if (expr && (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr))) {
+          name = node.name.getText(sf);
+          fn = expr;
+        }
       }
       if (
         name &&
         fn &&
-        HANDLER_NAME.test(name) &&
         isAsyncFn(fn) &&
         mutates(fn, localHelpers) &&
         !claimsReentryGuard(fn, sf) &&
@@ -1254,13 +1484,42 @@ const DOUBLE_SUBMIT_BASELINE = {
 // makes this precise rather than noisy — without it the same scan flags 23
 // sites, most of them callbacks keyed on a UI-state id like `confirmingId`
 // that never race anything.
+//
+// WHAT THIS CANNOT SEE. Heuristic, like (i), and narrower than it looks:
+//
+//   * the identity test is LEXICAL. A dependency spelled `slug`, `email` or
+//     `selected` keys a racing read just as surely as one spelled `contactId`,
+//     and none of them match;
+//   * the derivation test is TEXTUAL — a setter argument is "derived" when the
+//     awaited binding's name appears in it, so a value laundered through an
+//     intermediate variable breaks the link and the site goes quiet;
+//   * a race across TWO effects — one writes what the other reads — has no
+//     single body to inspect and is out of reach entirely;
+//   * idiom 3, the AbortController, is still recognised by a text match for
+//     `new AbortController(` plus the word `signal` anywhere in the body. It
+//     does not verify the signal reaches the request. That one is a stub, and
+//     the reason it survives is that no site here relies on it.
+//
+// Idioms 1 and 2 are checked structurally: `gatesStaleCommit` requires the gate
+// to stand between the response and EVERY commit, not merely to appear nearby.
 
 /**
- * Identity-keyed reads that commit an ungated result, as of CAR-190.
+ * Identity-keyed reads that commit an ungated result, as of CAR-208.
  *
- * 8 sites. The one the audit named — the outreach page, where two
- * getCompanyDetail calls raced and the page rendered one company's header over
- * another's employees — is FIXED rather than listed.
+ * SEVEN sites, and the literal below is the count that matters — this header
+ * said "8" against seven entries from the day it was written, which is the same
+ * class of unchecked claim CAR-208 exists to close. The one the audit named —
+ * the outreach page, where two getCompanyDetail calls raced and the page
+ * rendered one company's header over another's employees — is FIXED rather
+ * than listed.
+ *
+ * The membership is unchanged by CAR-208's rewrite of `gatesStaleCommit`, which
+ * moved in both directions at once: recognising `let mounted = true` stopped
+ * one class of false positive, and requiring the flag to actually stand between
+ * the response and the commit stopped a false negative. Neither shape happened
+ * to be present in this tree, so the seven are the same seven — a coincidence
+ * worth stating, because "the baseline did not move" reads like "nothing
+ * changed" and here it does not mean that.
  */
 const LATEST_REQUEST_BASELINE = {
   "src/app/admin/users/[id]/page.tsx": ["load"],
@@ -1309,7 +1568,7 @@ function* bindingNames(name) {
  * same commit. The AST guard beside it was dead code: it required a bare
  * `isLatest(…)` call, while every real site spells it `req.isLatest(token)`.
  */
-function gatesStaleCommit(body, sf) {
+function gatesStaleCommit(body, sf, commits) {
   // 1. useLatestRequest — bare or member call, never mere prose.
   let gated = false;
   const findGate = (n) => {
@@ -1329,52 +1588,124 @@ function gatesStaleCommit(body, sf) {
   findGate(body);
   if (gated) return true;
 
-  // 2. A cancellation flag: declared `false`, flipped `true` elsewhere (the
-  //    effect cleanup), and CONSULTED before committing.
+  // 2. A cancellation flag: declared at one polarity, flipped to the other in
+  //    the effect cleanup, and consulted in a way that ACTUALLY GATES the
+  //    commit.
   //
-  //    "Consulted" covers both spellings this app uses, not just the early
-  //    return: `if (cancelled) return;` before the setState, and the inline
-  //    `if (!cancelled && data) setThing(data)` inside a `.then`. Requiring the
-  //    return form flagged two correct sites. The triple — declared false, set
-  //    true, read in a condition — is specific enough that essentially nothing
-  //    but a cancellation flag satisfies it.
-  const declaredFalse = new Set();
-  const setTrue = new Set();
-  const readInCondition = new Set();
-  const collectIdents = (c, into) => {
-    if (ts.isIdentifier(c)) into.add(c.text);
-    ts.forEachChild(c, (x) => collectIdents(x, into));
+  //    Two independent defects lived here (CAR-208).
+  //
+  //    ONE POLARITY. The idiom was recognised only as `let cancelled = false`
+  //    flipped to `true`. `let mounted = true` flipped to `false` in the
+  //    cleanup is the same pattern written the other way round, is at least as
+  //    common in React code, and was reported as a violation — the worst
+  //    outcome for a ratchet, because "fixing" a correct site means rewriting
+  //    it to the spelling the detector happens to know.
+  //
+  //    EXISTENCE, NOT GATING. The three facts were collected independently over
+  //    the whole body and then intersected by NAME, so any unrelated boolean
+  //    triple satisfied the rule for every commit in the effect. `let done =
+  //    false; … done = true; … if (done) log()` silenced a completely separate
+  //    ungated setState three statements away. The flag now has to stand
+  //    between the response and the commit, in one of the two shapes this app
+  //    writes: an early return positioned after the await and before the
+  //    commit, or a condition that encloses the commit.
+  const flagged = new Map(); // name → { declared: boolean, flipped: boolean }
+  const note = (name, key) => {
+    const e = flagged.get(name) ?? { declared: false, flipped: false };
+    e[key] = true;
+    flagged.set(name, e);
   };
   const scan = (n) => {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.initializer?.kind === ts.SyntaxKind.FalseKeyword
-    ) {
-      declaredFalse.add(n.name.text);
+    // `let cancelled = false` / `let mounted = true`
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+      const k = n.initializer?.kind;
+      if (k === ts.SyntaxKind.FalseKeyword || k === ts.SyntaxKind.TrueKeyword) {
+        note(n.name.text, "declared");
+      }
     }
+    // …flipped to the OPPOSITE literal somewhere (the cleanup).
     if (
       ts.isBinaryExpression(n) &&
       n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
       ts.isIdentifier(n.left) &&
-      n.right.kind === ts.SyntaxKind.TrueKeyword
+      (n.right.kind === ts.SyntaxKind.TrueKeyword || n.right.kind === ts.SyntaxKind.FalseKeyword)
     ) {
-      setTrue.add(n.left.text);
-    }
-    if (ts.isIfStatement(n)) collectIdents(n.expression, readInCondition);
-    if (ts.isConditionalExpression(n)) collectIdents(n.condition, readInCondition);
-    if (
-      ts.isBinaryExpression(n) &&
-      (n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-        n.operatorToken.kind === ts.SyntaxKind.BarBarToken)
-    ) {
-      collectIdents(n, readInCondition);
+      note(n.left.text, "flipped");
     }
     ts.forEachChild(n, scan);
   };
   scan(body);
-  for (const flag of declaredFalse) {
-    if (setTrue.has(flag) && readInCondition.has(flag)) return true;
+
+  /** Does this expression consult `flag`? */
+  const consults = (expr, flag) => {
+    let hit = false;
+    const walk = (c) => {
+      if (hit) return;
+      if (ts.isIdentifier(c) && c.text === flag) {
+        hit = true;
+        return;
+      }
+      ts.forEachChild(c, walk);
+    };
+    walk(expr);
+    return hit;
+  };
+
+  // Everything before the first await is not yet racing anything: a flag read
+  // there was decided before the response existed, so it gates nothing.
+  let firstAwait = Infinity;
+  const findAwait = (n) => {
+    if (ts.isAwaitExpression(n)) firstAwait = Math.min(firstAwait, n.getStart(sf));
+    ts.forEachChild(n, findAwait);
+  };
+  findAwait(body);
+
+  /** An `if (flag) return;` that sits after the await and before `commit`. */
+  const bailsBefore = (flag, commit) => {
+    let found = false;
+    const walk = (n) => {
+      if (found) return;
+      if (ts.isIfStatement(n) && n.thenStatement && consults(n.expression, flag)) {
+        const bails = /\breturn\b/.test(n.thenStatement.getText(sf));
+        const afterAwait = firstAwait === Infinity || n.getStart(sf) > firstAwait;
+        if (bails && afterAwait && n.end <= commit.getStart(sf)) {
+          found = true;
+          return;
+        }
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(body);
+    return found;
+  };
+
+  /** A condition that ENCLOSES `commit` and consults `flag`. */
+  const enclosedBy = (flag, commit) => {
+    let n = commit;
+    while (n && n !== body) {
+      const p = n.parent;
+      if (!p) break;
+      if (ts.isIfStatement(p) && n !== p.expression && consults(p.expression, flag)) return true;
+      if (ts.isConditionalExpression(p) && n !== p.condition && consults(p.condition, flag)) return true;
+      if (
+        ts.isBinaryExpression(p) &&
+        (p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          p.operatorToken.kind === ts.SyntaxKind.BarBarToken) &&
+        n === p.right &&
+        consults(p.left, flag)
+      ) {
+        return true;
+      }
+      n = p;
+    }
+    return false;
+  };
+
+  for (const [flag, { declared, flipped }] of flagged) {
+    if (!declared || !flipped) continue;
+    // EVERY commit, not any: a body that gates one setState and leaves the next
+    // one bare still races on the bare one.
+    if (commits.every((c) => bailsBefore(flag, c) || enclosedBy(flag, c))) return true;
   }
 
   // 3. An AbortController whose signal is threaded into the request.
@@ -1436,14 +1767,16 @@ function gatesStaleCommit(body, sf) {
           };
           collectThen(body);
 
-          let commits = false;
+          // The commit NODES, not merely whether one exists: the gate check
+          // below has to ask, of each one, whether a cancellation flag stands
+          // between it and the response.
+          const commits = [];
           const derived = [...awaited, ...thenParams];
           const findCommit = (n) => {
-            if (commits) return;
             if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && /^set[A-Z]/.test(n.expression.text)) {
               const arg = n.arguments.map((a) => a.getText(sf)).join(",");
               if (/\bawait\b/.test(arg) || derived.some((a) => new RegExp(`\\b${a}\\b`).test(arg))) {
-                commits = true;
+                commits.push(n);
                 return;
               }
             }
@@ -1452,8 +1785,8 @@ function gatesStaleCommit(body, sf) {
           findCommit(body);
 
           if (
-            commits &&
-            !gatesStaleCommit(body, sf) &&
+            commits.length > 0 &&
+            !gatesStaleCommit(body, sf, commits) &&
             !LATEST_REQUEST_OPT_OUT.test(annotationAbove(sf, node))
           ) {
             // Label by the enclosing const where there is one, so the entry
@@ -1486,148 +1819,6 @@ function gatesStaleCommit(body, sf) {
   );
 }
 
-// ── (k) a fixed-inset overlay outside modal.tsx carries role="dialog" ────
-//
-// The fifth guard, asked for by CAR-190's audit and cross-referenced from
-// CAR-197. Twelve dialogs in this app do not use modal.tsx, and none of them
-// has role="dialog", aria-modal, or a focus trap — a keyboard user tabs
-// straight out of the follow-up modal into the obscured page behind it. axe
-// cannot see this: with no role the surface is not a dialog to axe at all, so
-// it scores zero serious violations and the green reads as proof it is fine.
-//
-// COUNTED rather than named, unlike (i) and (j): an overlay div has no name to
-// key on, and the count-per-file shape is the one check (d) already uses. The
-// baseline totals 12, which is exactly CAR-197's migration list, so that ticket
-// drains it to zero as it lands.
-
-const DIALOG_ROLE_OPT_OUT = /(?:\/\/|\/\*|\*)\s*overlay-not-a-dialog:/;
-const MODAL_PRIMITIVE = "src/components/ui/modal.tsx";
-
-/**
- * True when a className names BOTH `fixed` and `inset-0`.
- *
- * Tested as two independent tokens rather than as an ordered pair. The paired
- * form (`/\bfixed\b[^"'`]*\binset-0\b/`) is order-dependent, and nothing here
- * canonicalises class order: there is no prettier-plugin-tailwindcss and no
- * eslint tailwind plugin in this app, and hand-written order already varies
- * (`pointer-events-none absolute inset-0` in confetti-burst.tsx puts the
- * utility first). It also broke on a quote falling between the two tokens, so
- * `` `fixed ${full ? "inset-0" : "inset-4"}` `` read as clean.
- *
- * Still misses a class list behind a variable or an inline `style` object.
- * Those are out of reach without type information; the check is a ratchet on
- * the idiom this app actually writes, not a proof of absence.
- */
-function isFixedInsetOverlay(classText) {
-  return /\bfixed\b/.test(classText) && /\binset-0\b/.test(classText);
-}
-
-/**
- * True when this JSX subtree declares role="dialog" or role="alertdialog".
- *
- * The walk stops at a nested overlay: a full-screen surface that is genuinely
- * not a dialog (a drag layer, a click-outside catcher) would otherwise be
- * cleared the moment anything inside it rendered a properly-roled dialog —
- * and a dialog nested inside another as its confirmation step is a shape this
- * app documents and uses.
- */
-function hasDialogRole(element, sf, rootTag) {
-  let found = false;
-  const visit = (n, depth) => {
-    if (found) return;
-    // Stop at a DIFFERENT full-screen surface. `rootTag` is this element's own
-    // opening tag, which must be exempt: it carries the very className that
-    // matched, and treating it as nested skipped the role sitting on it.
-    if (n !== rootTag && (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n))) {
-      const cls = n.attributes.properties.find(
-        (a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "className",
-      );
-      if (cls && isFixedInsetOverlay(cls.getText(sf))) return; // a separate surface
-    }
-    if (ts.isJsxAttribute(n) && n.name.getText(sf) === "role") {
-      const init = n.initializer;
-      const value = init
-        ? ts.isStringLiteral(init)
-          ? init.text
-          : init.getText(sf)
-        : "";
-      if (/\b(alertdialog|dialog)\b/.test(value)) {
-        found = true;
-        return;
-      }
-    }
-    ts.forEachChild(n, (c) => visit(c, depth + 1));
-  };
-  visit(element, 0);
-  return found;
-}
-
-/**
- * Files allowed a fixed-inset overlay with no role, and how many.
- *
- * Empty since CAR-197 landed. CAR-190 wrote this ratchet at 12 to stop the
- * hand-rolled side growing *while* that migration was in flight; the migration
- * finished, every one of those twelve now renders through modal.tsx, and this
- * script's own `deadBaselinePaths` check is what forced the entries out. A
- * ratchet that still tolerated twelve would be a strictly weaker guard than the
- * code deserves.
- */
-const DIALOG_ROLE_BASELINE = {};
-
-{
-  const counts = {};
-
-  for (const file of CLIENT_FILES) {
-    if (file === MODAL_PRIMITIVE) continue; // the primitive IS the implementation
-    const sf = parse(file);
-
-    const visit = (node) => {
-      if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
-        const attrs = node.attributes.properties;
-        const className = attrs.find(
-          (a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "className",
-        );
-        const classText = className ? className.getText(sf) : "";
-        if (isFixedInsetOverlay(classText)) {
-          // The role belongs on the SURFACE, not on the positioning wrapper —
-          // confirm-dialog.tsx and modal.tsx both put the scrim and the
-          // centring on the fixed div and role="dialog" on the panel inside
-          // it. So ask the whole element, not just this tag, or the guard
-          // reports the two best dialogs in the app as the two worst.
-          const element = ts.isJsxOpeningElement(node) ? node.parent : node;
-          if (!hasDialogRole(element, sf, node) && !DIALOG_ROLE_OPT_OUT.test(annotationAbove(sf, node))) {
-            counts[file] = (counts[file] ?? 0) + 1;
-          }
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sf);
-  }
-
-  report(
-    "fixed-inset overlay without dialog semantics",
-    [
-      ...diffCountRatchet(
-        counts,
-        DIALOG_ROLE_BASELINE,
-        CLIENT_FILE_SET,
-        BASELINE_HOME,
-        "fixed-inset overlay(s) with no dialog role",
-      ),
-      ...deadBaselinePaths(DIALOG_ROLE_BASELINE),
-    ],
-    "A full-screen overlay is a dialog: render it through\n" +
-      "  src/components/ui/modal.tsx, which supplies role=\"dialog\", aria-modal,\n" +
-      "  the focus trap, the scrim, Escape, the scroll lock and the dismissal\n" +
-      "  layer. Without a role, assistive tech never announces it, the keyboard\n" +
-      "  tabs straight out into the obscured page, and axe scores it clean\n" +
-      "  because it is not a dialog to axe either. If this overlay genuinely is\n" +
-      "  not a dialog (a drag ghost, a click-outside catcher), say so:\n" +
-      "    // overlay-not-a-dialog: <specific reason>",
-  );
-}
-
 // ── Report ───────────────────────────────────────────────────────────────
 
 if (failures.length > 0) {
@@ -1656,6 +1847,6 @@ console.log(
     // than a vague one, because it is more convincing.
     `  client tree (${CLIENT_ROOTS.join(" + ")} minus the API routes and server files,\n` +
     `  ${CLIENT_FILES.length} files) free of raw fetch( and native confirm(), plus no first-party\n` +
-    "  /api fetch anywhere else under src/; double-submit, useLatestRequest and dialog-role\n" +
-    `  ratchets at ${countBaseline(DOUBLE_SUBMIT_BASELINE)}/${countBaseline(LATEST_REQUEST_BASELINE)}/${countBaseline(DIALOG_ROLE_BASELINE)} known sites — each can only shrink.`,
+    "  /api fetch anywhere else under src/; double-submit and useLatestRequest\n" +
+    `  ratchets at ${countBaseline(DOUBLE_SUBMIT_BASELINE)}/${countBaseline(LATEST_REQUEST_BASELINE)} known sites — each can only shrink.`,
 );
