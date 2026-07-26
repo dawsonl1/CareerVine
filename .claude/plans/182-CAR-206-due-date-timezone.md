@@ -145,3 +145,43 @@ CAR-191 lesson, a test that never went red proves nothing.
 
 `npm run test`, plus `TZ=America/Denver` and `TZ=Pacific/Auckland` runs;
 `npm run lint`, `npm run typecheck`, `npm run check:conventions`, `npm run build`.
+
+## Found by the TZ sweep, NOT fixed here
+
+The mandated `TZ=` runs surfaced three things outside the due-date domain. Two
+test-fixture failures were fixed in this branch because the ticket's own
+verification could not otherwise pass. The rest are separate defects.
+
+**Fixed here (test-only, no product change):**
+
+* `profile-helpers.test.ts` — two edge cases pinned `derived` to a UTC instant
+  while `now` was local, so in Auckland the fixture meant something different
+  than intended and the test failed on itself. Both sides are local now.
+* `ai-untrusted.test.ts` — prompt snapshots embed `toLocaleDateString()` output.
+  Pinned to UTC, which is what the server actually runs in.
+
+**Not fixed here, each needs a decision about what the number means:**
+
+* **Networking streak counts UTC days against a local "today".** `activeDays` in
+  `data/home.ts` buckets activity timestamps by splitting on `"T"` (UTC), while
+  `deriveNetworkingStreak` compares against `startOfDay(nowIso)` (local). The
+  dashboard calls this from the browser and MCP calls it server-side, so the same
+  user can get two different streaks. Fixing it means choosing whether a streak
+  day is a UTC day or the user's day, and there is no stored user timezone to
+  compute the latter from server-side.
+* **`days_overdue` mixes bases the same way.** `deriveDueFollowUps` builds
+  `dueDate` from a `lastTouch` value and compares it against a local
+  `startOfDay`; `data/home.ts` and `data/follow-ups.ts` repeat the pattern for
+  `daysSinceTouch`, which feeds the neglected-contacts rule. Reproduces under
+  `TZ=Asia/Kolkata` (a half-hour offset), on `main`, as an off-by-one. Both
+  source columns are `timestamptz` holding real instants, so the fix depends on
+  whether the counter means calendar days or elapsed days. Four sites across a
+  rule family, changing a user-visible number on the home dashboard and in
+  `list_due_followups`.
+* **`prod-drift-check-script.test.ts` has a TOCTOU race.** `freePort()` binds,
+  reads the port, closes, and returns it; the script then tests whether that port
+  is held. Anything can claim it in the window. Observed failing once in ~13
+  full-suite runs on this branch and not reproduced since, on either branch. The
+  diagnosis is structural, but a fix cannot be verified without a reproduction
+  harness, which is why it is not attempted here. Nothing in this diff opens a
+  socket or spawns a process.

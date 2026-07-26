@@ -24,6 +24,8 @@ vi.mock("@/mcp/user-context", () =>
   typedMock<typeof import("@/mcp/user-context")>({
     currentUserIdOrNull: vi.fn(() => "user-1"),
     runWithUser: vi.fn(),
+    runWithUserAsync: vi.fn(),
+    requireRequestUserId: vi.fn(() => "user-1"),
   }),
 );
 vi.mock("@/lib/data/action-items", () =>

@@ -102,6 +102,55 @@ describe("MeetingsPage — mutation failure contract (F21)", () => {
   });
 });
 
+describe("MeetingsPage — action-item due dates (CAR-206)", () => {
+  const originalTz = process.env.TZ;
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+
+  function pending(due_at: string | null) {
+    return { ...completedAction, id: 11, title: "Send the deck", is_completed: false, completed_at: null, due_at };
+  }
+
+  /** The due badge's element, so its overdue styling can be read. */
+  function dueBadge(text: string) {
+    const el = screen.getByText(text);
+    expect(el.tagName).toBe("SPAN");
+    return el;
+  }
+
+  it("renders the picked date and does not mark an item due today overdue", async () => {
+    // This surface used to compare instants (`new Date(due_at) < new Date()`),
+    // which called everything due TODAY overdue from local midnight onward —
+    // including for a UTC user — while the action-items page did not.
+    process.env.TZ = "America/Denver";
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-10T18:00:00-06:00"));
+    primeHappyQueries();
+    q.getActionItemsForMeeting.mockResolvedValue([pending("2026-07-10T00:00:00+00:00")]);
+
+    render(<MeetingsPage />);
+    await waitFor(() => expect(screen.getByText("Send the deck")).toBeTruthy());
+
+    expect(dueBadge("Jul 10").className).not.toContain("text-destructive");
+  });
+
+  it("still marks a genuinely past item overdue", async () => {
+    process.env.TZ = "America/Denver";
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-10T09:00:00-06:00"));
+    primeHappyQueries();
+    q.getActionItemsForMeeting.mockResolvedValue([pending("2026-07-09T00:00:00+00:00")]);
+
+    render(<MeetingsPage />);
+    await waitFor(() => expect(screen.getByText("Send the deck")).toBeTruthy());
+
+    expect(dueBadge("Jul 9").className).toContain("text-destructive");
+  });
+});
+
 describe("MeetingsPage — honest load-failure state (F21)", () => {
   it("renders a retryable error state when the meetings load fails", async () => {
     q.getMeetings.mockRejectedValue(new Error("boom"));

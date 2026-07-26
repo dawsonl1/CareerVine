@@ -113,6 +113,19 @@ describe("formatDueDate", () => {
     expect(formatDueDate("garbage")).toBe("");
   });
 
+  it("holds on a date its zone skipped entirely", () => {
+    // Pacific/Apia jumped from 2011-12-29 to 2011-12-31 crossing the date line,
+    // so local midnight on the 30th does not exist. `new Date("2011-12-30T00:00:00")`
+    // normalizes forward and renders "Dec 31" — the one case in 2010-2030,
+    // across every midnight-DST zone checked, where the local-midnight parse
+    // this module rejected would have shifted a date.
+    expect(
+      inZone("Pacific/Apia", () =>
+        formatDueDate("2011-12-30", { month: "short", day: "numeric", year: "numeric" }, "en-US"),
+      ),
+    ).toBe("Dec 30, 2011");
+  });
+
   it("cannot be pushed off the date by a caller-supplied timeZone", () => {
     expect(
       formatDueDate(WIRE, { month: "short", day: "numeric", timeZone: "Pacific/Kiritimati" }, "en-US"),
@@ -204,8 +217,21 @@ describe("shiftDateKey", () => {
   });
 
   it("is unaffected by a DST transition in the viewer's zone", () => {
-    // 2026-03-08 is the US spring-forward. A local-midnight implementation
-    // adding 24h of milliseconds lands on the same date, not the next one.
+    // These are the zones that transition AT midnight, so the local day is 25
+    // hours long and a `localMidnight + days * 86_400_000` implementation lands
+    // back on the SAME date. US zones cannot catch this — they transition at
+    // 02:00, which is why the first version of this test passed against the
+    // broken form. Dates verified against Node's tzdata, 2025-2030.
+    const cases: Array<[string, string, string]> = [
+      ["America/Santiago", "2026-04-04", "2026-04-05"],
+      ["America/Havana", "2026-11-01", "2026-11-02"],
+      ["Asia/Beirut", "2026-10-24", "2026-10-25"],
+      ["Pacific/Chatham", "2026-04-05", "2026-04-06"],
+    ];
+    for (const [tz, from, to] of cases) {
+      expect(inZone(tz, () => shiftDateKey(from, 1))).toBe(to);
+    }
+    // And the ordinary US spring-forward still behaves.
     for (const tz of WEST) {
       expect(inZone(tz, () => shiftDateKey("2026-03-07", 1))).toBe("2026-03-08");
       expect(inZone(tz, () => shiftDateKey("2026-03-08", 1))).toBe("2026-03-09");

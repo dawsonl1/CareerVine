@@ -253,7 +253,7 @@ export function TranscriptActionSuggestions({
   const waitingContactName = waitingOn[0]?.contactName || waitingOn[0]?.assignedSpeaker || "them";
 
   // Shares the one due-date formatter (CAR-206) rather than re-deriving the
-  // no-timezone-shift trick here; this was the only site that already had it.
+  // no-timezone-shift trick here, as this and the conversation modal both did.
   const formatDate = (dateStr: string) =>
     formatDueDate(dateStr, { month: "short", day: "numeric" }, "en-US");
 

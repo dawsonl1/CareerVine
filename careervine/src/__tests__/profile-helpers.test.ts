@@ -314,14 +314,19 @@ describe('shouldRederiveStatus', () => {
     expect(shouldRederiveStatus(derived, now)).toBe(false);
   });
 
+  // Both sides are LOCAL, like the boundary cases above. Pinning `derived` to a
+  // UTC instant while `now` is local made these two cases mean different things
+  // in different zones: in Pacific/Auckland "2025-12-31T23:59:00Z" is already
+  // Jan 1 local, so the helper correctly answered false and the test failed on
+  // its own fixture rather than on the behaviour (found by CAR-206's TZ runs).
   it('returns true on edge: derived Dec 31, now is Jan 1', () => {
-    const now = new Date(2026, 0, 1, 0, 1); // Jan 1, 2026 00:01
-    expect(shouldRederiveStatus('2025-12-31T23:59:00Z', now)).toBe(true);
+    const now = new Date(2026, 0, 1, 0, 1); // Jan 1, 2026 00:01 local
+    expect(shouldRederiveStatus(new Date(2025, 11, 31, 23, 59), now)).toBe(true);
   });
 
   it('returns true on edge: derived Jun 30, now is Jul 1', () => {
-    const now = new Date(2026, 6, 1, 0, 1); // Jul 1, 2026 00:01
-    expect(shouldRederiveStatus('2026-06-30T23:59:00Z', now)).toBe(true);
+    const now = new Date(2026, 6, 1, 0, 1); // Jul 1, 2026 00:01 local
+    expect(shouldRederiveStatus(new Date(2026, 5, 30, 23, 59), now)).toBe(true);
   });
 
   it('accepts Date objects as statusDerivedAt', () => {
