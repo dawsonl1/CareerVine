@@ -49,6 +49,7 @@ import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 import { parseCalendarAttendees } from "@/lib/calendar-attendees";
+import { dueDateKey, isDueDateOnOrBefore, isDueDateOverdue, shiftDateKey, todayDateKey } from "@/lib/due-date";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -433,6 +434,24 @@ export async function logInteraction(
 
 // ── Action items ───────────────────────────────────────────────────────
 
+/**
+ * Coerce a caller-supplied due date to the calendar date the column actually
+ * means (CAR-206). The web UI can only ever write a `YYYY-MM-DD`; MCP is the
+ * one path that could put a real time-of-day in there, which would make the
+ * date the whole app reads back (`due_at.split("T")[0]`) depend on the writer's
+ * offset rather than on what they meant. Normalising here is the cheaper half
+ * of what a `date` column would have bought, without the migration.
+ *
+ * Throws rather than returning null on an unparseable value: silently clearing
+ * a due date the caller was trying to set is the worse failure.
+ */
+function normalizeDueAt(value: string | null | undefined): string | null {
+  if (value == null || value === "") return null;
+  const key = dueDateKey(value);
+  if (key === null) throw new Error(`Invalid due_at "${value}" — expected a date like 2026-01-05`);
+  return key;
+}
+
 export async function createActionItem(input: {
   title: string;
   description?: string;
@@ -450,7 +469,7 @@ export async function createActionItem(input: {
       meeting_id: null,
       title: input.title,
       description: input.description ?? null,
-      due_at: input.due_at ?? null,
+      due_at: normalizeDueAt(input.due_at),
       is_completed: false,
       completed_at: null,
       created_at: new Date().toISOString(),
@@ -503,21 +522,23 @@ export async function listActionItems(opts: {
   if (opts.contactId != null) {
     items = items.filter((i) => i.action_item_contacts.some((c) => c.contact_id === opts.contactId));
   }
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const endOfToday = new Date(startOfToday);
-  endOfToday.setDate(endOfToday.getDate() + 1);
-  const endOfWeek = new Date(startOfToday);
-  endOfWeek.setDate(endOfWeek.getDate() + 7);
+  // Due windows compare CALENDAR DATES, not instants (CAR-206). `due_at` is a
+  // date stored as midnight UTC, so `new Date(due_at) < startOfToday` was true
+  // for everything due TODAY for any operator at or west of UTC — every item
+  // due today reported as overdue, all day. The `today` and `week` bounds are
+  // inclusive upper bounds on the same key, preserving the windows those cases
+  // always meant: due today or earlier, and due within the next seven days.
+  const todayKey = todayDateKey(now);
+  const endOfWeekKey = shiftDateKey(todayKey, 6);
   switch (opts.due) {
     case "overdue":
-      items = items.filter((i) => i.due_at && new Date(i.due_at) < startOfToday);
+      items = items.filter((i) => isDueDateOverdue(i.due_at, now));
       break;
     case "today":
-      items = items.filter((i) => i.due_at && new Date(i.due_at) < endOfToday);
+      items = items.filter((i) => isDueDateOnOrBefore(i.due_at, todayKey));
       break;
     case "week":
-      items = items.filter((i) => i.due_at && new Date(i.due_at) < endOfWeek);
+      items = items.filter((i) => isDueDateOnOrBefore(i.due_at, endOfWeekKey));
       break;
     default:
       break;
@@ -541,7 +562,7 @@ export async function updateActionItem(
     updates.completed_at = new Date().toISOString();
   }
   if (patch.snooze_until !== undefined) updates.snoozed_until = patch.snooze_until;
-  if (patch.due_at !== undefined) updates.due_at = patch.due_at;
+  if (patch.due_at !== undefined) updates.due_at = normalizeDueAt(patch.due_at);
   if (patch.title !== undefined) updates.title = patch.title;
   if (patch.description !== undefined) updates.description = patch.description;
   if (Object.keys(updates).length === 0) throw new Error("No updates provided");

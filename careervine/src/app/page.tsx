@@ -51,6 +51,7 @@ import { DiscoveryDigest } from "@/components/home/discovery-digest";
 import { type NewContact } from "@/components/home/new-contacts";
 import { NetworkingStats } from "@/components/home/networking-stats";
 import { apiFetch, apiSend } from "@/lib/api-client";
+import { dueDateKey, formatDueDate, todayDateKey } from "@/lib/due-date";
 
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
   // Null for contactless rows, e.g. the seeded CAR-68 onboarding to-do.
@@ -507,8 +508,10 @@ export default function Home() {
   const unifiedItems = useMemo<UnifiedActionItem[]>(() => {
     const items: UnifiedActionItem[] = [];
 
-    // Action items
-    const today = new Date().toISOString().split("T")[0];
+    // Action items. Local calendar today, not the UTC one (CAR-206): a UTC
+    // "today" flips every item due today to Overdue at 17:00 Mountain, and the
+    // priority-100 slot below reshuffles this whole feed with it.
+    const today = todayDateKey();
     for (const ai of actionItems) {
       if (ai.direction === "waiting_on") continue;
 
@@ -529,11 +532,12 @@ export default function Home() {
         });
         continue;
       }
-      const isOverdue = ai.due_at ? ai.due_at.split("T")[0] < today : false;
-      const dueLabel = ai.due_at
+      const dueKey = dueDateKey(ai.due_at);
+      const isOverdue = dueKey !== null && dueKey < today;
+      const dueLabel = dueKey
         ? isOverdue
-          ? `Overdue · Due ${new Date(ai.due_at).toLocaleDateString()}`
-          : `Due ${new Date(ai.due_at).toLocaleDateString()}`
+          ? `Overdue · Due ${formatDueDate(ai.due_at)}`
+          : `Due ${formatDueDate(ai.due_at)}`
         : "No due date";
       const contactName = ai.contacts?.name || "Unknown";
       const contactId = ai.contacts?.id || 0;
@@ -548,7 +552,7 @@ export default function Home() {
         primaryText: `${ai.title} · ${dueLabel}`,
         secondaryText: ai.description || "",
         lastContactedLabel: formatLastContacted(daysSince),
-        priority: isOverdue ? 100 : ai.due_at ? 50 : 10,
+        priority: isOverdue ? 100 : dueKey ? 50 : 10,
         actionItemId: ai.id,
         dueAt: ai.due_at || undefined,
         isOverdue,
@@ -671,7 +675,11 @@ export default function Home() {
         let label: string;
 
         if (action.type === "until_next_followup") {
-          if (item.type === "action_item" && item.dueAt && new Date(item.dueAt) > new Date()) {
+          // "Is the due date still ahead?" is a calendar question: comparing the
+          // stored midnight-UTC instant against `now` answered it wrong from
+          // local afternoon onward west of UTC (CAR-206).
+          const dueKey = item.type === "action_item" ? dueDateKey(item.dueAt) : null;
+          if (item.dueAt && dueKey !== null && dueKey > todayDateKey()) {
             // Future due date — snooze until then
             until = item.dueAt;
           } else {

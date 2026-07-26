@@ -14,6 +14,7 @@ import {
   getNetworkHealth,
 } from "../lib/db";
 import { handler, contactRefShape } from "../lib/tool-utils";
+import { dueDateKey } from "@/lib/due-date";
 
 /** UI wording ("todo" / "waiting_on") ↔ DB values ("my_task" / "waiting_on"). */
 const directionToDb = { todo: "my_task", waiting_on: "waiting_on" } as const;
@@ -54,7 +55,7 @@ export function registerUpkeepTools(server: McpServer): void {
       inputSchema: {
         title: z.string().min(1),
         description: z.string().optional(),
-        due_at: z.string().optional().describe("ISO timestamp"),
+        due_at: z.string().optional().describe("Due date, YYYY-MM-DD"),
         direction: z
           .enum(["todo", "waiting_on"])
           .optional()
@@ -110,7 +111,9 @@ export function registerUpkeepTools(server: McpServer): void {
           action_item_id: i.id,
           title: i.title,
           description: i.description,
-          due_at: i.due_at,
+          // The calendar date, not the stored midnight-UTC instant, so what an
+          // agent reads back is exactly what it can write again (CAR-206).
+          due_at: dueDateKey(i.due_at),
           direction: i.direction === "waiting_on" ? "waiting_on" : "todo",
           age_days: i.created_at ? Math.floor((now - new Date(i.created_at).getTime()) / 86400_000) : null,
           contacts: i.action_item_contacts.map((c) => c.contacts).filter(Boolean),
@@ -128,7 +131,7 @@ export function registerUpkeepTools(server: McpServer): void {
         action_item_id: z.number().int(),
         complete: z.boolean().optional().describe("true marks it done"),
         snooze_until: z.string().optional().describe("ISO timestamp to hide it until"),
-        due_at: z.string().nullable().optional().describe("New due date, or null to clear"),
+        due_at: z.string().nullable().optional().describe("New due date as YYYY-MM-DD, or null to clear"),
         title: z.string().optional(),
         description: z.string().nullable().optional(),
       },

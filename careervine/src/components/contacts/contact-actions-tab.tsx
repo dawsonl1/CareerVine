@@ -12,6 +12,7 @@ import type { Contact, ContactMeeting } from "@/lib/types";
 import { Plus, Pencil, Trash2, Check, ChevronDown, CheckSquare, Hourglass } from "lucide-react";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, getPriorityOrder } from "@/lib/priority-helpers";
+import { dueDateKey, formatDueDate, isDueDateOverdue } from "@/lib/due-date";
 import { ActionDirection } from "@/lib/constants";
 
 import { inputClasses } from "@/lib/form-styles";
@@ -123,11 +124,14 @@ export function ContactActionsTab({
     onError: () => { toastError("Failed to complete action item"); void reloadActions(); },
   });
 
-  // Sort: overdue first, then by priority (high→medium→low→null), then by date
+  // Sort: overdue first, then by priority (high→medium→low→null), then by date.
+  // Overdue is a calendar comparison (CAR-206); an instant comparison against
+  // `now` called everything due TODAY overdue, because the stored value is
+  // midnight UTC.
   const now = new Date();
   const filtered = [...actions].sort((a, b) => {
-    const aOverdue = a.due_at && new Date(a.due_at) < now ? 0 : 1;
-    const bOverdue = b.due_at && new Date(b.due_at) < now ? 0 : 1;
+    const aOverdue = isDueDateOverdue(a.due_at, now) ? 0 : 1;
+    const bOverdue = isDueDateOverdue(b.due_at, now) ? 0 : 1;
     if (aOverdue !== bOverdue) return aOverdue - bOverdue;
     const pa = getPriorityOrder(a.priority ?? null);
     const pb = getPriorityOrder(b.priority ?? null);
@@ -217,10 +221,10 @@ export function ContactActionsTab({
           action.due_at && (
             <span
               className={`text-sm shrink-0 ${
-                new Date(action.due_at) < new Date() ? "text-destructive font-medium" : "text-muted-foreground"
+                isDueDateOverdue(action.due_at) ? "text-destructive font-medium" : "text-muted-foreground"
               }`}
             >
-              {new Date(action.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              {formatDueDate(action.due_at, { month: "short", day: "numeric" }, "en-US")}
             </span>
           )
         )}
@@ -231,7 +235,7 @@ export function ContactActionsTab({
               setEditingId(action.id);
               setEditTitle(action.title);
               setEditDescription(action.description || "");
-              setEditDueDate(action.due_at ? action.due_at.split("T")[0] : "");
+              setEditDueDate(dueDateKey(action.due_at) ?? "");
               setEditContactIds(action.action_item_contacts?.map((ac) => ac.contact_id) || []);
             }}
             className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"

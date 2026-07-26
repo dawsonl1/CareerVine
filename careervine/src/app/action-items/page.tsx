@@ -19,6 +19,7 @@ import { useSuggestions } from "@/hooks/use-suggestions";
 import { Select } from "@/components/ui/select";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, sortByPriorityThenDate } from "@/lib/priority-helpers";
+import { dueDateKey, formatDueDate, todayDateKey, endOfWeekDateKey } from "@/lib/due-date";
 
 type MeetingRow = Database["public"]["Tables"]["meetings"]["Row"];
 type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] & {
@@ -226,7 +227,7 @@ export default function ActionItemsPage() {
     setEditingItem(item);
     setEditTitle(item.title);
     setEditDescription(item.description || "");
-    setEditDueDate(item.due_at ? item.due_at.split("T")[0] : "");
+    setEditDueDate(dueDateKey(item.due_at) ?? "");
     const ids = item.action_item_contacts?.map(ac => ac.contact_id) ?? (item.contact_id ? [item.contact_id] : []);
     setEditContactIds(ids);
     setEditMeetingId(item.meeting_id);
@@ -277,7 +278,7 @@ export default function ActionItemsPage() {
     !!editingItem &&
     (editTitle !== editingItem.title ||
       editDescription !== (editingItem.description || "") ||
-      editDueDate !== (editingItem.due_at ? editingItem.due_at.split("T")[0] : "") ||
+      editDueDate !== (dueDateKey(editingItem.due_at) ?? "") ||
       editPriority !== (editingItem.priority || "") ||
       editMeetingId !== editingItem.meeting_id ||
       JSON.stringify([...editContactIds].sort((a, b) => a - b)) !==
@@ -304,29 +305,29 @@ export default function ActionItemsPage() {
   const myItems = actionItems.filter((item) => item.direction !== ActionDirection.WaitingOn);
   const waitingOnItems = actionItems.filter((item) => item.direction === ActionDirection.WaitingOn);
 
-  // Group items into four sections
+  // Group items into four sections. Both bounds are LOCAL calendar dates: a UTC
+  // "today" rolls over mid-evening west of UTC and lags all morning east of it,
+  // which reshuffled these buckets on the clock rather than on the date (CAR-206).
   const now = new Date();
-  const todayStr = now.toISOString().split("T")[0];
-
-  const endOfWeek = new Date(now);
-  endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
-  endOfWeek.setHours(23, 59, 59, 999);
-  const endOfWeekStr = endOfWeek.toISOString().split("T")[0];
+  const todayStr = todayDateKey(now);
+  const endOfWeekStr = endOfWeekDateKey(now);
 
   const overdueItems = myItems
-    .filter((item) => item.due_at && item.due_at.split("T")[0] < todayStr)
+    .filter((item) => { const k = dueDateKey(item.due_at); return k !== null && k < todayStr; })
     .sort(sortByPriorityThenDate);
 
   const thisWeekItems = myItems
-    .filter((item) => item.due_at && item.due_at.split("T")[0] >= todayStr && item.due_at.split("T")[0] <= endOfWeekStr)
+    .filter((item) => { const k = dueDateKey(item.due_at); return k !== null && k >= todayStr && k <= endOfWeekStr; })
     .sort(sortByPriorityThenDate);
 
   const laterItems = myItems
-    .filter((item) => item.due_at && item.due_at.split("T")[0] > endOfWeekStr)
+    .filter((item) => { const k = dueDateKey(item.due_at); return k !== null && k > endOfWeekStr; })
     .sort(sortByPriorityThenDate);
 
+  // Keyed on dueDateKey rather than on `due_at` being falsy, so an unparseable
+  // value lands here instead of falling out of all four buckets and vanishing.
   const noDueDateItems = myItems
-    .filter((item) => !item.due_at)
+    .filter((item) => dueDateKey(item.due_at) === null)
     .sort(sortByPriorityThenDate);
 
   const totalPending = myItems.length;
@@ -389,12 +390,12 @@ export default function ActionItemsPage() {
             )}
             <p className={`mt-2 text-sm ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
               {item.due_at
-                ? `${overdue ? "Overdue" : "Due"}: ${new Date(item.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+                ? `${overdue ? "Overdue" : "Due"}: ${formatDueDate(item.due_at, { month: "short", day: "numeric", year: "numeric" }, "en-US")}`
                 : "No due date"}
             </p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={(e) => openEdit(e, item)} className="state-layer p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
+            <button type="button" onClick={(e) => openEdit(e, item)} className="state-layer p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
               <Pencil className="h-5 w-5" />
             </button>
             <Button variant={overdue ? "danger" : "tonal"} size="sm" onClick={(e) => markDone(e, item)}>
@@ -465,7 +466,7 @@ export default function ActionItemsPage() {
               </p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <button onClick={(e) => openEdit(e, item)} className="state-layer p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer">
+              <button type="button" onClick={(e) => openEdit(e, item)} className="state-layer p-2.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
                 <Pencil className="h-5 w-5" />
               </button>
               <Button variant="tonal" size="sm" onClick={(e) => markDone(e, item)}>
@@ -774,7 +775,7 @@ export default function ActionItemsPage() {
             <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
               <span>
                 {selectedItem.due_at
-                  ? `Due: ${new Date(selectedItem.due_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
+                  ? `Due: ${formatDueDate(selectedItem.due_at, { month: "long", day: "numeric", year: "numeric" }, "en-US")}`
                   : "No due date"}
               </span>
               {selectedItem.created_at && (
