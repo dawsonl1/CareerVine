@@ -6,19 +6,24 @@ import { mockBrowserClientModule } from "./helpers/mock-supabase";
 import { mockToastModule } from "./helpers/mock-toast";
 
 /**
- * CAR-205, finding 1: the one defect in the Wave 2 audit that DESTROYED data
- * rather than hiding it, and it predates the whole programme.
+ * CAR-205, finding 1, and it predates the whole programme.
  *
  * `loadProfile` caught into `console.error` and cleared `loading` anyway, so a
- * failed read rendered the form with `firstName`/`lastName` at their initial
- * `""`. The user, seeing empty name fields, fills in or simply saves — and
- * `handleSave` writes those empty strings over the stored name in BOTH
- * `public.users` and the auth user metadata. Nothing recovers it.
+ * failed read rendered the profile form with `firstName`/`lastName` at their
+ * initial `""` and Save live, as though the user had no name on file.
  *
- * So the assertion that matters is not "an error is shown". It is that no Save
- * control exists on the failed path at all, and that `updateUserProfile` is
- * never reached with an empty name. The rest of the cases exist so this file
- * cannot pass by rendering nothing.
+ * What that costs, stated accurately (the first version of this docblock said
+ * "one click and the stored name is gone", which the CAR-205 review disproved):
+ * both name inputs are `required` and the form is not `noValidate`, so a click
+ * on Save over blank fields is refused by constraint validation. The reachable
+ * loss is the step after — the user, believing the fields really are empty,
+ * retypes a name to satisfy `required` and saves, overwriting the stored name
+ * with a guess and writing `phone: null` over a stored phone, which has no
+ * `required` to protect it.
+ *
+ * So the assertion that matters is that no Save control exists on the failed
+ * path at all, in either the settled state or the retry window. The rest of the
+ * cases exist so this file cannot pass by rendering nothing.
  */
 
 const q = vi.hoisted(() => ({
@@ -99,6 +104,32 @@ describe("AccountSection profile read failure", () => {
     await renderSettled();
 
     expect(screen.queryByRole("button", { name: "Update password" })).toBeTruthy();
+  });
+
+  it("shows the spinner, not the writable form, while a Retry is in flight", async () => {
+    // CAR-205 review. `loadProfile` cleared `loadFailed` before its await and
+    // never re-raised `loading`, so clicking Retry dropped straight back to the
+    // form with the name fields still unloaded and Save live, for the whole
+    // length of the read. The settled-state test below cannot see this: it
+    // resolves the retry inside the same act(), so the window never renders.
+    let releaseRetry: (v: unknown) => void = () => {};
+    q.getUserProfile
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockImplementationOnce(() => new Promise((res) => { releaseRetry = res; }));
+    await renderSettled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    });
+
+    expect(screen.queryByText("Loading profile...")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+    expect(screen.queryByText("Follow-up reminders")).toBeNull();
+
+    await act(async () => {
+      releaseRetry(profile);
+    });
+    expect((screen.getByPlaceholderText("First name") as HTMLInputElement).value).toBe("Ada");
   });
 
   it("recovers on Retry, so the error state is not a dead end", async () => {

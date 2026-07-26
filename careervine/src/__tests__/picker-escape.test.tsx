@@ -4,6 +4,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { Modal } from "@/components/ui/modal";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
+import { ContactPicker } from "@/components/ui/contact-picker";
 
 /**
  * CAR-205: Escape closes the open picker, not the dialog around it.
@@ -118,6 +119,67 @@ describe("picker Escape inside a dialog", () => {
     // assertion above passes just as well when Escape closed the whole dialog.
     expect(onClose).not.toHaveBeenCalled();
     expect(dialogOpen()).toBe(true);
+  });
+
+  /**
+   * CAR-205 review. The hook fix covered the four PORTALLED pickers and stopped
+   * there, but portalling is not what makes Escape ambiguous — having an open
+   * list inside a dialog is. These four keep their list as a plain DOM child, so
+   * they get the cheaper wrapper handler (`useDropdownEscape`) instead of a
+   * document capture listener.
+   *
+   * The load-bearing claim being pinned here is that React's synthetic
+   * `stopPropagation` reaches the native event at React's ROOT CONTAINER, which
+   * sits below `document`, so `modal.tsx`'s document-level Escape never runs.
+   * That is a real DOM-semantics question and is asserted rather than assumed.
+   */
+  it("closes only the suggestion list for a non-portalled dropdown in a dialog", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen onClose={onClose} title="Log a conversation">
+        <ContactPicker
+          allContacts={[
+            { id: 1, name: "Ada Lovelace" },
+            { id: 2, name: "Grace Hopper" },
+          ]}
+          selectedIds={[]}
+          onChange={vi.fn()}
+        />
+      </Modal>,
+    );
+
+    const input = screen.getByPlaceholderText(/search/i);
+    fireEvent.focus(input);
+    expect(screen.queryByText("Ada Lovelace")).toBeTruthy();
+
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(screen.queryByText("Ada Lovelace")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(dialogOpen()).toBe(true);
+  });
+
+  it("still lets Escape close the dialog once that list is shut", () => {
+    // The companion. A wrapper handler that swallowed Escape unconditionally
+    // would pass the case above by making the dialog undismissable from inside
+    // the picker, which is the failure mode the `open` gate exists to prevent.
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen onClose={onClose} title="Log a conversation">
+        <ContactPicker
+          allContacts={[{ id: 1, name: "Ada Lovelace" }]}
+          selectedIds={[]}
+          onChange={vi.fn()}
+        />
+      </Modal>,
+    );
+    const input = screen.getByPlaceholderText(/search/i);
+    fireEvent.focus(input);
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("applies to the time picker too, since the fix is in the shared hook", () => {

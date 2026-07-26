@@ -27,7 +27,7 @@ import { useQuickCapture } from "@/components/quick-capture-context";
 import { deleteContact } from "@/lib/queries";
 import { useToast } from "@/components/ui/toast";
 import { SectionBoundary } from "@/components/ui/section-boundary";
-import { LoadErrorState } from "@/components/ui/load-error-state";
+import { LoadErrorBanner, LoadErrorState } from "@/components/ui/load-error-state";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { apiFetch, apiSend } from "@/lib/api-client";
 import { withToastOnError } from "@/lib/with-toast-on-error";
@@ -90,6 +90,13 @@ export default function ContactDetailPage() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [relatedLoadFailed, setRelatedLoadFailed] = useState(false);
+  /**
+   * Whether a related-data read has ever succeeded. The `!detail` analogue from
+   * the outreach page cannot be "are the arrays empty" here, because a contact
+   * with genuinely no meetings, actions or attachments is indistinguishable from
+   * one whose read never landed, and those two need opposite renders.
+   */
+  const [relatedLoaded, setRelatedLoaded] = useState(false);
   // Increments on every completed loadRelatedData; feeds the tab boundary's key so
   // fresh data clears a stale error panel (CAR-184, see loadRelatedData).
   const [dataGeneration, setDataGeneration] = useState(0);
@@ -155,6 +162,7 @@ export default function ContactDetailPage() {
       setCompletedActions(completed as CompletedAction[]);
       setInteractions(ints);
       setAttachments(atts as Attachment[]);
+      setRelatedLoaded(true);
     } catch (e) {
       if (!relatedRequest.isLatest(token)) return;
       console.error("Error loading contact data:", e);
@@ -164,10 +172,18 @@ export default function ContactDetailPage() {
       // action items" for a contact who has them is exactly the confident lie
       // the user acts on (CAR-205).
       //
-      // All four callers are the "must surface" case: the mount effect, the
-      // boundary's Try again, and two re-reads that follow a SUCCESSFUL write.
-      // Nothing here re-reads after a failed write, so there is no silent-resync
-      // case to carve out and no `mode` parameter to add.
+      // All FIVE callers are the "must surface" case: the mount effect, two
+      // explicit retries (the boundary's Try again and the error panel's), and
+      // two re-reads that follow a SUCCESSFUL write (onActionCompleted, and the
+      // conversationLogged event, both of which fire only after their write
+      // resolves). Nothing here re-reads after a failed write, so there is no
+      // silent-resync case to carve out and no `mode` parameter to add.
+      //
+      // Surfacing is required; surfacing DESTRUCTIVELY is not (CAR-205 review).
+      // None of these arrays is cleared on a throw, so a failed resync still has
+      // valid content on screen, and `relatedLoaded` is what separates that from
+      // a first load with nothing to keep. Same split, same reasoning and the
+      // same two components as the outreach page in this branch.
       setRelatedLoadFailed(true);
     } finally {
       // Guarded by an `if` rather than an early return: a `return` inside
@@ -424,19 +440,36 @@ export default function ContactDetailPage() {
                 label={`contact-tab:${activeTab}`}
                 onReset={() => void loadRelatedData()}
               >
-              {/* Three of the four tabs render nothing BUT what loadRelatedData
-                  fetched, so a failed read makes each of them claim the contact
-                  has no action items, no history and no files. The Emails tab is
-                  excluded because it reads from loadContactEmails, which owns
-                  its own `emailsLoadFailed` / `scheduledLoadFailed` surfaces —
-                  hiding it here would report a failure it did not have. */}
-              {relatedLoadFailed && activeTab !== "emails" ? (
+              {/* Three of the four tabs render what loadRelatedData fetched, so a
+                  failed read makes each of them claim the contact has no action
+                  items, no history and no files. The Emails tab is excluded
+                  because it reads from loadContactEmails, which owns its own
+                  `emailsLoadFailed` / `scheduledLoadFailed` surfaces — hiding it
+                  here would report a failure it did not have.
+
+                  Note Timeline is a MIXED tab: it merges contactEmails in on top
+                  of what this read owns, which is why it takes the emails
+                  failure as its own banner below rather than being covered here.
+
+                  Full state only when nothing has ever loaded. A resync failure
+                  over content that is still on screen and still valid gets the
+                  banner instead, exactly as on the outreach page — two of the
+                  five callers are re-reads after a successful write, and wiping
+                  the tab for those discards data the user can still use. */}
+              {relatedLoadFailed && !relatedLoaded && activeTab !== "emails" ? (
                 <LoadErrorState
                   message="Couldn't load this contact's activity."
                   onRetry={() => void loadRelatedData()}
                 />
               ) : (
                 <>
+                {relatedLoadFailed && relatedLoaded && activeTab !== "emails" && (
+                  <LoadErrorBanner
+                    className="mb-4"
+                    message="Couldn't refresh this contact's activity. Showing what was already loaded."
+                    onRetry={() => void loadRelatedData()}
+                  />
+                )}
                 {activeTab === "actions" && (
                   <ContactActionsTab
                     contactId={contactId}
@@ -445,6 +478,7 @@ export default function ContactDetailPage() {
                     completedActions={completedActions}
                     allContacts={allContacts}
                     meetings={meetings}
+                    loading={loadingData}
                     onActionsChange={(acts, completed) => {
                       setActions(acts);
                       setCompletedActions(completed);
@@ -464,6 +498,8 @@ export default function ContactDetailPage() {
                     emails={contactEmails}
                     completedActions={completedActions}
                     loading={loadingData}
+                    emailsLoadFailed={emailsLoadFailed}
+                    onReloadEmails={loadContactEmails}
                     onInteractionsChange={setInteractions}
                   />
                 )}
@@ -503,6 +539,7 @@ export default function ContactDetailPage() {
                     contactId={contactId}
                     userId={user!.id}
                     attachments={attachments}
+                    loading={loadingData}
                     onAttachmentsChange={setAttachments}
                   />
                 )}

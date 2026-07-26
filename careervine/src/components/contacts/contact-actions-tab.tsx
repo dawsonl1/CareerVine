@@ -46,6 +46,13 @@ interface ContactActionsTabProps {
   completedActions: CompletedAction[];
   allContacts: Contact[];
   meetings: ContactMeeting[];
+  /**
+   * True while the related-data read is in flight. Without it this tab renders
+   * "No pending action items." over an unsettled read — on first mount, and for
+   * the whole retry window after a failure (CAR-205 review). The Timeline tab
+   * has taken this prop all along.
+   */
+  loading?: boolean;
   onActionsChange: (actions: ActionItem[], completed: CompletedAction[]) => void;
 }
 
@@ -56,6 +63,7 @@ export function ContactActionsTab({
   completedActions,
   allContacts,
   meetings,
+  loading = false,
   onActionsChange,
 }: ContactActionsTabProps) {
   const [showCompleted, setShowCompleted] = useState(false);
@@ -277,7 +285,12 @@ export function ContactActionsTab({
         <CheckSquare className="h-4 w-4" /> Pending actions{filtered.length > 0 ? ` (${filtered.length})` : ""}
       </h4>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center gap-2.5 text-muted-foreground py-2">
+          <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
+          <span className="text-sm">Loading...</span>
+        </div>
+      ) : filtered.length === 0 ? (
         <p className="text-sm text-muted-foreground py-1">No pending action items.</p>
       ) : !hasDirections ? (
         <div className="space-y-2 mb-4">

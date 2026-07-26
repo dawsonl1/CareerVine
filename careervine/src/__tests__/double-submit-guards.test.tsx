@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
+import { mockToastModule, toastMock } from "./helpers/mock-toast";
+
+// TodaySchedule reaches for the toast to report a create that failed after its
+// popover was dismissed, which nothing else could surface (CAR-205 review).
+vi.mock("@/components/ui/toast", () => mockToastModule());
+
 import { TodaySchedule } from "@/components/home/today-schedule";
 import { UnifiedActionList, type UnifiedActionItem } from "@/components/home/unified-action-list";
 
@@ -47,6 +53,10 @@ describe("NewEventPopover double submit (today-schedule)", () => {
   let posts: string[];
 
   beforeEach(() => {
+    // The toast mock is module-level and would otherwise carry calls across
+    // cases, which is how the "does not toast" companion below first passed on
+    // the previous test's toast rather than on its own behaviour.
+    vi.clearAllMocks();
     posts = [];
     vi.stubGlobal(
       "fetch",
@@ -190,12 +200,26 @@ describe("NewEventPopover double submit (today-schedule)", () => {
         json: () => Promise.resolve({ success: true }),
         text: () => Promise.resolve('{"success":true}'),
       }) as unknown as Response;
+    const err = () =>
+      ({
+        ok: false,
+        status: 500,
+        headers: { get: () => "application/json" },
+        json: () => Promise.resolve({ error: "boom" }),
+        text: () => Promise.resolve('{"error":"boom"}'),
+      }) as unknown as Response;
     return {
       urls,
       /** Resolve the nth in-flight request, oldest first. */
       resolve: async (index: number) => {
         await act(async () => {
           pending[index]?.(ok());
+        });
+      },
+      /** Fail the nth in-flight request with a 500. */
+      fail: async (index: number) => {
+        await act(async () => {
+          pending[index]?.(err());
         });
       },
     };
@@ -229,6 +253,41 @@ describe("NewEventPopover double submit (today-schedule)", () => {
     expect(screen.queryByPlaceholderText("Add title")).toBeTruthy();
   });
 
+  it("toasts when a create fails after its popover was dismissed", async () => {
+    // CAR-205 review. handleSaveNewEvent had no catch, so the rejection reached
+    // only QuickAddCard's catch, which does setError on its own state. Dismiss
+    // the popover mid-flight and that component is gone: React discards the
+    // update silently and the user, who pressed Enter and closed the card,
+    // believes the event exists. Nothing anywhere told them otherwise.
+    const net = controllableFetch();
+    const grid = renderSchedule();
+
+    const input = dragOpenDraft(grid);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+    expect(screen.queryByPlaceholderText("Add title")).toBeNull();
+
+    await net.fail(0);
+
+    expect(toastMock.error).toHaveBeenCalledWith("Couldn't create that event. Please try again.");
+  });
+
+  it("does not toast while the popover is still open, which shows its own error", async () => {
+    // The companion. A toast here would double-report, and it would also mean
+    // the gate was firing unconditionally rather than only when orphaned.
+    const net = controllableFetch();
+    const grid = renderSchedule();
+
+    const input = dragOpenDraft(grid);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await net.fail(0);
+
+    await waitFor(() => expect(screen.getByText("Failed to create event")).toBeTruthy());
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
   // The other half of CAR-205's fix — releasing `creatingRef` in the `finally`
   // only when it still holds THIS draft — is deliberately not tested here, for
   // the same reason the chokepoint guard itself is not (see the note above).
@@ -241,6 +300,54 @@ describe("NewEventPopover double submit (today-schedule)", () => {
   // right — an unconditional release does hand back the claim — but as with the
   // guard it defends, no UI path can observe it while the popover is the only
   // caller, and a test that cannot fail is worse than none.
+
+  /**
+   * CAR-205 review. The quick-add popover is a DOM descendant of the drag
+   * surface, and `handleGridMouseDown` closes any open draft on a mousedown it
+   * does not recognise. It recognises `[data-popover]` — which nothing in the
+   * repo rendered, so the exemption never matched and every mousedown inside the
+   * card destroyed the draft before the click could land.
+   *
+   * These use fireEvent.mouseDown deliberately. Every pre-existing test here
+   * drives the card by keyboard or by a bare `click` MouseEvent, and a bare
+   * click carries no preceding mousedown — which is exactly why a feature that
+   * was unusable with a real mouse had a green suite over it.
+   */
+  it("saves when Save is pressed with a real mouse, not just a synthetic click", () => {
+    const grid = renderSchedule();
+    dragOpenDraft(grid);
+    const save = screen.getByRole("button", { name: "Save" });
+
+    fireEvent.mouseDown(save);
+    // The whole defect in one assertion: before the fix the card was already
+    // unmounted here, so the click below landed on nothing.
+    expect(screen.queryByRole("button", { name: "Save" })).toBeTruthy();
+    fireEvent.mouseUp(save);
+    fireEvent.click(save);
+
+    expect(posts.filter((u) => u.includes("/api/calendar/create-event"))).toHaveLength(1);
+  });
+
+  it("keeps the draft and the typed title when the title input is clicked", () => {
+    const grid = renderSchedule();
+    const input = dragOpenDraft(grid);
+    fireEvent.change(input, { target: { value: "Coffee with Ada" } });
+
+    fireEvent.mouseDown(input);
+
+    const after = screen.queryByPlaceholderText("Add title") as HTMLInputElement | null;
+    expect(after).toBeTruthy();
+    expect(after?.value).toBe("Coffee with Ada");
+  });
+
+  it("keeps the draft when the Add Google Meet control is clicked", () => {
+    const grid = renderSchedule();
+    dragOpenDraft(grid);
+
+    fireEvent.mouseDown(screen.getByText(/Meet/i));
+
+    expect(screen.queryByPlaceholderText("Add title")).toBeTruthy();
+  });
 
   it("re-arms after a failed create so the retry actually retries", async () => {
     // Both guards latch on entry; if neither released, the popover's own

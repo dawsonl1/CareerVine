@@ -13,6 +13,7 @@ export type { CalendarAttendee as ScheduleEventAttendee } from "@/lib/calendar-a
 import type { CalendarAttendee } from "@/lib/calendar-attendees";
 import { apiSend, jsonBody } from "@/lib/api-client";
 import { LoadErrorState } from "@/components/ui/load-error-state";
+import { useToast } from "@/components/ui/toast";
 
 export interface ScheduleEvent {
   id: number;
@@ -75,8 +76,6 @@ interface DragState {
 interface NewEventDraft {
   startHour: number;
   endHour: number;
-  top: number;
-  height: number;
 }
 
 const SNAP_MINUTES = 15; // Snap to 15-minute intervals
@@ -221,6 +220,12 @@ function EventPopover({
   return (
     <div
       ref={popoverRef}
+      // Same exposure as QuickAddCard: this sits inside the drag surface too, so
+      // without the marker a mousedown on any control in here reaches the grid
+      // handler. Less visibly broken than the quick-add card only because that
+      // handler's first arm (data-event-block) already covers the wrapper this
+      // popover is rendered beside.
+      data-popover
       className="absolute z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant w-[300px] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
       style={{
         // Beside the event block (wrapper is already offset by event.top)
@@ -442,6 +447,15 @@ function QuickAddCard({
   return (
     <div
       ref={cardRef}
+      // The marker `handleGridMouseDown` has always tested for and nothing ever
+      // set (CAR-205 review). This card is a DOM descendant of the drag surface,
+      // so without it EVERY mousedown inside here bubbled to that handler, hit
+      // its "close any open draft" arm, and unmounted the card before the click
+      // landed: Save and the Meet toggle were unreachable with a mouse, and
+      // clicking into the title to move the caret discarded what you had typed.
+      // Only drag-then-Enter worked, which is why every test missed it (they all
+      // drive this by keyboard or by a bare synthetic click with no mousedown).
+      data-popover
       className="absolute z-50 bg-surface-container-high rounded-xl shadow-lg border border-outline-variant w-[280px] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
       style={{
         right: "calc(100% + 8px)",
@@ -506,11 +520,21 @@ function QuickAddCard({
 export function TodaySchedule({ events, loading, loadFailed = false, onRetry, calendarConnected, availableHeight, onLogConversation, onEventCreated }: TodayScheduleProps) {
   const [now, setNow] = useState(new Date());
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+  const { error: toastError } = useToast();
 
   // Drag-to-create state
   const gridRef = useRef<HTMLDivElement>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [newEventDraft, setNewEventDraft] = useState<NewEventDraft | null>(null);
+  /**
+   * The live draft, readable from a stale closure. `handleSaveNewEvent` captures
+   * the draft it was invoked for, so on a rejection it cannot otherwise tell
+   * "the popover is still open and will show the inline error" from "the popover
+   * was dismissed and nobody is listening" — the two need opposite handling
+   * (CAR-205 review). Synced in an effect rather than during render.
+   */
+  const liveDraftRef = useRef<NewEventDraft | null>(null);
+  useEffect(() => { liveDraftRef.current = newEventDraft; }, [newEventDraft]);
 
   // Update "now" every minute for the current-time indicator
   useEffect(() => {
@@ -606,14 +630,18 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
       // Minimum 15 minutes
       const finalEnd = draftEnd - draftStart < 0.25 ? draftStart + 0.25 : draftEnd;
 
-      const top = (draftStart - startHour) * HOUR_HEIGHT;
-      const height = (finalEnd - draftStart) * HOUR_HEIGHT;
-
-      setNewEventDraft({ startHour: draftStart, endHour: finalEnd, top, height });
+      // Hours only. Pixel geometry is DERIVED at render from the live `startHour`
+      // (see the draft block below), never frozen here: `startHour` is a memo over
+      // `events`, and now that a draft survives the post-create refresh, freezing
+      // its offset let the block drift up to an hour away from the time printed on
+      // its own card when that refresh changed the grid's origin (CAR-205 review).
+      setNewEventDraft({ startHour: draftStart, endHour: finalEnd });
     }
 
     setDragState(null);
-  }, [dragState, yToHour, startHour]);
+    // `startHour` dropped out with the frozen geometry: this handler now stores
+    // hours only, so it no longer reads the grid origin at all.
+  }, [dragState, yToHour]);
 
   // Drag preview dimensions. Hours are precomputed in the pointer handlers, so
   // this stays a pure render with no ref access.
@@ -671,6 +699,22 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
       // Calendar, so the parent must refetch whichever draft is on screen now;
       // gating this would hide a real event until some unrelated refresh.
       onEventCreated?.();
+    } catch (e) {
+      // An orphaned failure has nobody to report to (CAR-205 review). apiSend
+      // throws, and the only handler is QuickAddCard's catch, which renders
+      // "Failed to create event" into its own state. Dismiss the popover
+      // mid-flight and that component is gone, so React discards the update
+      // silently: no toast, no console, no unhandled rejection. The user pressed
+      // Enter, closed the card, and believes the event exists. It does not.
+      //
+      // Only the orphaned case is handled here. While the popover is still
+      // mounted its inline message and Retry are the better surface, so that
+      // path rethrows and is unchanged.
+      if (liveDraftRef.current !== newEventDraft) {
+        toastError("Couldn't create that event. Please try again.");
+        return;
+      }
+      throw e;
     } finally {
       // Re-arm even on success: apiSend throws on a non-2xx and the popover
       // catches it to offer a retry, so a guard that stayed latched would make
@@ -681,7 +725,7 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
       // in flight, handing back the double-submit hole this ref exists to close.
       if (creatingRef.current === newEventDraft) creatingRef.current = null;
     }
-  }, [newEventDraft, onEventCreated]);
+  }, [newEventDraft, onEventCreated, toastError]);
 
   if (loading) {
     return (
@@ -847,8 +891,9 @@ export function TodaySchedule({ events, loading, loadFailed = false, onRetry, ca
             <div
               className="absolute"
               style={{
-                top: newEventDraft.top,
-                height: newEventDraft.height,
+                // Derived from the live origin, like dragPreview and positionedEvents.
+                top: (newEventDraft.startHour - startHour) * HOUR_HEIGHT,
+                height: (newEventDraft.endHour - newEventDraft.startHour) * HOUR_HEIGHT,
                 left: LABEL_WIDTH + 4,
                 right: 0,
               }}

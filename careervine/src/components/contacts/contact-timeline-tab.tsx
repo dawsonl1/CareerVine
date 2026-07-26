@@ -5,6 +5,7 @@ import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalCancelButton } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { LoadErrorBanner } from "@/components/ui/load-error-state";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
 import type { ContactMeeting, InteractionRow, EmailMessage, CompletedActionEntry, TimelineEntry } from "@/lib/types";
@@ -19,6 +20,17 @@ interface ContactTimelineTabProps {
   emails: EmailMessage[];
   completedActions: CompletedActionEntry[];
   loading: boolean;
+  /**
+   * The email read failed, so `emails` below is empty for a reason that has
+   * nothing to do with this contact's history (CAR-205 review). This tab MERGES
+   * emails into the timeline, so without a surface of its own it renders a
+   * relationship history with every email silently missing — and for an
+   * email-only contact, the load-empty copy over a failed read. The Emails tab
+   * has always shown this failure; the Timeline consumes the same array and
+   * never did.
+   */
+  emailsLoadFailed?: boolean;
+  onReloadEmails?: () => void;
   onMeetingClick?: (meeting: ContactMeeting) => void;
   onInteractionsChange: (interactions: InteractionRow[]) => void;
   /**
@@ -41,6 +53,8 @@ export function ContactTimelineTab({
   emails,
   completedActions,
   loading,
+  emailsLoadFailed = false,
+  onReloadEmails,
   onMeetingClick,
   onInteractionsChange,
   onConfirmDeleteInteraction,
@@ -107,6 +121,18 @@ export function ContactTimelineTab({
       <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-4">
         <Calendar className="h-4 w-4" /> Timeline{entries.length > 0 ? ` (${entries.length})` : ""}
       </h4>
+
+      {/* A banner rather than the full state: the meetings, interactions and
+          completed actions below are still valid and still worth showing. What
+          is not acceptable is showing them as though they were the whole
+          history when the emails are missing (section f). */}
+      {emailsLoadFailed && onReloadEmails && (
+        <LoadErrorBanner
+          className="mb-4"
+          message="Couldn't load this contact's emails, so the timeline below is missing them."
+          onRetry={onReloadEmails}
+        />
+      )}
 
       {loading ? (
         <div className="flex items-center gap-2.5 text-muted-foreground py-2">

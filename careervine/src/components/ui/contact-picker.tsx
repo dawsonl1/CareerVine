@@ -15,6 +15,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { useDropdownEscape } from "@/hooks/use-dropdown-escape";
 import { X, Search } from "lucide-react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 
@@ -53,9 +54,11 @@ export function ContactPicker({
   const removeContact = (id: number) => {
     onChange(selectedIds.filter((cid) => cid !== id));
   };
+  // Escape closes this list, not the dialog around it (CAR-205 review).
+  const handleEscape = useDropdownEscape(open, setOpen);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" onKeyDown={handleEscape}>
       <div
         className="min-h-[3.5rem] px-3 py-2 bg-surface-container-low text-foreground rounded-[4px] border border-outline focus-within:border-primary focus-within:border-2 transition-colors flex flex-wrap items-center gap-1.5 cursor-text"
         onClick={() => inputRef.current?.focus()}

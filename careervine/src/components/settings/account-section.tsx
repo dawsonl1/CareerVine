@@ -43,6 +43,14 @@ export default function AccountSection() {
 
   const loadProfile = useCallback(async () => {
     if (!user) return;
+    // `setLoading(true)` as well as clearing the flag, and in that order, so a
+    // RETRY re-enters the spinner branch below instead of the form (CAR-205
+    // review). Clearing `loadFailed` alone dropped straight back to the form
+    // with the name fields still at "" for the whole length of the retry read —
+    // the same unloaded-and-writable state the error state exists to prevent,
+    // reached through the error state's own Retry button. companies/page.tsx
+    // already had this ordering; this file did not.
+    setLoading(true);
     setLoadFailed(false);
     try {
       const profile = await getUserProfile(user.id);
@@ -54,9 +62,18 @@ export default function AccountSection() {
       console.error("Error loading profile:", err);
       // This read is the only source of the name fields, so a failure that fell
       // through left them at "" and the form rendered as though the user had no
-      // name on file. Saving then wrote those empty strings over the stored name
-      // in both `public.users` and the auth metadata — the one finding in the
-      // Wave 2 audit that destroyed data rather than hiding it (CAR-205).
+      // name on file, with Save live (CAR-205).
+      //
+      // Precisely what that costs, because the first version of this comment
+      // overstated it (CAR-205 review): both name inputs are `required` and the
+      // form is not `noValidate`, so a click on Save over blank fields is
+      // refused by constraint validation and writes nothing. The reachable loss
+      // is the next step — a user who believes the fields are genuinely empty
+      // retypes a name to satisfy `required` and saves, which overwrites the
+      // stored name with their guess AND writes `phone: null` over a stored
+      // phone (the phone input carries no `required` to stop it). The toggle
+      // below has the same shape: it renders its `true` default over a
+      // preference that may have been off, and flipping it persists the guess.
       setLoadFailed(true);
     } finally {
       setLoading(false);
@@ -72,10 +89,11 @@ export default function AccountSection() {
     e.preventDefault();
     if (!user) return;
     // Second line of defence, not the fix: the form is not rendered at all while
-    // the read has failed. It is here because the failure mode this guards is
-    // silent data loss, and a later change that moved the error surface to a
-    // banner beside the form would restore it without anything going red.
-    if (loadFailed) return;
+    // the read has failed or is in flight. It is here because the failure mode
+    // this guards is data loss, and a later change that moved the error surface
+    // to a banner beside the form would restore it without anything going red.
+    // `loading` is included because the retry window is the reachable case.
+    if (loadFailed || loading) return;
     setError("");
     setSaving(true);
     try {

@@ -17,10 +17,16 @@ interface ContactAttachmentsTabProps {
   contactId: number;
   userId: string;
   attachments: Attachment[];
+  /**
+   * True while the related-data read is in flight. This tab has no empty-state
+   * copy to lie with, but without it the upload control invites a drop into a
+   * list that has not loaded yet (CAR-205 review).
+   */
+  loading?: boolean;
   onAttachmentsChange: (attachments: Attachment[]) => void;
 }
 
-export function ContactAttachmentsTab({ contactId, userId, attachments, onAttachmentsChange }: ContactAttachmentsTabProps) {
+export function ContactAttachmentsTab({ contactId, userId, attachments, loading = false, onAttachmentsChange }: ContactAttachmentsTabProps) {
   const [uploading, setUploading] = useState(false);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,7 +84,14 @@ export function ContactAttachmentsTab({ contactId, userId, attachments, onAttach
         <Paperclip className="h-4 w-4" /> Attachments{attachments.length > 0 ? ` (${attachments.length})` : ""}
       </h4>
 
-      {attachments.length > 0 && (
+      {loading && (
+        <div className="flex items-center gap-2.5 text-muted-foreground py-2">
+          <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent" />
+          <span className="text-sm">Loading...</span>
+        </div>
+      )}
+
+      {!loading && attachments.length > 0 && (
         <div className="space-y-2 mb-4">
           {attachments.map((att) => (
             <div key={att.id} className="flex items-center gap-2.5 text-base group">

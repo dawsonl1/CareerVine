@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
 import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
 import { mockToastModule } from "./helpers/mock-toast";
+import { installFakeFetch } from "./helpers/fake-fetch";
+import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 
 /**
  * CAR-205, finding 6b. `loadRelatedData` caught into `console.error`, so on a
@@ -51,11 +53,26 @@ vi.mock("@/hooks/use-capabilities", () => ({
 
 // Tab and card doubles. Each renders the copy the real one shows when its data
 // is empty, which is exactly the lie the fix has to stop reaching the screen.
+// The doubles echo the props under test rather than only their empty copy, so a
+// resync case can assert that loaded rows SURVIVED rather than merely that some
+// text is on screen.
 vi.mock("@/components/contacts/contact-actions-tab", () => ({
-  ContactActionsTab: () => <p>No open action items</p>,
+  ContactActionsTab: ({ actions, loading }: { actions: unknown[]; loading?: boolean }) =>
+    loading ? <p>actions loading</p> : actions.length ? <p>actions: {actions.length}</p> : <p>No open action items</p>,
 }));
 vi.mock("@/components/contacts/contact-timeline-tab", () => ({
-  ContactTimelineTab: () => <p>No history yet</p>,
+  ContactTimelineTab: ({
+    interactions,
+    emailsLoadFailed,
+  }: {
+    interactions: unknown[];
+    emailsLoadFailed?: boolean;
+  }) => (
+    <>
+      {emailsLoadFailed && <p>timeline emails banner</p>}
+      {interactions.length ? <p>timeline rows: {interactions.length}</p> : <p>No history yet</p>}
+    </>
+  ),
 }));
 vi.mock("@/components/contacts/contact-attachments-tab", () => ({
   ContactAttachmentsTab: () => <p>No files yet</p>,
@@ -172,6 +189,58 @@ describe("contact detail related-data load failure", () => {
 
     await waitFor(() => expect(screen.queryByText(FAILED)).toBeNull());
     expect(screen.getByText("No history yet")).toBeTruthy();
+  });
+
+  /**
+   * CAR-205 review. Two of loadRelatedData's five callers are re-reads that fire
+   * after a SUCCESSFUL write (onActionCompleted, and the conversationLogged
+   * event). Section f says those must surface the failure — it does NOT say they
+   * may destroy what is on screen, and the arrays are never cleared on a throw,
+   * so a resync failure had valid content to preserve and wiped it anyway.
+   *
+   * Driven through the conversationLogged event because it is the caller that
+   * needs no child component to be real.
+   */
+  it("keeps loaded activity when a resync fails, and says so in a banner", async () => {
+    q.getInteractions.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    await renderPage();
+    await waitFor(() => expect(screen.getByText(/timeline rows: 3/)).toBeTruthy());
+
+    // The write already succeeded; only the refresh that follows it fails.
+    q.getInteractions.mockRejectedValue(new Error("boom"));
+    await act(async () => {
+      emitUiEvent(UI_EVENTS.conversationLogged, undefined);
+    });
+
+    await waitFor(() => expect(screen.getByText(/Couldn't refresh this contact's activity/)).toBeTruthy());
+    expect(screen.getByText(/timeline rows: 3/)).toBeTruthy();
+    expect(screen.queryByText(FAILED)).toBeNull();
+  });
+
+  it("still takes the full error state when nothing has ever loaded", async () => {
+    // The companion: `relatedLoaded` must actually distinguish the two, or the
+    // banner would replace the first-load state and a mount failure would show
+    // "Showing what was already loaded" over nothing at all.
+    q.getInteractions.mockRejectedValue(new Error("boom"));
+    await renderPage();
+
+    await waitFor(() => expect(screen.getByText(FAILED)).toBeTruthy());
+    expect(screen.queryByText(/Couldn't refresh this contact's activity/)).toBeNull();
+  });
+
+  it("surfaces a failed email read on the Timeline, which merges emails in", async () => {
+    // The Emails tab has always shown this failure. Timeline consumes the same
+    // array and had no surface for it, so a failed email read rendered a
+    // relationship history with every email silently missing.
+    q.getInteractions.mockResolvedValue([{ id: 1 }]);
+    q.getGmailConnection.mockResolvedValue({ id: 1, email_address: "me@x.com" });
+    installFakeFetch({
+      "GET /api/gmail/emails?contactId=7": { reject: new Error("boom") },
+      "GET /api/gmail/schedule?contactId=7": { body: { scheduledEmails: [] } },
+    });
+    await renderPage();
+
+    await waitFor(() => expect(screen.getByText("timeline emails banner")).toBeTruthy());
   });
 
   it("shows the tabs normally when the reads succeed", async () => {
