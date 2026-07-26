@@ -19,6 +19,7 @@ import {
 } from "../lib/db";
 import { buildDossier } from "../lib/dossier";
 import { handler, contactRefShape } from "../lib/tool-utils";
+import { dateKeyOf, daysBetweenDateKeys, todayDateKey } from "@/lib/calendar-day";
 
 export const searchContactsSchema = {
   query: z.string().min(1).describe("Matches name, email, company, job title, school, industry, or tag"),
@@ -114,7 +115,6 @@ export function registerContactTools(server: McpServer): void {
         getContactStages(uid(), matches.map((m) => ({ id: m.id, stage_override: m.stage_override }))),
         buildLastTouchMap(matches.map((m) => m.id)),
       ]);
-      const now = Date.now();
 
       const results = matches.map((m) => {
         const current = m.contact_companies.find((cc) => cc.is_current);
@@ -129,7 +129,9 @@ export function registerContactTools(server: McpServer): void {
           title: current?.title ?? null,
           network_tier: m.network_status,
           outreach_stage: stages.get(m.id)?.stage ?? null,
-          last_touch_days_ago: touched ? Math.floor((now - new Date(touched).getTime()) / 86400_000) : null,
+          last_touch_days_ago: touched
+            ? daysBetweenDateKeys(dateKeyOf(new Date(touched)), todayDateKey())
+            : null,
           primary_email: primary
             ? { email: primary.email, source: primary.source, bounced: primary.bounced_at != null }
             : null,

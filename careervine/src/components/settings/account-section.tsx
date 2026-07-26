@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 import { getUserProfile, updateUserProfile } from "@/lib/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { Toggle } from "@/components/ui/toggle";
@@ -15,6 +16,7 @@ export default function AccountSection() {
   const { user } = useAuth();
   const { error: toastError } = useToast();
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -41,6 +43,15 @@ export default function AccountSection() {
 
   const loadProfile = useCallback(async () => {
     if (!user) return;
+    // `setLoading(true)` as well as clearing the flag, and in that order, so a
+    // RETRY re-enters the spinner branch below instead of the form (CAR-205
+    // review). Clearing `loadFailed` alone dropped straight back to the form
+    // with the name fields still at "" for the whole length of the retry read —
+    // the same unloaded-and-writable state the error state exists to prevent,
+    // reached through the error state's own Retry button. companies/page.tsx
+    // already had this ordering; this file did not.
+    setLoading(true);
+    setLoadFailed(false);
     try {
       const profile = await getUserProfile(user.id);
       setFirstName(profile.first_name || "");
@@ -49,6 +60,21 @@ export default function AccountSection() {
       setNudgesEnabled(profile.followup_nudges_enabled ?? true);
     } catch (err) {
       console.error("Error loading profile:", err);
+      // This read is the only source of the name fields, so a failure that fell
+      // through left them at "" and the form rendered as though the user had no
+      // name on file, with Save live (CAR-205).
+      //
+      // Precisely what that costs, because the first version of this comment
+      // overstated it (CAR-205 review): both name inputs are `required` and the
+      // form is not `noValidate`, so a click on Save over blank fields is
+      // refused by constraint validation and writes nothing. The reachable loss
+      // is the next step — a user who believes the fields are genuinely empty
+      // retypes a name to satisfy `required` and saves, which overwrites the
+      // stored name with their guess AND writes `phone: null` over a stored
+      // phone (the phone input carries no `required` to stop it). The toggle
+      // below has the same shape: it renders its `true` default over a
+      // preference that may have been off, and flipping it persists the guess.
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -62,6 +88,12 @@ export default function AccountSection() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    // Second line of defence, not the fix: the form is not rendered at all while
+    // the read has failed or is in flight. It is here because the failure mode
+    // this guards is data loss, and a later change that moved the error surface
+    // to a banner beside the form would restore it without anything going red.
+    // `loading` is included because the retry window is the reachable case.
+    if (loadFailed || loading) return;
     setError("");
     setSaving(true);
     try {
@@ -140,111 +172,126 @@ export default function AccountSection() {
 
   return (
     <div className="space-y-7">
-      {/* Profile */}
-      <Card variant="outlined">
-        <CardContent className="p-7">
-          <div className="flex items-center gap-4 mb-7">
-            <div className="w-14 h-14 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-xl font-medium">
-              {(firstName?.[0] || user.email?.[0] || "U").toUpperCase()}
+      {/* Profile + notification preference, or the honest failure for both.
+          They read the same profile row, so one failed read makes both of them
+          lie: the name fields would render blank and the reminders toggle would
+          render its `true` default over whatever the user actually chose. The
+          password card below is deliberately outside this branch — it goes
+          straight to `supabase.auth.updateUser` and reads nothing this loader
+          fetched, so a profile failure must not take it away too. */}
+      {loadFailed ? (
+        <LoadErrorState
+          message="Couldn't load your profile."
+          onRetry={() => void loadProfile()}
+        />
+      ) : (
+        <>
+        <Card variant="outlined">
+          <CardContent className="p-7">
+            <div className="flex items-center gap-4 mb-7">
+              <div className="w-14 h-14 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-xl font-medium">
+                {(firstName?.[0] || user.email?.[0] || "U").toUpperCase()}
+              </div>
+              <div>
+                <p className="text-lg font-medium text-foreground">
+                  {firstName || lastName ? `${firstName} ${lastName}`.trim() : "Your profile"}
+                </p>
+                <p className="text-sm text-muted-foreground">{user.email}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-lg font-medium text-foreground">
-                {firstName || lastName ? `${firstName} ${lastName}`.trim() : "Your profile"}
-              </p>
-              <p className="text-sm text-muted-foreground">{user.email}</p>
-            </div>
-          </div>
 
-          <form onSubmit={handleSave} className="space-y-5">
-            <div className="grid grid-cols-2 gap-5">
+            <form onSubmit={handleSave} className="space-y-5">
+              <div className="grid grid-cols-2 gap-5">
+                <div>
+                  <label className={labelClasses}>
+                    <span className="inline-flex items-center gap-1.5"><User className="h-4 w-4" /> First name</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className={inputClasses}
+                    placeholder="First name"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className={labelClasses}>Last name</label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className={inputClasses}
+                    placeholder="Last name"
+                    required
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className={labelClasses}>
-                  <span className="inline-flex items-center gap-1.5"><User className="h-4 w-4" /> First name</span>
+                  <span className="inline-flex items-center gap-1.5"><Mail className="h-4 w-4" /> Email</span>
                 </label>
                 <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  className={inputClasses}
-                  placeholder="First name"
-                  required
+                  type="email"
+                  value={user.email || ""}
+                  disabled
+                  className={`${inputClasses} opacity-50 cursor-not-allowed`}
                 />
+                <p className="text-xs text-muted-foreground mt-1">Email is managed through authentication and cannot be changed here.</p>
               </div>
+
               <div>
-                <label className={labelClasses}>Last name</label>
+                <label className={labelClasses}>
+                  <span className="inline-flex items-center gap-1.5"><Phone className="h-4 w-4" /> Phone</span>
+                </label>
                 <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
                   className={inputClasses}
-                  placeholder="Last name"
-                  required
+                  placeholder="555-123-4567 (optional)"
                 />
               </div>
-            </div>
 
-            <div>
-              <label className={labelClasses}>
-                <span className="inline-flex items-center gap-1.5"><Mail className="h-4 w-4" /> Email</span>
-              </label>
-              <input
-                type="email"
-                value={user.email || ""}
-                disabled
-                className={`${inputClasses} opacity-50 cursor-not-allowed`}
+              {error && <p className="text-base text-destructive">{error}</p>}
+
+              <div className="flex items-center gap-4 pt-3">
+                <Button type="submit" loading={saving}>Save changes</Button>
+                {saved && (
+                  <span className="inline-flex items-center gap-1.5 text-base text-primary font-medium animate-pulse">
+                    <Check className="h-5 w-5" /> Saved
+                  </span>
+                )}
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Email notifications */}
+        <Card variant="outlined">
+          <CardContent className="p-7">
+            <div className="flex items-center gap-3 mb-6">
+              <Bell className="h-6 w-6 text-muted-foreground" />
+              <h2 className="text-lg font-medium text-foreground">Email notifications</h2>
+            </div>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-base font-medium text-foreground">Follow-up reminders</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Get an email when a follow-up is waiting for your review, with a reminder or two before it expires.
+                </p>
+              </div>
+              <Toggle
+                checked={nudgesEnabled}
+                disabled={nudgesSaving}
+                onChange={(v) => void toggleNudges(v)}
               />
-              <p className="text-xs text-muted-foreground mt-1">Email is managed through authentication and cannot be changed here.</p>
             </div>
-
-            <div>
-              <label className={labelClasses}>
-                <span className="inline-flex items-center gap-1.5"><Phone className="h-4 w-4" /> Phone</span>
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className={inputClasses}
-                placeholder="555-123-4567 (optional)"
-              />
-            </div>
-
-            {error && <p className="text-base text-destructive">{error}</p>}
-
-            <div className="flex items-center gap-4 pt-3">
-              <Button type="submit" loading={saving}>Save changes</Button>
-              {saved && (
-                <span className="inline-flex items-center gap-1.5 text-base text-primary font-medium animate-pulse">
-                  <Check className="h-5 w-5" /> Saved
-                </span>
-              )}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Email notifications */}
-      <Card variant="outlined">
-        <CardContent className="p-7">
-          <div className="flex items-center gap-3 mb-6">
-            <Bell className="h-6 w-6 text-muted-foreground" />
-            <h2 className="text-lg font-medium text-foreground">Email notifications</h2>
-          </div>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-base font-medium text-foreground">Follow-up reminders</p>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                Get an email when a follow-up is waiting for your review, with a reminder or two before it expires.
-              </p>
-            </div>
-            <Toggle
-              checked={nudgesEnabled}
-              disabled={nudgesSaving}
-              onChange={(v) => void toggleNudges(v)}
-            />
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+        </>
+      )}
 
       {/* Change password */}
       <Card variant="outlined">

@@ -136,7 +136,7 @@ type ChangeMock = ReturnType<typeof changeMock>;
  * dialog vanishes mid-question). So the tests drive the callback directly.
  */
 function renderAttachments(
-  opts: { onChange?: ChangeMock; confirmed?: boolean | Promise<boolean> } = {},
+  opts: { onChange?: ChangeMock; confirmed?: boolean | Promise<boolean>; loading?: boolean } = {},
 ) {
   const onChange = opts.onChange ?? changeMock();
   const onConfirmDelete = vi.fn(() =>
@@ -149,12 +149,45 @@ function renderAttachments(
       contactId={7}
       userId="u-1"
       attachments={[attachment]}
+      loading={opts.loading ?? false}
       onAttachmentsChange={onChange}
       onConfirmDelete={onConfirmDelete}
     />,
   );
   return { onChange, onConfirmDelete };
 }
+
+/**
+ * The merge of CAR-205 and CAR-207 on this component.
+ *
+ * Both landed a deep-review pass on the same file in parallel: CAR-205 added the
+ * `loading` prop so the tab shows a spinner instead of an empty list while the
+ * related-data read is in flight, and CAR-207 replaced the delete path with a
+ * page-owned confirm and a functional-updater write. The conflict was in the
+ * props block, where taking either side whole would have silently dropped the
+ * other. These pin that both survived and compose.
+ */
+describe("ContactAttachmentsTab — the CAR-205 + CAR-207 merge", () => {
+  it("shows the loading state instead of the list while the read is in flight", async () => {
+    renderAttachments({ loading: true });
+
+    expect(screen.getByText("Loading...")).toBeTruthy();
+    // The list is withheld, so an in-flight read cannot read as "no files".
+    expect(screen.queryByText("resume.pdf")).toBeNull();
+  });
+
+  it("still guards delete once loaded", async () => {
+    const { onConfirmDelete } = renderAttachments({ loading: false });
+
+    expect(screen.getByText("resume.pdf")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Delete attachment"));
+    });
+
+    expect(onConfirmDelete).toHaveBeenCalledTimes(1);
+    expect(deleteAttachment).toHaveBeenCalledTimes(1);
+  });
+});
 
 /** Apply the functional updater the component passed to setState. */
 function applyUpdate(onChange: ChangeMock, prev: Att[]): Att[] {

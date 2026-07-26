@@ -11,6 +11,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useDropdownEscape } from "@/hooks/use-dropdown-escape";
 import { GraduationCap } from "lucide-react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 
@@ -96,9 +97,11 @@ export function SchoolAutocomplete({
         u.toLowerCase().includes(query.toLowerCase())
       ).slice(0, 8)
     : [];
+  // Escape closes this list, not the dialog around it (CAR-205 review).
+  const handleEscape = useDropdownEscape(open, setOpen);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" onKeyDown={handleEscape}>
       <div className="relative">
         <input
           type="text"

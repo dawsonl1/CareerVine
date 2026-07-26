@@ -3,6 +3,7 @@
 import { CheckSquare } from "lucide-react";
 import { updateActionItem } from "@/lib/queries";
 import { useToast } from "@/components/ui/toast";
+import { formatDueDate, isDueDateOverdue } from "@/lib/due-date";
 
 type ActionItem = {
   id: number;
@@ -56,8 +57,7 @@ export function ContactPendingActionsBanner({
       </div>
       <div className="space-y-1.5">
         {shown.map((item) => {
-          const todayStr = new Date().toISOString().split("T")[0];
-          const overdue = item.due_at && item.due_at.split("T")[0] < todayStr;
+          const overdue = isDueDateOverdue(item.due_at);
           return (
             <div key={item.id} className="flex items-center gap-2.5 group">
               <button
@@ -70,7 +70,7 @@ export function ContactPendingActionsBanner({
               <span className="text-sm text-foreground truncate flex-1">{item.title}</span>
               {item.due_at && (
                 <span className={`text-xs shrink-0 ${overdue ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                  {overdue ? "Overdue" : `Due ${new Date(item.due_at).toLocaleDateString()}`}
+                  {overdue ? "Overdue" : `Due ${formatDueDate(item.due_at)}`}
                 </span>
               )}
             </div>
