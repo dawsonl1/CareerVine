@@ -168,9 +168,11 @@ permanently erased every email-to-meeting link in it (CAR-175).
   no module-scope Supabase client under `careervine/src/lib/data` or
   `careervine/src/lib/rules`, the CAS readback shape, unchecked `const { data }`
   reads, and raw query-builder growth in the MCP db module. (The script carries
-  twelve checks in total: two further ones on MCP launch flags and test mocks,
-  see sections g and h, and five client-state ones, see section f. CAR-190
-  corrected a long-standing "four" here and in its own ticket description.) Its
+  eleven checks in total: two further ones on MCP launch flags and test mocks,
+  see sections g and h, and four client-state ones, see section f. CAR-190
+  corrected a long-standing "four" here and in its own ticket description;
+  CAR-208 took the total from twelve to eleven by deleting the duplicate
+  overlay check.) Its
   data-layer escape hatches
   both demand a written reason: `// cas-checked:` and `// error-tolerated:`.
   The app-owned-column rule is enforced by
@@ -408,7 +410,20 @@ only, never a rejected promise in a handler; that is the contract above.
   justification — the rule whose unenforced version let a portalled menu inside a
   trapped dialog become keyboard-unreachable.
 
-  `careervine/scripts/check-conventions.mjs` adds five more (CAR-190). Scope is
+  That file is the SOLE enforcer of the dialog rule. `check-conventions.mjs`
+  carried a second copy of it until CAR-208 deleted that copy: the two accepted
+  near-anagram escape hatches, and neither honoured the other's, so the first
+  contributor with a legitimate non-dialog overlay would have written whichever
+  token the error they hit first named and stayed red against the other. The
+  surviving spelling is `non-dialog-overlay:` (the deleted check's was
+  `overlay-not-a-dialog:`, and `careervine/src/__tests__/conventions-doc.test.ts`
+  now fails if that retired token reappears in `careervine/src`). The two guards
+  were complementary rather than ordered, so the deleted one's detection rule —
+  `fixed` and `inset-0` as independent tokens, which catches a reordered or
+  interpolated class list — was ported into the survivor rather than lost with
+  it.
+
+  `careervine/scripts/check-conventions.mjs` adds four more (CAR-190, CAR-208). Scope is
   `careervine/src/components` + `careervine/src/hooks` + `careervine/src/app`, minus
   the API routes and minus server files (a Route Handler anywhere, or anything under
   `careervine/src/app` with no `"use client"`) — in a server component `fetch` IS the idiomatic
@@ -419,36 +434,54 @@ only, never a rejected promise in a handler; that is the contract above.
   | -- | -- | -- |
   | no raw `fetch(` | any `fetch` in the client tree **or in a module the client tree imports** (runtime edges only, so `import type` does not count), plus a literal `/api/...` URL anywhere else under `careervine/src/` | `// raw-fetch:` |
   | no native confirm | `window.confirm`, or a bare `confirm(` with no **lexically enclosing** binding (`useConfirm()` returns one, so binding is what separates the two) | none |
-  | double-submit ref | an async `handle*`/`on*` that writes, with no ref both READ in an early return and claimed before the first await | `// reentry-safe:` + ratchet |
-  | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, gated by neither `isLatest`, a cancellation flag, nor an `AbortSignal` | `// latest-request-exempt:` + ratchet |
-  | dialog semantics | a `fixed inset-0` element outside `modal.tsx` with no `role="dialog"` in its own subtree | `// overlay-not-a-dialog:` + ratchet |
+  | double-submit ref | any async function that writes — whatever it is named, including an inline `onClick={async () => …}` — with no ref both READ in an early return and claimed before the first await | `// reentry-safe:` + ratchet |
+  | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, gated by neither `isLatest`, a cancellation flag (either polarity, and it must stand between the response and the commit), nor an `AbortSignal` | `// latest-request-exempt:` + ratchet |
 
-  The first two are frozen at zero. The last three ship as **ratchets** over a
-  baseline (48 handlers, 6 reads, and — since CAR-197 landed — 0 overlays) rather than as the warning CAR-190
+  The first two are frozen at zero. The last two ship as **ratchets** over a
+  baseline (129 handlers, 6 reads) rather than as the warning CAR-190
   originally proposed, because a warning exits 0 and that is precisely how CAR-154's
   helper decayed to 6 files and CAR-158's to 1. A ratchet fails both ways: an
   offender absent from the baseline fails, and a baselined site that no longer
   offends fails too, so a fix can never be given back.
-  `careervine/scripts/lib/ratchet.mjs` holds that algebra and its rationale. The
-  handler and read baselines are **named** (one row consumes one slot, so a repeated
-  name cannot ride another's entry); the overlay one is **counted per file**, because
-  an overlay `<div>` has no name to key on — which means a same-file swap there is
-  invisible, and is the one thing the named form buys that the counted form cannot.
-  CAR-197 drained the overlay baseline to zero by migrating those same twelve dialogs,
-  and this script's own dead-baseline check is what forced the entries out: a ratchet
-  fails when a baselined site stops offending, so the fix could not be given back.
+  `careervine/scripts/lib/ratchet.mjs` holds that algebra and its rationale. Both
+  baselines are **named** (one row consumes one slot, so a repeated name cannot ride
+  another's entry). An inline JSX handler has no declaration to name, so it is keyed
+  by its prop — two `onClick`s in one file are two slots, which the multiset
+  accounting already handles.
 
-  Read those three numbers as a property of the DETECTOR, not of the codebase. The
-  handler baseline was first published as 35; a review found five blind spots
-  (mutations carried by `apiFetch`, verbs absent from a hand-written allowlist, every
-  `@/lib` module outside a list of five, a write one hop away in a local helper, and
-  a guard-recognition rule that accepted refs which guarded nothing) and the real
-  figure was 54. CAR-207 drained six of them, being the three files it already had
-  open: `data-subscriptions-section.tsx`'s `handleSubscribe` and `handleUnsubscribe`
-  (the two the baseline named as first to go — non-idempotent, and one POSTs a
-  destructive contact-removal loop), `contact-attachments-tab.tsx`'s pair, and
-  `interactions/page.tsx`, which left both baselines because that route is now a
-  redirect. The remaining 48 are still the mechanical sweep's job.
+  Read both numbers as a property of the DETECTOR, not of the codebase, and treat
+  every published figure here as provisional. The handler baseline has been wrong
+  twice. It was first published as 35; a review found five blind spots (mutations
+  carried by `apiFetch`, verbs absent from a hand-written allowlist, every `@/lib`
+  module outside a list of five, a write one hop away in a local helper, and a
+  guard-recognition rule that accepted refs which guarded nothing) and the figure
+  became 54. CAR-208 then found three more — a **handler-name filter** that inspected
+  `handleAdd` while ignoring an identical `addContact`, **inline JSX handlers** as an
+  entire invisible form, and **non-named import shapes** that bound a seam the scan
+  could not resolve — and the figure became 129. The first of those was hiding a live
+  gap: the two unguarded submits in the admin contacts card. (An earlier draft
+  of this paragraph called that a live double-click bug. It is not one - `Button`
+  disables itself from `loading`, and React commits that before the browser
+  dispatches a second click, so the second click never reaches the handler. The
+  claim was written from the detector's finding rather than from a test, which
+  is the failure mode this whole section is about.)
+
+  129 is deliberately an OVER-count, and reading it as 129 double-click bugs would be
+  wrong. A callee is judged a write by its verb against a denylist of read verbs, so
+  pure helpers whose names do not look like reads count as writes, and a handler one
+  hop from a real write counts alongside the helper it calls. That asymmetry is
+  chosen: over-inclusion costs a baseline line, under-inclusion costs a live bug.
+  Tuning it the other way is how you break it — adding `fetch` to the read verbs, the
+  safest-looking addition available, silently un-flagged the most destructive handler
+  on the list, because its write goes through a helper called `fetchStepWithRetry`.
+  The list has since shrunk from the other end too. CAR-207 drained six entries,
+  being the three files it already had open: `data-subscriptions-section.tsx`'s
+  `handleSubscribe` and `handleUnsubscribe` (the two this paragraph used to name
+  as first to go — non-idempotent, and one POSTs a destructive contact-removal
+  loop), `contact-attachments-tab.tsx`'s pair, which got the confirm dialog its
+  delete should always have had, and `interactions/page.tsx`, which left **both**
+  baselines because that route is now a redirect with no handlers in it. Draining
+  the rest is still the mechanical sweep's job.
 
 - Enforced (behavior, no adoption check): `modal.test.tsx` covers the focus
   trap, the `data-autofocus` marker and dialog semantics for both layers, `careervine/src/__tests__/dialog-layer.test.tsx` covers
@@ -579,14 +612,25 @@ authoritative for logic. CI runs it as the separate `integration` job.
 
 Coverage is a gate rather than a report (CAR-186). `npm run test:coverage`, and
 the CI `web` job which runs the suite with `--coverage`, measure
-`careervine/src/lib` and `careervine/src/hooks` only. Two kinds of regression
-fail it: global percentage floors catch broad erosion, and per-area "maximum
-uncovered units" budgets catch newly added untested code, which a percentage
-cannot — one new module is far too small to move the ratio of a corpus this size
-past any usable buffer. `careervine/src/components` and `careervine/src/app` are
-deliberately unmeasured, because a line number there rewards
-render-and-assert-nothing tests; the browser tier owns them. Every threshold's
-measured baseline is recorded beside it in the config.
+`careervine/src/lib`, `careervine/src/hooks` and `careervine/src/mcp`. Two kinds
+of regression fail it: global percentage floors catch broad erosion, and
+per-area "maximum uncovered units" budgets catch newly added untested code,
+which a percentage cannot — one new module is far too small to move the ratio of
+a corpus this size past any usable buffer. `careervine/src/components` and
+`careervine/src/app` are deliberately unmeasured, because a line number there
+rewards render-and-assert-nothing tests; the browser tier owns them. Every
+threshold's measured baseline is recorded beside it in the config.
+
+`careervine/src/mcp` joined the gate in CAR-208 and had been outside it since
+the gate existed, at 47% statements with `careervine/src/mcp/tools` at 4%. It is
+a shipped product surface, it has its own unit tests (eleven files under
+`careervine/src/mcp/__tests__`, which is where that 47% comes from), and it is
+referenced by neither the integration nor the E2E tier — so what was missing was
+specifically a coverage FLOOR: no per-area budget, and far too small a share of
+the corpus to move a global percentage, meaning a new untested MCP tool moved no
+number and failed no check. Each measured area carries its OWN budget rather than
+only feeding the global percentages: a weak area blended into one number hides
+behind a strong one, which is exactly what had happened to `careervine/src/hooks`.
 
 - Authoritative: `careervine/vitest.config.ts`,
   `careervine/vitest.integration.config.ts` (header), the header of each
@@ -693,16 +737,24 @@ whatever the app itself writes, with no coupling to `@supabase/ssr`'s encoding.
 The signup spec opts out with `test.use({ storageState: { cookies: [], origins: [] } })`.
 
 **One shared tenant, single-worker.** `fullyParallel: false` and `workers: 1`,
-so the flows write to one database in file order. Two specs mint their own
+so the flows write to one database in file order. Three specs mint their own
 identity instead, because the shared one cannot be it: the capability flow needs
-a FREE account (the shared tenant is premium, and `resolve.ts` fails open to
-premium on a null flag), and the admin flow needs both an admin and a non-admin.
-Both opt out of the project storageState and call `mintSessionUrl` in-test. A
-spec that mutates shared state puts it back in `afterEach` — `settings-keys`
-re-seeds the Gmail connection it deletes, `calendar-sync` revokes the calendar
-scope it grants — otherwise a later spec passes or fails on whether an earlier
-one ran. `afterEach`, not `finally`: a body abandoned at the test timeout never
-reaches a `finally`.
+a FREE account and the shared tenant is premium (`seedGmailConnection` grants
+`modify_scope_granted` and leaves `premium_enabled` at its `NOT NULL DEFAULT
+true`, which is why `seedFreeTierConnection` sets that column explicitly rather
+than omitting it); the admin flow needs both an admin and a non-admin; and
+`settings-keys` destroys more than it can put back. All three opt out of the
+project storageState and call `mintSessionUrl` in-test.
+
+A spec that mutates shared state puts it back in `afterEach` — `calendar-sync`
+revokes the calendar scope it grants — otherwise a later spec passes or fails on
+whether an earlier one ran. `afterEach`, not `finally`: a body abandoned at the
+test timeout never reaches a `finally`. Where the damage is wider than the
+restore, own a tenant instead: `settings-keys` had an `afterEach` that re-seeded
+the Gmail connection it deleted, and `86ca7c2` removed it, because
+`POST /api/gmail/disconnect` calls `revokeAccess`, which also nulls two contact
+columns and deletes every `email_message` and `calendar_event`. Re-seeding the
+connection alone restored one of four things and survived on alphabetical luck.
 
 Selectors prefer `getByRole` / `getByLabel`; `data-testid` appears only where
 role plus name is genuinely unreachable. Four kinds qualify, and they are the

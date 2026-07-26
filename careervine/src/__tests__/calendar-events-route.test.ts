@@ -6,9 +6,9 @@
  * handing rows to the client, and that behaviour had NO test at all: the E2E
  * flow that first exposed the crash was changed to seed a well-formed `[]`, so
  * deleting the normalization left the entire suite — unit, integration and E2E —
- * green. `vitest.config.ts` scopes `coverage.include` to `src/lib/**` and
- * `src/hooks/**`, so `src/app/api/**` is unmeasured and the coverage gate could
- * not have flagged the gap either.
+ * green. `vitest.config.ts` scopes `coverage.include` to `src/lib/**`,
+ * `src/hooks/**` and `src/mcp/**`, so `src/app/api/**` is unmeasured and the
+ * coverage gate could not have flagged the gap either.
  *
  * WHAT IT PINS. `attendees` is `jsonb`: the column accepts any JSON, and no
  * CHECK or NOT NULL constrains it. Every consumer treats it as an array —

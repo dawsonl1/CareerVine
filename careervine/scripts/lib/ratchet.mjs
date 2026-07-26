@@ -82,6 +82,14 @@ export function diffNamedRatchet(found, baseline, presentFiles, where) {
  * Counted ratchet, for a violation with no name to key on: `found` and
  * `baseline` are both { file: count }.
  *
+ * NO CONSUMER IN check-conventions.mjs SINCE CAR-208, which deleted the overlay
+ * check that was the only counted one. Kept rather than deleted because it is
+ * the tested half of a two-shape contract and the next nameless violation needs
+ * it ready; check (d)'s hand-rolled count ratchet is deliberately NOT routed
+ * through it, since (d) treats an under-baseline count as a note that exits 0
+ * rather than as a violation. Delete both this and its tests if that stops
+ * being worth the shelf space.
+ *
  * @param {Record<string, number>} found
  * @param {Record<string, number>} baseline
  * @param {Set<string>} presentFiles files the scan visited

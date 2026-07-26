@@ -623,16 +623,19 @@ describe("conventions guard", () => {
     expect(blanket.out).not.toContain("/api/export");
   });
 
-  it("accepts the JSX comment form for the overlay hatch", () => {
-    // `{/* … */}` is the only comment syntax legal between JSX children, and
-    // every overlay in this app is nested in JSX.
+  it("accepts the JSX comment form of an annotation", () => {
+    // `{/* … */}` is the only comment syntax legal between JSX children, so
+    // `annotationAbove` strips the wrapping braces before matching. Covered
+    // here against `raw-fetch:` since CAR-208 deleted the overlay check this
+    // case used to ride on; the mechanism under test is the brace stripping,
+    // which every hatch depends on.
     const { code, out } = withFile(
       "src/components/probe.tsx",
       "export function Probe() {\n" +
         "  return (\n" +
         "    <div>\n" +
-        "      {/* overlay-not-a-dialog: click-outside catcher behind a popover */}\n" +
-        '      <div className="fixed inset-0 z-10" />\n' +
+        "      {/* raw-fetch: exports a CSV stream */}\n" +
+        '      <button onClick={() => fetch("/api/export")}>go</button>\n' +
         "    </div>\n" +
         "  );\n" +
         "}\n",
@@ -839,6 +842,315 @@ describe("conventions guard", () => {
     expect(code, out).toBe(0);
   });
 
+  it("flags a mutation handler whose name is not spelled like a handler (CAR-208)", () => {
+    // The blind spot that hid a live bug: `addContact` in
+    // admin/contacts-section.tsx was an unguarded apiSend POST gated only by
+    // React state, so double-clicking Add created two contact rows — and the
+    // check never looked at it, purely because it is not called `handleAdd`.
+    for (const name of ["addContact", "submit", "deleteAccount", "toggleNudges"]) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        'import { apiSend } from "@/lib/api-client";\n' +
+          "export function Probe() {\n" +
+          `  const ${name} = async () => {\n` +
+          '    await apiSend("/api/x", { method: "POST" });\n' +
+          "  };\n" +
+          `  return ${name};\n}\n`,
+      );
+      expect(code, `${name} should be flagged: ${out}`).toBe(1);
+      expect(out).toContain(name);
+    }
+  });
+
+  it("flags an inline JSX handler, and keys it by the prop (CAR-208)", () => {
+    // An inline handler has no declaration to hang a name on, so this whole
+    // FORM was invisible rather than any particular site. Keyed by the prop
+    // name because that survives the line moves a raw line number would not.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  return (\n" +
+        '    <button onClick={async () => { await apiSend("/api/x", { method: "POST" }); }}>go</button>\n' +
+        "  );\n}\n",
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("onClick");
+  });
+
+  it("leaves server files alone, where there is no second click to block (CAR-208)", () => {
+    // Dropping the name filter surfaced two shapes that cannot double-submit:
+    // a Route Handler outside src/app/api (three exist) and an async React
+    // Server Component. `GET` and `AdminLayout` are not spelled like handlers,
+    // so the old filter excluded them by accident rather than on purpose.
+    const route = withFile(
+      "src/app/auth/probe/route.ts",
+      'import { createContact } from "@/lib/data/contacts";\n' +
+        "export async function GET() {\n" +
+        "  await createContact(1);\n" +
+        "  return new Response('ok');\n}\n",
+    );
+    expect(route.code, route.out).toBe(0);
+
+    const rsc = withFile(
+      "src/app/probe/layout.tsx",
+      'import { createContact } from "@/lib/data/contacts";\n' +
+        "export default async function ProbeLayout() {\n" +
+        "  await createContact(1);\n" +
+        "  return null;\n}\n",
+    );
+    expect(rsc.code, rsc.out).toBe(0);
+
+    // …but the same file WITH "use client" is a client component again.
+    const client = withFile(
+      "src/app/probe/layout.tsx",
+      '"use client";\n' +
+        'import { createContact } from "@/lib/data/contacts";\n' +
+        "export default function ProbeLayout() {\n" +
+        "  const save = async () => { await createContact(1); };\n" +
+        "  return save;\n}\n",
+    );
+    expect(client.code, client.out).toBe(1);
+  });
+
+  it("resolves a seam through a default or namespace import (CAR-208)", () => {
+    // Only NAMED imports were resolved, so either of these bound a live seam
+    // the scan could not see — and because an empty seam set skips the file
+    // outright, one such import hid every handler in it.
+    const namespaced = withFile(
+      "src/components/probe.tsx",
+      'import * as api from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const save = async () => {\n" +
+        '    await api.apiSend("/api/x", { method: "POST" });\n' +
+        "  };\n  return save;\n}\n",
+    );
+    expect(namespaced.code, namespaced.out).toBe(1);
+
+    const defaulted = withFile(
+      "src/components/probe.tsx",
+      'import saveContact from "@/lib/data/contacts";\n' +
+        "export function Probe() {\n" +
+        "  const save = async () => {\n" +
+        "    await saveContact(1);\n" +
+        "  };\n  return save;\n}\n",
+    );
+    expect(defaulted.code, defaulted.out).toBe(1);
+  });
+
+  it("does not treat a type-only import as a callable seam (CAR-208)", () => {
+    // The type-only name must itself be the CALLEE, or the assertion is about
+    // nothing: `mutates()` only consults names in the seam set, so a fixture
+    // that calls some other identifier passes whether the guard is present or
+    // not. The first cut of this test did exactly that and could not fail —
+    // which is the defect this whole file exists to prevent, one level up.
+    //
+    // Both spellings are covered because they are separate code paths:
+    // `clause.isTypeOnly` and the per-specifier `el.isTypeOnly`.
+    const wholeImport = withFile(
+      "src/components/probe.tsx",
+      'import type { saveContact } from "@/lib/data/contacts";\n' +
+        "export function Probe() {\n" +
+        "  const save = async () => {\n" +
+        "    await saveContact(1);\n" +
+        "  };\n  return save;\n}\n",
+    );
+    expect(wholeImport.code, wholeImport.out).toBe(0);
+
+    // Inline `type` specifier. Needs a real seam alongside it, or the file is
+    // skipped for an empty seam set and the assertion proves nothing again.
+    const inlineSpecifier = withFile(
+      "src/components/probe.tsx",
+      'import { type Contact, apiFetch } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const save = async (c: Contact) => {\n" +
+        "    await Contact(c);\n" +
+        "  };\n  return save;\n}\n",
+    );
+    expect(inlineSpecifier.code, inlineSpecifier.out).toBe(0);
+  });
+
+  // ── tripwire (i), second pass: findings from the CAR-208 review ──
+
+  it("does not let a read verb swallow a longer mutation verb (CAR-208)", () => {
+    // `can` matched `cancel*`, `to` matched `toggle*`, `is` matched `issue*`,
+    // `check` matched `checkout*`. Of five mutations named that way exactly one
+    // was flagged, and `@/lib/data/emails` really does export
+    // `cancelFollowUpSequenceCascade`.
+    for (const verb of ["cancelSubscription", "toggleAutomation", "issueRefund", "checkoutCart"]) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        `import { ${verb} } from "@/lib/mutations";\n` +
+          "export function Probe() {\n" +
+          `  const act = async () => { await ${verb}("x"); };\n` +
+          "  return act;\n}\n",
+      );
+      expect(code, `${verb} should be a mutation: ${out}`).toBe(1);
+    }
+
+    // …while the genuine read verbs they are prefixes of still read.
+    const reads = withFile(
+      "src/components/probe.tsx",
+      'import { getContact, loadPipeline } from "@/lib/data/contacts";\n' +
+        "export function Probe() {\n" +
+        "  const a = async () => { await getContact(1); };\n" +
+        "  const b = async () => { await loadPipeline(1); };\n" +
+        "  return [a, b];\n}\n",
+    );
+    expect(reads.code, reads.out).toBe(0);
+  });
+
+  it("sees an inline handler that STARTS async work without awaiting it (CAR-208)", () => {
+    // The same create-tag button existed in both spellings: the `async` one was
+    // baselined, the fire-and-forget one was invisible. A promise started on
+    // click is exactly as re-entrant as an awaited one.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { withToastOnError, createTag } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        '  return <button onClick={() => withToastOnError(async () => { await createTag("x"); })}>Add</button>;\n' +
+        "}\n",
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("onClick");
+  });
+
+  it("keys inline handlers by identity, so a fix cannot be traded for a fresh violation (CAR-208)", () => {
+    // Keyed on the prop name alone, every inline handler in a file collapsed to
+    // `onClick`, which turned this NAMED ratchet into a counted one for the
+    // inline form — ratchet.mjs's header gives that exact trade as the reason
+    // named beats counted. Two different handlers must produce two different
+    // keys.
+    const { out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  return (<div>\n" +
+        '    <button onClick={async () => { await apiSend("/api/a", { method: "POST" }); }}>a</button>\n' +
+        '    <button onClick={async () => { await apiSend("/api/b", { method: "POST" }); }}>b</button>\n' +
+        "  </div>);\n}\n",
+    );
+    const keys = [...out.matchAll(/probe\.tsx:\d+: (onClick\S*)/g)].map((m) => m[1]);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toEqual(keys[1]);
+    expect(keys.every((k) => k.startsWith("onClick~"))).toBe(true);
+  });
+
+  it("accepts a handler that forwards to a correctly guarded helper (CAR-208)", () => {
+    // `mutates()` follows one local hop; `claimsReentryGuard` does not. A thin
+    // forwarder over a guarded helper was reported as unguarded, and those
+    // entries are unclearable — the code is already right, so the ratchet's
+    // stale direction can never retire them.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const handleSave = async () => {\n" +
+        "    if (savingRef.current) return;\n" +
+        "    savingRef.current = true;\n" +
+        '    try { await apiSend("/api/x", { method: "POST" }); } finally { savingRef.current = false; }\n' +
+        "  };\n" +
+        "  return <form onSubmit={async (e) => { e.preventDefault(); await handleSave(); }} />;\n" +
+        "}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("rejects a claim that is deferred, conditional, or a release (CAR-208)", () => {
+    // A bogus guard is worse than a miss: the ratchet's stale-entry rule does
+    // not merely permit deleting the baseline line, it COMPELS it.
+    const cases: Record<string, string> = {
+      "deferred into a callback": "    queueMicrotask(() => { savingRef.current = true; });\n",
+      "sets false — a release, not a claim": "    savingRef.current = false;\n",
+    };
+    for (const [label, claim] of Object.entries(cases)) {
+      const { code, out } = withFile(
+        "src/components/probe.tsx",
+        'import { apiSend } from "@/lib/api-client";\n' +
+          "export function Probe() {\n" +
+          "  const save = async () => {\n" +
+          "    if (savingRef.current) return;\n" +
+          claim +
+          '    await apiSend("/api/x", { method: "POST" });\n' +
+          "  };\n  return save;\n}\n",
+      );
+      expect(code, `${label} should be flagged: ${out}`).toBe(1);
+    }
+  });
+
+  it("does not let a nested async helper push the guard past the first await (CAR-208)", () => {
+    // `findAwait` descended into not-yet-called functions, so declaring a
+    // helper above the guard made the guard read as "after the first await" and
+    // flagged textbook-correct code. Clearable only by reordering it.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const save = async () => {\n" +
+        '    const doIt = async () => { await apiSend("/api/x", { method: "POST" }); };\n' +
+        "    if (busy.current) return;\n" +
+        "    busy.current = true;\n" +
+        "    try { await doIt(); } finally { busy.current = false; }\n" +
+        "  };\n  return save;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("accepts the else-return spelling of the guard (CAR-208)", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        "  const save = async () => {\n" +
+        "    if (!busy.current) { busy.current = true; } else { return; }\n" +
+        '    try { await apiSend("/api/x", { method: "POST" }); } finally { busy.current = false; }\n' +
+        "  };\n  return save;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("classifies an aliased seam by its EXPORTED name (CAR-208)", () => {
+    // The local name was classified against rules that are statements about the
+    // export, inverting the verdict in both directions.
+    const aliasedWrite = withFile(
+      "src/components/probe.tsx",
+      'import { apiSend as getIt } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        '  const save = async () => { await getIt("/api/x", {}); };\n' +
+        "  return save;\n}\n",
+    );
+    expect(aliasedWrite.code, aliasedWrite.out).toBe(1);
+
+    const aliasedRead = withFile(
+      "src/components/probe.tsx",
+      'import { apiFetch as af } from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        '  const load = async () => { return await af("/api/x"); };\n' +
+        "  return load;\n}\n",
+    );
+    expect(aliasedRead.code, aliasedRead.out).toBe(0);
+  });
+
+  it("sees a default import called as an object, and object-literal methods (CAR-208)", () => {
+    const defaultAsObject = withFile(
+      "src/components/probe.tsx",
+      'import api from "@/lib/api-client";\n' +
+        "export function Probe() {\n" +
+        '  const save = async () => { await api.send("/api/x", {}); };\n' +
+        "  return save;\n}\n",
+    );
+    expect(defaultAsObject.code, defaultAsObject.out).toBe(1);
+
+    const objectMethod = withFile(
+      "src/components/probe.tsx",
+      'import { deleteContact } from "@/lib/data/contacts";\n' +
+        "export function Probe() {\n" +
+        "  return useDeferredAction({ action: async (i: number) => { await deleteContact(i); } });\n" +
+        "}\n",
+    );
+    expect(objectMethod.code, objectMethod.out).toBe(1);
+  });
+
   // ── tripwire (j): useLatestRequest on an identity-keyed read (CAR-190) ──
 
   it("flags an identity-keyed read that commits an ungated result", () => {
@@ -947,6 +1259,263 @@ describe("conventions guard", () => {
     expect(inlineGuard.code, inlineGuard.out).toBe(0);
   });
 
+  it("accepts the OTHER flag polarity, `let mounted = true` (CAR-208)", () => {
+    // The idiom was recognised only as `false` flipped to `true`. This is the
+    // same pattern written the other way round, at least as common in React,
+    // and it was reported as a violation — the worst outcome for a ratchet,
+    // since clearing the entry means rewriting correct code to the spelling
+    // the detector happens to know.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let mounted = true;\n" +
+        "    void (async () => {\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      if (!mounted) return;\n" +
+        "      setContact(data);\n" +
+        "    })();\n" +
+        "    return () => { mounted = false; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("does not let an unrelated boolean triple silence the effect (CAR-208)", () => {
+    // Declared-false / set-true / read-in-a-condition were collected over the
+    // whole body and intersected by NAME, so any boolean satisfying the triple
+    // cleared EVERY commit in the effect. Here `done` gates nothing: the
+    // setState below it is bare, and the read is not even about the response.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let done = false;\n" +
+        "    void (async () => {\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      done = true;\n" +
+        '      if (done) console.log("loaded");\n' +
+        "      setContact(data);\n" +
+        "    })();\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(1);
+    expect(out).toContain("useLatestRequest");
+  });
+
+  it("rejects a flag consulted only BEFORE the await (CAR-208)", () => {
+    // Nothing has raced yet at that point: the check was decided before the
+    // response existed, so it cannot gate the commit that follows it.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    void (async () => {\n" +
+        "      if (cancelled) return;\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      setContact(data);\n" +
+        "    })();\n" +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(1);
+  });
+
+  it("rejects a body that gates one commit and leaves the next bare (CAR-208)", () => {
+    // Every commit has to be gated, not any: the ungated one still races.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    void (async () => {\n" +
+        "      const data = await getContact(contactId);\n" +
+        "      const extra = await getExtra(contactId);\n" +
+        "      if (!cancelled) setContact(data);\n" +
+        "      setExtra(extra);\n" +
+        "    })();\n" +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(1);
+  });
+
+  it("requires the cleanup to flip the flag to the OPPOSITE value (CAR-208)", () => {
+    // Recording "declared a boolean" and "assigned a boolean" as independent
+    // facts accepted a cleanup that assigns the value it was declared with — a
+    // real bug (the flag never trips, every stale response commits) that the
+    // pre-CAR-208 check caught and the polarity rewrite let through.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    void (async () => {\n" +
+        "      const d = await getContact(contactId);\n" +
+        "      if (cancelled) return;\n" +
+        "      setContact(d);\n" +
+        "    })();\n" +
+        "    return () => { cancelled = false; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(1);
+  });
+
+  it("requires the bail to DOMINATE the commit, not merely precede it (CAR-208)", () => {
+    // `n.end <= commit.getStart()` is source position, not dominance, so a bail
+    // inside one async IIFE cleared a bare commit inside the next one. The tell
+    // was that swapping two semantically identical IIFEs flipped the verdict.
+    const body = (gatedFirst: boolean) => {
+      const gated =
+        "    void (async () => { const j = await load(contactId); if (cancelled) return; setData(j.name); })();\n";
+      const bare = "    void (async () => { const o = await load2(contactId); setMore(o.title); })();\n";
+      return (
+        "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        (gatedFirst ? gated + bare : bare + gated) +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n"
+      );
+    };
+    // Identical semantics must produce identical verdicts, and both are racy.
+    const gatedFirst = withFile("src/components/probe.tsx", body(true));
+    const bareFirst = withFile("src/components/probe.tsx", body(false));
+    expect(gatedFirst.code, gatedFirst.out).toBe(1);
+    expect(bareFirst.code, bareFirst.out).toBe(1);
+  });
+
+  it("lets two independent flags each gate their own commit (CAR-208)", () => {
+    // Demanding that ONE flag cover every commit rejected the correct
+    // one-flag-per-in-flight-request shape.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelledA = false;\n" +
+        "    let cancelledB = false;\n" +
+        "    loadA(contactId).then((a) => { if (!cancelledA) setA(a); });\n" +
+        "    loadB(contactId).then((b) => { if (!cancelledB) setB(b); });\n" +
+        "    return () => { cancelledA = true; cancelledB = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("measures the racing await per commit, not the body's first (CAR-208)", () => {
+    // A body-global `firstAwait` rejected a correct `.then` guard the moment any
+    // unrelated await appeared later in the effect — eight live files pair a
+    // cancellation flag with `.then(`, so one added await would have turned a
+    // correct file red.
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    load(contactId).then((d) => { if (cancelled) return; setData(d.name); });\n" +
+        "    load2(contactId).then(async (d2) => { const x = await enrich(d2); if (cancelled) return; setMore(x); });\n" +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("does not count setTimeout/setInterval as a React commit (CAR-208)", () => {
+    // They match /^set[A-Z]/ and carry `await` in their callback text, so a
+    // timer read as a commit that must be gated — flagging effects with no
+    // setState at all, and turning correct polling effects red once EVERY
+    // commit had to be gated.
+    const timerOnly = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    const t = setTimeout(async () => { await ping(contactId); }, 100);\n" +
+        "    return () => clearTimeout(t);\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(timerOnly.code, timerOnly.out).toBe(0);
+  });
+
+  it("holds isLatest to the same per-commit standard as the flag idiom (CAR-208)", () => {
+    // One `isLatest` call ANYWHERE in the body used to clear every commit —
+    // the exact "existence, not gating" defect this check fixed for idiom 2,
+    // left live in idiom 1 and newly claimed as fixed in the header.
+    const deadBranch = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    void (async () => {\n" +
+        "      if (false) { console.log(req.isLatest(0)); }\n" +
+        "      const d = await getContact(contactId);\n" +
+        "      setContact(d);\n" +
+        "    })();\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(deadBranch.code, deadBranch.out).toBe(1);
+
+    // …and the real spelling still passes.
+    const real = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    void (async () => {\n" +
+        "      const token = req.begin();\n" +
+        "      const d = await getContact(contactId);\n" +
+        "      if (!req.isLatest(token)) return;\n" +
+        "      setContact(d);\n" +
+        "    })();\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(real.code, real.out).toBe(0);
+  });
+
+  it("does not let a comment mentioning AbortController clear the effect (CAR-208)", () => {
+    // `body.getText()` includes comments and strings, so prose cleared the
+    // whole effect — the identical bypass class this file hardened check (f)
+    // and idiom 1 against.
+    const inProse = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    // TODO: switch this to new AbortController() and pass the signal through\n" +
+        "    void (async () => { const d = await getContact(contactId); setContact(d); })();\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(inProse.code, inProse.out).toBe(1);
+
+    const wired = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId }: { contactId: string }) {\n" +
+        "  useEffect(() => {\n" +
+        "    const ac = new AbortController();\n" +
+        "    void (async () => {\n" +
+        "      const d = await getContact(contactId, { signal: ac.signal });\n" +
+        "      setContact(d);\n" +
+        "    })();\n" +
+        "    return () => ac.abort();\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(wired.code, wired.out).toBe(0);
+  });
+
+  it("does not mistake a property named like the flag for the flag (CAR-208)", () => {
+    const { code, out } = withFile(
+      "src/components/probe.tsx",
+      "export function Probe({ contactId, opts }: { contactId: string; opts: { cancelled: boolean } }) {\n" +
+        "  useEffect(() => {\n" +
+        "    let cancelled = false;\n" +
+        "    void (async () => {\n" +
+        "      const d = await getContact(contactId);\n" +
+        "      if (opts.cancelled) return;\n" +
+        "      setContact(d);\n" +
+        "    })();\n" +
+        "    return () => { cancelled = true; };\n" +
+        "  }, [contactId]);\n  return null;\n}\n",
+    );
+    expect(code, out).toBe(1);
+  });
+
   it("treats a snake_case id in the dependency array as an identity", () => {
     // This app's DB columns are snake_case throughout, so `contact_id` is as
     // much an identity as `contactId`; the camelCase-only pattern exempted it.
@@ -977,44 +1546,15 @@ describe("conventions guard", () => {
     expect(code, out).toBe(0);
   });
 
-  // ── tripwire (k): dialog semantics on a fixed-inset overlay (CAR-190) ──
-
-  it("flags a full-screen overlay with no dialog role", () => {
-    const { code, out } = withFile(
-      "src/components/probe.tsx",
-      "export function Probe() {\n" +
-        '  return <div className="fixed inset-0 z-50 flex items-center justify-center" />;\n' +
-        "}\n",
-    );
-    expect(code).toBe(1);
-    expect(out).toContain("dialog semantics");
-  });
-
-  it("accepts a role on the surface INSIDE the overlay, not only on the wrapper", () => {
-    // confirm-dialog.tsx and modal.tsx both put the scrim and the centring on
-    // the fixed div and role on the panel within it. An earlier version of
-    // this check asked only the fixed element and reported both as violations.
-    const { code, out } = withFile(
-      "src/components/probe.tsx",
-      "export function Probe() {\n" +
-        '  return (<div className="fixed inset-0 z-50 flex items-center justify-center">\n' +
-        '    <div role="dialog" aria-modal="true">hi</div>\n' +
-        "  </div>);\n" +
-        "}\n",
-    );
-    expect(code, out).toBe(0);
-  });
-
-  it("accepts an overlay-not-a-dialog annotation", () => {
-    const { code, out } = withFile(
-      "src/components/probe.tsx",
-      "export function Probe() {\n" +
-        "  // overlay-not-a-dialog: click-outside catcher behind a popover\n" +
-        '  return <div className="fixed inset-0 z-10" />;\n' +
-        "}\n",
-    );
-    expect(code, out).toBe(0);
-  });
+  // Tripwire (k) — dialog semantics on a fixed-inset overlay — was DELETED by
+  // CAR-208 along with its three tests here, because the pair accepted
+  // near-anagram escape hatches (`overlay-not-a-dialog:` here,
+  // `non-dialog-overlay:` there) that neither would honour from the other. The
+  // rule is still enforced, in exactly one place: `dialog-adoption.test.ts`,
+  // which absorbed (k)'s independent-token class matching so that deleting the
+  // check did not quietly stop enforcing reordered and interpolated class
+  // lists. The JSX-comment annotation form these tests also happened to cover
+  // is now covered directly, above, against a hatch that still exists.
 });
 
 /**

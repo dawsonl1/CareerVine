@@ -107,10 +107,14 @@ describe("CONVENTIONS.md", () => {
 
   it("cites a meaningful number of paths", () => {
     // Guards against a regex or allowlist change silently shrinking coverage,
-    // which would make the per-path assertions vacuously narrow. Actual count at
-    // time of writing: 39. Keep the floor snug — a large gap here tolerates
-    // silent citation loss.
-    expect(paths.length).toBeGreaterThanOrEqual(35);
+    // which would make the per-path assertions vacuously narrow. Keep the floor
+    // snug — a large gap here tolerates silent citation loss.
+    //
+    // Re-snugged in CAR-208. The floor was 35 against a documented "actual count
+    // at time of writing: 39"; the doc has since grown to 105 citations, so two
+    // thirds of the pointers could have vanished with this still green — the
+    // exact erosion the comment warns about, in the guard against it.
+    expect(paths.length).toBeGreaterThanOrEqual(100);
   });
 
   it.each(paths)("cited path exists: %s", (rel) => {
@@ -195,6 +199,99 @@ describe("CONVENTIONS.md", () => {
         markdown,
         `doc must say "${WORDS[specs.length]} flows" — e2e/ now has ${specs.length} specs`,
       ).toContain(`${WORDS[specs.length]} flows`);
+    });
+
+    it("E2E own-identity spec count (CAR-208)", () => {
+      // Section i said "Two specs mint their own identity" while three did, and
+      // the flow-count pin above could not see it — it counts spec FILES, and
+      // this is a claim about what those files do. CAR-191 added the third in
+      // its own commits, so the sentence was false the day it was written.
+      //
+      // Minting is `mintSessionUrl` called from a spec BODY. auth.setup.ts calls
+      // it too, and is deliberately not a spec: it mints the one shared identity
+      // these three opt out of.
+      const e2e = path.join(REPO_ROOT, "careervine", "e2e");
+      const minting = fg
+        .sync("*.spec.ts", { cwd: e2e })
+        .filter((f) => /\bmintSessionUrl\s*\(/.test(readFileSync(path.join(e2e, f), "utf8")));
+
+      expect(minting.length).toBeGreaterThan(0);
+      // Matched against whitespace-normalized prose. The claim is six words
+      // long and the doc is hard-wrapped, so a raw `toContain` pins the line
+      // breaks as much as the words — it would go red on a pure reflow, which
+      // is the brittleness that makes people delete pins rather than fix them.
+      expect(
+        markdown.replace(/\s+/g, " "),
+        `doc must say "${WORDS[minting.length]} specs mint their own identity" — ` +
+          `these do: ${minting.join(", ")}`,
+      ).toContain(`${WORDS[minting.length]} specs mint their own identity`);
+    });
+
+    it("only one spelling of the non-dialog-overlay escape hatch exists (CAR-208)", () => {
+      // The dialog rule had two guards accepting near-anagram tokens, and
+      // neither honoured the other's: a contributor with a legitimate
+      // non-dialog overlay would write whichever the first error named and stay
+      // red against the second. CAR-208 deleted the duplicate guard; this stops
+      // its token coming back anywhere — including in the prose that would
+      // teach someone to write it.
+      // Scoped to the tree an annotation would be WRITTEN in, not to every
+      // mention: the prose in CONVENTIONS.md and the headers in
+      // check-conventions.mjs name the retired token in order to explain why it
+      // is retired, and a scan that failed on those would force the explanation
+      // out of the codebase — deleting the only record of the trap.
+      const src = path.join(REPO_ROOT, "careervine", "src");
+      const files = fg.sync(["**/*.{ts,tsx}"], {
+        cwd: src,
+        // `**/` on both, not the bare `__tests__/**` a first cut used: that
+        // anchors to the glob root, so it excluded only the top-level
+        // `src/__tests__/` and left every nested test tree in scope.
+        ignore: ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      });
+
+      // An anti-vacuity FLOOR, which every other pin in this file has and this
+      // one shipped without. `toEqual([])` over a glob that matched nothing
+      // passes and reports success — and fast-glob returns `[]` for a missing
+      // cwd rather than throwing, so a rename of `careervine/src` would retire
+      // the guard silently. This is the "absence assertions pass vacuously
+      // unless sequenced" trap, in the file written to close that class.
+      expect(files.length).toBeGreaterThan(300);
+
+      const hits = files.filter((f) =>
+        readFileSync(path.join(src, f), "utf8").includes("overlay-not-a-dialog:"),
+      );
+
+      expect(
+        hits,
+        "this annotation does nothing — the guard that honoured it was deleted in CAR-208. " +
+          "The one spelling is `non-dialog-overlay:`, enforced by " +
+          "src/__tests__/dialog-adoption.test.ts.",
+      ).toEqual([]);
+    });
+
+    it("every per-area coverage threshold glob still matches files (CAR-208)", () => {
+      // Vitest resolves a non-metric threshold key as a picomatch glob against
+      // each file's path, and `checkThresholds` computes `uncovered = total -
+      // covered` over whatever that glob selected. A glob matching ZERO files
+      // yields an empty coverage map, `0 > 430` is false, and the budget passes
+      // as a silent no-op — no error, no reporter difference. Rename `src/mcp`
+      // and all four of its budgets stop gating with nothing to show for it.
+      //
+      // This asserts the keys still bind, which is the one property the config
+      // cannot state about itself.
+      const config = readFileSync(
+        path.join(REPO_ROOT, "careervine", "vitest.config.ts"),
+        "utf8",
+      );
+      const globs = [...config.matchAll(/^\s*'([^']+\/\*\*)':\s*\{/gm)].map((m) => m[1]);
+
+      expect(globs.length).toBeGreaterThanOrEqual(3);
+      for (const glob of globs) {
+        const matched = fg.sync(`${glob}/*.{ts,tsx}`, {
+          cwd: path.join(REPO_ROOT, "careervine"),
+          ignore: ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+        });
+        expect(matched.length, `coverage threshold "${glob}" matches no files — it is a no-op`).toBeGreaterThan(0);
+      }
     });
 
     it("capability key count", () => {
