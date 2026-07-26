@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { ActionDirection } from "@/lib/constants";
+import { formatDueDate } from "@/lib/due-date";
 import type { PendingAction } from "./types";
 
 interface ActionItemsSectionProps {
@@ -54,7 +55,7 @@ export function ActionItemsSection({ pendingActions, onAddAction, onRemoveAction
               <span className="text-base text-foreground flex-1 truncate">{action.title}</span>
               {action.dueAt && (
                 <span className="text-sm text-muted-foreground shrink-0">
-                  Due {new Date(action.dueAt + "T00:00:00").toLocaleDateString()}
+                  Due {formatDueDate(action.dueAt)}
                 </span>
               )}
               <button

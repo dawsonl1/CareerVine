@@ -212,7 +212,12 @@ browser, so it is client code wherever it lives. (That sentence used to stop at
 scope, two of them hand-rolling the error-body parse `apiFetch` exists to
 delete. Hoisting a call out of a component into a helper is a refactor a
 reviewer would ask for, so the narrower rule was one review away from being
-wrong.) Reads go through `apiFetch`, status-only
+wrong.) "Browser-reached" is decided by IMPORT GRAPH, not by directory: the
+guard walks out from the client files and bans every raw `fetch` in what it
+reaches (CAR-207). The earlier version tested the URL instead, which a call
+taking its path as a PARAMETER slips past entirely — `bundle-apply-client.ts`
+POSTed to two `/api/bundles/*` routes from the browser that way for as long as
+the guard had existed. Reads go through `apiFetch`, status-only
 mutations through `apiSend` (`careervine/src/lib/api-client.ts`, section a), so a
 non-2xx throws `ApiRequestError` instead of an error body being read as the
 success shape. An interactive handler wraps the call in `withToastOnError`
@@ -309,8 +314,43 @@ scrim, Escape and the X all honour. Both are exported from `modal.tsx` and call
 two do not cover. Worked examples: `careervine/src/hooks/use-portal-dropdown.ts`
 and `careervine/src/components/ui/select.tsx` for the portal target,
 `careervine/src/components/contacts/contact-edit-modal.tsx` and
-`careervine/src/app/interactions/page.tsx` for the buttons. Both rules are adopted
-by every current call site.
+`careervine/src/components/contacts/contact-timeline-tab.tsx` for the buttons.
+Both rules are adopted by every current call site.
+
+**Any** child that opens and closes owns **Escape while it is open** (CAR-205).
+Portalling is not what makes Escape ambiguous; having an open list inside a dialog
+is. Without a handler, Escape over an open dropdown closes the dialog underneath it
+and leaves the dropdown behind, because the dialog's own handler is a document
+listener that fires regardless.
+
+Which mechanism depends on where the panel lives, and the split is not cosmetic:
+
+- **Portalled out of the component's subtree** (`select.tsx`, `use-portal-dropdown.ts`):
+  a CAPTURE-phase *document* listener that calls `stopPropagation`. A React handler on
+  the wrapper would never see the key, and capture beats the dialog's bubble-phase
+  document listener deterministically rather than by mount order.
+- **A plain DOM child of the wrapper** (`use-dropdown-escape.ts`, used by
+  `contact-picker.tsx`, `month-year-picker.tsx`, `school-autocomplete.tsx` and
+  `degree-autocomplete.tsx`): a wrapper `onKeyDown`. The event already passes through
+  on its way up, and React attaches its listeners at the root container, which sits
+  *below* `document`, so a synthetic `stopPropagation` still stops the dialog's
+  handler. No document listener and no `activeElement` heuristic needed.
+
+The portalled form additionally needs an ownership check, and the two worked examples
+differ in exactly the part that matters: "does this widget own the key" is
+`activeElement === trigger` in `select.tsx`, whose trigger is its only focusable part,
+and focus-anywhere-inside-the-widget in `use-portal-dropdown.ts`, whose panels are full
+of real buttons. Copying the narrow form into a widget with focusable children
+reintroduces the bug for every focus position but one. The check is also what stops a
+dropdown left open under a newer layer swallowing that layer's Escape; the wrapper form
+gets that for free, since a list that is not focused cannot receive the key. Either way
+the handler is gated on `open`, or a closed dropdown swallows the dialog's own Escape,
+and focus goes back to the trigger on close, since focus stranded on `<body>` disarms
+the enclosing trap.
+
+Not enforced. `careervine/src/__tests__/picker-escape.test.tsx` pins the behavior for
+both mechanisms, including that React's synthetic `stopPropagation` really does stop
+the document-level handler.
 
 Every dialog surface registers as a dismissal layer with `useDialogLayer()` from
 `careervine/src/components/ui/modal.tsx` (CAR-202). Escape is a document-level
@@ -392,13 +432,13 @@ only, never a rejected promise in a handler; that is the contract above.
 
   | Rule | Shape it fails on | Escape hatch |
   | -- | -- | -- |
-  | no raw `fetch(` | any `fetch` in the client tree, plus a literal `/api/...` URL anywhere else under `careervine/src/` | `// raw-fetch:` |
+  | no raw `fetch(` | any `fetch` in the client tree **or in a module the client tree imports** (runtime edges only, so `import type` does not count), plus a literal `/api/...` URL anywhere else under `careervine/src/` | `// raw-fetch:` |
   | no native confirm | `window.confirm`, or a bare `confirm(` with no **lexically enclosing** binding (`useConfirm()` returns one, so binding is what separates the two) | none |
   | double-submit ref | any async function that writes — whatever it is named, including an inline `onClick={async () => …}` — with no ref both READ in an early return and claimed before the first await | `// reentry-safe:` + ratchet |
   | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, gated by neither `isLatest`, a cancellation flag (either polarity, and it must stand between the response and the commit), nor an `AbortSignal` | `// latest-request-exempt:` + ratchet |
 
   The first two are frozen at zero. The last two ship as **ratchets** over a
-  baseline (129 handlers, 7 reads) rather than as the warning CAR-190
+  baseline (129 handlers, 6 reads) rather than as the warning CAR-190
   originally proposed, because a warning exits 0 and that is precisely how CAR-154's
   helper decayed to 6 files and CAR-158's to 1. A ratchet fails both ways: an
   offender absent from the baseline fails, and a baselined site that no longer
@@ -434,9 +474,14 @@ only, never a rejected promise in a handler; that is the contract above.
   Tuning it the other way is how you break it — adding `fetch` to the read verbs, the
   safest-looking addition available, silently un-flagged the most destructive handler
   on the list, because its write goes through a helper called `fetchStepWithRetry`.
-  Two entries, `data-subscriptions-section.tsx`'s `handleSubscribe` and
-  `handleUnsubscribe`, are non-idempotent and one POSTs a destructive contact-removal
-  loop; they are the first two to drain.
+  The list has since shrunk from the other end too. CAR-207 drained six entries,
+  being the three files it already had open: `data-subscriptions-section.tsx`'s
+  `handleSubscribe` and `handleUnsubscribe` (the two this paragraph used to name
+  as first to go — non-idempotent, and one POSTs a destructive contact-removal
+  loop), `contact-attachments-tab.tsx`'s pair, which got the confirm dialog its
+  delete should always have had, and `interactions/page.tsx`, which left **both**
+  baselines because that route is now a redirect with no handlers in it. Draining
+  the rest is still the mechanical sweep's job.
 
 - Enforced (behavior, no adoption check): `modal.test.tsx` covers the focus
   trap, the `data-autofocus` marker and dialog semantics for both layers, `careervine/src/__tests__/dialog-layer.test.tsx` covers

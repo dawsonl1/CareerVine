@@ -27,7 +27,9 @@ const state: {
   dueReadError: { message: string } | null;
   /** error injected into the gmail_connections prefetch (fail-loud, CAR-153). */
   connectionsReadError: { message: string } | null;
-} = { pendingMessages: [], connections: [], activeUserIds: [], updates: [], claimCount: 1, staleRows: [], sweepReadError: null, dueReadError: null, connectionsReadError: null };
+  /** error injected into the post-send mark-sent write (CAR-207). */
+  markSentError: { message: string } | null;
+} = { pendingMessages: [], connections: [], activeUserIds: [], updates: [], claimCount: 1, staleRows: [], sweepReadError: null, dueReadError: null, connectionsReadError: null, markSentError: null };
 
 vi.mock("@upstash/qstash", () => ({
   Receiver: class {
@@ -73,6 +75,7 @@ vi.mock("@/lib/supabase/service-client", () =>
     from: (table: string) => {
       let mode: "read" | "update" = "read";
       let isCount = false;
+      let lastPatch: Record<string, unknown> = {};
       const filters: Array<[string, ...unknown[]]> = [];
       const b: Record<string, unknown> = {
         select: (_s: string, opts?: { count?: string }) => {
@@ -82,6 +85,7 @@ vi.mock("@/lib/supabase/service-client", () =>
         update: (patch: Record<string, unknown>, opts?: { count?: string }) => {
           mode = "update";
           if (opts?.count) isCount = true;
+          lastPatch = patch;
           state.updates.push({ table, patch, filters });
           return b;
         },
@@ -96,6 +100,12 @@ vi.mock("@/lib/supabase/service-client", () =>
           const hasEq = (c: string, v: unknown) => filters.some((f) => f[0] === "eq" && f[1] === c && f[2] === v);
           const hasLt = (c: string) => filters.some((f) => f[0] === "lt" && f[1] === c);
           if (mode === "update") {
+            // The post-send bookkeeping write, injectable so its failure path is
+            // exercised for real (CAR-207). Keyed on the patch rather than the
+            // filters: it is the only write that sets status 'sent'.
+            if (state.markSentError && lastPatch.status === "sent") {
+              return resolve({ error: state.markSentError, count: null });
+            }
             // Only the CAS claim is count-tracked; sweep-partition + free-park writes aren't.
             return resolve({ error: null, count: isCount ? state.claimCount : null });
           }
@@ -165,6 +175,7 @@ describe("send-follow-ups cron — tier branch (CAR-102)", () => {
     state.sweepReadError = null;
     state.dueReadError = null;
     state.connectionsReadError = null;
+    state.markSentError = null;
     getGmailClientSpy.mockReset();
   });
 
@@ -306,6 +317,7 @@ describe("send-follow-ups cron — alias-aware reply detection (CAR-153/R2.5)", 
     state.sweepReadError = null;
     state.dueReadError = null;
     state.connectionsReadError = null;
+    state.markSentError = null;
     getGmailClientSpy.mockReset();
   });
 
@@ -413,42 +425,54 @@ describe("send-follow-ups cron — claim lifecycle + fail-loud (CAR-139)", () =>
     state.sweepReadError = null;
     state.dueReadError = null;
     state.connectionsReadError = null;
+    state.markSentError = null;
     getGmailClientSpy.mockReset();
   });
 
-  it("parks stale 'sending' rows under an ACTIVE parent as awaiting_review with the full stamp", async () => {
+  it("resolves stale 'sending' rows under an ACTIVE parent to 'failed', never to a sendable state", async () => {
     state.staleRows = [
-      { id: 501, email_follow_ups: { status: "active" } },
-      { id: 502, email_follow_ups: { status: "active" } },
+      { id: 501, follow_up_id: 51, email_follow_ups: { status: "active" } },
+      { id: 502, follow_up_id: 51, email_follow_ups: { status: "active" } },
     ];
 
     const res = await POST(req);
     const data = await res.json();
 
-    const park = sweepWrite("awaiting_review");
-    expect(park).toBeDefined();
-    expect(park!.table).toBe("email_follow_up_messages");
-    expect(park!.patch).toMatchObject({
-      status: "awaiting_review",
-      reminder_count: 0,
-      last_reminder_at: null,
-      seen_during_window: false,
-      claimed_at: null,
-    });
-    // The parking stamp anchors the CAR-105 countdown/expiry/nudge machinery.
-    expect(typeof park!.patch.parked_at).toBe("string");
-    expect(typeof park!.patch.expires_at).toBe("string");
+    const failed = sweepWrite("failed");
+    expect(failed).toBeDefined();
+    expect(failed!.table).toBe("email_follow_up_messages");
+    expect(failed!.patch).toEqual({ status: "failed", claimed_at: null });
     // Targets exactly the stale ids under an active parent.
-    expect(park!.filters).toContainEqual(["in", "id", [501, 502]]);
-    // The swept row is user-resolvable, never auto-resent: no send happened.
+    expect(failed!.filters).toContainEqual(["in", "id", [501, 502]]);
+    // The whole point of CAR-207. The claim may have gone stale AFTER Gmail
+    // accepted the message, so the row must not come back as anything the user
+    // can send with one click. awaiting_review is exactly that state, and is
+    // where CAR-139 put it; it must never be written here again.
+    expect(state.updates.some((u) => u.patch.status === "awaiting_review")).toBe(false);
+    expect(state.updates.some((u) => u.patch.status === "pending")).toBe(false);
     expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
     expect(data.processed).toBe(0);
   });
 
+  it("completes a sequence whose only open step was just swept", async () => {
+    state.staleRows = [{ id: 503, follow_up_id: 77, email_follow_ups: { status: "active" } }];
+
+    await (await POST(req)).json();
+
+    // Nothing unresolved is left (the mock's count select answers 0), and no
+    // send driver will revisit this sequence — the due query needs a 'pending'
+    // message. Without this the parent sat 'active' forever with nothing to do.
+    const completed = state.updates.find(
+      (u) => u.table === "email_follow_ups" && u.patch.status === "completed",
+    );
+    expect(completed).toBeDefined();
+    expect(completed!.filters).toContainEqual(["eq", "id", 77]);
+  });
+
   it("cancels stale 'sending' rows whose parent is no longer active (no invisible orphan)", async () => {
     state.staleRows = [
-      { id: 601, email_follow_ups: { status: "cancelled_reply" } },
-      { id: 602, email_follow_ups: { status: "completed" } },
+      { id: 601, follow_up_id: 61, email_follow_ups: { status: "cancelled_reply" } },
+      { id: 602, follow_up_id: 62, email_follow_ups: { status: "completed" } },
     ];
 
     const res = await POST(req);
@@ -458,21 +482,22 @@ describe("send-follow-ups cron — claim lifecycle + fail-loud (CAR-139)", () =>
     expect(cancel).toBeDefined();
     expect(cancel!.patch).toEqual({ status: "cancelled", claimed_at: null });
     expect(cancel!.filters).toContainEqual(["in", "id", [601, 602]]);
-    // Dead-parent rows are NOT parked as awaiting_review (that would strand them
-    // behind the parent-active-gated surfaces as invisible orphans).
+    // A dead parent's row is cancelled rather than failed: there is no live
+    // sequence to surface it against, so 'failed' would be an invisible orphan.
+    expect(state.updates.some((u) => u.patch.status === "failed")).toBe(false);
     expect(state.updates.some((u) => u.patch.status === "awaiting_review")).toBe(false);
     expect(sendTrackedEmailSpy).not.toHaveBeenCalled();
   });
 
-  it("partitions a mixed stale batch: active parents parked, dead parents cancelled", async () => {
+  it("partitions a mixed stale batch: active parents failed, dead parents cancelled", async () => {
     state.staleRows = [
-      { id: 701, email_follow_ups: { status: "active" } },
-      { id: 702, email_follow_ups: { status: "cancelled_user" } },
+      { id: 701, follow_up_id: 71, email_follow_ups: { status: "active" } },
+      { id: 702, follow_up_id: 72, email_follow_ups: { status: "cancelled_user" } },
     ];
 
     await (await POST(req)).json();
 
-    expect(sweepWrite("awaiting_review")!.filters).toContainEqual(["in", "id", [701]]);
+    expect(sweepWrite("failed")!.filters).toContainEqual(["in", "id", [701]]);
     expect(sweepWrite("cancelled")!.filters).toContainEqual(["in", "id", [702]]);
   });
 
@@ -506,6 +531,50 @@ describe("send-follow-ups cron — claim lifecycle + fail-loud (CAR-139)", () =>
     const revert = state.updates.find((u) => u.patch.status === "pending");
     expect(revert).toBeDefined();
     expect(revert!.patch.claimed_at).toBeNull();
+  });
+
+  it("a delivered follow-up whose mark-sent write fails is left claimed, never re-sendable", async () => {
+    // The CAR-207 defect in full. sendTrackedEmail RESOLVES (Gmail has the
+    // message), then the bookkeeping write fails. Before the fix that write was
+    // unchecked, so the run reported a clean send while the row sat in
+    // 'sending'; the sweeper then handed it back as awaiting_review with a
+    // one-click "Send now", and the contact received it twice.
+    getGmailClientSpy.mockResolvedValue({
+      users: { threads: { get: async () => ({ data: { messages: [{ payload: { headers: [] } }] } }) } },
+    });
+    state.markSentError = { message: "write conflict" };
+    state.pendingMessages = [
+      { ...dueMessage("prem-1"), scheduled_send_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+    ];
+    state.connections = [
+      { user_id: "prem-1", gmail_address: "prem@x.com", modify_scope_granted: true, automatic_features_enabled: true, premium_enabled: true },
+    ];
+    state.activeUserIds = ["prem-1"];
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await (await POST(req)).json();
+
+      expect(sendTrackedEmailSpy).toHaveBeenCalledTimes(1);
+      // The write is ATTEMPTED either way; what changed is that its failure is
+      // now observed. Unchecked, this run reported a clean send while the row
+      // sat in 'sending' with nothing anywhere saying why, which is what made
+      // the resulting double-send impossible to trace back.
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("delivered but mark-sent failed"),
+        expect.objectContaining({ message: "write conflict" }),
+      );
+      // And the invariant the ticket names: the claim stays. Releasing it to
+      // 'pending' would re-queue an already delivered email, and any actionable
+      // status would invite the manual resend. The sweeper takes it to 'failed'.
+      const messageWrites = state.updates.filter((u) => u.table === "email_follow_up_messages");
+      expect(messageWrites.some((u) => u.patch.status === "pending")).toBe(false);
+      expect(messageWrites.some((u) => u.patch.status === "awaiting_review")).toBe(false);
+      expect(messageWrites.some((u) => u.patch.status === "expired")).toBe(false);
+      expect(messageWrites.some((u) => u.patch.status === "cancelled")).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("a due-query read error fails the cron run (no success payload)", async () => {
@@ -542,6 +611,7 @@ describe("send-follow-ups cron — aged send failures only cancel on a policy ve
     state.sweepReadError = null;
     state.dueReadError = null;
     state.connectionsReadError = null;
+    state.markSentError = null;
     getGmailClientSpy.mockReset();
     getGmailClientSpy.mockResolvedValue({
       users: { threads: { get: async () => ({ data: { messages: [{ payload: { headers: [] } }] } }) } },

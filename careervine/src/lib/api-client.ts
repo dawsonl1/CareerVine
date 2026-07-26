@@ -54,6 +54,14 @@ export function isApiRequestError(err: unknown): err is ApiRequestError {
 const FALLBACK_MESSAGE = "Something went wrong. Please try again.";
 
 /**
+ * `code` on the error `apiFetch` throws for a 2xx whose body will not parse.
+ * Exported because a caller retrying transient failures has to tell it apart
+ * from a real 4xx verdict, and a copied string literal there would silently
+ * break on a rename (`bundle-apply-client.ts` is the consumer).
+ */
+export const UNREADABLE_RESPONSE_CODE = "unreadable_response";
+
+/**
  * Turn a non-ok Response into an ApiRequestError, preferring the route's own
  * curated message. Per the CAR-149 convention those messages are already
  * user-safe (raw driver errors are logged server-side, never returned), so
@@ -94,7 +102,7 @@ export async function apiFetch<T>(input: string, init?: RequestInit): Promise<T>
     throw new ApiRequestError(
       "The server returned an unreadable response. Please try again.",
       res.status,
-      "unreadable_response",
+      UNREADABLE_RESPONSE_CODE,
     );
   }
 }

@@ -102,23 +102,30 @@ export default defineConfig({
       // machine printed this time; that is how a range gets rewritten as a
       // point, twice, in opposite directions.
       //
+      // RE-MEASURED after merging main (CAR-205/206/207/212, 84 files under
+      // src). Every figure below moved UP and no threshold needed to move: the
+      // tightest headroom in any area is 16 units (src/mcp functions), against
+      // the 30-unit calibration the note above names. Thresholds are unchanged
+      // from the re-baseline; only the measured column is refreshed, because a
+      // stale "measured" is the same false claim as a stale count anywhere else.
+      //
       //                    measured        threshold
-      //   global      stmt 67.35%          65
-      //               brch 60.12-60.14%    58
-      //               func 64.35%          62
-      //               line 70.45%          68
-      //   src/lib     stmt 70.81%  2305u   2375
-      //               brch 62.74%  2413u   2485
-      //               func 68.31%   379u    400
-      //               line 74.03%  1746u   1800
-      //   src/hooks   stmt 39.30%   261u    295
-      //               brch 28.57%   125u    145
-      //               func 45.37%    59u     72
-      //               line 40.16%   222u    255
-      //   src/mcp     stmt 47.07%   397u    430
-      //               brch 39.86%   338u    368
-      //               func 49.44%    91u    100
-      //               line 50.62%   318u    345
+      //   global      stmt 68.19%          65
+      //               brch 60.82%          58
+      //               func 66.09%          62
+      //               line 71.22%          68
+      //   src/lib     stmt 71.15%  2303u   2375
+      //               brch 63.17%  2404u   2485
+      //               func 68.99%   382u    400
+      //               line 74.30%  1745u   1800
+      //   src/hooks   stmt 47.79%   236u    295
+      //               brch 36.51%   120u    145
+      //               func 54.87%    51u     72
+      //               line 48.97%   198u    255
+      //   src/mcp     stmt 48.99%   380u    430
+      //               brch 41.52%   324u    368
+      //               func 53.33%    84u    100
+      //               line 52.11%   306u    345
       thresholds: {
         statements: 65,
         branches: 58,

@@ -45,8 +45,13 @@ interface CompanyFilterBarProps {
   onFiltersChange: (filters: CompanyFilters) => void;
   /** Distinct tier labels present in the loaded data. */
   tierOptions: string[];
-  /** Per-status company counts (unfiltered), for chip labels. */
-  statusCounts: Record<TargetStatus, number>;
+  /**
+   * Per-status company counts (unfiltered), for chip labels. Omitted when the
+   * list could not be loaded: `countByStatus` seeds every status to 0, so
+   * passing it there would print five confident zeros about data that was never
+   * read. The chips stay usable as controls without them (CAR-205 review).
+   */
+  statusCounts?: Record<TargetStatus, number>;
 }
 
 /** How many of the secondary (non-stage) filters are active — drives the badge. */
@@ -98,7 +103,7 @@ export default function CompanyFilterBar({
             >
               <ChipCheck on={on} />
               {STATUS_LABELS[s]}
-              <span className="ml-1.5 opacity-60">{statusCounts[s]}</span>
+              {statusCounts && <span className="ml-1.5 opacity-60">{statusCounts[s]}</span>}
             </button>
           );
         })}

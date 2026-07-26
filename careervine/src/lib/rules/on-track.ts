@@ -14,7 +14,8 @@
  * HERE (isActiveContact), not just at fetch call sites.
  */
 
-import { getRecentCutoff, startOfDay } from "./clock";
+import { getRecentCutoff } from "./clock";
+import { dateKeyOf, daysBetweenDateKeys, shiftDateKey } from "@/lib/calendar-day";
 import { isActiveContact } from "./network-status";
 
 export interface OnTrackSourceRow {
@@ -43,7 +44,9 @@ export function deriveRelationshipsOnTrack(
   nowIso: string,
 ): RelationshipsOnTrack {
   const recentCutoff = getRecentCutoff(nowIso);
-  const today = startOfDay(nowIso);
+  // Local calendar today; every day comparison below is calendar-based so it
+  // cannot drift with the viewer's offset or a DST boundary (CAR-206).
+  const todayKey = dateKeyOf(new Date(nowIso));
 
   let onTrack = 0;
   let total = 0;
@@ -70,9 +73,8 @@ export function deriveRelationshipsOnTrack(
       neverContactedPast7d++;
       if (c.follow_up_frequency_days) {
         // Has cadence — check if overdue from created_at
-        const dueDate = new Date(c.created_at);
-        dueDate.setDate(dueDate.getDate() + c.follow_up_frequency_days);
-        if (today <= dueDate) {
+        const dueKey = shiftDateKey(dateKeyOf(new Date(c.created_at)), c.follow_up_frequency_days);
+        if (todayKey <= dueKey) {
           onTrack++;
           withCadenceOnTrack++;
         } else {
@@ -92,8 +94,7 @@ export function deriveRelationshipsOnTrack(
       continue;
     }
 
-    const lastTouchDate = new Date(lastTouch!);
-    const daysSince = Math.floor((today.getTime() - lastTouchDate.getTime()) / (1000 * 60 * 60 * 24));
+    const daysSince = daysBetweenDateKeys(dateKeyOf(new Date(lastTouch!)), todayKey);
     if (daysSince <= c.follow_up_frequency_days) {
       onTrack++;
       withCadenceOnTrack++;

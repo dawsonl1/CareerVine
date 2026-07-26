@@ -7,6 +7,7 @@ import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { useLatestRequest } from "@/hooks/use-latest-request";
+import { formatWallClock } from "@/lib/calendar-day";
 
 type PresetTemplate = {
   name: string;
@@ -286,7 +287,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground">
-                            {new Date(m.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                            {formatWallClock(m.meeting_date, { month: "short", day: "numeric", year: "numeric" }, "en-US")}
                             <span className="ml-2 font-normal text-muted-foreground">({m.meeting_type || "Meeting"})</span>
                           </p>
                           {m.notes && (

@@ -103,11 +103,23 @@ function run(): { code: number; out: string } {
 
 /** Write a file into the fixture app, then run the guard. */
 function withFile(rel: string, contents: string) {
-  const full = path.join(app, rel);
-  mkdirSync(path.dirname(full), { recursive: true });
-  writeFileSync(full, contents);
+  return withFiles({ [rel]: contents });
+}
+
+/**
+ * The same, for a case that needs more than one file — a rule about how modules
+ * REACH each other cannot be exercised by a single file in isolation.
+ */
+function withFiles(files: Record<string, string>) {
+  const written: string[] = [];
+  for (const [rel, contents] of Object.entries(files)) {
+    const full = path.join(app, rel);
+    mkdirSync(path.dirname(full), { recursive: true });
+    writeFileSync(full, contents);
+    written.push(full);
+  }
   const result = run();
-  rmSync(full, { force: true });
+  for (const full of written) rmSync(full, { force: true });
   return result;
 }
 
@@ -440,6 +452,93 @@ describe("conventions guard", () => {
         'export async function ping() {\n  return fetch("https://example.com/x");\n}\n',
       ).code,
     ).toBe(0);
+  });
+
+  /**
+   * CAR-207. The two rules above are both URL-shaped, and a call whose URL is a
+   * PARAMETER satisfies neither: no literal to test, and the module sits outside
+   * the client tree where the total ban did not reach. `bundle-apply-client.ts`
+   * POSTed to /api/bundles/apply and /api/bundles/unsubscribe from the browser
+   * that way for as long as the guard had existed, and widening the DIRECTORY
+   * scope (which the ticket proposed) would not have found it — src/lib was
+   * already scanned. Reachability is what makes a module client code.
+   */
+  it("flags a variable-URL fetch in a module the client imports", () => {
+    const helper =
+      "export async function step(url: string, body: unknown) {\n" +
+      '  return fetch(url, { method: "POST", body: JSON.stringify(body) });\n}\n';
+
+    // Alone, it is server code reaching an unknown URL: not this rule's business.
+    // This control is what proves the assertion below is about REACHABILITY and
+    // not just about the file existing.
+    expect(withFiles({ "src/lib/step-helper.ts": helper }).code).toBe(0);
+
+    // Imported by a client component, the identical call is a browser request.
+    const { code, out } = withFiles({
+      "src/lib/step-helper.ts": helper,
+      "src/components/probe.tsx":
+        '"use client";\nimport { step } from "@/lib/step-helper";\n' +
+        'export const go = () => step("/api/x", {});\n',
+    });
+    expect(code, out).toBe(1);
+    expect(out).toContain("raw fetch");
+    expect(out).toContain("src/lib/step-helper.ts");
+  });
+
+  it("reaches through a relative import and a re-export, not just the @/ alias", () => {
+    const helper =
+      "export async function step(url: string) {\n  return fetch(url);\n}\n";
+
+    // Relative specifier from a sibling module, itself re-exported to the client.
+    const { code, out } = withFiles({
+      "src/lib/deep/step-helper.ts": helper,
+      "src/lib/step-barrel.ts": 'export { step } from "./deep/step-helper";\n',
+      "src/components/probe.tsx":
+        '"use client";\nimport { step } from "@/lib/step-barrel";\n' +
+        'export const go = () => step("/api/x");\n',
+    });
+    expect(code, out).toBe(1);
+    expect(out).toContain("src/lib/deep/step-helper.ts");
+  });
+
+  it("counts a dynamic import() as a reachability edge", () => {
+    // `next/dynamic` and lazily-imported parsers both put the target in a
+    // browser chunk exactly like a static import. Statement-level scanning
+    // cannot see them: they sit in expression position inside a callback.
+    const { code, out } = withFiles({
+      "src/lib/step-helper.ts": "export async function step(url: string) {\n  return fetch(url);\n}\n",
+      "src/components/probe.tsx":
+        '"use client";\n' +
+        'export const go = async () => (await import("@/lib/step-helper")).step("/api/x");\n',
+    });
+    expect(code, out).toBe(1);
+    expect(out).toContain("src/lib/step-helper.ts");
+  });
+
+  it("does not count a type-only import as reachability", () => {
+    // `import type` is erased, so it cannot carry a module into the bundle.
+    // Counting it would drag server modules in through their types alone and
+    // make the rule fire on code no browser ever loads.
+    const { code, out } = withFiles({
+      "src/lib/step-helper.ts":
+        "export type Step = { done: boolean };\n" +
+        "export async function step(url: string) {\n  return fetch(url);\n}\n",
+      "src/components/probe.tsx":
+        '"use client";\nimport type { Step } from "@/lib/step-helper";\n' +
+        "export const go = (s: Step) => s.done;\n",
+    });
+    expect(code, out).toBe(0);
+  });
+
+  it("does not treat a server component's imports as browser-reachable", () => {
+    // An RSC's `fetch` is the idiomatic data call and so is its helper's.
+    const { code, out } = withFiles({
+      "src/lib/step-helper.ts": "export async function step(url: string) {\n  return fetch(url);\n}\n",
+      "src/app/probe/page.tsx":
+        'import { step } from "@/lib/step-helper";\n' +
+        'export default async function Page() {\n  await step("https://example.com");\n  return null;\n}\n',
+    });
+    expect(code, out).toBe(0);
   });
 
   it("leaves server files alone, where fetch is the correct call", () => {

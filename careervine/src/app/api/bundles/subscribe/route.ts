@@ -50,12 +50,21 @@ export const POST = withApiHandler({
       .maybeSingle();
     if (!bundle) throw new ApiError("Bundle not found", 404);
 
-    const { data: existing } = await supabase
+    // Binds its error (CONVENTIONS §d): this is a dedup probe carrying control
+    // flow, and a failed read that silently becomes "no row" falls straight
+    // through to the insert. The 23505 arm below now catches that case, but a
+    // probe failing for some other reason should say so rather than be
+    // laundered into a duplicate-key path.
+    const { data: existing, error: existingError } = await supabase
       .from("bundle_subscriptions")
       .select("id, status, synced_version")
       .eq("user_id", user.id)
       .eq("bundle_id", bundleId)
       .maybeSingle();
+    if (existingError) {
+      console.error("[bundles/subscribe] Existing-subscription probe failed:", existingError);
+      throw new ApiError("Could not check your subscription. Please try again.", 500);
+    }
 
     const nowIso = new Date().toISOString();
     if (existing) {
@@ -94,6 +103,30 @@ export const POST = withApiHandler({
       .select("id, status, synced_version")
       .single();
     if (error) {
+      // A concurrent POST won the race: both reads above saw no row, both
+      // inserted, and UNIQUE (user_id, bundle_id) refused the loser. The
+      // subscription EXISTS and is syncing, so answering 500 told the user a
+      // successful action had failed (CAR-207). Re-read the winner's row and
+      // report success; the backup sync below is idempotent, so enqueueing it
+      // from both requests is harmless.
+      if (error.code === "23505") {
+        const { data: raced, error: raceError } = await supabase
+          .from("bundle_subscriptions")
+          .select("id, status, synced_version")
+          .eq("user_id", user.id)
+          .eq("bundle_id", bundleId)
+          .maybeSingle();
+        if (raceError || !raced) {
+          console.error("[bundles/subscribe] Post-conflict read failed:", raceError);
+          throw new ApiError("Could not create your subscription. Please try again.", 500);
+        }
+        // Neither tracked nor enqueued: the winner did both for this exact
+        // subscription microseconds ago, so repeating them would double-count
+        // one conversion and burn a second QStash message. This is the same
+        // end state as the already-active early return above, and is answered
+        // the same way.
+        return { subscription: raced, reactivated: false };
+      }
       console.error("[bundles/subscribe] Subscribe insert failed:", error);
       throw new ApiError("Could not create your subscription. Please try again.", 500);
     }

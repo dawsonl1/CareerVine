@@ -19,6 +19,8 @@ const state: {
   updates: Record<string, unknown>[];
   /** global maybeSingle counter: 1st = message read, 2nd = fresh parent read. */
   singleCalls: number;
+  /** error injected into the post-send mark-sent write (CAR-207). */
+  markSentError: { message: string } | null;
 } = {
   msgData: null,
   parentRow: { status: "active" },
@@ -26,6 +28,7 @@ const state: {
   completionCount: 1,
   updates: [],
   singleCalls: 0,
+  markSentError: null,
 };
 
 const recordThreadReplySpy = vi.fn<(...a: unknown[]) => Promise<{ ok: boolean; alreadyMarked: boolean }>>(async () => ({ ok: true, alreadyMarked: false }));
@@ -70,7 +73,14 @@ vi.mock("@/lib/supabase/service-client", () =>
           return { data: state.singleCalls === 1 ? state.msgData : state.parentRow };
         },
         then: (resolve: (v: unknown) => void) => {
-          if (isUpdate && patch) state.updates.push(patch);
+          if (isUpdate && patch) {
+            state.updates.push(patch);
+            // The post-send bookkeeping write, injectable so its failure path is
+            // exercised for real (CAR-207). It is the only write setting 'sent'.
+            if (state.markSentError && patch.status === "sent") {
+              return resolve({ count: null, error: state.markSentError });
+            }
+          }
           return resolve({ count: isUpdate ? state.claimCount : state.completionCount, error: null });
         },
       };
@@ -123,6 +133,7 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     state.completionCount = 1;
     state.updates = [];
     state.singleCalls = 0;
+    state.markSentError = null;
   });
 
   it("404s an unknown or foreign message", async () => {
@@ -212,5 +223,45 @@ describe("POST /api/gmail/follow-ups/confirm (CAR-102)", () => {
     const claim = state.updates.find((u) => u.status === "sending");
     expect(claim).toBeDefined();
     expect(typeof claim!.claimed_at).toBe("string");
+  });
+
+  /**
+   * CAR-207. This route is the SECOND send driver for the same row, and it had
+   * the same unchecked mark-sent write as the cron. Gmail has the message; only
+   * the bookkeeping failed. Reverting the claim to anything actionable would
+   * render "Send now" over an email the contact already has.
+   */
+  it("a delivered follow-up whose mark-sent write fails is never handed back as sendable", async () => {
+    state.markSentError = { message: "write conflict" };
+    // Nothing open, so an unguarded fall-through WOULD complete the parent off
+    // the back of a write that never landed. In production the row is still
+    // 'sending' and the real count could not be 0; forcing it here is what makes
+    // the early return observable rather than incidental.
+    state.completionCount = 0;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const { status, data } = await call({ messageId: 5, replied: false });
+
+      expect(sendTrackedEmailSpy).toHaveBeenCalledTimes(1);
+      // The send DID happen, so success is the honest answer to the caller.
+      expect(status).toBe(200);
+      expect(data).toMatchObject({ success: true, sent: true });
+      // The failure is observed rather than swallowed.
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("delivered but mark-sent failed"),
+        expect.objectContaining({ message: "write conflict" }),
+      );
+      // Exactly two writes, and the row is left holding its claim. Nothing
+      // actionable, nothing re-queued: the cron sweeper takes it to 'failed'.
+      expect(state.updates.map((u) => u.status)).toEqual(["sending", "sent"]);
+      expect(state.updates.some((u) => u.status === "awaiting_review")).toBe(false);
+      expect(state.updates.some((u) => u.status === "expired")).toBe(false);
+      expect(state.updates.some((u) => u.status === "pending")).toBe(false);
+      // And the sequence is not closed on the strength of a failed write.
+      expect(state.updates.some((u) => u.status === "completed")).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

@@ -6,6 +6,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { wrapUntrusted } from "@/lib/ai/untrusted";
 import { must } from "@/lib/data/client";
+import { formatWallClock } from "@/lib/calendar-day";
 
 export interface ContactContext {
   contactName: string;
@@ -133,7 +134,7 @@ export async function getContactContext(
     if (meetings?.length) {
       const meetingParts = meetings.map((m) => {
         const parts: string[] = [];
-        parts.push(`Meeting on ${new Date(m.meeting_date).toLocaleDateString()}${m.meeting_type ? ` (${m.meeting_type})` : ""}`);
+        parts.push(`Meeting on ${formatWallClock(m.meeting_date, { dateStyle: "short" })}${m.meeting_type ? ` (${m.meeting_type})` : ""}`);
         if (m.notes) parts.push(`Notes:\n${wrapUntrusted("meeting_notes", m.notes)}`);
         if (m.transcript) {
           parts.push(`Transcript:\n${wrapUntrusted("transcript", m.transcript.substring(0, 3000))}`);

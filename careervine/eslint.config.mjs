@@ -136,7 +136,12 @@ const IMPLICIT_DB_ALLOWED_IN_APP = [
   "src/app/companies/\\[id\\]/page.tsx",
   "src/app/contacts/\\[id\\]/page.tsx",
   "src/app/contacts/page.tsx",
-  "src/app/interactions/page.tsx",
+  // src/app/interactions/page.tsx was here until CAR-207 turned it into a
+  // redirect. This list's premise is that a "use client" page gets its own
+  // module instance in the browser bundle, so db() there is always the anon
+  // client; a server component resolves the process-global slot the MCP fills
+  // with the SERVICE-ROLE client, which is the RLS bypass the CAR-151 fence
+  // exists to stop. The entry had stopped being true of that file.
   "src/app/meetings/page.tsx",
   "src/app/page.tsx",
   // API route passing its own request-scoped client explicitly

@@ -14,35 +14,31 @@
  * interactions), not the contact list.
  */
 
-import { startOfDay } from "./clock";
+import { dateKeyOf, shiftDateKey } from "@/lib/calendar-day";
 
 /**
- * Count the streak from a set of active day strings (YYYY-MM-DD, as produced
- * by splitting the activity tables' timestamps on "T").
+ * Count the streak from a set of active day keys (YYYY-MM-DD in the LOCAL
+ * calendar, as produced by `dateKeyOf` at the fetch site — not by splitting a
+ * timestamp on "T", which yields the UTC day and is a different thing).
  */
 export function deriveNetworkingStreak(activeDays: ReadonlySet<string>, nowIso: string): number {
-  const today = startOfDay(nowIso);
+  // Local calendar keys on BOTH sides (CAR-206). This used to derive "today" as
+  // startOfDay(nowIso).toISOString().split("T")[0] — a local midnight pushed
+  // back through UTC, which east of UTC names YESTERDAY — while its caller
+  // bucketed activity timestamps by their UTC date. Two different notions of a
+  // day were being compared, so an evening's work west of UTC counted toward
+  // tomorrow and a morning's east of UTC counted toward yesterday.
+  const todayKey = dateKeyOf(new Date(nowIso));
 
   let streak = 0;
-  const checkDate = new Date(today);
-  // Include today if there's activity
-  const todayStr = today.toISOString().split("T")[0];
-  if (activeDays.has(todayStr)) {
-    streak = 1;
-    checkDate.setDate(checkDate.getDate() - 1);
-  } else {
-    // Start from yesterday
-    checkDate.setDate(checkDate.getDate() - 1);
-  }
+  // Today counts when it already has activity, but a quiet today is "in
+  // progress" rather than a gap, so the walk always starts at yesterday.
+  if (activeDays.has(todayKey)) streak = 1;
 
-  while (true) {
-    const dateStr = checkDate.toISOString().split("T")[0];
-    if (activeDays.has(dateStr)) {
-      streak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    } else {
-      break;
-    }
+  let cursor = shiftDateKey(todayKey, -1);
+  while (activeDays.has(cursor)) {
+    streak++;
+    cursor = shiftDateKey(cursor, -1);
   }
 
   return streak;

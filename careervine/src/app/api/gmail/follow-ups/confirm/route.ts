@@ -160,10 +160,25 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     }
 
     const now = new Date().toISOString();
-    await service
+    // Gmail has the message from here on. This write was unchecked (CAR-207):
+    // a failure left the row in 'sending' with nothing logged, and the
+    // send-follow-ups sweeper then handed it back as a one-click "Send now",
+    // which delivered it to the contact a second time. Now it is checked and
+    // the claim is deliberately left in place — the sweeper resolves a stale
+    // claim to 'failed', which is terminal and offers no resend. The response
+    // still reports success, because the send itself DID happen; only the
+    // bookkeeping did not.
+    const { error: markSentError } = await service
       .from("email_follow_up_messages")
-      .update({ status: "sent", sent_at: now })
+      .update({ status: FollowUpMessageStatus.Sent, sent_at: now })
       .eq("id", messageId);
+    if (markSentError) {
+      console.error(
+        `[follow-ups/confirm] Message ${messageId} delivered but mark-sent failed; leaving claim for the sweeper:`,
+        markSentError,
+      );
+      return { success: true, sent: true };
+    }
 
     // Complete the sequence only when nothing is left to send or review — an
     // expired sibling still counts as open (it stays one-click sendable), so
