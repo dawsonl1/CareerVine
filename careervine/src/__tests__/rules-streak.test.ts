@@ -58,32 +58,58 @@ describe("deriveNetworkingStreak", () => {
  * other. Neither the old tests nor the old fixture could see it, because the
  * fixture used the same expression the rule did.
  */
-describe("deriveNetworkingStreak — the streak does not depend on the viewer's zone", () => {
-  const ZONES = ["UTC", "America/Denver", "Pacific/Auckland", "Asia/Kolkata", "Asia/Kathmandu"];
+describe("deriveNetworkingStreak — day basis (CAR-206)", () => {
   const originalTz = process.env.TZ;
   afterEach(() => {
     if (originalTz === undefined) delete process.env.TZ;
     else process.env.TZ = originalTz;
   });
 
-  it("counts the same run of days in every zone", () => {
-    const answers = ZONES.map((tz) => {
-      process.env.TZ = tz;
-      // Built per-zone exactly as the fetch site builds them, from instants.
-      const days = new Set([1, 2, 3].map((n) => shiftDateKey(dateKeyOf(new Date(NOW)), -n)));
-      return deriveNetworkingStreak(days, NOW);
-    });
-    expect(answers).toEqual(ZONES.map(() => 3));
+  /**
+   * The discriminating case, and it took two attempts to find.
+   *
+   * The first version of this test asserted a 3-day run stayed 3 across a list
+   * of zones. It passed against the OLD implementation too: a contiguous run is
+   * shift-invariant, so sliding the whole window by one day still finds a run of
+   * three. A test that cannot see a one-day offset is no use against a one-day
+   * offset bug.
+   *
+   * What discriminates is a set with a HOLE at the boundary. East of UTC the old
+   * `startOfDay(nowIso).toISOString().split("T")[0]` names yesterday (measured:
+   * at 2026-04-10T12:00Z, Auckland local is Apr 11 but that expression yields
+   * 2026-04-10), so today's activity was looked up under the wrong key.
+   */
+  it("counts activity on TODAY east of UTC, where a UTC round trip names yesterday", () => {
+    process.env.TZ = "Pacific/Auckland";
+    const nowIso = "2026-04-10T12:00:00.000Z"; // Apr 11 00:00 local
+    const activeToday = new Set([dateKeyOf(new Date(nowIso))]); // "2026-04-11"
+    // Old basis looked up "2026-04-10", which is not in the set, and returned 0.
+    expect(deriveNetworkingStreak(activeToday, nowIso)).toBe(1);
   });
 
-  it("counts an activity logged this evening toward TODAY, west of UTC", () => {
-    // 19:00 Denver on 2026-04-09 is 2026-04-10 in UTC. Bucketing that by UTC put
-    // it on tomorrow's key, so an evening of networking never counted for the day
-    // it happened.
+  it("still treats a quiet today as in-progress rather than a gap, east of UTC", () => {
+    process.env.TZ = "Pacific/Auckland";
+    const nowIso = "2026-04-10T12:00:00.000Z";
+    const yesterdayOnly = new Set([shiftDateKey(dateKeyOf(new Date(nowIso)), -1)]);
+    expect(deriveNetworkingStreak(yesterdayOnly, nowIso)).toBe(1);
+  });
+
+  it("counts an evening activity toward the day it happened, west of UTC", () => {
+    // 19:00 Denver on Apr 9 is Apr 10 in UTC. The fetch site used to bucket that
+    // by its UTC date, so an evening of networking landed on tomorrow's key.
     process.env.TZ = "America/Denver";
     const evening = new Date("2026-04-09T19:00:00-06:00");
-    const nowIso = "2026-04-09T21:00:00-06:00";
-    const days = new Set([dateKeyOf(evening)]);
-    expect(deriveNetworkingStreak(days, nowIso)).toBe(1);
+    expect(dateKeyOf(evening)).toBe("2026-04-09");
+    expect(evening.toISOString().split("T")[0]).toBe("2026-04-10"); // the old bucketing
+    expect(deriveNetworkingStreak(new Set([dateKeyOf(evening)]), "2026-04-09T21:00:00-06:00")).toBe(1);
+  });
+
+  it("gives the same answer in every zone for a run anchored on today", () => {
+    for (const tz of ["UTC", "America/Denver", "Pacific/Auckland", "Asia/Kolkata", "Asia/Kathmandu"]) {
+      process.env.TZ = tz;
+      const today = dateKeyOf(new Date(NOW));
+      const days = new Set([0, 1, 2].map((n) => shiftDateKey(today, -n)));
+      expect(deriveNetworkingStreak(days, NOW)).toBe(3);
+    }
   });
 });

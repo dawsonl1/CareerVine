@@ -43,6 +43,8 @@
 const DATE_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const pad = (n: number) => String(n).padStart(2, "0");
+/** Years pad to four digits, so a key stays a key below year 1000. */
+const pad4 = (n: number) => String(n).padStart(4, "0");
 
 /**
  * A UTC instant at midnight on the given calendar date.
@@ -91,7 +93,7 @@ export function toDateKey(value: string | null | undefined): string | null {
 
 /** The date key of an instant in the VIEWER'S local calendar. Never `toISOString()`. */
 export function dateKeyOf(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return `${pad4(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 /** Today, in the viewer's local calendar. */
@@ -104,7 +106,7 @@ export function shiftDateKey(key: string, days: number): string {
   const m = key.match(DATE_KEY_RE);
   if (!m) return key;
   const shifted = utcInstantOf(Number(m[1]), Number(m[2]), Number(m[3]) + days);
-  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+  return `${pad4(shifted.getUTCFullYear())}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
 }
 
 /**
@@ -176,7 +178,7 @@ export function wallClockParts(
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return {
-    dateKey: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
+    dateKey: `${pad4(d.getUTCFullYear())}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
     time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
   };
 }

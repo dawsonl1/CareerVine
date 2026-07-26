@@ -1,6 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { buildDossier, daysSince, isByuLikeSchool } from "../lib/dossier";
 import type { DossierBundle } from "../lib/db";
+
+/**
+ * `daysSince` counts whole CALENDAR days (CAR-206), so its answer is relative to
+ * the evaluating process's calendar. The dossier is built server-side, which is
+ * UTC in production, so the zone is pinned here rather than left ambient: at
+ * 12:00Z this fixture is already the next local day in Auckland, and the count
+ * legitimately differs by one there.
+ */
+const originalTz = process.env.TZ;
+process.env.TZ = "UTC";
+afterAll(() => {
+  if (originalTz === undefined) delete process.env.TZ;
+  else process.env.TZ = originalTz;
+});
 
 const NOW = new Date("2026-07-08T12:00:00Z");
 

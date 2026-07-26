@@ -127,9 +127,15 @@ describe("formatDueDate", () => {
   });
 
   it("cannot be pushed off the date by a caller-supplied timeZone", () => {
-    expect(
-      formatDueDate(WIRE, { month: "short", day: "numeric", timeZone: "Pacific/Kiritimati" }, "en-US"),
-    ).toBe("Jan 5");
+    // The probe zone MUST be west of UTC. The first version of this test used
+    // Pacific/Kiritimati (UTC+14) on the instinct that an extreme zone is the
+    // strongest probe — but the instant under test is exactly midnight UTC, so
+    // every eastward zone lands on the SAME calendar date and the assertion is
+    // satisfied whether or not the pin wins. It survived deleting the pin
+    // entirely. Only a negative offset moves midnight UTC onto the previous day.
+    for (const tz of ["America/Denver", "America/Los_Angeles", "Pacific/Honolulu", "Etc/GMT+12"]) {
+      expect(formatDueDate(WIRE, { month: "short", day: "numeric", timeZone: tz }, "en-US")).toBe("Jan 5");
+    }
   });
 });
 

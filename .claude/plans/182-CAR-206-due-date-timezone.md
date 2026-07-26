@@ -146,42 +146,108 @@ CAR-191 lesson, a test that never went red proves nothing.
 `npm run test`, plus `TZ=America/Denver` and `TZ=Pacific/Auckland` runs;
 `npm run lint`, `npm run typecheck`, `npm run check:conventions`, `npm run build`.
 
-## Found by the TZ sweep, NOT fixed here
+## Second pass: deep review + the two deferred defects
 
-The mandated `TZ=` runs surfaced three things outside the due-date domain. Two
-test-fixture failures were fixed in this branch because the ticket's own
-verification could not otherwise pass. The rest are separate defects.
+Dawson directed that the deep review's findings and both previously-deferred
+defects land in this PR. A Tier 2 agent review (7 discovery agents, 17 verifiers,
+241 spot-checks) produced 17 candidates: 14 confirmed, 1 downgraded, 2 rejected.
 
-**Fixed here (test-only, no product change):**
+### Fixed from the review
 
-* `profile-helpers.test.ts` — two edge cases pinned `derived` to a UTC instant
-  while `now` was local, so in Auckland the fixture meant something different
-  than intended and the test failed on itself. Both sides are local now.
-* `ai-untrusted.test.ts` — prompt snapshots embed `toLocaleDateString()` output.
-  Pinned to UTC, which is what the server actually runs in.
+* **Snooze wrote an already-past timestamp** (four agents found it independently,
+  the worst regression this PR introduced). The "is the due date ahead?" gate was
+  changed from an instant to a calendar comparison, but the value written to
+  `snoozed_until` stayed the raw midnight-UTC wire value. West of UTC that has
+  already elapsed by late afternoon, so the snooze silently no-opped and the item
+  came straight back while the UI reported success. Now writes
+  `localMidnightIso(dueKey)`, which the calendar gate proves is still ahead.
+* **MCP `due_at: ""` silently wiped a due date.** `normalizeDueAt` mapped the
+  empty string to null. Pre-PR `""` reached PostgREST and failed with 22007, so
+  nothing was lost — the PR turned a loud, harmless failure into silent erasure,
+  contradicting its own docstring. `""` now throws, and the Zod schemas carry
+  `.min(1)` so it is refused at validation first.
+* **The timeZone-pin guard test was vacuous.** It probed with Pacific/Kiritimati
+  (UTC+14); the instant under test is midnight UTC, so every eastward zone lands
+  on the same date and the assertion passed even with the pin deleted outright.
+  Now probes four zones west of UTC.
+* **`dueDateKey` admitted non-dates.** A bare regex accepted `2026-02-30`, and
+  `Date.UTC`'s legacy two-digit-year rule remapped years under 0100, so the
+  formatter and the comparison helpers disagreed about the same key. Now
+  round-trip validated. Writing the test for this found a second bug of my own:
+  `shiftDateKey` did not zero-pad years to four digits.
+* **The MCP write path had no tests at all** — not the throw, not the empty
+  string, not the offset truncation. Seven cases added, including that the
+  rejection reaches the agent through `handler()` as a tool error rather than an
+  unhandled throw.
+* **The MCP due-window comment overclaimed.** These windows key off the calendar
+  date of the *process*, which is UTC on Vercel; the operator's own zone is not
+  knowable there. The comment now says so instead of implying the surface is
+  fully fixed.
 
-**Not fixed here, each needs a decision about what the number means:**
+### Fixed from the review (pre-existing, not introduced here)
 
-* **Networking streak counts UTC days against a local "today".** `activeDays` in
-  `data/home.ts` buckets activity timestamps by splitting on `"T"` (UTC), while
-  `deriveNetworkingStreak` compares against `startOfDay(nowIso)` (local). The
-  dashboard calls this from the browser and MCP calls it server-side, so the same
-  user can get two different streaks. Fixing it means choosing whether a streak
-  day is a UTC day or the user's day, and there is no stored user timezone to
-  compute the latter from server-side.
-* **`days_overdue` mixes bases the same way.** `deriveDueFollowUps` builds
-  `dueDate` from a `lastTouch` value and compares it against a local
-  `startOfDay`; `data/home.ts` and `data/follow-ups.ts` repeat the pattern for
-  `daysSinceTouch`, which feeds the neglected-contacts rule. Reproduces under
-  `TZ=Asia/Kolkata` (a half-hour offset), on `main`, as an off-by-one. Both
-  source columns are `timestamptz` holding real instants, so the fix depends on
-  whether the counter means calendar days or elapsed days. Four sites across a
-  rule family, changing a user-visible number on the home dashboard and in
-  `list_due_followups`.
-* **`prod-drift-check-script.test.ts` has a TOCTOU race.** `freePort()` binds,
-  reads the port, closes, and returns it; the script then tests whether that port
-  is held. Anything can claim it in the window. Observed failing once in ~13
-  full-suite runs on this branch and not reproduced since, on either branch. The
-  diagnosis is structural, but a fix cannot be verified without a reproduction
-  harness, which is why it is not attempted here. Nothing in this diff opens a
-  socket or spawns a process.
+* **`meetings.meeting_date` had the same defect and a data-corrupting round
+  trip.** Every writer sends a naive local wall clock with no offset, so Postgres
+  stores the typed digits as UTC. Five display sites rendered it through the
+  viewer's zone (a meeting entered as Jan 5 2:00 PM showed as Jan 4 7:00 AM in
+  Denver), and — worse — the two edit forms re-seeded themselves with *local*
+  getters, so every open-and-save walked the meeting backward by one offset,
+  compounding each time. Fixed display-side with `formatWallClock` /
+  `wallClockParts`: no migration, and existing rows read correctly immediately.
+  The alternative the reviewer floated (store real instants) needs a backfill
+  that is unknowable for historical rows.
+* **`bulk-import` wrote `due_at` unnormalized**, and the comment introduced by
+  this PR asserted MCP was the only such path. Now uses `coerceDueDate` (the
+  non-throwing variant, so one bad spreadsheet cell drops a due date rather than
+  failing the import), and the false claim is gone.
+
+### The two deferred defects, now fixed
+
+Both needed a decision about what a "day" means. The decision, applied
+uniformly: **every day comparison uses the evaluating environment's local
+calendar on BOTH sides.** In the browser that is the user's real day; on the
+server it is UTC, the best available. The bug was never the choice of basis, it
+was the mismatch between the two sides of a comparison.
+
+* **Streak.** `activeDays` bucketed activity by UTC date while
+  `deriveNetworkingStreak` compared against a local midnight pushed back through
+  `toISOString()` — which east of UTC names *yesterday*. Both sides now use
+  `dateKeyOf`. The existing tests could not have caught this: the fixture built
+  its day keys with the same expression the rule used, so the assertion was true
+  by construction. Rewritten to build keys the way the fetch site does.
+* **`days_overdue` / `daysSinceTouch` / on-track.** Six sites divided an elapsed
+  millisecond gap between a local midnight and a raw instant. Reproduced on
+  `main` under `TZ=Asia/Kolkata` as an off-by-one. All now use
+  `daysBetweenDateKeys`. Three further elapsed-millisecond day counts in the same
+  family (`page.tsx` last-contacted, `mcp/tools/contacts.ts`, `mcp/lib/dossier.ts`)
+  were fixed with them.
+
+### Rejected by verification, correctly
+
+`get_contact_dossier` emitting a raw timestamp (untouched by this PR's diff) and
+a claim that CONVENTIONS.md needs updating (its own standard says otherwise).
+
+### Two tests I wrote that did not bite, and how they were caught
+
+Falsification found both. The first streak zone test asserted a 3-day run stayed
+3 across a list of zones — it passed against the old implementation too, because
+a contiguous run is shift-invariant and cannot see a one-day offset. Replaced
+with a set that has a hole at the boundary. The timeZone-pin test is the other,
+above. Both are recorded in the test files themselves so the next person does not
+repeat the reasoning.
+
+## Verify
+
+`npm run test` (2,812) under `TZ=` America/Denver, Pacific/Auckland, UTC,
+Asia/Kolkata, Asia/Kathmandu and Pacific/Chatham; typecheck, lint,
+`check:conventions`, `check:ui-events`, the coverage gate and `npm run build`.
+
+## Still open, deliberately
+
+`prod-drift-check-script.test.ts` has a TOCTOU race in its `freePort()` helper:
+it binds a port, reads it, closes, and returns it, after which anything can claim
+it before the script under test checks whether it is held. Observed failing once
+in ~13 full-suite runs and not reproduced since on either branch. Not fixed here
+because a fix cannot be verified without a reproduction harness, and shipping an
+unverifiable change to an unrelated flaky test is worse than reporting it.
+Nothing in this diff opens a socket or spawns a process.
