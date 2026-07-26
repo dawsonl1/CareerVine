@@ -43,6 +43,8 @@ import { useQuickCapture } from "@/components/quick-capture-context";
 import { inputClasses } from "@/lib/form-styles";
 import { getRsvpDisplay } from "@/lib/constants";
 import { withToastOnError } from "@/lib/with-toast-on-error";
+import { dueDateKey, formatDueDate, isDueDateOverdue } from "@/lib/due-date";
+import { formatWallClock } from "@/lib/calendar-day";
 import { LoadErrorState, LoadErrorBanner } from "@/components/ui/load-error-state";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -456,9 +458,9 @@ export default function MeetingsPage() {
                     <div className="min-w-0">
                       <h3 className="text-lg font-medium text-foreground">{meeting.title || <span className="capitalize">{meeting.meeting_type || "Meeting"}</span>}</h3>
                       <p className="text-base text-muted-foreground">
-                        {new Date(meeting.meeting_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                        {formatWallClock(meeting.meeting_date, { weekday: "short", month: "short", day: "numeric", year: "numeric" }, "en-US")}
                         {" · "}
-                        {new Date(meeting.meeting_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        {formatWallClock(meeting.meeting_date, { hour: "numeric", minute: "2-digit" }, "en-US")}
                       </p>
                     </div>
                   </div>
@@ -611,12 +613,12 @@ export default function MeetingsPage() {
                             <span className={`flex-1 min-w-0 truncate ${action.is_completed ? "line-through text-muted-foreground" : "text-foreground"}`}>{action.title}</span>
                             <span className="text-sm text-muted-foreground shrink-0">{(action.action_item_contacts?.map(ac => ac.contacts?.name).filter(Boolean).join(", ")) || action.contacts?.name || ""}</span>
                             {action.due_at && (
-                              <span className={`text-sm shrink-0 ${new Date(action.due_at) < new Date() && !action.is_completed ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                                {new Date(action.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                              <span className={`text-sm shrink-0 ${isDueDateOverdue(action.due_at) && !action.is_completed ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                                {formatDueDate(action.due_at, { month: "short", day: "numeric" }, "en-US")}
                               </span>
                             )}
                             <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button type="button" onClick={() => { setCardEditActionId(action.id); setCardEditTitle(action.title); setCardEditDescription(action.description || ""); setCardEditDueDate(action.due_at ? action.due_at.split("T")[0] : ""); setCardEditContactIds(action.action_item_contacts?.map(ac => ac.contact_id) || (action.contacts ? [action.contacts.id] : [])); }} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
+                              <button type="button" onClick={() => { setCardEditActionId(action.id); setCardEditTitle(action.title); setCardEditDescription(action.description || ""); setCardEditDueDate(dueDateKey(action.due_at) ?? ""); setCardEditContactIds(action.action_item_contacts?.map(ac => ac.contact_id) || (action.contacts ? [action.contacts.id] : [])); }} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
                               {action.is_completed ? (

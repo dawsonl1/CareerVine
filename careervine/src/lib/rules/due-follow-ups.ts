@@ -13,7 +13,8 @@
  * structurally impossible).
  */
 
-import { getRecentCutoff, startOfDay } from "./clock";
+import { getRecentCutoff } from "./clock";
+import { dateKeyOf, daysBetweenDateKeys, shiftDateKey } from "@/lib/calendar-day";
 import { isActiveContact } from "./network-status";
 
 /** Source row shape for the reach-out derivation (matches the home fetch). */
@@ -56,7 +57,11 @@ export function deriveDueFollowUps(
   // and the derivation stays deterministic under test.
   const now = new Date(nowIso);
   const recentCutoff = getRecentCutoff(nowIso);
-  const today = startOfDay(nowIso);
+  // Local calendar today. Day counts below are calendar-day differences, not
+  // elapsed-millisecond divisions against a local midnight (CAR-206): the old
+  // form mixed a local day boundary with a raw instant and came out one short
+  // at half-hour offsets and across DST.
+  const todayKey = dateKeyOf(now);
   const isSnoozed = (c: DueFollowUpSourceRow) =>
     Boolean(c.reach_out_snoozed_until && new Date(c.reach_out_snoozed_until) > now);
 
@@ -90,16 +95,15 @@ export function deriveDueFollowUps(
         return null;
       }
 
-      let daysOverdue: number;
-      if (neverContacted) {
-        const dueDate = new Date(c.created_at);
-        dueDate.setDate(dueDate.getDate() + freqDays!);
-        daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-      } else {
-        const dueDate = new Date(lastTouchDate!);
-        dueDate.setDate(dueDate.getDate() + freqDays!);
-        daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-      }
+      // The touch is read as an instant and reduced to its LOCAL calendar day.
+      // interaction_date genuinely is an instant; meeting_date is a naive wall
+      // clock stored as UTC, so for an evening meeting west of UTC this can name
+      // the next day. That imprecision predates CAR-206 and is shared by every
+      // other last_touch consumer (all of them do `new Date(last_touch)`), so it
+      // is left uniform here rather than made locally clever and inconsistent.
+      const anchorKey = dateKeyOf(neverContacted ? new Date(c.created_at) : lastTouchDate!);
+      const dueKey = shiftDateKey(anchorKey, freqDays!);
+      const daysOverdue = daysBetweenDateKeys(dueKey, todayKey);
       if (daysOverdue < 0) return null;
 
       return {

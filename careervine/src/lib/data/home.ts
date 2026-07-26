@@ -13,6 +13,7 @@ import { buildLastTouchMap } from "./follow-ups";
 import { getRecentCutoff } from "@/lib/rules/clock";
 import { deriveDueFollowUps } from "@/lib/rules/due-follow-ups";
 import { deriveNetworkingStreak } from "@/lib/rules/streak";
+import { dateKeyOf, daysBetweenDateKeys, toDateKey } from "@/lib/calendar-day";
 
 /**
  * Combined home page data fetch — loads action items + all contact-derived data
@@ -69,8 +70,11 @@ export async function getHomeCoreData(userId: string) {
   // ── Derive contactHealth (for lastTouchLookup) ──
   const contactHealth = allContacts.map((c) => {
     const lastTouch = lastTouchMap.get(c.id) || null;
+    // Whole calendar days, both ends in the local calendar (CAR-206). The old
+    // form divided a millisecond gap between a local midnight and a raw instant,
+    // which is off by one at some offsets and across DST.
     const daysSinceTouch = lastTouch
-      ? Math.floor((today.getTime() - new Date(lastTouch).getTime()) / (1000 * 60 * 60 * 24))
+      ? daysBetweenDateKeys(dateKeyOf(new Date(lastTouch)), dateKeyOf(today))
       : null;
     return {
       id: c.id,
@@ -215,15 +219,21 @@ export async function getNetworkingStreak(userId: string) {
 
   const activeDays = new Set<string>();
 
+  // Local calendar day of each activity, matching the basis deriveNetworkingStreak
+  // compares against (CAR-206). Splitting on "T" gave the UTC day, so an evening
+  // meeting west of UTC landed on tomorrow's key and never counted for the day
+  // it happened. meeting_date is a naive wall clock stored as UTC, so its own
+  // digits are the local day the user meant; the other two are real instants.
   for (const m of meetings) {
-    if (m.meeting_date) activeDays.add(m.meeting_date.split("T")[0]);
+    if (m.meeting_date) activeDays.add(toDateKey(m.meeting_date) ?? "");
   }
   for (const a of completedItems) {
-    if (a.completed_at) activeDays.add(a.completed_at.split("T")[0]);
+    if (a.completed_at) activeDays.add(dateKeyOf(new Date(a.completed_at)));
   }
   for (const i of interactions) {
-    if (i.interaction_date) activeDays.add(i.interaction_date.split("T")[0]);
+    if (i.interaction_date) activeDays.add(dateKeyOf(new Date(i.interaction_date)));
   }
+  activeDays.delete("");
 
   // Counting policy lives in src/lib/rules/streak.ts (CAR-155).
   return { streak: deriveNetworkingStreak(activeDays, today.toISOString()) };

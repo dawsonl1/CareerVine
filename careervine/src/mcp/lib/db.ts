@@ -49,6 +49,7 @@ import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 import { parseCalendarAttendees } from "@/lib/calendar-attendees";
+import { isDueDateOnOrBefore, isDueDateOverdue, normalizeDueDate, shiftDateKey, todayDateKey } from "@/lib/due-date";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -450,7 +451,7 @@ export async function createActionItem(input: {
       meeting_id: null,
       title: input.title,
       description: input.description ?? null,
-      due_at: input.due_at ?? null,
+      due_at: normalizeDueDate(input.due_at),
       is_completed: false,
       completed_at: null,
       created_at: new Date().toISOString(),
@@ -503,21 +504,32 @@ export async function listActionItems(opts: {
   if (opts.contactId != null) {
     items = items.filter((i) => i.action_item_contacts.some((c) => c.contact_id === opts.contactId));
   }
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const endOfToday = new Date(startOfToday);
-  endOfToday.setDate(endOfToday.getDate() + 1);
-  const endOfWeek = new Date(startOfToday);
-  endOfWeek.setDate(endOfWeek.getDate() + 7);
+  // Due windows compare CALENDAR DATES, not instants (CAR-206). `due_at` is a
+  // date stored as midnight UTC, so `new Date(due_at) < startOfToday` was true
+  // for everything due TODAY in any process at or west of UTC — every item due
+  // today reported as overdue, all day. The `today` and `week` bounds are
+  // inclusive upper bounds on the same key, preserving the windows those cases
+  // always meant: due today or earlier, and due within the next seven days.
+  //
+  // Scope, honestly: "today" here is the calendar date of the PROCESS running
+  // this, which in production is the Vercel function, i.e. UTC. The operating
+  // user's own timezone is not knowable at this surface — nothing stores it —
+  // so an operator in Denver still gets UTC-relative windows from these tools
+  // even though the web UI gives them local ones. What the fix removes is the
+  // basis MISMATCH (an instant compared against a day boundary), which was
+  // wrong even when the process clock was UTC. Closing the remaining gap needs
+  // a caller-supplied timezone on the tool, which is a contract change.
+  const todayKey = todayDateKey(now);
+  const endOfWeekKey = shiftDateKey(todayKey, 6);
   switch (opts.due) {
     case "overdue":
-      items = items.filter((i) => i.due_at && new Date(i.due_at) < startOfToday);
+      items = items.filter((i) => isDueDateOverdue(i.due_at, now));
       break;
     case "today":
-      items = items.filter((i) => i.due_at && new Date(i.due_at) < endOfToday);
+      items = items.filter((i) => isDueDateOnOrBefore(i.due_at, todayKey));
       break;
     case "week":
-      items = items.filter((i) => i.due_at && new Date(i.due_at) < endOfWeek);
+      items = items.filter((i) => isDueDateOnOrBefore(i.due_at, endOfWeekKey));
       break;
     default:
       break;
@@ -541,7 +553,7 @@ export async function updateActionItem(
     updates.completed_at = new Date().toISOString();
   }
   if (patch.snooze_until !== undefined) updates.snoozed_until = patch.snooze_until;
-  if (patch.due_at !== undefined) updates.due_at = patch.due_at;
+  if (patch.due_at !== undefined) updates.due_at = normalizeDueDate(patch.due_at);
   if (patch.title !== undefined) updates.title = patch.title;
   if (patch.description !== undefined) updates.description = patch.description;
   if (Object.keys(updates).length === 0) throw new Error("No updates provided");

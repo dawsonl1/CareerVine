@@ -9,6 +9,7 @@ import { Sparkles, Check, X, Calendar, User, AlertTriangle, CheckSquare, Hourgla
 import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
+import { formatDueDate } from "@/lib/due-date";
 
 /** Compact inline date picker — renders as a small "Add date" button that opens a native date input */
 function InlineDatePicker({ onSelect }: { onSelect: (date: string) => void }) {
@@ -251,12 +252,10 @@ export function TranscriptActionSuggestions({
   // Derive contact name for "Waiting on" header
   const waitingContactName = waitingOn[0]?.contactName || waitingOn[0]?.assignedSpeaker || "them";
 
-  // Format a YYYY-MM-DD date string without timezone shifting
-  const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.split("-").map(Number);
-    const date = new Date(y, m - 1, d);
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  };
+  // Shares the one due-date formatter (CAR-206) rather than re-deriving the
+  // no-timezone-shift trick here, as this and the conversation modal both did.
+  const formatDate = (dateStr: string) =>
+    formatDueDate(dateStr, { month: "short", day: "numeric" }, "en-US");
 
   const renderSuggestionCard = (s: TranscriptSuggestion) => {
     const isEditing = editingKey === s._key;

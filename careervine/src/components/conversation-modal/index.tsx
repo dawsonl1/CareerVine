@@ -41,6 +41,7 @@ import { PastMeetingFields } from "./past-meeting-fields";
 import { FutureMeetingFields } from "./future-meeting-fields";
 import { ActionItemsSection } from "./action-items-section";
 import { apiSend, jsonBody } from "@/lib/api-client";
+import { wallClockParts } from "@/lib/calendar-day";
 
 // Map icon names to components
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -130,9 +131,10 @@ export function ConversationModal() {
 
     if (editMeeting) {
       // Edit mode: populate from existing meeting
-      const d = new Date(editMeeting.meeting_date);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const timeStr = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      // UTC parts, not local: see calendar/page.tsx openEditFromEvent (CAR-206).
+      const parts = wallClockParts(editMeeting.meeting_date);
+      const dateStr = parts?.dateKey ?? "";
+      const timeStr = parts?.time ?? "";
       setForm({
         selectedContactIds: editMeeting.meeting_contacts.map((mc) => mc.contact_id),
         title: editMeeting.title || "",

@@ -13,6 +13,7 @@ import { SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 import { deriveDueFollowUps, type DueFollowUpEntry } from "@/lib/rules/due-follow-ups";
 import { deriveRelationshipsOnTrack } from "@/lib/rules/on-track";
 import { deriveNeglectedContacts } from "@/lib/rules/neglected";
+import { dateKeyOf, daysBetweenDateKeys } from "@/lib/calendar-day";
 
 /** Get a suggestion cooldown timestamp (now + SUGGESTION_COOLDOWN_DAYS) */
 function getSuggestionCooldownTimestamp(): string {
@@ -191,8 +192,9 @@ export async function getContactsWithLastTouch(userId: string) {
 
   return contacts.map((c) => {
     const lastTouch = lastTouchMap.get(c.id) || null;
+    // Whole calendar days, both ends local (CAR-206) — feeds the neglected rule.
     const daysSinceTouch = lastTouch
-      ? Math.floor((today.getTime() - new Date(lastTouch).getTime()) / (1000 * 60 * 60 * 24))
+      ? daysBetweenDateKeys(dateKeyOf(new Date(lastTouch)), dateKeyOf(today))
       : null; // null means never contacted
     return {
       id: c.id,

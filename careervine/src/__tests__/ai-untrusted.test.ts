@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { wrapUntrusted, UNTRUSTED_DATA_CLAUSE } from "@/lib/ai/untrusted";
 import { formatContextForLLM, type ContactContext } from "@/lib/ai-followup/gather-context";
 import { buildDraftPrompt } from "@/lib/ai-followup/generate-draft";
@@ -6,6 +6,23 @@ import { buildEvalPrompt } from "@/lib/ai-followup/find-article";
 import type { Interest } from "@/lib/ai-followup/extract-interests";
 
 /** CAR-143 (R5.2 input half): fencing + one hardened-prompt snapshot per builder. */
+
+/**
+ * The prompt snapshots embed meeting and interaction dates rendered with
+ * `toLocaleDateString()`, so they are only stable against a fixed zone. UTC,
+ * because these builders run server-side on Vercel, which is UTC — the
+ * snapshot then records what production actually sends. Without this the
+ * suite failed under `TZ=Pacific/Auckland` on a date one day off, which is a
+ * property of the runner rather than of the code (found by CAR-206's TZ runs).
+ */
+const originalTz = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = "UTC";
+});
+afterAll(() => {
+  if (originalTz === undefined) delete process.env.TZ;
+  else process.env.TZ = originalTz;
+});
 
 describe("wrapUntrusted", () => {
   it("fences content in the named tag", () => {

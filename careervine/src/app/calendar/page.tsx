@@ -24,6 +24,7 @@ import { SectionBoundary } from "@/components/ui/section-boundary";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
 import type { CalendarAttendee } from "@/lib/calendar-attendees";
+import { wallClockParts } from "@/lib/calendar-day";
 
 // Day grid parameters: 7am–10pm = 15 hours
 const GRID_START_HOUR = 7;
@@ -291,12 +292,15 @@ export default function CalendarPage() {
     setSelectedEvent(null);
     const linked = linkedMeetings[event.google_event_id];
     if (linked) {
-      const d = new Date(linked.meeting_date);
+      // UTC parts: meeting_date is a naive wall clock stored as UTC, so local
+      // getters would re-seed this form with the author's digits shifted by the
+      // viewer's offset and saving would persist the shift (CAR-206).
+      const parts = wallClockParts(linked.meeting_date);
       setEditingMeeting(linked);
       setEditingGoogleEventId(null);
       const nextForm = {
-        meeting_date: dateToStr(d),
-        meeting_time: `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`,
+        meeting_date: parts?.dateKey ?? "",
+        meeting_time: parts?.time ?? "",
         meeting_type: linked.meeting_type || "",
         title: linked.title || "",
         notes: linked.notes || "",
