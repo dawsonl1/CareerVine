@@ -310,6 +310,21 @@ and `careervine/src/components/ui/select.tsx` for the portal target,
 `careervine/src/app/interactions/page.tsx` for the buttons. Both rules are adopted
 by every current call site.
 
+A portalled child that opens and closes also owns **Escape while it is open**, on a
+CAPTURE-phase document listener that calls `stopPropagation` (CAR-205). The dialog's
+own handler is a document *bubble* listener, so capture wins deterministically rather
+than by mount order; without one, Escape over an open dropdown closes the dialog
+underneath it and leaves the dropdown behind. Both worked examples above implement
+it, and they differ in the part that matters: "does this widget own the key" is
+`activeElement === trigger` in `select.tsx`, whose trigger is its only focusable
+part, and focus-anywhere-inside-the-widget in `use-portal-dropdown.ts`, whose panels
+are full of real buttons. Copying the narrow form into a widget with focusable
+children reintroduces the bug for every focus position but one. Either way the check
+is what stops a dropdown left open under a newer layer swallowing that layer's
+Escape, and either way focus goes back to the trigger on close, since focus stranded
+on `<body>` disarms the enclosing trap. Not enforced; `careervine/src/__tests__/picker-escape.test.tsx`
+pins the behavior for the shared hook.
+
 Every dialog surface registers as a dismissal layer with `useDialogLayer()` from
 `careervine/src/components/ui/modal.tsx` (CAR-202). Escape is a document-level
 event, so without a topmost check one keypress dismisses every open layer, and a
