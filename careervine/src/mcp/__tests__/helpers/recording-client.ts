@@ -267,6 +267,11 @@ export function isDirectlyScoped(q: RecordedQuery, userId: string): boolean {
   const scopedFilter = q.filters.some(([method, col, val]) => {
     if (method !== "eq" || val !== userId) return false;
     if (col === "user_id") return true;
+    // public.users is the one table whose OWN primary key is the user id, so
+    // `.eq("id", uid())` is exactly as scoped as `.eq("user_id", uid())` is
+    // everywhere else. Narrow to that table so no other `id` column can
+    // accidentally satisfy the check (CAR-213).
+    if (col === "id" && q.table === "users") return true;
     if (!col.endsWith(".user_id")) return false;
     const rel = col.slice(0, -".user_id".length);
     return (q.selectCols ?? "").includes(`${rel}!inner`);

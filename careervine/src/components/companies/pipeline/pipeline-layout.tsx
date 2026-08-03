@@ -46,6 +46,9 @@ import { ManageOfficesPanel } from "@/components/companies/pipeline/manage-offic
 import { formatProgramSummaryLine } from "@/lib/researching-program-summary";
 import { formatApplicationSummaryLine } from "@/lib/applied-application-summary";
 import { formatApplicationDateDisplay } from "@/lib/application-date-value";
+import { personaLabel } from "@/lib/persona-labels";
+import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
+import { alumBadgeLabel } from "@/lib/schools/affinity-state";
 
 const STAGE_HEADINGS: Record<PipelineStage, string> = {
   researching: "Researching",
@@ -65,13 +68,6 @@ const STAGE_STYLES: Record<OutreachStage, string> = {
   referral: "bg-tertiary-container text-on-tertiary-container",
 };
 
-const PERSONA_LABELS: Record<string, string> = {
-  alum_product: "Alum · Product",
-  alum_other: "Alum",
-  product_peer: "Product peer",
-  product_leader: "Product leader",
-  recruiter: "Recruiter",
-};
 
 const SAVE_STATUS_LABELS: Record<PipelineSaveStatus, string | null> = {
   idle: null,
@@ -678,6 +674,7 @@ function ContactRow({
   highlightEmail?: boolean;
   onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
 }) {
+  const affinity = useAlumniAffinity();
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const role = person.roles[0];
@@ -704,12 +701,12 @@ function ContactRow({
             <span className="text-sm font-medium text-on-surface truncate">{person.name}</span>
             {person.persona && (
               <span className="px-1.5 py-0.5 rounded text-[10px] bg-surface-container-high text-on-surface-variant">
-                {PERSONA_LABELS[person.persona] ?? person.persona}
+                {personaLabel(person.persona, affinity.hasAffinity)}
               </span>
             )}
             {person.is_alum && (
               <span className="px-1.5 py-0.5 rounded text-[10px] bg-primary-container text-on-primary-container flex items-center gap-0.5">
-                <GraduationCap className="w-2.5 h-2.5" /> BYU
+                <GraduationCap className="w-2.5 h-2.5" /> {alumBadgeLabel(affinity)}
               </span>
             )}
             {person.stage && person.stage !== "not_contacted" && (

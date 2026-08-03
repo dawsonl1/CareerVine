@@ -18,7 +18,7 @@ import type { OutreachStage } from "./stage-derivation";
 export type NextActionTone = "urgent" | "active" | "muted";
 
 export interface NextAction {
-  /** The concrete next move, e.g. "Reach out to Sarah — your BYU alum here". */
+  /** The concrete next move, e.g. "Reach out to Sarah, your alum here". */
   text: string;
   /** lucide-react icon name the card maps to a component. */
   icon: string;
@@ -37,9 +37,9 @@ export interface NextActionInput {
   traction: OutreachStage | null;
   /** Current non-bench contacts you know here. */
   currentCount: number;
-  /** BYU alumni among them — the warmest intro. */
+  /** Alumni of the VIEWER's school among them — the warmest intro. */
   alumCount: number;
-  /** BYU alumni among them who are in a product role — the highest-value intro for a PM search. */
+  /** Viewer's-school alumni in a product role — the highest-value intro. */
   productAlumCount: number;
   /** Recruiters among them. */
   recruiterCount: number;
@@ -130,18 +130,20 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
 
   // Warm but untouched — a real opportunity, but deliberately ranked below
   // anything you've already started so momentum stays on top. Within the warm
-  // band, a BYU alum in product is the highest-value intro for a PM search.
+  // band, an alum of your school in product is the highest-value intro.
+  // alumCount/productAlumCount are already viewer-scoped by company-queries,
+  // so these lines simply never fire for a user with no school (CAR-213).
   if ((traction == null || traction === "not_contacted") && currentCount > 0) {
     if (productAlumCount > 0) {
       return {
-        text: lead ? `Reach out to ${lead}, your BYU alum in product` : "Reach out to your BYU alum in product",
+        text: lead ? `Reach out to ${lead}, your alum in product` : "Reach out to your alum in product",
         icon: "GraduationCap",
         tone: "active",
         rank: 44,
       };
     }
     if (alumCount > 0) {
-      return { text: lead ? `Reach out to ${lead}, your BYU alum here` : "Reach out to your BYU alum here", icon: "GraduationCap", tone: "active", rank: 40 };
+      return { text: lead ? `Reach out to ${lead}, your alum here` : "Reach out to your alum here", icon: "GraduationCap", tone: "active", rank: 40 };
     }
     return {
       text: lead ? `Reach out to ${lead}` : `Reach out, you know ${currentCount} ${currentCount === 1 ? "person" : "people"} here`,

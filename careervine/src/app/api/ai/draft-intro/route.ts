@@ -34,7 +34,7 @@ export const POST = withApiHandler({
       ? "This is a COLD outreach — the sender has never met this person. Be respectful of their time, explain why you're reaching out, and keep it brief. Don't pretend you've met."
       : "This is a warm introduction — the sender has met or connected with this person before. Reference how they know each other naturally.";
 
-    const systemPrompt = `You are helping a college student write a professional networking email.
+    const systemPrompt = `You are helping a job seeker write a professional networking email.
 
 Write BOTH a subject line AND an email body.
 
@@ -47,7 +47,7 @@ For the body:
 - Start with a greeting (e.g., "Hi ${safeContactName},")
 - End just before where a signature would go
 - Be concise (3-5 short paragraphs max)
-- Professional but warm — this is a student reaching out, not a corporate email
+- Professional but warm — this is one person reaching out to another, not a corporate email
 - Use the contact's information to personalize meaningfully
 - Output clean HTML (use <p> tags for paragraphs)
 - Do not use markdown

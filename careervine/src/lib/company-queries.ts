@@ -17,8 +17,10 @@ import {
 } from "./stage-derivation";
 import { chunked, paginateAll, escapeIlike } from "@/lib/data/postgrest";
 import { must } from "@/lib/data/client";
+import { getUserSchool } from "@/lib/data/users";
 import { findOrCreateCompany } from "./company-helpers";
 import { nextActionForCompany } from "./company-next-action";
+import { isByuFamilySchool, schoolsMatch } from "@/lib/schools/affinity";
 
 type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
 
@@ -44,29 +46,56 @@ function db(): QueryClient {
 /** Pipeline personas that count as "in a product role" for the product-alum signal. */
 export const PRODUCT_PERSONAS = new Set(["product_leader", "alum_product", "product_peer"]);
 
-/** Schools that light the alum badge (extend as review shows gaps). */
-export function isByuSchoolName(name: string): boolean {
-  const n = name.trim().toLowerCase();
-  return n.includes("brigham young") || n.startsWith("byu");
+/**
+ * The viewing user's own school, read once per page load (CAR-213).
+ *
+ * Resolved HERE rather than passed in by every caller, for the same reason the
+ * sync resolves it internally: the alum signal feeds four badge components, a
+ * filter chip, a sort, and the next-action line, and a caller that forgot to
+ * thread it would light "your alum" badges on strangers with no error anywhere.
+ * One extra single-row read per page buys that.
+ *
+ * public.users is canonical; the user_metadata mirror the client hook reads is
+ * user-writable and must never gate data.
+ */
+async function viewerSchool(userId: string): Promise<string | null> {
+  return getUserSchool(userId);
 }
 
 /**
- * Batch-resolve which of the given contacts have a BYU school on file
+ * Batch-resolve which of the given contacts went to the VIEWER's school
  * (contact_schools → schools.name match). Complements contacts.verified_school
  * for the who-you-know alum signal on the companies list.
+ *
+ * Empty when the viewer has no school: nothing is "your school" if you have
+ * not named one, so nothing gets badged.
  */
-async function byuAlumContactIds(contactIds: number[]): Promise<Set<number>> {
+async function alumContactIds(contactIds: number[], userSchool: string | null): Promise<Set<number>> {
   const out = new Set<number>();
-  if (contactIds.length === 0) return out;
+  if (contactIds.length === 0 || !userSchool) return out;
   const rows = await chunked(contactIds, async (chunk) => {
     return (
       must(await db().from("contact_schools").select("contact_id, schools(name)").in("contact_id", chunk)) ?? []
     );
   });
   for (const s of rows) {
-    if (s.schools?.name && isByuSchoolName(s.schools.name)) out.add(s.contact_id);
+    if (schoolsMatch(s.schools?.name, userSchool)) out.add(s.contact_id);
   }
   return out;
+}
+
+/**
+ * The second alum signal: contacts.verified_school, a human-verified override
+ * from the pipeline for profiles whose scraped education omitted the school.
+ *
+ * BYU-ONLY BY CONSTRUCTION — the column's CHECK pins it to
+ * ('BYU','BYU-Idaho','Marriott','none'), so no other school can ever appear
+ * there. It therefore counts only for a BYU-family viewer; leaving it on for
+ * everyone would badge a BYU alum as, say, a Utah State user's own alum.
+ */
+function verifiedSchoolCounts(verified: string | null, userSchool: string | null): boolean {
+  if (!verified || verified === "none") return false;
+  return isByuFamilySchool(userSchool);
 }
 
 // ── Stage signals (batch) ──────────────────────────────────────────────
@@ -662,13 +691,14 @@ export async function getCompanies(
         uniqueContacts.set(p.id, { id: p.id, stage_override: p.stage_override });
       }
     }
-    const [stages, byuByContact] = await Promise.all([
+    const userSchool = await viewerSchool(userId);
+    const [stages, alumByContact] = await Promise.all([
       getContactStages(userId, [...uniqueContacts.values()]),
-      byuAlumContactIds([...uniqueContacts.keys()]),
+      alumContactIds([...uniqueContacts.keys()], userSchool),
     ]);
     const isAlum = (p: PersonAgg) =>
-      byuByContact.has(p.id) || (p.verified_school != null && p.verified_school !== "none");
-    // A BYU alum in a product role — the highest-value intro for a PM search.
+      alumByContact.has(p.id) || verifiedSchoolCounts(p.verified_school, userSchool);
+    // An alum of your school in a product role — the highest-value intro.
     const isProductAlum = (p: PersonAgg) => isAlum(p) && PRODUCT_PERSONAS.has(p.persona ?? "");
 
     for (const id of companyIds) {
@@ -878,6 +908,8 @@ export async function getCompanyDetail(
   userId: string,
   companyId: number,
 ): Promise<CompanyDetail | null> {
+  // CAR-213: whose school lights the alum badge on this page.
+  const detailUserSchool = await viewerSchool(userId);
   const [companyRes, officesRes, targetRes] = await Promise.all([
     db()
       .from("companies")
@@ -1006,7 +1038,7 @@ export async function getCompanyDetail(
   }
   const alumContacts = new Set<number>();
   for (const s of schoolRows) {
-    if (s.schools?.name && isByuSchoolName(s.schools.name)) alumContacts.add(s.contact_id);
+    if (schoolsMatch(s.schools?.name, detailUserSchool)) alumContacts.add(s.contact_id);
   }
 
   // Rows arrive newest-first per chunk; keep the first seen per contact.
@@ -1049,7 +1081,7 @@ export async function getCompanyDetail(
         network_status: r.contacts.network_status,
         is_alum:
           alumContacts.has(r.contact_id) ||
-          (r.contacts.verified_school != null && r.contacts.verified_school !== "none"),
+          verifiedSchoolCounts(r.contacts.verified_school, detailUserSchool),
         review_note: r.contacts.review_note,
         selection_reason:
           meta && typeof meta === "object" && !Array.isArray(meta) && typeof meta.selection_reason === "string"

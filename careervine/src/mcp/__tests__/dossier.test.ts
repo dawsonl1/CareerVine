@@ -93,13 +93,13 @@ function fixtureBundle(overrides: Partial<DossierBundle> = {}): DossierBundle {
 
 describe("buildDossier", () => {
   it("assembles identity, status, and provenance-flagged emails", () => {
-    const d = buildDossier(fixtureBundle(), "contacted", NOW);
+    const d = buildDossier(fixtureBundle(), "contacted", NOW, "Brigham Young University");
 
     expect(d.identity).toMatchObject({
       contact_id: 42,
       name: "Jane Doe",
       location: "Provo, UT, United States",
-      is_byu_alum: true,
+      is_school_alum: true,
     });
     expect(d.status).toMatchObject({
       network_tier: "prospect",
@@ -116,13 +116,13 @@ describe("buildDossier", () => {
   });
 
   it("orders work history current-first", () => {
-    const d = buildDossier(fixtureBundle(), null, NOW);
+    const d = buildDossier(fixtureBundle(), null, NOW, "Brigham Young University");
     expect(d.work_history[0]).toMatchObject({ company: "Acme", is_current: true });
     expect(d.work_history[1]).toMatchObject({ company: "OldCo", is_current: false });
   });
 
   it("reports shown vs total counts so recent depth is honest about truncation", () => {
-    const d = buildDossier(fixtureBundle(), null, NOW);
+    const d = buildDossier(fixtureBundle(), null, NOW, "Brigham Young University");
     expect(d.interactions.total).toBe(14);
     expect(d.interactions.shown).toHaveLength(1);
     expect(d.email_history.total).toBe(3);
@@ -133,7 +133,7 @@ describe("buildDossier", () => {
   });
 
   it("summarizes tier, stage, last touch, alum flag, and open items in one line", () => {
-    const d = buildDossier(fixtureBundle(), "contacted", NOW);
+    const d = buildDossier(fixtureBundle(), "contacted", NOW, "Brigham Young University");
     expect(d.summary).toContain("Jane Doe");
     expect(d.summary).toContain("Product Manager at Acme");
     expect(d.summary).toContain("prospect");

@@ -12,11 +12,48 @@ const ctx = {
 };
 
 describe("renderOnboardingIntro", () => {
-  it("picks the alumni variant when isAlum", () => {
-    const email = renderOnboardingIntro({ ...ctx, isAlum: true });
-    expect(email.subject).toContain("BYU");
-    expect(email.bodyHtml).toContain("fellow Cougar");
-    expect(email.bodyHtml).toContain("Qualtrics");
+  it("picks the alumni variant, naming the SENDER's school", () => {
+    // CAR-213: the school is the sender's, not a constant. A BYU sender still
+    // gets "BYU"; a USU sender gets "USU".
+    const byu = renderOnboardingIntro({ ...ctx, isAlum: true, senderSchool: "Brigham Young University" });
+    expect(byu.subject).toContain("BYU");
+    expect(byu.bodyHtml).toContain("fellow BYU alum");
+
+    const usu = renderOnboardingIntro({ ...ctx, isAlum: true, senderSchool: "Utah State University" });
+    expect(usu.subject).toContain("USU");
+    expect(usu.bodyHtml).toContain("fellow USU alum");
+    expect(usu.bodyHtml).not.toContain("BYU");
+  });
+
+  it("never claims a school the sender did not give", () => {
+    // The sharpest live bug CAR-213 fixed: BOTH variants used to open "I'm a
+    // student at BYU", so the variant that exists to avoid claiming a
+    // connection asserted one anyway.
+    for (const isAlum of [true, false]) {
+      const email = renderOnboardingIntro({ ...ctx, isAlum, senderSchool: null });
+      expect(email.subject).not.toMatch(/BYU|Cougar/i);
+      expect(email.bodyHtml).not.toMatch(/BYU|Cougar/i);
+    }
+  });
+
+  it("never claims the sender is currently a student", () => {
+    // CareerVine models student-vs-professional for CONTACTS and not at all
+    // for the account holder, so this was never knowable.
+    const email = renderOnboardingIntro({ ...ctx, isAlum: true, senderSchool: "Brigham Young University" });
+    expect(email.bodyHtml).not.toMatch(/\ba student\b/i);
+    expect(email.subject).not.toMatch(/\bstudent\b/i);
+  });
+
+  it("spells out an escape-hatch school in full rather than dropping it", () => {
+    // Unlike the badge, which falls back to "Alum" because a truncated name in
+    // a 10px chip reads as broken, an email has room. "a fellow Pitcher
+    // Institute of Technology alum" is natural, and more useful than a
+    // school-less sentence.
+    const email = renderOnboardingIntro({
+      ...ctx, isAlum: true, senderSchool: "Pitcher Institute of Technology",
+    });
+    expect(email.bodyHtml).toContain("fellow Pitcher Institute of Technology alum");
+    expect(email.subject).toContain("Pitcher Institute of Technology");
   });
 
   it("picks the general variant when not an alum", () => {
@@ -47,12 +84,12 @@ describe("renderOnboardingIntro", () => {
   });
 
   it("falls back gracefully when fields are missing", () => {
-    const email = renderOnboardingIntro({ isAlum: true });
+    const email = renderOnboardingIntro({ isAlum: true, senderSchool: "Brigham Young University" });
     expect(email.bodyHtml).toContain("Hi there,");
     expect(email.bodyHtml).toContain("your company");
-    // No dangling "I'm , a student" when the sender name is unknown.
+    // No dangling "I'm ," when the sender name is unknown.
     expect(email.bodyHtml).not.toContain("I'm ,");
-    expect(email.bodyHtml).toContain("I'm a student at BYU");
+    expect(email.bodyHtml).toContain("working toward a career in product");
   });
 });
 

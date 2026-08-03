@@ -26,6 +26,7 @@ import {
   renderOnboardingFollowUps,
 } from "@/lib/onboarding/templates";
 import { ArrowLeft, Mail } from "lucide-react";
+import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
 
 /**
  * Company recruiting page (CAR-6): full contact roster on the left, the
@@ -36,6 +37,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
   const { id } = use(params);
   const companyId = Number(id);
   const { user } = useAuth();
+  const affinity = useAlumniAffinity();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { error: toastError, success: toastSuccess } = useToast();
@@ -118,7 +120,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
 
   // Onboarding outreach leg (CAR-50): the guided flow lands here after the
   // user picks a target company. Compose opens pre-filled from the static
-  // template — alumni variant when the prospect is a BYU alum.
+  // template — alumni variant when the prospect went to the user's own school.
   const composeForOnboarding = useCallback(
     (opts?: Parameters<typeof openCompose>[0]) => {
       if (!onboardingOutreach || !opts?.contactId || !tabs || !company) {
@@ -132,6 +134,9 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         contactFirstName: (opts.name || person?.name || "").split(/\s+/)[0] || null,
         companyName: company.name,
         senderFirstName: (user?.user_metadata?.first_name as string | undefined) ?? null,
+        // CAR-213: the alumni variant names the SENDER's school. Null forces
+        // the neutral variant, which claims no connection at all.
+        senderSchool: affinity.university,
       };
       const intro = renderOnboardingIntro({ ...merge, isAlum: person?.is_alum ?? false });
       openCompose({
@@ -142,7 +147,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         templateFollowUps: renderOnboardingFollowUps(merge),
       });
     },
-    [onboardingOutreach, tabs, company, user, openCompose],
+    [onboardingOutreach, tabs, company, user, openCompose, affinity.university],
   );
 
   const handleSetTier = async (person: CompanyPerson, tier: ContactTier) => {
@@ -186,7 +191,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
                     Pick a prospect and hit their email button
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Your intro is pre-written, and BYU alumni get the alumni version. Edit anything,
+                    Your intro is pre-written{affinity.hasAffinity ? ", and fellow alumni get the alumni version" : ""}. Edit anything,
                     then send or schedule. Follow-ups come ready too.
                   </p>
                 </>

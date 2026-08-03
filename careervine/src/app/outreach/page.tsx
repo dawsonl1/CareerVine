@@ -26,14 +26,10 @@ import {
   ArrowLeft, ArrowRight, ExternalLink, GraduationCap, Mail, MapPin,
   AlertTriangle, ChevronDown, ChevronRight, CalendarClock,
 } from "lucide-react";
+import { personaLabel } from "@/lib/persona-labels";
+import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
+import { alumBadgeLabel } from "@/lib/schools/affinity-state";
 
-const PERSONA_LABELS: Record<string, string> = {
-  alum_product: "Alum · Product",
-  alum_other: "Alum",
-  product_peer: "Product peer",
-  product_leader: "Product leader",
-  recruiter: "Recruiter",
-};
 
 const STAGE_STYLES: Record<OutreachStage, string> = {
   not_contacted: "bg-surface-container-high text-on-surface-variant",
@@ -372,6 +368,7 @@ function PersonCards({
   people: CompanyPerson[];
   onSelect: (p: CompanyPerson) => void;
 }) {
+  const affinity = useAlumniAffinity();
   if (people.length === 0 && title) {
     return null;
   }
@@ -395,12 +392,12 @@ function PersonCards({
             <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
               {p.persona && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] bg-surface-container-highest text-on-surface-variant">
-                  {PERSONA_LABELS[p.persona] ?? p.persona}
+                  {personaLabel(p.persona, affinity.hasAffinity)}
                 </span>
               )}
               {p.is_alum && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] bg-primary-container text-on-primary-container flex items-center gap-0.5">
-                  <GraduationCap className="w-2.5 h-2.5" /> BYU
+                  <GraduationCap className="w-2.5 h-2.5" /> {alumBadgeLabel(affinity)}
                 </span>
               )}
               {p.stage && p.stage !== "not_contacted" && (

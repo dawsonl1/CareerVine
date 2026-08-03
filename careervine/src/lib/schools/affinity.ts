@@ -75,6 +75,27 @@ export function isByuFamilySchool(name: string | null | undefined): boolean {
   return n.includes("brigham young") || /\bbyu/.test(n);
 }
 
+/**
+ * Does a CONTACT's school count as "your school" for this user?
+ *
+ * BYU-family users match the whole family: a BYU-Idaho contact is a warm door
+ * for a Provo student, which is the behaviour that existed before CAR-213 and
+ * must not regress. Everyone else matches their own school exactly (normalized),
+ * because there is no defined "family" for an arbitrary institution and
+ * inventing one would badge strangers.
+ *
+ * False whenever the user has no school: nothing is "your school" if you have
+ * not named one.
+ */
+export function schoolsMatch(
+  contactSchool: string | null | undefined,
+  userSchool: string | null | undefined,
+): boolean {
+  if (!contactSchool || !userSchool) return false;
+  if (isByuFamilySchool(userSchool)) return isByuFamilySchool(contactSchool);
+  return normalizeSchoolName(contactSchool) === normalizeSchoolName(userSchool);
+}
+
 // ── The user's own school ──────────────────────────────────────────────
 
 const BY_NORMALIZED_NAME = new Map(
