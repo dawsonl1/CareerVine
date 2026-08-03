@@ -515,6 +515,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     insertScheduledEmail: { kind: "mcp-covered", coveredBy: "createScheduledEmail", touches: "scheduled_emails" },
     insertEmailDraft: { kind: "mcp-covered", coveredBy: "createAppDraft", touches: "email_drafts" },
     insertFollowUpSequenceRows: { kind: "mcp-covered", coveredBy: "insertFollowUpSequence", touches: "email_follow_ups" },
+    getScheduledEmailForFollowUps: { kind: "mcp-covered", coveredBy: "getPendingScheduledEmail", touches: "scheduled_emails" },
+    findActiveSequenceForScheduledEmail: { kind: "mcp-covered", coveredBy: "assertNoActiveSequenceForScheduledEmail", touches: "email_follow_ups" },
     cancelScheduledEmailCascade: { kind: "mcp-covered", coveredBy: "cancelScheduledEmail", touches: "scheduled_emails" },
     cancelFollowUpSequenceCascade: { kind: "mcp-covered", coveredBy: "cancelFollowUpSequence", touches: "email_follow_ups" },
   },

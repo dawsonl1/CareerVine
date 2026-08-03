@@ -41,10 +41,13 @@ import { createActionItem as createActionItemShared, getActionItems } from "@/li
 import {
   cancelFollowUpSequenceCascade,
   cancelScheduledEmailCascade,
+  findActiveSequenceForScheduledEmail,
+  getScheduledEmailForFollowUps,
   insertEmailDraft,
   insertFollowUpSequenceRows,
   insertScheduledEmail,
 } from "@/lib/data/emails";
+import { ScheduledEmailStatus } from "@/lib/constants";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
@@ -823,28 +826,14 @@ export async function findOriginalOutbound(ref: { threadId?: string; messageId?:
  * into.
  */
 export async function getPendingScheduledEmail(scheduledEmailId: number) {
-  const { data, error } = await db()
-    .from("scheduled_emails")
-    .select("id, recipient_email, subject, scheduled_send_at, status, contact_name, matched_contact_id")
-    .eq("id", scheduledEmailId)
-    .eq("user_id", uid())
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error(`No scheduled email with id ${scheduledEmailId}`);
-  if (data.status !== "pending") {
+  const row = await getScheduledEmailForFollowUps(db(), uid(), scheduledEmailId);
+  if (!row) throw new Error(`No scheduled email with id ${scheduledEmailId}`);
+  if (row.status !== ScheduledEmailStatus.Pending) {
     throw new Error(
-      `Scheduled email ${scheduledEmailId} is '${data.status}', not pending — follow-ups can only be attached to an email that has yet to send`,
+      `Scheduled email ${scheduledEmailId} is '${row.status}', not pending — follow-ups can only be attached to an email that has yet to send`,
     );
   }
-  return data as {
-    id: number;
-    recipient_email: string;
-    subject: string | null;
-    scheduled_send_at: string;
-    status: string;
-    contact_name: string | null;
-    matched_contact_id: number | null;
-  };
+  return row;
 }
 
 /**
@@ -853,17 +842,10 @@ export async function getPendingScheduledEmail(scheduledEmailId: number) {
  * opening email sends, and the contact gets every nudge twice.
  */
 export async function assertNoActiveSequenceForScheduledEmail(scheduledEmailId: number): Promise<void> {
-  const { data, error } = await db()
-    .from("email_follow_ups")
-    .select("id")
-    .eq("user_id", uid())
-    .eq("scheduled_email_id", scheduledEmailId)
-    .eq("status", "active")
-    .limit(1);
-  if (error) throw error;
-  if (data && data.length > 0) {
+  const existing = await findActiveSequenceForScheduledEmail(db(), uid(), scheduledEmailId);
+  if (existing != null) {
     throw new Error(
-      `Scheduled email ${scheduledEmailId} already has an active follow-up sequence (id ${data[0].id}) — cancel it first with cancel_scheduled, or edit it in the app`,
+      `Scheduled email ${scheduledEmailId} already has an active follow-up sequence (id ${existing}) — cancel it first with cancel_scheduled, or edit it in the app`,
     );
   }
 }
