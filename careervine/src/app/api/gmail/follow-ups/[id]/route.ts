@@ -1,6 +1,7 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { gmailFollowUpUpdateSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { resolveUserTimeZone } from "@/lib/user-timezone";
 import {
   buildFollowUpMessageRows,
   reconcileFollowUpEditStatuses,
@@ -22,7 +23,7 @@ import {
  */
 export const PUT = withApiHandler({
   schema: gmailFollowUpUpdateSchema,
-  handler: async ({ user, body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const followUpId = parseInt(params.id, 10);
     if (isNaN(followUpId)) {
       throw new ApiError("Invalid follow-up ID", 400);
@@ -82,6 +83,10 @@ export const PUT = withApiHandler({
         followUpId,
         messages.map((m) => ({ ...m, bodyHtml: sanitizeStoredEmailHtml(m.bodyHtml) })),
         new Date(followUp.original_sent_at),
+        // Same zone resolution as creation (CAR-215): an edit must not silently
+        // move the remaining steps to a different local hour than the create
+        // path put them at.
+        await resolveUserTimeZone(service, user.id, request.headers),
         sentCount ?? 0,
       ),
       priorBySequence,

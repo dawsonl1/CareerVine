@@ -1,7 +1,8 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { calendarAvailabilityQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { queryFreeBusy, DEFAULT_TIMEZONE, mergeBusyIntervals } from "@/lib/calendar";
+import { queryFreeBusy, mergeBusyIntervals } from "@/lib/calendar";
+import { resolveUserTimeZone } from "@/lib/user-timezone";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
 /**
@@ -11,7 +12,7 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
  */
 export const GET = withApiHandler({
   querySchema: calendarAvailabilityQuerySchema,
-  handler: async ({ user, query }) => {
+  handler: async ({ user, query, request }) => {
     const service = createSupabaseServiceClient();
     const conn = await service
       .from("gmail_connections")
@@ -45,7 +46,12 @@ export const GET = withApiHandler({
     } = query;
 
     const daysOfWeek = daysOfWeekStr.split(",").map((d: string) => parseInt(d));
-    const userTimezone = conn.data.calendar_timezone || DEFAULT_TIMEZONE;
+    // CAR-215: this was `calendar_timezone || DEFAULT_TIMEZONE`, and both sides
+    // of that were America/New_York for anyone who had not completed a calendar
+    // sync, so those users were offered slots two hours off their real morning.
+    // Prefer the zone the browser reports, then the stamped one, then the
+    // calendar's; `resolveUserTimeZone` owns that order.
+    const userTimezone = await resolveUserTimeZone(service, user.id, request.headers);
     const busyCalendarIds = conn.data.busy_calendar_ids || ["primary"];
 
     // Query free/busy from Google Calendar API

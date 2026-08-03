@@ -12,8 +12,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createDraft, getFullMessage } from "@/lib/gmail";
 import { sendTrackedEmail } from "@/lib/email-send";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
+import { resolveUserTimeZone } from "@/lib/user-timezone";
 import { resolveCapabilities } from "@/lib/capabilities/resolve";
 import {
+  db,
   uid,
   resolveContact,
   getContactFull,
@@ -267,6 +269,10 @@ export function registerEmailTools(server: McpServer): void {
       // sequence in one tick (an immediate multi-email burst). Clamp the base
       // to now so send_after_days always schedules into the future.
       const baseIso = new Date(Math.max(new Date(sentAt).getTime(), Date.now())).toISOString();
+      // No browser request here, so the zone comes from users.timezone (stamped
+      // on the user's last web visit) and falls back to the calendar zone, then
+      // UTC (CAR-215).
+      const timeZone = await resolveUserTimeZone(db(), uid());
       const rows = buildFollowUpMessageRows(
         0,
         messages.map((m) => ({
@@ -275,6 +281,7 @@ export function registerEmailTools(server: McpServer): void {
           bodyHtml: toSafeEmailHtml(m.body),
         })),
         new Date(baseIso),
+        timeZone,
       );
       const followUpId = await insertFollowUpSequence({
         originalGmailMessageId: original.gmail_message_id,

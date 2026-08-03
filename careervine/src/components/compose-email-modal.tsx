@@ -392,7 +392,9 @@ function ComposeEmailModalBody() {
         contactName: selectedContactName || prefillName || null,
         originalSubject: subject.trim(),
         originalSentAt: opts.sendTime.toISOString(),
-        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        // The zone rides on the X-CV-Timezone header that apiFetch/apiSend add
+        // to every request (CAR-215). A raw offset used to be sent here, which
+        // was wrong for any step past a DST boundary.
         followUps: followUps.map((fu) => ({
           subject: fu.subject,
           bodyHtml: fu.bodyHtml,
