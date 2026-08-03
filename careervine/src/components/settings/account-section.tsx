@@ -13,7 +13,6 @@ import { User, Phone, Mail, Check, Lock, Bell, GraduationCap } from "lucide-reac
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { hasAlumniAffinity } from "@/lib/schools/affinity";
 import { affinityTransition, resyncBundlesForAffinityGain } from "@/lib/schools/affinity-resync";
 
 export default function AccountSection() {
@@ -146,8 +145,17 @@ export default function AccountSection() {
         university_is_custom: university.trim() ? universityIsCustom : false,
       });
       const supabase = createSupabaseBrowserClient();
+      // Mirror into user_metadata alongside the names (CAR-213). This is the
+      // display cache useAlumniAffinity reads so badges and copy resolve
+      // synchronously; public.users stays canonical, and nothing server-side
+      // trusts the metadata copy.
       await supabase.auth.updateUser({
-        data: { first_name: firstName.trim(), last_name: lastName.trim() },
+        data: {
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          university: university.trim(),
+          university_is_custom: university.trim() ? universityIsCustom : false,
+        },
       });
       setUniversityLoaded(university.trim());
       // Best-effort: the profile is already saved and the daily sync cron
