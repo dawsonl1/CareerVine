@@ -8,7 +8,7 @@
 
 import type { DossierBundle } from "./db";
 import { dateKeyOf, daysBetweenDateKeys } from "@/lib/calendar-day";
-import { abbrFor, isByuFamilySchool, schoolsMatch } from "@/lib/schools/affinity";
+import { abbrFor, schoolsMatch } from "@/lib/schools/affinity";
 
 interface ContactEmbed {
   id: number;
@@ -64,14 +64,6 @@ export interface Dossier {
   email_history: { total: number; shown: Array<Record<string, unknown>> };
   pending_sends: Record<string, unknown>;
 }
-
-/**
- * @deprecated CAR-213 — re-exported so nothing that imported it breaks, but the
- * authority is isByuFamilySchool() in @/lib/schools/affinity, which the SQL
- * side is held to by a parity test. This copy existed because the rule was
- * duplicated five times across the codebase.
- */
-export const isByuLikeSchool = isByuFamilySchool;
 
 export function daysSince(iso: string | null | undefined, now: Date): number | null {
   if (!iso) return null;
@@ -138,10 +130,17 @@ export function buildDossier(
       met_through: c.met_through,
       contact_status: c.contact_status,
       expected_graduation: c.expected_graduation,
-      // RENAMED from is_byu_alum (CAR-213). A breaking field rename on a
-      // contract an external MCP client consumes, done deliberately: the old
-      // name asserts a specific school, and the value now means "went to the
-      // account holder's school", whatever that is.
+      // RENAMED from is_byu_alum (CAR-213): the old name asserts a specific
+      // school, and the value now means "went to the ACCOUNT HOLDER's school",
+      // whatever that is.
+      //
+      // Safe to rename despite being tool output. get_contact_dossier
+      // registers an inputSchema only — there is no outputSchema — so this
+      // shape is unpinned free-form JSON read by an LLM, which absorbs a field
+      // rename rather than throwing on it. careervine-mcp is a thin stdio
+      // wrapper importing this repo's own register-tools, not an independent
+      // client, so it cannot drift. An earlier version of this comment called
+      // it a breaking external contract change; that was wrong.
       is_school_alum: isAlum,
       added_at: c.created_at,
     },

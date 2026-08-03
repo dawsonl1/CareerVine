@@ -644,8 +644,13 @@ Stated so the Phase 5 generalization does not quietly grow into a platform:
 2. **Migration ordering.** Phase 1 must land before the merge (rule 42). Additive
    nullable columns make this safe, but PostgREST returns `{data: null}` without throwing
    on a missing column, and the null-guards in this codebase misread that as "absent".
-3. **The dossier contract change** (item 33) is consumed by an external MCP client.
-   Renaming `is_byu_alum` is the right call but it is a breaking field rename.
+3. ~~**The dossier contract change** (item 33) is consumed by an external MCP client.~~
+   **Withdrawn after checking (2026-08-03).** `get_contact_dossier` registers an
+   `inputSchema` only, with no `outputSchema`, so the response is unpinned
+   free-form JSON read by an LLM; `careervine-mcp` imports this repo's own
+   `register-tools` rather than being an independent client; and the field name
+   appears in no public documentation. The rename is safe. Recorded rather than
+   deleted because the claim reached a PR body before anyone checked it.
 4. **`schools` is a shared, write-open table.** Not used as the picker source for that
    reason (item 8), but worth remembering if anyone later reaches for it.
 

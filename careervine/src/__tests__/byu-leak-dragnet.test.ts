@@ -71,13 +71,35 @@ const ALLOWED: Record<string, string> = {
   "lib/scrape-mapper.ts": "verified_school's CHECK vocabulary is these exact values",
 };
 
+/**
+ * Every SHIPPING code root, not just this app's src/.
+ *
+ * The scope of this file was itself an untested assumption once: it walked
+ * careervine/src/ only, so a BYU example prompt in careervine-mcp/README.md
+ * survived a full copy sweep. A test that can only see part of the surface
+ * reports "clean" for the part it cannot. The extension is here for the same
+ * reason — it renders its own user-facing copy and would otherwise be invisible.
+ */
+const CODE_ROOTS = [
+  ".",                                   // careervine/src itself
+  "../../chrome-extension/src",
+  "../../chrome-extension/panel-app/src",
+];
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
-      if (entry === "__tests__" || entry === "__integration__" || entry === "node_modules") continue;
+      // Build output is generated FROM the sources already scanned, so it can
+      // only ever produce duplicate hits — and .next contains bundled copies of
+      // the allowlisted files, which would each read as a fresh violation.
+      if (
+        entry === "__tests__" || entry === "__integration__" ||
+        entry === "node_modules" || entry === "dist" || entry === "build" ||
+        entry.startsWith(".")
+      ) continue;
       walk(full, out);
-    } else if (/\.(ts|tsx)$/.test(entry)) {
+    } else if (/\.(ts|tsx|js|jsx)$/.test(entry)) {
       out.push(full);
     }
   }
@@ -122,7 +144,7 @@ describe("no BYU string reaches a non-affinity user in shipped docs", () => {
 });
 
 describe("no BYU string reaches a non-affinity user", () => {
-  const offenders = walk(SRC)
+  const offenders = CODE_ROOTS.flatMap((root) => walk(join(SRC, root)))
     .map((f) => ({ file: relative(SRC, f), text: stripComments(readFileSync(f, "utf8")) }))
     .filter(({ text }) => BYU.test(text))
     .map(({ file }) => file)
@@ -138,9 +160,13 @@ describe("no BYU string reaches a non-affinity user", () => {
     // layout, a bad extension filter) would make the assertion above pass
     // against an empty set forever. This is the exact vacuous-pass shape the
     // dragnet is supposed to defeat, so it gets its own guard.
-    const all = walk(SRC);
+    const all = CODE_ROOTS.flatMap((root) => walk(join(SRC, root)));
     expect(all.length).toBeGreaterThan(300);
     expect(all.some((f) => f.endsWith("lib/schools/affinity.ts"))).toBe(true);
+    // Each root contributes, so a broken path cannot silently drop a surface.
+    for (const root of CODE_ROOTS) {
+      expect(walk(join(SRC, root)).length).toBeGreaterThan(0);
+    }
 
     const matching = all.filter((f) => BYU.test(stripComments(readFileSync(f, "utf8"))));
     expect(matching.length).toBeGreaterThan(2);

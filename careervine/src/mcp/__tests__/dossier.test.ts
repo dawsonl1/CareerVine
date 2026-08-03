@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { buildDossier, daysSince, isByuLikeSchool } from "../lib/dossier";
+import { buildDossier, daysSince } from "../lib/dossier";
 import type { DossierBundle } from "../lib/db";
 
 /**
@@ -161,9 +161,4 @@ describe("helpers", () => {
     expect(daysSince("2026-07-01T12:00:00Z", NOW)).toBe(7);
   });
 
-  it("isByuLikeSchool matches BYU variants only", () => {
-    expect(isByuLikeSchool("Brigham Young University")).toBe(true);
-    expect(isByuLikeSchool("BYU Marriott School of Business")).toBe(true);
-    expect(isByuLikeSchool("University of Utah")).toBe(false);
-  });
 });
