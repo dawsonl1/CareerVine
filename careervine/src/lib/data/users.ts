@@ -61,8 +61,18 @@ export async function updateUserProfile(
  * is user-writable through the Supabase client, so trusting it would let
  * anyone grant themselves the alumni-only bundle prospects.
  */
-export async function getUserSchool(userId: string): Promise<string | null> {
-  const { data, error } = await db()
+export async function getUserSchool(
+  userId: string,
+  /**
+   * Explicit client for callers on a DIFFERENT seam. company-queries owns its
+   * own (`setCompanyQueriesClient`) because MCP injects a service-role client
+   * there, so calling this without one would silently read through whichever
+   * client the data seam happens to hold — unwired in some contexts, and a
+   * cross-seam coupling nothing declares in the others.
+   */
+  client?: ReturnType<typeof db>,
+): Promise<string | null> {
+  const { data, error } = await (client ?? db())
     .from("users")
     .select("university")
     .eq("id", userId)

@@ -59,7 +59,8 @@ export const PRODUCT_PERSONAS = new Set(["product_leader", "alum_product", "prod
  * user-writable and must never gate data.
  */
 async function viewerSchool(userId: string): Promise<string | null> {
-  return getUserSchool(userId);
+  // Explicitly on THIS module's client seam, not the data layer's.
+  return getUserSchool(userId, db() as never);
 }
 
 /**
