@@ -12,6 +12,8 @@
  */
 
 /** Where the event was emitted from. Carried on every event as `surface`. */
+import type { AffinityState } from "@/lib/schools/affinity-state";
+
 export type Surface = "web" | "server" | "extension" | "mcp";
 
 /**
@@ -123,8 +125,12 @@ export type AnalyticsEvents = {
      * when a background driver finished it and the client never saw a step. */
     path?: "fast" | "merge";
     duration_ms?: number;
+    /** CAR-213. Non-affinity users receive 56% of the bundle, so the funnel
+     * has to be separable by school or a conversion drop for them stays
+     * invisible inside the average. */
+    affinity_state?: AffinityState;
   };
-  onboarding_company_picked: { alumni_count?: number };
+  onboarding_company_picked: { alumni_count?: number; affinity_state?: AffinityState };
   /** Activation: the guided flow's first outreach email went out. */
   onboarding_email_sent: Record<string, never>;
   onboarding_completed: Record<string, never>;

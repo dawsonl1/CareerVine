@@ -24,9 +24,9 @@ export const POST = withApiHandler({
     // structure there (CAR-143).
     const safeContactName = ctx.contactName.replace(/[\r\n<>]+/g, " ").trim();
 
-    const systemPrompt = `You are helping a college student write follow-up emails for a networking outreach sequence.
+    const systemPrompt = `You are helping a job seeker write follow-up emails for a networking outreach sequence.
 
-The student has already sent an introduction email (provided below). Generate exactly 3 follow-up emails that would be sent as REPLIES to the original email thread if the recipient doesn't respond.
+The sender has already sent an introduction email (provided below). Generate exactly 3 follow-up emails that would be sent as REPLIES to the original email thread if the recipient doesn't respond.
 
 Format your response EXACTLY like this (repeat for each follow-up):
 

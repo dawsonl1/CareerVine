@@ -42,6 +42,8 @@ import {
 } from "./bundle-fingerprint";
 import { checkFastApplyEligibility, runFastApplyStep } from "./bundle-fast-apply";
 import { readProspectResolution } from "./bundle-resolve";
+import { isAlumniOnlyProspect } from "@/lib/schools/affinity";
+import { resolveSubscriberAffinity } from "@/lib/schools/affinity-server";
 
 // Re-exported so the many existing importers (routes, tests) keep working
 // after the CAR-62 split into bundle-fingerprint.ts.
@@ -365,6 +367,9 @@ interface ProspectRow {
   payload_schema_version: number;
   payload_hash: string;
   resolved: unknown;
+  /** CAR-213 denormalized filter inputs. */
+  is_alumni: boolean;
+  persona: string | null;
 }
 
 export async function applyBundleDelta(
@@ -380,10 +385,18 @@ export async function applyBundleDelta(
      * the api-handler's post-response flush so it stays off the sync's
      * critical path (CAR-78). Background drivers omit it and keep awaiting. */
     deferAnalytics?: (p: Promise<unknown>) => void;
+    /** Test seam and caller override (CAR-213). Omitted in production, where
+     * it is resolved from public.users — the canonical source. */
+    hasAlumniAffinity?: boolean;
   } = {},
 ): Promise<ApplyStepResult> {
   const pinnedVersion = opts.pinnedVersion ?? bundle.version;
   const chunkSize = opts.chunkSize ?? SYNC_CHUNK_SIZE;
+
+  // CAR-213. Resolved here rather than passed in by each of the four drivers:
+  // a driver that forgot the flag would silently deliver the wrong database,
+  // with no symptom until a user noticed contacts they should not have.
+  const hasAffinity = opts.hasAlumniAffinity ?? (await resolveSubscriberAffinity(client, subscription.user_id));
 
   // ── Fast path (CAR-62): a fully-resolved bundle applied to a blank
   // subscriber skips the merge engine entirely — pure bulk inserts from the
@@ -392,6 +405,7 @@ export async function applyBundleDelta(
   // the worker/cron continues via the persisted phase:"fast" checkpoint.
   if (opts.cursor?.phase === "fast") {
     return runFastApplyStep(client, subscription, bundle, {
+      hasAlumniAffinity: hasAffinity,
       afterId: opts.cursor.afterId,
       pinnedVersion,
       deferAnalytics: opts.deferAnalytics,
@@ -399,6 +413,7 @@ export async function applyBundleDelta(
   }
   if (!opts.cursor && (await checkFastApplyEligibility(client, subscription, bundle, pinnedVersion))) {
     return runFastApplyStep(client, subscription, bundle, {
+      hasAlumniAffinity: hasAffinity,
       afterId: 0,
       pinnedVersion,
       deferAnalytics: opts.deferAnalytics,
@@ -425,7 +440,7 @@ export async function applyBundleDelta(
     // recovery to the daily stale-scan.
     const { data: rows, error: applyReadError } = await client
       .from("bundle_prospects")
-      .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
+      .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved, is_alumni, persona")
       .eq("bundle_id", bundle.id)
       .gt("version_updated", subscription.synced_version)
       .lte("version_updated", pinnedVersion)
@@ -434,7 +449,18 @@ export async function applyBundleDelta(
       .order("id", { ascending: true })
       .limit(chunkSize);
     if (applyReadError) throw new Error(`Apply-phase prospect read failed: ${applyReadError.message}`);
-    const prospects = (rows as ProspectRow[] | null) ?? [];
+    // CAR-213. `rawProspects` is what was READ; `prospects` is what gets
+    // applied. Keeping them separate is load-bearing: the cursor and the
+    // phase transition below both key off the last row read, so filtering in
+    // place would advance the cursor only as far as the last KEPT row — and a
+    // chunk that is entirely alumni-only would advance it not at all, re-read
+    // the same rows forever, and never reach the removal phase.
+    const rawProspects = (rows as ProspectRow[] | null) ?? [];
+    const prospects = hasAffinity
+      ? rawProspects
+      : rawProspects.filter(
+          (r) => !isAlumniOnlyProspect({ isAlumni: r.is_alumni, persona: r.persona }),
+        );
 
     if (prospects.length > 0) {
       // Parse payloads; unknown versions / bad rows are reported, not fatal.
@@ -598,15 +624,15 @@ export async function applyBundleDelta(
       }
     }
 
-    if (prospects.length === chunkSize) {
-      result.nextCursor = { phase: "apply", afterId: prospects[prospects.length - 1].id };
+    if (rawProspects.length === chunkSize) {
+      result.nextCursor = { phase: "apply", afterId: rawProspects[rawProspects.length - 1].id };
       await persistSyncCheckpoint(client, subscription.id, { ...result.nextCursor, pinnedVersion });
       return result;
     }
     // Apply phase exhausted → removal phase in the same call only when the
     // apply chunk was empty; otherwise hand back a cursor so each HTTP call
     // stays bounded.
-    if (prospects.length > 0) {
+    if (rawProspects.length > 0) {
       result.nextCursor = { phase: "remove", afterId: 0 };
       await persistSyncCheckpoint(client, subscription.id, { ...result.nextCursor, pinnedVersion });
       return result;

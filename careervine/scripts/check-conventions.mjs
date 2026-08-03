@@ -1585,7 +1585,7 @@ const DOUBLE_SUBMIT_BASELINE = {
     "handleStart",
     "poll",
   ],
-  "src/components/onboarding/onboarding-flow.tsx": ["onPicked~rxln"],
+  "src/components/onboarding/onboarding-flow.tsx": ["onPicked~e503"],
   "src/components/settings/account-section.tsx": [
     "handlePasswordChange",
     "handleSave",

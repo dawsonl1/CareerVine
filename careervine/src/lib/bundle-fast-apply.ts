@@ -34,6 +34,7 @@ import type {
 import { computeContactFingerprint, normalizeTagNames } from "./bundle-fingerprint";
 import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payload";
 import { readProspectResolution } from "./bundle-resolve";
+import { isAlumniOnlyProspect } from "@/lib/schools/affinity";
 import { buildContactInsertRow, educationDedupeKey, type ImportChunkOptions } from "./bulk-import";
 import { addTagsToContacts, isValidImportEmail } from "./import-db-helpers";
 import { chunkList } from "@/lib/data/postgrest";
@@ -93,6 +94,9 @@ interface FastProspectRow {
   payload_schema_version: number;
   payload_hash: string;
   resolved: unknown;
+  /** CAR-213 denormalized filter inputs. */
+  is_alumni: boolean;
+  persona: string | null;
 }
 
 /** Best-effort checkpoint write, mirroring bundle-sync's persistSyncCheckpoint
@@ -112,6 +116,9 @@ export async function runFastApplyStep(
   opts: {
     afterId: number;
     pinnedVersion: number;
+    /** CAR-213: false skips the alumni-only prospects. Resolved by
+     * applyBundleDelta from public.users and passed down. */
+    hasAlumniAffinity?: boolean;
     /** Hand analytics work off instead of awaiting it inline — see
      * applyBundleDelta (CAR-78). Absent → awaited, as before. */
     deferAnalytics?: (p: Promise<unknown>) => void;
@@ -134,7 +141,7 @@ export async function runFastApplyStep(
   const rows = must(
     await client
       .from("bundle_prospects")
-      .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved")
+      .select("id, linkedin_url, payload, payload_schema_version, payload_hash, resolved, is_alumni, persona")
       .eq("bundle_id", bundle.id)
       .gt("version_updated", 0)
       .lte("version_updated", pinnedVersion)
@@ -143,7 +150,17 @@ export async function runFastApplyStep(
       .order("id", { ascending: true })
       .limit(FAST_APPLY_BATCH),
   );
-  const prospects = (rows as FastProspectRow[] | null) ?? [];
+  // CAR-213. Same split as the merge path and for the same reason: the
+  // checkpoint at the end of this function advances from the last row READ, so
+  // filtering in place would stall the cursor whenever a whole batch is
+  // alumni-only.
+  const rawProspects = (rows as FastProspectRow[] | null) ?? [];
+  const prospects =
+    opts.hasAlumniAffinity === false
+      ? rawProspects.filter(
+          (r) => !isAlumniOnlyProspect({ isAlumni: r.is_alumni, persona: r.persona }),
+        )
+      : rawProspects;
 
   const importOpts: ImportChunkOptions = {
     mergePolicy: "bundle",
@@ -355,8 +372,12 @@ export async function runFastApplyStep(
     else await capture;
   }
 
-  if (prospects.length === FAST_APPLY_BATCH) {
-    result.nextCursor = { phase: "fast", afterId: prospects[prospects.length - 1].id };
+  // rawProspects, not prospects: "was this batch full?" is a question about
+  // what was READ. A filtered batch of 400 out of a full 1,000 would otherwise
+  // read as the final batch and commit the sync with 1,000+ prospects still
+  // unapplied.
+  if (rawProspects.length === FAST_APPLY_BATCH) {
+    result.nextCursor = { phase: "fast", afterId: rawProspects[rawProspects.length - 1].id };
     await persistFastCheckpoint(client, subscription.id, { ...result.nextCursor, pinnedVersion }).catch(() => {});
     return result;
   }

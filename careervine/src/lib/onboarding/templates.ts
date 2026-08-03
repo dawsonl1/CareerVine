@@ -1,5 +1,25 @@
+import { abbrFor } from "@/lib/schools/affinity";
+
 /**
  * Static merge-field email templates for guided onboarding (CAR-50).
+ *
+ * CAR-213 removed TWO false claims these made about the sender. The obvious
+ * one was the school: the alumni variant said "a fellow Cougar", which is only
+ * true for a BYU sender. The worse one was in the variant that exists
+ * SPECIFICALLY to avoid claiming a connection that is not there — it still
+ * opened "I'm a student at BYU", so a non-BYU user's very first outreach email
+ * asserted a school they never attended.
+ *
+ * The enrollment claim went too, not just the school. CareerVine models
+ * student-vs-professional status precisely for CONTACTS and not at all for the
+ * account holder, so "a student" was never something this code could know. A
+ * career changer, an MBA grad, or anyone two years out sent an email that
+ * misrepresented them, in the highest-stakes moment the product has: the
+ * guided flow's whole purpose is that this email really goes out, often
+ * unedited, in the first ten minutes.
+ *
+ * "working toward a career in product management" is true for every user and
+ * costs nothing.
  *
  * These are deliberately NOT AI-generated: every new user gets the full
  * first-email flow with zero AI entitlement (no BYO key, no shared-key
@@ -15,6 +35,9 @@ export type MergeContext = {
   contactFirstName?: string | null;
   companyName?: string | null;
   senderFirstName?: string | null;
+  /** The sender's own school, for the alumni variant (CAR-213). Null means
+   * they claimed none, which forces the school-neutral variant. */
+  senderSchool?: string | null;
 };
 
 export type RenderedEmail = {
@@ -66,24 +89,32 @@ export function renderOnboardingIntro(
 ): RenderedEmail {
   const f = fields(ctx);
 
-  if (ctx.isAlum) {
+  // The alumni variant needs BOTH a shared school and one we can name. An
+  // escape-hatch school has no abbreviation, and "a fellow alum" without
+  // saying of what reads as a form letter — so those senders get the neutral
+  // variant, which is honest rather than vague.
+  const school = ctx.senderSchool?.trim() || null;
+  const schoolLabel = abbrFor(school) ?? school;
+
+  if (ctx.isAlum && schoolLabel) {
+    const s = escapeHtml(schoolLabel);
     return {
-      subject: `BYU student who would love to hear about your path to ${f.subject_company}`,
+      subject: `${schoolLabel} connection who would love to hear about your path to ${f.subject_company}`,
       bodyHtml:
         paragraphs(
           `Hi ${f.first_name},`,
-          `I'm ${f.sender_first_name ? `${f.sender_first_name}, ` : ""}a student at BYU working toward a career in product, and it was genuinely encouraging to find a fellow Cougar at ${f.company}.`,
-          `Would you be open to a quick 15&ndash;20 minute chat in the next couple of weeks? I'd love to hear how you got from BYU to ${f.company}, and any advice you'd give someone starting the same climb.`,
+          `I'm ${f.sender_first_name ? `${f.sender_first_name}, ` : ""}working toward a career in product, and it was genuinely encouraging to find a fellow ${s} alum at ${f.company}.`,
+          `Would you be open to a quick 15&ndash;20 minute chat in the next couple of weeks? I'd love to hear how you got from ${s} to ${f.company}, and any advice you'd give someone starting the same climb.`,
         ) + signOff(f.sender_first_name),
     };
   }
 
   return {
-    subject: `Student interested in product at ${f.subject_company}`,
+    subject: `Interested in product at ${f.subject_company}`,
     bodyHtml:
       paragraphs(
         `Hi ${f.first_name},`,
-        `I'm ${f.sender_first_name ? `${f.sender_first_name}, ` : ""}a student at BYU working toward a career in product management, and your role at ${f.company} stood out while I was researching teams whose work I admire.`,
+        `I'm ${f.sender_first_name ? `${f.sender_first_name}, ` : ""}working toward a career in product management, and your role at ${f.company} stood out while I was researching teams whose work I admire.`,
         `Would you be open to a quick 15&ndash;20 minute chat in the next couple of weeks? I'd love to hear how you got into product at ${f.company} and what you'd look for in someone just starting out.`,
       ) + signOff(f.sender_first_name),
   };

@@ -50,6 +50,12 @@ const profile = {
   last_name: "Lovelace",
   phone: "555-0100",
   followup_nudges_enabled: true,
+  // CAR-213. Non-BYU on purpose: this suite's whole subject is a failed
+  // profile read overwriting real data with defaults, and the school is now
+  // part of that payload. A BYU value here would mask a regression where the
+  // field falls back to the grandfathered default.
+  university: "Utah State University",
+  university_is_custom: false,
 };
 
 beforeEach(() => {
@@ -162,6 +168,11 @@ describe("AccountSection profile read failure", () => {
       first_name: "Ada",
       last_name: "Lovelace",
       phone: "555-0100",
+      // The loaded school must round-trip untouched. A save that dropped it to
+      // null would silently move the user to the no-school state, costing them
+      // their school highlighting without anything having asked.
+      university: "Utah State University",
+      university_is_custom: false,
     });
   });
 });

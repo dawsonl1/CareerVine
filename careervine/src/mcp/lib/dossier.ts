@@ -8,6 +8,7 @@
 
 import type { DossierBundle } from "./db";
 import { dateKeyOf, daysBetweenDateKeys } from "@/lib/calendar-day";
+import { abbrFor, schoolsMatch } from "@/lib/schools/affinity";
 
 interface ContactEmbed {
   id: number;
@@ -64,11 +65,6 @@ export interface Dossier {
   pending_sends: Record<string, unknown>;
 }
 
-export function isByuLikeSchool(name: string): boolean {
-  const n = name.trim().toLowerCase();
-  return n.includes("brigham young") || n.startsWith("byu");
-}
-
 export function daysSince(iso: string | null | undefined, now: Date): number | null {
   if (!iso) return null;
   const then = new Date(iso);
@@ -83,7 +79,11 @@ export function buildDossier(
   bundle: DossierBundle,
   stage: string | null,
   now: Date = new Date(),
+  /** The ACCOUNT HOLDER's school. Null (the default) means no school claimed,
+   * so nothing is an alum and no alum line appears (CAR-213). */
+  viewerSchool: string | null = null,
 ): Dossier {
+  const viewerSchoolAbbr = abbrFor(viewerSchool);
   const c = bundle.contact as unknown as ContactEmbed;
 
   const currentRole = c.contact_companies.find((cc) => cc.is_current);
@@ -98,7 +98,10 @@ export function buildDossier(
   const lastTouch = lastTouchDates.length > 0 ? lastTouchDates.sort().at(-1)! : null;
   const lastTouchDays = daysSince(lastTouch, now);
 
-  const isAlum = c.contact_schools.some((s) => s.schools?.name && isByuLikeSchool(s.schools.name));
+  // Viewer-scoped (CAR-213): "alum" means an alum of the ACCOUNT HOLDER's
+  // school, so this is false for a user who has claimed no school. Passing
+  // viewerSchool is what stops an MCP client being told a stranger is an alum.
+  const isAlum = c.contact_schools.some((s) => schoolsMatch(s.schools?.name, viewerSchool));
 
   const location = c.locations
     ? [c.locations.city, c.locations.state, c.locations.country].filter(Boolean).join(", ")
@@ -110,7 +113,7 @@ export function buildDossier(
   const summaryParts = [
     `${c.name}${roleLine ? `, ${roleLine}` : ""} (${tierLabel}${stage ? `, stage: ${stage}` : ""}).`,
     lastTouchDays != null ? `Last touch ${lastTouchDays} day${lastTouchDays === 1 ? "" : "s"} ago.` : "Never contacted.",
-    isAlum ? "BYU alum." : null,
+    isAlum ? `${viewerSchoolAbbr ?? "School"} alum.` : null,
     bundle.openActionItems.length > 0 ? `${bundle.openActionItems.length} open action item(s).` : null,
   ].filter(Boolean);
 
@@ -127,7 +130,18 @@ export function buildDossier(
       met_through: c.met_through,
       contact_status: c.contact_status,
       expected_graduation: c.expected_graduation,
-      is_byu_alum: isAlum,
+      // RENAMED from is_byu_alum (CAR-213): the old name asserts a specific
+      // school, and the value now means "went to the ACCOUNT HOLDER's school",
+      // whatever that is.
+      //
+      // Safe to rename despite being tool output. get_contact_dossier
+      // registers an inputSchema only — there is no outputSchema — so this
+      // shape is unpinned free-form JSON read by an LLM, which absorbs a field
+      // rename rather than throwing on it. careervine-mcp is a thin stdio
+      // wrapper importing this repo's own register-tools, not an independent
+      // client, so it cannot drift. An earlier version of this comment called
+      // it a breaking external contract change; that was wrong.
+      is_school_alum: isAlum,
       added_at: c.created_at,
     },
     status: {

@@ -16,6 +16,9 @@ const row = (over: Partial<NonNullable<Parameters<typeof toPickerCompanies>[0]>[
   name: "Acme",
   logo_url: null,
   prospect_count: 10,
+  // CAR-213. Defaults to the raw count so every pre-existing case keeps
+  // describing an affinity user, whose eligible count IS the full count.
+  eligible_prospect_count: 10,
   alumni_count: 2,
   product_alumni_count: 1,
   ...over,
@@ -24,13 +27,14 @@ const row = (over: Partial<NonNullable<Parameters<typeof toPickerCompanies>[0]>[
 describe("toPickerCompanies", () => {
   it("maps RPC rows and coerces bigint-ish string counts", () => {
     const [c] = toPickerCompanies([
-      row({ company_id: 5, name: "IBM", logo_url: "https://x/logo.png", prospect_count: "34", alumni_count: "21", product_alumni_count: "4" }),
+      row({ company_id: 5, name: "IBM", logo_url: "https://x/logo.png", prospect_count: "34", eligible_prospect_count: "30", alumni_count: "21", product_alumni_count: "4" }),
     ]);
     expect(c).toEqual({
       id: 5,
       name: "IBM",
       logoUrl: "https://x/logo.png",
       contactCount: 34,
+      eligibleContactCount: 30,
       alumniCount: 21,
       productAlumniCount: 4,
     });
@@ -66,6 +70,7 @@ describe("sortPickerCompanies", () => {
     name: "Acme",
     logoUrl: null,
     contactCount: 0,
+    eligibleContactCount: 0,
     alumniCount: 0,
     productAlumniCount: 0,
     ...over,

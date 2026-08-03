@@ -85,14 +85,14 @@ describe("deriveNextAction — live threads vs deadlines", () => {
 });
 
 describe("deriveNextAction — warm intros", () => {
-  it("prefers a BYU alum reach-out and names them", () => {
+  it("prefers an alum reach-out and names them", () => {
     const a = deriveNextAction(input({ currentCount: 3, alumCount: 1, leadName: "Mark Lee" }), NOW);
     expect(a.text).toMatch(/Mark/);
-    expect(a.text).toMatch(/BYU alum/i);
+    expect(a.text).toMatch(/your alum here/i);
     expect(a.icon).toBe("GraduationCap");
   });
 
-  it("elevates a BYU alum in product above a plain alum and calls out the role", () => {
+  it("elevates an alum in product above a plain alum and calls out the role", () => {
     const product = deriveNextAction(input({ currentCount: 2, alumCount: 1, productAlumCount: 1, leadName: "Dana Cho" }), NOW);
     const plain = deriveNextAction(input({ currentCount: 2, alumCount: 1 }), NOW);
     expect(product.text).toMatch(/in product/i);

@@ -16,6 +16,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import type { TablesInsert } from "@/lib/database.types";
 import { setCompanyQueriesClient } from "@/lib/company-queries";
 import { setDataClient, type QueryClient } from "@/lib/data/client";
+import { getUserSchool } from "@/lib/data/users";
 import { chunked, escapeIlike, paginateAll } from "@/lib/data/postgrest";
 import {
   addCompanyToContact,
@@ -897,6 +898,16 @@ export interface DossierBundle {
   completedActionItems: Array<Record<string, unknown>>;
   scheduledEmails: Array<Record<string, unknown>>;
   activeFollowUps: Array<Record<string, unknown>>;
+}
+
+/**
+ * The ACCOUNT HOLDER's school (CAR-213), for the dossier's viewer-scoped alum
+ * flag. Reads public.users, which is canonical — never the user_metadata
+ * mirror, which is user-writable.
+ */
+export async function getViewerSchool(userId: string): Promise<string | null> {
+  ensureClient();
+  return getUserSchool(userId);
 }
 
 export async function getDossierBundle(contactId: number, depth: "recent" | "full"): Promise<DossierBundle> {
