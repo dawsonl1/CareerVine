@@ -285,6 +285,26 @@ const DB_TABLE: Record<string, Entry> = {
     kind: "ownership",
     drive: () => db.cancelFollowUpSequence(3),
   },
+  getPendingScheduledEmail: {
+    kind: "scoped",
+    drive: () => db.getPendingScheduledEmail(12),
+    route: (q) =>
+      q.table === "scheduled_emails"
+        ? {
+            id: 12,
+            recipient_email: "jane@x.com",
+            subject: "Hi",
+            scheduled_send_at: "2026-08-04T14:58:00.000Z",
+            status: "pending",
+            contact_name: "Jane",
+            matched_contact_id: 7,
+          }
+        : undefined,
+  },
+  assertNoActiveSequenceForScheduledEmail: {
+    kind: "scoped",
+    drive: () => db.assertNoActiveSequenceForScheduledEmail(12),
+  },
   findOriginalOutbound: {
     kind: "scoped",
     drive: () => db.findOriginalOutbound({ threadId: "t-1" }),

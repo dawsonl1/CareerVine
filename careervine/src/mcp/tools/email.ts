@@ -153,7 +153,7 @@ function utcTimeOfDay(iso: string): string {
  * follow-ups that fired at 3:00 a.m. Mountain. Anchoring to the opening email's
  * own time of day needs no timezone knowledge and is what the user meant.
  */
-function buildMcpFollowUpRows(
+export function buildMcpFollowUpRows(
   steps: Array<z.infer<typeof followUpStepShape>>,
   dateBaseIso: string,
   timeAnchorIso: string,
