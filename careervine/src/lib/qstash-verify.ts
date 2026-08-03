@@ -17,6 +17,7 @@
 
 import "server-only";
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 
@@ -45,15 +46,57 @@ function unauthorized(): NextResponse {
 }
 
 /**
+ * Constant-time string compare that does not leak length through early return.
+ *
+ * `timingSafeEqual` throws on unequal buffer lengths, which would itself be a
+ * length oracle, so both sides are hashed to a fixed width first.
+ */
+function secretsMatch(a: string, b: string): boolean {
+  const digest = (s: string) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(digest(a), digest(b));
+}
+
+/**
+ * True when the request carries the shared cron-trigger bearer (CAR-215).
+ *
+ * The A1 watcher drives sends at ~15s resolution and cannot produce a QStash
+ * signature, so it authenticates with a dedicated secret instead. Deliberately
+ * a SEPARATE credential from every other secret in the system: it authorizes
+ * exactly one thing, "run the due-send sweep now", and the sweep's own logic
+ * decides what actually goes out. Leaking it costs an unscheduled sweep, not
+ * data access.
+ *
+ * Fails closed when unset, exactly like the signing keys.
+ */
+function hasValidCronBearer(req: NextRequest): boolean {
+  const expected = process.env.CRON_TRIGGER_SECRET;
+  if (!expected) return false;
+  const header = req.headers.get("authorization") || "";
+  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!presented) return false;
+  return secretsMatch(presented, expected);
+}
+
+/**
  * Verify a QStash `upstash-signature` and run `handler` with the raw request
  * body only if it checks out. Returns 401 (handler never called) when the
  * signing keys are unset or the signature is invalid.
+ *
+ * Since CAR-215 a valid `Authorization: Bearer <CRON_TRIGGER_SECRET>` is
+ * accepted as an alternative, so the A1 watcher can drive the send routes at a
+ * resolution QStash polling cannot reach. Both paths land on the same handler
+ * and the same downstream logic; neither widens what a caller can cause to
+ * happen beyond "process what is already due".
  */
 export async function withQStashVerification(
   req: NextRequest,
   handler: (body: string) => Promise<NextResponse>,
 ): Promise<NextResponse> {
   const body = await req.text();
+
+  // Checked before the signature so the watcher's calls skip Receiver
+  // construction entirely; it is the high-frequency caller.
+  if (hasValidCronBearer(req)) return handler(body);
 
   const receiver = getReceiver();
   if (!receiver) {
