@@ -271,14 +271,14 @@ function GettingStartedList({
       id: "getting-started-bundle",
       icon: <Users className="h-6 w-6 text-primary" />,
       title: "Add the curated target database",
-      subtitle: "PMs, recruiters, and BYU alumni at companies that hire new grads",
+      subtitle: "PMs, product leaders, and recruiters at companies that hire new grads",
       onClick: () => window.location.assign("/settings?tab=data"),
     },
     {
       id: "getting-started-company",
       icon: <Building2 className="h-6 w-6 text-[#39656b]" />,
       title: "Pick a target company",
-      subtitle: "Alumni-heavy companies are the warmest place to start",
+      subtitle: "Companies where you already know people are the warmest place to start",
       onClick: () => window.location.assign("/companies"),
     },
     ...(!calendarConnected

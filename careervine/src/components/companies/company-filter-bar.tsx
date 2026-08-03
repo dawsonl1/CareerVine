@@ -12,6 +12,7 @@ import {
 } from "@/lib/company-filters";
 import { STAGE_LABELS, STAGE_ORDER, type OutreachStage } from "@/lib/stage-derivation";
 import { Check, ChevronDown, GraduationCap, SlidersHorizontal } from "lucide-react";
+import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
 
 // Shared with the company cards on the page.
 export const STATUS_LABELS: Record<string, string> = {
@@ -77,6 +78,7 @@ export default function CompanyFilterBar({
   tierOptions,
   statusCounts,
 }: CompanyFilterBarProps) {
+  const affinity = useAlumniAffinity();
   const secondaryCount = secondaryActiveCount(filters);
   // Open the secondary drawer on load only if something in it is already active.
   const [open, setOpen] = useState(() => secondaryCount > 0);
@@ -130,15 +132,20 @@ export default function CompanyFilterBar({
       {/* Secondary tier: warmth + traction/tier/contacts, collapsed by default */}
       {open && (
         <div className="flex flex-wrap items-center gap-2 border-t border-outline-variant pt-3">
-          <button
-            onClick={() => onFiltersChange({ ...filters, productAlum: !filters.productAlum })}
-            aria-pressed={filters.productAlum}
-            className={`${CHIP_BASE} ${filters.productAlum ? CHIP_ON : CHIP_OFF}`}
-          >
-            <ChipCheck on={filters.productAlum} />
-            <GraduationCap className="h-4 w-4 mr-1.5" />
-            BYU alum in product
-          </button>
+          {/* Hidden, not disabled, without affinity (CAR-213): the filter
+              would match nothing, and a disabled control invites a "why can't
+              I use this?" the chip cannot answer. */}
+          {affinity.hasAffinity && (
+            <button
+              onClick={() => onFiltersChange({ ...filters, productAlum: !filters.productAlum })}
+              aria-pressed={filters.productAlum}
+              className={`${CHIP_BASE} ${filters.productAlum ? CHIP_ON : CHIP_OFF}`}
+            >
+              <ChipCheck on={filters.productAlum} />
+              <GraduationCap className="h-4 w-4 mr-1.5" />
+              {affinity.abbr ? `${affinity.abbr} alum in product` : "Alum in product"}
+            </button>
+          )}
 
           <Select
             ariaLabel="Filter by traction"

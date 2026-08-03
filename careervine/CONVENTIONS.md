@@ -134,6 +134,17 @@ purely cosmetic read may tolerate an error, but only with an explicit
 PostgREST caps a response at 1000 rows. Chunk and paginate through
 `careervine/src/lib/data/postgrest.ts` rather than hand-rolling either.
 
+School affinity — whether a user's school changes what they see — has ONE
+authority per language: `careervine/src/lib/schools/affinity.ts` in TypeScript
+and `is_byu_family_school()` / `is_alumni_only_prospect()` in SQL. They are held
+together by `careervine/src/__integration__/school-affinity-parity.itest.ts`,
+which runs one shared fixture through both against real Postgres. This rule
+exists because the test it replaced did not: the same predicate was previously
+copy-pasted into two TS helpers and three inline SQL predicates, each commented
+as mirroring one of the others, with nothing anywhere to notice when one
+changed. Never read `user_metadata.university` to gate data — it is
+user-writable; `public.users.university` is canonical.
+
 The four relationship rules (due follow-ups, on-track, neglected, streak) are
 pure functions in `careervine/src/lib/rules/`. The three that read the contact
 list apply active-only filtering internally via `isActiveContact`, so a fetch site

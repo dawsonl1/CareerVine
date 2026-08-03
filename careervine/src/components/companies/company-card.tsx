@@ -28,6 +28,7 @@ import {
   Search,
   type LucideIcon,
 } from "lucide-react";
+import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
 
 /** lucide names the next-action ladder returns → components. */
 const ACTION_ICONS: Record<string, LucideIcon> = {
@@ -66,6 +67,7 @@ function pluralize(n: number, one: string, many: string): string {
  * and the one next move (CAR-10).
  */
 export function CompanyCard({ company: c }: { company: CompanySummary }) {
+  const affinity = useAlumniAffinity();
   const action = nextActionForCompany(c);
   const ActionIcon = ACTION_ICONS[action.icon] ?? Sparkles;
   const knownTotal = c.current_count + c.former_count;
@@ -124,16 +126,27 @@ export function CompanyCard({ company: c }: { company: CompanySummary }) {
                     No contacts yet
                   </span>
                 )}
+                {/* CAR-213: `abbr` is the VIEWER's school, so a USU student
+                    reads "2 USU alumni". Escape-hatch schools have no curated
+                    abbreviation and drop the school entirely rather than
+                    render a truncated free-text name. The counts are already
+                    zero without affinity — company-queries computes them
+                    against the viewer's school — so no extra gate is needed
+                    here, and adding one would hide a real signal. */}
                 {c.product_alum_count > 0 ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-primary-container px-2 py-0.5 text-on-primary-container font-medium">
                     <GraduationCap className="w-3.5 h-3.5" />
-                    {pluralize(c.product_alum_count, "BYU alum", "BYU alumni")} in product
+                    {affinity.abbr
+                      ? `${pluralize(c.product_alum_count, `${affinity.abbr} alum`, `${affinity.abbr} alumni`)} in product`
+                      : `${pluralize(c.product_alum_count, "alum", "alumni")} in product`}
                   </span>
                 ) : (
                   c.alum_count > 0 && (
                     <span className="flex items-center gap-1 text-primary font-medium">
                       <GraduationCap className="w-3.5 h-3.5" />
-                      {pluralize(c.alum_count, "BYU alum", "BYU alumni")}
+                      {affinity.abbr
+                        ? pluralize(c.alum_count, `${affinity.abbr} alum`, `${affinity.abbr} alumni`)
+                        : pluralize(c.alum_count, "alum", "alumni")}
                     </span>
                   )
                 )}

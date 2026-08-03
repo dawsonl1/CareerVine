@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
 import { Database, Users, Building2, Check, RefreshCw } from "lucide-react";
 
 interface BundleRow {
@@ -28,6 +29,10 @@ interface BundleRow {
   prospect_count: number;
   company_count: number;
   published_at: string | null;
+  /** What a subscriber with no alumni affinity actually receives (CAR-213).
+   * Read per bundle from bundle_alumni_stats; falls back to prospect_count,
+   * which is exactly right for a BYU-family user. */
+  eligible_prospect_count?: number;
 }
 
 interface SubscriptionRow {
@@ -48,6 +53,21 @@ import {
 } from "@/lib/bundle-apply-client";
 
 export default function DataSubscriptionsSection() {
+  const affinity = useAlumniAffinity();
+
+  /**
+   * What THIS subscriber receives from a bundle. Affinity users get all of it;
+   * everyone else gets the bundle minus its alumni-only prospects, which is
+   * roughly half. Falling back to the raw count means a failed stats read
+   * overstates rather than showing zero, and the progress bar then completes
+   * early instead of never — the safer of the two failure modes.
+   */
+  const eligibleCount = useCallback(
+    (bundle: BundleRow) =>
+      affinity.hasAffinity ? bundle.prospect_count : bundle.eligible_prospect_count ?? bundle.prospect_count,
+    [affinity.hasAffinity],
+  );
+
   const { user } = useAuth();
   const { success, error: toastError } = useToast();
   const supabase = createSupabaseBrowserClient();
@@ -82,7 +102,32 @@ export default function DataSubscriptionsSection() {
         .select("id, bundle_id, status, synced_version, last_synced_at")
         .eq("user_id", user.id),
     ]);
-    const nextBundles = (bundleRows as BundleRow[] | null) ?? [];
+    let nextBundles = (bundleRows as BundleRow[] | null) ?? [];
+
+    // CAR-213: the eligible count comes from bundle_alumni_stats, one call per
+    // bundle. Skipped entirely for an affinity user, whose eligible count IS
+    // prospect_count. Error-tolerated: every consumer falls back to
+    // prospect_count, so a failed read overstates rather than showing nothing.
+    if (!affinity.hasAffinity && nextBundles.length > 0) {
+      const eligibles = await Promise.all(
+        nextBundles.map(async (b) => {
+          // try/catch, not just the { error } shape: a client without .rpc at
+          // all (some test doubles) REJECTS rather than returning an error,
+          // and an unhandled rejection here would take down the whole
+          // subscriptions list rather than one optional count.
+          try {
+            const { data } = await supabase.rpc("bundle_alumni_stats", { p_bundle_id: b.id });
+            const row = Array.isArray(data) ? data[0] : data;
+            const n = Number(row?.eligible_prospect_count);
+            return Number.isFinite(n) && n > 0 ? n : undefined;
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      nextBundles = nextBundles.map((b, i) => ({ ...b, eligible_prospect_count: eligibles[i] }));
+    }
+
     const nextSubs = new Map(
       (((subRows as SubscriptionRow[] | null) ?? []).map((s) => [s.bundle_id, s])),
     );
@@ -90,7 +135,7 @@ export default function DataSubscriptionsSection() {
     setSubscriptions(nextSubs);
     setLoading(false);
     return { bundles: nextBundles, subs: nextSubs };
-  }, [user, supabase]);
+  }, [user, supabase, affinity.hasAffinity]);
 
   /** Chunked apply loop; resolves completed: true when the sync finished. */
   const runApplyLoop = useCallback(
@@ -118,10 +163,15 @@ export default function DataSubscriptionsSection() {
     subscribingRef.current.add(bundle.id);
     try {
       await subscribeToBundle(bundle.id);
-      setProgress((p) => new Map(p).set(bundle.id, { applied: 0, total: bundle.prospect_count }));
+      // CAR-213: what THIS subscriber receives, not what the bundle holds. A
+      // non-affinity user gets 1,112 of 2,000, so the raw count both stalls
+      // the bar below at 56% and toasts a number that is simply false at the
+      // moment of the action.
+      const eligible = eligibleCount(bundle);
+      setProgress((p) => new Map(p).set(bundle.id, { applied: 0, total: eligible }));
       await load();
       const { completed } = await runApplyLoop(bundle, { silent: false });
-      if (completed) success(`Subscribed to ${bundle.name}: ${bundle.prospect_count} prospects added to your contacts`);
+      if (completed) success(`Subscribed to ${bundle.name}: ${eligible} prospects added to your contacts`);
       await load();
     } catch (err) {
       // The route's own message is the user-facing one here (the apply loop
@@ -254,7 +304,7 @@ export default function DataSubscriptionsSection() {
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Users className="h-3.5 w-3.5" />
-                            {bundle.prospect_count} prospects
+                            {eligibleCount(bundle)} prospects
                           </span>
                           <span className="flex items-center gap-1">
                             <Building2 className="h-3.5 w-3.5" />
@@ -264,6 +314,19 @@ export default function DataSubscriptionsSection() {
                             <span>Updated {new Date(bundle.published_at).toLocaleDateString()}</span>
                           )}
                         </div>
+                        {/* CAR-213. The one place the school's consequence is
+                            visible is the number just above, so it is the
+                            right place to say what shaped it and offer the
+                            fix. Without this, a user who notices their counts
+                            look wrong has no path from symptom to setting. */}
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {affinity.university
+                            ? `Tailored for ${affinity.university}. `
+                            : "Add your school to see alumni connections. "}
+                          <a href="/settings?tab=account" className="text-primary hover:underline">
+                            {affinity.university ? "Change" : "Add it"}
+                          </a>
+                        </p>
                         {active && (
                           <p className="flex items-center gap-1.5 mt-2 text-xs text-primary font-medium">
                             {prog ? (

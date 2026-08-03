@@ -16,14 +16,10 @@ import type { Contact } from "@/lib/types";
 import { setStageOverride, type CompanyPerson } from "@/lib/company-queries";
 import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
 import { ExternalLink, GraduationCap, MapPin, Mail, AlertTriangle, Briefcase, Check } from "lucide-react";
+import { personaLabel } from "@/lib/persona-labels";
+import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
+import { alumBadgeLabel } from "@/lib/schools/affinity-state";
 
-const PERSONA_LABELS: Record<string, string> = {
-  alum_product: "Alum · Product",
-  alum_other: "Alum",
-  product_peer: "Product peer",
-  product_leader: "Product leader",
-  recruiter: "Recruiter",
-};
 
 interface PersonModalProps {
   person: CompanyPerson;
@@ -38,6 +34,7 @@ interface PersonModalProps {
 }
 
 export function PersonModal({ person, companyId, companyName, userId, onClose, onWriteEmail, onChanged }: PersonModalProps) {
+  const affinity = useAlumniAffinity();
   const [contact, setContact] = useState<Contact | null>(null);
   const [markedContacted, setMarkedContacted] = useState(false);
 
@@ -93,12 +90,12 @@ export function PersonModal({ person, companyId, companyName, userId, onClose, o
             <div className="flex items-center gap-2 flex-wrap mt-2">
               {person.persona && (
                 <span className="px-2 py-0.5 rounded-full text-[11px] bg-surface-container-high text-on-surface-variant">
-                  {PERSONA_LABELS[person.persona] ?? person.persona}
+                  {personaLabel(person.persona, affinity.hasAffinity)}
                 </span>
               )}
               {person.is_alum && (
                 <span className="px-2 py-0.5 rounded-full text-[11px] bg-primary-container text-on-primary-container flex items-center gap-1">
-                  <GraduationCap className="w-3 h-3" /> BYU
+                  <GraduationCap className="w-3 h-3" /> {alumBadgeLabel(affinity)}
                 </span>
               )}
               {stage && (

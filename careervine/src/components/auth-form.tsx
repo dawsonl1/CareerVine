@@ -8,6 +8,7 @@ import {
   Mail, Lock, User, Eye, EyeOff, Sprout, CheckCircle, ArrowLeft,
   MessageSquare, ListChecks, Heart,
 } from "lucide-react";
+import { SchoolAutocomplete } from "./ui/school-autocomplete";
 
 type Mode = "signin" | "signup" | "forgot" | "check-email" | "forgot-sent";
 
@@ -28,7 +29,11 @@ export default function AuthForm({ initialMode = "signin", initialError, onBack 
     password: "",
     firstName: "",
     lastName: "",
+    university: "",
   });
+  // Tracks whether the school was picked from the curated list or typed.
+  // Only meaningful when university is non-empty (CAR-213).
+  const [universityIsCustom, setUniversityIsCustom] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError ?? "");
   const [existingAccount, setExistingAccount] = useState(false);
@@ -58,7 +63,14 @@ export default function AuthForm({ initialMode = "signin", initialError, onBack 
 
     try {
       if (mode === "signup") {
-        const result = await signUp(formData.email, formData.password, formData.firstName, formData.lastName);
+        const result = await signUp(
+          formData.email,
+          formData.password,
+          formData.firstName,
+          formData.lastName,
+          formData.university,
+          universityIsCustom,
+        );
         if (result.existingAccount) {
           setExistingAccount(true);
         } else if (result.error) {
@@ -343,6 +355,32 @@ export default function AuthForm({ initialMode = "signin", initialError, onBack 
                             placeholder="Last name"
                           />
                         </div>
+                      </div>
+                    )}
+
+                    {/* School — optional, and blank claims nothing (CAR-213).
+                        A user who leaves this alone gets no alumni in their
+                        data bundle and no school highlighting, because the
+                        product has nothing to base a claim on. That is the
+                        honest default: the alternative is asserting a school
+                        they never gave us, up to and including in the first
+                        outreach email the product sends for them. */}
+                    {mode === "signup" && (
+                      <div>
+                        <SchoolAutocomplete
+                          id="university"
+                          value={formData.university}
+                          onChange={(value, isCustom) => {
+                            setFormData((prev) => ({ ...prev, university: value }));
+                            setUniversityIsCustom(isCustom);
+                          }}
+                          allowCustom
+                          placeholder="Where do you go (or did you go) to school? (optional)"
+                          className={inputClasses}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1 pl-1">
+                          We use this to tailor which contacts and intro emails you get.
+                        </p>
                       </div>
                     )}
 

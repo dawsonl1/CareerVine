@@ -73,6 +73,7 @@ import { getContactStages, getCompanies, getCompanyDetail } from "@/lib/company-
 import { getNeglectedContacts, getRelationshipsOnTrack } from "@/lib/data/follow-ups";
 import { deriveDueFollowUps } from "@/lib/rules/due-follow-ups";
 import { getNetworkingStreak as getStreakShared } from "@/lib/data/home";
+import { getUserSchool } from "@/lib/data/users";
 
 const USER = "user-1";
 
@@ -341,6 +342,13 @@ const DB_TABLE: Record<string, Entry> = {
     drive: () => db.getDossierBundle(9, "recent"),
     route: (q) => (q.table === "contacts" && q.resolution === "single" ? CONTACT_FULL : undefined),
   },
+  // CAR-213. Scoped, not ownership: public.users is keyed BY the user id, so
+  // .eq("id", uid()) is the scoping filter.
+  getViewerSchool: {
+    kind: "scoped",
+    drive: () => db.getViewerSchool(USER),
+    route: (q) => (q.table === "users" ? { university: "Brigham Young University" } : undefined),
+  },
   listCalendarEvents: {
     kind: "scoped",
     drive: () => db.listCalendarEvents("2026-07-01T00:00:00.000Z", "2026-07-31T00:00:00.000Z"),
@@ -507,6 +515,13 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     getActivityHeatmap: { kind: "web-only" },
   },
   "@/lib/data/users": {
+    // CAR-213: MCP-consumable, because the dossier's alum flag is relative to
+    // the account holder's school. Scoped by the users table's own primary key.
+    getUserSchool: {
+      kind: "scoped",
+      drive: () => getUserSchool(USER),
+      route: (q) => (q.table === "users" ? { university: "Brigham Young University" } : undefined),
+    },
     getUserProfile: { kind: "web-only" },
     updateUserProfile: { kind: "web-only" },
     getDismissedGettingStarted: { kind: "web-only" },

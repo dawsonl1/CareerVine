@@ -52,7 +52,7 @@ function renderProviderSignUp() {
       <Probe />
     </AuthProvider>
   );
-  return (email: string) => signUp(email, "password123", "Test", "User");
+  return (email: string) => signUp(email, "password123", "Test", "User", "", false);
 }
 
 describe("AuthProvider.signUp — duplicate email detection", () => {

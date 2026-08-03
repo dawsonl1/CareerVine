@@ -427,10 +427,12 @@ export type Database = {
           bundle_id: number
           created_at: string
           id: number
+          is_alumni: boolean
           linkedin_url: string
           payload: Json
           payload_hash: string
           payload_schema_version: number
+          persona: string | null
           removed_in_version: number | null
           resolved: Json | null
           resolved_at: string | null
@@ -443,10 +445,12 @@ export type Database = {
           bundle_id: number
           created_at?: string
           id?: number
+          is_alumni?: boolean
           linkedin_url: string
           payload: Json
           payload_hash: string
           payload_schema_version?: number
+          persona?: string | null
           removed_in_version?: number | null
           resolved?: Json | null
           resolved_at?: string | null
@@ -459,10 +463,12 @@ export type Database = {
           bundle_id?: number
           created_at?: string
           id?: number
+          is_alumni?: boolean
           linkedin_url?: string
           payload?: Json
           payload_hash?: string
           payload_schema_version?: number
+          persona?: string | null
           removed_in_version?: number | null
           resolved?: Json | null
           resolved_at?: string | null
@@ -3001,6 +3007,8 @@ export type Database = {
           phone: string | null
           status: string
           timezone: string | null
+          university: string | null
+          university_is_custom: boolean
           updated_at: string | null
           web_last_seen_at: string | null
         }
@@ -3022,6 +3030,8 @@ export type Database = {
           phone?: string | null
           status?: string
           timezone?: string | null
+          university?: string | null
+          university_is_custom?: boolean
           updated_at?: string | null
           web_last_seen_at?: string | null
         }
@@ -3043,6 +3053,8 @@ export type Database = {
           phone?: string | null
           status?: string
           timezone?: string | null
+          university?: string | null
+          university_is_custom?: boolean
           updated_at?: string | null
           web_last_seen_at?: string | null
         }
@@ -3072,6 +3084,7 @@ export type Database = {
           alumni_company_count: number
           alumni_count: number
           alumni_product_count: number
+          eligible_prospect_count: number
         }[]
       }
       bundle_company_stats: {
@@ -3079,6 +3092,7 @@ export type Database = {
         Returns: {
           alumni_count: number
           company_id: number
+          eligible_prospect_count: number
           logo_url: string
           name: string
           product_alumni_count: number
@@ -3104,6 +3118,11 @@ export type Database = {
         Args: { p_cost: number; p_period_start: string; p_user_id: string }
         Returns: undefined
       }
+      is_alumni_only_prospect: {
+        Args: { p_is_alumni: boolean; p_persona: string }
+        Returns: boolean
+      }
+      is_byu_family_school: { Args: { p_name: string }; Returns: boolean }
       is_internal_email: { Args: { p_email: string }; Returns: boolean }
       latest_contact_snapshots: {
         Args: { p_contact_ids: number[] }
@@ -3120,6 +3139,7 @@ export type Database = {
           prospect: number
         }[]
       }
+      normalize_school_name: { Args: { p_name: string }; Returns: string }
       replace_transcript_segments: {
         Args: { p_meeting_id: number; p_segments: Json }
         Returns: undefined

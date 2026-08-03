@@ -41,7 +41,7 @@ Deliberately excluded: AI generation tools — Claude is the generator; the serv
 
 ## Example prompts
 
-- *"Who do I know at Samsara? Pull the dossier on the recruiter and draft her a short intro email mentioning my BYU background."*
+- *"Who do I know at Samsara? Pull the dossier on the recruiter and draft her a short intro email mentioning our shared school."*
 - *"What's next in my outreach queue? Work the top company: dossiers for the two best people, drafts for both."*
 - *"Did anyone reply this week? Search my email history with Capital One folks."*
 - *"Log a coffee chat with Tim yesterday — we talked about APM referrals. Create a waiting-on item: he's intro'ing me to his PM."*

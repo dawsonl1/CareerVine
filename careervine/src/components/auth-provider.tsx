@@ -12,7 +12,14 @@ type AuthContextType = {
   user: User | null;           // Current authenticated user or null
   session: Session | null;     // Current session or null
   loading: boolean;             // Loading state while checking auth
-  signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error?: string; existingAccount?: boolean }>;
+  signUp: (
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string,
+    university: string,
+    universityIsCustom: boolean,
+  ) => Promise<{ error?: string; existingAccount?: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
@@ -92,7 +99,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Creates user in Supabase auth and stores first/last name in user_metadata
    * Returns error message if signup fails
    */
-  const signUp = async (email: string, password: string, firstName: string, lastName: string) => {
+  const signUp = async (
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string,
+    university: string,
+    universityIsCustom: boolean,
+  ) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -102,6 +116,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         data: {
           first_name: firstName,
           last_name: lastName,
+          // CAR-213 CONTRACT: `university` must ALWAYS be present, empty
+          // string included. handle_new_user() distinguishes "this client
+          // asked and the user declined" (key present, empty) from "this
+          // client predates the question" (key absent) by testing key
+          // PRESENCE, and grandfathers the latter to BYU. Drop the key when
+          // the field is blank and every user who skips it silently gets the
+          // BYU experience, which is the exact bug CAR-213 exists to remove.
+          university,
+          university_is_custom: university.trim() ? universityIsCustom : false,
         },
         // The confirmation email's token_hash link lands here, where the
         // session is minted server-side — works cross-tab and cross-device,

@@ -1,81 +1,40 @@
 /**
- * SchoolAutocomplete — university name input with predictive suggestions
+ * SchoolAutocomplete — university name input with predictive suggestions.
  *
- * Contains a hardcoded list of ~100 major US universities.
- * As the user types, matching universities appear in a dropdown.
- * The user can also type a custom school name not in the list.
+ * The list moved to @/lib/schools/university-list in CAR-213 so the account
+ * picker and the contact forms share ONE set of school names. A second list
+ * would mean a user meets one input on their own profile and a different one
+ * on every contact they edit, with different coverage and different
+ * normalization, and matching then behaves inexplicably.
  *
- * Used in: contact create/edit form (school_name field)
+ * `allowCustom` adds the explicit escape-hatch row and reports, via
+ * onChange's second argument, whether the committed value came from the
+ * curated list or was typed. The account picker needs that distinction
+ * (users.university_is_custom drives which values get promoted into the list
+ * later); the contact forms do not and leave it off, keeping their behaviour
+ * exactly as it was.
+ *
+ * Used in: contact create/edit forms, signup, Settings → Account.
  */
 
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useDropdownEscape } from "@/hooks/use-dropdown-escape";
-import { GraduationCap } from "lucide-react";
+import { GraduationCap, Plus } from "lucide-react";
 import { useClickOutside } from "@/hooks/use-click-outside";
-
-const UNIVERSITIES = [
-  "Arizona State University", "Auburn University", "Baylor University",
-  "Boston College", "Boston University", "Brigham Young University",
-  "Brown University", "California Institute of Technology",
-  "Carnegie Mellon University", "Case Western Reserve University",
-  "Clemson University", "Colorado State University", "Columbia University",
-  "Cornell University", "Dartmouth College", "Drexel University",
-  "Duke University", "Emory University", "Florida State University",
-  "Fordham University", "George Washington University",
-  "Georgetown University", "Georgia Institute of Technology",
-  "Harvard University", "Howard University",
-  "Indiana University Bloomington", "Iowa State University",
-  "Johns Hopkins University", "Lehigh University",
-  "Louisiana State University", "Marquette University",
-  "Massachusetts Institute of Technology", "Michigan State University",
-  "New York University", "North Carolina State University",
-  "Northeastern University", "Northwestern University",
-  "Ohio State University", "Oregon State University",
-  "Penn State University", "Pepperdine University",
-  "Princeton University", "Purdue University", "Rice University",
-  "Rutgers University", "Santa Clara University",
-  "Southern Methodist University", "Stanford University",
-  "Syracuse University", "Temple University", "Texas A&M University",
-  "Texas Tech University", "Tufts University", "Tulane University",
-  "University of Alabama", "University of Arizona",
-  "University of California, Berkeley", "University of California, Davis",
-  "University of California, Irvine",
-  "University of California, Los Angeles",
-  "University of California, San Diego",
-  "University of California, Santa Barbara",
-  "University of Central Florida", "University of Chicago",
-  "University of Cincinnati", "University of Colorado Boulder",
-  "University of Connecticut", "University of Delaware",
-  "University of Denver", "University of Florida",
-  "University of Georgia", "University of Houston",
-  "University of Illinois Urbana-Champaign", "University of Iowa",
-  "University of Kansas", "University of Kentucky",
-  "University of Maryland", "University of Massachusetts Amherst",
-  "University of Miami", "University of Michigan",
-  "University of Minnesota", "University of Mississippi",
-  "University of Missouri", "University of Nebraska-Lincoln",
-  "University of North Carolina at Chapel Hill",
-  "University of Notre Dame", "University of Oklahoma",
-  "University of Oregon", "University of Pennsylvania",
-  "University of Pittsburgh", "University of Rochester",
-  "University of San Diego", "University of San Francisco",
-  "University of South Carolina", "University of South Florida",
-  "University of Southern California", "University of Tennessee",
-  "University of Texas at Austin", "University of Utah",
-  "University of Virginia", "University of Washington",
-  "University of Wisconsin-Madison", "Vanderbilt University",
-  "Villanova University", "Virginia Tech", "Wake Forest University",
-  "Washington State University", "Washington University in St. Louis",
-  "West Virginia University", "Yale University",
-];
+import { UNIVERSITY_NAMES } from "@/lib/schools/university-list";
+import { normalizeSchoolName } from "@/lib/schools/affinity";
 
 interface SchoolAutocompleteProps {
   value: string;
-  onChange: (value: string) => void;
+  /** `isCustom` is true when the value was typed rather than picked. */
+  onChange: (value: string, isCustom: boolean) => void;
   placeholder?: string;
   className?: string;
+  /** Show the "Add …" row for schools not on the list (CAR-213). */
+  allowCustom?: boolean;
+  id?: string;
 }
 
 export function SchoolAutocomplete({
@@ -83,6 +42,8 @@ export function SchoolAutocomplete({
   onChange,
   placeholder = "e.g. Stanford University",
   className,
+  allowCustom = false,
+  id,
 }: SchoolAutocompleteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(value);
@@ -92,48 +53,86 @@ export function SchoolAutocomplete({
 
   useClickOutside(ref, useCallback(() => setOpen(false), []));
 
-  const filtered = query.trim().length >= 2
-    ? UNIVERSITIES.filter((u) =>
-        u.toLowerCase().includes(query.toLowerCase())
-      ).slice(0, 8)
-    : [];
+  const trimmed = query.trim();
+
+  const filtered = useMemo(
+    () =>
+      trimmed.length >= 2
+        ? UNIVERSITY_NAMES.filter((u) => u.toLowerCase().includes(trimmed.toLowerCase())).slice(0, 8)
+        : [],
+    [trimmed],
+  );
+
+  // Offer the escape hatch only when what they typed is not already an exact
+  // curated entry — normalized, so "byu" does not offer to "add" a school the
+  // list already has under a different casing.
+  const exactMatch = useMemo(() => {
+    if (!trimmed) return false;
+    const n = normalizeSchoolName(trimmed);
+    return UNIVERSITY_NAMES.some((u) => normalizeSchoolName(u) === n);
+  }, [trimmed]);
+
+  const showCustomRow = allowCustom && trimmed.length >= 2 && !exactMatch;
+
   // Escape closes this list, not the dialog around it (CAR-205 review).
   const handleEscape = useDropdownEscape(open, setOpen);
+
+  const commit = (next: string, isCustom: boolean) => {
+    onChange(next, isCustom);
+    setQuery(next);
+    setOpen(false);
+  };
 
   return (
     <div ref={ref} className="relative" onKeyDown={handleEscape}>
       <div className="relative">
         <input
+          id={id}
           type="text"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            onChange(e.target.value);
+            // Typing is provisional: report it as custom until a curated row
+            // is picked, so an abandoned half-typed value is never recorded as
+            // a list selection.
+            onChange(e.target.value, true);
             setOpen(true);
           }}
-          onFocus={() => { if (filtered.length > 0) setOpen(true); }}
+          onFocus={() => { if (filtered.length > 0 || showCustomRow) setOpen(true); }}
           className={className || "w-full h-14 px-4 pr-10 bg-surface-container-low text-foreground rounded-[4px] border border-outline placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-sm"}
           placeholder={placeholder}
+          autoComplete="off"
         />
         <GraduationCap className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
       </div>
-      {open && filtered.length > 0 && (
+      {open && (filtered.length > 0 || showCustomRow) && (
         <div className="absolute z-50 mt-1 left-0 w-full bg-surface-container-high rounded-[12px] shadow-lg border border-outline-variant overflow-hidden animate-in fade-in-0 zoom-in-95">
           {filtered.map((uni) => (
             <button
               key={uni}
               type="button"
-              onClick={() => {
-                onChange(uni);
-                setQuery(uni);
-                setOpen(false);
-              }}
+              onClick={() => commit(uni, false)}
               className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container cursor-pointer transition-colors"
             >
               {uni}
             </button>
           ))}
+          {showCustomRow && (
+            <button
+              type="button"
+              onClick={() => commit(trimmed, true)}
+              className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-surface-container cursor-pointer transition-colors border-t border-outline-variant/50 flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="truncate">Add &ldquo;{trimmed}&rdquo;</span>
+            </button>
+          )}
         </div>
+      )}
+      {allowCustom && filtered.length === 0 && trimmed.length >= 2 && (
+        <p className="text-xs text-muted-foreground mt-1">
+          No match. Pick &ldquo;Add {trimmed}&rdquo; to use it anyway.
+        </p>
       )}
     </div>
   );

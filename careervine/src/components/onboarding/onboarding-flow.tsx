@@ -31,10 +31,12 @@ import {
 import {
   getPickerCompanies,
   sortPickerCompanies,
-  COMPANY_SORT_OPTIONS,
+  companySortOptions,
+  defaultCompanySortKey,
   type PickerCompany,
   type CompanySortKey,
 } from "@/lib/onboarding/company-picker";
+import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
 import {
   subscribeToBundle,
   runBundleApplyLoop,
@@ -190,6 +192,7 @@ function BundleOfferStep({
   onDecline: () => void;
   onSkip: () => void;
 }) {
+  const affinity = useAlumniAffinity();
   // "No thanks" declines the recruiting database (the one exit whose warning
   // is bundle-specific, not the generic cancel-onboarding one) — CAR-84.
   const [confirmingDecline, setConfirmingDecline] = useState(false);
@@ -221,10 +224,10 @@ function BundleOfferStep({
         </h2>
         <p className="text-base text-muted-foreground mt-3 leading-relaxed">
           Get our curated <span className="font-medium text-foreground">{stats?.name ?? "APM recruiting"}</span> database:{" "}
-          {stats && stats.alumniCount > 0 ? (
+          {affinity.hasAffinity && stats && stats.alumniCount > 0 ? (
             <>
               <span className="font-medium text-foreground">
-                {stats.alumniCount.toLocaleString()} BYU alumni
+                {stats.alumniCount.toLocaleString()} {affinity.abbr ? `${affinity.abbr} alumni` : "alumni"}
               </span>{" "}
               among{" "}
               <span className="font-medium text-foreground">
@@ -232,10 +235,31 @@ function BundleOfferStep({
               </span>{" "}
               at companies that hire new-grad PMs.
             </>
+          ) : stats ? (
+            <>
+              <span className="font-medium text-foreground">
+                {stats.eligibleProspectCount.toLocaleString()} prospects
+              </span>{" "}
+              at companies that hire new-grad PMs, including product leaders, PMs, and
+              recruiters you can actually reach.
+            </>
           ) : (
-            <>real PMs, recruiters, and alumni at companies that hire new-grad PMs.</>
+            <>real PMs, recruiters, and product leaders at companies that hire new-grad PMs.</>
           )}
         </p>
+        {/* CAR-213. Accurate is not the same as honest: without this a
+            non-affinity user sees a smaller number and has no idea a BYU user
+            sees 2,000, that the database is BYU-sourced, or that their own
+            answer changed it. The two non-affinity states get different
+            sentences because one of them has a fix available and the other
+            does not. */}
+        {!affinity.hasAffinity && stats && (
+          <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+            {affinity.state === "other_school"
+              ? "This database was built around BYU's alumni network, so we have filtered out the alumni-only contacts. They are not a warm door for you, and we would rather hand you people worth emailing than pad the number."
+              : "Add your school in Settings and we will surface the alumni connections in it too."}
+          </p>
+        )}
         <div className="mt-7 flex flex-col gap-2.5">
           <button
             type="button"
@@ -415,9 +439,11 @@ function ConnectStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: (
 function SortDropdown({
   value,
   onChange,
+  options,
 }: {
   value: CompanySortKey;
   onChange: (v: CompanySortKey) => void;
+  options: { value: CompanySortKey; label: string }[];
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
@@ -453,7 +479,7 @@ function SortDropdown({
     };
   }, [open, updatePos]);
 
-  const current = COMPANY_SORT_OPTIONS.find((o) => o.value === value);
+  const current = options.find((o) => o.value === value);
 
   return (
     <>
@@ -483,7 +509,7 @@ function SortDropdown({
             style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width }}
             className="z-[200] bg-surface-container-highest rounded-2xl border border-outline-variant shadow-xl py-1"
           >
-            {COMPANY_SORT_OPTIONS.map((o) => (
+            {options.map((o) => (
               <button
                 key={o.value}
                 type="button"
@@ -532,7 +558,14 @@ function CompanyPickerStep({
   const headingId = useId();
   const [companies, setCompanies] = useState<PickerCompany[] | null>(null);
   const [query, setQuery] = useState("");
-  const [sortKey, setSortKey] = useState<CompanySortKey>("alumni");
+  const affinity = useAlumniAffinity();
+  const sortOptions = useMemo(
+    () => companySortOptions(affinity.hasAffinity, affinity.abbr),
+    [affinity.hasAffinity, affinity.abbr],
+  );
+  const [sortKey, setSortKey] = useState<CompanySortKey>(() =>
+    defaultCompanySortKey(affinity.hasAffinity),
+  );
   const [selecting, setSelecting] = useState<number | null>(null);
   const [loopProgress, setLoopProgress] = useState<ApplyProgress | null>(null);
   const [dbApplied, setDbApplied] = useState(0);
@@ -552,13 +585,16 @@ function CompanyPickerStep({
       if (doneRef.current) return;
       doneRef.current = true;
       track("onboarding_sync_completed", {
-        prospects: stats.prospectCount,
+        prospects: stats.eligibleProspectCount,
+        // CAR-213: the funnel has to be separable by school, or a conversion
+        // drop for non-affinity users is invisible inside the average.
+        affinity_state: affinity.state,
         path,
         duration_ms: startedAtRef.current ? Date.now() - startedAtRef.current : undefined,
       });
       onSyncComplete();
     },
-    [onSyncComplete, stats.prospectCount],
+    [onSyncComplete, stats.eligibleProspectCount, affinity.state],
   );
 
   // Drive the sync (subscribe + apply loop) exactly once.
@@ -663,15 +699,19 @@ function CompanyPickerStep({
   // Best signal wins: the DB count survives page reloads and background
   // drivers; the loop's applied total updates between polls.
   const applied = Math.max(loopProgress?.applied ?? 0, dbApplied);
-  const total = stats.prospectCount;
+  // eligibleProspectCount, NOT prospectCount (CAR-213). A non-affinity user
+  // receives 1,112 of 2,000, so dividing by the raw total caps this bar at 56%
+  // and the "N of 2,000 added" line never completes.
+  const total = stats.eligibleProspectCount;
   const pct = total > 0 ? Math.min(100, Math.round((applied / total) * 100)) : null;
 
   return (
     <StepShell wide onSkip={onSkip} headingId={headingId}>
       <h2 id={headingId} className="text-xl font-semibold text-foreground">Pick your first target company</h2>
       <p className="text-sm text-muted-foreground mt-1.5">
-        Companies with BYU alumni are at the top: alumni are the warmest door in. You can add
-        more targets anytime.
+        {affinity.hasAffinity
+          ? `Companies with ${affinity.abbr ?? "your school's"} alumni are at the top: alumni are the warmest door in. You can add more targets anytime.`
+          : "Companies where you would know the most people are at the top. You can add more targets anytime."}
       </p>
 
       {syncing && (
@@ -710,7 +750,7 @@ function CompanyPickerStep({
             className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
         </div>
-        <SortDropdown value={sortKey} onChange={setSortKey} />
+        <SortDropdown value={sortKey} onChange={setSortKey} options={sortOptions} />
       </div>
 
       <div className="mt-4 max-h-[46vh] overflow-y-auto space-y-1.5 pr-1">
@@ -738,13 +778,18 @@ function CompanyPickerStep({
                   {c.contactCount} contact{c.contactCount === 1 ? "" : "s"}
                 </p>
               </div>
-              {c.alumniCount > 0 && (
+              {affinity.hasAffinity && c.alumniCount > 0 && (
                 // Two stacked counts (CAR-61): total alumni, then how many of
-                // them hold product roles.
+                // them hold product roles. Suppressed entirely without
+                // affinity — a non-BYU user's bundle holds no alumni-only
+                // prospects, and labelling the rest as "alumni" of a school
+                // they never attended is the claim CAR-213 removes.
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                     <GraduationCap className="h-3.5 w-3.5" />
-                    {c.alumniCount} BYU {c.alumniCount === 1 ? "alum" : "alumni"}
+                    {affinity.abbr
+                      ? `${c.alumniCount} ${affinity.abbr} ${c.alumniCount === 1 ? "alum" : "alumni"}`
+                      : `${c.alumniCount} ${c.alumniCount === 1 ? "alum" : "alumni"}`}
                   </span>
                   {c.productAlumniCount > 0 && (
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-surface-container-highest text-muted-foreground text-[11px] font-medium">
@@ -866,6 +911,7 @@ function FinaleStep({ onDone }: { onDone: () => void }) {
 /* ── Orchestrator ── */
 export function OnboardingFlow() {
   const { user } = useAuth();
+  const affinity = useAlumniAffinity();
   const { state, showFinale, advance, skip, finishFinale } = useOnboarding();
   const router = useRouter();
   const pathname = usePathname();
@@ -958,7 +1004,7 @@ export function OnboardingFlow() {
           } catch {
             // Company may already be a target (e.g. resumed flow) — proceed.
           }
-          track("onboarding_company_picked", { alumni_count: company.alumniCount });
+          track("onboarding_company_picked", { alumni_count: company.alumniCount, affinity_state: affinity.state });
           advance("outreach");
           router.push(`/companies/${company.id}`);
         }}

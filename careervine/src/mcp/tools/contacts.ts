@@ -16,6 +16,7 @@ import {
   tagContact,
   setNetworkStatus,
   type SearchRow,
+  getViewerSchool,
 } from "../lib/db";
 import { buildDossier } from "../lib/dossier";
 import { handler, contactRefShape } from "../lib/tool-utils";
@@ -146,7 +147,7 @@ export function registerContactTools(server: McpServer): void {
     {
       title: "Get contact dossier",
       description:
-        "Everything known about one contact in a single structured document: identity, tier + derived outreach stage, cadence and last touch, work history, education (alum flag), emails with provenance (verified / pattern-guessed / bounced), notes, tags, open and completed action items, interactions, meetings, cached email history, and pending scheduled sends. Use this as grounding before writing an email.",
+        "Everything known about one contact in a single structured document: identity, tier + derived outreach stage, cadence and last touch, work history, education (alum flag, relative to your own school), emails with provenance (verified / pattern-guessed / bounced), notes, tags, open and completed action items, interactions, meetings, cached email history, and pending scheduled sends. Use this as grounding before writing an email.",
       inputSchema: dossierSchema,
       annotations: { readOnlyHint: true },
     },
@@ -156,7 +157,11 @@ export function registerContactTools(server: McpServer): void {
       const stages = await getContactStages(uid(), [
         { id: contact.id, stage_override: contact.stage_override },
       ]);
-      return buildDossier(bundle, stages.get(contact.id)?.stage ?? null);
+      // CAR-213: the alum flag is relative to the ACCOUNT HOLDER's school, so
+      // the dossier has to know it. Null when they have claimed none, which
+      // makes is_school_alum false and drops the alum line from the summary.
+      const viewerSchool = await getViewerSchool(uid());
+      return buildDossier(bundle, stages.get(contact.id)?.stage ?? null, new Date(), viewerSchool);
     }),
   );
 

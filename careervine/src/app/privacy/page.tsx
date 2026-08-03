@@ -23,7 +23,7 @@ export default function PrivacyPolicyPage() {
             <div className="space-y-4 text-muted-foreground leading-relaxed">
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">Account Information</h3>
-                <p>Your email address and password (stored securely via Supabase Auth) when you create an account. You can also sign in to the Chrome extension with the same credentials.</p>
+                <p>Your name, email address, and password (stored securely via Supabase Auth) when you create an account, plus an optional phone number and an optional school. The school is used only to tailor which contacts we suggest and how intro emails are worded, and you can change or clear it at any time in Settings. You can also sign in to the Chrome extension with the same credentials.</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-foreground mb-1">Contact Data</h3>
