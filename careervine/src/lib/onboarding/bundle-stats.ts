@@ -26,6 +26,18 @@ export type OnboardingBundleStats = {
   /** How many of the bundle's companies have a BYU alum there today — a
    * subset of companyCount by construction (CAR-61). */
   alumniCompanyCount: number;
+  /**
+   * How many prospects a subscriber with NO alumni affinity actually receives
+   * (CAR-213). Bundle-wide, so it is the correct denominator for a progress
+   * bar; the per-company sums from bundle_company_stats are NOT, because they
+   * only count prospects whose employer is one of the bundle's companies and
+   * come to roughly half the total.
+   *
+   * Falls back to prospectCount, which is exactly right for a BYU-family user
+   * and is the pre-CAR-213 behaviour for everyone else — a failed stat read
+   * degrades to a bar that finishes early, never one that never finishes.
+   */
+  eligibleProspectCount: number;
 };
 
 export async function getOnboardingBundleStats(): Promise<OnboardingBundleStats | null> {
@@ -43,6 +55,7 @@ export async function getOnboardingBundleStats(): Promise<OnboardingBundleStats 
   let alumniCount = 0;
   let alumniProductCount = 0;
   let alumniCompanyCount = 0;
+  let eligibleProspectCount = bundle.prospect_count;
   // error-tolerated: the alumni counts are onboarding copy that already
   // defaults to 0; a failed read shows the bundle without its stat line rather
   // than blocking onboarding.
@@ -54,6 +67,10 @@ export async function getOnboardingBundleStats(): Promise<OnboardingBundleStats 
     alumniCount = Number(row.alumni_count) || 0;
     alumniProductCount = Number(row.alumni_product_count) || 0;
     alumniCompanyCount = Number(row.alumni_company_count) || 0;
+    // `|| fallback` rather than `?? fallback`: a genuine 0 would mean the user
+    // receives nothing, which this bundle cannot produce, and would render a
+    // bar that can never move.
+    eligibleProspectCount = Number(row.eligible_prospect_count) || bundle.prospect_count;
   }
 
   return {
@@ -66,5 +83,6 @@ export async function getOnboardingBundleStats(): Promise<OnboardingBundleStats 
     alumniCount,
     alumniProductCount,
     alumniCompanyCount,
+    eligibleProspectCount,
   };
 }
