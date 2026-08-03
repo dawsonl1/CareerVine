@@ -392,23 +392,121 @@ is silent and permanent for whoever lands in it.
 
 ### Phase 8 — Tests
 
-18 test files reference BYU today. Beyond updating those:
+18 test files reference BYU today and all need updating. But the test *shape* matters more
+than the list, because of one property of this change:
 
-- TS↔SQL parity for the school normalizer (the anti-drift guard)
-- Sync filter: a non-affinity subscriber receives exactly 1,112; an affinity subscriber receives 2,000
-- Sync filter boundaries, one case each: an alum in a product role is **kept**; an alum
-  recruiter is **kept**; an alum with neither is **dropped**; a non-alum with no persona
-  at all is **kept** (fail-safe — a null persona must never cause a drop)
+> **Almost everything worth asserting here is an absence.** "No BYU string renders." "This
+> prospect was not applied." "No badge appeared." Absence assertions pass **vacuously** — a
+> component that throws, a render that produces nothing, a query that returns empty all
+> turn every one of them green while proving nothing. This has already cost this project
+> twice (CAR-191, CAR-200).
+
+Every rule below exists to defeat that.
+
+**Available tiers:** unit (`npm run test`), integration against real Postgres
+(`npm run test:integration`), Playwright E2E (`npm run test:e2e`). Sweep-style guards have
+precedent here — `data-mutation-guards`, `storage-sweep`, `cron-schedules-registry`.
+
+#### 8.1 The leak dragnet — one test, not twenty
+
+Render **every** affected surface for a non-affinity user and scan the output for
+`/byu|brigham|cougar/i`. One test, all surfaces.
+
+The point is that it catches surfaces **nobody remembered to list** — which is the actual
+failure mode here: the PM audit found three (the persona chip, the second subscribe screen,
+the AI prompts) that a hand-enumerated per-component suite would have missed by construction.
+
+**It must carry a positive control in the same file:** the identical render for a BYU-family
+user must *find* the string. Without that half, a dragnet over a broken render is green and
+meaningless.
+
+**Honest limit:** it catches strings, not behaviour. A badge rendering for the *wrong
+contact* says nothing about BYU and sails through. That is what 8.3 and 8.4 are for.
+
+#### 8.2 Every absence assertion carries its positive control
+
+Not two tests — one test, one render path, both halves:
+
+```
+it("badges the user's own school, and only that", () => {
+  // affinity user   → expect(badge).toBeInTheDocument()   ← fails if render is broken
+  // non-affinity    → expect(badge).not.toBeInTheDocument()
+})
+```
+
+A vacuous render fails the first assertion, so the second can no longer lie.
+
+#### 8.3 Parity — one fixture through two engines
+
+The anti-drift guard, and the reason the `affinity.ts` seam exists at all. **Not** "test the
+TS, then test the SQL": one fixture array of school names and expected verdicts, run through
+`isByuFamilySchool()` **and** through `is_byu_family_school()` in the integration tier
+against real Postgres, asserting agreement row by row. Separate tests of each prove nothing
+about the thing that actually breaks, which is the two drifting apart.
+
+Fixture covers the decision table in "Who counts as BYU-family": BYU, BYU-Idaho, BYU-Hawaii,
+Marriott, Pathway as positives; Ensign College, Utah Valley University, Bryant University,
+Young Harris College as negatives.
+
+#### 8.4 Exact counts, never `> 0`
+
+A fixture bundle of known composition applied to both subscriber types. Non-affinity receives
+**exactly** N, affinity **exactly** M. `> 0` passes when 1 of 7 lands.
+
+#### 8.5 The four boundary rows that *are* the rule
+
+| Prospect | Expected |
+|---|---|
+| Alum, product-role persona | **kept** |
+| Alum, `recruiter` | **kept** |
+| Alum, neither | **dropped** |
+| Alum, `persona = null` | **kept** — fail safe |
+
+If any one flips, the product is wrong. These get written **before** the filter code.
+
+#### 8.6 Both sync paths, parameterized
+
+The filter lives in the merge path **and** `bundle-fast-apply`. `describe.each` over both, so
+the assertions cannot be written once and silently cover only one. Which path runs depends on
+eligibility conditions a test can otherwise satisfy by accident.
+
+#### 8.7 The progress bar reaches 100%
+
+Assert `applied / total === 1` at completion for a non-affinity user — **not** that `total`
+equals some number. Asserting the value re-encodes the bug; asserting convergence catches it.
+Covers both the onboarding flow and `data-subscriptions-section`.
+
+#### 8.8 Everything else, same discipline
+
 - Removal phase is a no-op for never-applied prospects
-- non-BYU → BYU triggers a full re-apply; BYU → non-BYU deletes nothing
-- Progress-bar total uses the eligible count (the 56% stall)
-- Both email templates: no "BYU" leaks into a non-BYU user's outgoing mail
-- Badge/filter/next-action suppression under no affinity
+- non-BYU → BYU triggers a full re-apply; BYU → non-BYU deletes **nothing** (count contacts
+  before and after)
+- Both email templates and both AI system prompts: no school and no enrollment claim leaks
+  into a non-affinity user's outgoing mail
 - Signup writes the school through the trigger; the escape hatch sets `university_is_custom`
+  and renders the "Alum" fallback rather than a truncated name
+- The three affinity states each resolve to their own copy variant (named-BYU, named-other,
+  blank) — blank must not silently reuse the named-other explanation
 
-Per the CAR-191 lesson in memory: every absence assertion here (no badge, no BYU string,
-no alumni prospect) must be falsified — patch the fix out and confirm the test goes red —
-because absence assertions pass vacuously.
+#### 8.9 Migration proven against real schema
+
+Rule 32: execute against production inside `BEGIN; SET LOCAL lock_timeout='3s'; … ROLLBACK;`.
+`supabase db push --dry-run` only lists what would run; it never executes SQL and cannot
+catch a reference to a dropped column.
+
+#### 8.10 Falsification, per phase, not at the end
+
+For every test kept: patch the fix out, confirm **that specific test** goes red, restore.
+A test that stays green with the fix removed is measuring nothing.
+
+Commit before probing. Per CAR-200, `git checkout -- <file>` restores from the *index* and
+discards all uncommitted work in that file — it wiped three files mid-session during exactly
+this kind of sweep. A WIP commit is free and amendable; a scratchpad copy also works.
+
+#### Written before the code
+
+8.3 and 8.5 are the specification, not verification of it. They land first.
+8.1 lands immediately after Phase 5 and re-runs after every later phase.
 
 ## Copy deck
 
