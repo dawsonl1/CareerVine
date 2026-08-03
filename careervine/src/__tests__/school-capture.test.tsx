@@ -10,27 +10,30 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act, cleanup } from "@testing-library/react";
-import { affinityTransition } from "@/lib/schools/affinity-resync";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
+import { mockAnalyticsClientModule } from "./helpers/mock-analytics";
 
-const signUpMock = vi.fn();
+// vi.hoisted: vi.mock is lifted above the imports, so a plain top-level const
+// referenced inside the factory is not yet initialized when the factory runs.
+const { signUpMock } = vi.hoisted(() => ({ signUpMock: vi.fn() }));
 
-vi.mock("@/lib/supabase/browser-client", () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
     auth: {
       signUp: signUpMock,
       getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
       onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } }),
     },
-  }),
-}));
-vi.mock("@/lib/analytics/client", () => ({
-  track: vi.fn(),
-  identifyNewUser: vi.fn(),
-  resetAnalyticsIdentity: vi.fn(),
-}));
+  })),
+);
+vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule());
 
+// App imports come AFTER the vi.mock block: affinity-resync transitively
+// imports the mocked browser client, and importing it above would evaluate
+// that module before the factory bindings exist.
 import AuthForm from "@/components/auth-form";
 import { AuthProvider } from "@/components/auth-provider";
+import { affinityTransition } from "@/lib/schools/affinity-resync";
 
 function renderSignup() {
   return render(

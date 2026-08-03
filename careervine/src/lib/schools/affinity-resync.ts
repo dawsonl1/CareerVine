@@ -52,12 +52,13 @@ export function affinityTransition(
  */
 export async function resyncBundlesForAffinityGain(userId: string): Promise<number> {
   const supabase = createSupabaseBrowserClient();
-  const { data, error } = await supabase
+  // Count, not a .select() readback — the house convention (rule 17), and
+  // robust regardless of what the representation would have contained.
+  const { count, error } = await supabase
     .from("bundle_subscriptions")
-    .update({ synced_version: 0, sync_cursor: null })
+    .update({ synced_version: 0, sync_cursor: null }, { count: "exact" })
     .eq("user_id", userId)
-    .eq("status", "active")
-    .select("id");
+    .eq("status", "active");
   if (error) throw error;
-  return data?.length ?? 0;
+  return count ?? 0;
 }
