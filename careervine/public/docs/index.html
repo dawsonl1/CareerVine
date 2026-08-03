@@ -845,8 +845,8 @@
           <div class="grid">
             <article class="feat mono"><h4>create_email_draft</h4><p>The default path: a real Gmail draft (markdown to HTML, thread-aware) for your review; refuses bounced addresses.</p></article>
             <article class="feat mono"><h4>send_email</h4><p>Sends immediately, but requires <code>confirm: true</code>, enforces the daily cap and bounce refusal, and logs an interaction.</p><div class="tags"><span class="tag guard">Confirm-gated</span></div></article>
-            <article class="feat mono"><h4>schedule_email</h4><p>Queue an email for a future timestamp, delivered by the app's worker.</p></article>
-            <article class="feat mono"><h4>create_follow_up_sequence</h4><p>Attach timed follow-ups to a sent thread that auto-cancel the moment the contact replies.</p></article>
+            <article class="feat mono"><h4>schedule_email</h4><p>Queue an email for a future timestamp, delivered by the app's worker. Pass <code>follow_ups</code> to queue the whole sequence in the same call: the follow-ups wait for the opening email to send, then reply on its thread. Each goes out at the same time of day you picked for the intro.</p></article>
+            <article class="feat mono"><h4>create_follow_up_sequence</h4><p>Attach timed follow-ups that auto-cancel the moment the contact replies. Anchor them to a thread you have already sent, or to a scheduled email that has not gone out yet.</p></article>
             <article class="feat mono"><h4>list_scheduled</h4><p>List pending scheduled emails and active sequences with next send times.</p></article>
             <article class="feat mono"><h4>cancel_scheduled</h4><p>Cancel a pending or failed scheduled email, or an entire follow-up sequence.</p></article>
             <article class="feat mono"><h4>search_email_history</h4><p>Full-text search over cached Gmail, optionally scoped to one contact.</p></article>

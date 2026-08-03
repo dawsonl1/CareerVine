@@ -43,6 +43,9 @@ QStash signature before anything runs, then wrap the job in an error guard.
   risks are visible before sends fall behind.
 - On free Outreach, every pending and waiting follow-up step is visible with
   subject and date, editable before send, with confirm-to-send still applying when due.
+- Follow-ups can be queued in the same breath as the email that starts the
+  conversation, before it has sent. They wait for it to go out, land as replies
+  on its thread, and cancel themselves the moment the contact writes back.
 - Bundle sync jobs fan out on publish with a daily safety-net sweep.
 
 This keeps delivery and data freshness reliable without requiring users to keep a
