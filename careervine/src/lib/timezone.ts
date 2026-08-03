@@ -135,6 +135,32 @@ export function zonedWallClockToUtc(
   return new Date(secondOffset === firstOffset ? corrected : guess - secondOffset);
 }
 
+/**
+ * The HH:MM wall clock `timeZone` is showing at a given instant.
+ *
+ * Pairs with `zonedWallClockToUtc` to carry a time of day from one date to
+ * another without carrying the offset that happened to apply on the first one.
+ * The MCP follow-up path uses it to make new steps land at the same LOCAL hour
+ * the opening email did, which survives a DST boundary in between; pinning the
+ * UTC hour instead would silently shift the local hour by one across it.
+ */
+export function zonedTimeOfDay(instant: Date, timeZone: string): string {
+  const zone = coerceTimeZone(timeZone) ?? FALLBACK_TIME_ZONE;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(instant);
+  const at = (type: Intl.DateTimeFormatPartTypes): number => {
+    const found = parts.find((p) => p.type === type);
+    return found ? Number(found.value) : 0;
+  };
+  // `hour12: false` renders midnight as "24" in some ICU versions.
+  const hour = at("hour") % 24;
+  return `${String(hour).padStart(2, "0")}:${String(at("minute")).padStart(2, "0")}`;
+}
+
 /** The calendar date `timeZone` is showing at a given instant. */
 export function zonedDateParts(
   instant: Date,

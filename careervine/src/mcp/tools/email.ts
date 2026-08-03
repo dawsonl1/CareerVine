@@ -12,6 +12,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createDraft, getFullMessage } from "@/lib/gmail";
 import { sendTrackedEmail } from "@/lib/email-send";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
+import { zonedTimeOfDay } from "@/lib/timezone";
 import { resolveCapabilities } from "@/lib/capabilities/resolve";
 import {
   uid,
@@ -27,6 +28,8 @@ import {
   findOriginalOutbound,
   insertFollowUpSequence,
   getUserTimeZone,
+  getPendingScheduledEmail,
+  assertNoActiveSequenceForScheduledEmail,
 } from "../lib/db";
 import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
 import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
@@ -96,26 +99,88 @@ export const sendEmailSchema = {
     .describe("Must be true — confirms the user explicitly approved sending this email now"),
 };
 
+const followUpStepShape = z.object({
+  subject: z.string().min(1).regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE),
+  body: z.string().min(1).describe("Markdown or HTML"),
+  send_after_days: z.number().int().min(1).describe("Days after the original send"),
+});
+
 export const scheduleEmailSchema = {
   ...composeShape,
   send_at: z.string().describe("ISO 8601 timestamp for when to send"),
+  follow_ups: z
+    .array(followUpStepShape)
+    .max(5)
+    .optional()
+    .describe(
+      "Optional follow-up steps queued with this email in one call. They stay dormant until it sends, then reply on its thread and auto-cancel the moment the contact responds. Each goes out at the same time of day as the opening email.",
+    ),
 };
 
 export const followUpSequenceSchema = {
   ...contactRefShape,
   thread_id: z.string().optional().describe("Gmail thread id of the original outbound email"),
   original_message_id: z.string().optional().describe("Gmail message id of the original outbound email"),
+  scheduled_email_id: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Id of a still-pending scheduled email to hang these follow-ups off (from schedule_email or list_scheduled). Use this when the opening email has not sent yet.",
+    ),
   messages: z
-    .array(
-      z.object({
-        subject: z.string().min(1).regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE),
-        body: z.string().min(1).describe("Markdown or HTML"),
-        send_after_days: z.number().int().min(1).describe("Days after the original send"),
-      }),
-    )
+    .array(followUpStepShape)
     .min(1)
     .describe("Follow-up steps; the whole sequence auto-cancels if the contact replies"),
 };
+
+/**
+ * Build follow-up rows for an MCP-created sequence.
+ *
+ * `dateBaseIso` sets which day each step lands on; `timeAnchorIso` sets the
+ * time of day they all inherit. Splitting the two matters on the historical-
+ * thread path, where the day base is clamped to now but the time of day should
+ * still come from the original send.
+ *
+ * ── Two tickets fixed the same bug from different ends ──────────────────
+ *
+ * `buildFollowUpMessageRows` used to default to `setUTCHours(9, 0)`, i.e. 09:00
+ * UTC, so a carefully-timed 9:00 a.m. Mountain intro produced follow-ups that
+ * fired at 3:00 a.m. Mountain.
+ *
+ * CAR-214 worked around it here, by inheriting the opening email's own time of
+ * day so no timezone knowledge was needed. CAR-215 fixed the root cause: the
+ * builder now resolves real IANA zones, and `sendTime` means LOCAL time.
+ *
+ * That reinterpretation is why this function had to change rather than merge
+ * as-is. Feeding it a UTC hour once `sendTime` became local would have shifted
+ * every MCP follow-up by the user's whole offset: a 2 p.m. Mountain intro
+ * producing 9 p.m. follow-ups. So the anchor is read in the user's zone.
+ *
+ * Keeping CAR-214's intent this way is also strictly more faithful to it than
+ * the original was. Pinning the UTC hour pins an instant-of-day, which drifts an
+ * hour in local terms across a DST boundary; pinning the local wall clock is
+ * what "the hour the conversation already uses" actually means to a person.
+ */
+export function buildMcpFollowUpRows(
+  steps: Array<z.infer<typeof followUpStepShape>>,
+  dateBaseIso: string,
+  timeAnchorIso: string,
+  timeZone: string,
+) {
+  const sendTime = zonedTimeOfDay(new Date(timeAnchorIso), timeZone);
+  return buildFollowUpMessageRows(
+    0,
+    steps.map((m) => ({
+      sendAfterDays: m.send_after_days,
+      subject: m.subject,
+      bodyHtml: toSafeEmailHtml(m.body),
+      sendTime,
+    })),
+    new Date(dateBaseIso),
+    timeZone,
+  );
+}
 
 export function registerEmailTools(server: McpServer): void {
   server.registerTool(
@@ -205,31 +270,76 @@ export function registerEmailTools(server: McpServer): void {
     {
       title: "Schedule email",
       description:
-        "Queue an email to send at a future time (the app's existing cron delivers it). Refuses bounced addresses.",
+        "Queue an email to send at a future time (the app's existing cron delivers it). Refuses bounced addresses. Pass follow_ups to queue the whole sequence in this one call — the follow-ups wait for this email to send, then reply on its thread and cancel themselves if the contact writes back.",
       inputSchema: scheduleEmailSchema,
       annotations: { readOnlyHint: false },
     },
-    handler(async ({ contact_id, name, subject, body, thread_id, to_email, send_at }) => {
+    handler(async ({ contact_id, name, subject, body, thread_id, to_email, send_at, follow_ups }) => {
       const when = new Date(send_at);
       if (Number.isNaN(when.getTime())) throw new Error(`Invalid send_at timestamp: ${send_at}`);
       if (when.getTime() <= Date.now()) throw new Error("send_at must be in the future — use send_email to send now");
       const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
       const reply = await resolveReplyHeaders(thread_id);
+      const sendAtIso = when.toISOString();
       const id = await createScheduledEmail({
         to: recipient.email,
         subject,
         bodyHtml: toSafeEmailHtml(body),
-        scheduledSendAt: when.toISOString(),
+        scheduledSendAt: sendAtIso,
         threadId: thread_id,
         inReplyTo: reply.inReplyTo,
         references: reply.references,
         contactName: contact.name,
         matchedContactId: contact.id,
       });
+
+      const warnings = [...recipient.warnings];
+      let followUp: { follow_up_id: number; steps: number; first_send_at: string | null } | null = null;
+
+      if (follow_ups?.length) {
+        // The email is already queued at this point. A sequence failure must
+        // not throw: the caller would read the whole call as failed and could
+        // reschedule, double-sending a real email. Report it as a warning
+        // instead and name the exact recovery, which is a single follow-up
+        // call against the id we are about to return.
+        try {
+          const rows = buildMcpFollowUpRows(follow_ups, sendAtIso, sendAtIso, await getUserTimeZone());
+          const followUpId = await insertFollowUpSequence({
+            // Both ids stay null until the opening email actually sends; the
+            // scheduled-send cron back-fills them, and the follow-up cron's
+            // `thread_id is not null` filter keeps the sequence dormant until
+            // it does. A placeholder string would defeat that interlock.
+            originalGmailMessageId: null,
+            threadId: null,
+            recipientEmail: recipient.email,
+            contactName: contact.name,
+            originalSubject: subject,
+            originalSentAt: sendAtIso,
+            contactId: contact.id,
+            scheduledEmailId: id,
+            messageRows: rows,
+          });
+          followUp = {
+            follow_up_id: followUpId,
+            steps: rows.length,
+            first_send_at: rows[0]?.scheduled_send_at ?? null,
+          };
+        } catch (err) {
+          warnings.push(
+            `The email is scheduled, but its follow-ups could not be saved (${
+              err instanceof Error ? err.message : String(err)
+            }). Retry them alone with create_follow_up_sequence and scheduled_email_id: ${id} — do NOT call schedule_email again.`,
+          );
+        }
+      }
+
       return {
-        summary: `Scheduled for ${contact.name} <${recipient.email}> at ${when.toISOString()}`,
+        summary: followUp
+          ? `Scheduled for ${contact.name} <${recipient.email}> at ${sendAtIso}, with ${followUp.steps} follow-up(s) queued behind it`
+          : `Scheduled for ${contact.name} <${recipient.email}> at ${sendAtIso}`,
         scheduled_email_id: id,
-        warnings: recipient.warnings,
+        follow_up: followUp,
+        warnings,
       };
     }),
   );
@@ -239,27 +349,72 @@ export function registerEmailTools(server: McpServer): void {
     {
       title: "Create follow-up sequence",
       description:
-        "Attach timed follow-up messages to an already-sent email thread. The existing cron sends each step and auto-cancels the whole sequence if the contact replies (which also graduates prospects into the network).",
+        "Attach timed follow-up messages to an email thread. Anchor to an already-sent thread (thread_id / original_message_id), or to a still-pending scheduled_email_id when the opening email has not gone out yet. The existing cron sends each step and auto-cancels the whole sequence if the contact replies (which also graduates prospects into the network).",
       inputSchema: followUpSequenceSchema,
       annotations: { readOnlyHint: false },
     },
-    handler(async ({ contact_id, name, thread_id, original_message_id, messages }) => {
+    handler(async ({ contact_id, name, thread_id, original_message_id, scheduled_email_id, messages }) => {
       const contact = await resolveContact({ contact_id, name });
+
+      /** Bounce refusal + unknown-address warning, shared by both anchors. */
+      const checkRecipient = async (recipientEmail: string) => {
+        const full = (await getContactFull(contact.id)) as unknown as { contact_emails: EmailRowLike[] };
+        const known = full.contact_emails.find(
+          (e) => e.email?.toLowerCase() === recipientEmail.toLowerCase(),
+        );
+        if (known?.bounced_at) {
+          throw new Error(`${recipientEmail} has bounced — refusing to queue follow-ups to a dead address`);
+        }
+        return known
+          ? []
+          : [`${recipientEmail} is not one of ${contact.name}'s saved addresses, so double-check the thread`];
+      };
+
+      // Pre-send anchor (CAR-214): the opening email is still queued, so there
+      // is no thread yet. Both ids stay null and the scheduled-send cron
+      // back-fills them; until then the follow-up cron's `thread_id is not
+      // null` filter keeps the sequence dormant.
+      if (scheduled_email_id != null) {
+        if (thread_id || original_message_id) {
+          throw new Error(
+            "Pass scheduled_email_id OR thread_id/original_message_id, not both — they name different anchors",
+          );
+        }
+        const scheduled = await getPendingScheduledEmail(scheduled_email_id);
+        await assertNoActiveSequenceForScheduledEmail(scheduled_email_id);
+        const recipientEmail = scheduled.recipient_email;
+        const warnings = await checkRecipient(recipientEmail);
+
+        const rows = buildMcpFollowUpRows(
+          messages,
+          scheduled.scheduled_send_at,
+          scheduled.scheduled_send_at,
+          await getUserTimeZone(),
+        );
+        const followUpId = await insertFollowUpSequence({
+          originalGmailMessageId: null,
+          threadId: null,
+          recipientEmail,
+          contactName: contact.name,
+          originalSubject: scheduled.subject,
+          originalSentAt: scheduled.scheduled_send_at,
+          contactId: contact.id,
+          scheduledEmailId: scheduled.id,
+          messageRows: rows,
+        });
+        return {
+          summary: `${messages.length}-step follow-up sequence queued behind scheduled email ${scheduled.id} for ${contact.name}; starts only once that email sends, and cancels automatically on reply`,
+          follow_up_id: followUpId,
+          first_send_at: rows[0]?.scheduled_send_at ?? null,
+          warnings,
+        };
+      }
+
       const original = await findOriginalOutbound({ threadId: thread_id, messageId: original_message_id });
       const recipientEmail = original.to_addresses?.[0];
       if (!recipientEmail) throw new Error("Original message has no recipient address on record");
 
-      const full = (await getContactFull(contact.id)) as unknown as { contact_emails: EmailRowLike[] };
-      const known = full.contact_emails.find(
-        (e) => e.email?.toLowerCase() === recipientEmail.toLowerCase(),
-      );
-      if (known?.bounced_at) {
-        throw new Error(`${recipientEmail} has bounced — refusing to queue follow-ups to a dead address`);
-      }
-      const warnings: string[] = [];
-      if (!known) {
-        warnings.push(`${recipientEmail} is not one of ${contact.name}'s saved addresses, so double-check the thread`);
-      }
+      const warnings = await checkRecipient(recipientEmail);
 
       const sentAt = original.date ?? new Date().toISOString();
       // Steps are spaced relative to a base date. If the original went out
@@ -268,20 +423,11 @@ export function registerEmailTools(server: McpServer): void {
       // sequence in one tick (an immediate multi-email burst). Clamp the base
       // to now so send_after_days always schedules into the future.
       const baseIso = new Date(Math.max(new Date(sentAt).getTime(), Date.now())).toISOString();
-      // No browser request here, so the zone comes from users.timezone (stamped
-      // on the user's last web visit) and falls back to the calendar zone, then
-      // UTC (CAR-215).
+      // Steps inherit the opening email's time of day (CAR-214) resolved in the
+      // user's own zone (CAR-215). Both tickets independently fixed the same
+      // 09:00-UTC default; keeping only one would regress the other.
       const timeZone = await getUserTimeZone();
-      const rows = buildFollowUpMessageRows(
-        0,
-        messages.map((m) => ({
-          sendAfterDays: m.send_after_days,
-          subject: m.subject,
-          bodyHtml: toSafeEmailHtml(m.body),
-        })),
-        new Date(baseIso),
-        timeZone,
-      );
+      const rows = buildMcpFollowUpRows(messages, baseIso, sentAt, timeZone);
       const followUpId = await insertFollowUpSequence({
         originalGmailMessageId: original.gmail_message_id,
         threadId: original.thread_id ?? thread_id ?? "",
@@ -289,6 +435,7 @@ export function registerEmailTools(server: McpServer): void {
         contactName: contact.name,
         originalSubject: original.subject,
         originalSentAt: sentAt,
+        contactId: contact.id,
         messageRows: rows,
       });
       return {

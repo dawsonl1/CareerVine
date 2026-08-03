@@ -8,6 +8,10 @@ import { getGmailClient } from "@/lib/gmail-send-core";
 import { activateContactByEmail } from "@/lib/gmail";
 import { buildOwnAddressSet, parseEmailAddress, isBounceSenderAddress } from "@/lib/gmail-helpers";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
+import {
+  resolveFollowUpThreadHeaders,
+  THREADING_METADATA_HEADERS,
+} from "@/lib/follow-up-threading";
 import { filterActiveUserIds } from "@/lib/user-status";
 import { capabilitiesFor } from "@/lib/capabilities/map";
 import type { Capability } from "@/lib/capabilities/types";
@@ -320,13 +324,19 @@ async function runJob(): Promise<NextResponse> {
 
     // Check for replies in the thread (one API call per thread)
     let hasReply = false;
+    let fetchedThread: gmail_v1.Schema$Thread | undefined;
     try {
+      // Message-ID rides along with From on the reply-detection fetch: the
+      // send below needs the thread's RFC msg-ids for In-Reply-To/References
+      // (CAR-214), and asking for the header here makes correct threading cost
+      // zero extra Gmail calls.
       const thread = await gmail.users.threads.get({
         userId: "me",
         id: threadId,
         format: "metadata",
-        metadataHeaders: ["From"],
+        metadataHeaders: ["From", ...THREADING_METADATA_HEADERS],
       });
+      fetchedThread = thread.data;
 
       const threadMessages = thread.data.messages || [];
       // If there are more messages than just the original, check if any are
@@ -400,6 +410,15 @@ async function runJob(): Promise<NextResponse> {
 
       if (claimedCount !== 1) continue; // Already being processed
 
+      // Real RFC msg-ids off the thread we already fetched. This used to pass
+      // `original_gmail_message_id` — a Gmail API id, which names no
+      // Message-ID anywhere, so the contact's mail client filed every
+      // follow-up as a new conversation (CAR-214). Resolves to {} rather than
+      // ever reinstating that value.
+      const threadHeaders = await resolveFollowUpThreadHeaders(userId, threadId, {
+        thread: fetchedThread,
+      });
+
       try {
         // Tracked path: counts against the daily cap, refuses bounced
         // addresses, caches the sent message, and logs an interaction.
@@ -408,8 +427,7 @@ async function runJob(): Promise<NextResponse> {
           subject: msg.subject,
           bodyHtml: msg.body_html,
           threadId: threadId ?? undefined,
-          inReplyTo: parent.original_gmail_message_id ?? undefined,
-          references: parent.original_gmail_message_id ?? undefined,
+          ...threadHeaders,
         }, { isFollowUp: true });
 
         // Gmail has the message from here on, so the claim must never be

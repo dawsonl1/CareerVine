@@ -242,6 +242,68 @@ describe("send-follow-ups cron — tier branch (CAR-102)", () => {
     expect(data.sent).toBe(1);
   });
 
+  it("threads the send on the thread's real Message-ID, never the Gmail id (CAR-214)", async () => {
+    // The regression this guards: In-Reply-To/References used to be fed
+    // `original_gmail_message_id` ("gmid-1" in this fixture), a Gmail API id
+    // that matches no Message-ID anywhere — so the CONTACT's mail client filed
+    // every follow-up as a new conversation. It threaded in the sender's Gmail
+    // via threadId, which is exactly why it went unnoticed.
+    const metadataHeaders: string[][] = [];
+    getGmailClientSpy.mockResolvedValue({
+      users: {
+        threads: {
+          get: async (args: { metadataHeaders?: string[] }) => {
+            metadataHeaders.push(args.metadataHeaders ?? []);
+            return {
+              data: {
+                messages: [
+                  { payload: { headers: [{ name: "Message-ID", value: "<intro@mail.gmail.com>" }] } },
+                ],
+              },
+            };
+          },
+        },
+      },
+    });
+    state.pendingMessages = [dueMessage("prem-1")];
+    state.connections = [
+      { user_id: "prem-1", gmail_address: "prem@x.com", modify_scope_granted: true, automatic_features_enabled: true, premium_enabled: true },
+    ];
+    state.activeUserIds = ["prem-1"];
+
+    await POST(req);
+
+    const opts = sendTrackedEmailSpy.mock.calls[0][1] as { inReplyTo?: string; references?: string };
+    expect(opts.inReplyTo).toBe("<intro@mail.gmail.com>");
+    expect(opts.references).toBe("<intro@mail.gmail.com>");
+    expect(opts.inReplyTo).not.toBe("gmid-1");
+    expect(opts.references).not.toBe("gmid-1");
+    // Correct threading must stay free: the header rides along on the reply-
+    // detection fetch rather than costing a second Gmail round trip per send.
+    expect(metadataHeaders).toHaveLength(1);
+    expect(metadataHeaders[0]).toContain("Message-ID");
+  });
+
+  it("sends without threading headers rather than a bogus one when the thread has no Message-ID (CAR-214)", async () => {
+    // Omitting beats fabricating: Gmail still threads it for the sender via
+    // threadId, whereas a made-up In-Reply-To threads for nobody.
+    getGmailClientSpy.mockResolvedValue({
+      users: { threads: { get: async () => ({ data: { messages: [{ payload: { headers: [] } }] } }) } },
+    });
+    state.pendingMessages = [dueMessage("prem-1")];
+    state.connections = [
+      { user_id: "prem-1", gmail_address: "prem@x.com", modify_scope_granted: true, automatic_features_enabled: true, premium_enabled: true },
+    ];
+    state.activeUserIds = ["prem-1"];
+
+    await POST(req);
+
+    const opts = sendTrackedEmailSpy.mock.calls[0][1] as { inReplyTo?: string; references?: string };
+    expect(opts.inReplyTo).toBeUndefined();
+    expect(opts.references).toBeUndefined();
+    expect(sendTrackedEmailSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("premium, claim contested (count=0) -> skips without sending", async () => {
     getGmailClientSpy.mockResolvedValue({
       users: { threads: { get: async () => ({ data: { messages: [{ payload: { headers: [] } }] } }) } },
