@@ -38,6 +38,11 @@ export const SCHOOL_AFFINITY_CASES: readonly AffinityCase[] = [
   { input: "B.Y.U.", expected: true, why: "periods must strip BEFORE the word-boundary match, or this reads as three letters" },
   { input: "BYU-Idaho", expected: true, why: "hyphenated short form" },
   { input: "byu idaho", expected: true, why: "already-normalized form" },
+  // These two exist because a falsification probe proved neither obvious rule
+  // works alone: startsWith('byu') misses the first, /\bbyu\b/ misses the
+  // second. Delete either case and \bbyu stops being justified by any test.
+  { input: "Marriott School at BYU", expected: true, why: "BYU mid-string: a prefix test misses this" },
+  { input: "BYUIdaho", expected: true, why: "no separator: a \\bbyu\\b word-boundary test misses this" },
   { input: "Brigham Young University–Idaho", expected: true, why: "en dash, not a hyphen" },
   { input: "The Brigham Young University", expected: true, why: "leading article stripped" },
 

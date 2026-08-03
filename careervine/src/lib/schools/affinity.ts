@@ -56,17 +56,23 @@ export function normalizeSchoolName(name: string): string {
 /**
  * Free-text BYU-family test, for schools the user typed rather than picked.
  *
- * Word-boundary matched, NOT a prefix test. The old implementation used
- * startsWith("byu"), which is both too narrow (misses "B.Y.U.") and the kind
- * of rule that silently acquires false positives as the list grows. Note the
- * near-misses this must reject: "Bryant University" (b-r-y), "Young Harris
- * College" (has "young", not "brigham young"), and "Utah Valley University"
- * (enormous BYU overlap in real life, entirely separate alumni network).
+ * `\bbyu` — a word boundary BEFORE, deliberately none after. Neither of the
+ * obvious alternatives is sufficient on its own, which a falsification pass
+ * caught (CAR-213):
+ *
+ *   startsWith("byu")  misses "Marriott School at BYU"
+ *   /\bbyu\b/          misses "BYUIdaho", typed without a separator
+ *
+ * `\bbyu` catches both, and still rejects the near-misses that matter:
+ * "Bryant University" (b-r-y, no word starts with byu), "Young Harris College"
+ * (has "young", not "brigham young"), and "Utah Valley University" (enormous
+ * BYU overlap in real life, entirely separate alumni network). No English word
+ * begins "byu", so the open right-hand side costs nothing.
  */
 export function isByuFamilySchool(name: string | null | undefined): boolean {
   if (!name) return false;
   const n = normalizeSchoolName(name);
-  return n.includes("brigham young") || /\bbyu\b/.test(n);
+  return n.includes("brigham young") || /\bbyu/.test(n);
 }
 
 // ── The user's own school ──────────────────────────────────────────────
