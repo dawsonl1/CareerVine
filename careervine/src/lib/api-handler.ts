@@ -33,6 +33,7 @@ import { ZodSchema, ZodError } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { getExtensionAuth, corsHeaders } from "@/lib/extension-auth";
 import { checkRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
+import { TIMEZONE_HEADER, coerceTimeZone } from "@/lib/timezone";
 import { resolveCapabilities, type Capability } from "@/lib/capabilities";
 import { trackServer } from "@/lib/analytics/server";
 import type { AnalyticsEvent, AnalyticsEvents } from "@/lib/analytics/events";
@@ -326,6 +327,15 @@ export function withApiHandler(config: {
           // the GRANT UPDATE(web_last_seen_at) in 20260712070000. The threshold is
           // millisecond-stripped so its dot-free value can't confuse PostgREST's .or().
           const stampUserId = user.id;
+          // CAR-215: the browser's real IANA zone rides along on the same
+          // throttled write. It is validated first because the header is
+          // attacker-controlled and the stored value is later handed to Intl
+          // when computing send times. An invalid or absent header leaves
+          // whatever we already knew alone rather than clobbering it with null.
+          // Hourly granularity is deliberate: a zone changes when someone
+          // travels, not between requests, and a per-request write would be a
+          // DB round trip on every API call to learn nothing.
+          const claimedZone = coerceTimeZone(request.headers.get(TIMEZONE_HEADER));
           pendingTracks.push(
             (async () => {
               try {
@@ -334,7 +344,10 @@ export function withApiHandler(config: {
                   .replace(/\.\d{3}Z$/, "Z");
                 await supabase
                   .from("users")
-                  .update({ web_last_seen_at: new Date().toISOString() })
+                  .update({
+                    web_last_seen_at: new Date().toISOString(),
+                    ...(claimedZone ? { timezone: claimedZone } : {}),
+                  })
                   .eq("id", stampUserId)
                   .or(`web_last_seen_at.is.null,web_last_seen_at.lt.${oneHourAgo}`);
               } catch {

@@ -2982,6 +2982,7 @@ export type Database = {
           onboarding_state: string
           phone: string | null
           status: string
+          timezone: string | null
           updated_at: string | null
           web_last_seen_at: string | null
         }
@@ -3002,6 +3003,7 @@ export type Database = {
           onboarding_state?: string
           phone?: string | null
           status?: string
+          timezone?: string | null
           updated_at?: string | null
           web_last_seen_at?: string | null
         }
@@ -3022,6 +3024,7 @@ export type Database = {
           onboarding_state?: string
           phone?: string | null
           status?: string
+          timezone?: string | null
           updated_at?: string | null
           web_last_seen_at?: string | null
         }
