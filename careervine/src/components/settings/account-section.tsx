@@ -9,12 +9,17 @@ import { getUserProfile, updateUserProfile } from "@/lib/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
-import { User, Phone, Mail, Check, Lock, Bell } from "lucide-react";
+import { User, Phone, Mail, Check, Lock, Bell, GraduationCap } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { SchoolAutocomplete } from "@/components/ui/school-autocomplete";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { hasAlumniAffinity } from "@/lib/schools/affinity";
+import { affinityTransition, resyncBundlesForAffinityGain } from "@/lib/schools/affinity-resync";
 
 export default function AccountSection() {
   const { user } = useAuth();
   const { error: toastError } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -24,6 +29,12 @@ export default function AccountSection() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  // CAR-213. `universityLoaded` is the value last READ from the profile, kept
+  // separately from the edit buffer so an affinity CROSSING can be detected on
+  // save. Comparing against the buffer would compare a value to itself.
+  const [university, setUniversity] = useState("");
+  const [universityIsCustom, setUniversityIsCustom] = useState(false);
+  const [universityLoaded, setUniversityLoaded] = useState("");
 
   // CAR-105 email-notification opt-out. Persisted via the browser RLS client; the
   // migration grants UPDATE (followup_nudges_enabled) to authenticated.
@@ -57,6 +68,9 @@ export default function AccountSection() {
       setFirstName(profile.first_name || "");
       setLastName(profile.last_name || "");
       setPhone(profile.phone || "");
+      setUniversity(profile.university || "");
+      setUniversityIsCustom(profile.university_is_custom ?? false);
+      setUniversityLoaded(profile.university || "");
       setNudgesEnabled(profile.followup_nudges_enabled ?? true);
     } catch (err) {
       console.error("Error loading profile:", err);
@@ -95,17 +109,57 @@ export default function AccountSection() {
     // `loading` is included because the retry window is the reachable case.
     if (loadFailed || loading) return;
     setError("");
+
+    // CAR-213: a school edit that CROSSES the affinity boundary silently
+    // changes the user's database and the whole look of the app. Gaining
+    // affinity drops ~888 contacts in; losing it makes badges vanish, company
+    // ordering shift, and next-action lines rewrite themselves. Unannounced,
+    // either one reads as a bug rather than as a consequence of what they just
+    // did — so say what will happen before it happens. Non-crossing edits (a
+    // typo fix, one non-BYU school to another) confirm nothing.
+    const transition = affinityTransition(universityLoaded, university);
+    if (transition === "gained") {
+      const ok = await confirm({
+        title: "Add alumni to your network?",
+        message:
+          "Changing your school adds about 888 contacts to your CRM from the alumni database. They will appear over the next few minutes.",
+        confirmLabel: "Save and add them",
+      });
+      if (!ok) return;
+    } else if (transition === "lost") {
+      const ok = await confirm({
+        title: "Remove alumni highlighting?",
+        message:
+          "Changing your school removes the alumni highlighting from your contacts. Nothing is deleted: every contact you have stays exactly where it is.",
+        confirmLabel: "Save",
+      });
+      if (!ok) return;
+    }
+
     setSaving(true);
     try {
       await updateUserProfile(user.id, {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         phone: phone.trim() || null,
+        university: university.trim() || null,
+        university_is_custom: university.trim() ? universityIsCustom : false,
       });
       const supabase = createSupabaseBrowserClient();
       await supabase.auth.updateUser({
         data: { first_name: firstName.trim(), last_name: lastName.trim() },
       });
+      setUniversityLoaded(university.trim());
+      // Best-effort: the profile is already saved and the daily sync cron
+      // picks these up regardless, so a failure here must not surface as a
+      // failed save.
+      if (transition === "gained") {
+        try {
+          await resyncBundlesForAffinityGain(user.id);
+        } catch (err) {
+          console.error("Failed to queue bundle re-sync after affinity gain:", err);
+        }
+      }
       setSaved(true);
       timersRef.current.push(setTimeout(() => setSaved(false), 2500));
     } catch (err) {
@@ -172,6 +226,7 @@ export default function AccountSection() {
 
   return (
     <div className="space-y-7">
+      {confirmDialog}
       {/* Profile + notification preference, or the honest failure for both.
           They read the same profile row, so one failed read makes both of them
           lie: the name fields would render blank and the reminders toggle would
@@ -252,6 +307,26 @@ export default function AccountSection() {
                   className={inputClasses}
                   placeholder="555-123-4567 (optional)"
                 />
+              </div>
+
+              <div>
+                <label className={labelClasses} htmlFor="settings-university">
+                  <span className="inline-flex items-center gap-1.5"><GraduationCap className="h-4 w-4" /> School</span>
+                </label>
+                <SchoolAutocomplete
+                  id="settings-university"
+                  value={university}
+                  onChange={(value, isCustom) => {
+                    setUniversity(value);
+                    setUniversityIsCustom(isCustom);
+                  }}
+                  allowCustom
+                  placeholder="Where do you go (or did you go) to school? (optional)"
+                  className={inputClasses}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  We use this to tailor which contacts and intro emails you get. Leave it blank and we will not highlight any school.
+                </p>
               </div>
 
               {error && <p className="text-base text-destructive">{error}</p>}

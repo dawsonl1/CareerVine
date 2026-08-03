@@ -22,7 +22,7 @@ export const GET = withApiHandler({
 
     const { data: pub, error } = await service
       .from("users")
-      .select("id, first_name, last_name, email, phone, status, apify_enrichment_enabled, diff_analysis_enabled, discovery_enabled, created_at")
+      .select("id, first_name, last_name, email, phone, university, status, apify_enrichment_enabled, diff_analysis_enabled, discovery_enabled, created_at")
       .eq("id", id)
       .maybeSingle();
 
@@ -74,6 +74,13 @@ const patchSchema = z.object({
   last_name: z.string().trim().max(100).optional(),
   phone: z.string().trim().max(40).nullable().optional(),
   email: z.string().trim().email().optional(),
+  // CAR-213: support needs this. The school gates 44% of the curated bundle
+  // and all alumni highlighting, and a signup typo is otherwise UNFIXABLE by
+  // the user — re-registering returns existingAccount and the signup trigger's
+  // ON CONFLICT DO NOTHING no-ops, so Settings is the only self-serve path and
+  // this is the only path for anyone who cannot reach it.
+  university: z.string().trim().max(200).nullable().optional(),
+  university_is_custom: z.boolean().optional(),
 });
 
 /**
@@ -116,6 +123,8 @@ export const PATCH = withApiHandler<z.infer<typeof patchSchema>>({
     if (body.first_name !== undefined) profileUpdate.first_name = body.first_name;
     if (body.last_name !== undefined) profileUpdate.last_name = body.last_name;
     if (body.phone !== undefined) profileUpdate.phone = body.phone;
+    if (body.university !== undefined) profileUpdate.university = body.university || null;
+    if (body.university_is_custom !== undefined) profileUpdate.university_is_custom = body.university_is_custom;
     if (emailChanging) profileUpdate.email = body.email;
 
     if (Object.keys(profileUpdate).length > 0) {
