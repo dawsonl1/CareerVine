@@ -14,6 +14,7 @@ import {
   isAlumniOnlyProspect,
   isByuFamilySchool,
   normalizeSchoolName,
+  schoolsMatch,
   universityEntry,
 } from "@/lib/schools/affinity";
 import {
@@ -87,6 +88,46 @@ describe("hasAlumniAffinity", () => {
     expect(universityEntry("BYU Law School")).toBeNull();
     expect(hasAlumniAffinity("BYU Law School")).toBe(true);
     expect(hasAlumniAffinity("Some Community College")).toBe(false);
+  });
+});
+
+describe("schoolsMatch — does a CONTACT count as your alum", () => {
+  it("is false for EVERY contact when the user has no school", () => {
+    // The dangerous direction. A truthy fallback here badges every contact in
+    // the database as the user's alum — for a user who never named a school,
+    // which is the single most common state after this ships.
+    for (const contact of ["Brigham Young University", "Stanford University", "Utah State University", ""]) {
+      expect(schoolsMatch(contact, null)).toBe(false);
+      expect(schoolsMatch(contact, "")).toBe(false);
+      expect(schoolsMatch(contact, undefined)).toBe(false);
+    }
+  });
+
+  it("is false when the CONTACT has no school", () => {
+    expect(schoolsMatch(null, "Brigham Young University")).toBe(false);
+    expect(schoolsMatch("", "Brigham Young University")).toBe(false);
+  });
+
+  it("matches the whole BYU family for a BYU user", () => {
+    // Pre-CAR-213 behaviour that must not regress: a BYU-Idaho contact is a
+    // warm door for a Provo student.
+    expect(schoolsMatch("Brigham Young University - Idaho", "Brigham Young University")).toBe(true);
+    expect(schoolsMatch("BYU Marriott School of Business", "BYU")).toBe(true);
+  });
+
+  it("matches only the exact school for everyone else", () => {
+    // No defined "family" for an arbitrary institution, and inventing one
+    // would badge strangers.
+    expect(schoolsMatch("Utah State University", "Utah State University")).toBe(true);
+    expect(schoolsMatch("utah state university", "Utah State University")).toBe(true);
+    expect(schoolsMatch("University of Utah", "Utah State University")).toBe(false);
+    expect(schoolsMatch("Brigham Young University", "Utah State University")).toBe(false);
+  });
+
+  it("does not make a BYU contact an alum of a non-BYU user", () => {
+    // The specific wrong badge: a USU user importing a BYU alum must not be
+    // told that person is their alum.
+    expect(schoolsMatch("Brigham Young University", "Utah State University")).toBe(false);
   });
 });
 
