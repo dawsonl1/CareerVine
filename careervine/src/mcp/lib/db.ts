@@ -815,13 +815,69 @@ export async function findOriginalOutbound(ref: { threadId?: string; messageId?:
   return row as { gmail_message_id: string; thread_id: string | null; subject: string | null; date: string | null; to_addresses: string[] | null };
 }
 
+/**
+ * Fetch a scheduled email that a follow-up sequence may still be anchored to
+ * (CAR-214). Only a row that is this user's AND still pending qualifies: a
+ * sent one already has a real thread (use the thread anchor instead), and a
+ * cancelled/failed one will never produce the thread the sequence replies
+ * into.
+ */
+export async function getPendingScheduledEmail(scheduledEmailId: number) {
+  const { data, error } = await db()
+    .from("scheduled_emails")
+    .select("id, recipient_email, subject, scheduled_send_at, status, contact_name, matched_contact_id")
+    .eq("id", scheduledEmailId)
+    .eq("user_id", uid())
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error(`No scheduled email with id ${scheduledEmailId}`);
+  if (data.status !== "pending") {
+    throw new Error(
+      `Scheduled email ${scheduledEmailId} is '${data.status}', not pending — follow-ups can only be attached to an email that has yet to send`,
+    );
+  }
+  return data as {
+    id: number;
+    recipient_email: string;
+    subject: string | null;
+    scheduled_send_at: string;
+    status: string;
+    contact_name: string | null;
+    matched_contact_id: number | null;
+  };
+}
+
+/**
+ * Refuse a second sequence on the same scheduled email (CAR-214). Without
+ * this, a retried call silently stacks sequences that all fire once the
+ * opening email sends, and the contact gets every nudge twice.
+ */
+export async function assertNoActiveSequenceForScheduledEmail(scheduledEmailId: number): Promise<void> {
+  const { data, error } = await db()
+    .from("email_follow_ups")
+    .select("id")
+    .eq("user_id", uid())
+    .eq("scheduled_email_id", scheduledEmailId)
+    .eq("status", "active")
+    .limit(1);
+  if (error) throw error;
+  if (data && data.length > 0) {
+    throw new Error(
+      `Scheduled email ${scheduledEmailId} already has an active follow-up sequence (id ${data[0].id}) — cancel it first with cancel_scheduled, or edit it in the app`,
+    );
+  }
+}
+
 export async function insertFollowUpSequence(input: {
-  originalGmailMessageId: string;
-  threadId: string;
+  /** Null until the anchoring scheduled email actually sends (CAR-214). */
+  originalGmailMessageId: string | null;
+  threadId: string | null;
   recipientEmail: string;
   contactName: string | null;
   originalSubject: string | null;
   originalSentAt: string;
+  contactId?: number | null;
+  scheduledEmailId?: number | null;
   messageRows: Array<TablesInsert<"email_follow_up_messages">>;
 }): Promise<number> {
   // Shared parent+messages insert (with parent rollback on message failure) —
@@ -836,6 +892,10 @@ export async function insertFollowUpSequence(input: {
       contactName: input.contactName,
       originalSubject: input.originalSubject,
       originalSentAt: input.originalSentAt,
+      // Without this an MCP-created sequence is invisible to the contact
+      // detail page, whose follow-up list filters on contact_id (CAR-214).
+      contactId: input.contactId ?? null,
+      scheduledEmailId: input.scheduledEmailId ?? null,
     },
     input.messageRows,
   );
