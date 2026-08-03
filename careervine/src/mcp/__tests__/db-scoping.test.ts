@@ -368,6 +368,17 @@ const DB_TABLE: Record<string, Entry> = {
     drive: () => db.getCompanyName(8),
     route: (q) => (q.table === "companies" && q.resolution === "maybeSingle" ? { id: 8, name: "Acme" } : undefined),
   },
+  // CAR-215: reads the caller's own timezone so follow-up steps land at 9:05
+  // local. Route only gmail_connections so the users lookup falls through and
+  // BOTH scoped reads are exercised by this gate, not just the first.
+  getUserTimeZone: {
+    kind: "scoped",
+    drive: () => db.getUserTimeZone(),
+    route: (q) =>
+      q.table === "gmail_connections" && q.resolution === "maybeSingle"
+        ? { calendar_timezone: "America/Denver" }
+        : undefined,
+  },
 };
 
 const DATA_TABLES: Record<string, Record<string, Entry>> = {

@@ -39,6 +39,10 @@ const SERVICE_CLIENT_GRANDFATHERED = [
   "src/app/api/cron/follow-up-nudges/route.ts",
   "src/app/api/cron/scrape-refresh/route.ts",
   "src/app/api/cron/send-follow-ups/route.ts",
+  // CAR-215: cross-user cron with no request-scoped session. Its only direct
+  // use is the cron_heartbeats row the two send drivers use to watch each
+  // other; the sends themselves go through processDueScheduledEmails.
+  "src/app/api/cron/send-scheduled-emails/route.ts",
   "src/app/api/cron/storage-sweep/route.ts",
   "src/app/api/cron/sync-bundles/route.ts",
   "src/app/api/queue/bundle-sync/route.ts",

@@ -36,8 +36,15 @@ const DEST_HOST = "https://www.careervine.app";
  * (cron-schedules-registry.test.ts) enforces that both directions stay in sync.
  */
 export const SCHEDULES = [
-  { name: "send-follow-ups", path: "/api/cron/send-follow-ups", cron: "*/10 * * * *", retries: 3 },
-  { name: "send-scheduled-emails", path: "/api/cron/send-scheduled-emails", cron: "*/15 * * * *", retries: 3 },
+  // CAR-215: these two are SAFETY NETS, not the primary driver. The A1 send
+  // watcher (ops/send-watcher/) triggers both routes within ~15s of anything
+  // coming due, which is what actually makes email land at the chosen time.
+  // QStash runs them hourly so a dead watcher degrades delivery to hourly
+  // rather than stopping it. Do not restore a minute-interval cadence to
+  // "improve" latency: it cannot beat the watcher and it burns the Vercel
+  // Fluid budget on empty ticks (CAR-106).
+  { name: "send-follow-ups", path: "/api/cron/send-follow-ups", cron: "0 * * * *", retries: 3 },
+  { name: "send-scheduled-emails", path: "/api/cron/send-scheduled-emails", cron: "0 * * * *", retries: 3 },
   { name: "sync-bundles", path: "/api/cron/sync-bundles", cron: "0 12 * * *", retries: 3 },
   { name: "scrape-refresh", path: "/api/cron/scrape-refresh", cron: "0 9 * * *", retries: 3 },
   { name: "discovery", path: "/api/cron/discovery", cron: "0 10 * * 1", retries: 3 },

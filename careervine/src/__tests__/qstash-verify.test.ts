@@ -71,7 +71,8 @@ describe("withQStashVerification (CAR-149 F43)", () => {
     );
     const res = await withQStashVerification(makeReq("BODY-123"), handler);
     expect(res.status).toBe(200);
-    expect(handler).toHaveBeenCalledWith("BODY-123");
+    // Second arg is the auth source the route branches on (CAR-215).
+    expect(handler).toHaveBeenCalledWith("BODY-123", "qstash");
     expect(await res.json()).toEqual({ echoed: "BODY-123" });
   });
 
@@ -141,7 +142,7 @@ describe("cron trigger bearer (CAR-215)", () => {
     const handler = vi.fn(async (body: string) => NextResponse.json({ echoed: body }));
     const res = await withQStashVerification(bearer(SECRET), handler);
     expect(res.status).toBe(200);
-    expect(handler).toHaveBeenCalledWith("{}");
+    expect(handler).toHaveBeenCalledWith("{}", "watcher");
     // The high-frequency caller must not pay for Receiver verification.
     expect(verifySpy).not.toHaveBeenCalled();
   });

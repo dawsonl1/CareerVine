@@ -41,6 +41,9 @@ export async function resolveUserTimeZone(
   if (fromHeader) return fromHeader;
 
   try {
+    // error-tolerated: a zone lookup that fails is the same as one that finds
+    // nothing, and both fall through to the next source and finally UTC.
+    // Throwing here would block scheduling on a transient read.
     const { data: user } = await service
       .from("users")
       .select("timezone")
@@ -49,6 +52,8 @@ export async function resolveUserTimeZone(
     const stored = coerceTimeZone(user?.timezone);
     if (stored) return stored;
 
+    // error-tolerated: same as above, and this is already the last source
+    // before the UTC fallback.
     const { data: conn } = await service
       .from("gmail_connections")
       .select("calendar_timezone")

@@ -267,6 +267,12 @@ export function isDirectlyScoped(q: RecordedQuery, userId: string): boolean {
   const scopedFilter = q.filters.some(([method, col, val]) => {
     if (method !== "eq" || val !== userId) return false;
     if (col === "user_id") return true;
+    // `users` is the one table keyed BY the auth uid rather than carrying a
+    // reference to it, so `.eq("id", uid())` is its tenant scope. Without this
+    // a legitimate self-read (CAR-215's timezone lookup) reads as unscoped.
+    // Narrow on purpose: only this table, only this column, and still only when
+    // the value is the caller's own id.
+    if (q.table === "users" && col === "id") return true;
     if (!col.endsWith(".user_id")) return false;
     const rel = col.slice(0, -".user_id".length);
     return (q.selectCols ?? "").includes(`${rel}!inner`);

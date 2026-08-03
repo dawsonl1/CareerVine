@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { gmail_v1 } from "@googleapis/gmail";
 import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
+import { recordWatcherBeat } from "@/lib/watcher-health";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getGmailClient } from "@/lib/gmail-send-core";
 import { activateContactByEmail } from "@/lib/gmail";
@@ -19,16 +20,25 @@ import {
 
 /**
  * POST /api/cron/send-follow-ups
- * Called by QStash every 10 minutes (see scripts/qstash-schedules.mjs, which is
- * the only place the cadence is declared). Processes due follow-up emails:
+ *
+ * Driven by the A1 send watcher within ~15s of a step coming due, and by QStash
+ * hourly as a safety net (see scripts/qstash-schedules.mjs, which is the only
+ * place the cadence is declared). Processes due follow-up emails:
  * - Checks for replies in the thread (cancels if replied)
  * - Sends pending follow-ups via Gmail as replies
  * - Handles disconnected Gmail gracefully
+ *
+ * Records watcher liveness but does NOT run the staleness check: that lives on
+ * the scheduled-emails route alone, so a dead watcher produces one alert rather
+ * than one per route (CAR-215).
  */
 export async function POST(req: NextRequest) {
-  return withQStashVerification(req, () =>
-    withCronGuard("/api/cron/send-follow-ups", () => runJob()),
-  );
+  return withQStashVerification(req, async (_body, source) => {
+    if (source === "watcher") {
+      await recordWatcherBeat(createSupabaseServiceClient());
+    }
+    return withCronGuard("/api/cron/send-follow-ups", () => runJob());
+  });
 }
 
 /**

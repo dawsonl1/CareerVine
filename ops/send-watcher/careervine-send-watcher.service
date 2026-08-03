@@ -1,0 +1,42 @@
+[Unit]
+Description=CareerVine send watcher (CAR-215) - triggers due-send sweeps within seconds
+Documentation=https://linear.app/career-vine/issue/CAR-215
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+# Holds WATCHER_DB_DSN, CRON_TRIGGER_SECRET, APP_BASE_URL, HEARTBEAT_URL.
+# chmod 600, root-owned; never in git.
+EnvironmentFile=/etc/careervine/send-watcher.env
+ExecStart=/usr/bin/python3 /opt/careervine/send-watcher/send_watcher.py
+# Unbuffered so journalctl shows a cycle as it happens, not on flush.
+Environment=PYTHONUNBUFFERED=1
+
+# A watcher that stays down is the failure this whole design guards against, so
+# restart unconditionally and never let systemd give up: StartLimitIntervalSec=0
+# disables the rate limiter that would otherwise leave it dead after repeated
+# fast failures (e.g. a Supabase outage at boot).
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=0
+
+# It needs outbound network and nothing else on this box.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

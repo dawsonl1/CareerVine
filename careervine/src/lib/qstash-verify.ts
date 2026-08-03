@@ -41,6 +41,13 @@ function getReceiver(): Receiver | null {
   return cached.receiver;
 }
 
+/**
+ * Which credential got the caller in. The send routes use this to keep the two
+ * drivers honest about each other: the watcher stamps liveness, and QStash (the
+ * safety net) notices when that stamp goes stale and emails.
+ */
+export type CronAuthSource = "qstash" | "watcher";
+
 function unauthorized(): NextResponse {
   return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
 }
@@ -90,13 +97,13 @@ function hasValidCronBearer(req: NextRequest): boolean {
  */
 export async function withQStashVerification(
   req: NextRequest,
-  handler: (body: string) => Promise<NextResponse>,
+  handler: (body: string, source: CronAuthSource) => Promise<NextResponse>,
 ): Promise<NextResponse> {
   const body = await req.text();
 
   // Checked before the signature so the watcher's calls skip Receiver
   // construction entirely; it is the high-frequency caller.
-  if (hasValidCronBearer(req)) return handler(body);
+  if (hasValidCronBearer(req)) return handler(body, "watcher");
 
   const receiver = getReceiver();
   if (!receiver) {
@@ -115,7 +122,7 @@ export async function withQStashVerification(
     return unauthorized();
   }
 
-  return handler(body);
+  return handler(body, "qstash");
 }
 
 /** @internal Test hook — drop the memoized Receiver so a test can swap env. */
