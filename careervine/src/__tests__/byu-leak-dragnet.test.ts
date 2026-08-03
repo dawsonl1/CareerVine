@@ -84,6 +84,43 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * Shipping DOC surfaces, which live outside src/ and were therefore invisible
+ * to the walk above. That blind spot is not hypothetical: it let an example
+ * prompt in careervine-mcp/README.md ("draft her a short intro email
+ * mentioning my BYU background") survive the entire Phase 7 copy sweep, and it
+ * only surfaced because Dawson questioned a different finding.
+ *
+ * These three make claims to users and must be checked with the same rule.
+ * Comments do not exist in HTML/Markdown prose the way they do in TS, so these
+ * are scanned raw.
+ */
+const DOC_SURFACES = [
+  "../public/docs/index.html",
+  "../../README.md",
+  "../../careervine-mcp/README.md",
+];
+
+describe("no BYU string reaches a non-affinity user in shipped docs", () => {
+  it("finds none in the docs page, README, or MCP README", () => {
+    const offenders = DOC_SURFACES.map((rel) => ({
+      file: rel,
+      hit: BYU.test(readFileSync(join(SRC, rel), "utf8")),
+    }))
+      .filter((d) => d.hit)
+      .map((d) => d.file);
+    expect(offenders).toEqual([]);
+  });
+
+  it("actually reads those files — the positive control", () => {
+    // A typo'd path would throw, not pass silently; assert content instead so
+    // a file that becomes empty also fails.
+    for (const rel of DOC_SURFACES) {
+      expect(readFileSync(join(SRC, rel), "utf8").length).toBeGreaterThan(500);
+    }
+  });
+});
+
 describe("no BYU string reaches a non-affinity user", () => {
   const offenders = walk(SRC)
     .map((f) => ({ file: relative(SRC, f), text: stripComments(readFileSync(f, "utf8")) }))
