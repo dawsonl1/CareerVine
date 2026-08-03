@@ -3,6 +3,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { recordThreadReply } from "@/lib/follow-up-reply";
+import { resolveFollowUpThreadHeaders } from "@/lib/follow-up-threading";
 import {
   ACTIONABLE_FOLLOW_UP_MESSAGE_STATUSES,
   FollowUpMessageStatus,
@@ -115,6 +116,14 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
       throw new ApiError("This follow-up is no longer awaiting review.", 409);
     }
 
+    // Real RFC msg-ids for the recipient's client to thread on. This used to
+    // pass `original_gmail_message_id`, a Gmail API id that names no
+    // Message-ID anywhere, so confirm-sent follow-ups arrived as new
+    // conversations (CAR-214). Unlike the cron this route holds no fetched
+    // thread (`replied` is supplied by the caller), so it costs one Gmail
+    // read; it resolves to {} on failure rather than restoring the bad value.
+    const threadHeaders = await resolveFollowUpThreadHeaders(user.id, parent.thread_id);
+
     try {
       await sendTrackedEmail(
         user.id,
@@ -123,8 +132,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
           subject: msg.subject,
           bodyHtml: msg.body_html,
           threadId: parent.thread_id,
-          inReplyTo: parent.original_gmail_message_id ?? undefined,
-          references: parent.original_gmail_message_id ?? undefined,
+          ...threadHeaders,
         },
         { isFollowUp: true },
       );

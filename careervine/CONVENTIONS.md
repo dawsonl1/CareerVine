@@ -202,8 +202,16 @@ the daily send cap, refuses known-bounced addresses, warns on pattern-guessed
 ones, and logs the interaction. Crons are not exempt: they call it like the
 interactive paths and catch `SendPolicyError` to defer rather than bypass.
 
-- Authoritative: `careervine/src/lib/notify/email.ts` and
-  `careervine/src/lib/email-send.ts` (headers)
+Threading a reply is a second, separate concern. Gmail groups a send into a
+conversation from `threadId` alone, so the sender's own mailbox always looks
+right; the recipient's client threads on In-Reply-To / References, which must
+carry an RFC 822 `Message-ID`, never the Gmail API id the app stores as
+`original_gmail_message_id`. Follow-up senders resolve the real ids through
+`resolveFollowUpThreadHeaders`, which omits the headers rather than guessing.
+
+- Authoritative: `careervine/src/lib/notify/email.ts`,
+  `careervine/src/lib/email-send.ts` (headers), and
+  `careervine/src/lib/follow-up-threading.ts` (reply threading)
 - Not enforced. Nothing stops a new caller reaching for the wrong one.
 
 ## f. Client state

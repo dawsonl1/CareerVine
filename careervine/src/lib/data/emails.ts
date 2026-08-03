@@ -95,6 +95,61 @@ export async function insertEmailDraft(client: EmailClient, userId: string, inpu
   return data;
 }
 
+export interface PendingScheduledEmailRow {
+  id: number;
+  recipient_email: string;
+  subject: string | null;
+  scheduled_send_at: string;
+  status: string;
+  contact_name: string | null;
+  matched_contact_id: number | null;
+}
+
+/**
+ * Read a scheduled email that a follow-up sequence may still be anchored to
+ * (CAR-214), or null when it is not this user's.
+ *
+ * Callers must reject a non-pending row: a sent one already has a real thread
+ * (anchor to that instead), and a cancelled or failed one will never produce
+ * the thread the sequence is meant to reply into.
+ */
+export async function getScheduledEmailForFollowUps(
+  client: EmailClient,
+  userId: string,
+  scheduledEmailId: number,
+): Promise<PendingScheduledEmailRow | null> {
+  const { data, error } = await client
+    .from("scheduled_emails")
+    .select("id, recipient_email, subject, scheduled_send_at, status, contact_name, matched_contact_id")
+    .eq("id", scheduledEmailId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as PendingScheduledEmailRow | null) ?? null;
+}
+
+/**
+ * Id of the active follow-up sequence already linked to a scheduled email, or
+ * null. Used to refuse a second one (CAR-214): without the check, a retried
+ * create stacks sequences that all fire once the opening email sends and the
+ * contact receives every nudge twice.
+ */
+export async function findActiveSequenceForScheduledEmail(
+  client: EmailClient,
+  userId: string,
+  scheduledEmailId: number,
+): Promise<number | null> {
+  const { data, error } = await client
+    .from("email_follow_ups")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("scheduled_email_id", scheduledEmailId)
+    .eq("status", FollowUpStatus.Active)
+    .limit(1);
+  if (error) throw error;
+  return (data as Array<{ id: number }> | null)?.[0]?.id ?? null;
+}
+
 export interface FollowUpSequenceParent {
   originalGmailMessageId: string | null;
   threadId: string | null;

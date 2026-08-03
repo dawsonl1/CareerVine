@@ -286,6 +286,26 @@ const DB_TABLE: Record<string, Entry> = {
     kind: "ownership",
     drive: () => db.cancelFollowUpSequence(3),
   },
+  getPendingScheduledEmail: {
+    kind: "scoped",
+    drive: () => db.getPendingScheduledEmail(12),
+    route: (q) =>
+      q.table === "scheduled_emails"
+        ? {
+            id: 12,
+            recipient_email: "jane@x.com",
+            subject: "Hi",
+            scheduled_send_at: "2026-08-04T14:58:00.000Z",
+            status: "pending",
+            contact_name: "Jane",
+            matched_contact_id: 7,
+          }
+        : undefined,
+  },
+  assertNoActiveSequenceForScheduledEmail: {
+    kind: "scoped",
+    drive: () => db.assertNoActiveSequenceForScheduledEmail(12),
+  },
   findOriginalOutbound: {
     kind: "scoped",
     drive: () => db.findOriginalOutbound({ threadId: "t-1" }),
@@ -510,6 +530,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     insertScheduledEmail: { kind: "mcp-covered", coveredBy: "createScheduledEmail", touches: "scheduled_emails" },
     insertEmailDraft: { kind: "mcp-covered", coveredBy: "createAppDraft", touches: "email_drafts" },
     insertFollowUpSequenceRows: { kind: "mcp-covered", coveredBy: "insertFollowUpSequence", touches: "email_follow_ups" },
+    getScheduledEmailForFollowUps: { kind: "mcp-covered", coveredBy: "getPendingScheduledEmail", touches: "scheduled_emails" },
+    findActiveSequenceForScheduledEmail: { kind: "mcp-covered", coveredBy: "assertNoActiveSequenceForScheduledEmail", touches: "email_follow_ups" },
     cancelScheduledEmailCascade: { kind: "mcp-covered", coveredBy: "cancelScheduledEmail", touches: "scheduled_emails" },
     cancelFollowUpSequenceCascade: { kind: "mcp-covered", coveredBy: "cancelFollowUpSequence", touches: "email_follow_ups" },
   },

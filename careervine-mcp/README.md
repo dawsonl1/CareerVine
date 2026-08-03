@@ -23,6 +23,7 @@ That's it. The server is registered in the repo-root `.mcp.json`, so any Claude 
 - **Single-user by construction** — every query is scoped to the configured user; the server refuses to start without one.
 - **Drafting is the default path** — `send_email` requires `confirm: true` and re-checks the daily send cap (100/day) server-side via the app's shared `sendTrackedEmail()`, so app and MCP can never disagree on send policy.
 - **Bounced addresses are refused everywhere** (draft, send, schedule, sequence); pattern-guessed addresses warn.
+- **Follow-ups can be queued with the opening email.** `schedule_email` takes an optional `follow_ups` array, so one call queues the intro and its sequence. The steps stay dormant until the intro sends, then reply on its thread and cancel themselves the moment the contact writes back. `create_follow_up_sequence` accepts the same anchor via `scheduled_email_id` when the sequence is added separately. Steps inherit the opening email's time of day rather than a fixed UTC hour.
 - **No tier auto-graduation on outbound email** — prospects graduate on a reply, a logged interaction, or a meeting, same as the app.
 - **No delete tools** — the lowest-regret omission.
 
