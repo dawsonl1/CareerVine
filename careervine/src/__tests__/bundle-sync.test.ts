@@ -147,7 +147,15 @@ describe('applyBundleDelta — fast-path dispatch', () => {
     const { client } = createMockClient(responder({}));
     const sub = { ...SUB, synced_version: 0 };
     const result = await applyBundleDelta(client, sub, BUNDLE, {});
-    expect(fastStepMock).toHaveBeenCalledWith(client, sub, BUNDLE, { afterId: 0, pinnedVersion: 4 });
+    // hasAlumniAffinity is threaded to the fast path, not just to the merge
+    // path (CAR-213). It resolves false here because the mock client returns
+    // no users row — the fail-closed direction.
+    expect(fastStepMock).toHaveBeenCalledWith(client, sub, BUNDLE, {
+      afterId: 0,
+      pinnedVersion: 4,
+      deferAnalytics: undefined,
+      hasAlumniAffinity: false,
+    });
     expect(result.applied).toBe(42);
     expect(importMock).not.toHaveBeenCalled();
   });
@@ -156,7 +164,12 @@ describe('applyBundleDelta — fast-path dispatch', () => {
     const { client } = createMockClient(responder({}));
     await applyBundleDelta(client, SUB, BUNDLE, { cursor: { phase: 'fast', afterId: 900 }, pinnedVersion: 4 });
     expect(eligibilityMock).not.toHaveBeenCalled();
-    expect(fastStepMock).toHaveBeenCalledWith(client, SUB, BUNDLE, { afterId: 900, pinnedVersion: 4 });
+    expect(fastStepMock).toHaveBeenCalledWith(client, SUB, BUNDLE, {
+      afterId: 900,
+      pinnedVersion: 4,
+      deferAnalytics: undefined,
+      hasAlumniAffinity: false,
+    });
   });
 
   it('takes the merge path when ineligible', async () => {
