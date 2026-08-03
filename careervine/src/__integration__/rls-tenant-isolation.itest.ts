@@ -48,6 +48,7 @@ const EXEMPT_TABLES: Record<string, string> = {
   bundle_companies: "bundle-owned; visibility gated by subscription (probed below)",
   bundle_prospects: "bundle-owned; visibility gated by subscription (probed below)",
   internal_analytics_emails: "service-only allowlist keyed by email, no tenant rows (deny-all probed below)",
+  cron_heartbeats: "service-only job liveness keyed by job name, no tenant column (deny-all probed below)",
 };
 
 let svc: Db;
@@ -274,6 +275,47 @@ it("bundle content is visible only through an active subscription", async () => 
     .eq("bundle_id", graphB.ids.bundleId);
   expect(foreignCompanies.error).toBeNull();
   expect(foreignCompanies.data).toEqual([]);
+});
+
+it("cron_heartbeats is deny-all for authenticated users", async () => {
+  // CAR-215: holds when the A1 send watcher last drove a sweep. No tenant
+  // column, so it is exempt from the row-by-row isolation probes above, which
+  // means deny-all is the only thing standing between it and any logged-in
+  // user. A write would be worse than a read: forging a recent last_seen_at
+  // suppresses the alert that a dead watcher is supposed to trigger.
+  const name = uniq("hb");
+  // A deliberately OLD stamp: this is the state that should be alerting.
+  const staleStamp = new Date(Date.now() - 6 * 3_600_000).toISOString();
+  const seeded = await svc.from("cron_heartbeats").insert({ name, last_seen_at: staleStamp });
+  expect(seeded.error).toBeNull();
+  try {
+    const read = await a.client.from("cron_heartbeats").select("*").eq("name", name);
+    expect(!read.error ? read.data : [], "authenticated user read cron heartbeats").toEqual([]);
+
+    const write = await a.client
+      .from("cron_heartbeats")
+      .insert({ name: uniq("hb-w"), last_seen_at: new Date().toISOString() });
+    expect(write.error, "authenticated insert into cron_heartbeats must be refused").not.toBeNull();
+
+    // Attempt to forge a fresh stamp, then read back through the service role.
+    // Asserting on the update's own error is not enough: an RLS-filtered UPDATE
+    // matches zero rows and reports no error, so the stored value is the only
+    // thing that proves nothing moved.
+    await a.client
+      .from("cron_heartbeats")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("name", name);
+    const after = await svc.from("cron_heartbeats").select("last_seen_at").eq("name", name).single();
+    // Compare instants, not strings: Postgres renders timestamptz as +00:00
+    // where JS uses Z, so a string compare fails on formatting alone and would
+    // read as a security failure.
+    expect(
+      new Date(after.data?.last_seen_at ?? 0).getTime(),
+      "a tenant must not be able to forge a fresh heartbeat and suppress the dead-watcher alert",
+    ).toBe(new Date(staleStamp).getTime());
+  } finally {
+    await svc.from("cron_heartbeats").delete().eq("name", name);
+  }
 });
 
 it("internal_analytics_emails is deny-all for authenticated users", async () => {
