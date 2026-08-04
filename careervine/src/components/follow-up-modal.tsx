@@ -157,10 +157,16 @@ export function FollowUpModal({
    * go at least one more day out than one at 17:00. Recomputed as the time
    * input changes rather than fixed at open.
    */
-  const minDaysForFirst = (sendTime: string): number => {
-    const stillAheadToday = localTimeIsLaterToday(sendTime, viewerZone);
-    return Math.max(1, daysSinceOriginal + (stillAheadToday ? 0 : 1));
-  };
+  // useCallback so the seeding effect below can depend on it without re-running
+  // on every render: both inputs are compared by value, so the identity is
+  // stable across renders that change nothing relevant.
+  const minDaysForFirst = useCallback(
+    (sendTime: string): number => {
+      const stillAheadToday = localTimeIsLaterToday(sendTime, viewerZone);
+      return Math.max(1, daysSinceOriginal + (stillAheadToday ? 0 : 1));
+    },
+    [daysSinceOriginal, viewerZone],
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -214,7 +220,7 @@ export function FollowUpModal({
     setSaving(false);
     setSaved(false);
     setError("");
-  }, [isOpen, existingFollowUp, originalSubject, daysSinceOriginal, viewerZone]);
+  }, [isOpen, existingFollowUp, originalSubject, minDaysForFirst, viewerZone]);
 
   const updateDraft = useCallback(
     (index: number, updates: Partial<FollowUpDraft>) => {

@@ -12,11 +12,15 @@
  * is not. This file is the one that fails if the fallbacks regress.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mockServiceClientModule } from "./helpers/mock-supabase";
 
 const settingsGet = vi.fn();
 
-vi.mock("@/lib/supabase/service-client", () => ({
-  createSupabaseServiceClient: () => ({
+// Typed factory rather than a hand-rolled object literal: a hand-rolled one is
+// not checked against the module it replaces and keeps compiling after the real
+// export changes (CAR-187).
+vi.mock("@/lib/supabase/service-client", () =>
+  mockServiceClientModule(() => ({
     from: () => ({
       select: () => ({
         eq: () => ({
@@ -33,8 +37,8 @@ vi.mock("@/lib/supabase/service-client", () => ({
       }),
       update: () => ({ eq: async () => ({ error: null }) }),
     }),
-  }),
-}));
+  })),
+);
 
 vi.mock("@/lib/crypto", () => ({
   decryptOAuthToken: (v: string) => v,
