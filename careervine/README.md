@@ -142,3 +142,7 @@ Work history and education read in the order a person would tell it: whatever th
 are doing now, then everything before it, newest first. The same ranking decides the
 role shown under their name on the profile, in search, and on every contact card, so
 someone holding several board seats no longer leads with an arbitrary one.
+
+Editing a contact holds their whole history, not a slice of it. Education is a list
+you can add to and remove from, the same as work experience, so a person with a
+bachelor's and an MBA keeps both. Saving used to leave only one of them.
