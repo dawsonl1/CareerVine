@@ -574,19 +574,28 @@ export async function getCompanies(
   // search is alphabetical; the outreach/MCP targets queue stays priority-first.
   const sort = opts.sort ?? (scope === "all" ? "name" : scope === "targets" ? "priority" : "next");
 
-  const [employment, targetsRes] = await Promise.all([
+  const [employment, scopeRows] = await Promise.all([
     fetchUserEmploymentRows(userId),
     // All scope rows, including soft-untargeted containers: tier/program
     // live on the company-wide row even when only offices are targeted.
-    db()
-      .from("target_companies")
-      .select(
-        "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
-      )
-      .eq("user_id", userId),
+    //
+    // Paginated (CAR-223): one row per company AND per targeted office, so the
+    // count multiplies well past the company count. fetchUserEmploymentRows
+    // directly above already pages; this leg was the odd one out, and a
+    // truncated read here drops companies out of the targets view entirely.
+    paginateAll(async (from, to) =>
+      must(
+        await db()
+          .from("target_companies")
+          .select(
+            "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
+          )
+          .eq("user_id", userId)
+          .order("id")
+          .range(from, to),
+      ),
+    ),
   ]);
-  if (targetsRes.error) throw targetsRes.error;
-  const scopeRows = targetsRes.data ?? [];
   // A company is a target if ANY scope (company-wide or office) is targeted.
   const targetByCompany = new Map<number, ReturnType<typeof deriveCompanyTarget>>();
   {

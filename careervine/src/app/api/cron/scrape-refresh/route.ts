@@ -7,6 +7,7 @@ import { triggerBatchScrape, sweepStuckRuns } from "@/lib/apify/scrape-service";
 import { isApifyConfigured } from "@/lib/apify/client";
 import { CADENCE_BATCH_SIZE } from "@/lib/constants";
 import { must } from "@/lib/data/client";
+import { paginateAll } from "@/lib/data/postgrest";
 
 export const maxDuration = 60;
 
@@ -38,8 +39,18 @@ async function runJob(): Promise<NextResponse> {
   // Suspended = frozen: skipped by server-side automation (admin foundation),
   // same convention as the other crons — and paid scraping doubly so. Also
   // skip accounts whose Apify enrichment the admin switched off (plan 36).
-  const users = must(
-    await service.from("users").select("id").eq("status", "active").eq("apify_enrichment_enabled", true),
+  // Paginated (CAR-223): same growth trap as the discovery cron — past 1000
+  // eligible accounts, enrichment would silently stop for everyone after the cap.
+  const users = await paginateAll(async (from, to) =>
+    must(
+      await service
+        .from("users")
+        .select("id")
+        .eq("status", "active")
+        .eq("apify_enrichment_enabled", true)
+        .order("id")
+        .range(from, to),
+    ),
   );
 
   let scraped = 0;

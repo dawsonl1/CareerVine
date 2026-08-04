@@ -19,6 +19,7 @@ import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { trackServer } from "@/lib/analytics/server";
 import { googleApiStatus, googleApiReason } from "@/lib/google-api-error";
 import { must } from "@/lib/data/client";
+import { paginateAll } from "@/lib/data/postgrest";
 
 /**
  * Retry a function with exponential backoff on rate-limit (429), server errors
@@ -1171,16 +1172,24 @@ export async function processScheduledEmails(
   const send = deps.send ?? sendTrackedEmail;
   const now = new Date().toISOString();
 
-  const pending = must(
-    await supabase
-      .from("scheduled_emails")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("status", ScheduledEmailStatus.Pending)
-      .lte("scheduled_send_at", now),
+  // Paginated (CAR-223): this is the sole driver for scheduled sends, so a
+  // truncated read does not degrade a view — it means mail the user queued is
+  // never dispatched at all, silently.
+  const pending = await paginateAll(async (from, to) =>
+    must(
+      await supabase
+        .from("scheduled_emails")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("status", ScheduledEmailStatus.Pending)
+        .lte("scheduled_send_at", now)
+        .order("scheduled_send_at", { ascending: true })
+        .order("id")
+        .range(from, to),
+    ),
   );
 
-  if (!pending || pending.length === 0) return { sent: 0, errors: 0 };
+  if (pending.length === 0) return { sent: 0, errors: 0 };
 
   let sent = 0;
   let errors = 0;

@@ -17,6 +17,7 @@ import { SuggestionReasonType, ActionItemSource, ActionDirection } from "@/lib/c
 import type { AiFailureCode } from "@/lib/ai-errors";
 import type { Suggestion, SuggestionContact } from "./suggestion-types";
 import { must } from "@/lib/data/client";
+import { chunkedPaginated } from "@/lib/data/postgrest";
 
 const MAX_SUGGESTIONS = 5;
 const MAX_LLM_CONTACTS = 5;
@@ -65,9 +66,35 @@ export async function fetchSuggestionCandidates(userId: string): Promise<Suggest
   // must() on both legs: empty-on-error here reproduces that exact regression,
   // since a dropped read is indistinguishable from "this contact has no touches"
   // and fires first-touch suggestions at people the user already contacted.
+  // chunkedPaginated, not a bare .in() (CAR-223): both tables fan out several
+  // rows per contact, so over a real network the id list blows the URL AND the
+  // response passes PostgREST's 1000-row cap, which truncates in silence. A
+  // dropped page here is indistinguishable from "this contact has no touches" —
+  // the same CAR-119 regression the comment above guards against, arriving by a
+  // different route.
   const [interactionRows, meetingLinks] = await Promise.all([
-    service.from("interactions").select("contact_id, interaction_date").in("contact_id", contactIds).then(must),
-    service.from("meeting_contacts").select("contact_id, meetings(meeting_date)").in("contact_id", contactIds).then(must),
+    chunkedPaginated(contactIds, async (chunk, from, to) =>
+      must(
+        await service
+          .from("interactions")
+          .select("contact_id, interaction_date")
+          .in("contact_id", chunk)
+          .order("id")
+          .range(from, to),
+      ),
+    ),
+    chunkedPaginated(contactIds, async (chunk, from, to) =>
+      must(
+        await service
+          .from("meeting_contacts")
+          .select("contact_id, meetings(meeting_date)")
+          .in("contact_id", chunk)
+          // No id column on this junction; the composite key is the stable order.
+          .order("meeting_id")
+          .order("contact_id")
+          .range(from, to),
+      ),
+    ),
   ]);
 
   const lastTouch = new Map<number, string>();
@@ -501,10 +528,19 @@ export async function generateSuggestions(userId: string): Promise<SuggestionsRe
 
   // Build a set of contact IDs that have emails (for nudge eligibility)
   const contactIds = contacts.map((c) => c.id);
-  const emailRows =
-    contactIds.length > 0
-      ? must(await service.from("contact_emails").select("contact_id").in("contact_id", contactIds))
-      : [];
+  // Paginated + chunked (CAR-223): a contact can hold several addresses, so a
+  // truncated read silently reclassifies contacts as "has no email" and drops
+  // them out of nudge eligibility entirely.
+  const emailRows = await chunkedPaginated(contactIds, async (chunk, from, to) =>
+    must(
+      await service
+        .from("contact_emails")
+        .select("contact_id")
+        .in("contact_id", chunk)
+        .order("id")
+        .range(from, to),
+    ),
+  );
   const contactsWithEmail = new Map<number, boolean>();
   for (const row of emailRows || []) {
     contactsWithEmail.set(row.contact_id, true);

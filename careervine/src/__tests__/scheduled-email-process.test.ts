@@ -48,6 +48,9 @@ function makeDb(
     const rows = tables[table] ?? [];
     let updatePayload: Record<string, unknown> | null = null;
     const filters: Array<(r: Row) => boolean> = [];
+    // Real slicing, not a no-op: paginateAll walks .range() windows, so a fake
+    // that ignored them would pass a paginated read that pages wrongly (CAR-223).
+    let window: [number, number] | null = null;
     const builder: Record<string, unknown> = {
       select: () => builder,
       update: (p: Record<string, unknown>) => {
@@ -72,11 +75,16 @@ function makeDb(
       },
       order: () => builder,
       limit: () => builder,
+      range: (from: number, to: number) => {
+        window = [from, to];
+        return builder;
+      },
       then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
         if (updatePayload && failUpdate?.(table, updatePayload)) {
           return Promise.reject(new Error(`network failure updating ${table}`)).then(resolve, reject);
         }
-        const matched = rows.filter((r) => filters.every((f) => f(r)));
+        const all = rows.filter((r) => filters.every((f) => f(r)));
+        const matched = window ? all.slice(window[0], window[1] + 1) : all;
         if (updatePayload) {
           for (const r of matched) Object.assign(r, updatePayload);
           return Promise.resolve({ count: matched.length, data: null, error: null }).then(resolve);

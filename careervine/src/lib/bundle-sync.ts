@@ -33,7 +33,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { must } from "@/lib/data/client";
 import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payload";
-import { chunkList } from "@/lib/data/postgrest";
+import { chunkList, paginateAll } from "@/lib/data/postgrest";
 import { importPeopleChunk, type PersonImportResult } from "./bulk-import";
 import {
   computeContactFingerprint,
@@ -229,6 +229,25 @@ export async function fetchTouchSignals(
   const result: TouchSignalSet = { snapshots: new Map(), hardSignals: new Map(), states: new Map() };
   if (contactIds.length === 0) return result;
 
+  // Every read below that can return MORE THAN ONE ROW PER CONTACT is paged
+  // (CAR-223). SYNC_CHUNK_SIZE bounds the id list at 150, which bounds the URL
+  // and the two keyed reads (contacts, bundle_contact_state) — but not these:
+  // 150 contacts times a handful of interactions each clears PostgREST's
+  // 1000-row cap, and a truncated hard-signal read is silently indistinguishable
+  // from "no activity". Given the fail-toward-deletion contract below, that is
+  // the one truncation in this codebase that can destroy user data.
+  const paged = <T>(
+    label: string,
+    run: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  ) =>
+    paginateAll<T>(async (from, to) => {
+      const { data, error } = await run(from, to);
+      // Same fail-loud contract as the error sweep below, raised from inside
+      // the page loop so a mid-pagination failure can't return a short list.
+      if (error) throw new Error(`Touch-signal read failed (${label}): ${error.message}`);
+      return data;
+    });
+
   const [contacts, manualEmp, manualEmails, tagRows, interactions, meetings, followUps, states] =
     await Promise.all([
       client
@@ -236,20 +255,61 @@ export async function fetchTouchSignals(
         .select("id, linkedin_url, name, headline, notes, persona, network_status, stage_override")
         .eq("user_id", userId)
         .in("id", contactIds),
-      client
-        .from("contact_companies")
-        .select("contact_id, company_id, title, start_month")
-        .eq("source", "manual")
-        .in("contact_id", contactIds),
-      client
-        .from("contact_emails")
-        .select("contact_id, email")
-        .eq("source", "manual")
-        .in("contact_id", contactIds),
-      client.from("contact_tags").select("contact_id, tags(name)").in("contact_id", contactIds),
-      client.from("interactions").select("contact_id").in("contact_id", contactIds),
-      client.from("meeting_contacts").select("contact_id").in("contact_id", contactIds),
-      client.from("follow_up_action_items").select("contact_id").in("contact_id", contactIds),
+      paged<{ contact_id: number; company_id: number; title: string | null; start_month: string | null }>(
+        "manualEmp",
+        (from, to) =>
+          client
+            .from("contact_companies")
+            .select("contact_id, company_id, title, start_month")
+            .eq("source", "manual")
+            .in("contact_id", contactIds)
+            .order("id")
+            .range(from, to),
+      ),
+      paged<{ contact_id: number; email: string | null }>("manualEmails", (from, to) =>
+        client
+          .from("contact_emails")
+          .select("contact_id, email")
+          .eq("source", "manual")
+          .in("contact_id", contactIds)
+          .order("id")
+          .range(from, to),
+      ),
+      paged<{ contact_id: number; tags: { name: string } | { name: string }[] | null }>("tagRows", (from, to) =>
+        client
+          .from("contact_tags")
+          .select("contact_id, tags(name)")
+          .in("contact_id", contactIds)
+          // No id column on this junction; the composite key is the stable order.
+          .order("contact_id")
+          .order("tag_id")
+          .range(from, to),
+      ),
+      paged<{ contact_id: number }>("interactions", (from, to) =>
+        client
+          .from("interactions")
+          .select("contact_id")
+          .in("contact_id", contactIds)
+          .order("id")
+          .range(from, to),
+      ),
+      paged<{ contact_id: number }>("meetings", (from, to) =>
+        client
+          .from("meeting_contacts")
+          .select("contact_id")
+          .in("contact_id", contactIds)
+          .order("meeting_id")
+          .order("contact_id")
+          .range(from, to),
+      ),
+      paged<{ contact_id: number }>("followUps", (from, to) =>
+        client
+          .from("follow_up_action_items")
+          .select("contact_id")
+          .in("contact_id", contactIds)
+          .order("id")
+          .range(from, to),
+      ),
       client
         .from("bundle_contact_state")
         .select("contact_id, applied_fingerprint, user_touched, apply_started_at")
@@ -263,9 +323,10 @@ export async function fetchTouchSignals(
   // so a contact with real history could be deleted. Any read erroring makes the
   // whole signal set unreliable, so throw and let the caller abort before the
   // synced_version commit (recovery routes to the daily stale-scan).
-  for (const [name, res] of Object.entries({
-    contacts, manualEmp, manualEmails, tagRows, interactions, meetings, followUps, states,
-  })) {
+  // The paged reads above raise this same error from inside their page loop;
+  // these two are keyed by contact id (at most one row each), so they stay
+  // single-shot and are checked here.
+  for (const [name, res] of Object.entries({ contacts, states })) {
     if (res.error) throw new Error(`Touch-signal read failed (${name}): ${res.error.message}`);
   }
 
@@ -286,13 +347,13 @@ export async function fetchTouchSignals(
     result.hardSignals.set(row.id as number, { interactions: 0, meetings: 0, followUps: 0 });
   }
 
-  for (const row of (manualEmp.data as Array<{ contact_id: number; company_id: number; title: string | null; start_month: string | null }> | null) ?? []) {
+  for (const row of manualEmp) {
     result.snapshots.get(row.contact_id)?.manual_employment_keys.push(employmentKeyOf(row));
   }
-  for (const row of (manualEmails.data as Array<{ contact_id: number; email: string | null }> | null) ?? []) {
+  for (const row of manualEmails) {
     if (row.email) result.snapshots.get(row.contact_id)?.manual_emails.push(row.email);
   }
-  for (const row of (tagRows.data as Array<{ contact_id: number; tags: { name: string } | { name: string }[] | null }> | null) ?? []) {
+  for (const row of tagRows) {
     const names = Array.isArray(row.tags) ? row.tags.map((t) => t.name) : row.tags ? [row.tags.name] : [];
     result.snapshots.get(row.contact_id)?.tags.push(...names);
   }
@@ -300,9 +361,9 @@ export async function fetchTouchSignals(
     const s = map.get(id);
     if (s) s[key]++;
   };
-  for (const row of (interactions.data as Array<{ contact_id: number }> | null) ?? []) bump(result.hardSignals, row.contact_id, "interactions");
-  for (const row of (meetings.data as Array<{ contact_id: number }> | null) ?? []) bump(result.hardSignals, row.contact_id, "meetings");
-  for (const row of (followUps.data as Array<{ contact_id: number }> | null) ?? []) bump(result.hardSignals, row.contact_id, "followUps");
+  for (const row of interactions) bump(result.hardSignals, row.contact_id, "interactions");
+  for (const row of meetings) bump(result.hardSignals, row.contact_id, "meetings");
+  for (const row of followUps) bump(result.hardSignals, row.contact_id, "followUps");
   for (const row of (states.data as ContactStateRow[] | null) ?? []) result.states.set(row.contact_id, row);
 
   return result;

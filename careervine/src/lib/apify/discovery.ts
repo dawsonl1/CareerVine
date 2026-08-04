@@ -37,6 +37,7 @@ import {
 } from "@/lib/constants";
 import { getAppBaseUrl, getDatasetItems, getRun, isApifyConfigured, startProfileSearchRun } from "./client";
 import { getDiscoverySpendUsd, getMonthlySpendUsd } from "./spend";
+import { paginateAll } from "@/lib/data/postgrest";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>;
 
@@ -433,7 +434,20 @@ async function loadPartitionContext(
   // must fail the run, not quietly widen it.
   const [contactRows, suppressedRows, atCompanyRows, companyRow] = await Promise.all([
     existingContactsPromise,
-    service.from("suppressed_imports").select("linkedin_url").eq("user_id", userId).then(must),
+    // Paginated (CAR-223): this set IS the suppression filter, and it has no
+    // URL narrowing at all, so a truncated read silently drops tombstones —
+    // re-surfacing profiles the user deleted and billing an Apify re-scrape,
+    // which is precisely the outcome the must() note above forbids.
+    paginateAll(async (from, to) =>
+      must(
+        await service
+          .from("suppressed_imports")
+          .select("linkedin_url")
+          .eq("user_id", userId)
+          .order("id")
+          .range(from, to),
+      ),
+    ),
     service
       .from("contacts")
       .select("name, contact_companies!inner(company_id)")

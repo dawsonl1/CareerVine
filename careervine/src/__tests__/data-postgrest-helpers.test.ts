@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { escapeIlike, chunkList, chunked, paginateAll } from "@/lib/data/postgrest";
+import { escapeIlike, chunkList, chunked, chunkedPaginated, paginateAll } from "@/lib/data/postgrest";
 
 describe("escapeIlike", () => {
   it("escapes percent signs", () => {
@@ -155,6 +155,79 @@ describe("paginateAll", () => {
       paginateAll(async (from) => {
         if (from > 0) throw new Error("boom");
         return page(from, 1000);
+      }),
+    ).rejects.toThrow("boom");
+  });
+});
+
+describe("chunkedPaginated (CAR-223)", () => {
+  /**
+   * The gap this closes: chunked() bounds the .in() FILTER list but not the
+   * RESPONSE, so on a table that fans out (several interactions or emails per
+   * contact) a single 200-id chunk can itself pass PostgREST's 1000-row cap and
+   * truncate in silence. chunkedPaginated bounds both.
+   */
+  it("pages WITHIN each chunk, so a fanned-out chunk is not silently truncated", async () => {
+    const ROWS_PER_CHUNK = 2400;
+    const seen: Array<{ chunkStart: number; from: number }> = [];
+    const rows = await chunkedPaginated(
+      Array.from({ length: 400 }, (_, i) => i),
+      async (chunk, from, to) => {
+        seen.push({ chunkStart: chunk[0], from });
+        const remaining = Math.max(0, Math.min(ROWS_PER_CHUNK - from, to - from + 1));
+        return Array.from({ length: remaining }, (_, i) => ({ chunk: chunk[0], id: from + i }));
+      },
+    );
+
+    // 400 ids -> two 200-id chunks, each walked to exhaustion (3 pages: the
+    // 2400th row means pages at 0, 1000, 2000 with the last one short).
+    expect(seen).toEqual([
+      { chunkStart: 0, from: 0 },
+      { chunkStart: 0, from: 1000 },
+      { chunkStart: 0, from: 2000 },
+      { chunkStart: 200, from: 0 },
+      { chunkStart: 200, from: 1000 },
+      { chunkStart: 200, from: 2000 },
+    ]);
+    // chunked() would have returned 2000 here (1000 per chunk), losing 2800 rows.
+    expect(rows).toHaveLength(ROWS_PER_CHUNK * 2);
+  });
+
+  it("returns an empty array for no ids without issuing a query", async () => {
+    const fetchPage = vi.fn(async () => []);
+    expect(await chunkedPaginated([], fetchPage)).toEqual([]);
+    expect(fetchPage).not.toHaveBeenCalled();
+  });
+
+  it("honours custom chunk and page sizes", async () => {
+    const seen: Array<[number, number, number]> = [];
+    await chunkedPaginated(
+      [1, 2, 3, 4],
+      async (chunk, from, to) => {
+        seen.push([chunk.length, from, to]);
+        return from === 0 ? [{ id: 1 }, { id: 2 }] : [];
+      },
+      { chunkSize: 2, pageSize: 2 },
+    );
+    expect(seen).toEqual([
+      [2, 0, 1],
+      [2, 2, 3],
+      [2, 0, 1],
+      [2, 2, 3],
+    ]);
+  });
+
+  it("carries string ids (linkedin urls, thread ids), not just numbers", async () => {
+    const rows = await chunkedPaginated(["t1", "t2"], async (chunk) =>
+      chunk.map((id) => ({ id })),
+    );
+    expect(rows).toEqual([{ id: "t1" }, { id: "t2" }]);
+  });
+
+  it("propagates a page failure instead of returning a short list", async () => {
+    await expect(
+      chunkedPaginated([1, 2, 3], async () => {
+        throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
   });

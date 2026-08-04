@@ -131,8 +131,20 @@ Reads that carry control flow (cursors, dedup probes, claim preconditions) use
 purely cosmetic read may tolerate an error, but only with an explicit
 `// error-tolerated:` comment saying why.
 
-PostgREST caps a response at 1000 rows. Chunk and paginate through
-`careervine/src/lib/data/postgrest.ts` rather than hand-rolling either.
+PostgREST caps a response at 1000 rows and truncates SILENTLY, with no error.
+Chunk and paginate through `careervine/src/lib/data/postgrest.ts` rather than
+hand-rolling either. Read its header for which helper applies: `chunked()`
+bounds an `.in()` filter list and is safe only when the query returns at most
+one row per id, while `chunkedPaginated()` also pages the response and is what
+a table that fans out per contact needs. Pagination requires a stable
+`.order()`, primary key included, or page windows can drop or duplicate rows.
+
+The `check:conventions` guard ratchets every multi-row read it cannot prove
+bounded, so a new unpaginated read fails the build and a fixed one must be
+deleted from the baseline. CAR-221 is why: an unpaginated whole-table read of
+`contacts` left a user with 2005 of them seeing bare email addresses instead of
+names throughout the Inbox, and the audit behind CAR-223 found the same defect
+in fifteen more places, one of which could delete a contact with real history.
 
 School affinity — whether a user's school changes what they see — has ONE
 authority per language: `careervine/src/lib/schools/affinity.ts` in TypeScript

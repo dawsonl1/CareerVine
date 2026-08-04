@@ -29,11 +29,43 @@ export function chunkList<T>(items: T[], size = 100): T[][] {
   return out;
 }
 
-/** Run a query per bounded id chunk and concatenate the rows. */
+/**
+ * Run a query per bounded id chunk and concatenate the rows.
+ *
+ * ONLY safe when the query returns AT MOST ONE ROW PER ID — a keyed lookup like
+ * contacts-by-id, where a 200-id chunk can never exceed 200 rows. It bounds the
+ * .in() FILTER, not the RESPONSE (CAR-223): on a table that fans out (several
+ * interactions, emails or past roles per contact) a single chunk can itself
+ * blow past PostgREST's 1000-row cap and truncate silently. Use
+ * chunkedPaginated() for those.
+ */
 export async function chunked<T>(ids: number[], fn: (chunk: number[]) => Promise<T[]>): Promise<T[]> {
   const out: T[] = [];
   for (let i = 0; i < ids.length; i += 200) {
     out.push(...(await fn(ids.slice(i, i + 200))));
+  }
+  return out;
+}
+
+/**
+ * chunked() for tables that fan out: bounds the .in() filter AND pages through
+ * the response, so neither the URL nor the 1000-row cap can silently drop rows
+ * (CAR-223).
+ *
+ * Same contract as paginateAll — the query MUST carry a stable .order(), since
+ * range pagination over an unspecified order can duplicate or drop rows at page
+ * boundaries. The callback receives the range to apply; ignoring it would loop
+ * forever, so `from`/`to` are required parameters rather than optional ones.
+ */
+export async function chunkedPaginated<T, Id = number>(
+  ids: Id[],
+  fetchPage: (chunk: Id[], from: number, to: number) => Promise<T[] | null>,
+  opts: { chunkSize?: number; pageSize?: number } = {},
+): Promise<T[]> {
+  const { chunkSize = 200, pageSize = 1000 } = opts;
+  const out: T[] = [];
+  for (const chunk of chunkList(ids, chunkSize)) {
+    out.push(...(await paginateAll<T>((from, to) => fetchPage(chunk, from, to), pageSize)));
   }
   return out;
 }
