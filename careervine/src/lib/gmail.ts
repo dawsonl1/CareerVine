@@ -9,7 +9,7 @@
 import "server-only";
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { EmailDirection, ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
 import { getHeader, parseEmailAddress, buildOwnAddressSet, isBounceSenderAddress } from "@/lib/gmail-helpers";
 import type { ParsedHeader } from "@/lib/gmail-helpers";
 import type { gmail_v1 } from "@googleapis/gmail";
@@ -1309,6 +1309,250 @@ export async function processScheduledEmails(
   }
 
   return { sent, errors };
+}
+
+/** How far back the thread-reply sweep looks, and its page ceiling. */
+const THREAD_REPLY_WINDOW_DAYS = 30;
+const THREAD_REPLY_MAX_PAGES = 20;
+
+/**
+ * Ingest messages on threads we already track that the per-contact sync is
+ * structurally unable to see (CAR-227).
+ *
+ * syncEmailsForContact queries Gmail by a contact's KNOWN addresses
+ * (`from:x OR to:x`), so a reply sent from any OTHER address is invisible to
+ * it — however plainly it belongs to a thread we already hold. That is not an
+ * edge case for this product: outreach routinely goes to a scraped or
+ * pattern-guessed address that routes to the person, and they answer from
+ * their real one. Measured live: mail to smita.verma@adobe.com was answered
+ * from smiverma@adobe.com, and both replies stayed invisible while the thread
+ * sat in the inbox looking unanswered.
+ *
+ * The follow-up cron already reads WHOLE THREADS for exactly this reason
+ * (send-follow-ups/route.ts), so a sequence would correctly cancel on such a
+ * reply while the message itself never reached the inbox, the contact
+ * timeline, stage derivation, or the reply_received event. The two paths
+ * disagreed about whether the contact had replied.
+ *
+ * Shaped like detectBounces below, which exists for the same class of blind
+ * spot: one mailbox-wide query per completed pass, filtered against what we
+ * already know, rather than a per-contact call. Cost is bounded by the time
+ * window rather than by thread count — messages.list returns threadId, so
+ * unrelated mail is discarded without ever costing a metadata fetch.
+ */
+export async function syncThreadReplies(
+  userId: string,
+  opts: { sinceDays?: number } = {},
+): Promise<{ ingested: number; learnedAddresses: number }> {
+  const supabase = createSupabaseServiceClient();
+  const conn = await getConnection(userId);
+  if (!conn) throw new Error("Gmail not connected");
+
+  const ownAddresses = buildOwnAddressSet(conn.gmail_address, conn.send_as_aliases);
+  const sinceDays = opts.sinceDays ?? THREAD_REPLY_WINDOW_DAYS;
+  const afterEpoch = Math.floor((Date.now() - sinceDays * 86400_000) / 1000);
+
+  // Every thread we hold, and every message id already in it. Deliberately NOT
+  // date-filtered: a thread whose last message predates the window is exactly
+  // the one a late reply lands on, and filtering it out would reintroduce the
+  // blind spot this function exists to close.
+  const knownRows = await paginateAll(async (from, to) =>
+    must(
+      await supabase
+        .from("email_messages")
+        .select("gmail_message_id, thread_id, matched_contact_id, email_message_contacts(contact_id)")
+        .eq("user_id", userId)
+        .not("thread_id", "is", null)
+        .order("id")
+        .range(from, to),
+    ),
+  );
+
+  const knownMessageIds = new Set<string>();
+  const contactsByThread = new Map<string, Set<number>>();
+  for (const row of knownRows) {
+    knownMessageIds.add(row.gmail_message_id);
+    const threadId = row.thread_id as string;
+    let linked = contactsByThread.get(threadId);
+    if (!linked) {
+      linked = new Set<number>();
+      contactsByThread.set(threadId, linked);
+    }
+    if (row.matched_contact_id != null) linked.add(row.matched_contact_id);
+    for (const l of row.email_message_contacts ?? []) {
+      if (l.contact_id != null) linked.add(l.contact_id);
+    }
+  }
+  if (contactsByThread.size === 0) return { ingested: 0, learnedAddresses: 0 };
+
+  const gmail = await getGmailClient(userId);
+
+  // One untargeted list per page: the filter is threadId membership, which the
+  // list response already carries, so an unrelated newsletter costs nothing
+  // beyond the page it rode in on.
+  const candidateIds: string[] = [];
+  let pageToken: string | undefined;
+  let pages = 0;
+  do {
+    const listRes = await withRetry(() =>
+      gmail.users.messages.list({
+        userId: "me",
+        q: `after:${afterEpoch}`,
+        maxResults: 100,
+        pageToken,
+      }),
+    );
+    for (const m of listRes.data.messages || []) {
+      if (!m.id || !m.threadId) continue;
+      if (knownMessageIds.has(m.id)) continue;
+      if (!contactsByThread.has(m.threadId)) continue;
+      candidateIds.push(m.id);
+    }
+    pageToken = listRes.data.nextPageToken || undefined;
+    pages++;
+  } while (pageToken && pages < THREAD_REPLY_MAX_PAGES);
+
+  if (candidateIds.length === 0) return { ingested: 0, learnedAddresses: 0 };
+
+  let ingested = 0;
+  let learnedAddresses = 0;
+
+  for (let i = 0; i < candidateIds.length; i += 20) {
+    const batch = candidateIds.slice(i, i + 20);
+    const details = await Promise.all(
+      batch.map((id) =>
+        withRetry(() =>
+          gmail.users.messages.get({
+            userId: "me",
+            id,
+            format: "metadata",
+            metadataHeaders: ["From", "To", "Subject", "Date"],
+          }),
+        ),
+      ),
+    );
+
+    for (const res of details) {
+      const msg = res.data;
+      if (!msg.id || !msg.threadId) continue;
+      const linked = contactsByThread.get(msg.threadId);
+      if (!linked || linked.size === 0) continue;
+
+      const headers = (msg.payload?.headers || []) as ParsedHeader[];
+      const fromAddr = parseEmailAddress(getHeader(headers, "From"));
+      const toAddrs = getHeader(headers, "To").split(",").map(parseEmailAddress).filter(Boolean);
+      const isOutbound = ownAddresses.has(fromAddr);
+      // An NDR sitting in a tracked thread is a delivery failure, not a reply.
+      // detectBounces owns it; ingesting it as inbound would activate the very
+      // contact whose address just failed.
+      if (!isOutbound && isBounceSenderAddress(fromAddr)) continue;
+
+      const rawDate = getHeader(headers, "Date");
+      const parsedDate = rawDate ? new Date(rawDate) : null;
+      const primaryContactId = [...linked][0];
+
+      const { data: inserted, error: insertError } = await supabase
+        .from("email_messages")
+        .upsert(
+          {
+            user_id: userId,
+            gmail_message_id: msg.id,
+            thread_id: msg.threadId,
+            subject: getHeader(headers, "Subject") || null,
+            snippet: msg.snippet || null,
+            from_address: fromAddr,
+            to_addresses: toAddrs,
+            date: parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : null,
+            label_ids: msg.labelIds || [],
+            is_read: !(msg.labelIds || []).includes("UNREAD"),
+            direction: isOutbound ? EmailDirection.Outbound : EmailDirection.Inbound,
+            matched_contact_id: primaryContactId,
+          },
+          { onConflict: "user_id,gmail_message_id", ignoreDuplicates: true },
+        )
+        .select("id, direction");
+      if (insertError) {
+        console.error("[threadReplies] insert failed:", insertError);
+        continue;
+      }
+      // ignoreDuplicates makes this ON CONFLICT DO NOTHING, so an empty
+      // RETURNING means a concurrent sync already claimed the row. Skipping
+      // keeps the side effects below firing exactly once (CAR-58's contract).
+      const row = (inserted ?? [])[0];
+      if (!row) continue;
+      ingested++;
+
+      // Attribute to every contact the thread is already linked to — the same
+      // union the inbox reads from (CAR-159/CAR-169).
+      const { error: linkError } = await supabase
+        .from("email_message_contacts")
+        .upsert(
+          [...linked].map((contactId) => ({ email_message_id: row.id, contact_id: contactId })),
+          { onConflict: "email_message_id,contact_id", ignoreDuplicates: true },
+        );
+      if (linkError) console.error("[threadReplies] junction link failed:", linkError);
+
+      if (isOutbound) continue;
+
+      // Learn the address they actually write from (CAR-227). Without this the
+      // next sync is blind to this thread all over again, AND a reply Dawson
+      // sends to it caches with matched_contact_id null, detaching his own
+      // message from the contact's timeline. Only when the thread resolves to
+      // exactly ONE tracked contact: on a shared thread the sender is
+      // genuinely ambiguous, and a wrong row here would misroute future mail.
+      if (linked.size === 1 && fromAddr) {
+        const existing = must(
+          await supabase
+            .from("contact_emails")
+            .select("id")
+            .eq("contact_id", primaryContactId)
+            .eq("email", fromAddr)
+            .maybeSingle(),
+        );
+        if (!existing) {
+          // 'verified', the top of the source ladder: they demonstrably own it,
+          // having written to us from it. Never primary — the address the user
+          // has been successfully reaching them on keeps that.
+          const { error: learnError } = await supabase
+            .from("contact_emails")
+            .insert({ contact_id: primaryContactId, email: fromAddr, is_primary: false, source: "verified" });
+          if (learnError) console.error("[threadReplies] address learn failed:", learnError);
+          else learnedAddresses++;
+        }
+      }
+
+      // A reply is what graduates an imported prospect into the active network,
+      // and the per-contact sync fires this on its own inserts. Inline user_id
+      // scoping: a service-role write carries no tenant scope of its own.
+      const { error: activateError } = await supabase
+        .from("contacts")
+        .update({ network_status: "active" })
+        .eq("id", primaryContactId)
+        .eq("user_id", userId)
+        .in("network_status", ["prospect", "bench"]);
+      if (activateError) console.error("[threadReplies] activate failed:", activateError);
+
+      // CAR-38 north-star event, on the same thread-attributed terms the
+      // per-contact sync uses: a reply counts only where we had sent first.
+      const priorOutbound = must(
+        await supabase
+          .from("email_messages")
+          .select("ai_assisted")
+          .eq("user_id", userId)
+          .eq("thread_id", msg.threadId)
+          .eq("direction", EmailDirection.Outbound)
+          .limit(1)
+          .maybeSingle(),
+      );
+      if (priorOutbound) {
+        await trackServer(userId, "reply_received", {
+          ai_assisted: priorOutbound.ai_assisted === true,
+        });
+      }
+    }
+  }
+
+  return { ingested, learnedAddresses };
 }
 
 /**

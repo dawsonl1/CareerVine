@@ -78,7 +78,10 @@ export function createFakeGmail(options: FakeGmailOptions = {}) {
             const hasMore = pageIndex + 1 < pages.length;
             return {
               data: {
-                messages: page.map((m) => ({ id: m.id })),
+                // threadId included because the real users.messages.list
+                // returns it, and syncThreadReplies filters on it to discard
+                // unrelated mail without paying for a metadata fetch (CAR-227).
+                messages: page.map((m) => ({ id: m.id, threadId: m.threadId ?? null })),
                 ...(hasMore ? { nextPageToken: `page-${pageIndex + 1}` } : {}),
               },
             };
@@ -140,7 +143,7 @@ type Row = Record<string, unknown>;
 
 export interface DbOp {
   table: string;
-  op: "select" | "update" | "upsert";
+  op: "select" | "update" | "upsert" | "insert";
   values?: Row;
   filters: [string, unknown][];
 }
@@ -190,6 +193,7 @@ export function createFakeSyncDb(
     let op: DbOp["op"] = "select";
     let updateValues: Row | undefined;
     let upsertRows: Row[] = [];
+    let insertRows: Row[] = [];
     let upsertOpts: { onConflict?: string; ignoreDuplicates?: boolean } = {};
     const filters: [string, unknown][] = [];
     const eqFilters: [string, unknown][] = [];
@@ -197,6 +201,7 @@ export function createFakeSyncDb(
     const isFilters: [string, unknown][] = [];
     const containsFilters: [string, unknown[]][] = [];
     const gtFilters: [string, number][] = [];
+    const notFilters: [string, string, unknown][] = [];
     let orderCol: string | null = null;
     let orderAsc = true;
     let limitN: number | null = null;
@@ -211,13 +216,31 @@ export function createFakeSyncDb(
         const cell = readColumn(row, c);
         return Array.isArray(cell) && vs.every((v) => cell.includes(v));
       }) &&
-      gtFilters.every(([c, v]) => (readColumn(row, c) as number) > v);
+      gtFilters.every(([c, v]) => (readColumn(row, c) as number) > v) &&
+      notFilters.every(([c, negatedOp, v]) => {
+        const cell = readColumn(row, c);
+        // Only `is` is modelled; PostgREST's .not() takes an operator name and
+        // any other one would silently pass, which is worse than throwing.
+        if (negatedOp !== "is") throw new Error(`fake-gmail: .not(_, "${negatedOp}", _) is not modelled`);
+        return v === null ? cell != null : cell !== v;
+      });
 
     const execute = () => {
       const failMsg = opts.failOn?.(table, op);
       if (failMsg) {
         ops.push({ table, op, filters: [...filters] });
         return { data: null, error: { message: failMsg }, count: null };
+      }
+      if (op === "insert") {
+        insertedThisCall = [];
+        for (const row of insertRows) {
+          const copy = { ...row };
+          if (copy.id === undefined) copy.id = nextId(table);
+          tables[table].push(copy);
+          insertedThisCall.push(copy);
+        }
+        ops.push({ table, op, values: { count: insertRows.length } as Row, filters: [...filters] });
+        return { data: insertedThisCall, error: null, count: insertedThisCall.length };
       }
       if (op === "upsert") {
         const conflictCols = (upsertOpts.onConflict ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -278,11 +301,17 @@ export function createFakeSyncDb(
       is: (c: string, v: unknown) => { isFilters.push([c, v]); filters.push([`is:${c}`, v]); return builder; },
       contains: (c: string, vs: unknown[]) => { containsFilters.push([c, vs]); filters.push([`contains:${c}`, vs]); return builder; },
       gt: (c: string, v: number) => { gtFilters.push([c, v]); filters.push([`gt:${c}`, v]); return builder; },
+      not: (c: string, negatedOp: string, v: unknown) => { notFilters.push([c, negatedOp, v]); filters.push([`not:${negatedOp}:${c}`, v]); return builder; },
       gte: (c: string, v: unknown) => { filters.push([`gte:${c}`, v]); return builder; },
       order: (c: string, opts?: { ascending?: boolean }) => { orderCol = c; orderAsc = opts?.ascending ?? true; return builder; },
       limit: (n: number) => { limitN = n; return builder; },
       range: (fromIdx: number, toIdx: number) => { rangeFrom = fromIdx; limitN = toIdx - fromIdx + 1; return builder; },
       update: (values: Row, _opts?: { count?: string }) => { op = "update"; updateValues = values; return builder; },
+      insert: (rows: Row | Row[]) => {
+        op = "insert";
+        insertRows = Array.isArray(rows) ? rows : [rows];
+        return builder;
+      },
       upsert: (rows: Row | Row[], opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
         op = "upsert";
         upsertRows = Array.isArray(rows) ? rows : [rows];
