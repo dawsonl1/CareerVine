@@ -139,6 +139,27 @@ privacy policy (a new stored preference column and a new category of outbound em
 to the user), README if the product story changes, and `CONVENTIONS.md` §e if the
 `email-send.ts` pointer text moves.
 
+### 7. MCP agent safety (added mid-build)
+
+Dawson's Cowork agent reported seven sends as landed when three had bounced, and
+discovered it only by inventing a `from:mailer-daemon` search. Three defects on
+that surface, folded into this ticket at his direction:
+
+- `resolveRecipient` WARNED on an address the contact does not have and proceeded.
+  All three bounces were guesses. Now throws `UnverifiedAddressError`, past only
+  with `allow_unverified_address: true`.
+- `send_email` returned `Sent to <name>`, a delivery claim the app cannot make.
+  Now `Handed to Gmail` plus `delivery: "unconfirmed"`, in the summary itself.
+- No verification path existed. New `check_delivery` tool, plus a bounce
+  annotation on `search_email_history` results.
+
+The design rule this establishes, recorded in the `tools/email.ts` header: when
+the caller is a model, a guardrail must be a **thrown error or a required
+parameter**, and anything that must not be misreported belongs in the **summary
+sentence**, not a sibling field. Advisory warnings and skill-file rules do not
+hold. The agent's own report demonstrated the latter: step 8 of that file still
+contradicted a rule set the day before.
+
 ## Verification
 
 - Unit: delay-vs-failure discrimination, RFC 3464 extraction, scheduled-email
