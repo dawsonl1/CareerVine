@@ -1194,10 +1194,13 @@ export async function processScheduledEmails(
   let errors = 0;
 
   for (const email of pending) {
-    // Atomic claim (CAR-134): the 15-min cron is the sole send driver
-    // (CAR-139 removed the page-load process triggers), but overlapping cron
-    // ticks can still race, and the race window is the whole Gmail round trip.
-    // Flip pending → sending first; whoever loses the CAS skips the row.
+    // Atomic claim (CAR-134). Two independent drivers call this: the A1 send
+    // watcher, which pokes the send route within ~15s of a row coming due, and
+    // QStash hourly behind it as a safety net (CAR-215). Either can start a run
+    // while the other is mid-flight, and the race window is the whole Gmail
+    // round trip. Flip pending → sending first; whoever loses the CAS skips the
+    // row. (CAR-139 had removed the page-load process triggers, leaving the
+    // cron as the only driver; CAR-215 added the watcher beside it.)
     // count, not .select() — the update writes the column the filter tests, so
     // a returning-representation read comes back empty on success (rule 17).
     const { count: claimed } = await supabase
@@ -1247,8 +1250,18 @@ export async function processScheduledEmails(
         );
       } catch (policyErr) {
         if (policyErr instanceof SendPolicyError) {
-          // Cap reached (429) → stop the batch, retry next run. Bounce (422) →
-          // leave pending; detectBounces cancels the row once the NDR lands.
+          // Cap reached (429) → stop the batch, retry next run.
+          //
+          // Bounce (422) → leave pending. The row is not stranded by that:
+          // detectBounces cancels pending rows to a bounced address, and it is
+          // the same pass that set the bounced_at this refusal reads. Until
+          // CAR-220 it only cancelled follow-up sequences and never touched
+          // this table, so this comment described a cancellation that did not
+          // exist and the row was re-claimed and re-refused on every tick,
+          // forever. Timing, stated rather than implied: detectBounces runs at
+          // the end of a COMPLETED /api/gmail/sync pass, and that pass is driven
+          // from the app (inbox load, settings), so the cancel lands on the
+          // user's next full sync rather than within seconds of the NDR.
           console.warn(`[scheduled] ${email.id} deferred: ${policyErr.message}`);
           await releaseClaim();
           if (policyErr.status === 429) break;
@@ -1351,6 +1364,10 @@ interface BounceEmailRow {
  * connection holds gmail.send alone and cannot list these messages at all. See
  * the CAR-217 plan for why the consequences (the contact-page flag, the send
  * refusal, the cancellations) stay ungated even though detection cannot be.
+ *
+ * Contact-scoped by design: an address this user has no contact row for is
+ * skipped entirely. bounced_at cannot be recorded for it, so nothing downstream
+ * refuses it and nothing is poisoned.
  */
 export async function detectBounces(
   userId: string,
@@ -1442,6 +1459,30 @@ export async function detectBounces(
   let cancelledSequences = 0;
   let cancelledScheduled = 0;
 
+  // Pending scheduled emails for this user, indexed by normalized recipient.
+  // Read once for the whole pass rather than per address.
+  //
+  // Matched in JS rather than with a filter because recipient_email is stored
+  // exactly as the user typed it — scheduled_emails has no normalizing trigger,
+  // unlike contact_emails — so `.eq` on the lowercased NDR address misses
+  // "John.Doe@X.com". `.ilike` is not the fix: `_` and `%` are legal characters
+  // in a local part and would silently match other people's addresses.
+  const pendingScheduled = must(
+    await supabase
+      .from("scheduled_emails")
+      .select("id, recipient_email")
+      .eq("user_id", userId)
+      .eq("status", ScheduledEmailStatus.Pending),
+  );
+  const scheduledByRecipient = new Map<string, number[]>();
+  for (const row of pendingScheduled ?? []) {
+    const key = (row.recipient_email ?? "").trim().toLowerCase();
+    if (!key) continue;
+    const ids = scheduledByRecipient.get(key);
+    if (ids) ids.push(row.id);
+    else scheduledByRecipient.set(key, [row.id]);
+  }
+
   for (const address of failedAddresses) {
     // Only touch addresses that belong to this user's contacts
     const emailRows = must(
@@ -1487,22 +1528,41 @@ export async function detectBounces(
     }
     cancelledSequences += sequencesForAddress;
 
-    // Cancel queued scheduled mail. count, not .select(): the update writes the
-    // column the status filter tests, so the returned representation is an
-    // unreliable success signal (house convention, rule 17).
-    const { count: scheduledCancelled, error: scheduledError } = await supabase
-      .from("scheduled_emails")
-      .update(
-        { status: ScheduledEmailStatus.Cancelled, updated_at: now },
-        { count: "exact" },
-      )
-      .eq("user_id", userId)
-      .eq("to_email", address)
-      .eq("status", ScheduledEmailStatus.Pending);
-    if (scheduledError) {
-      console.error(`[bounce] failed to cancel scheduled mail to ${address}:`, scheduledError);
+    // Cancel queued scheduled mail to the dead address.
+    //
+    // Keyed on ids from the normalized index above rather than a filter on the
+    // address. CAR-217 filtered `.eq("to_email", address)`, and that column does
+    // not exist — it is `recipient_email`. postgrest-js types `eq` as
+    // `ColumnName extends string`, so tsc could not catch it, and the unit
+    // fixtures seeded `to_email` too, so the tests passed while production
+    // returned 42703 and cancelled nothing. Matching in JS also handles the
+    // casing problem: recipient_email is stored as the user typed it (no
+    // normalizing trigger, unlike contact_emails), so `.eq` on a lowercased NDR
+    // address misses "John.Doe@X.com", and `.ilike` is not the fix because `_`
+    // and `%` are legal in a local part.
+    //
+    // Only PENDING: a 'sending' row is a live claim held mid-Gmail-round-trip
+    // and belongs to the stale-claim sweeper. The filter is re-asserted on the
+    // write so a row claimed between the read and here is left alone, and
+    // count (not .select()) is the success signal because the update writes the
+    // column the filter tests (rule 17).
+    const poisoned = scheduledByRecipient.get(address) ?? [];
+    let scheduledForAddress = 0;
+    if (poisoned.length > 0) {
+      const { count: scheduledCancelled, error: scheduledError } = await supabase
+        .from("scheduled_emails")
+        .update(
+          { status: ScheduledEmailStatus.Cancelled, updated_at: now },
+          { count: "exact" },
+        )
+        .in("id", poisoned)
+        .eq("status", ScheduledEmailStatus.Pending);
+      if (scheduledError) {
+        console.error(`[bounce] failed to cancel scheduled mail to ${address}:`, scheduledError);
+      } else {
+        scheduledForAddress = scheduledCancelled ?? 0;
+      }
     }
-    const scheduledForAddress = scheduledCancelled ?? 0;
     cancelledScheduled += scheduledForAddress;
 
     // The alert covers the transition only. An address re-detected on a later
@@ -1519,6 +1579,7 @@ export async function detectBounces(
         cancelledScheduled: scheduledForAddress,
       });
     }
+
   }
 
   const alert = await sendBounceAlert(userId, alertItems, { nowIso: now });

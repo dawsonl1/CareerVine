@@ -8,11 +8,12 @@
  * November 1, so a sequence created in October with a 21-day step is the
  * canonical failure.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   isValidIanaTimeZone,
   coerceTimeZone,
   zonedWallClockToUtc,
+  zonedTimeOfDay,
   zonedDateParts,
   localTimeDaysAfter,
   FALLBACK_TIME_ZONE,
@@ -38,15 +39,90 @@ describe("isValidIanaTimeZone", () => {
     }
   });
 
-  it("rejects junk, wrong types, and oversized values", () => {
+  it("rejects junk and wrong types", () => {
     for (const bad of ["", "Mars/Olympus_Mons", "not a zone", "../../etc/passwd", null, undefined, 42, {}]) {
       expect(isValidIanaTimeZone(bad), String(bad)).toBe(false);
     }
-    // The header is attacker-controlled; a megabyte of text must not reach Intl.
-    expect(isValidIanaTimeZone("A".repeat(65))).toBe(false);
   });
 
-  it("coerceTimeZone passes valid zones through and nulls the rest", () => {
+  /**
+   * The length cap is a SHORT-CIRCUIT, not a correctness filter. Intl rejects
+   * "A".repeat(65) on its own, so the old `expect(...).toBe(false)` assertion
+   * passed with the cap deleted and pinned nothing. Every >64-char probe tried
+   * was rejected by Intl too (the longest primary zone id is 30 chars,
+   * America/Argentina/Rio_Gallegos), so the cap is not observable through the
+   * return value at all. What it actually buys is that attacker-sized text
+   * never reaches Intl, so that is what this pins: deleting the cap makes the
+   * constructor call count 1 and turns this red.
+   */
+  it("never hands an oversized value to Intl at all", () => {
+    const spy = vi.spyOn(Intl, "DateTimeFormat");
+    try {
+      expect(isValidIanaTimeZone("A".repeat(65))).toBe(false);
+      expect(isValidIanaTimeZone("America/Denver".repeat(5000))).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  /**
+   * Defect found in the CAR-220 review. ECMA-402 accepts fixed-offset zones and
+   * legacy POSIX-style ids, so the old "does Intl.DateTimeFormat throw?" check
+   * let them through. A fixed offset never observes a DST transition, which
+   * reintroduces exactly the class of bug this module exists to end: a stored
+   * value that looks like zone data but silently never shifts.
+   */
+  it("rejects fixed-offset pseudo-zones that Intl otherwise accepts", () => {
+    for (const offsetZone of ["+05:30", "-07:00", "+0530", "-0700", "Etc/GMT+5", "Etc/GMT-5"]) {
+      // Guard the premise: these really are accepted by the raw Intl check.
+      expect(() => new Intl.DateTimeFormat("en-US", { timeZone: offsetZone }), offsetZone).not.toThrow();
+      expect(isValidIanaTimeZone(offsetZone), offsetZone).toBe(false);
+      expect(coerceTimeZone(offsetZone), offsetZone).toBeNull();
+    }
+  });
+
+  /**
+   * UTC is the module's own documented fallback, so it must keep validating —
+   * even though it is technically a fixed offset. Note it is NOT a member of
+   * `Intl.supportedValuesOf("timeZone")` (verified: that list carries no `Etc/*`
+   * and no `UTC` entry), so a naive allowlist check would reject the fallback.
+   */
+  it("accepts UTC and its aliases, normalizing them all to the fallback spelling", () => {
+    for (const utcish of ["UTC", "Etc/UTC", "GMT", "Etc/GMT", "Zulu", "Universal"]) {
+      expect(isValidIanaTimeZone(utcish), utcish).toBe(true);
+      expect(coerceTimeZone(utcish), utcish).toBe(FALLBACK_TIME_ZONE);
+    }
+  });
+
+  /**
+   * `supportedValuesOf` lists only PRIMARY zone ids, so a bare membership test
+   * would reject real browser-reported zones that are links to a primary id.
+   * Verified on this runtime: Asia/Kolkata, Asia/Kathmandu and Europe/Kyiv are
+   * all absent from the list while their canonical targets are present. So the
+   * check canonicalizes first, and the canonical form is what gets returned —
+   * which also means downstream consumers (Google freebusy) get a zone name the
+   * tz database actually carries.
+   */
+  it("accepts aliases and non-canonical spellings, returning the canonical id", () => {
+    const supported = new Set(Intl.supportedValuesOf("timeZone"));
+    // Stable, long-settled aliases: exact canonical target asserted.
+    expect(coerceTimeZone("US/Mountain")).toBe("America/Denver");
+    expect(coerceTimeZone("america/denver")).toBe("America/Denver");
+    // EST5EDT is a POSIX-style id, but it is a link to a REAL DST-observing
+    // zone rather than a frozen offset, so it is legitimately accepted.
+    expect(coerceTimeZone("EST5EDT")).toBe("America/New_York");
+
+    // These flip canonical target between ICU releases (Kolkata/Calcutta,
+    // Kyiv/Kiev), so pin the property rather than the string.
+    for (const alias of ["Asia/Kolkata", "Asia/Kathmandu", "Europe/Kyiv"]) {
+      const canonical = coerceTimeZone(alias);
+      expect(canonical, alias).not.toBeNull();
+      expect(supported.has(canonical as string), `${alias} -> ${canonical} is canonical`).toBe(true);
+    }
+  });
+
+  it("accepts real zones and coerceTimeZone nulls the rest", () => {
     expect(coerceTimeZone("America/Denver")).toBe("America/Denver");
     expect(coerceTimeZone("Mars/Olympus_Mons")).toBeNull();
   });
@@ -72,9 +148,48 @@ describe("zonedWallClockToUtc", () => {
       .toBe("2026-11-15T14:05:00.000Z"); // EST, UTC-5
   });
 
-  it("round-trips midnight, where hour12:false can render '24'", () => {
+  it("round-trips midnight", () => {
     const instant = zonedWallClockToUtc(2026, 11, 15, 0, 0, "America/Denver");
     expect(wallClockIn(instant, "America/Denver")).toBe("2026-11-15, 00:00");
+  });
+
+  /**
+   * The `% 24` guards exist for ICU builds where `hour12: false` resolves to
+   * hourCycle h24 and renders midnight as hour "24". Current Node resolves it
+   * to h23 (verified: `hour12:false` reports hourCycle "h23" and renders "00"),
+   * so the plain midnight test above passes with both `% 24` guards deleted and
+   * pins nothing. The quirk IS reproducible by forcing h24 — under it, ICU
+   * renders hour "24" while keeping the CORRECT date, so reading it back
+   * literally lands 24h out. This stub forces that build's behaviour so the
+   * guard is actually exercised; deleting either `% 24` turns this red.
+   */
+  it("survives an ICU build that renders midnight as hour '24'", () => {
+    const RealDateTimeFormat = Intl.DateTimeFormat;
+    const patched = function (locale?: string, options?: Intl.DateTimeFormatOptions) {
+      const opts: Intl.DateTimeFormatOptions = { ...options };
+      if (opts.hour12 === false) {
+        delete opts.hour12;
+        opts.hourCycle = "h24";
+      }
+      return new RealDateTimeFormat(locale, opts);
+    } as unknown as typeof Intl.DateTimeFormat;
+    patched.supportedLocalesOf = RealDateTimeFormat.supportedLocalesOf;
+    Intl.DateTimeFormat = patched;
+
+    try {
+      // Premise guard: the stub really does produce hour "24" on the date we use.
+      const raw = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Denver", hour12: false, hour: "2-digit",
+      }).formatToParts(new Date("2026-11-15T07:00:00Z"));
+      expect(raw.find((p) => p.type === "hour")?.value).toBe("24");
+
+      // Denver is UTC-7 on 2026-11-15, so local midnight is 07:00Z.
+      expect(zonedWallClockToUtc(2026, 11, 15, 0, 0, "America/Denver").toISOString())
+        .toBe("2026-11-15T07:00:00.000Z");
+      expect(zonedTimeOfDay(new Date("2026-11-15T07:00:00Z"), "America/Denver")).toBe("00:00");
+    } finally {
+      Intl.DateTimeFormat = RealDateTimeFormat;
+    }
   });
 
   it("round-trips a sweep of times and zones back to the requested wall clock", () => {
@@ -118,6 +233,63 @@ describe("zonedWallClockToUtc", () => {
     const overlap = zonedWallClockToUtc(2026, 11, 1, 1, 30, "America/Denver");
     expect(overlap.toISOString()).toBe("2026-11-01T07:30:00.000Z");
     expect(wallClockIn(overlap, "America/Denver")).toBe("2026-11-01, 01:30");
+  });
+
+  /**
+   * The other half of the gap/overlap behaviour, and the reason the old doc
+   * comment was wrong. Denver's "pre-jump / first occurrence" result is not a
+   * universal law: which side you land on follows the SIGN of the lower
+   * (non-advanced) of the two offsets straddling the transition. These two
+   * zones are non-negative, so they land on the opposite side from Denver.
+   *
+   * Census over all 418 `Intl.supportedValuesOf("timeZone")` entries, every
+   * transition 2025-2032, probing every minute inside each gap/overlap
+   * (123,318 probes): 57 zones pre-jump/first, 73 post-jump/second, and zero
+   * violations of the sign rule. No zone appeared in both buckets.
+   */
+  it("resolves a spring-forward gap to the POST-jump side in a non-negative zone", () => {
+    // 2026-03-29, London jumps 01:00 GMT (UTC+0) -> 02:00 BST (UTC+1).
+    // 01:26 never happens; unlike Denver, it lands after the jump, not before.
+    const gap = zonedWallClockToUtc(2026, 3, 29, 1, 26, "Europe/London");
+    expect(gap.toISOString()).toBe("2026-03-29T01:26:00.000Z");
+    expect(wallClockIn(gap, "Europe/London")).toBe("2026-03-29, 02:26");
+  });
+
+  it("resolves a fall-back overlap to the SECOND occurrence in a positive zone", () => {
+    // 2026-04-05, Sydney repeats 02:00-03:00 (UTC+11 -> UTC+10). 02:26 happens
+    // at 15:26Z and again at 16:26Z; unlike Denver, we get the later one.
+    const overlap = zonedWallClockToUtc(2026, 4, 5, 2, 26, "Australia/Sydney");
+    expect(overlap.toISOString()).toBe("2026-04-04T16:26:00.000Z");
+    expect(wallClockIn(overlap, "Australia/Sydney")).toBe("2026-04-05, 02:26");
+    // Pin that this really is the SECOND of two: the first also reads 02:26.
+    expect(wallClockIn(new Date("2026-04-04T15:26:00.000Z"), "Australia/Sydney")).toBe("2026-04-05, 02:26");
+  });
+
+  /**
+   * Atlantic/Azores is the zone that forces the rule to be stated in terms of
+   * the LOWER offset rather than "the zone's offset": it straddles -01:00 ->
+   * +00:00, so the two sides disagree in sign. It follows the negative side.
+   */
+  it("follows the lower offset's sign in a zone that straddles zero", () => {
+    // 2026-03-29: Azores jumps 00:00 -01 -> 01:00 +00. Lower offset is -01:00,
+    // so this behaves like Denver (pre-jump), not like London.
+    const gap = zonedWallClockToUtc(2026, 3, 29, 0, 30, "Atlantic/Azores");
+    expect(gap.getTime()).toBeLessThan(new Date("2026-03-29T01:00:00.000Z").getTime());
+  });
+
+  /**
+   * A gap request can roll the LOCAL DATE back a day when the transition sits
+   * at local midnight, which is a second way "resolves to the pre-jump side"
+   * misleads. Verified across 2025-2032 as the complete set of zones where a
+   * gap probe leaves the requested calendar day: Havana, Santiago, Azores.
+   * Unreachable from the 09:05 default; reachable via a user-picked sendTime.
+   */
+  it("can roll the local date back for a midnight-transition zone", () => {
+    const havana = zonedWallClockToUtc(2026, 3, 8, 0, 30, "America/Havana");
+    expect(wallClockIn(havana, "America/Havana")).toBe("2026-03-07, 23:30");
+
+    const santiago = zonedWallClockToUtc(2026, 9, 6, 0, 30, "America/Santiago");
+    expect(wallClockIn(santiago, "America/Santiago")).toBe("2026-09-05, 23:30");
   });
 
   it("falls back to UTC for an unusable zone instead of throwing", () => {

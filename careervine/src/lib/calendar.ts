@@ -68,16 +68,32 @@ export async function getCalendarClient(userId: string) {
 }
 
 /**
- * Get the user's Google Calendar timezone setting.
- * Called on first Calendar connect to store the authoritative timezone.
+ * Get the user's Google Calendar timezone setting, or null if Google did not
+ * tell us. Called on first Calendar connect to store the authoritative zone.
+ *
+ * ── Why null and not a default (CAR-220) ────────────────────────────────
+ *
+ * This used to return DEFAULT_TIMEZONE ("America/New_York") from BOTH of its
+ * fallbacks. CAR-215 then "fixed" the caller with `calendar_timezone: tz ||
+ * null`, commented as "if Google did not tell us the zone, saying so is
+ * honest" — but that branch was unreachable, because the value was never
+ * falsy. A transient settings.get failure still wrote a literal Eastern zone,
+ * and the caller stamps calendar_last_synced_at unconditionally, so the
+ * migration's "never synced therefore fake" heuristic could never catch it
+ * afterwards. That is the precise fake-data class CAR-215 set out to purge,
+ * reintroduced by the fix meant to end it.
+ *
+ * Returning null makes the caller's guard mean something. Callers that need a
+ * concrete zone should resolve one via resolveUserTimeZone rather than
+ * assuming a region.
  */
-export async function getCalendarTimezone(userId: string): Promise<string> {
+export async function getCalendarTimezone(userId: string): Promise<string | null> {
   try {
     const calendar = await getCalendarClient(userId);
     const res = await calendar.settings.get({ setting: "timezone" });
-    return res.data.value || DEFAULT_TIMEZONE;
+    return res.data.value || null;
   } catch {
-    return DEFAULT_TIMEZONE;
+    return null;
   }
 }
 

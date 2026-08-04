@@ -7,6 +7,7 @@
  * declared — turns this test red, so an unregistered cron can never ship silently.
  */
 
+import fg from "fast-glob";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -183,24 +184,59 @@ describe("QStash cadence is pinned to the registry", () => {
     },
   );
 
-  it("no longer advertises a polling interval in user-facing copy", () => {
-    // The whole point of CAR-215 is that the delay is gone. A doc still saying
-    // "every 15 minutes" would be describing the bug as a feature.
+  /**
+   * CAR-220: this swept exactly two files while its commit message described it
+   * as covering every surface. Two live toasts kept telling users a requeued
+   * email would "send within 15 minutes" (it now goes in ~15 seconds), and five
+   * code comments still called the cron "the sole send driver" — including the
+   * retry route the CAR-215 plan had explicitly listed as copy that must move.
+   *
+   * A guard that names two paths cannot notice a third. So the sweep now walks
+   * every user-facing component and API route rather than an allowlist, and a
+   * new surface is covered the moment it exists.
+   */
+  it("no longer advertises a polling interval anywhere user-facing", async () => {
     const repoRoot = path.resolve(here, "../../..");
-    for (const rel of [
-      ["careervine", "README.md"],
-      ["careervine", "public", "docs", "index.html"],
-    ]) {
-      const file = path.join(repoRoot, ...rel);
+    const files = [
+      path.join(repoRoot, "careervine", "README.md"),
+      path.join(repoRoot, "careervine", "public", "docs", "index.html"),
+      ...(await fg(["careervine/src/components/**/*.tsx", "careervine/src/app/api/**/*.ts"], {
+        cwd: repoRoot,
+        absolute: true,
+        ignore: ["**/__tests__/**"],
+      })),
+    ];
+
+    const offenders: string[] = [];
+    for (const file of files) {
       const copy = readFileSync(file, "utf8");
       for (const pattern of STALE_CADENCE) {
         const hit = copy.match(pattern);
-        expect(
-          hit?.[0],
-          `${path.relative(repoRoot, file)} still advertises a polling interval ("${hit?.[0]}"). ` +
-            `Sends are now driven by the A1 watcher within seconds; QStash is only the hourly net.`,
-        ).toBeUndefined();
+        if (hit) offenders.push(`${path.relative(repoRoot, file)}: "${hit[0]}"`);
       }
     }
+
+    expect(
+      offenders,
+      "these still advertise a polling interval. Sends are driven by the A1 watcher " +
+        "within seconds; QStash is only the hourly safety net.",
+    ).toEqual([]);
+  });
+
+  it("no longer calls the cron the sole send driver", () => {
+    // A second, separate claim: CAR-139 made the cron the only driver, CAR-215
+    // made the watcher primary. Comments asserting the old arrangement send the
+    // next reader looking in the wrong place.
+    const repoRoot = path.resolve(here, "../../..");
+    const hits = fg.sync(["careervine/src/**/*.ts", "careervine/src/**/*.tsx"], {
+      cwd: repoRoot,
+      absolute: true,
+      ignore: ["**/__tests__/**", "**/node_modules/**"],
+    }).filter((f) => /sole send driver/.test(readFileSync(f, "utf8")));
+
+    expect(
+      hits.map((f) => path.relative(repoRoot, f)),
+      "the cron is no longer the sole send driver (CAR-215)",
+    ).toEqual([]);
   });
 });

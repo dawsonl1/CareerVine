@@ -413,8 +413,8 @@ export function InboxShell() {
     retryingRef.current.delete(id);
     if (!requeued) return;
 
-    // The cron is the sole send driver (CAR-139); the requeued email goes
-    // out on the next tick (within ~15 minutes).
+    // The A1 send watcher drives sends within ~15s of a row coming due, with
+    // QStash hourly behind it (CAR-215). A requeued email is due immediately.
     setScheduledEmails((prev) =>
       prev.map((e) => (e.id === id ? { ...e, status: "pending" } : e)),
     );
