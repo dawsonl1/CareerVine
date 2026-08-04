@@ -8,6 +8,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { wrapUntrusted } from "@/lib/ai/untrusted";
 import { must } from "@/lib/data/client";
+import { sortEducation, sortExperiences } from "@/lib/experience-order";
 
 export interface ContactContext {
   contactName: string;
@@ -60,7 +61,7 @@ export async function gatherContactContext(
       locations(city, state, country),
       contact_emails(email),
       contact_companies(
-        title, is_current,
+        title, is_current, start_month, end_month,
         companies(name)
       ),
       contact_schools(
@@ -76,36 +77,39 @@ export async function gatherContactContext(
     throw new Error(`Contact ${contactId} not found or not owned by user`);
   }
 
-  // Extract companies
-  const companies = (
-    contact.contact_companies as unknown as Array<{
+  // Extract companies — newest first, so the model reads the current role
+  // first rather than whatever order the join returned (CAR-216).
+  const companies = sortExperiences(
+    (contact.contact_companies as unknown as Array<{
       title: string | null;
       is_current: boolean;
+      start_month: string | null;
+      end_month: string | null;
       companies: { name: string } | null;
-    }> | null
-  )?.map((cc) => {
+    }> | null) ?? [],
+  ).map((cc) => {
     const name = cc.companies?.name || "Unknown";
     return cc.is_current
       ? `${cc.title || "Role"} at ${name} (current)`
       : `${cc.title || "Role"} at ${name}`;
-  }) || [];
+  });
 
   // Extract schools
-  const schools = (
-    contact.contact_schools as unknown as Array<{
+  const schools = sortEducation(
+    (contact.contact_schools as unknown as Array<{
       degree: string | null;
       field_of_study: string | null;
       start_year: number | null;
       end_year: number | null;
       schools: { name: string } | null;
-    }> | null
-  )?.map((cs) => {
+    }> | null) ?? [],
+  ).map((cs) => {
     const name = cs.schools?.name || "Unknown";
     const deg = [cs.degree, cs.field_of_study].filter(Boolean).join(" in ");
     const years = [cs.start_year, cs.end_year].filter(Boolean).join("–");
     const base = deg ? `${deg} from ${name}` : name;
     return years ? `${base} (${years})` : base;
-  }) || [];
+  });
 
   // Location
   const loc = contact.locations as unknown as {

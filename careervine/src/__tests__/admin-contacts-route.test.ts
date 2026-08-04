@@ -72,17 +72,21 @@ const CONTACT_ROW = {
   network_status: "prospect",
   created_at: "2026-07-01T00:00:00Z",
   contact_emails: [{ email: "ada@example.com", is_primary: true }],
+  // Oldest first, as the join returns it (company_id order) — so a route that
+  // just took the first row would answer "Engineer at Old Co" (CAR-216).
   contact_companies: [
     {
       title: "Engineer",
       is_current: false,
-      start_date: "2020-01-01",
+      start_month: "Jan 2020",
+      end_month: "Dec 2023",
       companies: { name: "Old Co" },
     },
     {
       title: "PM",
       is_current: true,
-      start_date: "2024-01-01",
+      start_month: "Jan 2024",
+      end_month: "Present",
       companies: { name: "Qualtrics" },
     },
   ],

@@ -132,3 +132,8 @@ keep their network visually recognizable at a glance:
 
 Photos are stored per account and instantly reflected across contact views, helping
 users scan and recognize relationships faster.
+
+Work history and education read in the order a person would tell it: whatever they
+are doing now, then everything before it, newest first. The same ranking decides the
+role shown under their name on the profile, in search, and on every contact card, so
+someone holding several board seats no longer leads with an arbitrary one.

@@ -9,6 +9,7 @@
 import type { DossierBundle } from "./db";
 import { dateKeyOf, daysBetweenDateKeys } from "@/lib/calendar-day";
 import { abbrFor, schoolsMatch } from "@/lib/schools/affinity";
+import { primaryCurrentRole, sortEducation, sortExperiences } from "@/lib/experience-order";
 
 interface ContactEmbed {
   id: number;
@@ -86,7 +87,7 @@ export function buildDossier(
   const viewerSchoolAbbr = abbrFor(viewerSchool);
   const c = bundle.contact as unknown as ContactEmbed;
 
-  const currentRole = c.contact_companies.find((cc) => cc.is_current);
+  const currentRole = primaryCurrentRole(c.contact_companies);
   const roleLine = currentRole
     ? [currentRole.title, currentRole.companies?.name].filter(Boolean).join(" at ")
     : null;
@@ -153,9 +154,7 @@ export function buildDossier(
       last_touch_days_ago: lastTouchDays,
       pipeline_review_note: c.review_note,
     },
-    work_history: c.contact_companies
-      .slice()
-      .sort((a, b) => Number(b.is_current) - Number(a.is_current) || (b.start_month ?? "").localeCompare(a.start_month ?? ""))
+    work_history: sortExperiences(c.contact_companies)
       .map((cc) => ({
         company: cc.companies?.name ?? null,
         company_id: cc.companies?.id ?? null,
@@ -165,7 +164,7 @@ export function buildDossier(
         end_month: cc.end_month,
         workplace_type: cc.workplace_type,
       })),
-    education: c.contact_schools.map((s) => ({
+    education: sortEducation(c.contact_schools).map((s) => ({
       school: s.schools?.name ?? null,
       degree: s.degree,
       field_of_study: s.field_of_study,

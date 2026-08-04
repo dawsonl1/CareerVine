@@ -21,6 +21,7 @@ import {
 import { buildDossier } from "../lib/dossier";
 import { handler, contactRefShape } from "../lib/tool-utils";
 import { dateKeyOf, daysBetweenDateKeys, todayDateKey } from "@/lib/calendar-day";
+import { primaryCurrentRole } from "@/lib/experience-order";
 
 export const searchContactsSchema = {
   query: z.string().min(1).describe("Matches name, email, company, job title, school, industry, or tag"),
@@ -118,7 +119,7 @@ export function registerContactTools(server: McpServer): void {
       ]);
 
       const results = matches.map((m) => {
-        const current = m.contact_companies.find((cc) => cc.is_current);
+        const current = primaryCurrentRole(m.contact_companies);
         const usable = m.contact_emails.filter((e) => e.email);
         const primary = usable.find((e) => e.is_primary) ?? usable[0];
         const touched = lastTouch.get(m.id);

@@ -187,7 +187,9 @@ export interface SearchRow {
   network_status: string;
   stage_override: string | null;
   contact_emails: Array<{ email: string | null; is_primary: boolean; source: string; bounced_at: string | null }>;
-  contact_companies: Array<{ title: string | null; is_current: boolean; companies: { name: string } | null }>;
+  // start/end months are here only so the current role can be picked by recency
+  // rather than by the company_id order the join arrives in (CAR-216).
+  contact_companies: Array<{ title: string | null; is_current: boolean; start_month: string | null; end_month: string | null; companies: { name: string } | null }>;
   contact_schools: Array<{ schools: { name: string } | null }>;
   contact_tags: Array<{ tags: { name: string } | null }>;
 }
@@ -205,7 +207,7 @@ export async function fetchSearchRows(tiers?: string[]): Promise<SearchRow[]> {
       .select(`
         id, name, headline, industry, network_status, stage_override,
         contact_emails(email, is_primary, source, bounced_at),
-        contact_companies(title, is_current, companies(name)),
+        contact_companies(title, is_current, start_month, end_month, companies(name)),
         contact_schools(schools(name)),
         contact_tags(tags(name))
       `)
