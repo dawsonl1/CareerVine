@@ -51,6 +51,11 @@ export const SCHEDULES = [
   { name: "storage-sweep", path: "/api/cron/storage-sweep", cron: "0 10 * * *", retries: 3 },
   { name: "data-retention", path: "/api/cron/data-retention", cron: "30 10 * * *", retries: 3 },
   { name: "follow-up-nudges", path: "/api/cron/follow-up-nudges", cron: "0 15 * * *", retries: 3 },
+  // CAR-217: unattended bounce sweep. Daily, because nothing downstream is
+  // time-critical to the minute (sendTrackedEmail's 422 already blocks the next
+  // send at a dead address) and an hourly per-user Gmail search that almost
+  // always finds nothing would spend the Fluid budget for no delivery gain.
+  { name: "detect-bounces", path: "/api/cron/detect-bounces", cron: "0 11 * * *", retries: 3 },
 ];
 
 const auth = (token) => ({ Authorization: `Bearer ${token}` });

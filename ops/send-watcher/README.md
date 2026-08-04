@@ -5,14 +5,17 @@ user picked, instead of up to 15 minutes late.
 
 ## What it is
 
-A ~200-line Python daemon on the Oracle A1 box (`ssh a1`). Every ~15s it asks
+A single-file Python daemon on the Oracle A1 box (`ssh a1`). Every ~15s it asks
 Postgres one question, `SELECT * FROM due_send_counts()`, and if the answer is
 non-zero it POSTs the existing CareerVine cron route so the app sends.
 
-**It is a clock, not a scheduler.** It never decides what to send and cannot
-read a recipient, subject, or send time. All send logic stays in the Next app
-where it is tested. If this box ever starts deciding *what* goes out, the logic
-is split across two deploys and two release processes.
+**It is a clock, not a scheduler.** It never decides what to send, and it never
+writes down anything about a message: its one query returns two integers, and
+the cron responses it POSTs are logged as their numeric counters with every
+string field dropped, including the `oldestDueScheduledAt` send time they carry.
+All send logic stays in the Next app where it is tested. If this box ever starts
+deciding *what* goes out, the logic is split across two deploys and two release
+processes.
 
 ## Why not the obvious designs
 
@@ -35,6 +38,15 @@ Exactly two integers. `due_send_counts()` is `SECURITY DEFINER` with a pinned
 table privileges at all**. Someone who takes this box gets two numbers and the
 ability to make CareerVine run a sweep it was already going to run.
 
+What it *keeps* is narrower still, because journald holds whatever it is handed
+for as long as the box lives. The journal gets counts, route names, HTTP status
+codes, and the numeric counters parsed out of each cron response (`sent=2
+maxDelayMs=9000`); string fields, including the `oldestDueScheduledAt` send
+time, are dropped before the line is written. A filter on the logger also blanks
+the DSN, the cron bearer and the heartbeat URL wherever a library puts one into
+an error message, which libpq does with the entire connection string whenever
+the DSN fails to parse.
+
 The counts mirror the crons' real due conditions, including the suspended-user
 and inactive-sequence filters. Looser counts would make a permanently-skipped
 row read as forever-due, and the watcher would poke Vercel every 15s forever.
@@ -50,8 +62,12 @@ logged nothing). So failure is designed for, not hoped against:
    two concurrent drivers safe, so nothing double-sends.
 2. **A BetterStack heartbeat emails Dawson when pings stop.** Off-box on
    purpose: a dead box cannot report its own death.
-3. **The heartbeat only fires on a clean cycle**, so a watcher that is running
-   but cannot reach Postgres still trips the alert.
+3. **The heartbeat only fires on a cycle that both read the database and got
+   its triggers accepted.** A watcher that cannot reach Postgres trips the
+   alert, and so does one whose POSTs keep failing: with Postgres healthy and
+   Vercel returning 500, an earlier version beat "healthy" every 15 seconds
+   while delivering nothing. It takes `TRIGGER_FAILURE_TOLERANCE` consecutive
+   failures on one route, so a single cold-start blip pages nobody.
 4. **A `FLOOR_SECONDS` sweep** runs each route at least every 15 minutes even
    when the counts say nothing is due, so a bug in `due_send_counts()` cannot
    strand mail until the hourly net catches it.
@@ -73,11 +89,33 @@ CRON_TRIGGER_SECRET=<matches Vercel production env>
 HEARTBEAT_URL=<BetterStack heartbeat URL>
 POLL_SECONDS=15
 FLOOR_SECONDS=900
+TRIGGER_FAILURE_TOLERANCE=3
 ```
 
-`APP_BASE_URL` must be the **www** host. The apex 307-redirects and undici
-strips the `Authorization` header on the cross-origin hop (learned rule 29), so
-the apex would fail as an inscrutable 401.
+Every numeric value is validated at startup: an empty value means "unset" (a
+bare `POLL_SECONDS=` line is an empty string, which used to raise straight into
+systemd's 10s restart loop), a value below its minimum is clamped and logged
+(`POLL_SECONDS=0` was an unthrottled loop against Supabase and Vercel), and a
+value that is not a number stops startup naming the variable.
+
+`APP_BASE_URL` must be the **www** host, and startup refuses a value without a
+scheme. The apex 307-redirects to www, and `urllib` follows a redirect only for
+GET and HEAD, so a POST to the apex raises `HTTPError: 307` and every trigger
+fails loudly in the journal. (Learned rule 29 requires the www host for a
+different client and a different symptom: `undici`, inside the Next app, strips
+the `Authorization` header on the cross-origin hop and produces a 401. Same
+rule, different failure.)
+
+The DSN carries no timeout or keepalive parameters on purpose. `connect()`
+applies `connect_timeout`, `keepalives*` and `tcp_user_timeout` itself, and the
+query sets its own `statement_timeout`, so a hand-rebuilt env file cannot ship a
+connection without them. They bound two different hangs: keepalives kill a
+socket that died while idle, `tcp_user_timeout` bounds data already in flight
+(without it a half-open socket parked the daemon in `recv()` for ~15 minutes,
+dark, while `conn.closed` stayed 0), and `statement_timeout` bounds a query the
+server is simply slow to answer. It is set with `SET LOCAL` rather than a
+connect-time `options=-c`, because a transaction pooler that rejects an unknown
+startup parameter rejects the whole connection.
 
 The A1 is **IPv4-only** and Supabase direct connections
 (`db.<ref>.supabase.co`) are IPv6-only on the free tier, so the DSN must use the
@@ -101,6 +139,13 @@ Deploy a code change:
 
 ```bash
 scp ops/send-watcher/send_watcher.py a1:/tmp/ && ssh a1 'sudo install -m 755 /tmp/send_watcher.py /opt/careervine/send-watcher/send_watcher.py && sudo systemctl restart careervine-send-watcher'
+```
+
+A change to the unit file is a separate deploy, and restarting the daemon does
+not pick it up:
+
+```bash
+scp ops/send-watcher/careervine-send-watcher.service a1:/tmp/ && ssh a1 'sudo install -m 644 /tmp/careervine-send-watcher.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart careervine-send-watcher'
 ```
 
 ## If the A1 is lost

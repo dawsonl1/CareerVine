@@ -40,14 +40,19 @@ const HAND_ROLLED: Record<string, string> = {
   // QStash signed webhooks — shared withQStashVerification (src/lib/qstash-verify.ts)
   // over the upstash-signature header; refuses 401 when signing keys are unset.
   "cron/data-retention/route.ts": "qstash-signature",
+  "cron/detect-bounces/route.ts": "qstash-signature",
   "cron/discovery/route.ts": "qstash-signature",
   "cron/follow-up-nudges/route.ts": "qstash-signature",
   "cron/scrape-refresh/route.ts": "qstash-signature",
-  "cron/send-follow-ups/route.ts": "qstash-signature",
-  "cron/send-scheduled-emails/route.ts": "qstash-signature",
   "cron/storage-sweep/route.ts": "qstash-signature",
   "cron/sync-bundles/route.ts": "qstash-signature",
   "queue/bundle-sync/route.ts": "qstash-signature",
+  // Same wrapper, plus `allowCronBearer` — these two additionally accept
+  // Authorization: Bearer $CRON_TRIGGER_SECRET, because the A1 send watcher
+  // drives them at ~15s and cannot produce a QStash signature (CAR-215).
+  // The credential's blast radius is exactly this pair; see CRON_BEARER_ROUTES.
+  "cron/send-follow-ups/route.ts": "qstash-signature+cron-bearer",
+  "cron/send-scheduled-emails/route.ts": "qstash-signature+cron-bearer",
   // Apify completion webhook — shared secret via timingSafeEqual (header, CAR-140).
   "apify/run-callback/route.ts": "webhook-secret",
   // One-click unsubscribe — signed HMAC token, intentionally unauthenticated (RFC 8058).
@@ -131,6 +136,95 @@ describe("route-auth inventory", () => {
     const existing = new Set(routeFiles.map(rel));
     const stale = Object.keys(HAND_ROLLED).filter((k) => !existing.has(k));
     expect(stale, `HAND_ROLLED entries with no matching route file: ${stale.join(", ")}`).toEqual([]);
+  });
+
+  /**
+   * Which routes accept the cron-trigger bearer (CAR-220).
+   *
+   * `withQStashVerification` used to check `Authorization: Bearer
+   * $CRON_TRIGGER_SECRET` at the shared chokepoint with no route scoping, so one
+   * secret minted for "run the due-send sweep now" also opened both destructive
+   * purges, both paid-Apify routes, the QStash fan-out, the nudge mailer, and
+   * the bundle-sync queue — the last of which had its request body bound by the
+   * QStash signature until the bearer path stopped requiring one.
+   *
+   * The wrapper now defaults closed and each route opts in, which moves the
+   * blast radius from "whatever imports the wrapper" to this list. That makes it
+   * a claim worth pinning: the mechanism label and the source text must agree in
+   * both directions, so adding the flag to a third route fails here until
+   * someone writes down that it is intended.
+   */
+  const CRON_BEARER = /\ballowCronBearer\s*:\s*true\b/;
+  const CRON_BEARER_ROUTES = Object.entries(HAND_ROLLED)
+    .filter(([, mechanism]) => mechanism === "qstash-signature+cron-bearer")
+    .map(([route]) => route)
+    .sort();
+
+  it("the cron-bearer detector matches an opt-in and nothing else", () => {
+    // The two assertions below are only as good as this regex, and a text probe
+    // that silently matches nothing would report success. Pinned against the
+    // shapes a route can plausibly be written in.
+    for (const src of [
+      "return withQStashVerification(req, handler, { allowCronBearer: true });",
+      "withQStashVerification(\n  req,\n  handler,\n  { allowCronBearer: true },\n)",
+      "const OPTS = {allowCronBearer:true};",
+    ]) {
+      expect(CRON_BEARER.test(src), `should match: ${src}`).toBe(true);
+    }
+    for (const src of [
+      "return withQStashVerification(req, handler);",
+      "return withQStashVerification(req, handler, { allowCronBearer: false });",
+      "// allowCronBearer is deliberately not passed here",
+      "{ allowCronBearerSomeday: true }",
+    ]) {
+      expect(CRON_BEARER.test(src), `should NOT match: ${src}`).toBe(false);
+    }
+  });
+
+  it("only the two send routes accept the cron-trigger bearer", () => {
+    expect(CRON_BEARER_ROUTES).toEqual([
+      "cron/send-follow-ups/route.ts",
+      "cron/send-scheduled-emails/route.ts",
+    ]);
+  });
+
+  it("the cron-bearer label matches the source in both directions", () => {
+    const wrong: string[] = [];
+    for (const f of routeFiles) {
+      const mechanism = HAND_ROLLED[rel(f)];
+      const text = readFileSync(path.join(apiDir, f), "utf8");
+      const optsIn = CRON_BEARER.test(text);
+      const labelled = mechanism === "qstash-signature+cron-bearer";
+      if (optsIn && !labelled) {
+        wrong.push(
+          `${rel(f)} passes allowCronBearer but is labelled "${mechanism ?? "(not hand-rolled)"}" — ` +
+            "the cron bearer is a second credential into this route; label it " +
+            '"qstash-signature+cron-bearer" and confirm the watcher really needs it',
+        );
+      }
+      if (labelled && !optsIn) {
+        wrong.push(
+          `${rel(f)} is labelled as accepting the cron bearer but does not pass ` +
+            "{ allowCronBearer: true } to withQStashVerification — the A1 watcher will get 401s here",
+        );
+      }
+    }
+    expect(wrong, wrong.join("\n")).toEqual([]);
+  });
+
+  it("every route the wrapper is used in is inventoried as a qstash mechanism", () => {
+    // Anti-vacuity for the pair above: if the wrapper were renamed or a route
+    // stopped importing it, the bidirectional check would pass over nothing.
+    const users = routeFiles.filter((f) =>
+      /\bwithQStashVerification\s*\(/.test(readFileSync(path.join(apiDir, f), "utf8")),
+    );
+    // Deliberately a literal, not derived from HAND_ROLLED: adding a route
+    // should force someone to look at this file and decide whether it belongs
+    // on the signature alone or opts into the cron bearer. CAR-217's
+    // detect-bounces took it from 9 to 10, and correctly stayed signature-only.
+    expect(users.length).toBe(10);
+    const mislabelled = users.filter((f) => !(HAND_ROLLED[rel(f)] ?? "").startsWith("qstash-signature"));
+    expect(mislabelled, `routes using withQStashVerification without a qstash mechanism label: ${mislabelled.join(", ")}`).toEqual([]);
   });
 
   it("hand-rolled admin routes are the only admin routes without requireAdmin", () => {

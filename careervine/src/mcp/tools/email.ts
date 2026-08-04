@@ -5,11 +5,30 @@
  * through the app's shared sendTrackedEmail() (daily cap, bounce
  * refusal, caching, interaction logging, no tier graduation). Bounced
  * addresses are refused on every path — draft, send, schedule, sequence.
+ *
+ * ── Writing for an LLM caller (CAR-217) ─────────────────────────────────
+ *
+ * Every caller of this file is a model, which changes what a guardrail has to
+ * look like to work. Three rules came out of a real incident where an agent
+ * guessed three addresses, sent to all three, and reported all three as
+ * delivered while two had bounced:
+ *
+ * 1. A warning returned beside a success payload does not stop anything. It is
+ *    advisory text competing with the rest of the model's context. If a case
+ *    must not proceed, THROW; if it may proceed only deliberately, gate it on a
+ *    parameter the schema requires (`allow_unverified_address`). A model cannot
+ *    forget to pass something it has to pass.
+ * 2. The `summary` is the headline and everything else is a footnote. Anything
+ *    that must not be misreported belongs in that sentence, not in a sibling
+ *    field. `send_email` says "Handed to Gmail", never "Sent", for this reason.
+ * 3. Tool descriptions are the only documentation the model reliably reads, so
+ *    the verification rule lives in them rather than in a prompt or skill file
+ *    that can drift out of agreement with the code.
  */
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createDraft, getFullMessage } from "@/lib/gmail";
+import { createDraft, getFullMessage, detectBounces } from "@/lib/gmail";
 import { sendTrackedEmail } from "@/lib/email-send";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
 import { zonedTimeOfDay } from "@/lib/timezone";
@@ -59,13 +78,27 @@ const composeShape = {
     .string()
     .regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE)
     .optional()
-    .describe("Override recipient address (defaults to the contact's primary email)"),
+    .describe(
+      "Override recipient address. Must be one of the contact's saved addresses; anything else is refused as a guess. Defaults to the contact's primary email.",
+    ),
+  allow_unverified_address: z
+    .literal(true)
+    .optional()
+    .describe(
+      "Only set this when the user themselves supplied an address CareerVine has never seen. NEVER set it to make a to_email you constructed or inferred go through: an address assembled from a name and a company domain is a guess, guesses bounce, and a bounce burns the contact and the sending reputation.",
+    ),
 };
 
-async function resolveComposeTarget(ref: { contact_id?: number; name?: string }, toOverride?: string) {
+async function resolveComposeTarget(
+  ref: { contact_id?: number; name?: string },
+  toOverride?: string,
+  allowUnverified?: boolean,
+) {
   const contact = await resolveContact(ref);
   const full = (await getContactFull(contact.id)) as unknown as { contact_emails: EmailRowLike[] };
-  const recipient = resolveRecipient(contact.name, full.contact_emails, toOverride);
+  const recipient = resolveRecipient(contact.name, full.contact_emails, toOverride, {
+    allowUnverified,
+  });
   return { contact, recipient };
 }
 
@@ -192,8 +225,8 @@ export function registerEmailTools(server: McpServer): void {
       inputSchema: composeShape,
       annotations: { readOnlyHint: false },
     },
-    handler(async ({ contact_id, name, subject, body, thread_id, to_email }) => {
-      const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
+    handler(async ({ contact_id, name, subject, body, thread_id, to_email, allow_unverified_address }) => {
+      const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email, allow_unverified_address);
       const reply = await resolveReplyHeaders(thread_id);
       const bodyHtml = toSafeEmailHtml(body);
 
@@ -240,12 +273,12 @@ export function registerEmailTools(server: McpServer): void {
     {
       title: "Send email",
       description:
-        "Send an email through the connected Gmail account, immediately. Requires confirm:true (only pass it when the user explicitly asked to send). Enforces the daily send cap and bounce refusal server-side; logs an interaction. Prefer create_email_draft when in doubt.",
+        "Hand an email to the connected Gmail account for immediate delivery. Requires confirm:true (only pass it when the user explicitly asked to send). Enforces the daily send cap and bounce refusal server-side; logs an interaction. Prefer create_email_draft when in doubt. IMPORTANT: a successful result means Gmail ACCEPTED the message, not that it reached anyone. A rejection comes back minutes later as a separate bounce notice, so it is never visible in the sent folder or in this result. Use check_delivery to find out what actually landed, and never report an email as delivered on the strength of this call alone.",
       inputSchema: sendEmailSchema,
       annotations: { readOnlyHint: false },
     },
-    handler(async ({ contact_id, name, subject, body, thread_id, to_email }) => {
-      const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
+    handler(async ({ contact_id, name, subject, body, thread_id, to_email, allow_unverified_address }) => {
+      const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email, allow_unverified_address);
       const reply = await resolveReplyHeaders(thread_id);
       const result = await sendTrackedEmail(uid(), {
         to: recipient.email,
@@ -255,8 +288,19 @@ export function registerEmailTools(server: McpServer): void {
         inReplyTo: reply.inReplyTo,
         references: reply.references,
       });
+      // The summary deliberately does NOT say "Sent", and this is the whole
+      // point of CAR-217's MCP half. Gmail accepting a message is not delivery:
+      // a 550 arrives minutes later in a separate thread that never appears
+      // beside the sent copy. The old summary read "Sent to <name>", and an
+      // agent relayed exactly that for three addresses, two of which bounced.
+      // An LLM takes the summary as the headline and a sibling `warnings` array
+      // as advisory, so the correction has to live in the sentence itself.
       return {
-        summary: `Sent to ${contact.name} <${recipient.email}>`,
+        summary:
+          `Handed to Gmail for ${contact.name} <${recipient.email}>. Delivery is NOT confirmed: ` +
+          `a bounce would arrive minutes from now as a separate notice. Do not tell the user this ` +
+          `landed. Run check_delivery to confirm.`,
+        delivery: "unconfirmed",
         message_id: result.messageId,
         thread_id: result.threadId,
         sends_remaining_today: result.capRemaining,
@@ -274,11 +318,11 @@ export function registerEmailTools(server: McpServer): void {
       inputSchema: scheduleEmailSchema,
       annotations: { readOnlyHint: false },
     },
-    handler(async ({ contact_id, name, subject, body, thread_id, to_email, send_at, follow_ups }) => {
+    handler(async ({ contact_id, name, subject, body, thread_id, to_email, allow_unverified_address, send_at, follow_ups }) => {
       const when = new Date(send_at);
       if (Number.isNaN(when.getTime())) throw new Error(`Invalid send_at timestamp: ${send_at}`);
       if (when.getTime() <= Date.now()) throw new Error("send_at must be in the future — use send_email to send now");
-      const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email);
+      const { contact, recipient } = await resolveComposeTarget({ contact_id, name }, to_email, allow_unverified_address);
       const reply = await resolveReplyHeaders(thread_id);
       const sendAtIso = when.toISOString();
       const id = await createScheduledEmail({
@@ -501,7 +545,58 @@ export function registerEmailTools(server: McpServer): void {
         scopedContactId = (await resolveContact({ contact_id, name })).id;
       }
       const results = await searchEmailHistory(query, scopedContactId, limit ?? 20);
-      return { summary: `${results.length} message(s) match "${query}"`, results };
+      const bounced = results.filter((r) => (r as { delivery?: string }).delivery === "bounced").length;
+      return {
+        summary:
+          `${results.length} message(s) match "${query}"` +
+          (bounced > 0
+            ? `. ${bounced} of them went to an address that has since bounced (delivery: "bounced") and never reached anyone.`
+            : ""),
+        results,
+      };
+    }),
+  );
+
+  server.registerTool(
+    "check_delivery",
+    {
+      title: "Check delivery",
+      description:
+        "Find out which recently sent emails actually failed. Reads the delivery failure notices in the mailbox, flags the dead addresses, and cancels anything still queued to them. Call this after sending, and before telling the user an email reached anyone: send_email only reports that Gmail ACCEPTED a message, and a rejection arrives minutes later as a separate notice that never appears next to the sent copy. Checking the sent folder cannot answer this question.",
+      inputSchema: {
+        since_days: z
+          .number()
+          .int()
+          .min(1)
+          .max(30)
+          .optional()
+          .describe("How far back to look for delivery failures (default 14)"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ since_days }) => {
+      const result = await detectBounces(uid(), since_days ?? 14);
+      if (result.newlyBounced.length === 0) {
+        return {
+          summary:
+            result.bounced.length === 0
+              ? "No delivery failures found. Note this is evidence of absence only as far back as the window checked, and a bounce for a very recent send may not have arrived yet."
+              : `No NEW delivery failures. ${result.bounced.length} address(es) were already known to have bounced and are already blocked.`,
+          newly_bounced: [],
+          already_known: result.bounced,
+        };
+      }
+      return {
+        summary:
+          `${result.newlyBounced.length} address(es) rejected mail permanently: ${result.newlyBounced.join(", ")}. ` +
+          `Those messages did NOT reach anyone. Cancelled ${result.cancelledSequences} follow-up sequence(s) and ` +
+          `${result.cancelledScheduled} scheduled email(s) aimed at them, and blocked further sends. ` +
+          `Tell the user which sends failed, and do not re-send without a corrected address.`,
+        newly_bounced: result.newlyBounced,
+        already_known: result.bounced.filter((a) => !result.newlyBounced.includes(a)),
+        cancelled_follow_up_sequences: result.cancelledSequences,
+        cancelled_scheduled_emails: result.cancelledScheduled,
+      };
     }),
   );
 

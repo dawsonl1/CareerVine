@@ -2991,6 +2991,7 @@ export type Database = {
       users: {
         Row: {
           apify_enrichment_enabled: boolean
+          bounce_alerts_enabled: boolean
           created_at: string | null
           diff_analysis_enabled: boolean
           discovery_enabled: boolean
@@ -3014,6 +3015,7 @@ export type Database = {
         }
         Insert: {
           apify_enrichment_enabled?: boolean
+          bounce_alerts_enabled?: boolean
           created_at?: string | null
           diff_analysis_enabled?: boolean
           discovery_enabled?: boolean
@@ -3037,6 +3039,7 @@ export type Database = {
         }
         Update: {
           apify_enrichment_enabled?: boolean
+          bounce_alerts_enabled?: boolean
           created_at?: string | null
           diff_analysis_enabled?: boolean
           discovery_enabled?: boolean
@@ -3111,7 +3114,9 @@ export type Database = {
         Args: never
         Returns: {
           follow_ups_due: number
+          follow_ups_newest: string
           scheduled_due: number
+          scheduled_newest: string
         }[]
       }
       increment_ai_shared_usage: {

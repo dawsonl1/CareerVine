@@ -72,6 +72,11 @@ side, a living pipeline on the other.
 - Email a prospect in one click (with bounced and pattern-guessed addresses clearly
   flagged), promote bench contacts into outreach, and manage office locations
   without leaving the page.
+- When an address stops accepting mail, you find out the same day. CareerVine reads
+  delivery failures back on its own, cancels the follow-ups and scheduled emails
+  still queued to that address, emails you what happened, and marks the address on
+  the contact so you can fix it. A message that is merely delayed is left alone, so
+  a good address is never retired by mistake.
 
 ### Find the right company instantly
 
@@ -133,7 +138,19 @@ keep their network visually recognizable at a glance:
 Photos are stored per account and instantly reflected across contact views, helping
 users scan and recognize relationships faster.
 
+Searching your contacts finds the person, not just the ones you happen to be
+looking at. The tier chips (My network, Prospects, Archive) decide what you browse;
+a search reaches every one of them, so a name you have saved always comes back even
+when its tier is switched off. Matching is forgiving in the ways typing actually
+goes wrong: words in either order, stray spaces, missing accents. Results come back
+closest-match first, so the person whose name you typed leads, ahead of everyone who
+merely shares a company or a tag with them.
+
 Work history and education read in the order a person would tell it: whatever they
 are doing now, then everything before it, newest first. The same ranking decides the
 role shown under their name on the profile, in search, and on every contact card, so
 someone holding several board seats no longer leads with an arbitrary one.
+
+Editing a contact holds their whole history, not a slice of it. Education is a list
+you can add to and remove from, the same as work experience, so a person with a
+bachelor's and an MBA keeps both. Saving used to leave only one of them.

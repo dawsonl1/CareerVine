@@ -1586,10 +1586,12 @@ const DOUBLE_SUBMIT_BASELINE = {
     "poll",
   ],
   "src/components/onboarding/onboarding-flow.tsx": ["onPicked~e503"],
+  // CAR-217 drained "toggleNudges": its twin toggleBounceAlerts was added in
+  // the same file, and guarding one while baselining the other would have
+  // frozen a second copy of the identical bug.
   "src/components/settings/account-section.tsx": [
     "handlePasswordChange",
     "handleSave",
-    "toggleNudges",
   ],
   "src/components/settings/availability-section.tsx": [
     "handleSaveAvailability",
@@ -2366,8 +2368,10 @@ const UNBOUNDED_READ_BASELINE = {
   "src/app/api/contacts/bulk-import/backfill/route.ts": ["company_locations", "locations"],
   "src/app/api/contacts/check-duplicate/route.ts": ["contact_emails", "contact_schools", "contacts", "contacts"],
   "src/app/api/contacts/import/route.ts": ["company_locations", "contact_companies", "contact_companies", "contact_emails", "contact_schools", "contact_schools", "contacts"],
+  // Arrived with the CAR-217 / CAR-220 merge, after this baseline was written.
+  "src/app/api/cron/detect-bounces/route.ts": ["gmail_connections"],
   "src/app/api/cron/follow-up-nudges/route.ts": ["users"],
-  "src/app/api/cron/send-follow-ups/route.ts": ["email_follow_up_messages", "gmail_connections"],
+  "src/app/api/cron/send-follow-ups/route.ts": ["email_follow_up_messages", "email_follow_up_messages", "gmail_connections"],
   "src/app/api/cron/sync-bundles/route.ts": ["data_bundles"],
   "src/app/api/discovery/candidates/route.ts": ["discovery_candidates"],
   "src/app/api/gmail/ai-followups/generate/route.ts": ["ai_follow_up_drafts"],
@@ -2400,14 +2404,14 @@ const UNBOUNDED_READ_BASELINE = {
   "src/lib/contact-employment.ts": ["contact_companies", "contact_emails", "contacts"],
   "src/lib/data/action-items.ts": ["action_item_contacts", "action_item_contacts", "follow_up_action_items"],
   "src/lib/data/attachments.ts": ["contact_attachments", "meeting_attachments"],
-  "src/lib/data/contacts.ts": ["contact_change_events", "contact_tags", "tags"],
+  "src/lib/data/contacts.ts": ["contact_change_events", "contact_emails", "contact_tags", "tags"],
   "src/lib/data/interactions.ts": ["interactions"],
   "src/lib/data/locations.ts": ["locations"],
   "src/lib/data/meetings.ts": ["attachments", "contact_attachments", "interaction_attachments", "meeting_attachments", "meeting_attachments", "meeting_contacts", "meetings"],
   "src/lib/email-send.ts": ["contact_emails"],
   "src/lib/follow-up-helpers.ts": ["email_follow_ups"],
   "src/lib/follow-up-reply.ts": ["email_follow_ups"],
-  "src/lib/gmail.ts": ["contact_emails", "contact_emails", "email_follow_ups", "email_messages", "email_messages", "email_messages"],
+  "src/lib/gmail.ts": ["contact_emails", "contact_emails", "email_follow_ups", "email_messages", "email_messages", "email_messages", "scheduled_emails"],
   "src/lib/import-db-helpers.ts": ["contact_tags", "tags"],
   "src/lib/onboarding/bundle-stats.ts": ["data_bundles"],
   "src/lib/pipeline-queries.ts": ["pipeline_applications", "pipeline_cycles", "pipeline_interview_rounds", "pipeline_notes", "pipeline_programs", "target_companies", "target_companies"],

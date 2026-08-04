@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { pgPool } from "./helpers/stack";
+import { SEND_WATCHER } from "@/lib/watcher-health";
 
 let pool: Pool;
 beforeAll(() => {
@@ -41,6 +42,9 @@ const FUNCTIONS: { sig: string; anon: false; authenticated: boolean }[] = [
   { sig: "network_tier_counts()", anon: false, authenticated: true },
   { sig: "save_pipeline_cycle(integer, integer, jsonb)", anon: false, authenticated: true },
   { sig: "delete_pipeline_cycle(integer, integer)", anon: false, authenticated: true },
+  // Watcher-login only (CAR-220). Reads platform-wide pending-send counts under
+  // SECURITY DEFINER, so no browser role has any business calling it.
+  { sig: "due_send_counts()", anon: false, authenticated: false },
 ];
 
 it("no locked function is executable by anon; service-only functions are not executable by authenticated", async () => {
@@ -74,15 +78,174 @@ const ANON_SECDEF_ALLOWLIST = new Set([
 ]);
 
 it("NO un-allowlisted SECURITY DEFINER function in public is executable by anon (catches any future re-exposure)", async () => {
+  const exposed = await unallowlistedSecdef("anon", ANON_SECDEF_ALLOWLIST);
+  expect(exposed, `SECURITY DEFINER functions anon can execute (not allowlisted):\n${exposed.join("\n")}`).toEqual([]);
+});
+
+/**
+ * The same sweep for `authenticated` (CAR-220).
+ *
+ * The anon leg above shipped alone, and it checks the role that a new function
+ * does NOT automatically receive. Verified against this stack's `pg_default_acl`
+ * (asserted below so it cannot rot): the default-privilege row that applies to
+ * migrations — grantor `postgres`, schema `public`, objtype `f` — grants EXECUTE
+ * to postgres, authenticated and service_role, and does not name anon. So every
+ * function a migration creates is authenticated-executable from birth, while
+ * anon's EXECUTE only ever comes from the built-in PUBLIC grant or from a
+ * blanket GRANT like CAR-178's.
+ *
+ * The consequence was live: CAR-215's `due_send_counts()` wrote
+ * `REVOKE ALL ... FROM PUBLIC`, which strips the PUBLIC grant anon rides on but
+ * not the explicit `authenticated` one — so the anon sweep stayed green while
+ * any logged-in user could POST /rest/v1/rpc/due_send_counts and read
+ * platform-wide pending-send counts. A guard that only watches anon cannot see
+ * the role that the defaults actually hand things to.
+ *
+ * Entries here are functions reviewed as safe for a logged-in user to call:
+ *   - handle_new_user: an auth.users INSERT trigger. Returns `trigger`, so
+ *     PostgREST cannot expose it as RPC; the grant is inert.
+ *   - bundle_visible_to: boolean visibility helper used inside bundle RLS
+ *     policies. Returns a boolean, leaks no rows.
+ *   - bundle_alumni_stats / replace_transcript_segments: deliberately
+ *     authenticated-callable, and pinned as such in FUNCTIONS above. Both scope
+ *     their own work to the caller's bundle/meeting rather than trusting RLS.
+ */
+const AUTHENTICATED_SECDEF_ALLOWLIST = new Set([
+  "handle_new_user()",
+  "bundle_visible_to(p_bundle_id integer, p_user uuid)",
+  "bundle_alumni_stats(p_bundle_id integer)",
+  "replace_transcript_segments(p_meeting_id integer, p_segments jsonb)",
+]);
+
+async function unallowlistedSecdef(role: string, allowlist: Set<string>): Promise<string[]> {
   const { rows } = await pool.query<{ sig: string }>(
     `SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS sig
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'public' AND p.prosecdef
-        AND has_function_privilege('anon', p.oid, 'EXECUTE')
+        AND has_function_privilege($1, p.oid, 'EXECUTE')
       ORDER BY 1`,
+    [role],
   );
-  const exposed = rows.map((r) => r.sig).filter((s) => !ANON_SECDEF_ALLOWLIST.has(s));
-  expect(exposed, `SECURITY DEFINER functions anon can execute (not allowlisted):\n${exposed.join("\n")}`).toEqual([]);
+  return rows.map((r) => r.sig).filter((s) => !allowlist.has(s));
+}
+
+it("NO un-allowlisted SECURITY DEFINER function in public is executable by authenticated (CAR-220)", async () => {
+  const exposed = await unallowlistedSecdef("authenticated", AUTHENTICATED_SECDEF_ALLOWLIST);
+  expect(
+    exposed,
+    "SECURITY DEFINER functions any logged-in user can execute (not allowlisted):\n" +
+      `${exposed.join("\n")}\n` +
+      "Either review it and add it to AUTHENTICATED_SECDEF_ALLOWLIST, or REVOKE EXECUTE " +
+      "FROM authenticated in a migration. Note that REVOKE ... FROM PUBLIC does NOT do this: " +
+      "the grant comes from Supabase's ALTER DEFAULT PRIVILEGES and must be named explicitly.",
+  ).toEqual([]);
+});
+
+it("the sweeps above are not vacuous: both allowlists still name live functions", async () => {
+  // `toEqual([])` over a query that matched nothing passes and reports success.
+  // Anchor both legs to the fact that the allowlisted functions really are
+  // SECURITY DEFINER and really are executable by that role today.
+  for (const [role, allowlist] of [
+    ["anon", ANON_SECDEF_ALLOWLIST],
+    ["authenticated", AUTHENTICATED_SECDEF_ALLOWLIST],
+  ] as const) {
+    const { rows } = await pool.query<{ sig: string }>(
+      `SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS sig
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.prosecdef
+          AND has_function_privilege($1, p.oid, 'EXECUTE')`,
+      [role],
+    );
+    const live = new Set(rows.map((r) => r.sig));
+    const missing = [...allowlist].filter((s) => !live.has(s));
+    expect(
+      missing,
+      `${role} allowlist entries that no longer match a ${role}-executable SECURITY DEFINER ` +
+        `function — the sweep is now weaker than it reads: ${missing.join(", ")}`,
+    ).toEqual([]);
+  }
+});
+
+it("Supabase still grants function EXECUTE to authenticated by default (the reason the leg above exists)", async () => {
+  // The rationale for the authenticated sweep is a property of the stack, not of
+  // our SQL. If Supabase ever stops attaching this grant, this goes red and the
+  // comment above gets re-read rather than quietly becoming folklore.
+  const { rows } = await pool.query<{ acl: string[] }>(
+    `SELECT defaclacl::text[] AS acl
+       FROM pg_default_acl
+      WHERE defaclnamespace = 'public'::regnamespace
+        AND defaclobjtype = 'f'
+        AND pg_get_userbyid(defaclrole) = 'postgres'`,
+  );
+  expect(rows.length, "no postgres-owned default ACL for public functions").toBe(1);
+  const acl = rows[0].acl.join(",");
+  expect(acl, "authenticated should hold a default EXECUTE grant on new functions").toContain(
+    "authenticated=X",
+  );
+  expect(acl, "anon is NOT in this default ACL — that is why the anon sweep alone missed CAR-215").not.toContain(
+    "anon=X",
+  );
+});
+
+it("due_send_counts is executable by the watcher login and nothing else (CAR-220)", async () => {
+  // The functional half of the lockdown: revoking too widely would silently stop
+  // the A1 watcher, which is the one caller that must keep working.
+  const want: Record<string, boolean> = {
+    careervine_watcher: true,
+    anon: false,
+    authenticated: false,
+    service_role: false,
+  };
+  const wrong: string[] = [];
+  for (const [role, expected] of Object.entries(want)) {
+    const { rows } = await pool.query<{ v: boolean }>(
+      `SELECT has_function_privilege($1, 'public.due_send_counts()', 'EXECUTE') AS v`,
+      [role],
+    );
+    if (rows[0].v !== expected) wrong.push(`${role} EXECUTE = ${rows[0].v} (want ${expected})`);
+  }
+  expect(wrong, wrong.join("\n")).toEqual([]);
+});
+
+it("careervine_watcher holds no table privileges in public (CAR-220)", async () => {
+  // 20260803130000 claimed an `ALTER DEFAULT PRIVILEGES ... REVOKE ALL ON TABLES
+  // FROM careervine_watcher` protected this. It does not: default privileges only
+  // cancel a matching prior default GRANT (that statement recorded nothing in
+  // pg_default_acl), and they govern future objects while `GRANT ON ALL TABLES`
+  // acts on existing ones. Running that GRANT in a transaction did hand the role
+  // SELECT on scheduled_emails with the old line in place.
+  //
+  // So the property is asserted here instead, where it can actually hold: the
+  // login that sits on a VM must be able to call one function and read nothing.
+  const { rows } = await pool.query<{ rel: string; privs: string }>(
+    `SELECT c.relname AS rel, string_agg(DISTINCT a.privilege_type, ',') AS privs
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+      WHERE n.nspname = 'public'
+        AND c.relkind IN ('r', 'v', 'm', 'p', 'f', 'S')
+        AND pg_get_userbyid(a.grantee) = 'careervine_watcher'
+      GROUP BY 1 ORDER BY 1`,
+  );
+  expect(
+    rows.map((r) => `${r.rel}: ${r.privs}`),
+    "careervine_watcher must hold no table/sequence privileges — it reports liveness by " +
+      "calling the app, and reads state through due_send_counts() alone",
+  ).toEqual([]);
+});
+
+it("cron_heartbeats carries the send-watcher row, so a never-seen watcher is not read as healthy (CAR-220)", async () => {
+  // checkWatcherHealth() returns "idle" when the row is absent, so before the
+  // seed a watcher that had never once authenticated produced no row and the
+  // dead-watcher alarm could never arm. The row's existence is what arms it.
+  //
+  // Keyed off the app's own constant, so renaming SEND_WATCHER without
+  // re-seeding under the new name goes red here rather than in production.
+  const { rows } = await pool.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM cron_heartbeats WHERE name = $1`,
+    [SEND_WATCHER],
+  );
+  expect(rows[0].n, `migrations must seed the "${SEND_WATCHER}" heartbeat row`).toBe("1");
 });
 
 it("gmail_connections OAuth token columns are unreadable by the browser role; metadata stays readable", async () => {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { gmail_v1 } from "@googleapis/gmail";
 import { withQStashVerification } from "@/lib/qstash-verify";
 import { withCronGuard } from "@/lib/cron-guard";
-import { recordWatcherBeat } from "@/lib/watcher-health";
+import { recordDriverBeat, SEND_WATCHER, QSTASH_SAFETY_NET } from "@/lib/watcher-health";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { getGmailClient } from "@/lib/gmail-send-core";
 import { activateContactByEmail } from "@/lib/gmail";
@@ -32,17 +32,28 @@ import {
  * - Sends pending follow-ups via Gmail as replies
  * - Handles disconnected Gmail gracefully
  *
- * Records watcher liveness but does NOT run the staleness check: that lives on
- * the scheduled-emails route alone, so a dead watcher produces one alert rather
- * than one per route (CAR-215).
+ * Records which driver drove this run but does NOT run the staleness check:
+ * that lives on the scheduled-emails route alone, so a dead watcher produces
+ * one alert rather than one per route (CAR-215).
  */
 export async function POST(req: NextRequest) {
-  return withQStashVerification(req, async (_body, source) => {
-    if (source === "watcher") {
-      await recordWatcherBeat(createSupabaseServiceClient());
-    }
-    return withCronGuard("/api/cron/send-follow-ups", () => runJob());
-  });
+  return withQStashVerification(
+    req,
+    async (_body, source) => {
+      // Both drivers stamp, under their own row key. The watcher's stamp is the
+      // one the safety net reads to decide the watcher has died; the QStash
+      // stamp has no reader yet (see watcher-health.ts) and exists so that
+      // "which driver last ran" is answerable at all.
+      await recordDriverBeat(
+        createSupabaseServiceClient(),
+        source === "watcher" ? SEND_WATCHER : QSTASH_SAFETY_NET,
+      );
+      return withCronGuard("/api/cron/send-follow-ups", () => runJob());
+    },
+    // The A1 watcher cannot produce a QStash signature, and it is what makes
+    // follow-ups land within ~15s of coming due rather than up to an hour late.
+    { allowCronBearer: true },
+  );
 }
 
 /**
@@ -78,6 +89,24 @@ async function completeSequenceIfResolved(
       .eq("status", FollowUpStatus.Active);
   }
 }
+
+/**
+ * Minimum wall-clock gap between two messages of the SAME sequence (CAR-220).
+ *
+ * Steps in a sequence are meant to be days apart. When several fall due at once
+ * — watcher downtime, an account reactivating, a user re-enabling automatic
+ * follow-ups — they must not go out as a burst of cold emails to one person,
+ * from that user's own Gmail and against their own domain reputation.
+ *
+ * This used to be expressed as "one send per sequence per tick", which is the
+ * same thing ONLY while a tick is 10 minutes. CAR-215 replaced the 10-minute
+ * QStash schedule with a watcher polling every ~15 seconds and the guard
+ * silently became a 15-second one: a rate limit denominated in ticks inverts
+ * the moment the clock speeds up. 10 minutes restores exactly the spacing that
+ * held before that, is long enough that neither the recipient nor a spam filter
+ * sees a burst, and still drains a three-step backlog inside half an hour.
+ */
+const FOLLOW_UP_MIN_SPACING_MINUTES = 10;
 
 async function runJob(): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
@@ -195,6 +224,7 @@ async function runJob(): Promise<NextResponse> {
   let sent = 0;
   let cancelled = 0;
   let awaitingReview = 0;
+  let spaced = 0;
 
   // Group by follow_up_id to batch reply detection
   const bySequence = new Map<number, typeof pendingMessages>();
@@ -203,6 +233,21 @@ async function runJob(): Promise<NextResponse> {
     if (!bySequence.has(seqId)) bySequence.set(seqId, []);
     bySequence.get(seqId)!.push(msg);
   }
+
+  // Which of these sequences has sent something too recently to send again
+  // (see FOLLOW_UP_MIN_SPACING_MINUTES). One read answers it for the whole
+  // batch. Fail loud like every other read on this path: an unreadable answer
+  // cannot rule the burst out, and a silently empty one would release every due
+  // step of every sequence in a single pass — the exact failure being guarded.
+  const spacingCutoff = new Date(Date.now() - FOLLOW_UP_MIN_SPACING_MINUTES * 60_000).toISOString();
+  const { data: recentSends, error: spacingError } = await service
+    .from("email_follow_up_messages")
+    .select("follow_up_id")
+    .in("follow_up_id", [...bySequence.keys()])
+    .eq("status", FollowUpMessageStatus.Sent)
+    .gt("sent_at", spacingCutoff);
+  if (spacingError) throw new Error(`Follow-up spacing read failed: ${spacingError.message}`);
+  const recentlySent = new Set((recentSends ?? []).map((r) => r.follow_up_id));
 
   // Pre-fetch gmail_connections for all users to avoid N+1
   const userIds = [...new Set([...bySequence.values()].map((msgs) => msgs[0].email_follow_ups.user_id))];
@@ -289,6 +334,19 @@ async function runJob(): Promise<NextResponse> {
           .eq("status", "pending");
         awaitingReview += messages.length;
       }
+      continue;
+    }
+
+    // Deliverability spacing: this sequence emailed this person within the
+    // window, so nothing more goes to them on this tick. Held, not resolved —
+    // the rows keep their 'pending' status, the sequence comes back on the next
+    // tick, and reply detection runs again before anything is sent, so a reply
+    // arriving during the wait still cancels rather than being sent over.
+    // Placed after the tier branch (parking a free user's step is not a send,
+    // so it must not be delayed) and before the Gmail fetch, so a held sequence
+    // costs no API call on any of the ~40 watcher polls it spans.
+    if (recentlySent.has(seqId)) {
+      spaced += messages.length;
       continue;
     }
 
@@ -389,10 +447,12 @@ async function runJob(): Promise<NextResponse> {
       continue;
     }
 
-    // Send at most one message per sequence per tick, oldest first. Steps in
-    // a sequence are meant to be spaced days apart; sending every due step in
-    // one run would burst multiple cold emails seconds apart (deliverability
-    // risk) if several fell due together (e.g. after cron downtime).
+    // Send at most one message per sequence per run, oldest first. This is the
+    // in-run half of the spacing rule: the cross-run half above reads `sent_at`,
+    // which cannot see a send this run has not written yet, so the two are not
+    // redundant. Neither is sufficient alone — before CAR-220 this `break` was
+    // the whole guard, and it stopped meaning "spaced apart" the moment a run
+    // stopped being ten minutes from the last one.
     for (const msg of messages) {
       // Atomic status check: set to 'sending' to prevent duplicates. Detect the
       // claim via count, not a .select() read-back — the update sets the same
@@ -498,5 +558,8 @@ async function runJob(): Promise<NextResponse> {
     sent,
     cancelled,
     awaitingReview,
+    // Due steps deliberately held for spacing. Non-zero is normal after a
+    // backlog; permanently non-zero would mean sequences are not draining.
+    spaced,
   });
 }

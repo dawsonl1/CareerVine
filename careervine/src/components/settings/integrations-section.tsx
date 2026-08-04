@@ -75,11 +75,18 @@ export default function IntegrationsSection() {
     setSyncResult("");
     try {
       const result = await runFullGmailSync();
-      setSyncResult(
-        result.failedContacts > 0
-          ? `Synced ${result.totalSynced} emails, ${result.failedContacts} contact${result.failedContacts === 1 ? "" : "s"} failed`
-          : `Synced ${result.totalSynced} emails`
-      );
+      const parts = [`Synced ${result.totalSynced} emails`];
+      if (result.failedContacts > 0) {
+        parts.push(`${result.failedContacts} contact${result.failedContacts === 1 ? "" : "s"} failed`);
+      }
+      // Only the newly-dead addresses: `bounced` counts every known-bounced one
+      // again on every sync, so reporting it would claim a fresh problem forever.
+      if (result.newlyBounced > 0) {
+        parts.push(
+          `${result.newlyBounced} address${result.newlyBounced === 1 ? "" : "es"} bounced (we emailed you the details)`,
+        );
+      }
+      setSyncResult(parts.join(", "));
       void loadGmailStatus();
       setTimeout(() => setSyncResult(""), 6000);
     } catch (err) {

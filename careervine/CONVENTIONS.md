@@ -25,11 +25,11 @@ types-drift check, an extension-bundle freshness check, a unit-test coverage gat
 
 ## a. API routes
 
-105 routes live under `careervine/src/app/api` and 91 of them go through
+106 routes live under `careervine/src/app/api` and 91 of them go through
 `withApiHandler`, which owns auth, the admin and capability gates, rate limiting,
 Zod validation (`paramsSchema`, then `schema`, then `querySchema`), and error
 mapping, in that order. The gates and the limiter deliberately run *before* the
-body is parsed, so a rejected request stays cheap. The 14 routes that skip the
+body is parsed, so a rejected request stays cheap. The 15 routes that skip the
 wrapper are the named allowlist in section g.
 
 Errors from the wrapper are always `{ error }`, plus `code` when an `ApiError`
@@ -71,17 +71,41 @@ route's file.
 
 ## b. Cron and queue
 
-Eight QStash schedules exist and are declared in exactly one place:
+Nine QStash schedules exist and are declared in exactly one place:
 `careervine/scripts/qstash-schedules.mjs`. There are no `vercel.json` crons, no
 `pg_cron`, and no scheduled GitHub Actions. `node scripts/qstash-schedules.mjs list`
 diffs declared against live and exits 1 on drift; `sync` reconciles but never
 deletes an undeclared schedule.
 
 Every cron route nests `withQStashVerification` **outside** `withCronGuard`:
-signature first, so an unsigned request 401s and the handler never runs, then
-error capture. Verification fails closed when the signing keys are unset rather
-than constructing a permissive receiver. `api/queue/bundle-sync` verifies but is
-not a cron and does not guard.
+credential first, so an unauthenticated request 401s and the handler never runs,
+then error capture. `api/queue/bundle-sync` verifies but is not a cron and does
+not guard.
+
+Two credentials reach that wrapper, and which ones a route accepts is per-route,
+not global:
+
+- **QStash signature** (`upstash-signature`), the default for all nine
+  consumers. Verification fails closed when `QSTASH_CURRENT_SIGNING_KEY` or
+  `QSTASH_NEXT_SIGNING_KEY` is unset, rather than constructing a permissive
+  empty-key receiver.
+- **`Authorization: Bearer $CRON_TRIGGER_SECRET`**, accepted only by the two
+  routes that pass `allowCronBearer` (`api/cron/send-scheduled-emails` and
+  `api/cron/send-follow-ups`). The A1 send watcher drives those at roughly 15
+  second resolution and cannot produce a QStash signature. Also fails closed
+  when the secret is unset.
+
+The option defaults to **false**, so a route that does not ask for the bearer
+refuses it with the same 401 as any other unsigned request. That default is the
+whole security boundary: CAR-215 checked the bearer at the shared chokepoint
+with no scoping, which silently opened all nine routes, including both
+destructive purges and both paid-Apify runs. Note that the bearer path carries
+no body signature, so on an opted-in route the request body is chosen by
+whoever holds the secret; a handler that trusts its body must not opt in.
+
+The handler receives which credential admitted the caller as its `source`
+argument (`"qstash"` or `"watcher"`), which is how the two send routes stamp and
+read watcher liveness.
 
 When you change a cadence here, update the copy that quotes it in the same
 change. `careervine/README.md` and `careervine/public/docs/index.html` both state
@@ -94,7 +118,11 @@ cadences, and a test pins them to this registry.
   README and the docs page (subject-anchored, so swapping the two lines fails),
   the docs page's follow-ups feature-card tag, and the cadence stated in the two
   interval cron routes' header comments. Daily and weekly copy phrasing is not
-  pinned.
+  pinned. `careervine/src/__tests__/qstash-verify.test.ts` pins the wrapper's own
+  behaviour with the option on and off, and
+  `careervine/src/__tests__/route-auth-inventory.test.ts` pins which routes opt
+  into the bearer, in both directions: adding the flag to a third route fails
+  until its inventory entry says so.
 
 ## c. Capability gating
 
@@ -221,10 +249,32 @@ carry an RFC 822 `Message-ID`, never the Gmail API id the app stores as
 `original_gmail_message_id`. Follow-up senders resolve the real ids through
 `resolveFollowUpThreadHeaders`, which omits the headers rather than guessing.
 
+Bounces are the other half of "everything outbound goes through one place", and
+they run in the opposite direction. `detectBounces` in `careervine/src/lib/gmail.ts`
+owns the consequences of a delivery failure (flag the address, retire the follow-up
+sequence, cancel the queued `scheduled_emails` row, alert the user), and
+`careervine/src/lib/bounce-parse.ts` owns the question of whether a given NDR
+proves an address is dead. Read that second header before touching detection: the
+parse is deliberately biased toward extracting NOTHING when the evidence is
+ambiguous, because marking an address is destructive and a miss only costs a
+retry. A transient delay notice is not a bounce, and the delivery-status report
+outranks the `X-Failed-Recipients` header wherever both exist.
+
+Detection needs a mailbox read scope and so only runs for premium connections; a
+free token holds `gmail.send` alone. Everything DOWNSTREAM of it is ungated on
+purpose, because an admin can move a user to free after their bounce data exists
+and that data still governs their sends.
+
 - Authoritative: `careervine/src/lib/notify/email.ts`,
-  `careervine/src/lib/email-send.ts` (headers), and
-  `careervine/src/lib/follow-up-threading.ts` (reply threading)
-- Not enforced. Nothing stops a new caller reaching for the wrong one.
+  `careervine/src/lib/email-send.ts` (headers),
+  `careervine/src/lib/follow-up-threading.ts` (reply threading), and
+  `careervine/src/lib/bounce-parse.ts` (header)
+- Enforced: `careervine/src/__tests__/bounce-parse.test.ts` pins the
+  delay-versus-failure split and the report-over-header precedence, and
+  `careervine/src/__tests__/detect-bounces.test.ts` pins the consequences,
+  including that a `sending` scheduled row (a live send claim) is left for the
+  stale-claim sweeper rather than cancelled. The two-sender rule itself is still
+  not enforced: nothing stops a new caller reaching for the wrong one.
 
 ## f. Client state
 
@@ -469,7 +519,7 @@ only, never a rejected promise in a handler; that is the contract above.
   | `useLatestRequest` | a `useEffect`/`useCallback` keyed on an id whose `setState` derives from its own await, gated by neither `isLatest`, a cancellation flag (either polarity, and it must stand between the response and the commit), nor an `AbortSignal` | `// latest-request-exempt:` + ratchet |
 
   The first two are frozen at zero. The last two ship as **ratchets** over a
-  baseline (129 handlers, 6 reads) rather than as the warning CAR-190
+  baseline (128 handlers, 6 reads) rather than as the warning CAR-190
   originally proposed, because a warning exits 0 and that is precisely how CAR-154's
   helper decayed to 6 files and CAR-158's to 1. A ratchet fails both ways: an
   offender absent from the baseline fails, and a baselined site that no longer
@@ -497,7 +547,8 @@ only, never a rejected promise in a handler; that is the contract above.
   claim was written from the detector's finding rather than from a test, which
   is the failure mode this whole section is about.)
 
-  129 is deliberately an OVER-count, and reading it as 129 double-click bugs would be
+  The figure is deliberately an OVER-count, and reading it as that many
+  double-click bugs would be
   wrong. A callee is judged a write by its verb against a denylist of read verbs, so
   pure helpers whose names do not look like reads count as writes, and a handler one
   hop from a real write counts alongside the helper it calls. That asymmetry is
@@ -511,8 +562,11 @@ only, never a rejected promise in a handler; that is the contract above.
   as first to go — non-idempotent, and one POSTs a destructive contact-removal
   loop), `contact-attachments-tab.tsx`'s pair, which got the confirm dialog its
   delete should always have had, and `interactions/page.tsx`, which left **both**
-  baselines because that route is now a redirect with no handlers in it. Draining
-  the rest is still the mechanical sweep's job.
+  baselines because that route is now a redirect with no handlers in it. CAR-217
+  drained a seventh, `account-section.tsx`'s `toggleNudges`, for a reason worth
+  repeating: it was adding that toggle's twin, and guarding the new one while
+  baselining the old would have frozen a second copy of the same bug beside a
+  fixed one. Draining the rest is still the mechanical sweep's job.
 
 - Enforced (behavior, no adoption check): `modal.test.tsx` covers the focus
   trap, the `data-autofocus` marker and dialog semantics for both layers, `careervine/src/__tests__/dialog-layer.test.tsx` covers
@@ -555,12 +609,13 @@ only, never a rejected promise in a handler; that is the contract above.
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 
-The 14 routes that deliberately skip `withApiHandler` are named, with the
+The 15 routes that deliberately skip `withApiHandler` are named, with the
 mechanism each uses, in the `HAND_ROLLED` map in
-`careervine/src/__tests__/route-auth-inventory.test.ts`. Five mechanisms are in
-play: qstash-signature, bundle-admin-token, webhook-secret, hmac-token, and
-oauth-jwks. Adding an unwrapped route under `careervine/src/app/api` without
-listing it fails CI, and so does leaving a stale entry behind.
+`careervine/src/__tests__/route-auth-inventory.test.ts`. Six mechanisms are in
+play: qstash-signature, qstash-signature+cron-bearer, bundle-admin-token,
+webhook-secret, hmac-token, and oauth-jwks. Adding an unwrapped route under
+`careervine/src/app/api` without listing it fails CI, and so does leaving a stale
+entry behind.
 
 Server-only fence (CAR-158): a module that reads a secret from `process.env`
 carries `import "server-only"`, so a client component importing it fails
@@ -576,6 +631,14 @@ compare and returns false when the secret is unset. Both call sites read
 `process.env` per request, so rotating it means setting the new value in Vercel
 and redeploying; there is no dual-token overlap window, so the old token stops
 working the moment the new deployment goes live.
+
+`CRON_TRIGGER_SECRET` is the other machine token. Its holder is the send watcher
+on the Oracle A1 box, deployed from the repo-root ops directory rather than from
+this app. It uses the same hash-then-constant-time compare
+inside `careervine/src/lib/qstash-verify.ts` and is likewise refused when unset.
+Unlike the admin token it is scoped per route rather than per call site, through
+`allowCronBearer` (section b): reach for that option only when a caller genuinely
+cannot sign, and expect to justify it in the route inventory.
 
 Three package edges are wired through tsconfig `paths`, as seven mappings:
 careervine to chrome-extension (`@ext`, `@panel`), careervine-mcp to careervine
