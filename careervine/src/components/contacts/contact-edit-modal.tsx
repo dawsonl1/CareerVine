@@ -29,12 +29,23 @@ import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 import { sortEducation, sortExperiences } from "@/lib/experience-order";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
+/**
+ * One education row. `start_year`/`end_year` have no inputs: the profile card
+ * does not show them and nobody edits them, but they are carried on the entry
+ * and written back unchanged so a save cannot erase the scraped years that
+ * sortEducation ranks on (CAR-218).
+ */
+type SchoolEntry = { school_name: string; degree: string; field_of_study: string; start_year: number | null; end_year: number | null };
+/** A fresh row each call, so two added rows never share one object. */
+const emptySchool = (): SchoolEntry => ({ school_name: "", degree: "", field_of_study: "", start_year: null, end_year: null });
+
 type EmailEntry = { email: string; is_primary: boolean };
 type PhoneEntry = { phone: string; type: string; is_primary: boolean };
 
 export interface FormSnapshot {
   formData: Record<string, string>;
   companies: CompanyEntry[];
+  schools: SchoolEntry[];
   emails: EmailEntry[];
   phones: PhoneEntry[];
   preferredContactKey: string;
@@ -55,6 +66,7 @@ export function serializeForm(snapshot: FormSnapshot): string {
   return JSON.stringify([
     Object.entries(snapshot.formData).sort(([a], [b]) => a.localeCompare(b)),
     snapshot.companies,
+    snapshot.schools,
     snapshot.emails,
     snapshot.phones,
     snapshot.preferredContactKey,
@@ -77,10 +89,10 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
   const [formData, setFormData] = useState({
     name: "", industry: "", linkedin_url: "", notes: "", met_through: "",
     follow_up_frequency_days: "", contact_status: "", expected_graduation: "",
-    school_name: "", degree: "", field_of_study: "",
     location_city: "", location_state: "", location_country: "United States",
   });
   const [companies, setCompanies] = useState<CompanyEntry[]>([]);
+  const [schools, setSchools] = useState<SchoolEntry[]>([]);
   const [emails, setEmails] = useState<EmailEntry[]>([]);
   const [phones, setPhones] = useState<PhoneEntry[]>([]);
   const [preferredContactKey, setPreferredContactKey] = useState("");
@@ -118,10 +130,6 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       setPristine(null);
       return;
     }
-    // NOTE: this form edits ONE school, and saving deletes the rest (see the
-    // save path below). Seeding from the newest degree rather than the lowest
-    // school_id at least makes the survivor the meaningful one (CAR-216).
-    const schoolInfo = sortEducation(contact.contact_schools ?? [])[0];
     const nextFormData = {
       name: contact.name,
       industry: contact.industry || "",
@@ -131,9 +139,6 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       follow_up_frequency_days: contact.follow_up_frequency_days?.toString() || "",
       contact_status: contact.contact_status || "",
       expected_graduation: contact.expected_graduation || "",
-      school_name: schoolInfo?.schools?.name || "",
-      degree: schoolInfo?.degree || "",
-      field_of_study: schoolInfo?.field_of_study || "",
       location_city: contact.locations?.city || "",
       location_state: isUnitedStates(contact.locations?.country || "United States")
         ? (canonicalUsState(contact.locations?.state) ?? contact.locations?.state ?? "")
@@ -149,6 +154,16 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       is_current: cc.is_current,
       start_month: cc.start_month || "",
       end_month: cc.end_month || "",
+    }));
+    // Newest degree first, matching the profile card (CAR-216). Every row is
+    // seeded, not just the first: this form used to hold one school and delete
+    // the rest on save (CAR-218).
+    const nextSchools = sortEducation(contact.contact_schools ?? []).map((cs) => ({
+      school_name: cs.schools?.name || "",
+      degree: cs.degree || "",
+      field_of_study: cs.field_of_study || "",
+      start_year: cs.start_year,
+      end_year: cs.end_year,
     }));
     const nextEmails = contact.contact_emails.map((e) => ({ email: e.email || "", is_primary: e.is_primary }));
     const nextPhones = contact.contact_phones.map((p) => ({ phone: p.phone, type: p.type, is_primary: p.is_primary }));
@@ -166,11 +181,12 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
 
     setFormData(nextFormData);
     setCompanies(nextCompanies);
+    setSchools(nextSchools);
     setEmails(nextEmails);
     setPhones(nextPhones);
     setPreferredContactKey(nextPreferredContactKey);
     setSelectedTagIds(nextTagIds);
-    setShowEducation(!!schoolInfo);
+    setShowEducation(nextSchools.length > 0);
     const freq = contact.follow_up_frequency_days;
     setShowCustomFrequency(!!freq && !FOLLOW_UP_OPTIONS.some((o) => o.days === freq));
 
@@ -179,6 +195,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
     setPristine(serializeForm({
       formData: nextFormData,
       companies: nextCompanies,
+      schools: nextSchools,
       emails: nextEmails,
       phones: nextPhones,
       preferredContactKey: nextPreferredContactKey,
@@ -197,7 +214,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
   const hasUnsavedChanges =
     !saving &&
     pristine !== null &&
-    pristine !== serializeForm({ formData, companies, emails, phones, preferredContactKey, selectedTagIds });
+    pristine !== serializeForm({ formData, companies, schools, emails, phones, preferredContactKey, selectedTagIds });
 
   const handleSave = async () => {
     if (savingRef.current) return;
@@ -266,19 +283,22 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
         }
       }
 
-      if (formData.school_name.trim()) {
-        await removeSchoolsFromContact(contact.id);
-        const school = await findOrCreateSchool(formData.school_name.trim());
-        await addSchoolToContact({
-          contact_id: contact.id,
-          school_id: school.id,
-          degree: formData.degree || null,
-          field_of_study: formData.field_of_study || null,
-          start_year: null,
-          end_year: null,
-        });
-      } else {
-        await removeSchoolsFromContact(contact.id);
+      // Replace-all, same shape as the companies loop above. Every row the form
+      // holds is written back, and each keeps the years it came in with, so a
+      // save can no longer drop a degree or blank its dates (CAR-218).
+      await removeSchoolsFromContact(contact.id);
+      for (const entry of schools) {
+        if (entry.school_name.trim()) {
+          const school = await findOrCreateSchool(entry.school_name.trim());
+          await addSchoolToContact({
+            contact_id: contact.id,
+            school_id: school.id,
+            degree: entry.degree || null,
+            field_of_study: entry.field_of_study || null,
+            start_year: entry.start_year,
+            end_year: entry.end_year,
+          });
+        }
       }
 
       await removeEmailsFromContact(contact.id);
@@ -350,7 +370,7 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
                     setFormData({ ...formData, contact_status: newStatus });
                     if (opt.value === "student" && newStatus === "student") setShowEducation(true);
                     else if (newStatus !== "student") {
-                      const hasEd = formData.school_name.trim() || formData.degree.trim() || formData.field_of_study.trim();
+                      const hasEd = schools.some((e) => e.school_name.trim() || e.degree.trim() || e.field_of_study.trim());
                       if (!hasEd) setShowEducation(false);
                     }
                   }}
@@ -441,31 +461,61 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
           {(showEducation || formData.contact_status === "student") ? (
             <>
               <label className={`${labelClasses} flex items-center gap-1.5 mb-3`}><GraduationCap className="h-3.5 w-3.5" /> Education</label>
-              <div className="space-y-3">
-                <div>
-                  <label className={labelClasses}>School</label>
-                  <SchoolAutocomplete value={formData.school_name} onChange={(val) => setFormData({ ...formData, school_name: val })} className={inputClasses} />
+              {schools.map((entry, i) => (
+                <div key={i} className="mb-3 p-3 rounded-[12px] bg-surface-container-low space-y-2">
+                  {/* Delete sits beside the school field rather than in a row of
+                      its own: a work row fills that row with its Current/Past
+                      toggle, and education has no equivalent to put there. */}
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <SchoolAutocomplete
+                        value={entry.school_name}
+                        onChange={(val) => { const u = [...schools]; u[i] = { ...u[i], school_name: val }; setSchools(u); }}
+                        className={`${inputClasses} !h-11`}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Remove education ${i + 1}`}
+                      onClick={() => setSchools(schools.filter((_, j) => j !== i))}
+                      className="mt-3 shrink-0 p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <DegreeAutocomplete
+                      value={entry.degree}
+                      onChange={(val) => { const u = [...schools]; u[i] = { ...u[i], degree: val }; setSchools(u); }}
+                      className={`${inputClasses} !h-11`}
+                    />
+                    <input
+                      type="text"
+                      value={entry.field_of_study}
+                      onChange={(e) => { const u = [...schools]; u[i] = { ...u[i], field_of_study: e.target.value }; setSchools(u); }}
+                      className={`${inputClasses} !h-11`}
+                      placeholder="Field of study"
+                    />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelClasses}>Degree</label>
-                    <DegreeAutocomplete value={formData.degree} onChange={(val) => setFormData({ ...formData, degree: val })} className={inputClasses} />
-                  </div>
-                  <div>
-                    <label className={labelClasses}>Field of study</label>
-                    <input type="text" value={formData.field_of_study} onChange={(e) => setFormData({ ...formData, field_of_study: e.target.value })} className={inputClasses} placeholder="e.g. Computer Science" />
-                  </div>
+              ))}
+              <Button type="button" variant="tonal" size="sm" onClick={() => setSchools([...schools, emptySchool()])}>
+                <Plus className="h-4 w-4" /> Add school
+              </Button>
+              {formData.contact_status === "student" && (
+                <div className="mt-3">
+                  <label className={labelClasses}>Expected graduation</label>
+                  <MonthYearPicker value={formData.expected_graduation} onChange={(val) => setFormData({ ...formData, expected_graduation: val })} placeholder="Select graduation month" ariaLabel="Expected graduation" />
                 </div>
-                {formData.contact_status === "student" && (
-                  <div>
-                    <label className={labelClasses}>Expected graduation</label>
-                    <MonthYearPicker value={formData.expected_graduation} onChange={(val) => setFormData({ ...formData, expected_graduation: val })} placeholder="Select graduation month" ariaLabel="Expected graduation" />
-                  </div>
-                )}
-              </div>
+              )}
             </>
           ) : (
-            <Button type="button" variant="tonal" size="sm" onClick={() => setShowEducation(true)}>
+            <Button
+              type="button"
+              variant="tonal"
+              size="sm"
+              onClick={() => { setShowEducation(true); if (schools.length === 0) setSchools([emptySchool()]); }}
+            >
               <GraduationCap className="h-4 w-4" /> Add education
             </Button>
           )}
