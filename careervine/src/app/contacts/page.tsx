@@ -201,7 +201,6 @@ export default function ContactsPage() {
     visibleContacts.length === 0 &&
     (enabledTiers.has("prospect") || enabledTiers.has("bench"));
 
-
   useEffect(() => {
     if (user) {
       // Fire-and-forget: loadContacts owns its error handling (sets loadError).

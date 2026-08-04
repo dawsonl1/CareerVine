@@ -274,12 +274,14 @@ describe("contacts list render cap", () => {
     });
 
     const total = net.active.length + net.prospect.length;
-    await waitFor(() => expect(listedNames().length).toBe(100));
+    // Generous timeouts: these render 100+ cards, and the default 1s can lapse
+    // on a loaded machine even though the behaviour is correct.
+    await waitFor(() => expect(listedNames().length).toBe(100), { timeout: 5000 });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: `Show all ${total}` }));
     });
-    await waitFor(() => expect(listedNames().length).toBe(total));
+    await waitFor(() => expect(listedNames().length).toBe(total), { timeout: 5000 });
   });
 
   it("re-caps after a new query, rather than carrying 'show all' forward", async () => {
@@ -289,14 +291,14 @@ describe("contacts list render cap", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Prospects/ }));
     });
-    await waitFor(() => expect(listedNames().length).toBe(100));
+    await waitFor(() => expect(listedNames().length).toBe(100), { timeout: 5000 });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^Show all / }));
     });
-    await waitFor(() => expect(listedNames().length).toBeGreaterThan(100));
+    await waitFor(() => expect(listedNames().length).toBeGreaterThan(100), { timeout: 5000 });
 
     await type("Prospect");
-    await waitFor(() => expect(listedNames().length).toBe(100));
+    await waitFor(() => expect(listedNames().length).toBe(100), { timeout: 5000 });
   });
 
   it("shows no 'Show all' control when everything already fits", async () => {

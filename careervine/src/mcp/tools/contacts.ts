@@ -85,7 +85,6 @@ export const setNetworkStatusSchema = {
     .describe("active = my network, prospect = outreach pool, bench = archive"),
 };
 
-
 export function registerContactTools(server: McpServer): void {
   server.registerTool(
     "search_contacts",
