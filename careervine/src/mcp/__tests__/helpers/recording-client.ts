@@ -271,6 +271,9 @@ export function isDirectlyScoped(q: RecordedQuery, userId: string): boolean {
     // `.eq("id", uid())` is exactly as scoped as `.eq("user_id", uid())` is
     // everywhere else. Narrow to that table so no other `id` column can
     // accidentally satisfy the check (CAR-213).
+    //
+    // CAR-213 and CAR-215 hit this gap independently and wrote the same rule;
+    // the timezone self-read in getUserTimeZone() depends on it too.
     if (col === "id" && q.table === "users") return true;
     if (!col.endsWith(".user_id")) return false;
     const rel = col.slice(0, -".user_id".length);

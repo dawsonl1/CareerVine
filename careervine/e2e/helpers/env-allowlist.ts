@@ -146,6 +146,10 @@ export function e2eAppEnv({ stack, baseUrl, upstashUrl }: AllowlistInputs): Reco
     QSTASH_TOKEN: "placeholder",
     QSTASH_CURRENT_SIGNING_KEY: "sig_placeholder",
     QSTASH_NEXT_SIGNING_KEY: "sig_placeholder",
+    // The A1 send watcher's bearer (CAR-215). Pinned to a known value rather
+    // than inherited so a developer's real secret never reaches the E2E server,
+    // and so a test can drive the cron routes deterministically.
+    CRON_TRIGGER_SECRET: "cron_trigger_placeholder",
     /**
      * Pinned to the SDK's own default rather than blanked, because
      * `@upstash/qstash` resolves it with `??`, not `||`:

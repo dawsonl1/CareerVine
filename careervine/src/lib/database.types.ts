@@ -1302,6 +1302,24 @@ export type Database = {
           },
         ]
       }
+      cron_heartbeats: {
+        Row: {
+          last_alerted_at: string | null
+          last_seen_at: string
+          name: string
+        }
+        Insert: {
+          last_alerted_at?: string | null
+          last_seen_at: string
+          name: string
+        }
+        Update: {
+          last_alerted_at?: string | null
+          last_seen_at?: string
+          name?: string
+        }
+        Relationships: []
+      }
       data_bundles: {
         Row: {
           company_count: number
@@ -2988,6 +3006,7 @@ export type Database = {
           onboarding_state: string
           phone: string | null
           status: string
+          timezone: string | null
           university: string | null
           university_is_custom: boolean
           updated_at: string | null
@@ -3010,6 +3029,7 @@ export type Database = {
           onboarding_state?: string
           phone?: string | null
           status?: string
+          timezone?: string | null
           university?: string | null
           university_is_custom?: boolean
           updated_at?: string | null
@@ -3032,6 +3052,7 @@ export type Database = {
           onboarding_state?: string
           phone?: string | null
           status?: string
+          timezone?: string | null
           university?: string | null
           university_is_custom?: boolean
           updated_at?: string | null
@@ -3085,6 +3106,13 @@ export type Database = {
       delete_pipeline_cycle: {
         Args: { p_cycle_number: number; p_target_company_id: number }
         Returns: undefined
+      }
+      due_send_counts: {
+        Args: never
+        Returns: {
+          follow_ups_due: number
+          scheduled_due: number
+        }[]
       }
       increment_ai_shared_usage: {
         Args: { p_cost: number; p_period_start: string; p_user_id: string }

@@ -50,6 +50,7 @@ import {
 } from "@/lib/data/emails";
 import { ScheduledEmailStatus } from "@/lib/constants";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
+import { resolveUserTimeZone } from "@/lib/user-timezone";
 import { currentUserIdOrNull } from "@/mcp/user-context";
 import { trackServer, checkContactMilestone } from "@/lib/analytics/server";
 import { parseCalendarAttendees } from "@/lib/calendar-attendees";
@@ -817,6 +818,17 @@ export async function findOriginalOutbound(ref: { threadId?: string; messageId?:
   const row = data?.[0];
   if (!row) throw new Error("No cached outbound message found for that thread/message — sync Gmail first or pass a different id");
   return row as { gmail_message_id: string; thread_id: string | null; subject: string | null; date: string | null; to_addresses: string[] | null };
+}
+
+/**
+ * The caller's IANA timezone, for scheduling follow-up steps at a local hour.
+ *
+ * Lives here rather than inline in the tool because MCP tools must not take the
+ * raw client (CAR-151): every read goes through a uid()-scoped helper so the
+ * db-scoping gate can see it.
+ */
+export async function getUserTimeZone(): Promise<string> {
+  return resolveUserTimeZone(db(), uid());
 }
 
 /**

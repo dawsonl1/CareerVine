@@ -12,6 +12,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createDraft, getFullMessage } from "@/lib/gmail";
 import { sendTrackedEmail } from "@/lib/email-send";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
+import { zonedTimeOfDay } from "@/lib/timezone";
 import { resolveCapabilities } from "@/lib/capabilities/resolve";
 import {
   uid,
@@ -26,6 +27,7 @@ import {
   getCachedThreadMessages,
   findOriginalOutbound,
   insertFollowUpSequence,
+  getUserTimeZone,
   getPendingScheduledEmail,
   assertNoActiveSequenceForScheduledEmail,
 } from "../lib/db";
@@ -132,12 +134,6 @@ export const followUpSequenceSchema = {
     .describe("Follow-up steps; the whole sequence auto-cancels if the contact replies"),
 };
 
-/** UTC HH:MM of an instant. */
-function utcTimeOfDay(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-}
-
 /**
  * Build follow-up rows for an MCP-created sequence.
  *
@@ -146,19 +142,33 @@ function utcTimeOfDay(iso: string): string {
  * thread path, where the day base is clamped to now but the time of day should
  * still come from the original send.
  *
- * Inheriting a time of day at all is the fix for CAR-214: buildFollowUpMessageRows
- * defaults to `setUTCHours(9,0,0,0)`, i.e. 09:00 **UTC**. The web callers pass a
- * browser-supplied timezone offset to correct for that; MCP has no browser and
- * never corrected, so a carefully-timed 9:00 a.m. Mountain intro produced
- * follow-ups that fired at 3:00 a.m. Mountain. Anchoring to the opening email's
- * own time of day needs no timezone knowledge and is what the user meant.
+ * ── Two tickets fixed the same bug from different ends ──────────────────
+ *
+ * `buildFollowUpMessageRows` used to default to `setUTCHours(9, 0)`, i.e. 09:00
+ * UTC, so a carefully-timed 9:00 a.m. Mountain intro produced follow-ups that
+ * fired at 3:00 a.m. Mountain.
+ *
+ * CAR-214 worked around it here, by inheriting the opening email's own time of
+ * day so no timezone knowledge was needed. CAR-215 fixed the root cause: the
+ * builder now resolves real IANA zones, and `sendTime` means LOCAL time.
+ *
+ * That reinterpretation is why this function had to change rather than merge
+ * as-is. Feeding it a UTC hour once `sendTime` became local would have shifted
+ * every MCP follow-up by the user's whole offset: a 2 p.m. Mountain intro
+ * producing 9 p.m. follow-ups. So the anchor is read in the user's zone.
+ *
+ * Keeping CAR-214's intent this way is also strictly more faithful to it than
+ * the original was. Pinning the UTC hour pins an instant-of-day, which drifts an
+ * hour in local terms across a DST boundary; pinning the local wall clock is
+ * what "the hour the conversation already uses" actually means to a person.
  */
 export function buildMcpFollowUpRows(
   steps: Array<z.infer<typeof followUpStepShape>>,
   dateBaseIso: string,
   timeAnchorIso: string,
+  timeZone: string,
 ) {
-  const sendTime = utcTimeOfDay(timeAnchorIso);
+  const sendTime = zonedTimeOfDay(new Date(timeAnchorIso), timeZone);
   return buildFollowUpMessageRows(
     0,
     steps.map((m) => ({
@@ -168,6 +178,7 @@ export function buildMcpFollowUpRows(
       sendTime,
     })),
     new Date(dateBaseIso),
+    timeZone,
   );
 }
 
@@ -292,7 +303,7 @@ export function registerEmailTools(server: McpServer): void {
         // instead and name the exact recovery, which is a single follow-up
         // call against the id we are about to return.
         try {
-          const rows = buildMcpFollowUpRows(follow_ups, sendAtIso, sendAtIso);
+          const rows = buildMcpFollowUpRows(follow_ups, sendAtIso, sendAtIso, await getUserTimeZone());
           const followUpId = await insertFollowUpSequence({
             // Both ids stay null until the opening email actually sends; the
             // scheduled-send cron back-fills them, and the follow-up cron's
@@ -378,6 +389,7 @@ export function registerEmailTools(server: McpServer): void {
           messages,
           scheduled.scheduled_send_at,
           scheduled.scheduled_send_at,
+          await getUserTimeZone(),
         );
         const followUpId = await insertFollowUpSequence({
           originalGmailMessageId: null,
@@ -411,10 +423,11 @@ export function registerEmailTools(server: McpServer): void {
       // sequence in one tick (an immediate multi-email burst). Clamp the base
       // to now so send_after_days always schedules into the future.
       const baseIso = new Date(Math.max(new Date(sentAt).getTime(), Date.now())).toISOString();
-      // Time of day still comes from the original send even when the day base
-      // is clamped, so steps land at the hour the conversation already uses
-      // rather than at whatever time this tool happened to run.
-      const rows = buildMcpFollowUpRows(messages, baseIso, sentAt);
+      // Steps inherit the opening email's time of day (CAR-214) resolved in the
+      // user's own zone (CAR-215). Both tickets independently fixed the same
+      // 09:00-UTC default; keeping only one would regress the other.
+      const timeZone = await getUserTimeZone();
+      const rows = buildMcpFollowUpRows(messages, baseIso, sentAt, timeZone);
       const followUpId = await insertFollowUpSequence({
         originalGmailMessageId: original.gmail_message_id,
         threadId: original.thread_id ?? thread_id ?? "",

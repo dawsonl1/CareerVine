@@ -1,6 +1,8 @@
 import { withApiHandler } from "@/lib/api-handler";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { insertFollowUpSequenceRows } from "@/lib/data/emails";
+import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
+import { resolveUserTimeZone } from "@/lib/user-timezone";
 import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 import { z } from "zod";
 
@@ -55,7 +57,10 @@ const createFollowUpsSchema = z.object({
   contactName: z.string().nullable(),
   originalSubject: headerSafeString,
   originalSentAt: z.string(),
-  timezoneOffsetMinutes: z.number(), // client's new Date().getTimezoneOffset()
+  // CAR-215 removed timezoneOffsetMinutes: an offset captured at creation
+  // time is wrong for any step on the far side of a DST boundary. The zone
+  // now arrives on the X-CV-Timezone header. Zod strips unknown keys, so a
+  // cached older client still sending the field is harmless.
   followUps: z.array(z.object({
     subject: headerSafeString,
     bodyHtml: z.string(),
@@ -69,37 +74,36 @@ const createFollowUpsSchema = z.object({
  */
 export const POST = withApiHandler({
   schema: createFollowUpsSchema,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, request }) => {
     const {
       contactId, threadId, messageId, scheduledEmailId,
       recipientEmail, contactName, originalSubject, originalSentAt,
-      timezoneOffsetMinutes, followUps,
+      followUps,
     } = body;
 
     const service = createSupabaseServiceClient();
 
     // Build message rows (follow_up_id is stamped by the shared insert).
-    // Compute 9:05 AM in user's local timezone as UTC:
-    // 9:05 AM local = 9:05 UTC + offsetMinutes (getTimezoneOffset returns minutes BEHIND UTC)
-    const sendBase = new Date(originalSentAt);
-    const messages = followUps.map((fu, i) => {
-      const sendAt = new Date(sendBase.getTime() + fu.delayDays * 24 * 60 * 60 * 1000);
-      // Set to 9:05 AM UTC, then adjust for user's timezone offset
-      sendAt.setUTCHours(9, 5, 0, 0);
-      sendAt.setUTCMinutes(sendAt.getUTCMinutes() + timezoneOffsetMinutes);
-
-      return {
-        follow_up_id: 0,
-        sequence_number: i + 1,
-        send_after_days: fu.delayDays,
+    //
+    // CAR-215: this used to bake the browser's `getTimezoneOffset()` into every
+    // step. An offset is a snapshot, not a zone, so a sequence created in EDT
+    // with a step landing after November's change fired at 8:05 AM instead of
+    // 9:05. It also disagreed with the sibling route (POST /api/gmail/follow-ups),
+    // which scheduled the same feature at 09:00 UTC (2 AM Mountain). Both now go
+    // through the shared, zone-aware builder.
+    const timeZone = await resolveUserTimeZone(service, user.id, request.headers);
+    const messages = buildFollowUpMessageRows(
+      0,
+      followUps.map((fu) => ({
+        sendAfterDays: fu.delayDays,
         subject: fu.subject,
         // The cron auto-sends stored body_html verbatim — sanitize at the
         // storage chokepoint (CAR-143, R5.2)
-        body_html: sanitizeStoredEmailHtml(fu.bodyHtml),
-        status: "pending" as const,
-        scheduled_send_at: sendAt.toISOString(),
-      };
-    });
+        bodyHtml: sanitizeStoredEmailHtml(fu.bodyHtml),
+      })),
+      new Date(originalSentAt),
+      timeZone,
+    );
 
     // Shared parent+messages insert with parent rollback on message failure
     // (CAR-151): same rows the gmail flow and MCP schedule_follow_ups write.

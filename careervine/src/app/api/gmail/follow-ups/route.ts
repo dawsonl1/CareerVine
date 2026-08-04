@@ -3,6 +3,7 @@ import { gmailFollowUpQuerySchema, gmailFollowUpCreateSchema } from "@/lib/api-s
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { buildFollowUpMessageRows } from "@/lib/follow-up-helpers";
 import { insertFollowUpSequenceRows } from "@/lib/data/emails";
+import { resolveUserTimeZone } from "@/lib/user-timezone";
 import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 
 /**
@@ -38,7 +39,7 @@ export const GET = withApiHandler({
  */
 export const POST = withApiHandler({
   schema: gmailFollowUpCreateSchema,
-  handler: async ({ user, body, track }) => {
+  handler: async ({ user, body, track, request }) => {
     const {
       originalGmailMessageId,
       threadId,
@@ -55,10 +56,15 @@ export const POST = withApiHandler({
     // Build the message rows first (follow_up_id is stamped by the shared
     // insert). The cron auto-sends stored body_html verbatim — sanitize at
     // the storage chokepoint (CAR-143, R5.2).
+    // Send times are local to the user's own zone (CAR-215). Resolved from the
+    // request header first, which is the same browser that just picked them.
+    const timeZone = await resolveUserTimeZone(service, user.id, request.headers);
+
     const msgRows = buildFollowUpMessageRows(
       0,
       messages.map((m) => ({ ...m, bodyHtml: sanitizeStoredEmailHtml(m.bodyHtml) })),
       new Date(originalSentAt),
+      timeZone,
     );
 
     // Shared parent+messages insert with parent rollback on message failure

@@ -37,8 +37,10 @@ which is the only place a cadence is defined; `node scripts/qstash-schedules.mjs
 reports drift between what is declared and what is live. Cron routes verify the
 QStash signature before anything runs, then wrap the job in an error guard.
 
-- Follow-up sequence steps are processed every 10 minutes.
-- Scheduled emails are sent every 15 minutes.
+- Follow-up sequence steps go out within about a minute of when they come due.
+- Scheduled emails are sent within about a minute of the time you picked.
+- Both run on their own schedule with an hourly safety net behind them, so a
+  delivery is never lost, only occasionally a little later than usual.
 - Each scheduled-email run reports delivery lag and throughput health, so capacity
   risks are visible before sends fall behind.
 - On free Outreach, every pending and waiting follow-up step is visible with
