@@ -26,6 +26,14 @@ Environment=PYTHONUNBUFFERED=1
 Restart=always
 RestartSec=10
 
+# SIGTERM is only observed between cycles (see Stopper), and one cycle can sit
+# in HTTP for two 90s triggers on top of a 10s connect, a 10s query and a 10s
+# heartbeat. systemd's default TimeoutStopUSec is 90s, so a `systemctl stop`
+# landing on a slow cycle ended in SIGKILL rather than the clean shutdown that
+# docstring describes. 240s covers the worst cycle with margin; anything still
+# running after that genuinely is wedged and should be killed.
+TimeoutStopSec=240
+
 # It needs outbound network and nothing else on this box.
 NoNewPrivileges=true
 PrivateTmp=true

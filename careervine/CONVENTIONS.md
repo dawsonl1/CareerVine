@@ -78,10 +78,34 @@ diffs declared against live and exits 1 on drift; `sync` reconciles but never
 deletes an undeclared schedule.
 
 Every cron route nests `withQStashVerification` **outside** `withCronGuard`:
-signature first, so an unsigned request 401s and the handler never runs, then
-error capture. Verification fails closed when the signing keys are unset rather
-than constructing a permissive receiver. `api/queue/bundle-sync` verifies but is
-not a cron and does not guard.
+credential first, so an unauthenticated request 401s and the handler never runs,
+then error capture. `api/queue/bundle-sync` verifies but is not a cron and does
+not guard.
+
+Two credentials reach that wrapper, and which ones a route accepts is per-route,
+not global:
+
+- **QStash signature** (`upstash-signature`), the default for all nine
+  consumers. Verification fails closed when `QSTASH_CURRENT_SIGNING_KEY` or
+  `QSTASH_NEXT_SIGNING_KEY` is unset, rather than constructing a permissive
+  empty-key receiver.
+- **`Authorization: Bearer $CRON_TRIGGER_SECRET`**, accepted only by the two
+  routes that pass `allowCronBearer` (`api/cron/send-scheduled-emails` and
+  `api/cron/send-follow-ups`). The A1 send watcher drives those at roughly 15
+  second resolution and cannot produce a QStash signature. Also fails closed
+  when the secret is unset.
+
+The option defaults to **false**, so a route that does not ask for the bearer
+refuses it with the same 401 as any other unsigned request. That default is the
+whole security boundary: CAR-215 checked the bearer at the shared chokepoint
+with no scoping, which silently opened all nine routes, including both
+destructive purges and both paid-Apify runs. Note that the bearer path carries
+no body signature, so on an opted-in route the request body is chosen by
+whoever holds the secret; a handler that trusts its body must not opt in.
+
+The handler receives which credential admitted the caller as its `source`
+argument (`"qstash"` or `"watcher"`), which is how the two send routes stamp and
+read watcher liveness.
 
 When you change a cadence here, update the copy that quotes it in the same
 change. `careervine/README.md` and `careervine/public/docs/index.html` both state
@@ -94,7 +118,11 @@ cadences, and a test pins them to this registry.
   README and the docs page (subject-anchored, so swapping the two lines fails),
   the docs page's follow-ups feature-card tag, and the cadence stated in the two
   interval cron routes' header comments. Daily and weekly copy phrasing is not
-  pinned.
+  pinned. `careervine/src/__tests__/qstash-verify.test.ts` pins the wrapper's own
+  behaviour with the option on and off, and
+  `careervine/src/__tests__/route-auth-inventory.test.ts` pins which routes opt
+  into the bearer, in both directions: adding the flag to a third route fails
+  until its inventory entry says so.
 
 ## c. Capability gating
 
@@ -571,10 +599,11 @@ only, never a rejected promise in a handler; that is the contract above.
 
 The 15 routes that deliberately skip `withApiHandler` are named, with the
 mechanism each uses, in the `HAND_ROLLED` map in
-`careervine/src/__tests__/route-auth-inventory.test.ts`. Five mechanisms are in
-play: qstash-signature, bundle-admin-token, webhook-secret, hmac-token, and
-oauth-jwks. Adding an unwrapped route under `careervine/src/app/api` without
-listing it fails CI, and so does leaving a stale entry behind.
+`careervine/src/__tests__/route-auth-inventory.test.ts`. Six mechanisms are in
+play: qstash-signature, qstash-signature+cron-bearer, bundle-admin-token,
+webhook-secret, hmac-token, and oauth-jwks. Adding an unwrapped route under
+`careervine/src/app/api` without listing it fails CI, and so does leaving a stale
+entry behind.
 
 Server-only fence (CAR-158): a module that reads a secret from `process.env`
 carries `import "server-only"`, so a client component importing it fails
@@ -590,6 +619,14 @@ compare and returns false when the secret is unset. Both call sites read
 `process.env` per request, so rotating it means setting the new value in Vercel
 and redeploying; there is no dual-token overlap window, so the old token stops
 working the moment the new deployment goes live.
+
+`CRON_TRIGGER_SECRET` is the other machine token. Its holder is the send watcher
+on the Oracle A1 box, deployed from the repo-root ops directory rather than from
+this app. It uses the same hash-then-constant-time compare
+inside `careervine/src/lib/qstash-verify.ts` and is likewise refused when unset.
+Unlike the admin token it is scoped per route rather than per call site, through
+`allowCronBearer` (section b): reach for that option only when a caller genuinely
+cannot sign, and expect to justify it in the route inventory.
 
 Three package edges are wired through tsconfig `paths`, as seven mappings:
 careervine to chrome-extension (`@ext`, `@panel`), careervine-mcp to careervine

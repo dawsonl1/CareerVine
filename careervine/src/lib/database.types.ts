@@ -3114,7 +3114,9 @@ export type Database = {
         Args: never
         Returns: {
           follow_ups_due: number
+          follow_ups_newest: string
           scheduled_due: number
+          scheduled_newest: string
         }[]
       }
       increment_ai_shared_usage: {

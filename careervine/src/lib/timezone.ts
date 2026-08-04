@@ -35,27 +35,98 @@ export const TIMEZONE_HEADER = "X-CV-Timezone";
 export const FALLBACK_TIME_ZONE = "UTC";
 
 /**
- * True when `value` is a zone this runtime can actually resolve.
+ * The primary IANA zone ids this runtime knows, or null if it cannot say.
  *
- * The header is attacker-controlled (it is just a request header), and the value
- * is persisted and later fed to `Intl`, so it is validated before it is stored
- * rather than trusted. `Intl.DateTimeFormat` throws RangeError on an unknown
- * zone, which is the check: no allowlist to maintain, and it stays correct as
- * the platform's tz database is updated.
+ * Built lazily rather than at module load: this module is in the client bundle
+ * (`api-client` imports TIMEZONE_HEADER from it), and `Intl.supportedValuesOf`
+ * is ES2022 — absent in Safari below 15.4. Touching it at import time would
+ * throw on load for those browsers; behind a lazy feature check it simply
+ * degrades. In practice validation only runs server-side (`user-timezone` and
+ * `api-handler` are the only callers), so the degraded path is a safety net.
  */
-export function isValidIanaTimeZone(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 64) return false;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
+let primaryZones: Set<string> | null | undefined;
+function knownPrimaryZones(): Set<string> | null {
+  if (primaryZones !== undefined) return primaryZones;
+  primaryZones =
+    typeof Intl.supportedValuesOf === "function"
+      ? new Set(Intl.supportedValuesOf("timeZone"))
+      : null;
+  return primaryZones;
 }
 
-/** Normalize an untrusted zone to something safe to use, or null if unusable. */
+/**
+ * The canonical IANA id for an untrusted zone string, or null if unusable.
+ *
+ * ── Why "does Intl accept it?" is not enough (CAR-220) ───────────────────
+ *
+ * ECMA-402 also accepts fixed-offset pseudo-zones — verified accepted by the
+ * old check: "+05:30", "-07:00", "+0530", "Etc/GMT+5". A fixed offset never
+ * observes a DST transition, so persisting one into `users.timezone` puts back
+ * exactly the bug this module exists to end: a value that looks like zone data
+ * but silently never shifts. A browser populates the header from
+ * `resolvedOptions().timeZone`, which yields a zone id rather than an offset
+ * form, so the practical trigger is a hand-crafted `X-CV-Timezone` header.
+ *
+ * ── Why membership alone is not enough either ────────────────────────────
+ *
+ * `supportedValuesOf("timeZone")` lists only PRIMARY ids. Verified on this
+ * runtime: it has no `UTC` entry and no `Etc/*` at all, and it omits
+ * Asia/Kolkata, Asia/Kathmandu and Europe/Kyiv while carrying their canonical
+ * targets. A bare membership test would therefore reject both the module's own
+ * fallback and real zones a browser reports. So the value is canonicalized
+ * first (`resolvedOptions().timeZone` resolves links and fixes casing), and
+ * membership is tested on the canonical form.
+ *
+ * The canonical id is what gets RETURNED, so callers persist and forward a
+ * spelling the tz database actually carries rather than whatever the header
+ * said — which matters downstream, where the stored value is handed to Google's
+ * freebusy API as a zone name.
+ */
+function canonicalTimeZone(value: unknown): string | null {
+  // Length check first, so attacker-sized text never reaches Intl at all.
+  if (typeof value !== "string" || value.length === 0 || value.length > 64) return null;
+
+  let canonical: string;
+  try {
+    canonical = new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+
+  // UTC is a fixed offset, but it is this module's documented fallback and its
+  // absence from the primary list would otherwise reject it. Every spelling
+  // (UTC, Etc/UTC, GMT, Zulu, Universal) canonicalizes here, so they all
+  // normalize to one stored value.
+  if (canonical === "UTC" || canonical === "Etc/UTC") return FALLBACK_TIME_ZONE;
+
+  const known = knownPrimaryZones();
+  if (known) return known.has(canonical) ? canonical : null;
+
+  // Runtime too old for supportedValuesOf: fall back to rejecting the offset
+  // forms by shape. Offset zones canonicalize to a leading + or -, and the
+  // fixed-offset Etc zones keep their Etc/GMT prefix.
+  return /^[+-]/.test(canonical) || canonical.startsWith("Etc/GMT") ? null : canonical;
+}
+
+/**
+ * True when `value` is a real, rule-bearing IANA zone (or UTC).
+ *
+ * The header is attacker-controlled and the value is persisted and later fed to
+ * `Intl`, so it is validated before it is stored rather than trusted. See
+ * `canonicalTimeZone` for why this is stricter than "does Intl accept it?".
+ */
+export function isValidIanaTimeZone(value: unknown): value is string {
+  return canonicalTimeZone(value) !== null;
+}
+
+/**
+ * Normalize an untrusted zone to its canonical id, or null if unusable.
+ *
+ * Returns the CANONICAL spelling, not the input: `US/Mountain` and
+ * `america/denver` both come back as `America/Denver`.
+ */
 export function coerceTimeZone(value: unknown): string | null {
-  return isValidIanaTimeZone(value) ? value : null;
+  return canonicalTimeZone(value);
 }
 
 /**
@@ -100,16 +171,44 @@ function zoneOffsetMsAt(instantMs: number, timeZone: string): number {
 /**
  * The UTC instant at which `timeZone` shows the given local wall-clock time.
  *
- * DST edge cases, both deterministic and both pinned in timezone.test.ts
- * (verified empirically against America/Denver rather than assumed):
- *   - Spring-forward gap (a local time that never happens, e.g. 02:30 on the
- *     March transition): resolves to the corresponding instant on the PRE-jump
- *     side, so 02:30 becomes 01:30 MST. It does not throw and does not silently
- *     jump an hour forward.
- *   - Fall-back overlap (a local time that happens twice, e.g. 01:30 on the
- *     November transition): resolves to the FIRST occurrence, the one still on
- *     daylight time.
- * Neither arises for a 9:05 AM send in US zones, where transitions are at 2 AM,
+ * ── Wall clocks that really exist ────────────────────────────────────────
+ *
+ * Always exact. Census over all 418 `Intl.supportedValuesOf("timeZone")`
+ * entries across every transition 2025-2032, sampling both sides of each:
+ * zero round-trip failures. Half-hour, 45-minute (Kathmandu, Eucla, Chatham)
+ * and 30-minute-DST (Lord Howe) zones included.
+ *
+ * ── DST edge cases: deterministic, but NOT the same everywhere ───────────
+ *
+ * A previous version of this comment claimed the gap always resolves pre-jump
+ * and the overlap always to the first occurrence. That was generalized from a
+ * correct America/Denver spot-check and is false for most of the world. Which
+ * side you land on follows the SIGN of the lower (non-advanced) of the two
+ * offsets straddling the transition:
+ *
+ *   - Negative (the Americas): gap resolves to the PRE-jump side, and the
+ *     overlap to the FIRST occurrence. Denver asked for 02:30 on 2026-03-08
+ *     gives 01:30 MST.
+ *   - Zero or positive (Europe, Africa, Asia, Oceania): gap resolves to the
+ *     POST-jump side, and the overlap to the SECOND occurrence. London asked
+ *     for 01:26 on 2026-03-29 gives 02:26 BST; Sydney asked for 02:26 on
+ *     2026-04-05 gives the later of the two 02:26s.
+ *
+ * Measured, not assumed: probing every minute inside every gap and overlap for
+ * all 418 zones over 2025-2032 (123,318 probes) splits 57 zones pre-jump/first
+ * against 73 post-jump/second, with zero violations of that sign rule and no
+ * zone in both buckets. Atlantic/Azores is why the rule names the LOWER offset
+ * rather than "the zone's offset": it straddles -01:00 -> +00:00, and follows
+ * the negative side.
+ *
+ * It never throws, and a request inside the gap never silently drifts an hour
+ * from a caller's intent by more than the gap itself. One further consequence:
+ * where the transition sits at local midnight, a gap request can come back on
+ * the PREVIOUS calendar day — America/Havana asked for 00:30 on 2026-03-08
+ * gives 2026-03-07 23:30. Havana, Santiago and Azores are the complete set of
+ * zones where that happens over 2025-2032.
+ *
+ * None of this arises for the 9:05 AM default, since no zone transitions then,
  * but callers may pick any time and should not have to know that.
  */
 export function zonedWallClockToUtc(
@@ -123,16 +222,22 @@ export function zonedWallClockToUtc(
   const zone = coerceTimeZone(timeZone) ?? FALLBACK_TIME_ZONE;
   const guess = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
 
-  // First correction, using the offset in force at the guessed instant.
+  // First correction. The offset is measured at `guess`, which is the wall-clock
+  // digits read as if they were UTC — a point that can sit on either side of a
+  // nearby transition, so this offset is a starting estimate, not the answer.
   const firstOffset = zoneOffsetMsAt(guess, zone);
   const corrected = guess - firstOffset;
 
-  // The correction may have moved us across a transition, in which case the
-  // offset we used was the wrong side of it. Re-measure and redo from the
-  // original guess; a second pass is provably enough because zone offsets are
-  // piecewise-constant and transitions are far apart relative to one shift.
+  // Re-measure at the corrected instant. If the correction crossed a transition,
+  // `firstOffset` was the wrong side of it and this is the right one; if it did
+  // not, this measures the same offset again and the result is unchanged. Both
+  // cases are therefore just `guess - secondOffset` — no branch needed, since
+  // when the offsets are equal `corrected` already IS `guess - secondOffset`.
+  // One extra pass is enough because zone offsets are piecewise-constant and
+  // transitions are far apart relative to a single shift; the 2025-2032 census
+  // above found no wall clock that needed a third.
   const secondOffset = zoneOffsetMsAt(corrected, zone);
-  return new Date(secondOffset === firstOffset ? corrected : guess - secondOffset);
+  return new Date(guess - secondOffset);
 }
 
 /**

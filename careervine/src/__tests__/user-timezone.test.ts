@@ -56,6 +56,33 @@ describe("resolveUserTimeZone", () => {
     await expect(resolveUserTimeZone(service, "u1")).resolves.toBe("America/Los_Angeles");
   });
 
+  /**
+   * CAR-220. This file's header says "the ordering is the whole point", but a
+   * mutant that PREFERS calendar_timezone over users.timezone passed all eight
+   * original tests: none of them set both to different valid zones with no
+   * header, so nothing forced the two to compete. The `tablesRead` assertion
+   * below catches a swap of the read ORDER, not a swap of the preference.
+   *
+   * The ordering matters because calendar_timezone describes the calendar
+   * account and users.timezone describes the person at their keyboard now.
+   */
+  it("prefers the stamped user zone over the calendar zone when they disagree", async () => {
+    const { service } = stubService({
+      userTimezone: "America/Denver",
+      calendarTimezone: "America/New_York",
+    });
+    await expect(resolveUserTimeZone(service, "u1")).resolves.toBe("America/Denver");
+  });
+
+  it("prefers the request header over both stored zones when all three disagree", async () => {
+    const { service } = stubService({
+      userTimezone: "America/Denver",
+      calendarTimezone: "America/New_York",
+    });
+    await expect(resolveUserTimeZone(service, "u1", headersWith("Asia/Tokyo")))
+      .resolves.toBe("Asia/Tokyo");
+  });
+
   it("falls back to the calendar zone only when nothing better exists", async () => {
     const { service, tablesRead } = stubService({
       userTimezone: null,

@@ -159,6 +159,36 @@ describe("/api/calendar/sync", () => {
     vi.useRealTimers();
   });
 
+  /**
+   * CAR-220. CAR-215 changed this write to `calendar_timezone: tz || null` with
+   * a comment saying an unknown zone would be recorded as unknown rather than
+   * guessed. The branch was unreachable: getCalendarTimezone returned
+   * DEFAULT_TIMEZONE from both of its fallbacks, so `tz` was never falsy.
+   *
+   * That mattered because the route stamps calendar_last_synced_at regardless,
+   * and the CAR-215 migration's cleanup keyed on "never synced therefore fake".
+   * A transient settings.get failure therefore wrote a literal America/New_York
+   * that nothing downstream could ever identify as a guess — the exact fake
+   * data the migration existed to purge, reintroduced by its own fix.
+   */
+  it("records an unknown calendar zone as NULL rather than guessing Eastern", async () => {
+    mockGetCalendarTimezone.mockResolvedValue(null); // Google failed or returned empty
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+
+    const zoneWrite = gmailUpdates.find((u) => "calendar_timezone" in u);
+    expect(zoneWrite, "first sync must write the calendar zone").toBeDefined();
+    expect(zoneWrite!.calendar_timezone).toBeNull();
+    expect(zoneWrite!.calendar_timezone).not.toBe("America/New_York");
+  });
+
+  it("still stores a real zone when Google supplies one", async () => {
+    mockGetCalendarTimezone.mockResolvedValue("America/Denver");
+    await POST(makeRequest());
+    const zoneWrite = gmailUpdates.find((u) => "calendar_timezone" in u);
+    expect(zoneWrite!.calendar_timezone).toBe("America/Denver");
+  });
+
   it("uses a 7-day lookback and 60-day lookahead on first sync", async () => {
     const res = await POST(makeRequest());
     expect(res.status).toBe(200);
