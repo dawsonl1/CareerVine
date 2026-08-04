@@ -108,6 +108,7 @@ export function parseMonthYear(value: string): ParsedMonthYear | null {
 export function MonthYearPicker({ value, onChange, placeholder = "Select month", ariaLabel }: MonthYearPickerProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const today = new Date();
   const parsed = parseMonthYear(value);
@@ -146,12 +147,25 @@ export function MonthYearPicker({ value, onChange, placeholder = "Select month",
       ? `${MONTH_FULL[parsed.month]} ${parsed.year}`
       : String(parsed.year)
     : (value?.trim() ?? "");
-  // Escape closes this list, not the dialog around it (CAR-205 review).
-  const handleEscape = useDropdownEscape(open, setOpen);
+  /**
+   * Escape closes this list, not the dialog around it (CAR-205 review), and hands focus
+   * back to the trigger. This panel holds focusable controls a user can tab onto (the year
+   * chevrons, the twelve month cells, Clear), so closing without moving focus would strand
+   * it on `<body>` when Escape is pressed from one of them — which disarms the enclosing
+   * dialog's focus trap, since that trap is a keydown handler on the surface.
+   */
+  const handleEscape = useDropdownEscape(
+    open,
+    useCallback(() => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    }, []),
+  );
 
   return (
     <div ref={ref} className="relative" onKeyDown={handleEscape}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={toggle}
         aria-label={ariaLabel}

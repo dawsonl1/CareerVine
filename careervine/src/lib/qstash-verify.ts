@@ -72,10 +72,10 @@ function secretsMatch(a: string, b: string): boolean {
  *
  * Only consulted when the caller opts in via `allowCronBearer` (CAR-220).
  * Before that it was checked here for every consumer of this wrapper, so one
- * shared secret opened all nine: the two send routes it was minted for, plus
+ * shared secret opened all ten: the two send routes it was minted for, plus
  * both destructive purges, both paid-Apify routes, the QStash fan-out, the
- * nudge mailer, and the bundle-sync queue. What the bearer can cause is
- * therefore bounded by the opt-in list, not by anything in this file — which
+ * nudge mailer, the bounce detector, and the bundle-sync queue. What the bearer
+ * can cause is therefore bounded by the opt-in list, not by anything in this file — which
  * routes opt in is pinned in `src/__tests__/route-auth-inventory.test.ts`.
  *
  * Fails closed when unset, exactly like the signing keys.

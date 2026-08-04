@@ -785,6 +785,12 @@ function fetchesFirstPartyApi(call, sf) {
 
 const RAW_FETCH_OPT_OUT = /(?:\/\/|\/\*|\*)\s*raw-fetch:/;
 
+// "Browser-reached" is decided by IMPORT GRAPH, not by directory. A relative
+// `/api/...` URL only resolves in a browser, so the module that writes one is
+// client code wherever it lives, and no directory line can be the test for
+// that. The guard therefore walks OUT from the client files and bans every raw
+// fetch in what it reaches (CAR-207).
+//
 // Where the rule applies, and why it is three scopes rather than one:
 //
 //   - the CLIENT TREE bans every raw fetch, first-party or not, because client
@@ -806,8 +812,8 @@ const RAW_FETCH_OPT_OUT = /(?:\/\/|\/\*|\*)\s*raw-fetch:/;
 // an argument and POSTed to /api/bundles/apply and /api/bundles/unsubscribe from
 // the browser, invisibly, for as long as the guard had existed. Widening the
 // DIRECTORY scope — which the ticket proposed — would have fixed nothing, since
-// src/lib was already scanned. What was missing is that reachability, not
-// location, is what makes a module client code, exactly as CONVENTIONS §f says.
+// src/lib was already scanned. What was missing is the principle this header
+// opens with: reachability, not location, is what makes a module client code.
 //
 // src/lib/api-client.ts is the sanctioned wrapper and is exempt by definition.
 const API_CLIENT = "src/lib/api-client.ts";

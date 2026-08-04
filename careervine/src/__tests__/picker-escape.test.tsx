@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/modal";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { ContactPicker } from "@/components/ui/contact-picker";
+import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 /**
  * CAR-205: Escape closes the open picker, not the dialog around it.
@@ -180,6 +181,69 @@ describe("picker Escape inside a dialog", () => {
     fireEvent.keyDown(input, { key: "Escape" });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * CAR-224. `useDropdownEscape` moves no focus, which is fine for a caller whose
+   * trigger survives the close but not for one whose PANEL holds focusable controls:
+   * Escape from one of those unmounts the focused element and strands focus on
+   * `<body>`, which disarms the enclosing dialog's trap (a keydown handler on the
+   * surface). Both non-portalled callers with such panels now hand focus back.
+   */
+  it("hands focus back to the trigger when a non-portalled panel closes (CAR-224)", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen onClose={onClose} title="Edit experience">
+        <MonthYearPicker value="" onChange={vi.fn()} ariaLabel="Graduation" />
+      </Modal>,
+    );
+    const trigger = screen.getByText("Select month").closest("button");
+    if (!trigger) throw new Error("month picker trigger not found");
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    // Focus a real control inside the panel — that is what makes stranding
+    // possible, since closing unmounts it.
+    const nextYear = screen.getByLabelText("Next year");
+    nextYear.focus();
+    expect(document.activeElement).toBe(nextYear);
+
+    fireEvent.keyDown(nextYear, { key: "Escape" });
+
+    expect(screen.queryByLabelText("Next year")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("returns focus to the search input without reopening the list (CAR-224)", () => {
+    // ContactPicker opens its list on input focus, so handing focus back would
+    // undo the close it just did. The suppression must cover that one transition
+    // and no more, or a later genuine focus silently stops opening the list.
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen onClose={onClose} title="Log a conversation">
+        <ContactPicker
+          allContacts={[{ id: 1, name: "Ada Lovelace" }]}
+          selectedIds={[]}
+          onChange={vi.fn()}
+        />
+      </Modal>,
+    );
+    const input = screen.getByPlaceholderText(/search/i);
+    fireEvent.focus(input);
+    const suggestion = screen.getByText("Ada Lovelace").closest("button");
+    if (!suggestion) throw new Error("suggestion not found");
+    suggestion.focus();
+
+    fireEvent.keyDown(suggestion, { key: "Escape" });
+
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByText("Ada Lovelace")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // The flag did not leak: focusing the input again still opens the list.
+    fireEvent.focus(input);
+    expect(screen.queryByText("Ada Lovelace")).toBeTruthy();
   });
 
   it("applies to the time picker too, since the fix is in the shared hook", () => {

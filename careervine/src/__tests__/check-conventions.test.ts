@@ -134,7 +134,11 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("conventions guard", () => {
+// Every test here spawns `check-conventions.mjs`, which takes ~5s on a cold run and more
+// under CI load — right at vitest's 5s default, and over it for any test that runs the
+// script twice. That made this suite flake on timeout rather than on an assertion, which
+// reads as a real failure. The budget is per test, so a genuine hang still fails, just later.
+describe("conventions guard", { timeout: 60_000 }, () => {
   it("passes on a clean tree (control)", () => {
     const { code, out } = run();
     expect(code, out).toBe(0);

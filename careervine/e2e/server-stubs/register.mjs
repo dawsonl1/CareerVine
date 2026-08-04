@@ -13,6 +13,14 @@
  * every server-side database write — which is precisely what this tier exists
  * to assert.
  *
+ * So third parties are intercepted in TWO PLACES, and the split is not
+ * optional: this module covers what the server reaches for, the `networkGuard`
+ * fixture in `e2e/fixtures/test.ts` covers what the browser does. Both DENY BY
+ * DEFAULT — an unstubbed external origin fails the test rather than reaching
+ * the network. When a spec needs a new external origin, add a handler HERE;
+ * `networkGuard.allow()` is browser-side only and does nothing for a call the
+ * server makes.
+ *
  * WHY MSW rather than an undici dispatcher: `@googleapis/*` resolves its HTTP
  * client through gaxios, which uses **node-fetch v3**, not undici. So
  * `setGlobalDispatcher` misses Gmail entirely. MSW patches `http.ClientRequest`
@@ -40,6 +48,13 @@
  * process the webServer command starts — eleven of them for a single
  * `next build`, several of which evaluate route modules — so no one process can
  * own the channel. See `e2e/helpers/ports.ts` for the measurement.
+ *
+ * THREE CHECKS SIT OUTSIDE THE PER-TEST WINDOWS, because a denial can land
+ * outside every one of them. `e2e/global-setup.ts` fails the run when the
+ * server did not arm this module at all — which `reuseExistingServer` makes
+ * routinely reachable — and when the build phase reached anything external.
+ * `e2e/global-teardown.ts` fails it when a denial arrived after the last test,
+ * background `waitUntil` work being the realistic source.
  */
 import fs from "node:fs";
 import nodePath from "node:path";

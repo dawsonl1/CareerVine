@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
         });
       }),
     // Opt in explicitly (CAR-220). The bearer used to be honoured at the shared
-    // chokepoint, which silently opened all nine QStash-verified routes,
+    // chokepoint, which silently opened all ten QStash-verified routes,
     // including destructive sweeps and one whose body was previously bound by
     // the signature.
     { allowCronBearer: true },
