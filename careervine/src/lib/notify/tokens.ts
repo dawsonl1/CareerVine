@@ -17,7 +17,27 @@ function secret(): string {
   return process.env.NUDGE_UNSUBSCRIBE_SECRET || "";
 }
 
-export type NotificationPurpose = "followup_nudges";
+/**
+ * Notification kinds a user can opt out of. Each maps to one boolean column on
+ * `users` (see NOTIFICATION_PREFERENCE_COLUMN) and one slug inside the token, so
+ * unsubscribing from one never silences the other.
+ *
+ * A purpose slug must contain no dots: the token format below relies on
+ * split(".") yielding exactly three parts.
+ */
+export const NOTIFICATION_PURPOSES = ["followup_nudges", "bounce_alerts"] as const;
+
+export type NotificationPurpose = (typeof NOTIFICATION_PURPOSES)[number];
+
+/** The `users` column each purpose opts out of. */
+export const NOTIFICATION_PREFERENCE_COLUMN: Record<NotificationPurpose, string> = {
+  followup_nudges: "followup_nudges_enabled",
+  bounce_alerts: "bounce_alerts_enabled",
+};
+
+function isPurpose(value: string): value is NotificationPurpose {
+  return (NOTIFICATION_PURPOSES as readonly string[]).includes(value);
+}
 
 export function signUnsubscribeToken(userId: string, purpose: NotificationPurpose): string {
   const payload = `${userId}.${purpose}`;
@@ -38,7 +58,10 @@ export function verifyUnsubscribeToken(
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [userId, purpose, sig] = parts;
-  if (purpose !== "followup_nudges") return null;
+  // Reject an unknown purpose BEFORE the compare: a signature is only meaningful
+  // against a purpose that maps to a real preference column, and returning one
+  // that does not would hand the caller a column name to write that does not exist.
+  if (!isPurpose(purpose)) return null;
 
   const expected = crypto
     .createHmac("sha256", key)

@@ -11,6 +11,7 @@ import {
   Link2, AlertTriangle,
 } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ResolveLinkedinModal } from "@/components/contacts/resolve-linkedin-modal";
 import { SCRAPE_FAILURES_BEFORE_RELINK } from "@/lib/constants";
 import {
@@ -62,9 +63,16 @@ export function ContactProfileCard({
   useClickOutside(cadenceRef, useCallback(() => setCadenceOpen(false), []), cadenceOpen);
 
   const currentCompany = contact.contact_companies.find((cc) => cc.is_current);
-  const primaryEmail =
-    contact.contact_emails.find((e) => e.is_primary)?.email ||
-    contact.contact_emails[0]?.email;
+  // Resolve the ROW, not just the address, so the bounce warning below is about
+  // the address actually on screen. Reproduces the previous
+  // `find(is_primary)?.email || [0]?.email` exactly: a primary row with no
+  // address still falls through to the first row, not to the first row that has
+  // one. Getting this wrong would warn about a bounced sibling address while
+  // displaying a live one.
+  const primaryRow = contact.contact_emails.find((e) => e.is_primary);
+  const displayedEmailRow = primaryRow?.email ? primaryRow : contact.contact_emails[0];
+  const primaryEmail = displayedEmailRow?.email;
+  const displayedEmailBounced = Boolean(primaryEmail && displayedEmailRow?.bounced_at);
   // Mirrors the server's contactHasEmail: a bounced-only contact counts as
   // having NO email, so Find Email stays available exactly when it's needed.
   const hasLiveEmail = contact.contact_emails.some((e) => e.email && !e.bounced_at);
@@ -338,7 +346,24 @@ export function ContactProfileCard({
               )}
             </button>
           )}
-          {gmailConnected && primaryEmail && !editingEmail && (
+          {displayedEmailBounced && !editingEmail && (
+            <Tooltip
+              label="The last email to this address bounced"
+              side="top"
+              className="shrink-0"
+            >
+              {/* tabIndex so the tooltip is reachable by keyboard too: it opens
+                  on group-focus-within, which a non-focusable span never gets. */}
+              <span tabIndex={0} aria-label="The last email to this address bounced">
+                <AlertTriangle className="h-4 w-4 text-error" />
+              </span>
+            </Tooltip>
+          )}
+          {/* A bounced address refuses every send with a 422, so offering Send
+              would only ever produce an error. Matches the companies
+              person-modal, which hides its Write email button on the same
+              condition. */}
+          {gmailConnected && primaryEmail && !displayedEmailBounced && !editingEmail && (
             <button
               onClick={() => openCompose({ to: primaryEmail, name: contact.name, contactId: contact.id })}
               className="p-1 rounded-full text-muted-foreground hover:text-primary transition-colors cursor-pointer opacity-0 group-hover:opacity-100"

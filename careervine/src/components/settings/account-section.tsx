@@ -40,6 +40,23 @@ export default function AccountSection() {
   const [nudgesEnabled, setNudgesEnabled] = useState(true);
   const [nudgesSaving, setNudgesSaving] = useState(false);
 
+  // CAR-217. A separate column and a separate toggle from the reminders above:
+  // a bounce alert reports undeliverable outreach rather than nudging for a
+  // decision, so silencing reminders must not silence it.
+  const [bounceAlertsEnabled, setBounceAlertsEnabled] = useState(true);
+  const [bounceAlertsSaving, setBounceAlertsSaving] = useState(false);
+
+  // Synchronous re-entry guards for both toggles. `disabled={saving}` is not
+  // enough on its own: the state update is async, so a fast second interaction
+  // (and every key repeat on a focused toggle, which no disabled attribute
+  // gates) reaches the handler before the re-render. Two flips racing here send
+  // two conflicting writes and the optimistic revert can then restore the wrong
+  // value. `toggleNudges` had the same gap and was carried in the
+  // check-conventions baseline; fixed alongside its new twin rather than
+  // baselining a second copy of the same bug.
+  const nudgesSavingRef = useRef(false);
+  const bounceAlertsSavingRef = useRef(false);
+
   // Password
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -71,6 +88,7 @@ export default function AccountSection() {
       setUniversityIsCustom(profile.university_is_custom ?? false);
       setUniversityLoaded(profile.university || "");
       setNudgesEnabled(profile.followup_nudges_enabled ?? true);
+      setBounceAlertsEnabled(profile.bounce_alerts_enabled ?? true);
     } catch (err) {
       console.error("Error loading profile:", err);
       // This read is the only source of the name fields, so a failure that fell
@@ -179,7 +197,8 @@ export default function AccountSection() {
   };
 
   const toggleNudges = async (value: boolean) => {
-    if (!user) return;
+    if (!user || nudgesSavingRef.current) return;
+    nudgesSavingRef.current = true;
     setNudgesEnabled(value); // optimistic
     setNudgesSaving(true);
     try {
@@ -189,7 +208,25 @@ export default function AccountSection() {
       setNudgesEnabled(!value); // revert on failure
       toastError("Could not save that. Please try again.");
     } finally {
+      nudgesSavingRef.current = false;
       setNudgesSaving(false);
+    }
+  };
+
+  const toggleBounceAlerts = async (value: boolean) => {
+    if (!user || bounceAlertsSavingRef.current) return;
+    bounceAlertsSavingRef.current = true;
+    setBounceAlertsEnabled(value); // optimistic
+    setBounceAlertsSaving(true);
+    try {
+      await updateUserProfile(user.id, { bounce_alerts_enabled: value });
+    } catch (err) {
+      console.error("Error saving bounce alert preference:", err);
+      setBounceAlertsEnabled(!value); // revert on failure
+      toastError("Could not save that. Please try again.");
+    } finally {
+      bounceAlertsSavingRef.current = false;
+      setBounceAlertsSaving(false);
     }
   };
 
@@ -369,6 +406,19 @@ export default function AccountSection() {
                 checked={nudgesEnabled}
                 disabled={nudgesSaving}
                 onChange={(v) => void toggleNudges(v)}
+              />
+            </div>
+            <div className="mt-5 pt-5 border-t border-outline-variant flex items-start justify-between gap-4">
+              <div>
+                <p className="text-base font-medium text-foreground">Bounce alerts</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Get an email when a contact address stops accepting mail. Anything queued to it is cancelled either way, this is just whether we tell you.
+                </p>
+              </div>
+              <Toggle
+                checked={bounceAlertsEnabled}
+                disabled={bounceAlertsSaving}
+                onChange={(v) => void toggleBounceAlerts(v)}
               />
             </div>
           </CardContent>
