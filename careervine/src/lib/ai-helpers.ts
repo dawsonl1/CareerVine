@@ -7,6 +7,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { wrapUntrusted } from "@/lib/ai/untrusted";
 import { must } from "@/lib/data/client";
 import { formatWallClock } from "@/lib/calendar-day";
+import { sortEducation, sortExperiences } from "@/lib/experience-order";
 
 export interface ContactContext {
   contactName: string;
@@ -36,7 +37,7 @@ export async function getContactContext(
           locations(city, state, country),
           contact_emails(email),
           contact_companies(
-            title, is_current,
+            title, is_current, start_month, end_month,
             companies(name)
           ),
           contact_schools(
@@ -82,8 +83,9 @@ export async function getContactContext(
       if (locParts.length) parts.push(`Location: ${locParts.join(", ")}`);
     }
 
-    // Companies
-    const companies = contact.contact_companies;
+    // Companies — newest first, so the model reads the current role first
+    // rather than whatever order the join returned (CAR-216).
+    const companies = sortExperiences(contact.contact_companies ?? []);
     if (companies?.length) {
       const compStrs = companies.map((cc) => {
         const name = cc.companies?.name || "Unknown";
@@ -95,7 +97,7 @@ export async function getContactContext(
     }
 
     // Schools
-    const schools = contact.contact_schools;
+    const schools = sortEducation(contact.contact_schools ?? []);
     if (schools?.length) {
       const eduStrs = schools.map((cs) => {
         const name = cs.schools?.name || "Unknown";

@@ -32,7 +32,12 @@ export interface RecordedQuery {
   countRequested: boolean;
   /** Whether { head: true } was requested on select. */
   headRequested: boolean;
-  /** order() columns in call order. */
+  /**
+   * order() columns in call order, qualified as `<referencedTable>.<column>`
+   * when the order targets an EMBEDDED resource — otherwise two orders on
+   * different embeds both record as `id` and a pin cannot tell them apart
+   * (CAR-216).
+   */
   orders: string[];
   /**
    * The raw select() column string. Load-bearing for scoping: a filter on an
@@ -150,7 +155,10 @@ function makeBuilder(state: RecordingState, table: string, op: string, payload?:
     // the operator, so an id referenced through .not() is still checkable.
     not: (col: string, _op: string, val?: unknown) => { q.filters.push(["not", col, val]); return builder; },
     or: (expr: string) => { q.orFilters.push(expr); return builder; },
-    order: (col: string) => { q.orders.push(col); return builder; },
+    order: (col: string, opts?: { referencedTable?: string }) => {
+      q.orders.push(opts?.referencedTable ? `${opts.referencedTable}.${col}` : col);
+      return builder;
+    },
     limit: () => builder,
     range: () => builder,
     single: async () => { q.resolution = "single"; return resolveQuery(state, q); },

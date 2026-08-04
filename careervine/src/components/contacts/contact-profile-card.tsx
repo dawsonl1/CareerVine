@@ -23,6 +23,7 @@ import {
   removeContactPhoto,
 } from "@/lib/queries";
 import { validateContactPhotoFile } from "@/lib/contact-photo";
+import { primaryCurrentRole } from "@/lib/experience-order";
 import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import type { Contact } from "@/lib/types";
 import { apiFetch, jsonBody } from "@/lib/api-client";
@@ -62,9 +63,10 @@ export function ContactProfileCard({
   const cadenceRef = useRef<HTMLDivElement>(null);
   useClickOutside(cadenceRef, useCallback(() => setCadenceOpen(false), []), cadenceOpen);
 
-  const currentCompany = contact.contact_companies.find((cc) => cc.is_current);
-  // Resolve the ROW, not just the address, so the bounce warning below is about
-  // the address actually on screen. Reproduces the previous
+  // CAR-216 chooses WHICH current role leads when someone holds several.
+  const currentCompany = primaryCurrentRole(contact.contact_companies);
+  // CAR-217 resolves the ROW, not just the address, so the bounce warning below
+  // is about the address actually on screen. Reproduces the previous
   // `find(is_primary)?.email || [0]?.email` exactly: a primary row with no
   // address still falls through to the first row, not to the first row that has
   // one. Getting this wrong would warn about a bounced sibling address while

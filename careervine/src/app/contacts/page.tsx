@@ -18,6 +18,7 @@ import {
 } from "@/lib/queries";
 import { promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
 import { track } from "@/lib/analytics/client";
+import { primaryCurrentRole, sortEducation, sortExperiences } from "@/lib/experience-order";
 import type { ContactListItem, TagRow } from "@/lib/types";
 import {
   Plus, Users, Search, ChevronDown, Mail, Phone,
@@ -459,7 +460,7 @@ export default function ContactsPage() {
           {showSearchSuggestions && searchQuery.trim() && (nameSuggestions.length > 0 || tagSuggestions.length > 0) && (
             <div className="absolute left-0 top-full mt-1.5 w-full z-50 bg-surface-container-high rounded-2xl shadow-lg border border-outline-variant overflow-hidden">
               {nameSuggestions.map((c) => {
-                const currentCompany = c.contact_companies.find((cc) => cc.is_current);
+                const currentCompany = primaryCurrentRole(c.contact_companies);
                 return (
                   <button key={c.id} type="button" onClick={() => { router.push(`/contacts/${c.id}`); setSearchQuery(""); }}
                     className="w-full flex items-center gap-4 px-5 py-3 hover:bg-surface-container cursor-pointer transition-colors text-left">
@@ -476,7 +477,7 @@ export default function ContactsPage() {
                   <p className="px-5 pt-2.5 pb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-t border-outline-variant/50">By tag</p>
                   {tagSuggestions.map((c) => {
                     const matchedTag = c.contact_tags.find(ct => ct.tags.name.toLowerCase().includes(searchQuery.toLowerCase()));
-                    const currentCompany = c.contact_companies.find((cc) => cc.is_current);
+                    const currentCompany = primaryCurrentRole(c.contact_companies);
                     return (
                       <button key={c.id} type="button" onClick={() => { router.push(`/contacts/${c.id}`); setSearchQuery(""); }}
                         className="w-full flex items-center gap-4 px-5 py-3 hover:bg-surface-container cursor-pointer transition-colors text-left">
@@ -599,8 +600,11 @@ export default function ContactsPage() {
         <div className="space-y-2">
           {filteredContacts.map((contact) => {
             const isExpanded = expandedId === contact.id;
-            const currentCompany = contact.contact_companies.find((cc) => cc.is_current);
-            const school = contact.contact_schools[0]?.schools;
+            const currentCompany = primaryCurrentRole(contact.contact_companies);
+            // Most recent degree, not whichever school_id happened to be lowest
+            // (CAR-216).
+            const newestSchool = sortEducation(contact.contact_schools)[0];
+            const school = newestSchool?.schools;
             const primaryEmail = contact.contact_emails.find((e) => e.is_primary) || contact.contact_emails[0];
 
             return (
@@ -736,7 +740,7 @@ export default function ContactsPage() {
                       {/* Companies */}
                       {contact.contact_companies.length > 0 && (
                         <div className="space-y-0.5">
-                          {contact.contact_companies.map((cc) => (
+                          {sortExperiences(contact.contact_companies).map((cc) => (
                             <p key={cc.id} className="text-sm text-muted-foreground">
                               <Briefcase className="h-3.5 w-3.5 inline mr-1" />
                               {cc.title}{cc.title && cc.companies.name ? " at " : ""}{cc.companies.name}
@@ -747,10 +751,10 @@ export default function ContactsPage() {
                       )}
 
                       {/* School */}
-                      {contact.contact_schools.length > 0 && (
+                      {newestSchool && (
                         <p className="text-sm text-muted-foreground">
                           <GraduationCap className="h-3.5 w-3.5 inline mr-1" />
-                          {contact.contact_schools[0].degree}{contact.contact_schools[0].field_of_study ? ` in ${contact.contact_schools[0].field_of_study}` : ""} · {contact.contact_schools[0].schools.name}
+                          {newestSchool.degree}{newestSchool.field_of_study ? ` in ${newestSchool.field_of_study}` : ""} · {newestSchool.schools.name}
                         </p>
                       )}
 

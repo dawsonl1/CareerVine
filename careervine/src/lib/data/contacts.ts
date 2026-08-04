@@ -234,6 +234,15 @@ export async function getContactById(contactId: number, userId: string) {
     `)
     .eq("id", contactId)
     .eq("user_id", userId)
+    // Embedded rows have no inherent order: Postgres serves these FK lookups
+    // from the (contact_id, company_id, …) unique indexes, so they arrive in
+    // company_id/school_id order — an artifact of when the app first met each
+    // company, and a planner choice that can change under us. Callers sort for
+    // display through @/lib/experience-order; ordering by id here just makes
+    // the INPUT to that sort deterministic, so equal-dated rows keep a stable
+    // position instead of moving on a replan (CAR-216).
+    .order("id", { referencedTable: "contact_companies" })
+    .order("id", { referencedTable: "contact_schools" })
     .single();
 
   if (error) throw error;

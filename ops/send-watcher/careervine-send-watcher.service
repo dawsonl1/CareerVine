@@ -4,6 +4,14 @@ Documentation=https://linear.app/career-vine/issue/CAR-215
 After=network-online.target
 Wants=network-online.target
 
+# A watcher that stays down is the failure this whole design guards against, so
+# never let systemd give up on it: 0 disables the start rate limiter that would
+# otherwise leave it dead after repeated fast failures (a Supabase outage at
+# boot, say). This key belongs in [Unit], not [Service] — systemd 249 parses it
+# nowhere else and logs "Unknown key name ... ignoring", which is silent enough
+# to look like it worked.
+StartLimitIntervalSec=0
+
 [Service]
 Type=simple
 User=ubuntu
@@ -15,19 +23,19 @@ ExecStart=/usr/bin/python3 /opt/careervine/send-watcher/send_watcher.py
 # Unbuffered so journalctl shows a cycle as it happens, not on flush.
 Environment=PYTHONUNBUFFERED=1
 
-# A watcher that stays down is the failure this whole design guards against, so
-# restart unconditionally and never let systemd give up: StartLimitIntervalSec=0
-# disables the rate limiter that would otherwise leave it dead after repeated
-# fast failures (e.g. a Supabase outage at boot).
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=0
 
 # It needs outbound network and nothing else on this box.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+# read-only, not true: libpq looks for an optional client cert at
+# ~/.postgresql/postgresql.crt on every connect. Under ProtectHome=true that
+# path is masked and the probe fails EACCES, which libpq treats as fatal — the
+# daemon could not open a single database connection. The file does not exist,
+# so a readable /home returns ENOENT instead, which libpq correctly ignores.
+ProtectHome=read-only
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

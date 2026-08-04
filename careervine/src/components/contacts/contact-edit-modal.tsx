@@ -26,6 +26,7 @@ import {
 import { inputClasses, labelClasses, FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
+import { sortEducation, sortExperiences } from "@/lib/experience-order";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 type EmailEntry = { email: string; is_primary: boolean };
@@ -117,7 +118,10 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       setPristine(null);
       return;
     }
-    const schoolInfo = contact.contact_schools?.[0];
+    // NOTE: this form edits ONE school, and saving deletes the rest (see the
+    // save path below). Seeding from the newest degree rather than the lowest
+    // school_id at least makes the survivor the meaningful one (CAR-216).
+    const schoolInfo = sortEducation(contact.contact_schools ?? [])[0];
     const nextFormData = {
       name: contact.name,
       industry: contact.industry || "",
@@ -136,7 +140,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
         : (contact.locations?.state || ""),
       location_country: contact.locations?.country || "United States",
     };
-    const nextCompanies = contact.contact_companies.map((cc) => ({
+    // Same order the profile card shows, so editing does not shuffle the list
+    // the user was just reading (CAR-216).
+    const nextCompanies = sortExperiences(contact.contact_companies).map((cc) => ({
       company_name: cc.companies.name,
       title: cc.title || "",
       location: cc.location || "",
