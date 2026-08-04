@@ -12,6 +12,11 @@ import { parseAiFailure, type AiFailureCode } from "@/lib/ai-errors";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { DialogSurface, ModalCancelButton, ModalCloseButton } from "@/components/ui/modal";
 import { apiFetch, apiSend, isApiRequestError, jsonBody } from "@/lib/api-client";
+import { zonedDateParts, zonedTimeOfDay } from "@/lib/timezone";
+import {
+  DEFAULT_FOLLOW_UP_SEND_HOUR,
+  DEFAULT_FOLLOW_UP_SEND_MINUTE,
+} from "@/lib/follow-up-helpers";
 
 export type FollowUpDraft = {
   /** For follow-up #1: days after original email. For #2+: days after previous follow-up. */
@@ -36,6 +41,45 @@ export type FollowUpModalProps = {
   /** If provided, the modal opens in edit mode for this existing follow-up */
   existingFollowUp?: EmailFollowUp | null;
 };
+
+/**
+ * The seeded send time, shared with the server's default so the two web routes
+ * stop disagreeing.
+ *
+ * CAR-215 gave `/api/email-follow-ups` a 09:05 local default while this modal
+ * kept sending a hardcoded "09:00", so the same feature produced two different
+ * times depending on which modal opened it. Before that PR both were 09:00 UTC,
+ * so the split was introduced by the fix.
+ */
+const DEFAULT_SEND_TIME = `${String(DEFAULT_FOLLOW_UP_SEND_HOUR).padStart(2, "0")}:${String(
+  DEFAULT_FOLLOW_UP_SEND_MINUTE,
+).padStart(2, "0")}`;
+
+/** The viewer's own zone, matching what api-client puts on X-CV-Timezone. */
+function resolveViewerZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/** Whole calendar days from `a` to `b` as the zone reckons them, not 24h buckets. */
+function localDaysBetween(a: Date, b: Date, timeZone: string): number {
+  const pa = zonedDateParts(a, timeZone);
+  const pb = zonedDateParts(b, timeZone);
+  return Math.round(
+    (Date.UTC(pb.year, pb.month - 1, pb.day) - Date.UTC(pa.year, pa.month - 1, pa.day)) / 86_400_000,
+  );
+}
+
+/** True when HH:MM has not yet passed today in `timeZone`. */
+function localTimeIsLaterToday(sendTime: string, timeZone: string): boolean {
+  const [h, m] = sendTime.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
+  const [nowH, nowM] = zonedTimeOfDay(new Date(), timeZone).split(":").map(Number);
+  return h * 60 + m > nowH * 60 + nowM;
+}
 
 /**
  * Convert the UI's relative delay model into absolute send_after_days (from original).
@@ -93,12 +137,30 @@ export function FollowUpModal({
 
   const isEditing = !!existingFollowUp;
 
+  // CAR-220: the server computes each step from the LOCAL calendar date at the
+  // LOCAL send time. This used to count raw 24-hour buckets, so the two
+  // disagreed by up to a day and the modal would happily accept a delay whose
+  // computed instant was already in the past. The server now clamps such a step
+  // forward, which is the real safety net — but a UI that promises a date the
+  // server will silently move is its own bug, so the floor is mirrored here.
+  const viewerZone = resolveViewerZone();
+
   const daysSinceOriginal = Math.max(
     0,
-    Math.floor((Date.now() - new Date(originalSentAt).getTime()) / 86400_000)
+    localDaysBetween(new Date(originalSentAt), new Date(), viewerZone),
   );
 
-  const minDaysForFirst = daysSinceOriginal + 1;
+  /**
+   * Smallest delay whose computed instant is still ahead of now.
+   *
+   * Depends on the step's own send time: at 14:00 local, a step at 09:00 must
+   * go at least one more day out than one at 17:00. Recomputed as the time
+   * input changes rather than fixed at open.
+   */
+  const minDaysForFirst = (sendTime: string): number => {
+    const stillAheadToday = localTimeIsLaterToday(sendTime, viewerZone);
+    return Math.max(1, daysSinceOriginal + (stillAheadToday ? 0 : 1));
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -120,7 +182,13 @@ export function FollowUpModal({
 
       const seeded = msgs.map((m, i) => ({
         delayDays: relativeDelays[i],
-        sendTime: "09:00",
+        // CAR-220: seed from what the step is ACTUALLY scheduled for. Hardcoding
+        // 09:00 meant any edit silently rewrote every remaining step to 09:00 —
+        // a user who picked 14:30, or an MCP sequence inheriting the opening
+        // email's hour, lost that by opening the modal and saving.
+        sendTime: m.scheduled_send_at
+          ? zonedTimeOfDay(new Date(m.scheduled_send_at), viewerZone)
+          : DEFAULT_SEND_TIME,
         subject: m.subject,
         bodyHtml: m.body_html,
       }));
@@ -128,12 +196,12 @@ export function FollowUpModal({
       setPristineDrafts(JSON.stringify(seeded));
     } else {
       // New mode
-      const defaultDays = Math.max(minDaysForFirst, 3);
+      const defaultDays = Math.max(minDaysForFirst(DEFAULT_SEND_TIME), 3);
       const reSubj = originalSubject.replace(/^(Re:\s*)+/i, "");
       const seeded = [
         {
           delayDays: defaultDays,
-          sendTime: "09:00",
+          sendTime: DEFAULT_SEND_TIME,
           subject: `Re: ${reSubj}`,
           bodyHtml: "",
         },
@@ -146,7 +214,7 @@ export function FollowUpModal({
     setSaving(false);
     setSaved(false);
     setError("");
-  }, [isOpen, existingFollowUp, originalSubject, minDaysForFirst]);
+  }, [isOpen, existingFollowUp, originalSubject, daysSinceOriginal, viewerZone]);
 
   const updateDraft = useCallback(
     (index: number, updates: Partial<FollowUpDraft>) => {
@@ -165,7 +233,7 @@ export function FollowUpModal({
       ...prev,
       {
         delayDays: 3,
-        sendTime: "09:00",
+        sendTime: DEFAULT_SEND_TIME,
         subject: `Re: ${reSubj}`,
         bodyHtml: "",
       },
@@ -180,7 +248,7 @@ export function FollowUpModal({
   };
 
   const getMinDelay = (index: number): number => {
-    if (index === 0) return minDaysForFirst;
+    if (index === 0) return minDaysForFirst(drafts[index]?.sendTime ?? DEFAULT_SEND_TIME);
     return 1;
   };
 
