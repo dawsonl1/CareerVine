@@ -98,3 +98,19 @@ Archived 2026-08-04 (context-bloat pass — rules engine gained an intake test, 
 51. [PROCESS] When Dawson has approved a plan, build it end to end without stopping between phases to report progress or re-confirm — no per-phase checkpoints, no "ready for the next one?", no re-asking for authority already granted (migrations are standing authority per rule 27; rule 42 only fixes their ORDER relative to merge, it is not a request for permission). Report when the work is done, when genuinely blocked on something only he can supply, or when a finding changes the plan's shape. Mid-build check-ins convert an approved plan back into a series of approval prompts, which is the exact overhead rule 14 exists to remove. (Correction from Dawson, 2026-08-03, after per-phase stops on CAR-213.)
     > **Merged** into live rule 14 — 'don't re-ask for authority already granted' covers both auto-commit and building through an approved plan.
 
+
+---
+
+Archived 2026-08-04 (localized to verified code-site guards; see `CLAUDE.md` → Self-Correcting Rules Engine → Retiring a rule):
+
+---
+
+17. [CODE] Detect the success of a conditional Supabase UPDATE via `.update(payload, { count: "exact" })` and check the count, never `.select()` on the same query — because the count is robust under any representation or RLS-visibility semantics, whereas read-back is not. House convention regardless of driver version; do not diagnose a live incident as a read-back failure without an empirical test against the hosted instance first (the original PostgREST mechanism did not reproduce on current production).
+    > **Localized** — the guard lives at `careervine/scripts/check-conventions.mjs:252` (the `── (b) rule-17 CAS readback shape ──` check, escape hatch `// cas-checked:`), which runs in CI via `npm run check:conventions`. The convention is now enforced rather than remembered.
+
+33. [TOOL] Never put `rewrites`/`redirects`/`headers` in `vercel.json` — Vercel silently ignores them on Next.js projects, so the deploy succeeds and the rule simply doesn't exist. Define routing in `next.config.ts` (`rewrites().beforeFiles` for host-scoped rules), verify locally with `next build && next start` plus a `Host:`-header curl, and re-verify the production URL after deploy.
+    > **Localized** — the guard lives at `careervine/src/__tests__/vercel-config.test.ts`, which fails if `vercel.json` gains a `rewrites`, `redirects` or `headers` key, and carries an anti-vacuity check so an emptied or relocated file cannot satisfy it silently. Written in the same pass that retired this rule, because no guard existed before.
+
+40. [DATA] Always verify a status value against the table's actual CHECK constraint before writing it — grep the full migration history for the constraint, including later ALTERs. `constants.ts` enums are NOT schema truth, and a value the CHECK omits fails in production with 23514.
+    > **Localized** — the guard lives at `careervine/src/__integration__/check-constraints.itest.ts`, which asserts CHECK-constraint conformance for every `constants.ts` vocabulary against real Postgres, and runs as CI's `integration` job.
+

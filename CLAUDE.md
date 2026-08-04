@@ -138,7 +138,9 @@ The failure mode this guards against is real and recent: CAR-157 found the same 
 
 <!-- New rules are appended below this line. Do not edit above this section. -->
 
-> **Archived** → `.claude/rules-archive.md`, verbatim, with the reason each left: rules 2, 6, 9, 11, 18–23, 34, 46 (superseded/absorbed), and 4, 12, 15, 16, 28, 29, 30, 36, 39, 43, 44, 47, 48, 49, 51 (merged into a live rule, or localized to a verified code-site guard). Numbering is never reused — the next new rule takes the number after the highest below.
+> **Archived** → `.claude/rules-archive.md`, verbatim, with the reason each left: rules 2, 6, 9, 11, 18–23, 34, 46 (superseded/absorbed), and 4, 12, 15, 16, 17, 28, 29, 30, 33, 36, 39, 40, 43, 44, 47, 48, 49, 51 (merged into a live rule, or localized to a verified code-site guard). Numbering is never reused — the next new rule takes the number after the highest below (52).
+>
+> 21 live, 30 archived, 51 accounted for. **Before localizing a rule, open the guard and confirm it exists** — three of these were nearly archived on the strength of "the convention isn't written up in CONVENTIONS.md," which measures documentation, not enforcement. Two turned out to be guarded already; the third had no guard until one was written for it.
 
 1. [PROCESS] Always rephrase user-provided rules into precise, unambiguous imperatives with explicit scope and rationale before appending them — because conversational phrasing is ambiguous, and a rule is only as good as its worst reading.
 
@@ -156,8 +158,6 @@ The failure mode this guards against is real and recent: CAR-157 found the same 
 
 14. [PROCESS] Never re-ask for authority already granted. Commit and push completed, validated work automatically, and once a plan is approved build it end to end — no per-phase checkpoints, no "ready for the next one?". Report when the work is done, when genuinely blocked on something only Dawson can supply, or when a finding changes the plan's shape. Scope: this covers direct commits on the risk-based path, NOT merging PRs (never self-merge).
 
-17. [CODE] Detect the success of a conditional Supabase UPDATE via `.update(payload, { count: "exact" })` and check the count, never `.select()` on the same query — because the count is robust under any representation or RLS-visibility semantics, whereas read-back is not. House convention regardless of driver version; do not diagnose a live incident as a read-back failure without an empirical test against the hosted instance first (the original PostgREST mechanism did not reproduce on current production).
-
 24. [PROCESS] Dawson intentionally pastes secret values into chat — store them in `~/.config/claude/secrets.zsh`, wire them up, and move on. Never treat them as compromised, recommend rotation, or add security caveats about it.
 
 25. [PROCESS] Linear tickets are required only for product work — the app, extension, MCP server, migrations, and repo tooling that ships. Meta-work on agent process files (CLAUDE.md, memory, agent config) needs no ticket, because Linear tracks the product, not Claude's own process maintenance.
@@ -170,15 +170,11 @@ The failure mode this guards against is real and recent: CAR-157 found the same 
 
 32. [DATA] Never treat `supabase db push --dry-run` as validation that a migration's SQL is correct — it only lists what would be pushed and never executes SQL, so it cannot catch references to dropped tables or columns. The sanctioned pre-apply validation is executing the migration against production inside `BEGIN; SET LOCAL lock_timeout='3s'; … ROLLBACK;` — zero drift, and it proves the migration applies against real schema and data.
 
-33. [TOOL] Never put `rewrites`/`redirects`/`headers` in `vercel.json` — Vercel silently ignores them on Next.js projects, so the deploy succeeds and the rule simply doesn't exist. Define routing in `next.config.ts` (`rewrites().beforeFiles` for host-scoped rules), verify locally with `next build && next start` plus a `Host:`-header curl, and re-verify the production URL after deploy.
-
 35. [STYLE] Never use em dashes (—) in user-facing copy: rendered UI text, marketing and landing copy, the docs page, emails, any product surface a user reads. Use a comma, colon, parentheses, or separate sentences. Code, comments, commit messages, Linear/PR text, and these agent process files are unaffected.
 
 37. [PROCESS] Never raise an alarm about repository or `main` integrity from a proxy signal like a line count or a failed offset-read — verify by direct comparison first (`git rev-parse <ref>:<path>` blob hashes, `git diff`, `git show`). Generalizes: never surface a scary claim you have not actually checked.
 
 38. [PROCESS] Always pull remote `main` onto local `main` after merging a PR, and whenever returning to `main`, so the primary checkout stays current with `origin/main`.
-
-40. [DATA] Always verify a status value against the table's actual CHECK constraint before writing it — grep the full migration history for the constraint, including later ALTERs. `constants.ts` enums are NOT schema truth, and a value the CHECK omits fails in production with 23514.
 
 41. [PROCESS] When Dawson commits to a scope, execute ALL of it as committed work — never present subsets as "optional", "skippable", or "defer knowingly", and never build effort-based off-ramps into a plan he already chose. A defect you have already diagnosed is work, not a question: fix it in the same pass rather than reporting it back as a judgment call. Filing a Linear ticket for a finding is DEFERRAL, not resolution — "filed rather than fixed here" is the exact phrasing to stop writing. Unrelated surface, pre-existing, and low severity are reasons the fix is *wider*, not *later*. File a follow-up ticket only for work genuinely blocked on a decision only Dawson can make or on an external dependency, and say which.
 
