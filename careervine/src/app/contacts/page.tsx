@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
@@ -19,6 +19,9 @@ import {
 import { promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
 import { track } from "@/lib/analytics/client";
 import { primaryCurrentRole, sortEducation, sortExperiences } from "@/lib/experience-order";
+import {
+  searchContacts, normalizeSearchText, parseSearchTokens, scoreContact, searchableFields,
+} from "@/lib/contact-search";
 import type { ContactListItem, TagRow } from "@/lib/types";
 import {
   Plus, Users, Search, ChevronDown, Mail, Phone,
@@ -96,7 +99,19 @@ export default function ContactsPage() {
   // contact payload lands
   const [serverTierCounts, setServerTierCounts] = useState<{ active: number; prospect: number; bench: number } | null>(null);
 
+  // Rows rendered before "Show all" (CAR-222). Nobody scrolls two thousand
+  // cards, and rendering them all was what made a tier toggle feel frozen: the
+  // previous fix deferred that render to a background lane, which left the list
+  // showing stale results until the next keystroke forced an urgent render.
+  // Capping removes the cost instead of hiding it, so toggling and typing are
+  // both immediate.
+  const RENDER_CAP = 100;
+  const [showAllRows, setShowAllRows] = useState(false);
+
   const toggleTier = (tier: "active" | "prospect" | "bench") => {
+    // Back to the capped list: "show all" was a decision about the previous
+    // result set, and carrying it into a new one re-renders thousands of rows.
+    setShowAllRows(false);
     setEnabledTiers((prev) => {
       const next = new Set(prev);
       if (next.has(tier)) next.delete(tier);
@@ -153,11 +168,6 @@ export default function ContactsPage() {
     }
   }, [user]);
 
-  // The chips repaint instantly on click; the expensive list re-render
-  // (hundreds of rows) follows behind via the deferred value so the
-  // toggle animation isn't blocked waiting for it.
-  const deferredTiers = useDeferredValue(enabledTiers);
-
   // Per-tier counts for the toggle chips: derived from the loaded
   // superset once it's in memory (stays live as contacts are promoted),
   // otherwise the fast head-count results; null until either arrives
@@ -178,8 +188,8 @@ export default function ContactsPage() {
   // With no toggles on screen, the view is always the active network.
   const visibleContacts = useMemo(() => {
     if (!tiersExist) return contacts.filter((c) => c.network_status === "active");
-    return contacts.filter((c) => deferredTiers.has(c.network_status as "active" | "prospect" | "bench"));
-  }, [contacts, deferredTiers, tiersExist]);
+    return contacts.filter((c) => enabledTiers.has(c.network_status as "active" | "prospect" | "bench"));
+  }, [contacts, enabledTiers, tiersExist]);
 
   // Blocking spinner for a prospect/bench view only while it has NOTHING to
   // show yet. Once the first page of the enabled tier is in memory, render those
@@ -191,6 +201,7 @@ export default function ContactsPage() {
     visibleContacts.length === 0 &&
     (enabledTiers.has("prospect") || enabledTiers.has("bench"));
 
+
   useEffect(() => {
     if (user) {
       // Fire-and-forget: loadContacts owns its error handling (sets loadError).
@@ -201,42 +212,46 @@ export default function ContactsPage() {
     }
   }, [user, loadContacts]);
 
-  // Search suggestions: people matching by name, email, company, job
-  // title, school, or industry — then tag-only matches
+  const hasQuery = searchQuery.trim().length > 0;
+
+  // A search spans the WHOLE network, not just the toggled-on tiers (CAR-222).
+  // The chips are a browse filter; scoping search to them meant an account with
+  // 9 active and 1,996 prospect/archive contacts could only ever find 9 people,
+  // and typing a saved contact's full name returned "no contacts match".
+  // Cards already signal tier (teal ring = prospect, grayscale = archive), so a
+  // result from a toggled-off tier still reads correctly.
+  const searchResults = useMemo(
+    () => (hasQuery ? searchContacts(contacts, searchQuery) : null),
+    [contacts, searchQuery, hasQuery],
+  );
+
+  // Search suggestions: top-ranked people first, then the ones that surfaced
+  // only because of a tag. Splitting on "would this still match with tags
+  // removed" keeps the labelled section honest, rather than guessing from a
+  // substring test that multi-word queries would get wrong.
   const { nameSuggestions, tagSuggestions } = useMemo(() => {
-    if (!searchQuery.trim()) return { nameSuggestions: [], tagSuggestions: [] };
-    const q = searchQuery.toLowerCase();
-    const nameHit = (c: ContactListItem) =>
-      c.name.toLowerCase().includes(q) ||
-      c.contact_emails.some((e) => e.email?.toLowerCase().includes(q)) ||
-      c.contact_companies.some((cc) => cc.companies.name.toLowerCase().includes(q) || cc.title?.toLowerCase().includes(q)) ||
-      c.contact_schools.some((cs) => cs.schools.name.toLowerCase().includes(q)) ||
-      c.industry?.toLowerCase().includes(q);
-    const tagHit = (c: ContactListItem) => c.contact_tags.some((ct) => ct.tags.name.toLowerCase().includes(q));
-    const nameSuggestions = visibleContacts.filter(nameHit).slice(0, 5);
-    const nameIds = new Set(nameSuggestions.map(c => c.id));
-    const tagSuggestions = visibleContacts.filter(c => !nameIds.has(c.id) && tagHit(c)).slice(0, 5);
+    if (!searchResults) return { nameSuggestions: [], tagSuggestions: [] };
+    const tokens = parseSearchTokens(searchQuery);
+    const tagOnly = (c: ContactListItem) =>
+      scoreContact(
+        searchableFields(c).filter((f) => f.kind !== "tag"),
+        tokens,
+      ) === 0;
+    const nameSuggestions = searchResults.filter((c) => !tagOnly(c)).slice(0, 5);
+    const tagSuggestions = searchResults.filter(tagOnly).slice(0, 5);
     return { nameSuggestions, tagSuggestions };
-  }, [visibleContacts, searchQuery]);
+  }, [searchResults, searchQuery]);
 
   const filteredContacts = useMemo(() => {
-    let result = visibleContacts;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter((c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.industry?.toLowerCase().includes(q) ||
-        c.contact_emails.some((e) => e.email?.toLowerCase().includes(q)) ||
-        c.contact_companies.some((cc) => cc.companies.name.toLowerCase().includes(q) || cc.title?.toLowerCase().includes(q)) ||
-        c.contact_schools.some((cs) => cs.schools.name.toLowerCase().includes(q)) ||
-        c.contact_tags.some((ct) => ct.tags.name.toLowerCase().includes(q))
-      );
-    }
+    let result = searchResults ?? visibleContacts;
     if (selectedTagFilter !== null) {
       result = result.filter((c) => c.contact_tags.some((ct) => ct.tag_id === selectedTagFilter));
     }
     return result;
-  }, [visibleContacts, searchQuery, selectedTagFilter]);
+  }, [searchResults, visibleContacts, selectedTagFilter]);
+
+  const renderedContacts = showAllRows ? filteredContacts : filteredContacts.slice(0, RENDER_CAP);
+  const hiddenRowCount = filteredContacts.length - renderedContacts.length;
 
   const handleActivate = async (contact: ContactListItem) => {
     try {
@@ -452,7 +467,7 @@ export default function ContactsPage() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setShowSearchSuggestions(true); }}
+            onChange={(e) => { setSearchQuery(e.target.value); setShowSearchSuggestions(true); setShowAllRows(false); }}
             onFocus={() => setShowSearchSuggestions(true)}
             className="w-full h-12 pl-11 pr-4 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-base"
             placeholder="Search contacts…"
@@ -476,7 +491,12 @@ export default function ContactsPage() {
                 <>
                   <p className="px-5 pt-2.5 pb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-t border-outline-variant/50">By tag</p>
                   {tagSuggestions.map((c) => {
-                    const matchedTag = c.contact_tags.find(ct => ct.tags.name.toLowerCase().includes(searchQuery.toLowerCase()));
+                    // Token-based like the matcher itself, so the badge doesn't
+                    // vanish on a trailing space or a reordered query.
+                    const matchedTag = c.contact_tags.find((ct) => {
+                      const name = normalizeSearchText(ct.tags.name);
+                      return parseSearchTokens(searchQuery).some((t) => name.includes(t));
+                    });
                     const currentCompany = primaryCurrentRole(c.contact_companies);
                     return (
                       <button key={c.id} type="button" onClick={() => { router.push(`/contacts/${c.id}`); setSearchQuery(""); }}
@@ -498,10 +518,20 @@ export default function ContactsPage() {
           )}
         </div>
 
+        {/* A query searches everything, so say so: otherwise a prospect
+            surfacing while only "My network" is lit reads as a bug. */}
+        {hasQuery && tiersExist && (
+          <p className="text-sm text-muted-foreground mb-4">
+            {allTiersLoaded
+              ? "Searching your whole network, including prospects and archive."
+              : "Searching your whole network. Still loading, so more matches may appear."}
+          </p>
+        )}
+
         {/* Network tier toggles — each chip flips a tier in or out of view.
-            Hidden entirely when there's nothing beyond the active network. */}
+            Dimmed while a query is up, since search ignores them. */}
         {tiersExist && (
-        <div className="flex items-center gap-2 mb-4">
+        <div className={`flex items-center gap-2 mb-4 transition-opacity ${hasQuery ? "opacity-50" : ""}`}>
           {([
             // onClasses mirror the avatar-halo colors: green = network,
             // teal = prospects, gray = archive
@@ -548,8 +578,9 @@ export default function ContactsPage() {
           </div>
         )}
 
-        {/* Nothing toggled on */}
-        {!viewLoading && tiersExist && enabledTiers.size === 0 && (
+        {/* Nothing toggled on. Suppressed under a query, which ignores the
+            chips: "toggle a group" would be advice that changes nothing. */}
+        {!viewLoading && !hasQuery && tiersExist && enabledTiers.size === 0 && (
           <p className="text-base text-muted-foreground py-8 text-center">
             No groups selected. Toggle a group above to see people.
           </p>
@@ -557,7 +588,7 @@ export default function ContactsPage() {
 
         {/* Empty state — the network itself is empty and only it is selected.
             Stays up even when prospects/archive exist in other tiers. */}
-        {!viewLoading && visibleContacts.length === 0 && enabledTiers.size === 1 && enabledTiers.has("active") && (
+        {!viewLoading && !hasQuery && visibleContacts.length === 0 && enabledTiers.size === 1 && enabledTiers.has("active") && (
           <Card variant="outlined" className="text-center py-16">
             <CardContent>
               <Users className="mx-auto h-14 w-14 text-muted-foreground/40 mb-5" />
@@ -585,20 +616,21 @@ export default function ContactsPage() {
         )}
 
         {/* Selected groups are empty — only when a non-default selection is active */}
-        {!viewLoading && visibleContacts.length === 0 && enabledTiers.size > 0 && !(enabledTiers.size === 1 && enabledTiers.has("active")) && (
+        {!viewLoading && !hasQuery && visibleContacts.length === 0 && enabledTiers.size > 0 && !(enabledTiers.size === 1 && enabledTiers.has("active")) && (
           <p className="text-base text-muted-foreground py-8 text-center">
             No contacts in the selected groups.
           </p>
         )}
 
-        {/* No search results */}
-        {!viewLoading && visibleContacts.length > 0 && filteredContacts.length === 0 && (
+        {/* No search results. Gated on the query alone, not on the visible
+            tiers, since search no longer reads them (CAR-222). */}
+        {!viewLoading && hasQuery && filteredContacts.length === 0 && contacts.length > 0 && (
           <p className="text-base text-muted-foreground py-8 text-center">No contacts match your search.</p>
         )}
 
         {/* Contact list */}
         <div className="space-y-2">
-          {filteredContacts.map((contact) => {
+          {renderedContacts.map((contact) => {
             const isExpanded = expandedId === contact.id;
             const currentCompany = primaryCurrentRole(contact.contact_companies);
             // Most recent degree, not whichever school_id happened to be lowest
@@ -787,6 +819,15 @@ export default function ContactsPage() {
             );
           })}
         </div>
+
+        {/* Rest of the matches, on request */}
+        {hiddenRowCount > 0 && (
+          <div className="pt-4 text-center">
+            <Button variant="outline" onClick={() => setShowAllRows(true)}>
+              Show all {filteredContacts.length}
+            </Button>
+          </div>
+        )}
 
         {/* Create contact modal */}
         <Modal
