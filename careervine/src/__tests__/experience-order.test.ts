@@ -73,6 +73,8 @@ describe("parseExperienceMonth", () => {
 
   it("does not mistake a non-month word for a month", () => {
     expect(parseExperienceMonth("Summer 2019")).toBe(201900);
+    expect(parseExperienceMonth("Winter 2019")).toBe(201900);
+    expect(parseExperienceMonth("construct 2020")).toBe(202000);
   });
 });
 

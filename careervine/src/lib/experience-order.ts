@@ -30,21 +30,31 @@
  * answer: we do not know when they happened.
  */
 
-/** Month names as written by the scrapers and by hand, abbreviated or full. */
-const MONTH_NUMBERS: Readonly<Record<string, number>> = {
-  jan: 1, january: 1,
-  feb: 2, february: 2,
-  mar: 3, march: 3,
-  apr: 4, april: 4,
-  may: 5,
-  jun: 6, june: 6,
-  jul: 7, july: 7,
-  aug: 8, august: 8,
-  sep: 9, sept: 9, september: 9,
-  oct: 10, october: 10,
-  nov: 11, november: 11,
-  dec: 12, december: 12,
-};
+/**
+ * Month names as written by the scrapers and by hand, abbreviated or full.
+ *
+ * A Map rather than an object literal, because the key comes from a free-text
+ * field: an object resolves INHERITED keys, so a lookup could answer with a
+ * function where the signature promises a number, and `year * 100 + fn`
+ * concatenates instead of adding. No such key is reachable today (WORD matches
+ * 3-9 lowercase letters, and every Object.prototype member is longer or
+ * camelCased), but that safety would then live in a regex two constants away
+ * rather than here.
+ */
+const MONTH_NUMBERS = new Map<string, number>([
+  ["jan", 1], ["january", 1],
+  ["feb", 2], ["february", 2],
+  ["mar", 3], ["march", 3],
+  ["apr", 4], ["april", 4],
+  ["may", 5],
+  ["jun", 6], ["june", 6],
+  ["jul", 7], ["july", 7],
+  ["aug", 8], ["august", 8],
+  ["sep", 9], ["sept", 9], ["september", 9],
+  ["oct", 10], ["october", 10],
+  ["nov", 11], ["november", 11],
+  ["dec", 12], ["december", 12],
+]);
 
 const YEAR = /\b(19\d{2}|20\d{2})\b/;
 /** `2023-01`, `2023/1` */
@@ -83,7 +93,7 @@ function monthOf(text: string): number {
 
   WORD.lastIndex = 0;
   for (let word = WORD.exec(text); word; word = WORD.exec(text)) {
-    const month = MONTH_NUMBERS[word[0]];
+    const month = MONTH_NUMBERS.get(word[0]);
     if (month) return month;
   }
   return 0;
