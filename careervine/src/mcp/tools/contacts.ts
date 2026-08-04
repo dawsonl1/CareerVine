@@ -15,13 +15,13 @@ import {
   appendNote,
   tagContact,
   setNetworkStatus,
-  type SearchRow,
   getViewerSchool,
 } from "../lib/db";
 import { buildDossier } from "../lib/dossier";
 import { handler, contactRefShape } from "../lib/tool-utils";
 import { dateKeyOf, daysBetweenDateKeys, todayDateKey } from "@/lib/calendar-day";
 import { primaryCurrentRole } from "@/lib/experience-order";
+import { searchContacts } from "@/lib/contact-search";
 
 export const searchContactsSchema = {
   query: z.string().min(1).describe("Matches name, email, company, job title, school, industry, or tag"),
@@ -85,19 +85,6 @@ export const setNetworkStatusSchema = {
     .describe("active = my network, prospect = outreach pool, bench = archive"),
 };
 
-function matchesQuery(row: SearchRow, q: string): boolean {
-  const fields = [
-    row.name,
-    row.headline,
-    row.industry,
-    ...row.contact_emails.map((e) => e.email),
-    ...row.contact_companies.flatMap((cc) => [cc.title, cc.companies?.name]),
-    ...row.contact_schools.map((s) => s.schools?.name),
-    ...row.contact_tags.map((t) => t.tags?.name),
-  ];
-  return fields.some((f) => f && f.toLowerCase().includes(q));
-}
-
 export function registerContactTools(server: McpServer): void {
   server.registerTool(
     "search_contacts",
@@ -109,9 +96,10 @@ export function registerContactTools(server: McpServer): void {
       annotations: { readOnlyHint: true },
     },
     handler(async ({ query, tiers, limit }) => {
-      const q = query.trim().toLowerCase();
       const rows = await fetchSearchRows(tiers);
-      const matches = rows.filter((r) => matchesQuery(r, q)).slice(0, limit ?? 10);
+      // Ranked, not first-N: `limit` used to truncate rows in load order, so an
+      // exact name match could be cut while a tag match survived (CAR-222).
+      const matches = searchContacts(rows, query).slice(0, limit ?? 10);
 
       const [stages, lastTouch] = await Promise.all([
         getContactStages(uid(), matches.map((m) => ({ id: m.id, stage_override: m.stage_override }))),
