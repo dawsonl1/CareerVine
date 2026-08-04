@@ -430,6 +430,7 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     escapeIlike: { kind: "context" },
     chunkList: { kind: "context" },
     chunked: { kind: "context" },
+    chunkedPaginated: { kind: "context" },
     paginateAll: { kind: "context" },
   },
   "@/lib/data/contacts": {

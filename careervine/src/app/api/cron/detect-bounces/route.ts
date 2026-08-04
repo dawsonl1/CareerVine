@@ -6,6 +6,7 @@ import { detectBounces } from "@/lib/gmail";
 import { capabilitiesFor } from "@/lib/capabilities/map";
 import { filterActiveUserIds } from "@/lib/user-status";
 import { must } from "@/lib/data/client";
+import { paginateAll } from "@/lib/data/postgrest";
 
 export const maxDuration = 60;
 
@@ -50,11 +51,18 @@ interface ConnectionRow {
 async function runJob(): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
 
-  const connections = must(
-    await service
-      .from("gmail_connections")
-      .select("user_id, modify_scope_granted, automatic_features_enabled, premium_enabled"),
-  ) as ConnectionRow[] | null;
+  // Paginated (CAR-223): this is a cross-user sweep, so past 1000 connected
+  // accounts every user after the cap would silently stop getting bounce
+  // detection, permanently and with no error.
+  const connections = (await paginateAll(async (from, to) =>
+    must(
+      await service
+        .from("gmail_connections")
+        .select("user_id, modify_scope_granted, automatic_features_enabled, premium_enabled")
+        .order("user_id")
+        .range(from, to),
+    ),
+  )) as ConnectionRow[];
 
   // Resolve capabilities from the same pre-fetch rather than per-user round
   // trips, matching send-follow-ups. `premium_enabled` defaults to true for

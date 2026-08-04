@@ -13,7 +13,7 @@ import { Inbox, Clock, Send, Mail, Trash2, EyeOff, FileText } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { OAuthWarning } from "@/components/oauth-warning";
-import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
+import { buildThreads, isReceivedThread, isSentThread, type EmailThread } from "@/lib/gmail-helpers";
 import { isOpenFollowUpMessage } from "@/lib/constants";
 import { trackBeforeNavigate } from "@/lib/analytics/client";
 import { UI_EVENTS, emitUiEvent, unreadDeltaFor } from "@/lib/ui-events";
@@ -107,9 +107,14 @@ export function InboxShell() {
 
   // ── Thread grouping ──
 
-  const inboxThreads = useMemo(() => buildThreads(emails), [emails]);
-  const sentEmails = useMemo(() => emails.filter((e) => e.direction === "outbound"), [emails]);
-  const sentThreads = useMemo(() => buildThreads(sentEmails), [sentEmails]);
+  // Gmail parity (CAR-219): group every message into conversations once, then
+  // let each mailbox select whole threads by who has written on them. Both
+  // views therefore show the complete conversation — a reply pulls our own
+  // outreach into the Inbox with it, and Sent shows what came back rather than
+  // just our side. Outreach nobody has answered belongs to Sent alone.
+  const allThreads = useMemo(() => buildThreads(emails), [emails]);
+  const inboxThreads = useMemo(() => allThreads.filter(isReceivedThread), [allThreads]);
+  const sentThreads = useMemo(() => allThreads.filter(isSentThread), [allThreads]);
   const trashThreads = useMemo(() => buildThreads(trashedEmails), [trashedEmails]);
   const hiddenThreads = useMemo(() => buildThreads(hiddenEmails), [hiddenEmails]);
 

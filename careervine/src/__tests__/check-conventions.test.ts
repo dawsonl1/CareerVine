@@ -150,7 +150,7 @@ describe("conventions guard", { timeout: 60_000 }, () => {
     const { code, out } = withFile(
       "src/lib/probe.ts",
       "export async function f(db: any) {\n" +
-        '  const { data } = await db.from("t").select("id");\n' +
+        '  const { data } = await db.from("t").select("id").limit(1);\n' +
         "  return data;\n}\n",
     );
     expect(code).toBe(1);
@@ -162,8 +162,8 @@ describe("conventions guard", { timeout: 60_000 }, () => {
       "src/lib/probe.ts",
       "export async function f(db: any) {\n" +
         "  const [{ data: a }, { data: b }] = await Promise.all([\n" +
-        '    db.from("t").select("id"),\n' +
-        '    db.from("u").select("id"),\n' +
+        '    db.from("t").select("id").limit(1),\n' +
+        '    db.from("u").select("id").limit(1),\n' +
         "  ]);\n  return [a, b];\n}\n",
     );
     expect(code).toBe(1);
@@ -176,7 +176,7 @@ describe("conventions guard", { timeout: 60_000 }, () => {
     const { code, out } = withFile(
       "src/lib/probe.ts",
       "export async function f(db: any) {\n" +
-        '  const { data, error } = await db.from("t").select("id");\n' +
+        '  const { data, error } = await db.from("t").select("id").limit(1);\n' +
         "  if (error) throw error;\n  return data;\n}\n",
     );
     expect(code, out).toBe(0);
@@ -187,7 +187,7 @@ describe("conventions guard", { timeout: 60_000 }, () => {
       withFile(
         "src/lib/probe.ts",
         "export async function f(db: any, must: any) {\n" +
-          '  const rows = must(await db.from("t").select("id"));\n' +
+          '  const rows = must(await db.from("t").select("id").limit(1));\n' +
           "  return rows;\n}\n",
       ).code,
     ).toBe(0);
@@ -197,7 +197,7 @@ describe("conventions guard", { timeout: 60_000 }, () => {
         "src/lib/probe.ts",
         "export async function f(db: any) {\n" +
           "  // error-tolerated: a missing avatar renders the fallback\n" +
-          '  const { data } = await db.from("t").select("id");\n' +
+          '  const { data } = await db.from("t").select("id").limit(1);\n' +
           "  return data;\n}\n",
       ).code,
     ).toBe(0);
@@ -1559,6 +1559,74 @@ describe("conventions guard", { timeout: 60_000 }, () => {
   // check did not quietly stop enforcing reordered and interpolated class
   // lists. The JSX-comment annotation form these tests also happened to cover
   // is now covered directly, above, against a hatch that still exists.
+
+  // ── tripwire (m): unbounded multi-row reads (CAR-223) ──
+
+  it("flags a multi-row read with no limit, range, or keyed terminator", () => {
+    const { code, out } = withFile(
+      "src/lib/probe.ts",
+      'export async function load(db: any, uid: string) {\n' +
+        '  const { data } = await db.from("contacts").select("id, name").eq("user_id", uid);\n' +
+        "  return data;\n}\n",
+    );
+    expect(code, out).toBe(1);
+    expect(out).toContain("unbounded multi-row read");
+    expect(out).toContain("src/lib/probe.ts");
+    expect(out).toContain("contacts");
+  });
+
+  it("accepts a read paged through .range()", () => {
+    const { code, out } = withFile(
+      "src/lib/probe.ts",
+      'export async function load(db: any, uid: string, from: number, to: number) {\n' +
+        '  const { data, error } = await db.from("contacts").select("id").eq("user_id", uid).order("id").range(from, to);\n' +
+        "  if (error) throw error;\n  return data;\n}\n",
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("accepts a deliberate .limit() and a keyed .maybeSingle()", () => {
+    expect(
+      withFile(
+        "src/lib/probe.ts",
+        'export const top = (db: any) => db.from("contacts").select("id").limit(10);\n',
+      ).code,
+    ).toBe(0);
+    expect(
+      withFile(
+        "src/lib/probe.ts",
+        'export const one = (db: any, id: number) => db.from("contacts").select("id").eq("id", id).maybeSingle();\n',
+      ).code,
+    ).toBe(0);
+  });
+
+  it("ignores head-only counts and writes, which return no row set", () => {
+    expect(
+      withFile(
+        "src/lib/probe.ts",
+        'export const n = (db: any, uid: string) =>\n' +
+          '  db.from("contacts").select("id", { count: "exact", head: true }).eq("user_id", uid);\n',
+      ).code,
+    ).toBe(0);
+    expect(
+      withFile(
+        "src/lib/probe.ts",
+        'export const del = (db: any, uid: string) => db.from("contacts").delete().eq("user_id", uid);\n',
+      ).code,
+    ).toBe(0);
+  });
+
+  it("sees the bound even when it sits several calls past .select()", () => {
+    // The detector walks to the END of the chain, not just the .select() node —
+    // .limit()/.range() always come after it, so a prefix-only reading (which is
+    // what check (b) deliberately uses) would flag every bounded read here.
+    const { code, out } = withFile(
+      "src/lib/probe.ts",
+      'export const q = (db: any, uid: string) =>\n' +
+        '  db.from("contacts").select("id").eq("user_id", uid).order("name").order("id").limit(50);\n',
+    );
+    expect(code, out).toBe(0);
+  });
 });
 
 /**

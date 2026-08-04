@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { triggerDiscoveryBatch } from "@/lib/apify/discovery";
 import { isApifyConfigured } from "@/lib/apify/client";
 import { must } from "@/lib/data/client";
+import { paginateAll } from "@/lib/data/postgrest";
 
 export const maxDuration = 60;
 
@@ -32,8 +33,18 @@ async function runJob(): Promise<NextResponse> {
   const service = createSupabaseServiceClient();
   // discovery_enabled is the feature's own admin switch (default OFF) — it is
   // deliberately independent of apify_enrichment_enabled.
-  const users = must(
-    await service.from("users").select("id").eq("status", "active").eq("discovery_enabled", true),
+  // Paginated (CAR-223): past 1000 eligible accounts every user after the cap
+  // would silently stop getting discovery runs, permanently and with no error.
+  const users = await paginateAll(async (from, to) =>
+    must(
+      await service
+        .from("users")
+        .select("id")
+        .eq("status", "active")
+        .eq("discovery_enabled", true)
+        .order("id")
+        .range(from, to),
+    ),
   );
 
   let started = 0;

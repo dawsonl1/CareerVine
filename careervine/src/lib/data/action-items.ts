@@ -147,19 +147,28 @@ export async function getActionItemsForContact(contactId: number) {
  * @throws Error if query fails
  */
 export async function getCompletedActionItems(userId: string) {
-  const { data, error } = await db()
-    .from("follow_up_action_items")
-    .select(`
+  // Paginated (CAR-223): completed items accumulate forever with no time
+  // window, so this is the read most certain to cross PostgREST's 1000-row cap
+  // and silently cut the history short. completed_at is nullable on legacy
+  // rows, hence the id tiebreak for a stable page boundary.
+  const data = await paginateAll(async (from, to) =>
+    must(
+      await db()
+        .from("follow_up_action_items")
+        .select(`
       *,
       contacts(*),
       meetings(*),
       action_item_contacts(contact_id, contacts(id, name))
     `)
-    .eq("user_id", userId)
-    .eq("is_completed", true)
-    .order("completed_at", { ascending: false });
+        .eq("user_id", userId)
+        .eq("is_completed", true)
+        .order("completed_at", { ascending: false })
+        .order("id")
+        .range(from, to),
+    ),
+  );
 
-  if (error) throw error;
   return data;
 }
 

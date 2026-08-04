@@ -14,6 +14,8 @@
  */
 
 import { withApiHandler } from "@/lib/api-handler";
+import { must } from "@/lib/data/client";
+import { paginateAll } from "@/lib/data/postgrest";
 import { handleOptions } from "@/lib/extension-auth";
 import {
   normalizeLocation,
@@ -66,13 +68,22 @@ export const POST = withApiHandler({
   cors: true,
   handler: async ({ supabase, user }) => {
     // ── Pass 1: rule-2 backfill ──
-    const { data: candidates } = await supabase
-      .from("contact_companies")
-      .select("id, company_id, workplace_type, contacts!inner(user_id, location_id, locations(city, state, country))")
-      .eq("contacts.user_id", user.id)
-      .eq("is_current", true)
-      .eq("source", "scraped")
-      .is("location_id", null);
+    // Paginated (CAR-223): before a first backfill this filter matches nearly
+    // every scraped current role, so it starts well past PostgREST's 1000-row
+    // cap and any single run silently under-reports how much it fixed.
+    const candidates = await paginateAll(async (from, to) =>
+      must(
+        await supabase
+          .from("contact_companies")
+          .select("id, company_id, workplace_type, contacts!inner(user_id, location_id, locations(city, state, country))")
+          .eq("contacts.user_id", user.id)
+          .eq("is_current", true)
+          .eq("source", "scraped")
+          .is("location_id", null)
+          .order("id")
+          .range(from, to),
+      ),
+    );
 
     type CandidateRow = {
       id: number;
@@ -80,7 +91,7 @@ export const POST = withApiHandler({
       workplace_type: string | null;
       contacts: { user_id: string; location_id: number | null; locations: LocationTriple | null };
     };
-    const rows = ((candidates as CandidateRow[] | null) ?? []).filter(
+    const rows = (candidates as unknown as CandidateRow[]).filter(
       (r) => r.workplace_type !== "remote" && r.contacts?.locations,
     );
 
@@ -100,17 +111,27 @@ export const POST = withApiHandler({
     }
 
     // ── Pass 2: re-normalize experience locations from location_raw ──
-    const { data: expRows } = await supabase
-      .from("contact_companies")
-      .select("id, company_id, location_id, location_raw, contacts!inner(user_id)")
-      .eq("contacts.user_id", user.id)
-      .eq("source", "scraped")
-      .eq("location_source", "experience")
-      .not("location_raw", "is", null);
+    // Paginated with a stable order (CAR-223). Past roles are the widest
+    // per-contact fanout in the schema, so this crosses the cap readily — and
+    // without an .order() the truncated page was arbitrary, meaning re-running
+    // this "re-runnable" pass was not even guaranteed to reach rows 1001+.
+    const expRows = await paginateAll(async (from, to) =>
+      must(
+        await supabase
+          .from("contact_companies")
+          .select("id, company_id, location_id, location_raw, contacts!inner(user_id)")
+          .eq("contacts.user_id", user.id)
+          .eq("source", "scraped")
+          .eq("location_source", "experience")
+          .not("location_raw", "is", null)
+          .order("id")
+          .range(from, to),
+      ),
+    );
 
     // Current location triples, to detect drift without a per-row query
     type ExpRow = { id: number; company_id: number; location_id: number | null; location_raw: string | null };
-    const expList = (expRows as ExpRow[] | null) ?? [];
+    const expList = expRows as unknown as ExpRow[];
     const locationIds = [...new Set(expList.map((r) => r.location_id).filter((v): v is number => v != null))];
     const { data: locRows } = locationIds.length
       ? await supabase.from("locations").select("id, city, state, country").in("id", locationIds)

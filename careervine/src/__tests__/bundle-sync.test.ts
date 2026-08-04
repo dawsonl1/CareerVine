@@ -62,7 +62,7 @@ function createMockClient(respond: Responder) {
       upsert(payload: unknown, opts?: unknown) { state.op = 'upsert'; state.payload = payload; state.filters.push({ method: 'upsertOpts', args: [opts] }); return builder; },
       delete() { state.op = 'delete'; return builder; },
       eq: chain('eq'), neq: chain('neq'), or: chain('or'), in: chain('in'), is: chain('is'),
-      gt: chain('gt'), lt: chain('lt'), lte: chain('lte'), order: chain('order'), limit: chain('limit'),
+      gt: chain('gt'), lt: chain('lt'), lte: chain('lte'), order: chain('order'), limit: chain('limit'), range: chain('range'),
       async single() { return resolve(); },
       async maybeSingle() { return resolve(); },
       then(onFulfilled: (v: unknown) => unknown) { return Promise.resolve(resolve()).then(onFulfilled); },

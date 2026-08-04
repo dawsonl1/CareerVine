@@ -56,6 +56,32 @@ export function buildThreads(msgs: EmailMessage[]): EmailThread[] {
   return result;
 }
 
+// ── Mailbox membership (CAR-219) ──
+//
+// A mailbox view selects whole CONVERSATIONS by who has written on them, and
+// every selected thread then renders in full — the way Gmail opens the same
+// complete conversation whether you reached it from the Inbox or from Sent.
+// Filtering the messages instead would show each side a half-conversation: our
+// own outreach missing from a thread opened in the Inbox, the contact's reply
+// missing from the copy reached via Sent. Threads both parties have written on
+// belong to both views, exactly as in Gmail.
+//
+// Deliberately direction-based rather than INBOX/SENT-label-based: label_ids
+// only stays current for messages a later sync re-fetches (the query is
+// watermarked by date), and the app already owns an explicit archive in the
+// Hidden tab, so honoring Gmail's archive here would strand threads in a view
+// that has no home for them.
+
+/** Somebody wrote TO the user on this thread, so the Inbox holds it. */
+export function isReceivedThread(thread: EmailThread): boolean {
+  return thread.messages.some((m) => m.direction === "inbound");
+}
+
+/** The user wrote on this thread, so Sent holds it. */
+export function isSentThread(thread: EmailThread): boolean {
+  return thread.messages.some((m) => m.direction === "outbound");
+}
+
 /** Find a header value by name (case-insensitive). */
 export function getHeader(headers: ParsedHeader[], name: string): string {
   return headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";

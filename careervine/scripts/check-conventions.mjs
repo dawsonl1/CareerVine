@@ -2333,6 +2333,162 @@ function isAncestorCondition(gate, commit) {
   );
 }
 
+// ── (m) unbounded multi-row PostgREST reads ──────────────────────────────
+//
+// PostgREST caps a response at 1000 rows and truncates SILENTLY — no error, no
+// signal, just a short list that reads as the whole table. CAR-221 shipped the
+// first user-visible instance: /api/gmail/inbox built its contact id → name map
+// from an unpaginated whole-table read, so a user with 2005 contacts got names
+// for 1000 of them and bare email addresses for the rest. CAR-223 found ~15
+// more, several already live, including one in bundle-sync whose truncation
+// FAILS TOWARD DELETION.
+//
+// A read counts as bounded if its chain declares .limit()/.range(), terminates
+// in .single()/.maybeSingle(), or is a head-count. Everything else is
+// inventoried below.
+//
+// Read the baseline as "reads this detector cannot PROVE bounded", not as 142
+// bugs. Three things land in it innocently: a table too small to ever reach the
+// cap (locations, data_bundles); a read narrowed by an .in() over a handful of
+// ids, which bounds it in practice but says nothing syntactically; and a chain
+// split across statements (`let q = ...; await q.range(...)`), where the
+// .range() is real but not reachable from the .from() node. Deciding which is
+// which statically is not possible, so the guard does not try.
+//
+// Ratcheted rather than banned for exactly that reason. What the ratchet buys
+// is the part that matters: no NEW unbounded read can appear, and every one
+// that gets fixed must leave the baseline — see scripts/lib/ratchet.mjs for why
+// that beats a warning.
+//
+// To clear an entry: page it with paginateAll() (or chunkedPaginated() when the
+// table fans out per id), give it a deliberate .limit(), or narrow it to a
+// keyed .single(). Then delete its line below.
+
+const UNBOUNDED_READ_BASELINE = {
+  "src/app/api/admin/users/[id]/bundle-access/route.ts": ["bundle_access_overrides", "bundle_subscriptions", "data_bundles"],
+  "src/app/api/admin/users/[id]/contacts/route.ts": ["contacts"],
+  "src/app/api/admin/users/route.ts": ["bundle_access_overrides", "data_bundles", "user_ai_access", "user_api_keys"],
+  "src/app/api/calendar/events/[googleEventId]/route.ts": ["meetings"],
+  "src/app/api/calendar/events/route.ts": ["calendar_events"],
+  "src/app/api/calendar/sync/route.ts": ["calendar_events", "contact_emails"],
+  "src/app/api/contacts/bulk-import/backfill/route.ts": ["company_locations", "locations"],
+  "src/app/api/contacts/check-duplicate/route.ts": ["contact_emails", "contact_schools", "contacts", "contacts"],
+  "src/app/api/contacts/import/route.ts": ["company_locations", "contact_companies", "contact_companies", "contact_emails", "contact_schools", "contact_schools", "contacts"],
+  "src/app/api/cron/follow-up-nudges/route.ts": ["users"],
+  // The second email_follow_up_messages read and contacts.ts's contact_emails
+  // read are both bounded by an .in() over a chunked list, which the detector
+  // cannot see. Inventoried, not defects.
+  "src/app/api/cron/send-follow-ups/route.ts": ["email_follow_up_messages", "email_follow_up_messages", "gmail_connections"],
+  "src/app/api/cron/sync-bundles/route.ts": ["data_bundles"],
+  "src/app/api/discovery/candidates/route.ts": ["discovery_candidates"],
+  "src/app/api/gmail/ai-followups/generate/route.ts": ["ai_follow_up_drafts"],
+  "src/app/api/gmail/ai-followups/pending/route.ts": ["ai_follow_up_drafts"],
+  "src/app/api/gmail/ai-write/meetings/route.ts": ["meeting_contacts"],
+  "src/app/api/gmail/drafts/route.ts": ["email_drafts"],
+  "src/app/api/gmail/emails/route.ts": ["contact_emails", "email_messages"],
+  "src/app/api/gmail/follow-ups/[id]/route.ts": ["email_follow_up_messages"],
+  "src/app/api/gmail/follow-ups/route.ts": ["email_follow_ups"],
+  "src/app/api/gmail/inbox/route.ts": ["calendar_events", "email_follow_ups", "scheduled_emails"],
+  "src/app/api/gmail/schedule/route.ts": ["scheduled_emails"],
+  "src/app/api/gmail/templates/route.ts": ["email_templates"],
+  "src/app/meetings/page.tsx": ["calendar_events"],
+  "src/lib/ai-followup/gather-context.ts": ["meeting_contacts", "transcript_segments"],
+  "src/lib/ai-followup/generate-suggestions.ts": ["contacts", "follow_up_action_items", "follow_up_action_items"],
+  "src/lib/ai-helpers.ts": ["meetings"],
+  "src/lib/analytics/server.ts": ["contact_companies"],
+  "src/lib/apify/cadence.ts": ["scrape_runs", "suppressed_imports"],
+  "src/lib/apify/discovery.ts": ["contacts", "contacts", "discovery_candidates", "scrape_runs", "target_companies"],
+  "src/lib/apify/scrape-service.ts": ["companies", "contacts", "contacts", "scrape_runs"],
+  "src/lib/apify/spend.ts": ["scrape_runs"],
+  "src/lib/bulk-import.ts": ["companies", "company_locations", "contact_companies", "contact_emails", "contact_schools", "contacts", "contacts", "schools", "suppressed_imports"],
+  "src/lib/bundle-publish.ts": ["bundle_prospects"],
+  "src/lib/bundle-queue.ts": ["bundle_subscriptions"],
+  "src/lib/bundle-resolve.ts": ["company_locations", "schools"],
+  "src/lib/bundle-sync.ts": ["bundle_contact_state", "bundle_subscription_contacts", "bundle_subscription_contacts", "bundle_subscription_contacts", "contacts", "contacts"],
+  "src/lib/company-helpers.ts": ["companies", "companies", "companies", "locations"],
+  "src/lib/company-queries.ts": ["companies", "company_locations", "contact_schools", "locations", "target_company_notes"],
+  "src/lib/company-scopes.ts": ["target_companies"],
+  "src/lib/contact-employment.ts": ["contact_companies", "contact_emails", "contacts"],
+  "src/lib/data/action-items.ts": ["action_item_contacts", "action_item_contacts", "follow_up_action_items"],
+  "src/lib/data/attachments.ts": ["contact_attachments", "meeting_attachments"],
+  "src/lib/data/contacts.ts": ["contact_change_events", "contact_emails", "contact_tags", "tags"],
+  "src/lib/data/interactions.ts": ["interactions"],
+  "src/lib/data/locations.ts": ["locations"],
+  "src/lib/data/meetings.ts": ["attachments", "contact_attachments", "interaction_attachments", "meeting_attachments", "meeting_attachments", "meeting_contacts", "meetings"],
+  "src/lib/email-send.ts": ["contact_emails"],
+  "src/lib/follow-up-helpers.ts": ["email_follow_ups"],
+  "src/lib/follow-up-reply.ts": ["email_follow_ups"],
+  "src/lib/gmail.ts": ["contact_emails", "contact_emails", "email_follow_ups", "email_messages", "email_messages", "email_messages"],
+  "src/lib/import-db-helpers.ts": ["contact_tags", "tags"],
+  "src/lib/onboarding/bundle-stats.ts": ["data_bundles"],
+  "src/lib/pipeline-queries.ts": ["pipeline_applications", "pipeline_cycles", "pipeline_interview_rounds", "pipeline_notes", "pipeline_programs", "target_companies", "target_companies"],
+  "src/lib/user-status.ts": ["users"],
+};
+
+/** The outermost call of the chain this `.from()` starts, so the check can see
+ *  the .limit()/.range()/.single() that come AFTER .select(). */
+function postgrestChainRoot(fromCall) {
+  let cur = fromCall;
+  for (;;) {
+    const p = cur.parent;
+    if (!p) return cur;
+    if (ts.isPropertyAccessExpression(p) && p.expression === cur) { cur = p; continue; }
+    if (ts.isCallExpression(p) && p.expression === cur) { cur = p; continue; }
+    return cur;
+  }
+}
+
+{
+  const rows = [];
+  const scanned = new Set();
+  const files = [...walk("src/lib", []), ...walk("src/app", []), ...walk("src/mcp", [])];
+  for (const file of files) {
+    const r = rel(file);
+    if (isTestFile(r)) continue;
+    // MCP_DB carries its own dedicated `.from(` ratchet (check (d)); two guards
+    // owning one file means two baselines to keep in step, and its raw-builder
+    // count is the number that actually matters there.
+    if (r === MCP_DB) continue;
+    scanned.add(r);
+    const sf = parse(file);
+
+    const visit = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === "from"
+      ) {
+        const arg = node.arguments[0];
+        // A computed table name is unknowable statically; there are none today.
+        if (arg && ts.isStringLiteral(arg)) {
+          const text = postgrestChainRoot(node).getText(sf);
+          const isWrite = /\.(insert|update|upsert|delete)\s*\(/.test(text);
+          const isKeyed = /\.(single|maybeSingle)\s*\(/.test(text);
+          const isBounded = /\.(limit|range)\s*\(/.test(text);
+          const isHeadCount = /head:\s*true/.test(text);
+          const isRead = /\.select\s*\(/.test(text);
+          if (isRead && !isWrite && !isKeyed && !isBounded && !isHeadCount) {
+            rows.push({ file: r, name: arg.text, line: lineOf(sf, node) });
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+
+  report(
+    "unbounded multi-row read",
+    diffNamedRatchet(byFile(rows), UNBOUNDED_READ_BASELINE, scanned, BASELINE_HOME),
+    "PostgREST truncates a response at 1000 rows without erroring, so this read\n" +
+      "  silently returns a partial set that the code then treats as complete.\n" +
+      "  Page it with paginateAll() from src/lib/data/postgrest.ts (or\n" +
+      "  chunkedPaginated() when the table fans out per id) with a stable\n" +
+      "  .order(), or give it a deliberate .limit(). A ratchet: new sites are\n" +
+      "  never allowed, and a fixed site must be deleted from the baseline.",
+  );
+}
+
 // ── Report ───────────────────────────────────────────────────────────────
 
 if (failures.length > 0) {
@@ -2369,5 +2525,6 @@ console.log(
     `  ${CLIENT_FILES.filter((f) => !isServerFile(parse(f), f)).length} files) free of raw fetch( and native confirm(), as are the\n` +
     `  ${BROWSER_REACHABLE.size} modules outside it the browser still loads; plus no first-party\n` +
     "  /api fetch anywhere else under src/; double-submit and useLatestRequest\n" +
-    `  ratchets at ${countBaseline(DOUBLE_SUBMIT_BASELINE)}/${countBaseline(LATEST_REQUEST_BASELINE)} known sites — each can only shrink.`,
+    `  ratchets at ${countBaseline(DOUBLE_SUBMIT_BASELINE)}/${countBaseline(LATEST_REQUEST_BASELINE)} known sites — each can only shrink;\n` +
+    `  ${countBaseline(UNBOUNDED_READ_BASELINE)} unbounded multi-row reads inventoried across ${Object.keys(UNBOUNDED_READ_BASELINE).length} files, same ratchet.`,
 );

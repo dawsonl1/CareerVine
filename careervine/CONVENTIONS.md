@@ -117,8 +117,11 @@ Reads carrying control flow (cursors, dedup probes, claim preconditions) use `mu
 failed query throws instead of reading as empty. A cosmetic read may tolerate an error only
 with an explicit `// error-tolerated:` comment.
 
-PostgREST caps a response at 1000 rows. Chunk and paginate through
-`careervine/src/lib/data/postgrest.ts`.
+PostgREST caps a response at 1000 rows and truncates silently. Chunk and
+paginate through `careervine/src/lib/data/postgrest.ts`, whose header says which
+of the three helpers applies. `check:conventions` ratchets every multi-row read
+it cannot prove bounded, so a new unpaginated one fails the build and a fixed
+one must leave the baseline (CAR-223).
 
 School affinity has ONE authority per language: `careervine/src/lib/schools/affinity.ts` in
 TypeScript, `is_byu_family_school()` / `is_alumni_only_prospect()` in SQL, held together by

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getHeader, parseEmailAddress, buildThreads, buildOwnAddressSet, ownAddressesFromConnection } from '@/lib/gmail-helpers';
+import { getHeader, parseEmailAddress, buildThreads, isReceivedThread, isSentThread, buildOwnAddressSet, ownAddressesFromConnection } from '@/lib/gmail-helpers';
 import type { ParsedHeader } from '@/lib/gmail-helpers';
 import type { EmailMessage } from '@/lib/types';
 
@@ -144,6 +144,44 @@ describe('buildThreads', () => {
       mkMsg({ gmail_message_id: 'm1', thread_id: 't1', subject: 'Hi', date: '2026-07-01T10:00:00Z', direction: 'inbound', matched_contact_id: 5 }),
     ]);
     expect(threads[0].contactIds).toEqual([5]);
+  });
+});
+
+describe('isReceivedThread (CAR-219)', () => {
+  const threadOf = (...msgs: Partial<EmailMessage>[]) =>
+    buildThreads(
+      msgs.map((m, i) =>
+        mkMsg({ gmail_message_id: `m${i}`, thread_id: 't1', date: `2026-07-0${i + 1}T10:00:00Z`, ...m })
+      )
+    )[0];
+
+  it('excludes a thread of only our own outbound mail', () => {
+    expect(isReceivedThread(threadOf({ direction: 'outbound' }, { direction: 'outbound' }))).toBe(false);
+  });
+
+  it('includes a thread once the contact replies, however the conversation started', () => {
+    expect(isReceivedThread(threadOf({ direction: 'outbound' }, { direction: 'inbound' }))).toBe(true);
+  });
+
+  it('includes cold inbound mail on a thread we never wrote on', () => {
+    expect(isReceivedThread(threadOf({ direction: 'inbound' }))).toBe(true);
+  });
+
+  it('excludes a thread whose direction is missing rather than guessing it is received', () => {
+    expect(isReceivedThread(threadOf({ direction: null }))).toBe(false);
+  });
+
+  it('excludes an inbound-only thread from Sent, and an outbound-only thread from the Inbox', () => {
+    const inboundOnly = threadOf({ direction: 'inbound' });
+    const outboundOnly = threadOf({ direction: 'outbound' });
+    expect(isSentThread(inboundOnly)).toBe(false);
+    expect(isReceivedThread(outboundOnly)).toBe(false);
+  });
+
+  it('puts an answered thread in BOTH mailboxes, the way Gmail does', () => {
+    const answered = threadOf({ direction: 'outbound' }, { direction: 'inbound' });
+    expect(isReceivedThread(answered)).toBe(true);
+    expect(isSentThread(answered)).toBe(true);
   });
 });
 

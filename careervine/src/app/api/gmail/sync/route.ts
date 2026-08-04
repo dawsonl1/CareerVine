@@ -1,5 +1,5 @@
 import { withApiHandler } from "@/lib/api-handler";
-import { syncAllContactEmails, detectBounces } from "@/lib/gmail";
+import { syncAllContactEmails, detectBounces, syncThreadReplies } from "@/lib/gmail";
 
 // The sync loop is one serial Gmail query per contact — give it the full
 // allowance instead of the platform default, which kills it mid-pass.
@@ -25,8 +25,23 @@ export const POST = withApiHandler({
 
     const result = await syncAllContactEmails(user.id, 90, { cursor });
 
+    // Inferred and nullable (CAR-217): detectBounces now returns five fields,
+    // and a hand-written literal type here would have to be kept in step with
+    // it by hand.
     let bounces: Awaited<ReturnType<typeof detectBounces>> | null = null;
+    // Replies from an address we do not have on the contact (CAR-227). Runs on
+    // pass completion for the same reason bounce detection does: the
+    // per-contact query is scoped to known addresses and cannot see either.
+    let threadReplies = { ingested: 0, learnedAddresses: 0 };
     if (result.nextCursor === null) {
+      try {
+        threadReplies = await syncThreadReplies(user.id);
+      } catch (err) {
+        // Error-tolerated to match detectBounces beside it: the per-contact
+        // sync above already succeeded, and failing the whole request here
+        // would report a completed sync as broken.
+        console.warn("[gmail/sync] Thread-reply sweep failed:", err);
+      }
       try {
         bounces = await detectBounces(user.id);
       } catch (err) {
@@ -36,7 +51,7 @@ export const POST = withApiHandler({
 
     return {
       success: true,
-      totalSynced: result.totalSynced,
+      totalSynced: result.totalSynced + threadReplies.ingested,
       processedContacts: result.processedContacts,
       failedContacts: result.failedContacts,
       nextCursor: result.nextCursor,
@@ -45,6 +60,8 @@ export const POST = withApiHandler({
       cancelledScheduled: bounces?.cancelledScheduled ?? 0,
       /** Addresses that died on THIS pass; the client toasts only on these. */
       newlyBounced: bounces?.newlyBounced.length ?? 0,
+      threadReplies: threadReplies.ingested,
+      learnedAddresses: threadReplies.learnedAddresses,
     };
   },
 });

@@ -11,6 +11,8 @@
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { must } from "@/lib/data/client";
+import { paginateAll } from "@/lib/data/postgrest";
 import { getApifyControls } from "@/lib/apify/account-controls";
 import { ChangeEventStatus, ChangeEventTier } from "@/lib/constants";
 import type { Suggestion } from "@/lib/ai-followup/suggestion-types";
@@ -123,21 +125,39 @@ export async function syncAnniversaryEvents(
 export async function fetchChangeEventSuggestions(userId: string): Promise<Suggestion[]> {
   const service = createSupabaseServiceClient();
 
-  const { data, error } = await service
-    .from("contact_change_events")
-    .select("id, contact_id, type, tier, headline, evidence, suggested_title, suggested_description, contacts!inner(name, photo_url, industry, network_status)")
-    .eq("user_id", userId)
-    .eq("status", ChangeEventStatus.New)
-    .in("tier", [ChangeEventTier.ActNow, ChangeEventTier.Touchpoint])
-    // Active network only (CAR-76): scrape-diff events on prospects are still
-    // recorded — they power company-page badges — but Up Next never surfaces a
-    // contact the user hasn't added to their network, and a contact demoted
-    // after an event is created drops out here.
-    .eq("contacts.network_status", "active")
-    .order("tier", { ascending: true })
-    .order("detected_at", { ascending: false });
+  // Paginated (CAR-223): status stays New until the user actions the event, so
+  // the backlog for a large network crosses PostgREST's 1000-row cap and the
+  // feed silently loses its tail. The writer in this same file already pages
+  // its contacts read for exactly this reason; the reader did not.
+  const fetchPage = async (from: number, to: number) =>
+    must(
+      await service
+        .from("contact_change_events")
+        .select("id, contact_id, type, tier, headline, evidence, suggested_title, suggested_description, contacts!inner(name, photo_url, industry, network_status)")
+        .eq("user_id", userId)
+        .eq("status", ChangeEventStatus.New)
+        .in("tier", [ChangeEventTier.ActNow, ChangeEventTier.Touchpoint])
+        // Active network only (CAR-76): scrape-diff events on prospects are still
+        // recorded — they power company-page badges — but Up Next never surfaces a
+        // contact the user hasn't added to their network, and a contact demoted
+        // after an event is created drops out here.
+        .eq("contacts.network_status", "active")
+        .order("tier", { ascending: true })
+        .order("detected_at", { ascending: false })
+        // detected_at ties across a single scrape run, so page boundaries need
+        // the primary key to stay stable.
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
 
-  if (error || !data) return [];
+  // Preserves this function's empty-on-failure contract: the Up Next feed
+  // degrades to "no change events" rather than taking the whole page down.
+  let data;
+  try {
+    data = await paginateAll(fetchPage);
+  } catch {
+    return [];
+  }
 
   return data.map((e) => {
     const contact = Array.isArray(e.contacts) ? e.contacts[0] : e.contacts;

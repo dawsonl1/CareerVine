@@ -31,7 +31,10 @@ vi.mock("@/components/compose-email-context", () => ({
 vi.mock("@/components/ui/toast", () =>
   mockToastModule(() => ({ error: toast.error, success: toast.success })),
 );
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+// A stable spy, not a fresh vi.fn() per call: navigation is asserted below, and
+// a per-call mock records into an object the test can never reach.
+const routerPush = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: routerPush }) }));
 vi.mock("@/lib/gmail-sync-client", () => ({ runFullGmailSync: vi.fn(async () => {}) }));
 vi.mock("@/lib/analytics/client", () => mockAnalyticsClientModule());
 
@@ -129,6 +132,7 @@ beforeEach(() => {
   toast.error.mockClear();
   toast.success.mockClear();
   openCompose.mockClear();
+  routerPush.mockClear();
 });
 afterEach(() => cleanup());
 
@@ -333,6 +337,172 @@ describe("InboxShell — honest load-failure state (CAR-154 / F21)", () => {
 
     await waitFor(() => expect(screen.getByText("Loading inbox…")).toBeTruthy());
     expect(screen.queryByText("No emails synced yet.")).toBeNull();
+  });
+});
+
+describe("InboxShell — mailboxes select whole conversations (CAR-219)", () => {
+  const outreach = makeEmail({
+    gmail_message_id: "out1",
+    thread_id: "t-cold",
+    subject: "Intro from Dawson",
+    direction: "outbound",
+    from_address: "me@gmail.com",
+    to_addresses: ["nora@corp.com"],
+    is_read: true,
+  });
+  const reply = makeEmail({
+    gmail_message_id: "in1",
+    thread_id: "t-answered",
+    subject: "Re: Coffee chat",
+    direction: "inbound",
+    is_read: true,
+    date: "2026-07-11T12:00:00Z",
+  });
+  const ourSideOfReply = makeEmail({
+    gmail_message_id: "out2",
+    thread_id: "t-answered",
+    subject: "Re: Coffee chat",
+    direction: "outbound",
+    from_address: "me@gmail.com",
+    to_addresses: ["jane@corp.com"],
+    snippet: "our-opener",
+    is_read: true,
+    date: "2026-07-09T12:00:00Z",
+  });
+
+  it("keeps an unanswered outbound thread out of the Inbox but shows it in Sent", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [outreach] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+    // The empty state above is the assertion for the Inbox; the same thread
+    // must still be reachable in Sent rather than vanishing from the app.
+    expect(screen.queryByText("Intro from Dawson")).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sent/ })[0]);
+    expect(screen.getByText("Intro from Dawson")).toBeTruthy();
+  });
+
+  it("shows a replied thread in the Inbox as a full conversation, our own message included", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [ourSideOfReply, reply] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Re: Coffee chat")).toBeTruthy());
+
+    // Expanding the thread reveals both sides — the inbound reply qualifies the
+    // thread, and our outbound message rides along as part of the conversation.
+    fireEvent.click(screen.getByText("Re: Coffee chat"));
+    expect(screen.getAllByText("our-opener").length).toBeGreaterThan(0);
+  });
+
+  it("shows the contact's reply when the same thread is opened from Sent", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [ourSideOfReply, reply] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Re: Coffee chat")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sent/ })[0]);
+    fireEvent.click(screen.getByText("Re: Coffee chat"));
+    // Both sides are present: reading a reply must not require leaving Sent.
+    expect(screen.getAllByText("our-opener").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("jane-snippet").length).toBeGreaterThan(0);
+  });
+
+  it("keeps a cold inbound thread we never answered out of Sent", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [reply] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Re: Coffee chat")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sent/ })[0]);
+    expect(screen.getByText("No sent emails yet.")).toBeTruthy();
+    expect(screen.queryByText("Re: Coffee chat")).toBeNull();
+  });
+
+  it("does not count an outbound-only thread toward the Inbox unread badge", async () => {
+    // An unread outbound row is the shape that would betray a direction gate
+    // applied to display but not to the badge.
+    installFetch({ inbox: inboxPayload({ emails: [{ ...outreach, is_read: false }] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+
+    const inboxTab = screen.getAllByRole("button", { name: /^Inbox/ })[0];
+    expect(inboxTab.textContent).toBe("Inbox");
+  });
+});
+
+describe("InboxShell — the sender opens their contact page (CAR-226)", () => {
+  const fromContact = () =>
+    inboxPayload({
+      emails: [makeEmail({ matched_contact_id: 42, contact_ids: [42], is_read: true })],
+      contactMap: { 42: "Jane Doe" },
+    });
+
+  it("navigates to the contact when their name is clicked in the row", async () => {
+    installFetch({ inbox: fromContact() });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Jane Doe" }));
+    expect(routerPush).toHaveBeenCalledWith("/contacts/42");
+  });
+
+  it("does not also expand the thread behind the navigation", async () => {
+    installFetch({ inbox: fromContact() });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeTruthy());
+
+    // Without stopPropagation the row's own handler fires too, so the user
+    // lands on the contact page having silently opened the thread as well.
+    // Expanding a single-message thread fetches that message's body, so the
+    // absence of that request is the proof — the collapsed row's own snippet
+    // is rendered either way and proves nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Jane Doe" }));
+    const bodyFetches = vi
+      .mocked(global.fetch)
+      .mock.calls.filter(([url]) => String(url).endsWith("/api/gmail/emails/m1"));
+    expect(bodyFetches).toHaveLength(0);
+  });
+
+  it("still expands the thread when the row is clicked anywhere else", async () => {
+    installFetch({
+      inbox: fromContact(),
+      bodyFor: async () => ({
+        ok: true,
+        json: async () => ({ success: true, message: { subject: "Coffee chat", from: "jane@corp.com", to: "me@gmail.com", date: "2026-07-10T12:00:00Z", bodyHtml: "<p>Body of the message</p>", bodyText: "", messageId: "m1", threadId: "t1" } }),
+      }),
+    });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Coffee chat"));
+    await waitFor(() => expect(screen.getByText("Body of the message")).toBeTruthy());
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  it("leaves the address as plain text when no contact is attributed", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [makeEmail({ is_read: true })] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("jane@corp.com")).toBeTruthy());
+
+    // Nothing to open, so it must not look clickable.
+    expect(screen.queryByRole("button", { name: "jane@corp.com" })).toBeNull();
+  });
+
+  it("keeps the row reachable by keyboard after losing its native button role", async () => {
+    installFetch({ inbox: fromContact() });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Coffee chat")).toBeTruthy());
+
+    const row = screen.getByTestId("inbox-thread-t1");
+    expect(row.getAttribute("tabindex")).toBe("0");
+    fireEvent.keyDown(row, { key: "Enter" });
+    // Same proof as above: expanding fetches the message body. Asserting on the
+    // row's snippet would pass without any handler at all, since the collapsed
+    // row renders it regardless.
+    await waitFor(() =>
+      expect(
+        vi.mocked(global.fetch).mock.calls.some(([url]) =>
+          String(url).endsWith("/api/gmail/emails/m1"),
+        ),
+      ).toBe(true),
+    );
   });
 });
 

@@ -38,14 +38,23 @@ export async function getHomeCoreData(userId: string) {
   // paginates (bulk imports push networks past PostgREST's 1000-row cap);
   // name order is kept for downstream display, with id as the tiebreak so
   // page windows stay stable across equal names.
-  const [actionItemsResult, allContacts] = await Promise.all([
-    db()
-      .from("follow_up_action_items")
-      .select("*, contacts(*), meetings(*), action_item_contacts(contact_id, contacts(id, name))")
-      .eq("user_id", userId)
-      .eq("is_completed", false)
-      .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
-      .order("due_at", { ascending: true, nullsFirst: false }),
+  const [actionItems, allContacts] = await Promise.all([
+    // Paginated too (CAR-223). Only the contacts leg below was, so an open
+    // action-item list past 1000 lost its tail from the home dashboard.
+    // id is the tiebreak because due_at is nullable and heavily tied.
+    paginateAll(async (from, to) =>
+      must(
+        await db()
+          .from("follow_up_action_items")
+          .select("*, contacts(*), meetings(*), action_item_contacts(contact_id, contacts(id, name))")
+          .eq("user_id", userId)
+          .eq("is_completed", false)
+          .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
+          .order("due_at", { ascending: true, nullsFirst: false })
+          .order("id")
+          .range(from, to),
+      ),
+    ),
     paginateAll(async (from, to) =>
       must(
         await db()
@@ -60,8 +69,6 @@ export async function getHomeCoreData(userId: string) {
     ),
   ]);
 
-  if (actionItemsResult.error) throw actionItemsResult.error;
-  const actionItems = actionItemsResult.data || [];
   const contactIds = allContacts.map((c) => c.id);
 
   // Build last-touch map (2 queries in parallel)

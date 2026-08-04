@@ -6,6 +6,7 @@
  */
 
 import { db, must } from "./client";
+import { paginateAll } from "./postgrest";
 import type { Database } from "@/lib/database.types";
 import { activateContacts } from "./contacts";
 import { deleteAttachment } from "./attachments";
@@ -296,13 +297,19 @@ export async function createTranscriptSegments(
  * Get all transcript segments for a meeting, ordered by position.
  */
 export async function getTranscriptSegments(meetingId: number) {
-  const { data, error } = await db()
-    .from("transcript_segments")
-    .select("*, contacts:contact_id(id, name)")
-    .eq("meeting_id", meetingId)
-    .order("ordinal");
-  if (error) throw error;
-  return data;
+  // Paginated (CAR-223): one row per Deepgram utterance, so a 45-60 minute
+  // recording routinely passes PostgREST's 1000-row cap. Unpaginated, the
+  // transcript simply stopped mid-conversation with nothing to say it had.
+  return paginateAll(async (from, to) =>
+    must(
+      await db()
+        .from("transcript_segments")
+        .select("*, contacts:contact_id(id, name)")
+        .eq("meeting_id", meetingId)
+        .order("ordinal")
+        .range(from, to),
+    ),
+  );
 }
 
 /**
