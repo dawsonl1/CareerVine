@@ -1,6 +1,13 @@
 /**
  * The closed set of environment variables the E2E server runs with (CAR-196).
  *
+ * The server's environment is a CLOSED SET, not the developer's shell. Three
+ * sources can reach it — Playwright merges into the child env, Next loads
+ * `.env.local` inside the server process, and the app's own config — so this
+ * file closes over all three: it PINS every var the app reads, BLANKS every
+ * other key any `.env*` file defines, and BLANKS every ambient var that is not
+ * OS or toolchain plumbing. `e2eServerEnv()` at the bottom composes the three.
+ *
  * WHY AN ALLOWLIST RATHER THAN A FEW OVERRIDES:
  * Playwright does not replace the child's environment, it merges into it —
  * `env: { ...DEFAULT_ENVIRONMENT_VARIABLES, ...process.env, ...webServer.env }`.
@@ -13,8 +20,8 @@
  * That was not theoretical. Before CAR-196 seven keys reached the E2E server from
  * `.env.local` (`QSTASH_URL`, `SUPABASE_DB_PASSWORD`, `SUPABASE_DB_URL_LOCAL`,
  * `SUPABASE_SERVICE_ROLE_KEY_LOCAL`, `UPSTASH_REDIS_REST_URL`,
- * `UPSTASH_REDIS_REST_TOKEN`, `VERCEL_OIDC_TOKEN`), so a local run tested a
- * differently-configured app than CI did. No credential ever left the machine —
+ * `UPSTASH_REDIS_REST_TOKEN`, `VERCEL_OIDC_TOKEN`) and none reached it in CI,
+ * so a local green and a CI green were not testing the same app. No credential ever left the machine —
  * the stub layer denies every non-loopback origin before the wire — but "local
  * and CI run the same app" is the whole basis for trusting a green E2E run.
  *

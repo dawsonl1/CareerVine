@@ -12,6 +12,32 @@
  * scope, so the assignment below lands before the first call regardless of ESM
  * hoisting. Importing tenant helpers *through this module* is what guarantees
  * that; do not import `__integration__/helpers/stack` directly from an E2E file.
+ *
+ * AUTHENTICATION NEVER DRIVES THE LOGIN FORM. `e2e/auth.setup.ts` provisions a
+ * tenant with `createTenant` / `seedTenantGraph` re-exported here, then mints
+ * the session by navigating the app's real `/auth/confirm` route with a
+ * service-role `token_hash` (`mintSessionUrl` below), so the cookie is whatever
+ * the app itself writes, with no coupling to `@supabase/ssr`'s encoding.
+ *
+ * ONE SHARED TENANT, SINGLE-WORKER. `playwright.config.ts` sets
+ * `fullyParallel: false` and `workers: 1`, so the flows write to one database in
+ * file order. Three specs mint their own identity instead, because the shared
+ * one cannot be it: `capability-gating` needs a FREE account and the shared
+ * tenant is premium (`seedGmailConnection` grants `modify_scope_granted` and
+ * leaves `premium_enabled` at its column default — which is why
+ * `seedFreeTierConnection` sets that column explicitly rather than omitting it);
+ * `admin-surface` needs both an admin and a non-admin; and `settings-keys`
+ * destroys more than it can put back.
+ *
+ * A SPEC THAT MUTATES SHARED STATE PUTS IT BACK IN `afterEach` — `afterEach`
+ * and not `finally`, because a body abandoned at the test timeout never reaches
+ * a `finally`. Where the damage is wider than the restore, own a tenant
+ * instead: `settings-keys` had an `afterEach` re-seeding the Gmail connection it
+ * deleted, and `86ca7c2` removed it, because `POST /api/gmail/disconnect` calls
+ * `revokeAccess`, which also nulls two contact columns and deletes every
+ * `email_message` and `calendar_event`. Re-seeding the connection alone restored
+ * one of four things and survived on alphabetical luck; that spec's header has
+ * the full accounting.
  */
 import { stackEnv } from "./stack-env";
 import {

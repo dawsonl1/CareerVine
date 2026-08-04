@@ -1,6 +1,10 @@
 /**
  * Routed `fetch` double that answers with REAL `Response` objects (CAR-183).
  *
+ * A test that exercises an HTTP call installs this instead of assigning its own
+ * double to `global.fetch`. Routes are keyed `"METHOD /url"`; the return handle
+ * is how the test asserts which requests were actually issued.
+ *
  * ── Why a real Response and not the usual object literal ─────────────────
  *
  * The established idiom in this suite is a hand-rolled stub:
@@ -25,14 +29,14 @@
  * ── Why routed, and why an unrouted call is an error ─────────────────────
  *
  * A catch-all fake that answers every URL with `{}` lets a component fetch
- * the WRONG endpoint and still pass. Routes are declared per `"METHOD /url"`
- * and an unrouted request throws.
+ * the WRONG endpoint and still pass. Routes are declared per `"METHOD /url"`,
+ * and an unrouted request throws AND is recorded in `unmatched`.
  *
  * That throw alone is NOT a loud failure: the handlers this helper exists to
  * test swallow rejections (a bare `.catch(() => {})`, or `withToastOnError`),
- * so a miss can masquerade as the failure under test. `unmatched` exists for
- * exactly that reason — assert it is empty, or assert `countOf` on the route
- * you injected, so a wrong endpoint cannot pass silently.
+ * so a miss can masquerade as the failure the test was written for. `unmatched`
+ * exists for exactly that reason — every test asserts it is empty, or asserts
+ * `countOf` on the route it injected, so a wrong endpoint cannot pass silently.
  *
  * Installed through `vi.stubGlobal`, so `vi.unstubAllGlobals()` restores the
  * real `fetch`. Vitest isolates modules per file by default, so a bare

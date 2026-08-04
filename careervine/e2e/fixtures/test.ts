@@ -18,6 +18,38 @@
  * someone looks. So denied requests are collected and asserted empty after the
  * test body, which turns a new external dependency into a named failure rather
  * than a mysterious missing element.
+ *
+ * ── Writing a spec against this `test` ────────────────────────────────────
+ *
+ * SELECTORS prefer `getByRole` / `getByLabel`. `data-testid` appears only where
+ * role plus name is genuinely unreachable, and four kinds qualify: an element
+ * with NO ROLE (a `type=password` input, a TipTap contenteditable); an
+ * accessible name that is NOT STABLE (a row whose name concatenates a
+ * locale-formatted date); TWO STRUCTURALLY IDENTICAL components on one page (the
+ * AI tab's provider cards, the integrations tab's two "Disconnect" buttons); and
+ * application STATE otherwise reachable only through a style (`data-unread`,
+ * `data-message-id`) — mirror the state into an attribute rather than asserting
+ * on a font weight. Prefer scoping a role query to a container over adding an
+ * attribute. Two traps worth knowing: `Button` renders an `<a>` when given an
+ * `href`, so a control that looks like a button is often `getByRole("link")`,
+ * and a `getByText` REGEX matches non-normalized text, so anchoring one on copy
+ * that spans JSX lines breaks on reformatting.
+ *
+ * ASSERTIONS ARE WEB-FIRST — no `waitForTimeout`, no sleep. Waiting on
+ * something outside the DOM (a mail delivery, an async POST that fires after
+ * its trigger resolves) uses `expect.poll`.
+ *
+ * ASSERTING THAT SOMETHING DID NOT HAPPEN NEEDS THE CAUSAL EVENT FIRST.
+ * `expect(...)` returns the moment it first passes, so an assertion issued right
+ * after the trigger passes before the thing it is guarding against could
+ * possibly have occurred. Both attempts at this in CAR-191 were green against
+ * deliberately broken code until they were re-sequenced: wait for the real event
+ * (a `page.waitForResponse`, the dialog disappearing), then two
+ * `requestAnimationFrame`s so React has committed anything that event scheduled,
+ * and only then assert. Where a count is available — "the endpoint was never
+ * called", via `page.route` — prefer it to a state comparison, which a slow
+ * write wins by default. Neither technique is an arbitrary wait: both are
+ * synchronised to browser events.
  */
 import fs from "node:fs";
 import { test as base, expect } from "@playwright/test";
