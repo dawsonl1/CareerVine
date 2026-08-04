@@ -72,6 +72,8 @@ Feature work happens in **worktrees off `main`**, one Linear issue per worktree,
 
 **Risk-based exception:** small, single-file, no-schema, no-new-domain changes may commit directly to `main` (rule 14) without a worktree.
 
+> **A direct push is the only path where `main` can go red, so it carries an extra obligation.** `main` has branch protection requiring the six checks, but `enforce_admins` is **false** — the owner is deliberately exempt, and pushes made with Dawson's token bypass the gate, printing `Bypassed rule violations for refs/heads/main`. That message is expected on this path, not a warning to escalate. CI itself has no path filters (`push: branches: [main]`), so all six jobs still **run** on a direct push; they simply report afterwards instead of blocking. Therefore: **after any direct push to `main`, verify the run on that exact SHA** (`gh run list --commit <sha>`, then confirm the six jobs by name per rule 45) before treating the work as done. On the PR path the gate does this for you; here nothing does. If the push is genuinely urgent and CI is slow, say so rather than assuming green.
+
 **Never** rebase or force-push `main` or any shared/already-pushed branch. Keep branches current by merging `main` in, so conflicts surface early (where the merge-conflict tooling engages).
 
 **Manual steps are Linear's, not the conversation's:** anything Dawson must genuinely do by hand (OAuth grants, external dashboards, values only he can obtain) gets upserted to the issue as a `<!-- manual-steps -->` checklist the moment it's identified — conversations get deleted; Linear survives. Migrations and Vercel env vars are never on this list — Claude handles both (rule 27).
