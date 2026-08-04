@@ -10,7 +10,13 @@ export default defineConfig({
       'src/**/*.test.tsx',
     ],
     setupFiles: ['src/__tests__/setup.ts'],
-    // CAR-186, CAR-208. Coverage is scoped to the logic tiers on purpose.
+    // CAR-186, CAR-208. Coverage here is a GATE, not a report: `npm run
+    // test:coverage`, and the CI `web` job which runs the suite with
+    // `--coverage`, fail on the thresholds below rather than printing a number
+    // for someone to read. Two kinds of regression trip it, and they are not
+    // interchangeable — see the note over `thresholds`.
+    //
+    // What it measures is scoped to the logic tiers on purpose.
     // `src/components` and `src/app` are deliberately NOT measured: a
     // line-coverage number on UI files rewards shallow render-and-assert-nothing
     // tests, which is the failure mode CAR-182 is moving away from. The browser
@@ -25,9 +31,11 @@ export default defineConfig({
     // `exclude` below correctly drops, so the count and the percentage were
     // computed over different file sets.)
     // Nothing else covered the gap either: the `mcp` CI job is `tsc --noEmit`
-    // only, and neither the integration nor the E2E tier references it, so a new
-    // untested MCP tool moved no number and failed no check. It is a shipped
-    // product surface, not a script.
+    // only, and neither the integration nor the E2E tier references it. What
+    // was missing was specifically a coverage FLOOR — no per-area budget, and
+    // far too small a share of the corpus to move a global percentage — so a
+    // new untested MCP tool moved no number and failed no check. It is a
+    // shipped product surface, not a script.
     //
     // `include` is what makes this a gate rather than a report. Without it the v8
     // provider only reports files some test imported, so a brand-new untested
@@ -58,9 +66,11 @@ export default defineConfig({
       // alone does not actually catch this ticket's stated failure mode: dropping
       // a 120-statement untested module into an 8,310-statement corpus moves the
       // global figure by under a point, so it sails past any sane floor. Against a
-      // budget it is a hard fail. The budgets are split lib/hooks so a weak area
-      // cannot hide behind a strong one - hooks sit at 25%, and blending that into
-      // one number would bury it.
+      // budget it is a hard fail. EVERY measured area carries its own budget
+      // rather than only feeding the global percentages, because a weak area
+      // blended into one number hides behind a strong one - which is exactly
+      // what had happened to src/hooks, and to src/mcp before CAR-208. The
+      // measured column below is where the spread between them is visible.
       //
       // Headroom is ~3% of each area's uncovered total. That is calibrated to pass
       // a well-tested feature (200 new statements at 85% adds 30 uncovered) and
@@ -159,9 +169,11 @@ export default defineConfig({
           functions: -72,
           lines: -255,
         },
-        // Its own budget, not folded into the globals alone: src/mcp is the
-        // weakest area by a wide margin and a single blended number would let it
-        // hide behind src/lib exactly as hooks did. Headroom is wider in
+        // Its own budget, not folded into the globals alone: src/mcp sits with
+        // src/hooks well under src/lib on every metric (the two are within a
+        // few points of each other, 14 to 27 below src/lib - see the table
+        // above), and a single blended number would let it hide behind src/lib
+        // exactly as hooks did. Headroom is wider in
         // relative terms than src/lib's ~3% for the same reason hooks' is - on a
         // few hundred units, 3% is single digits and any real feature trips it.
         'src/mcp/**': {

@@ -27,6 +27,18 @@ interface PortalDropdownOptions {
  * calendar, action-items, contact-actions-tab) render inside a DialogSurface and
  * get a real container back. Deleting the fallback would make each of them
  * keyboard-unreachable inside its dialog, and nothing tests those call sites.
+ *
+ * Escape (CAR-205): ANY child that opens and closes owns Escape while it is open.
+ * Portalling is not what makes the key ambiguous — having an open list inside a
+ * dialog is. Without a handler, Escape over an open dropdown closes the dialog
+ * underneath it and leaves the dropdown behind, because the dialog's own handler is
+ * a document listener that fires regardless of where the key was pressed. This file
+ * carries the portalled form of the fix (the capture-phase effect below, shared in
+ * shape with `select.tsx`); a list that is a plain DOM child of its wrapper uses the
+ * cheaper wrapper handler in `@/hooks/use-dropdown-escape` instead. Either form is
+ * live only while `open`, or a closed dropdown swallows the dialog's own Escape;
+ * this one additionally hands focus back to the trigger on close, since focus
+ * stranded on `<body>` disarms the enclosing trap.
  */
 export function usePortalDropdown(
   containerRef: RefObject<HTMLElement | null>,

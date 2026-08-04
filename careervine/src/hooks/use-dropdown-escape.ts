@@ -5,6 +5,12 @@ import { useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
 /**
  * Escape closes an open in-DOM dropdown, not the dialog around it (CAR-205).
  *
+ * ANY child that opens and closes owns Escape while it is open. Portalling is not
+ * what makes the key ambiguous — having an open list inside a dialog is. Without a
+ * handler, Escape over an open dropdown closes the dialog underneath it and leaves
+ * the dropdown behind, because the dialog's own handler is a document listener that
+ * fires regardless of where the key was pressed.
+ *
  * The same rule `usePortalDropdown` and `select.tsx` implement, in the cheaper
  * form that a NON-portalled list can use. Those two need a document listener in
  * the capture phase because their panels are portalled out of the component's
@@ -20,6 +26,13 @@ import { useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
  * `careervine/src/__tests__/picker-escape.test.tsx`.
  *
  * Gated on `open` so a closed dropdown never swallows the dialog's own Escape.
+ *
+ * This form moves no focus, and does not need to for the wrappers on it today: the
+ * key only reaches a wrapper `onKeyDown` when focus is already inside that wrapper,
+ * and the trigger or input it sits on survives the close. A caller whose panel holds
+ * focusable controls a user can land on should hand focus back to its trigger when
+ * it closes, the way `usePortalDropdown` does — focus stranded on `<body>` disarms
+ * the enclosing dialog's trap, which is a keydown handler *on* the surface.
  *
  * @example
  * const onKeyDown = useDropdownEscape(open, setOpen);

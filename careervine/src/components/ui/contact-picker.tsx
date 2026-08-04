@@ -54,8 +54,29 @@ export function ContactPicker({
   const removeContact = (id: number) => {
     onChange(selectedIds.filter((cid) => cid !== id));
   };
-  // Escape closes this list, not the dialog around it (CAR-205 review).
-  const handleEscape = useDropdownEscape(open, setOpen);
+  /**
+   * Escape closes the suggestion list, not the dialog around it (CAR-205), and returns
+   * focus to the search input. The list renders a button per contact, so a user can tab
+   * into it; closing without moving focus would strand focus on `<body>` and disarm the
+   * enclosing dialog's focus trap.
+   *
+   * The input opens the list on focus, so handing focus back would immediately reopen what
+   * Escape just closed. `reopenOnFocus` suppresses exactly that one transition. It is reset
+   * synchronously after `.focus()` because focus events dispatch synchronously: if focus had
+   * to move, `onFocus` already ran and consumed the suppression; if focus was on the input
+   * all along, `.focus()` is a no-op and the flag must not survive to eat a later, genuine
+   * focus.
+   */
+  const reopenOnFocus = useRef(true);
+  const handleEscape = useDropdownEscape(
+    open,
+    useCallback(() => {
+      reopenOnFocus.current = false;
+      setOpen(false);
+      inputRef.current?.focus();
+      reopenOnFocus.current = true;
+    }, []),
+  );
 
   return (
     <div ref={ref} className="relative" onKeyDown={handleEscape}>
@@ -85,7 +106,7 @@ export function ContactPicker({
             type="text"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-            onFocus={() => setOpen(true)}
+            onFocus={() => { if (reopenOnFocus.current) setOpen(true); }}
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
             placeholder={selected.length > 0 ? "Add more…" : placeholder}
           />

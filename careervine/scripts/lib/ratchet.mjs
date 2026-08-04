@@ -18,6 +18,14 @@
  *     the baseline an inventory rather than a list of things that used to be
  *     true.
  *
+ * A baseline is NAMED, not counted: one found row consumes one slot, so a
+ * repeated name cannot ride another's entry (diffNamedRatchet below carries
+ * the multiset accounting that makes that hold). A site with no declaration to
+ * name is keyed by its shape instead — an inline JSX handler by its prop plus
+ * a hash of its body. The prop alone will not do: every inline handler in a
+ * file collapses to `onClick`, which quietly turns a named ratchet back into a
+ * counted one and lets a fix be traded for a fresh violation in the same file.
+ *
  * Lives in its own module so the algebra is unit-testable directly. The
  * detectors are tested through the script as a subprocess against a fixture
  * tree (see src/__tests__/check-conventions.test.ts), but that route cannot
@@ -28,6 +36,36 @@
  * actually looked at. A file absent from the checkout cannot violate anything,
  * and without this the guard would fail on any partial tree — which is exactly
  * what the fixture is.
+ *
+ * ── Reading a baseline figure ──
+ *
+ * A published count is a property of the DETECTOR, not of the codebase, so
+ * treat any figure quoted outside the literal as provisional. The
+ * double-submit list is the worked example: published at 35, corrected to 54
+ * once CAR-190 removed five blind spots, then to 129 once CAR-208 found three
+ * more — a handler-name filter that inspected `handleAdd` while ignoring an
+ * identical `addContact`, inline JSX handlers as an entire invisible class,
+ * and non-named import shapes that bound a seam the scan could not resolve.
+ * The literal in check-conventions.mjs is the count; a number in prose is a
+ * claim about a detector that has already been wrong twice.
+ *
+ * The figure is also deliberately an OVER-count, and reading it as that many
+ * live bugs would be wrong. A callee is judged a write by its verb against a
+ * denylist of read verbs, so a pure helper whose name does not look like a
+ * read counts as a write, and a handler one hop from a real write counts
+ * alongside the helper it calls. The asymmetry is chosen: over-inclusion costs
+ * a baseline line, under-inclusion costs a live bug. Tuning it the other way
+ * is how this breaks — adding `fetch` to the read verbs, the safest-looking
+ * addition on offer, silently un-flagged the most destructive handler the list
+ * then named, whose write runs through a helper called `fetchStepWithRetry`.
+ * Read the READ_VERB note in check-conventions.mjs before touching that list.
+ *
+ * Baselines shrink, and that is the point: CAR-207 drained six entries from
+ * that list, and CAR-217 a seventh — the twin of a toggle it was adding,
+ * because guarding the new one while baselining the old would have frozen a
+ * second copy of the same bug beside a fixed one. Draining the rest is a
+ * mechanical sweep of its own;
+ * the contract here is only that the list can never grow back.
  */
 
 /**

@@ -20,6 +20,15 @@
  * dismissible. Each of those now supplies its own chrome to `DialogSurface`
  * rather than re-deriving what a dialog is.
  *
+ * Which to reach for: `Modal`, unless the chrome genuinely cannot be its own — the
+ * three shapes above are the whole list of reasons found so far. A caller that does
+ * reach past it supplies the chrome through `wrapperClassName` (layer, alignment,
+ * padding), `scrimClassName` (tint) and `className` (the surface itself), and a
+ * nested confirmation of its own through `overlay`, never inside `children`: the
+ * `overlay` slot renders as a DOM *sibling* of the surface, and a nested dialog
+ * inside `children` has its keydowns bubble through this surface's trap, so the two
+ * fight over every Tab.
+ *
  * Follows Material Design 3 dialog specs:
  *   - Scrim overlay at 32 % opacity
  *   - surface-container-high background
@@ -41,7 +50,26 @@
  * child that portals out of the surface leaves the cycle and becomes keyboard
  * unreachable. Rather than teach the trap about satellite containers, the surface
  * publishes itself through `useModalPortalContainer` and such children portal
- * *into* it — see the note on that hook for what keeps that visually safe.
+ * *into* it — see the note on that hook for what keeps that visually safe. The
+ * fallback is `useModalPortalContainer() ?? document.body`, never `document.body`
+ * unconditionally: a menu left on the body looks perfectly fine on screen while
+ * being keyboard-unreachable, and `aria-modal` additionally hides it from assistive
+ * tech.
+ *
+ * The other thing a modal child must not hand-roll (CAR-198) is dismissal. A footer
+ * Cancel or a header X goes through `ModalCancelButton` / `ModalCloseButton` — or
+ * `useModalDismiss` for a control neither covers — and not through the caller's own
+ * `onClose`, which silently skips the unsaved-changes confirmation that the scrim,
+ * Escape and the X all honour.
+ *
+ * Extending any of the above means reading `tabbableWithin` and `useFocusTrap`
+ * below first, because two things there are not the obvious implementation. The
+ * tabbable filter deliberately makes no layout check: jsdom has no layout, so the
+ * usual `offsetParent` filter empties the set and quietly disarms the trap under
+ * test while still reading as correct. And a form dialog that should open on a
+ * field marks it `data-autofocus` rather than using React's `autoFocus`, which
+ * cannot serve — React strips the attribute and focuses imperatively during commit,
+ * so the trap's later effect silently overrode it at every call site.
  */
 
 import {
