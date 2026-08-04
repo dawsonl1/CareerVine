@@ -157,17 +157,20 @@ describe("contacts search scope", () => {
   });
 
   it("refreshes results when a tier chip is toggled with a query already typed", async () => {
+    // Honest caveat: this passed BEFORE the fix too. The reported freeze came
+    // from useDeferredValue starving a ~1,149-card render, and at six rows in
+    // jsdom the deferred render commits inside the first waitFor. Kept as a
+    // guard that a toggle repaints at all, not as a reproduction of the freeze
+    // -- the render cap is what actually removes that cost.
     await renderPage();
     await type("Allred");
 
-    const before = listedNames();
-    expect(before).toContain("Bryant Allred");
+    expect(listedNames()).toContain("Bryant Allred");
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Prospects/ }));
     });
 
-    // Toggling a tier must repaint the filtered list without a keystroke.
     await waitFor(() => expect(listedNames()).toContain("Ryan Allred"));
   });
 
@@ -186,9 +189,13 @@ describe("contacts search scope", () => {
   });
 
   it("ranks the exact name match above a same-token company match", async () => {
+    // "Aaron Reed" deliberately sorts BEFORE "Bryant Allred": the list arrives
+    // in name order, so an unranked result set would put the company match
+    // first and this assertion would pass vacuously if it were the other way
+    // round.
     const net = buildNetwork();
     net.active.push(
-      contact("Dana Reed", "active", {
+      contact("Aaron Reed", "active", {
         contact_companies: [
           { title: "Analyst", companies: { id: 1, name: "Allred Partners" } },
         ],
