@@ -228,16 +228,24 @@ export default function ContactsPage() {
   // only because of a tag. Splitting on "would this still match with tags
   // removed" keeps the labelled section honest, rather than guessing from a
   // substring test that multi-word queries would get wrong.
+  //
+  // Single pass, stopping once both buckets are full: a broad query on a
+  // 2,000-contact network matches most of it, and re-flattening every match's
+  // fields twice per keystroke is exactly the per-keystroke cost this ticket is
+  // trying to get rid of. Only ten rows are ever displayed.
+  const SUGGESTION_LIMIT = 5;
   const { nameSuggestions, tagSuggestions } = useMemo(() => {
     if (!searchResults) return { nameSuggestions: [], tagSuggestions: [] };
     const tokens = parseSearchTokens(searchQuery);
-    const tagOnly = (c: ContactListItem) =>
-      scoreContact(
-        searchableFields(c).filter((f) => f.kind !== "tag"),
-        tokens,
-      ) === 0;
-    const nameSuggestions = searchResults.filter((c) => !tagOnly(c)).slice(0, 5);
-    const tagSuggestions = searchResults.filter(tagOnly).slice(0, 5);
+    const nameSuggestions: ContactListItem[] = [];
+    const tagSuggestions: ContactListItem[] = [];
+    for (const c of searchResults) {
+      if (nameSuggestions.length >= SUGGESTION_LIMIT && tagSuggestions.length >= SUGGESTION_LIMIT) break;
+      const tagOnly =
+        scoreContact(searchableFields(c).filter((f) => f.kind !== "tag"), tokens) === 0;
+      const bucket = tagOnly ? tagSuggestions : nameSuggestions;
+      if (bucket.length < SUGGESTION_LIMIT) bucket.push(c);
+    }
     return { nameSuggestions, tagSuggestions };
   }, [searchResults, searchQuery]);
 

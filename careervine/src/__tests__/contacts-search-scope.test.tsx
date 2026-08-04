@@ -245,6 +245,24 @@ describe("contacts search scope", () => {
     await waitFor(() => expect(screen.getByText("No contacts match your search.")).toBeTruthy());
   });
 
+  it("splits the suggestions dropdown into people and tag-only matches", async () => {
+    const net = buildNetwork();
+    net.active.push(
+      contact("Dana Reed", "active", {
+        contact_tags: [{ tag_id: 7, tags: { id: 7, name: "allred-referral" } }],
+      } as Partial<ContactListItem>),
+    );
+    mockStream(net);
+    await renderPage();
+    await type("allred");
+
+    // The "By tag" heading only renders when a match surfaced via a tag alone.
+    await waitFor(() => expect(screen.getByText("By tag")).toBeTruthy());
+    const dropdown = screen.getByText("By tag").parentElement!;
+    expect(dropdown.textContent).toContain("Dana Reed");
+    expect(dropdown.textContent).toContain("allred-referral");
+  });
+
   it("says the search spans the whole network so off-tier hits read correctly", async () => {
     await renderPage();
     expect(screen.queryByText(/Searching your whole network/)).toBeNull();
