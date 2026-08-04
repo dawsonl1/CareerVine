@@ -2368,9 +2368,10 @@ const UNBOUNDED_READ_BASELINE = {
   "src/app/api/contacts/bulk-import/backfill/route.ts": ["company_locations", "locations"],
   "src/app/api/contacts/check-duplicate/route.ts": ["contact_emails", "contact_schools", "contacts", "contacts"],
   "src/app/api/contacts/import/route.ts": ["company_locations", "contact_companies", "contact_companies", "contact_emails", "contact_schools", "contact_schools", "contacts"],
-  // Arrived with the CAR-217 / CAR-220 merge, after this baseline was written.
-  "src/app/api/cron/detect-bounces/route.ts": ["gmail_connections"],
   "src/app/api/cron/follow-up-nudges/route.ts": ["users"],
+  // The second email_follow_up_messages read and contacts.ts's contact_emails
+  // read are both bounded by an .in() over a chunked list, which the detector
+  // cannot see. Inventoried, not defects.
   "src/app/api/cron/send-follow-ups/route.ts": ["email_follow_up_messages", "email_follow_up_messages", "gmail_connections"],
   "src/app/api/cron/sync-bundles/route.ts": ["data_bundles"],
   "src/app/api/discovery/candidates/route.ts": ["discovery_candidates"],
@@ -2411,7 +2412,7 @@ const UNBOUNDED_READ_BASELINE = {
   "src/lib/email-send.ts": ["contact_emails"],
   "src/lib/follow-up-helpers.ts": ["email_follow_ups"],
   "src/lib/follow-up-reply.ts": ["email_follow_ups"],
-  "src/lib/gmail.ts": ["contact_emails", "contact_emails", "email_follow_ups", "email_messages", "email_messages", "email_messages", "scheduled_emails"],
+  "src/lib/gmail.ts": ["contact_emails", "contact_emails", "email_follow_ups", "email_messages", "email_messages", "email_messages"],
   "src/lib/import-db-helpers.ts": ["contact_tags", "tags"],
   "src/lib/onboarding/bundle-stats.ts": ["data_bundles"],
   "src/lib/pipeline-queries.ts": ["pipeline_applications", "pipeline_cycles", "pipeline_interview_rounds", "pipeline_notes", "pipeline_programs", "target_companies", "target_companies"],

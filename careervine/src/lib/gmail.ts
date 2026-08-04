@@ -1721,12 +1721,19 @@ export async function detectBounces(
   // unlike contact_emails — so `.eq` on the lowercased NDR address misses
   // "John.Doe@X.com". `.ilike` is not the fix: `_` and `%` are legal characters
   // in a local part and would silently match other people's addresses.
-  const pendingScheduled = must(
-    await supabase
-      .from("scheduled_emails")
-      .select("id, recipient_email")
-      .eq("user_id", userId)
-      .eq("status", ScheduledEmailStatus.Pending),
+  // Paginated (CAR-223): a truncated read here leaves queued mail to a dead
+  // address uncancelled, which is the exact harm this whole path exists to
+  // prevent.
+  const pendingScheduled = await paginateAll(async (from, to) =>
+    must(
+      await supabase
+        .from("scheduled_emails")
+        .select("id, recipient_email")
+        .eq("user_id", userId)
+        .eq("status", ScheduledEmailStatus.Pending)
+        .order("id")
+        .range(from, to),
+    ),
   );
   const scheduledByRecipient = new Map<string, number[]>();
   for (const row of pendingScheduled ?? []) {
