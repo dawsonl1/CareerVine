@@ -56,6 +56,23 @@ export function buildThreads(msgs: EmailMessage[]): EmailThread[] {
   return result;
 }
 
+/**
+ * True when a thread belongs in the Inbox view: somebody wrote TO the user on
+ * it (CAR-219). Gmail's inbox holds received mail, so outreach the contact has
+ * not answered yet lives in Sent alone rather than mirroring back into the
+ * Inbox. A thread that did get a reply qualifies and still renders in full,
+ * the user's own outbound messages included, as a conversation.
+ *
+ * Deliberately direction-based rather than INBOX-label-based: label_ids only
+ * stays current for messages a later sync re-fetches (the query is watermarked
+ * by date), and the app already owns an explicit archive in the Hidden tab, so
+ * honoring Gmail's archive here would strand threads in a view that has no
+ * home for them.
+ */
+export function isReceivedThread(thread: EmailThread): boolean {
+  return thread.messages.some((m) => m.direction === "inbound");
+}
+
 /** Find a header value by name (case-insensitive). */
 export function getHeader(headers: ParsedHeader[], name: string): string {
   return headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";

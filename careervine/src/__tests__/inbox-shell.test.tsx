@@ -336,6 +336,71 @@ describe("InboxShell — honest load-failure state (CAR-154 / F21)", () => {
   });
 });
 
+describe("InboxShell — Inbox holds received mail only (CAR-219)", () => {
+  const outreach = makeEmail({
+    gmail_message_id: "out1",
+    thread_id: "t-cold",
+    subject: "Intro from Dawson",
+    direction: "outbound",
+    from_address: "me@gmail.com",
+    to_addresses: ["nora@corp.com"],
+    is_read: true,
+  });
+  const reply = makeEmail({
+    gmail_message_id: "in1",
+    thread_id: "t-answered",
+    subject: "Re: Coffee chat",
+    direction: "inbound",
+    is_read: true,
+    date: "2026-07-11T12:00:00Z",
+  });
+  const ourSideOfReply = makeEmail({
+    gmail_message_id: "out2",
+    thread_id: "t-answered",
+    subject: "Re: Coffee chat",
+    direction: "outbound",
+    from_address: "me@gmail.com",
+    to_addresses: ["jane@corp.com"],
+    snippet: "our-opener",
+    is_read: true,
+    date: "2026-07-09T12:00:00Z",
+  });
+
+  it("keeps an unanswered outbound thread out of the Inbox but shows it in Sent", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [outreach] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+    // The empty state above is the assertion for the Inbox; the same thread
+    // must still be reachable in Sent rather than vanishing from the app.
+    expect(screen.queryByText("Intro from Dawson")).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sent/ })[0]);
+    expect(screen.getByText("Intro from Dawson")).toBeTruthy();
+  });
+
+  it("shows a replied thread in the Inbox as a full conversation, our own message included", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [ourSideOfReply, reply] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Re: Coffee chat")).toBeTruthy());
+
+    // Expanding the thread reveals both sides — the inbound reply qualifies the
+    // thread, and our outbound message rides along as part of the conversation.
+    fireEvent.click(screen.getByText("Re: Coffee chat"));
+    expect(screen.getAllByText("our-opener").length).toBeGreaterThan(0);
+  });
+
+  it("does not count an outbound-only thread toward the Inbox unread badge", async () => {
+    // An unread outbound row is the shape that would betray a direction gate
+    // applied to display but not to the badge.
+    installFetch({ inbox: inboxPayload({ emails: [{ ...outreach, is_read: false }] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("No emails synced yet.")).toBeTruthy());
+
+    const inboxTab = screen.getAllByRole("button", { name: /^Inbox/ })[0];
+    expect(inboxTab.textContent).toBe("Inbox");
+  });
+});
+
 describe("InboxShell — extracted child tabs render their own data", () => {
   const drafts = { drafts: [{ id: 42, subject: "Half-written note", recipient_email: "leo@x.com", contact_name: "Leo", body_html: "<p>draft</p>", thread_id: null, in_reply_to: null, references_header: null, updated_at: "2026-07-14T12:00:00Z" }] };
   const scheduled = [{ id: 7, subject: "Following up soon", recipient_email: "bob@x.com", contact_name: "Bob", matched_contact_id: null, status: "pending", scheduled_send_at: "2026-07-20T09:00:00Z", thread_id: null }];

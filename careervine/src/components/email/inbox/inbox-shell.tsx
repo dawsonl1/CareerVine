@@ -13,7 +13,7 @@ import { Inbox, Clock, Send, Mail, Trash2, EyeOff, FileText } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { OAuthWarning } from "@/components/oauth-warning";
-import { buildThreads, type EmailThread } from "@/lib/gmail-helpers";
+import { buildThreads, isReceivedThread, type EmailThread } from "@/lib/gmail-helpers";
 import { isOpenFollowUpMessage } from "@/lib/constants";
 import { trackBeforeNavigate } from "@/lib/analytics/client";
 import { UI_EVENTS, emitUiEvent, unreadDeltaFor } from "@/lib/ui-events";
@@ -107,7 +107,12 @@ export function InboxShell() {
 
   // ── Thread grouping ──
 
-  const inboxThreads = useMemo(() => buildThreads(emails), [emails]);
+  // Gmail parity (CAR-219): the Inbox holds conversations somebody sent TO the
+  // user. Grouping every message and then keeping the threads with a received
+  // message means a reply pulls its whole conversation in, our outbound side
+  // included — while outreach nobody has answered stays in Sent only.
+  const allThreads = useMemo(() => buildThreads(emails), [emails]);
+  const inboxThreads = useMemo(() => allThreads.filter(isReceivedThread), [allThreads]);
   const sentEmails = useMemo(() => emails.filter((e) => e.direction === "outbound"), [emails]);
   const sentThreads = useMemo(() => buildThreads(sentEmails), [sentEmails]);
   const trashThreads = useMemo(() => buildThreads(trashedEmails), [trashedEmails]);
