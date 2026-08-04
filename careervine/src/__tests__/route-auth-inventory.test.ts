@@ -40,6 +40,7 @@ const HAND_ROLLED: Record<string, string> = {
   // QStash signed webhooks — shared withQStashVerification (src/lib/qstash-verify.ts)
   // over the upstash-signature header; refuses 401 when signing keys are unset.
   "cron/data-retention/route.ts": "qstash-signature",
+  "cron/detect-bounces/route.ts": "qstash-signature",
   "cron/discovery/route.ts": "qstash-signature",
   "cron/follow-up-nudges/route.ts": "qstash-signature",
   "cron/scrape-refresh/route.ts": "qstash-signature",
@@ -217,7 +218,11 @@ describe("route-auth inventory", () => {
     const users = routeFiles.filter((f) =>
       /\bwithQStashVerification\s*\(/.test(readFileSync(path.join(apiDir, f), "utf8")),
     );
-    expect(users.length).toBe(9);
+    // Deliberately a literal, not derived from HAND_ROLLED: adding a route
+    // should force someone to look at this file and decide whether it belongs
+    // on the signature alone or opts into the cron bearer. CAR-217's
+    // detect-bounces took it from 9 to 10, and correctly stayed signature-only.
+    expect(users.length).toBe(10);
     const mislabelled = users.filter((f) => !(HAND_ROLLED[rel(f)] ?? "").startsWith("qstash-signature"));
     expect(mislabelled, `routes using withQStashVerification without a qstash mechanism label: ${mislabelled.join(", ")}`).toEqual([]);
   });

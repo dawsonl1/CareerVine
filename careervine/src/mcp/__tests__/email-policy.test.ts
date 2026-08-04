@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
+import { resolveRecipient, UnverifiedAddressError, type EmailRowLike } from "../lib/email-policy";
 
 const row = (email: string, over: Partial<EmailRowLike> = {}): EmailRowLike => ({
   email,
@@ -50,9 +50,52 @@ describe("resolveRecipient", () => {
     expect(r.warnings.some((w) => w.includes("pattern-guessed"))).toBe(true);
   });
 
-  it("accepts an unknown override with a warning", () => {
-    const r = resolveRecipient("Jane", [row("a@x.com")], "other@y.com");
-    expect(r.email).toBe("other@y.com");
-    expect(r.warnings.some((w) => w.includes("not one of Jane's saved addresses"))).toBe(true);
+  // CAR-217 replaced the old "accepts an unknown override with a warning" test.
+  // That behavior is the bug: an agent guessed three first.last@google.com
+  // addresses, got exactly that warning on each, sent anyway, and reported all
+  // three as delivered. Two bounced. A warning beside a success payload does not
+  // stop an LLM; a thrown error does.
+  describe("unverified override", () => {
+    it("REFUSES an address the contact does not have", () => {
+      expect(() => resolveRecipient("Jane", [row("a@x.com")], "other@y.com")).toThrow(
+        UnverifiedAddressError,
+      );
+    });
+
+    it("names the saved addresses so the caller can self-correct", () => {
+      expect(() => resolveRecipient("Jane", [row("a@x.com")], "other@y.com")).toThrow(
+        /Saved addresses: a@x\.com/,
+      );
+    });
+
+    it("tells a contact with no saved addresses apart from one with some", () => {
+      expect(() => resolveRecipient("Jane", [], "other@y.com")).toThrow(/Jane has no saved addresses/);
+    });
+
+    it("allows it through only when the caller explicitly opts in", () => {
+      const r = resolveRecipient("Jane", [row("a@x.com")], "other@y.com", { allowUnverified: true });
+      expect(r.email).toBe("other@y.com");
+      expect(r.warnings.some((w) => w.includes("allow_unverified_address was set"))).toBe(true);
+    });
+
+    it("still refuses a KNOWN address that has bounced, opt-in or not", () => {
+      // The opt-in is for addresses CareerVine has never seen, not a way to
+      // override a recorded delivery failure.
+      const emails = [row("dead@x.com", { bounced_at: "2026-08-01T00:00:00Z" })];
+      expect(() => resolveRecipient("Jane", emails, "dead@x.com", { allowUnverified: true })).toThrow(
+        /bounced/,
+      );
+    });
+
+    it("does not require the opt-in for an address the contact DOES have", () => {
+      const r = resolveRecipient("Jane", [row("a@x.com"), row("b@x.com")], "b@x.com");
+      expect(r.email).toBe("b@x.com");
+      expect(r.warnings).toEqual([]);
+    });
+
+    it("matches a saved address case-insensitively rather than calling it a guess", () => {
+      const r = resolveRecipient("Jane", [row("a@x.com")], "A@X.COM");
+      expect(r.email).toBe("a@x.com");
+    });
   });
 });

@@ -9,9 +9,17 @@
  * the cap: they call sendTrackedEmail() like the interactive paths and catch
  * SendPolicyError to DEFER rather than bypass. A 429 (daily cap reached) stops
  * that cron tick and retries next run; a 422 (recipient has bounced) is left
- * for the bounce path to resolve (detectBounces cancels the sequence once the
- * NDR lands), except a follow-up message already past its 3-day retry window,
- * which the follow-up cron cancels outright. sendTrackedEmail() applies:
+ * for the bounce path to resolve, except a follow-up message already past its
+ * 3-day retry window, which the follow-up cron cancels outright.
+ *
+ * "The bounce path" is detectBounces, which retires the follow-up sequence AND
+ * cancels the pending scheduled_emails row. Until CAR-217 it did only the first,
+ * so this header promised a resolution for scheduled mail that no code
+ * performed: the row stayed pending and re-deferred on every tick, forever. It
+ * now also runs on its own daily schedule rather than only when the user opens
+ * the Inbox, which is what bounds how long the deferral lasts.
+ *
+ * sendTrackedEmail() applies:
  *   - daily cap (deliverability guardrail)
  *   - bounced-address refusal
  *   - pattern-guessed-address warning

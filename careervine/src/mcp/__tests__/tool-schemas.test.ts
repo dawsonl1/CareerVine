@@ -47,6 +47,23 @@ describe("tool input schemas", () => {
     expect(schema.parse({ ...base, confirm: true }).confirm).toBe(true);
   });
 
+  // CAR-217: the opt-in for an address CareerVine has never seen. `literal(true)`
+  // rather than `boolean()` on purpose, matching `confirm` — passing `false` is
+  // then a schema error rather than a quietly-ignored no-op, so a caller that
+  // meant to opt in cannot half-do it.
+  it("allow_unverified_address is an optional literal true, on every compose path", () => {
+    for (const shape of [sendEmailSchema, scheduleEmailSchema]) {
+      const schema = z.object(shape);
+      const base =
+        shape === sendEmailSchema
+          ? { contact_id: 1, subject: "Hi", body: "B", confirm: true as const }
+          : { contact_id: 1, subject: "Hi", body: "B", send_at: "2030-01-01T09:00:00Z" };
+      expect(schema.parse(base).allow_unverified_address).toBeUndefined();
+      expect(schema.parse({ ...base, allow_unverified_address: true }).allow_unverified_address).toBe(true);
+      expect(() => schema.parse({ ...base, allow_unverified_address: false })).toThrow();
+    }
+  });
+
   it("schedule_email requires send_at", () => {
     const schema = z.object(scheduleEmailSchema);
     expect(() => schema.parse({ contact_id: 1, subject: "Hi", body: "B" })).toThrow();

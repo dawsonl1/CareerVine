@@ -28,6 +28,7 @@ import {
   findOrCreateCompany,
   findOrCreateLocation,
   findOrCreateSchool,
+  getBouncedAddresses,
   getContactById,
   getContactEmailLookup,
 } from "@/lib/data/contacts";
@@ -692,10 +693,54 @@ export async function searchEmailHistory(query: string, contactId?: number, limi
   if (error) throw error;
   // The dynamic select string defeats supabase-js's literal-type parser, so
   // rows come back untyped; the cast matches the base column list above.
-  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((row) => {
+  const rows = ((data ?? []) as unknown as Array<Record<string, unknown>>).map((row) => {
     const { email_message_contacts: _links, ...rest } = row;
     return rest;
   });
+
+  // CAR-217: annotate outbound messages whose recipient has since bounced.
+  //
+  // This exists because searching sent mail is the instinct an agent reaches
+  // for to check whether an email "worked", and on its own it answers a
+  // different question than the one being asked: the sent copy proves Gmail
+  // accepted the message, while the rejection arrives later in a separate
+  // thread this search will never surface. Rather than trying to retrain the
+  // instinct, make the natural lookup carry the real answer.
+  const recipients = new Set<string>();
+  for (const row of rows) {
+    if (row.direction !== "outbound") continue;
+    for (const addr of (row.to_addresses as string[] | null) ?? []) {
+      if (addr) recipients.add(addr.toLowerCase().trim());
+    }
+  }
+  if (recipients.size > 0) {
+    // Through the shared, user-scoped helper rather than a raw builder here:
+    // the MCP raw-query ratchet exists to push exactly this kind of query into
+    // src/lib/data, where the scoping is written once. (Note the ratchet counts
+    // the literal builder token anywhere in the file, comments included, so do
+    // not spell it out in prose here.)
+    let bounced = new Map<string, string>();
+    try {
+      bounced = await getBouncedAddresses(uid(), [...recipients]);
+    } catch (err) {
+      // error-tolerated: enrichment over rows already fetched. Failing the whole
+      // search because the annotation could not be computed would be worse than
+      // returning the search without it.
+      console.error("[mcp] bounce annotation failed:", err);
+    }
+    for (const row of rows) {
+      if (row.direction !== "outbound") continue;
+      const hit = ((row.to_addresses as string[] | null) ?? [])
+        .map((a) => bounced.get((a ?? "").toLowerCase().trim()))
+        .find(Boolean);
+      if (hit) {
+        row.delivery = "bounced";
+        row.bounced_at = hit;
+      }
+    }
+  }
+
+  return rows;
 }
 
 export async function getCachedThreadMessages(threadId: string) {

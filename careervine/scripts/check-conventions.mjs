@@ -1586,10 +1586,12 @@ const DOUBLE_SUBMIT_BASELINE = {
     "poll",
   ],
   "src/components/onboarding/onboarding-flow.tsx": ["onPicked~e503"],
+  // CAR-217 drained "toggleNudges": its twin toggleBounceAlerts was added in
+  // the same file, and guarding one while baselining the other would have
+  // frozen a second copy of the identical bug.
   "src/components/settings/account-section.tsx": [
     "handlePasswordChange",
     "handleSave",
-    "toggleNudges",
   ],
   "src/components/settings/availability-section.tsx": [
     "handleSaveAvailability",

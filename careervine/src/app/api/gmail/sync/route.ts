@@ -25,7 +25,7 @@ export const POST = withApiHandler({
 
     const result = await syncAllContactEmails(user.id, 90, { cursor });
 
-    let bounces: { bounced: string[]; cancelledSequences: number } = { bounced: [], cancelledSequences: 0 };
+    let bounces: Awaited<ReturnType<typeof detectBounces>> | null = null;
     if (result.nextCursor === null) {
       try {
         bounces = await detectBounces(user.id);
@@ -40,8 +40,11 @@ export const POST = withApiHandler({
       processedContacts: result.processedContacts,
       failedContacts: result.failedContacts,
       nextCursor: result.nextCursor,
-      bounced: bounces.bounced.length,
-      cancelledSequences: bounces.cancelledSequences,
+      bounced: bounces?.bounced.length ?? 0,
+      cancelledSequences: bounces?.cancelledSequences ?? 0,
+      cancelledScheduled: bounces?.cancelledScheduled ?? 0,
+      /** Addresses that died on THIS pass; the client toasts only on these. */
+      newlyBounced: bounces?.newlyBounced.length ?? 0,
     };
   },
 });

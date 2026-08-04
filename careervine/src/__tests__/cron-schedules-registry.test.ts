@@ -88,6 +88,7 @@ describe("QStash cadence is pinned to the registry", () => {
     "storage-sweep": "0 10 * * *",
     "data-retention": "30 10 * * *",
     "follow-up-nudges": "0 15 * * *",
+    "detect-bounces": "0 11 * * *",
   };
 
   it("pins every declared cron expression", () => {

@@ -23,16 +23,18 @@ That's it. The server is registered in the repo-root `.mcp.json`, so any Claude 
 - **Single-user by construction** — every query is scoped to the configured user; the server refuses to start without one.
 - **Drafting is the default path** — `send_email` requires `confirm: true` and re-checks the daily send cap (100/day) server-side via the app's shared `sendTrackedEmail()`, so app and MCP can never disagree on send policy.
 - **Bounced addresses are refused everywhere** (draft, send, schedule, sequence); pattern-guessed addresses warn.
+- **Guessed addresses are refused, not warned about** (CAR-217). A `to_email` that is not one of the contact's saved addresses throws, and only goes through if the caller passes `allow_unverified_address: true`. This replaced a warning, because a warning does not work on this surface: an agent guessed three `first.last@company.com` addresses, received the warning on each, sent anyway, and reported all three as delivered. Two had bounced. A model can ignore advisory text in a success payload; it cannot ignore a thrown error or forget a parameter the schema requires.
+- **`send_email` never claims delivery.** It reports that Gmail ACCEPTED the message. A rejection arrives minutes later as its own notice in a separate thread, so it is invisible both in the sent folder and in the send result. `check_delivery` is the tool that answers "did it land", and the tool descriptions say so, because a tool description is documentation the model actually reads, unlike a prompt or skill file that can silently drift out of agreement with the code.
 - **Follow-ups can be queued with the opening email.** `schedule_email` takes an optional `follow_ups` array, so one call queues the intro and its sequence. The steps stay dormant until the intro sends, then reply on its thread and cancel themselves the moment the contact writes back. `create_follow_up_sequence` accepts the same anchor via `scheduled_email_id` when the sequence is added separately. Steps inherit the opening email's time of day rather than a fixed UTC hour.
 - **No tier auto-graduation on outbound email** — prospects graduate on a reply, a logged interaction, or a meeting, same as the app.
 - **No delete tools** — the lowest-regret omission.
 
-## Tools (27)
+## Tools (28)
 
 | Area | Tools |
 | --- | --- |
 | Contacts & research | `search_contacts`, `get_contact_dossier`, `add_contact`, `add_contact_note`, `tag_contact`, `set_network_status` |
-| Email | `create_email_draft`, `send_email`, `schedule_email`, `create_follow_up_sequence`, `list_scheduled`, `cancel_scheduled`, `search_email_history`, `get_email_thread` |
+| Email | `create_email_draft`, `send_email`, `check_delivery`, `schedule_email`, `create_follow_up_sequence`, `list_scheduled`, `cancel_scheduled`, `search_email_history`, `get_email_thread` |
 | Outreach engine | `list_outreach_queue`, `list_companies`, `get_company`, `add_company_intel`, `set_stage_override` |
 | Relationship upkeep | `log_interaction`, `create_action_item`, `list_action_items`, `update_action_item`, `list_due_followups`, `get_network_health` |
 | Calendar | `list_meetings`, `create_meeting` |

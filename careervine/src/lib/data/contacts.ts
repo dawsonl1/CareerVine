@@ -52,6 +52,40 @@ export async function getContactEmailLookup(userId: string) {
 }
 
 /**
+ * Which of `addresses` have bounced for this user, mapped to when (CAR-217).
+ *
+ * Chunked because the caller passes one address per message in a result page
+ * and PostgREST caps both the response and the practical URL length; the
+ * addresses are lowercased here so a caller cannot miss a match on casing
+ * (the column is normalized to lower(trim()) by a trigger, but the INPUT
+ * comes from `to_addresses`, which is not).
+ */
+export async function getBouncedAddresses(
+  userId: string,
+  addresses: string[],
+): Promise<Map<string, string>> {
+  const wanted = [...new Set(addresses.map((a) => (a ?? "").toLowerCase().trim()).filter(Boolean))];
+  if (wanted.length === 0) return new Map();
+
+  // chunkList, not chunked: the latter is typed for numeric id lists.
+  const map = new Map<string, string>();
+  for (const batch of chunkList(wanted, 200)) {
+    const rows = must(
+      await db()
+        .from("contact_emails")
+        .select("email, bounced_at, contacts!inner(user_id)")
+        .in("email", batch)
+        .eq("contacts.user_id", userId)
+        .not("bounced_at", "is", null),
+    );
+    for (const row of rows ?? []) {
+      if (row.email && row.bounced_at) map.set(row.email.toLowerCase(), row.bounced_at);
+    }
+  }
+  return map;
+}
+
+/**
  * Fetch all contacts for a user with their related data
  *
  * This query uses Supabase's join syntax to fetch:

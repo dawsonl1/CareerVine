@@ -9,7 +9,12 @@
 import "server-only";
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { ScheduledEmailStatus, UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import {
+  FollowUpMessageStatus,
+  FollowUpStatus,
+  ScheduledEmailStatus,
+  UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
+} from "@/lib/constants";
 import { getHeader, parseEmailAddress, buildOwnAddressSet, isBounceSenderAddress } from "@/lib/gmail-helpers";
 import type { ParsedHeader } from "@/lib/gmail-helpers";
 import type { gmail_v1 } from "@googleapis/gmail";
@@ -19,6 +24,9 @@ import { sendTrackedEmail, SendPolicyError } from "@/lib/email-send";
 import { trackServer } from "@/lib/analytics/server";
 import { googleApiStatus, googleApiReason } from "@/lib/google-api-error";
 import { must } from "@/lib/data/client";
+import { extractFailedRecipients, needsFullFetch } from "@/lib/bounce-parse";
+import { sendBounceAlert, type BounceAlertOutcome } from "@/lib/notify/send-bounce-alert";
+import type { BounceAlertItem } from "@/lib/notify/bounce-alert";
 
 /**
  * Retry a function with exponential backoff on rate-limit (429), server errors
@@ -1316,21 +1324,46 @@ export async function processScheduledEmails(
 }
 
 /**
- * Bounce detection (plan 24 Phase 4).
+ * One `contact_emails` row joined to its owning contact, as detectBounces reads
+ * it. Declared rather than inferred because the embed's shape (object vs array)
+ * depends on how the relationship is resolved, and the alert needs the name.
+ */
+interface BounceEmailRow {
+  id: number;
+  contact_id: number | null;
+  bounced_at: string | null;
+  contacts: { user_id: string; name: string | null } | null;
+}
+
+/**
+ * Bounce detection (plan 24 Phase 4; hardened and completed by CAR-217).
  *
  * NDRs arrive from mailer-daemon/postmaster and never match a contact by
- * address, so the per-contact sync can't see them. This pass queries Gmail
- * for recent NDRs, reads the X-Failed-Recipients header (present on
- * Gmail-relayed bounces), then:
+ * address, so the per-contact sync can't see them. This pass queries Gmail for
+ * recent NDRs, extracts the permanently-failed recipients, then:
  *   1. sets contact_emails.bounced_at for the failed address,
- *   2. cancels pending follow-up sequence steps to that address —
- *      sequences otherwise auto-cancel only on reply and would fire
- *      steps 2–3 into the void and burn sender reputation.
- *   3. cancels pending scheduled_emails to that address (CAR-220). Step 1 is
- *      what makes the tracked-send path refuse them, so without this they are
- *      claimed, refused and released on every tick forever.
- * Idempotent: bounced_at is only set once, and every cancel re-asserts the
- * status it is replacing; re-running is safe.
+ *   2. cancels active follow-up sequences to that address — sequences otherwise
+ *      auto-cancel only on reply and would fire steps 2-3 into the void and burn
+ *      sender reputation,
+ *   3. cancels PENDING scheduled emails to it. Without this they are never
+ *      resolved: sendTrackedEmail refuses the recipient with a 422 and
+ *      processScheduledEmails defers, so the row is retried on every tick
+ *      forever. Deliberately not 'sending' rows, which are a live claim held by
+ *      a send driver mid-Gmail-round-trip and belong to the stale-claim sweeper.
+ *   4. emails the user, once per pass, about addresses that JUST died.
+ *
+ * Which recipients count as failed is `@/lib/bounce-parse`, which is where the
+ * delay-versus-failure and RFC 3464 handling lives and is unit-tested. Read that
+ * header before touching detection: marking an address is destructive, so the
+ * parse is deliberately biased toward extracting nothing when unsure.
+ *
+ * Idempotent: bounced_at is only set once, and the notification fires on the
+ * null -> bounced TRANSITION, so re-running is safe and does not re-notify.
+ *
+ * Requires a Gmail read scope, so this is premium-only in practice — a free
+ * connection holds gmail.send alone and cannot list these messages at all. See
+ * the CAR-217 plan for why the consequences (the contact-page flag, the send
+ * refusal, the cancellations) stay ungated even though detection cannot be.
  *
  * Contact-scoped by design: an address this user has no contact row for is
  * skipped entirely. bounced_at cannot be recorded for it, so nothing downstream
@@ -1339,10 +1372,25 @@ export async function processScheduledEmails(
 export async function detectBounces(
   userId: string,
   sinceDays = 14
-): Promise<{ bounced: string[]; cancelledSequences: number; cancelledScheduled: number }> {
+): Promise<{
+  bounced: string[];
+  cancelledSequences: number;
+  cancelledScheduled: number;
+  /** Addresses that transitioned to bounced on THIS pass (drives the alert). */
+  newlyBounced: string[];
+  alert: BounceAlertOutcome;
+}> {
   const gmail = await getGmailClient(userId);
   const supabase = createSupabaseServiceClient();
   const afterEpoch = Math.floor((Date.now() - sinceDays * 86400_000) / 1000);
+
+  const empty = {
+    bounced: [] as string[],
+    cancelledSequences: 0,
+    cancelledScheduled: 0,
+    newlyBounced: [] as string[],
+    alert: "no_items" as BounceAlertOutcome,
+  };
 
   const listRes = await withRetry(() =>
     gmail.users.messages.list({
@@ -1353,8 +1401,13 @@ export async function detectBounces(
   );
 
   const messageIds = (listRes.data.messages || []).map((m) => m.id!);
-  if (messageIds.length === 0) return { bounced: [], cancelledSequences: 0, cancelledScheduled: 0 };
+  if (messageIds.length === 0) return empty;
 
+  // Two-phase fetch. The metadata pass is cheap and resolves the common Gmail
+  // bounce from its X-Failed-Recipients header; only messages that pass leaves
+  // unresolved pay for a `full` fetch to reach the delivery-status part. Before
+  // CAR-217 there was no second phase, so every NDR without that header (any
+  // bounce generated by the recipient's own MTA) was silently dropped.
   const failedAddresses = new Set<string>();
   for (let i = 0; i < messageIds.length; i += 10) {
     const batch = messageIds.slice(i, i + 10);
@@ -1370,22 +1423,39 @@ export async function detectBounces(
         )
       )
     );
-    for (const res of details) {
-      const headers = (res.data.payload?.headers || []) as ParsedHeader[];
-      const failed = getHeader(headers, "X-Failed-Recipients");
-      if (failed) {
-        for (const addr of failed.split(",")) {
-          const clean = addr.trim().toLowerCase();
-          if (clean) failedAddresses.add(clean);
-        }
+
+    const needFull: string[] = [];
+    for (let j = 0; j < details.length; j++) {
+      const headers = (details[j].data.payload?.headers || []) as ParsedHeader[];
+      if (needsFullFetch(headers)) {
+        needFull.push(batch[j]);
+        continue;
+      }
+      for (const addr of extractFailedRecipients({ headers }).addresses) {
+        failedAddresses.add(addr);
+      }
+    }
+
+    if (needFull.length > 0) {
+      const fullDetails = await Promise.all(
+        needFull.map((id) =>
+          withRetry(() => gmail.users.messages.get({ userId: "me", id, format: "full" }))
+        )
+      );
+      for (const res of fullDetails) {
+        const headers = (res.data.payload?.headers || []) as ParsedHeader[];
+        const verdict = extractFailedRecipients({ headers, payload: res.data.payload });
+        for (const addr of verdict.addresses) failedAddresses.add(addr);
       }
     }
   }
 
-  if (failedAddresses.size === 0) return { bounced: [], cancelledSequences: 0, cancelledScheduled: 0 };
+  if (failedAddresses.size === 0) return empty;
 
   const now = new Date().toISOString();
   const bounced: string[] = [];
+  const newlyBounced: string[] = [];
+  const alertItems: BounceAlertItem[] = [];
   let cancelledSequences = 0;
   let cancelledScheduled = 0;
 
@@ -1418,19 +1488,19 @@ export async function detectBounces(
     const emailRows = must(
       await supabase
         .from("contact_emails")
-        .select("id, bounced_at, contacts!inner(user_id)")
+        .select("id, contact_id, bounced_at, contacts!inner(user_id, name)")
         .eq("email", address)
         .eq("contacts.user_id", userId),
     );
     if (!emailRows || emailRows.length === 0) continue;
 
     bounced.push(address);
-    const toMark = emailRows.filter((r) => !r.bounced_at).map((r) => r.id);
-    if (toMark.length > 0) {
+    const unmarked = (emailRows as BounceEmailRow[]).filter((r) => !r.bounced_at);
+    if (unmarked.length > 0) {
       await supabase
         .from("contact_emails")
         .update({ bounced_at: now })
-        .in("id", toMark);
+        .in("id", unmarked.map((r) => r.id));
     }
 
     // Cancel active follow-up sequences aimed at the dead address
@@ -1442,29 +1512,44 @@ export async function detectBounces(
         .eq("status", "active")
         .eq("recipient_email", address),
     );
+    let sequencesForAddress = 0;
     for (const seq of sequences || []) {
       await supabase
         .from("email_follow_ups")
-        .update({ status: "cancelled_bounce", updated_at: now })
+        .update({ status: FollowUpStatus.CancelledBounce, updated_at: now })
         .eq("id", seq.id)
         .eq("user_id", userId);
       await supabase
         .from("email_follow_up_messages")
-        .update({ status: "cancelled" })
+        .update({ status: FollowUpMessageStatus.Cancelled })
         .eq("follow_up_id", seq.id)
         .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
-      cancelledSequences++;
+      sequencesForAddress++;
     }
+    cancelledSequences += sequencesForAddress;
 
-    // Cancel pending scheduled emails aimed at the dead address. Only
-    // 'pending': a 'sending' row is claimed and may already be in Gmail's
-    // hands, so the stale-claim sweeper owns it. The status filter is
-    // re-asserted on the write so a row claimed between the read above and
-    // here is left alone, and the count is what actually changed rather than
-    // what was intended.
+    // Cancel queued scheduled mail to the dead address.
+    //
+    // Keyed on ids from the normalized index above rather than a filter on the
+    // address. CAR-217 filtered `.eq("to_email", address)`, and that column does
+    // not exist — it is `recipient_email`. postgrest-js types `eq` as
+    // `ColumnName extends string`, so tsc could not catch it, and the unit
+    // fixtures seeded `to_email` too, so the tests passed while production
+    // returned 42703 and cancelled nothing. Matching in JS also handles the
+    // casing problem: recipient_email is stored as the user typed it (no
+    // normalizing trigger, unlike contact_emails), so `.eq` on a lowercased NDR
+    // address misses "John.Doe@X.com", and `.ilike` is not the fix because `_`
+    // and `%` are legal in a local part.
+    //
+    // Only PENDING: a 'sending' row is a live claim held mid-Gmail-round-trip
+    // and belongs to the stale-claim sweeper. The filter is re-asserted on the
+    // write so a row claimed between the read and here is left alone, and
+    // count (not .select()) is the success signal because the update writes the
+    // column the filter tests (rule 17).
     const poisoned = scheduledByRecipient.get(address) ?? [];
+    let scheduledForAddress = 0;
     if (poisoned.length > 0) {
-      const { count, error } = await supabase
+      const { count: scheduledCancelled, error: scheduledError } = await supabase
         .from("scheduled_emails")
         .update(
           { status: ScheduledEmailStatus.Cancelled, updated_at: now },
@@ -1472,16 +1557,32 @@ export async function detectBounces(
         )
         .in("id", poisoned)
         .eq("status", ScheduledEmailStatus.Pending);
-      if (error) {
-        console.error(
-          `[detectBounces] failed to cancel scheduled emails to ${address}:`,
-          error.message,
-        );
+      if (scheduledError) {
+        console.error(`[bounce] failed to cancel scheduled mail to ${address}:`, scheduledError);
       } else {
-        cancelledScheduled += count ?? 0;
+        scheduledForAddress = scheduledCancelled ?? 0;
       }
     }
+    cancelledScheduled += scheduledForAddress;
+
+    // The alert covers the transition only. An address re-detected on a later
+    // pass is already known and already flagged in the UI; re-emailing about it
+    // every run would train the user to ignore the alert entirely.
+    if (unmarked.length > 0) {
+      newlyBounced.push(address);
+      const contact = unmarked[0].contacts;
+      alertItems.push({
+        contactName: contact?.name || address,
+        address,
+        contactId: unmarked[0].contact_id ?? null,
+        cancelledFollowUps: sequencesForAddress,
+        cancelledScheduled: scheduledForAddress,
+      });
+    }
+
   }
 
-  return { bounced, cancelledSequences, cancelledScheduled };
+  const alert = await sendBounceAlert(userId, alertItems, { nowIso: now });
+
+  return { bounced, cancelledSequences, cancelledScheduled, newlyBounced, alert };
 }
