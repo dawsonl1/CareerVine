@@ -359,9 +359,19 @@ export function ThreadListTab({
 
           return (
             <div key={thread.threadId} className={isExpanded ? "bg-surface-container-low/30" : ""}>
-              {/* Thread row */}
-              <button
-                type="button"
+              {/* Thread row.
+
+                  A div with role="button", not a <button> (CAR-226). The row
+                  now carries its own nested control — the contact name, which
+                  opens that contact's page — and a <button> may not contain
+                  interactive content: the HTML parser hoists a nested button
+                  out of its parent, so SSR and client render would disagree and
+                  hydration would break. The 3-dot menu below already dodged
+                  this with the same role="button" shape. Enter and Space are
+                  handled explicitly, since a div gets neither for free. */}
+              <div
+                role="button"
+                tabIndex={0}
                 /* CAR-191: the row's accessible name concatenates contact,
                    subject, snippet and a locale-formatted date, so role+name is
                    neither stable nor unambiguous here. `data-unread` exposes the
@@ -376,6 +386,15 @@ export function ThreadListTab({
                 data-unread={tabCtx === "inbox" ? (isUnread ? "true" : "false") : undefined}
                 className={`group/thread w-full text-left px-5 py-3.5 hover:bg-surface-container-low transition-colors cursor-pointer ${isUnread ? "bg-primary/[0.04]" : ""}`}
                 onClick={() => { setMoveDropdownMsgId(null); onThreadClick(thread); }}
+                onKeyDown={(e) => {
+                  // Space would otherwise scroll the page, and neither key
+                  // reaches a div's onClick on its own.
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  if (e.target !== e.currentTarget) return; // let the nested controls keep their own keys
+                  e.preventDefault();
+                  setMoveDropdownMsgId(null);
+                  onThreadClick(thread);
+                }}
               >
                 <div className="flex items-center gap-3.5">
                   <div
@@ -393,10 +412,32 @@ export function ThreadListTab({
                      latest.direction === "outbound" ? <ArrowUpRight className="h-4 w-4 text-on-primary-container" /> :
                      <ArrowDownLeft className="h-4 w-4 text-on-tertiary-container" />}
                   </div>
+                  {/* Contact name opens their page (CAR-226). Previously the
+                      only route to a contact from the inbox was a "View
+                      contact" button that first required expanding the thread,
+                      so the person a message is from was not itself a way to
+                      reach them. Falls back to a plain address when no tracked
+                      contact is attributed — there is nothing to open. */}
                   <div className="w-40 shrink-0 truncate">
-                    <span className={`text-base ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>
-                      {contactName || (latest.direction === "outbound" ? `To: ${latest.to_addresses?.[0] || "Unknown"}` : latest.from_address || "Unknown")}
-                    </span>
+                    {contactName && thread.contactId ? (
+                      <button
+                        type="button"
+                        className={`block max-w-full truncate text-base text-left rounded-sm hover:underline underline-offset-2 cursor-pointer transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}
+                        title={`View ${contactName}`}
+                        onClick={(e) => {
+                          // Without this the row's own handler also fires and
+                          // expands the thread behind the navigation.
+                          e.stopPropagation();
+                          onViewContact(thread.contactId!);
+                        }}
+                      >
+                        {contactName}
+                      </button>
+                    ) : (
+                      <span className={`text-base ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>
+                        {latest.direction === "outbound" ? `To: ${latest.to_addresses?.[0] || "Unknown"}` : latest.from_address || "Unknown"}
+                      </span>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0 flex items-center gap-2.5">
                     <span className={`text-base truncate ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>{thread.subject}</span>
@@ -518,7 +559,7 @@ export function ThreadListTab({
                     )}
                   </div>
                 </div>
-              </button>
+              </div>
 
               {/* Expanded view */}
               {isExpanded && (
@@ -551,9 +592,27 @@ export function ThreadListTab({
                               </span>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2.5">
-                                  <span className={`text-sm font-medium truncate ${!msg.is_read && msg.direction === "inbound" ? "text-foreground font-semibold" : "text-foreground"}`}>
-                                    {msg.direction === "outbound" ? "You" : (contactName || msg.from_address || "Unknown")}
-                                  </span>
+                                  {/* Same affordance per message inside a thread
+                                      (CAR-226): on a conversation the sender
+                                      line is where the eye lands, so it opens
+                                      the contact too. "You" is never a link. */}
+                                  {msg.direction !== "outbound" && contactName && thread.contactId ? (
+                                    <button
+                                      type="button"
+                                      className={`block max-w-full truncate text-sm font-medium text-left rounded-sm hover:underline underline-offset-2 cursor-pointer transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${!msg.is_read ? "text-foreground font-semibold" : "text-foreground"}`}
+                                      title={`View ${contactName}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onViewContact(thread.contactId!);
+                                      }}
+                                    >
+                                      {contactName}
+                                    </button>
+                                  ) : (
+                                    <span className={`text-sm font-medium truncate ${!msg.is_read && msg.direction === "inbound" ? "text-foreground font-semibold" : "text-foreground"}`}>
+                                      {msg.direction === "outbound" ? "You" : (contactName || msg.from_address || "Unknown")}
+                                    </span>
+                                  )}
                                   <span className="text-xs text-muted-foreground shrink-0">{msg.date ? formatDateFull(msg.date) : ""}</span>
                                 </div>
                                 {!isMsgExpanded && <p className="text-sm text-muted-foreground truncate mt-0.5">{msg.snippet || ""}</p>}
