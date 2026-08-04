@@ -10,6 +10,10 @@ import { serializeForm, type FormSnapshot } from "@/components/contacts/contact-
 const base = (): FormSnapshot => ({
   formData: { name: "Ada Lovelace", industry: "Software", location_city: "" },
   companies: [{ company_name: "Analytical Engines", title: "Engineer", is_current: true, start_month: "1843-01", end_month: "" }],
+  schools: [
+    { school_name: "Cambridge", degree: "B.S.", field_of_study: "Mathematics", start_year: 1830, end_year: 1834 },
+    { school_name: "Royal Society", degree: "Fellowship", field_of_study: "", start_year: null, end_year: null },
+  ],
   emails: [{ email: "ada@example.com", is_primary: true }],
   phones: [{ phone: "555-0100", type: "mobile", is_primary: true }],
   preferredContactKey: "email-0",
@@ -41,6 +45,13 @@ describe("serializeForm", () => {
     ["an email address", { emails: [{ email: "ada@lovelace.test", is_primary: true }] }],
     ["a phone type", { phones: [{ phone: "555-0100", type: "work", is_primary: true }] }],
     ["clearing the company list", { companies: [] }],
+    ["removing a degree", { schools: [base().schools[0]] }],
+    ["adding a degree", { schools: [...base().schools, { school_name: "Open University", degree: "M.A.", field_of_study: "Logic", start_year: null, end_year: null }] }],
+    ["a field of study", { schools: [{ ...base().schools[0], field_of_study: "Analysis" }, base().schools[1]] }],
+    // Years have no input, but they ride on the entry and a save writes them
+    // back, so a change to one is still a change to the form (CAR-218).
+    ["a year carried on a degree", { schools: [{ ...base().schools[0], end_year: 1835 }, base().schools[1]] }],
+    ["reordering degrees", { schools: [base().schools[1], base().schools[0]] }],
   ])("detects an edit to %s", (_label, patch) => {
     expect(serializeForm({ ...base(), ...patch })).not.toBe(serializeForm(base()));
   });
