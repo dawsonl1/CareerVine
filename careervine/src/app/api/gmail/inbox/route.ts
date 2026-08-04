@@ -5,6 +5,7 @@ import {
   loadContactEmploymentMap,
   resolveEmailsToContactIds,
 } from "@/lib/contact-employment";
+import { chunkList } from "@/lib/data/postgrest";
 
 /**
  * GET /api/gmail/inbox
@@ -14,6 +15,10 @@ import {
  *
  * CAR-127: also returns contactDetails (current role/company/office) for every
  * contact referenced by a matched_contact_id or resolvable recipient email.
+ *
+ * CAR-221: every read here is scoped to what the payload actually references.
+ * Nothing selects a whole user-owned table, because PostgREST caps a response
+ * at 1000 rows and truncates it silently (CONVENTIONS.md / postgrest.ts).
  */
 export const GET = withApiHandler({
   handler: async ({ user }) => {
@@ -29,7 +34,7 @@ export const GET = withApiHandler({
     // under all involved contacts, not just the denormalized primary. Plain
     // embed (not !inner) so messages with no links yet still return.
     const emailSelect = "*, email_message_contacts(contact_id)";
-    const [emailsRes, trashedRes, hiddenRes, scheduledRes, followUpsRes, contactsRes, calendarEventsRes] = await Promise.all([
+    const [emailsRes, trashedRes, hiddenRes, scheduledRes, followUpsRes] = await Promise.all([
       service
         .from("email_messages")
         .select(emailSelect)
@@ -72,19 +77,6 @@ export const GET = withApiHandler({
         .eq("user_id", user.id)
         .eq("status", "active")
         .order("created_at", { ascending: false }),
-
-      // Lightweight contact lookup: id → name (kept for paid Inbox filters)
-      service
-        .from("contacts")
-        .select("id, name")
-        .eq("user_id", user.id),
-
-      // Calendar events linked to email threads
-      service
-        .from("calendar_events")
-        .select("source_gmail_thread_id, id, title, start_at, google_event_id")
-        .eq("user_id", user.id)
-        .not("source_gmail_thread_id", "is", null),
     ]);
 
     if (emailsRes.error) throw emailsRes.error;
@@ -126,11 +118,6 @@ export const GET = withApiHandler({
     const scheduledEmails = scheduledRes.data || [];
     const followUpsRaw = followUpsRes.data || [];
 
-    const contactMap: Record<number, string> = {};
-    for (const c of contactsRes.data || []) {
-      contactMap[c.id] = c.name;
-    }
-
     // Resolve follow-up (and any scheduled without matched_contact_id) emails → contacts.
     // No parameter annotations here or below (CAR-199): they named one field
     // being read, and the cost was that a `{ ...f }` spread then carried only
@@ -167,24 +154,54 @@ export const GET = withApiHandler({
       if (f.matched_contact_id) idSet.add(f.matched_contact_id);
     }
 
-    const contactDetails = await loadContactEmploymentMap(service, user.id, [...idSet]);
-    // Ensure every id we know a name for appears (even with no current job).
-    for (const [idStr, name] of Object.entries(contactMap)) {
-      const id = Number(idStr);
-      if (!contactDetails[id] && idSet.has(id)) {
-        contactDetails[id] = {
-          id,
-          name,
-          title: null,
-          company_id: null,
-          company_name: null,
-          location_label: null,
-        };
-      }
+    // Thread ids present in this payload — the only ones a calendar link can
+    // attach to, so the events read is scoped to them rather than to every
+    // event the user has ever synced (CAR-221).
+    const threadIds = [
+      ...new Set(
+        [...emails, ...trashedEmails, ...hiddenEmails]
+          .map((e) => e.thread_id)
+          .filter((t): t is string => !!t),
+      ),
+    ];
+
+    const [contactDetails, calendarEvents] = await Promise.all([
+      loadContactEmploymentMap(service, user.id, [...idSet]),
+      (async () => {
+        const out: Array<{
+          source_gmail_thread_id: string | null;
+          id: number;
+          title: string | null;
+          start_at: string;
+          google_event_id: string;
+        }> = [];
+        for (const chunk of chunkList(threadIds, 200)) {
+          const { data, error } = await service
+            .from("calendar_events")
+            .select("source_gmail_thread_id, id, title, start_at, google_event_id")
+            .eq("user_id", user.id)
+            .in("source_gmail_thread_id", chunk);
+          if (error) throw error;
+          out.push(...(data || []));
+        }
+        return out;
+      })(),
+    ]);
+
+    // contactMap is derived from contactDetails rather than read separately
+    // (CAR-221). The old read selected the user's WHOLE contacts table with no
+    // pagination, so PostgREST's 1000-row cap silently truncated it: a user
+    // with 2005 contacts got names for 1000 and every row referencing one of
+    // the other 1005 rendered as a bare email address. Both maps now cover
+    // exactly the contacts this payload references, which is all any consumer
+    // looks up and is immune to the cap by construction.
+    const contactMap: Record<number, string> = {};
+    for (const [idStr, detail] of Object.entries(contactDetails)) {
+      contactMap[Number(idStr)] = detail.name;
     }
 
     const calendarByThread: Record<string, { id: number; title: string | null; start_at: string; google_event_id: string }> = {};
-    for (const ce of calendarEventsRes.data || []) {
+    for (const ce of calendarEvents) {
       if (ce.source_gmail_thread_id) {
         calendarByThread[ce.source_gmail_thread_id] = {
           id: ce.id,
