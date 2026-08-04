@@ -17,6 +17,7 @@ import { setStageOverride, type CompanyPerson } from "@/lib/company-queries";
 import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
 import { ExternalLink, GraduationCap, MapPin, Mail, AlertTriangle, Briefcase, Check } from "lucide-react";
 import { personaLabel } from "@/lib/persona-labels";
+import { sortEducation, sortExperiences } from "@/lib/experience-order";
 import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
 import { alumBadgeLabel } from "@/lib/schools/affinity-state";
 
@@ -51,11 +52,10 @@ export function PersonModal({ person, companyId, companyName, userId, onClose, o
   }, [person.contact_id, userId]);
 
   const rolesHere = person.roles;
-  const otherRoles = (contact?.contact_companies ?? [])
-    .filter((cc) => cc.company_id !== companyId)
-    .sort((a, b) => Number(b.is_current) - Number(a.is_current) || (b.start_month ?? "").localeCompare(a.start_month ?? ""))
-    .slice(0, 5);
-  const education = contact?.contact_schools ?? [];
+  const otherRoles = sortExperiences(
+    (contact?.contact_companies ?? []).filter((cc) => cc.company_id !== companyId),
+  ).slice(0, 5);
+  const education = sortEducation(contact?.contact_schools ?? []);
   const location = contact?.locations
     ? [contact.locations.city, contact.locations.state].filter(Boolean).join(", ") || contact.locations.country
     : null;

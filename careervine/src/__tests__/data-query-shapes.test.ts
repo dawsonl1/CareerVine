@@ -184,7 +184,9 @@ const EXPECTED: Record<string, string[]> = {
     'select follow_up_action_items [maybeSingle] eq(user_id=$uid) eq(source="onboarding") eq(is_completed=false)',
   ],
   getContactById: [
-    "select contacts [single] eq(id=$n) eq(user_id=$uid)",
+    // The two embedded orders are what make the profile page's sort input
+    // deterministic instead of plan-dependent (CAR-216).
+    "select contacts [single] eq(id=$n) eq(user_id=$uid) order(contact_companies.id) order(contact_schools.id)",
   ],
   getContactEmailLookup: [
     "select contact_emails eq(contacts.user_id=$uid) order(id)",

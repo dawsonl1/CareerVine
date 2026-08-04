@@ -21,6 +21,7 @@ import { getUserSchool } from "@/lib/data/users";
 import { findOrCreateCompany } from "./company-helpers";
 import { nextActionForCompany } from "./company-next-action";
 import { isByuFamilySchool, schoolsMatch } from "@/lib/schools/affinity";
+import { sortExperiences } from "@/lib/experience-order";
 
 type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
 
@@ -1114,7 +1115,9 @@ export async function getCompanyDetail(
     });
   }
   for (const person of peopleById.values()) {
-    person.roles.sort((a, b) => Number(b.is_current) - Number(a.is_current) || (b.start_month ?? "").localeCompare(a.start_month ?? ""));
+    // CAR-216: the old comparator tiebroke on localeCompare over "Mon YYYY",
+    // which orders by month NAME (Mar 2021 above Jul 2021, both above Jul 2014).
+    person.roles = sortExperiences(person.roles);
   }
 
   // Facets over everyone at the company (honest buckets incl. Remote/Unknown)

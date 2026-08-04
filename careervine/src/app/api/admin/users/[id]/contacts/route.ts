@@ -4,6 +4,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { createContact } from "@/lib/data/contacts";
 import type { QueryClient } from "@/lib/data/client";
 import { writeAudit } from "@/lib/admin";
+import { sortExperiences } from "@/lib/experience-order";
 import { processSubscriptionsUnderBudget } from "@/lib/bundle-queue";
 
 const querySchema = z.object({
@@ -27,7 +28,8 @@ type AdminContactRow = {
   contact_companies: Array<{
     title: string | null;
     is_current: boolean;
-    start_date: string | null;
+    start_month: string | null;
+    end_month: string | null;
     // PostgREST returns an object for this to-one embed, but the generated
     // types disagree — accept both shapes.
     companies: { name: string } | Array<{ name: string }> | null;
@@ -83,7 +85,7 @@ export const GET = withApiHandler<
     let contactsQuery = service
       .from("contacts")
       .select(
-        "id, name, linkedin_url, network_status, created_at, contact_emails(email, is_primary), contact_companies(title, is_current, start_date, companies(name))",
+        "id, name, linkedin_url, network_status, created_at, contact_emails(email, is_primary), contact_companies(title, is_current, start_month, end_month, companies(name))",
         { count: "exact" },
       )
       .eq("user_id", id);
@@ -101,12 +103,10 @@ export const GET = withApiHandler<
     if (error) throw new Error(error.message);
 
     const contacts = ((data as unknown as AdminContactRow[]) ?? []).map((c) => {
-      const role =
-        c.contact_companies.find((cc) => cc.is_current) ??
-        [...c.contact_companies].sort((a, b) =>
-          (b.start_date ?? "").localeCompare(a.start_date ?? ""),
-        )[0] ??
-        null;
+      // Current role, else the most recent past one. The old fallback sorted on
+      // `start_date`, a column populated on zero rows in production, so it was
+      // really "whatever the join returned first" (CAR-216).
+      const role = sortExperiences(c.contact_companies)[0] ?? null;
       return {
         id: c.id,
         name: c.name,

@@ -22,6 +22,7 @@ import {
   removeContactPhoto,
 } from "@/lib/queries";
 import { validateContactPhotoFile } from "@/lib/contact-photo";
+import { primaryCurrentRole } from "@/lib/experience-order";
 import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import type { Contact } from "@/lib/types";
 import { apiFetch, jsonBody } from "@/lib/api-client";
@@ -61,7 +62,7 @@ export function ContactProfileCard({
   const cadenceRef = useRef<HTMLDivElement>(null);
   useClickOutside(cadenceRef, useCallback(() => setCadenceOpen(false), []), cadenceOpen);
 
-  const currentCompany = contact.contact_companies.find((cc) => cc.is_current);
+  const currentCompany = primaryCurrentRole(contact.contact_companies);
   const primaryEmail =
     contact.contact_emails.find((e) => e.is_primary)?.email ||
     contact.contact_emails[0]?.email;

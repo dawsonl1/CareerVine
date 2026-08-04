@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { Contact } from "@/lib/types";
+import { sortEducation, sortExperiences } from "@/lib/experience-order";
 import { Briefcase, GraduationCap } from "lucide-react";
 
 interface ContactExperienceCardProps {
@@ -9,8 +10,12 @@ interface ContactExperienceCardProps {
 }
 
 export function ContactExperienceCard({ contact }: ContactExperienceCardProps) {
-  const hasCompanies = contact.contact_companies.length > 0;
-  const hasSchools = contact.contact_schools.length > 0;
+  // The join arrives in company_id/school_id order, which is the order the app
+  // first met each company, not this person's timeline (CAR-216).
+  const companies = sortExperiences(contact.contact_companies);
+  const schools = sortEducation(contact.contact_schools);
+  const hasCompanies = companies.length > 0;
+  const hasSchools = schools.length > 0;
 
   if (!hasCompanies && !hasSchools) return null;
 
@@ -22,7 +27,7 @@ export function ContactExperienceCard({ contact }: ContactExperienceCardProps) {
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2.5">
             Experience
           </h3>
-          {contact.contact_companies.map((cc) => (
+          {companies.map((cc) => (
               <div
                 key={cc.id}
                 className="flex gap-3 py-2"
@@ -75,7 +80,7 @@ export function ContactExperienceCard({ contact }: ContactExperienceCardProps) {
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2.5">
             Education
           </h3>
-          {contact.contact_schools.map((cs) => (
+          {schools.map((cs) => (
             <div key={cs.id} className="flex gap-3 py-2">
               <GraduationCap className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
               <div className="min-w-0">
