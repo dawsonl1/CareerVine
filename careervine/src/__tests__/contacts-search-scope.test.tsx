@@ -224,6 +224,27 @@ describe("contacts search scope", () => {
     await waitFor(() => expect(listedNames()).toContain("Priya Nair"));
   });
 
+  it("says so when nothing matches, rather than leaving a blank page", async () => {
+    await renderPage();
+    await type("nobody-by-this-name");
+
+    await waitFor(() => expect(screen.getByText("No contacts match your search.")).toBeTruthy());
+    expect(listedNames()).toEqual([]);
+  });
+
+  it("says nothing matches on an empty account too, instead of a blank page", async () => {
+    // A brand new user has no contacts at all, so there are no tier chips and
+    // `contacts` stays empty. The tier empty states are suppressed under a
+    // query, which leaves this message as the only thing on the page: without
+    // it, typing renders nothing whatsoever.
+    mockStream({ active: [], prospect: [], bench: [] });
+    render(<ContactsPage />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Search contacts…")).toBeTruthy());
+    await type("zzz");
+
+    await waitFor(() => expect(screen.getByText("No contacts match your search.")).toBeTruthy());
+  });
+
   it("says the search spans the whole network so off-tier hits read correctly", async () => {
     await renderPage();
     expect(screen.queryByText(/Searching your whole network/)).toBeNull();

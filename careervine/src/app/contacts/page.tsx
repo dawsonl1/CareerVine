@@ -623,8 +623,12 @@ export default function ContactsPage() {
         )}
 
         {/* No search results. Gated on the query alone, not on the visible
-            tiers, since search no longer reads them (CAR-222). */}
-        {!viewLoading && hasQuery && filteredContacts.length === 0 && contacts.length > 0 && (
+            tiers, since search no longer reads them (CAR-222). An account with
+            nothing in it lands here too, which is correct: the tier empty
+            states are suppressed under a query, so this is the only message
+            left to show, and it beats a blank page. The "still loading" caveat
+            rides on the hint line above. */}
+        {!viewLoading && hasQuery && filteredContacts.length === 0 && (
           <p className="text-base text-muted-foreground py-8 text-center">No contacts match your search.</p>
         )}
 
