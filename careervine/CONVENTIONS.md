@@ -59,15 +59,34 @@ Nine QStash schedules exist, declared in exactly one place:
 no scheduled GitHub Actions. `node scripts/qstash-schedules.mjs list` diffs declared against
 live and exits 1 on drift.
 
-Every cron route nests `withQStashVerification` **outside** `withCronGuard`: signature first,
-then error capture. Verification fails closed when signing keys are unset.
+Every cron route nests `withQStashVerification` **outside** `withCronGuard`: credential first,
+so an unauthenticated request 401s and the handler never runs, then error capture.
+`api/queue/bundle-sync` verifies but is not a cron and does not guard.
+
+Two credentials reach that wrapper, and which a route accepts is **per route, not global**: a
+QStash signature, the default for all ten verified consumers; and
+`Authorization: Bearer $CRON_TRIGGER_SECRET`, accepted only by the two routes passing
+`allowCronBearer` (`api/cron/send-scheduled-emails` and `api/cron/send-follow-ups`, which the
+A1 send watcher drives and which cannot produce a signature). Both fail closed when their
+secret is unset. The handler receives which credential admitted the caller as its `source`
+argument.
+
+**`allowCronBearer` defaults to false, and that default is the whole security boundary.**
+CAR-215 checked the bearer at the shared chokepoint with no scoping, which silently opened
+every route behind it, including two destructive purges and two paid Apify runs. The bearer
+path also carries no body signature, so on an opted-in route the body is chosen by whoever
+holds the secret: **a handler that trusts its body must not opt in.** Read the
+`careervine/src/lib/qstash-verify.ts` header before adding a third route.
 
 Changing a cadence means updating the copy that quotes it in the same change.
 
 - Authoritative: `careervine/src/lib/qstash-verify.ts` and `careervine/src/lib/cron-guard.ts` (headers)
 - Enforced: `careervine/src/__tests__/cron-schedules-registry.test.ts` pins every cron
   expression plus the cadence prose in `careervine/README.md` and
-  `careervine/public/docs/index.html`. Daily and weekly phrasing is not pinned.
+  `careervine/public/docs/index.html`; daily and weekly phrasing is not pinned.
+  `careervine/src/__tests__/qstash-verify.test.ts` pins the wrapper with the option on and off,
+  and `careervine/src/__tests__/route-auth-inventory.test.ts` pins which routes opt in, in both
+  directions: adding the flag to a third route fails until its inventory entry says so.
 
 ## c. Capability gating
 
@@ -254,9 +273,10 @@ through `careervine/src/lib/report-error.ts`. Boundaries catch render throws onl
 ## g. Auth exceptions, secrets, machine tokens, package edges
 
 The 15 routes that deliberately skip `withApiHandler` are named, with the mechanism each uses,
-in the `HAND_ROLLED` map in `careervine/src/__tests__/route-auth-inventory.test.ts`. Five
-mechanisms are in play: qstash-signature, bundle-admin-token, webhook-secret, hmac-token, and
-oauth-jwks. Adding an unwrapped route without listing it fails CI, and so does a stale entry.
+in the `HAND_ROLLED` map in `careervine/src/__tests__/route-auth-inventory.test.ts`. Six
+mechanisms are in play: qstash-signature, qstash-signature+cron-bearer, bundle-admin-token,
+webhook-secret, hmac-token, and oauth-jwks. Adding an unwrapped route without listing it fails
+CI, and so does a stale entry.
 
 A module reading a secret from `process.env` carries `import "server-only"`, so a client
 component importing it fails `next build` instead of shipping the credential read to the
@@ -269,6 +289,13 @@ passes `--conditions=react-server`.
 (`careervine/src/lib/admin-auth.ts`), which digests both sides before a constant-time compare
 and returns false when the secret is unset. There is no dual-token overlap window: rotating it
 means setting the new value and redeploying.
+
+`CRON_TRIGGER_SECRET` is the other machine token, held by the send watcher on the Oracle A1 box
+and deployed from the repo-root `ops/send-watcher/` directory rather than from this app. It has
+its own hash-then-constant-time compare in `careervine/src/lib/qstash-verify.ts` (not the admin
+token's helper) and is likewise refused when unset. Unlike the admin token it is scoped per
+route rather than per call site, through `allowCronBearer` (section b): reach for that option
+only when a caller genuinely cannot sign, and expect to justify it in the route inventory.
 
 Three package edges are wired through tsconfig `paths`, as seven mappings. A module imported
 across an edge must stay free of React and chrome APIs, because crossing the edge drags them

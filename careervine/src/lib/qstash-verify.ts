@@ -67,11 +67,16 @@ function secretsMatch(a: string, b: string): boolean {
  * True when the request carries the shared cron-trigger bearer (CAR-215).
  *
  * The A1 watcher drives sends at ~15s resolution and cannot produce a QStash
- * signature, so it authenticates with a dedicated secret instead. Deliberately
- * a SEPARATE credential from every other secret in the system: it authorizes
- * exactly one thing, "run the due-send sweep now", and the sweep's own logic
- * decides what actually goes out. Leaking it costs an unscheduled sweep, not
- * data access.
+ * signature, so it authenticates with a dedicated secret instead. It is a
+ * SEPARATE credential from every other secret in the system.
+ *
+ * Only consulted when the caller opts in via `allowCronBearer` (CAR-220).
+ * Before that it was checked here for every consumer of this wrapper, so one
+ * shared secret opened all ten: the two send routes it was minted for, plus
+ * both destructive purges, both paid-Apify routes, the QStash fan-out, the
+ * nudge mailer, the bounce detector, and the bundle-sync queue. What the bearer
+ * can cause is therefore bounded by the opt-in list, not by anything in this file — which
+ * routes opt in is pinned in `src/__tests__/route-auth-inventory.test.ts`.
  *
  * Fails closed when unset, exactly like the signing keys.
  */
@@ -84,26 +89,51 @@ function hasValidCronBearer(req: NextRequest): boolean {
   return secretsMatch(presented, expected);
 }
 
+export interface QStashVerificationOptions {
+  /**
+   * Also accept `Authorization: Bearer <CRON_TRIGGER_SECRET>` (CAR-215's A1
+   * watcher). Defaults to false — a route that does not ask for the bearer
+   * refuses it with the same 401 as any other unsigned request.
+   *
+   * Two things to weigh before setting it on a new route:
+   *  - the bearer carries no body signature, so on an opted-in route the body
+   *    reaching `handler` is chosen by whoever holds the secret. Only pass this
+   *    on a route whose handler ignores the body or validates it itself.
+   *  - one leaked secret then reaches every opted-in route at once. Keep the
+   *    set as small as the watcher actually needs.
+   */
+  allowCronBearer?: boolean;
+}
+
 /**
  * Verify a QStash `upstash-signature` and run `handler` with the raw request
  * body only if it checks out. Returns 401 (handler never called) when the
  * signing keys are unset or the signature is invalid.
  *
- * Since CAR-215 a valid `Authorization: Bearer <CRON_TRIGGER_SECRET>` is
- * accepted as an alternative, so the A1 watcher can drive the send routes at a
- * resolution QStash polling cannot reach. Both paths land on the same handler
- * and the same downstream logic; neither widens what a caller can cause to
- * happen beyond "process what is already due".
+ * With `opts.allowCronBearer`, a valid `Authorization: Bearer
+ * <CRON_TRIGGER_SECRET>` is accepted as an alternative, so the A1 watcher can
+ * drive that route at a resolution QStash polling cannot reach. Both paths land
+ * on the same handler, which learns which credential got the caller in through
+ * its `source` argument.
+ *
+ * Default closed: with the option absent or false the bearer is not consulted
+ * at all, so a request carrying both a bearer and a valid signature is admitted
+ * as `"qstash"`. Pinned in `src/__tests__/qstash-verify.test.ts`.
  */
 export async function withQStashVerification(
   req: NextRequest,
   handler: (body: string, source: CronAuthSource) => Promise<NextResponse>,
+  opts: QStashVerificationOptions = {},
 ): Promise<NextResponse> {
   const body = await req.text();
 
   // Checked before the signature so the watcher's calls skip Receiver
-  // construction entirely; it is the high-frequency caller.
-  if (hasValidCronBearer(req)) return handler(body, "watcher");
+  // construction entirely; it is the high-frequency caller. `=== true` rather
+  // than truthiness, so anything other than the literal flag leaves the route
+  // closed.
+  if (opts.allowCronBearer === true && hasValidCronBearer(req)) {
+    return handler(body, "watcher");
+  }
 
   const receiver = getReceiver();
   if (!receiver) {

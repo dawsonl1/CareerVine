@@ -112,9 +112,9 @@ export function ContactEmailsTab({
     );
     if (!requeued) return;
 
-    // The cron is the sole send driver (CAR-139); the requeued email goes
-    // out on the next tick (within ~15 minutes).
-    toastSuccess("Email requeued. It will send within 15 minutes.");
+    // The A1 send watcher drives sends within ~15s of a row coming due, with
+    // QStash hourly behind it (CAR-215). A requeued email is due immediately.
+    toastSuccess("Email requeued. It will send in about a minute.");
     onReloadEmails();
   };
 

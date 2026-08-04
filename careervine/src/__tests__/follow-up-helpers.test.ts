@@ -5,6 +5,11 @@ import { FollowUpMessageStatus } from '@/lib/constants';
 describe('buildFollowUpMessageRows', () => {
   const baseDate = new Date('2025-01-15T10:00:00Z');
   const MT = 'America/Denver';
+  // The future-floor (CAR-220) measures against a clock, so these zone-math
+  // cases pin it to the moment the original was sent. Without it they would
+  // quietly start exercising the clamp instead of the arithmetic as real time
+  // moved past 2025 — which is exactly what happened when the floor landed.
+  const AT_SEND = baseDate;
 
   /** Wall clock the given zone shows at an instant, independent of the code under test. */
   const wallClockIn = (iso: string, zone: string) =>
@@ -58,6 +63,8 @@ describe('buildFollowUpMessageRows', () => {
       [{ sendAfterDays: 5, subject: 'Test', bodyHtml: '' }],
       baseDate,
       MT,
+      0,
+      AT_SEND,
     );
 
     // 2025-01-15 + 5 days = 2025-01-20, at 09:05 Mountain (MST, UTC-7).
@@ -69,7 +76,7 @@ describe('buildFollowUpMessageRows', () => {
 
   it('gives each zone its own local 9:05', () => {
     const forZone = (zone: string) =>
-      buildFollowUpMessageRows(1, [{ sendAfterDays: 5, subject: 'T', bodyHtml: '' }], baseDate, zone)[0]
+      buildFollowUpMessageRows(1, [{ sendAfterDays: 5, subject: 'T', bodyHtml: '' }], baseDate, zone, 0, AT_SEND)[0]
         .scheduled_send_at;
 
     expect(forZone('America/New_York')).toBe('2025-01-20T14:05:00.000Z');
@@ -85,6 +92,8 @@ describe('buildFollowUpMessageRows', () => {
       [{ sendAfterDays: 1, subject: 'Test', bodyHtml: '', sendTime: '14:30' }],
       baseDate,
       MT,
+      0,
+      AT_SEND,
     );
 
     // Picking 14:30 in the follow-up modal must mean 14:30 where the user is.
@@ -97,6 +106,8 @@ describe('buildFollowUpMessageRows', () => {
       [{ sendAfterDays: 1, subject: 'Test', bodyHtml: '', sendTime: '99:99' }],
       baseDate,
       MT,
+      0,
+      AT_SEND,
     );
 
     expect(wallClockIn(rows[0].scheduled_send_at, MT)).toBe('2025-01-16, 09:05');
@@ -142,6 +153,84 @@ describe('buildFollowUpMessageRows', () => {
     expect(rows[0].subject).toBe('Check in');
     expect(rows[0].body_html).toBe('<b>Hello</b>');
     expect(rows[0].send_after_days).toBe(1);
+  });
+
+  /**
+   * CAR-220 finding 1. The modal derives its minimum delay from raw 24-hour
+   * buckets while the server computes from the LOCAL calendar date at the LOCAL
+   * hour. Those disagree, and before this fix nothing clamped the result to the
+   * future — so a step the user scheduled for "3 days from now" could be written
+   * with a past timestamp, land in the cron's `scheduled_send_at <= now` window,
+   * and be delivered to a real contact within ~15s of them clicking save.
+   *
+   * The reproduction below is the modal's DEFAULT behaviour for a Denver user
+   * who sent the original mail in the evening: no unusual input, no edge case
+   * the UI warns about.
+   */
+  describe('never emits a past instant (CAR-220)', () => {
+    const nowIso = '2026-08-05T18:00:00Z'; // 12:00 MDT
+    const now = new Date(nowIso);
+
+    it('pushes a would-be-past step forward instead of scheduling it behind now', () => {
+      // Original sent 2026-08-02 18:00 MDT. Modal seeds delayDays=3, 09:00.
+      const rows = buildFollowUpMessageRows(
+        1,
+        [{ sendAfterDays: 3, subject: 'Nudge', bodyHtml: '', sendTime: '09:00' }],
+        new Date('2026-08-03T00:00:00Z'),
+        MT,
+        0,
+        now,
+      );
+      const at = new Date(rows[0].scheduled_send_at);
+      expect(at.getTime(), 'a follow-up must never be scheduled in the past').toBeGreaterThan(now.getTime());
+      // And it keeps the hour the user asked for, on the next day that works —
+      // clamping to `now` would silently send at 12:00 instead of 09:00.
+      expect(wallClockIn(rows[0].scheduled_send_at, MT)).toBe('2026-08-06, 09:00');
+    });
+
+    it('leaves a genuinely future step exactly where it was', () => {
+      const rows = buildFollowUpMessageRows(
+        1,
+        [{ sendAfterDays: 7, subject: 'Nudge', bodyHtml: '', sendTime: '09:00' }],
+        new Date('2026-08-03T00:00:00Z'),
+        MT,
+        0,
+        now,
+      );
+      expect(wallClockIn(rows[0].scheduled_send_at, MT)).toBe('2026-08-09, 09:00');
+    });
+
+    it('holds for positive-offset zones, where the old day base moved the other way', () => {
+      // London: sending in the local evening puts the UTC date ahead, not behind.
+      const rows = buildFollowUpMessageRows(
+        1,
+        [{ sendAfterDays: 1, subject: 'Nudge', bodyHtml: '', sendTime: '09:00' }],
+        new Date('2026-08-04T22:00:00Z'),
+        'Europe/London',
+        0,
+        now,
+      );
+      expect(new Date(rows[0].scheduled_send_at).getTime()).toBeGreaterThan(now.getTime());
+    });
+
+    it('pushes every past step forward independently, preserving order', () => {
+      const rows = buildFollowUpMessageRows(
+        1,
+        [
+          { sendAfterDays: 1, subject: 'A', bodyHtml: '', sendTime: '09:00' },
+          { sendAfterDays: 2, subject: 'B', bodyHtml: '', sendTime: '09:00' },
+          { sendAfterDays: 30, subject: 'C', bodyHtml: '', sendTime: '09:00' },
+        ],
+        new Date('2026-08-03T00:00:00Z'),
+        MT,
+        0,
+        now,
+      );
+      const times = rows.map((r) => new Date(r.scheduled_send_at).getTime());
+      for (const t of times) expect(t).toBeGreaterThan(now.getTime());
+      expect(times[0]).toBeLessThan(times[1]);
+      expect(times[1]).toBeLessThan(times[2]);
+    });
   });
 
   it('returns empty array for empty messages', () => {

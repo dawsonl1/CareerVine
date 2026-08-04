@@ -93,12 +93,17 @@ vi.mock("@/lib/supabase/service-client", () =>
         in: (col: string, val: unknown) => { filters.push(["in", col, val]); return b; },
         lte: (col: string, val: unknown) => { filters.push(["lte", col, val]); return b; },
         lt: (col: string, val: unknown) => { filters.push(["lt", col, val]); return b; },
+        gt: (col: string, val: unknown) => { filters.push(["gt", col, val]); return b; },
+        // The driver-liveness stamp (CAR-220). Fire-and-forget here; the beat's
+        // own behavior is pinned in watcher-health.test.ts.
+        upsert: () => Promise.resolve({ error: null }),
         not: () => b,
         order: () => b,
         limit: () => b,
         then: (resolve: (v: unknown) => void) => {
           const hasEq = (c: string, v: unknown) => filters.some((f) => f[0] === "eq" && f[1] === c && f[2] === v);
           const hasLt = (c: string) => filters.some((f) => f[0] === "lt" && f[1] === c);
+          const hasGt = (c: string) => filters.some((f) => f[0] === "gt" && f[1] === c);
           if (mode === "update") {
             // The post-send bookkeeping write, injectable so its failure path is
             // exercised for real (CAR-207). Keyed on the patch rather than the
@@ -115,6 +120,13 @@ vi.mock("@/lib/supabase/service-client", () =>
             if (hasEq("status", "sending") && hasLt("claimed_at")) {
               if (state.sweepReadError) return resolve({ data: null, error: state.sweepReadError });
               return resolve({ data: state.staleRows, error: null });
+            }
+            // Deliverability spacing SELECT (CAR-220): status='sent' AND
+            // sent_at > cutoff. Empty = nothing sent recently, which is the
+            // precondition every case in this file assumes. The guard itself is
+            // pinned in send-follow-ups-delivery-safety.test.ts.
+            if (hasEq("status", "sent") && hasGt("sent_at")) {
+              return resolve({ data: [], error: null });
             }
             // Due-messages query.
             if (state.dueReadError) return resolve({ data: null, error: state.dueReadError });

@@ -92,13 +92,20 @@ beforeEach(() => {
 });
 
 describe("detectBounces — queued scheduled mail", () => {
+  // CAR-220: these fixtures seeded `to_email`, matching a filter in the
+  // implementation that named a column `scheduled_emails` does not have (it is
+  // `recipient_email`). postgrest-js types `eq` as `ColumnName extends string`,
+  // so tsc could not catch the mismatch, and because the double and the code
+  // agreed on the wrong name the tests passed while production returned 42703
+  // and cancelled nothing. Fixtures now use the real column, so a regression to
+  // a bad filter name fails here instead of shipping.
   it("cancels a PENDING scheduled email to the dead address", () => {
     // Before CAR-217 this row was never resolved: sendTrackedEmail refuses the
     // recipient with a 422 and processScheduledEmails defers, so the hourly cron
     // retried it indefinitely.
     db = seed({
       scheduled_emails: [
-        { id: 11, user_id: USER, to_email: "dana@corp.com", status: "pending" },
+        { id: 11, user_id: USER, recipient_email: "dana@corp.com", status: "pending" },
       ],
     });
 
@@ -114,7 +121,7 @@ describe("detectBounces — queued scheduled mail", () => {
     // delivered send; the stale-claim sweeper owns that row.
     db = seed({
       scheduled_emails: [
-        { id: 12, user_id: USER, to_email: "dana@corp.com", status: "sending" },
+        { id: 12, user_id: USER, recipient_email: "dana@corp.com", status: "sending" },
       ],
     });
 
@@ -127,7 +134,7 @@ describe("detectBounces — queued scheduled mail", () => {
   it("does not touch another user's scheduled mail to the same address", async () => {
     db = seed({
       scheduled_emails: [
-        { id: 13, user_id: "someone-else", to_email: "dana@corp.com", status: "pending" },
+        { id: 13, user_id: "someone-else", recipient_email: "dana@corp.com", status: "pending" },
       ],
     });
 
@@ -171,7 +178,7 @@ describe("detectBounces — notification", () => {
       ],
       email_follow_up_messages: [{ id: 31, follow_up_id: 21, status: "pending" }],
       scheduled_emails: [
-        { id: 11, user_id: USER, to_email: "dana@corp.com", status: "pending" },
+        { id: 11, user_id: USER, recipient_email: "dana@corp.com", status: "pending" },
       ],
     });
 

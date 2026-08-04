@@ -81,11 +81,35 @@ export const DEFAULT_FOLLOW_UP_SEND_MINUTE = 5;
  * Day arithmetic is calendar-based rather than `+ n * 24h`, so "7 days later at
  * 9:05" stays literally true across a DST boundary instead of sliding an hour.
  *
+ * ── Every emitted instant is in the future (CAR-220) ────────────────────
+ *
+ * `sentAt + sendAfterDays` at a local hour can land in the PAST, and the cron's
+ * due filter is a bare `scheduled_send_at <= now`, so such a row is delivered
+ * on the watcher's next ~15s tick. A user scheduling "3 days from now" would
+ * watch a real cold email leave the moment they hit save.
+ *
+ * It is reachable from the modal's own defaults, not just odd input: the client
+ * derives its minimum delay from raw 24-hour buckets while this computes from
+ * the local calendar date, and the two disagree by up to a day. A Denver user
+ * whose original went out at 18:00 local, adding a follow-up with the seeded
+ * delay, produced an instant three hours behind `now`.
+ *
+ * So the floor is enforced HERE rather than in the client. The client fix is
+ * still worth having (it stops the UI promising a date the server will move),
+ * but this is the only chokepoint every caller passes through — web create, web
+ * edit, and MCP.
+ *
+ * Clamping advances whole LOCAL days, never to `now`: the user asked for 09:00,
+ * and 09:00 tomorrow honours that where 14:32 today does not. Steps are also
+ * kept strictly increasing, so a sequence whose first two steps both clamp does
+ * not collapse into two emails at the same instant.
+ *
  * @param followUpId - The parent follow-up sequence ID
  * @param messages - Array of message inputs from the client
  * @param sentAt - The original email's sent date (used to compute scheduled dates)
  * @param timeZone - The recipient user's IANA zone; resolve it with `resolveUserTimeZone`
  * @param sequenceOffset - Starting sequence number (use to avoid collisions with already-sent messages)
+ * @param now - Injectable clock; the future-floor is measured against it
  */
 export function buildFollowUpMessageRows(
   followUpId: number,
@@ -93,7 +117,11 @@ export function buildFollowUpMessageRows(
   sentAt: Date,
   timeZone: string,
   sequenceOffset: number = 0,
+  now: Date = new Date(),
 ) {
+  // Each step must clear both `now` and the step before it.
+  let floorMs = now.getTime();
+
   return messages.map((m, idx) => {
     let hour = DEFAULT_FOLLOW_UP_SEND_HOUR;
     let minute = DEFAULT_FOLLOW_UP_SEND_MINUTE;
@@ -106,20 +134,36 @@ export function buildFollowUpMessageRows(
         minute = min;
       }
     }
+
+    const at = (dayOffset: number) =>
+      localTimeDaysAfter(sentAt, dayOffset, hour, minute, timeZone);
+
+    let dayOffset = m.sendAfterDays;
+    let sendAt = at(dayOffset);
+    if (sendAt.getTime() <= floorMs) {
+      // Jump most of the gap in one step rather than looping a day at a time —
+      // `sentAt` can be months old on the thread-anchored path.
+      dayOffset += Math.max(1, Math.ceil((floorMs - sendAt.getTime()) / 86_400_000));
+      sendAt = at(dayOffset);
+      // A DST transition inside the jump can leave it an hour short. Bounded:
+      // each pass adds a whole day, so this cannot iterate more than twice.
+      for (let guard = 0; sendAt.getTime() <= floorMs && guard < 3; guard++) {
+        dayOffset += 1;
+        sendAt = at(dayOffset);
+      }
+    }
+    floorMs = sendAt.getTime();
+
     return {
       follow_up_id: followUpId,
       sequence_number: sequenceOffset + idx + 1,
+      // The REQUESTED delay, not the clamped one: this is what the UI shows the
+      // user ("Day 3"), and rewriting it would make the clamp invisible to them.
       send_after_days: m.sendAfterDays,
       subject: m.subject,
       body_html: m.bodyHtml,
       status: FollowUpMessageStatus.Pending,
-      scheduled_send_at: localTimeDaysAfter(
-        sentAt,
-        m.sendAfterDays,
-        hour,
-        minute,
-        timeZone,
-      ).toISOString(),
+      scheduled_send_at: sendAt.toISOString(),
     };
   });
 }
