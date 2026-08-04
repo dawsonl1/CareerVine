@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getHeader, parseEmailAddress, buildThreads, isReceivedThread, buildOwnAddressSet, ownAddressesFromConnection } from '@/lib/gmail-helpers';
+import { getHeader, parseEmailAddress, buildThreads, isReceivedThread, isSentThread, buildOwnAddressSet, ownAddressesFromConnection } from '@/lib/gmail-helpers';
 import type { ParsedHeader } from '@/lib/gmail-helpers';
 import type { EmailMessage } from '@/lib/types';
 
@@ -169,6 +169,19 @@ describe('isReceivedThread (CAR-219)', () => {
 
   it('excludes a thread whose direction is missing rather than guessing it is received', () => {
     expect(isReceivedThread(threadOf({ direction: null }))).toBe(false);
+  });
+
+  it('excludes an inbound-only thread from Sent, and an outbound-only thread from the Inbox', () => {
+    const inboundOnly = threadOf({ direction: 'inbound' });
+    const outboundOnly = threadOf({ direction: 'outbound' });
+    expect(isSentThread(inboundOnly)).toBe(false);
+    expect(isReceivedThread(outboundOnly)).toBe(false);
+  });
+
+  it('puts an answered thread in BOTH mailboxes, the way Gmail does', () => {
+    const answered = threadOf({ direction: 'outbound' }, { direction: 'inbound' });
+    expect(isReceivedThread(answered)).toBe(true);
+    expect(isSentThread(answered)).toBe(true);
   });
 });
 

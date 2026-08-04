@@ -336,7 +336,7 @@ describe("InboxShell — honest load-failure state (CAR-154 / F21)", () => {
   });
 });
 
-describe("InboxShell — Inbox holds received mail only (CAR-219)", () => {
+describe("InboxShell — mailboxes select whole conversations (CAR-219)", () => {
   const outreach = makeEmail({
     gmail_message_id: "out1",
     thread_id: "t-cold",
@@ -387,6 +387,28 @@ describe("InboxShell — Inbox holds received mail only (CAR-219)", () => {
     // thread, and our outbound message rides along as part of the conversation.
     fireEvent.click(screen.getByText("Re: Coffee chat"));
     expect(screen.getAllByText("our-opener").length).toBeGreaterThan(0);
+  });
+
+  it("shows the contact's reply when the same thread is opened from Sent", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [ourSideOfReply, reply] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Re: Coffee chat")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sent/ })[0]);
+    fireEvent.click(screen.getByText("Re: Coffee chat"));
+    // Both sides are present: reading a reply must not require leaving Sent.
+    expect(screen.getAllByText("our-opener").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("jane-snippet").length).toBeGreaterThan(0);
+  });
+
+  it("keeps a cold inbound thread we never answered out of Sent", async () => {
+    installFetch({ inbox: inboxPayload({ emails: [reply] }) });
+    render(<InboxShell />);
+    await waitFor(() => expect(screen.getByText("Re: Coffee chat")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sent/ })[0]);
+    expect(screen.getByText("No sent emails yet.")).toBeTruthy();
+    expect(screen.queryByText("Re: Coffee chat")).toBeNull();
   });
 
   it("does not count an outbound-only thread toward the Inbox unread badge", async () => {
