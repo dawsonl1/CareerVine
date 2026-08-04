@@ -35,6 +35,10 @@ const SERVICE_CLIENT_GRANDFATHERED = [
   "src/app/api/admin/users/route.ts",
   // cron / queue / webhook (system context)
   "src/app/api/cron/data-retention/route.ts",
+  // CAR-217: cross-user bounce sweep with no request-scoped session. Reads the
+  // gmail_connections entitlement flags to pick who is eligible; the per-user
+  // work is delegated to detectBounces, which scopes every query to that userId.
+  "src/app/api/cron/detect-bounces/route.ts",
   "src/app/api/cron/discovery/route.ts",
   "src/app/api/cron/follow-up-nudges/route.ts",
   "src/app/api/cron/scrape-refresh/route.ts",
@@ -110,6 +114,11 @@ const SERVICE_CLIENT_GRANDFATHERED = [
   "src/lib/follow-up-reply.ts",
   "src/lib/gmail-send-core.ts",
   "src/lib/gmail.ts",
+  // CAR-217: reads the user's notification preference and their auth-side email
+  // address to send a bounce alert. Called from the bounce sweep, which has no
+  // request-scoped session, and the auth.admin lookup needs service role anyway.
+  // Every query it makes is pinned to the single userId it is called with.
+  "src/lib/notify/send-bounce-alert.ts",
   "src/lib/openai.ts",
   "src/lib/scheduled-email-cron.ts",
   // MCP data layer (scoping enforced by src/mcp/__tests__/db-scoping.test.ts)

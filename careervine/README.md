@@ -72,6 +72,11 @@ side, a living pipeline on the other.
 - Email a prospect in one click (with bounced and pattern-guessed addresses clearly
   flagged), promote bench contacts into outreach, and manage office locations
   without leaving the page.
+- When an address stops accepting mail, you find out the same day. CareerVine reads
+  delivery failures back on its own, cancels the follow-ups and scheduled emails
+  still queued to that address, emails you what happened, and marks the address on
+  the contact so you can fix it. A message that is merely delayed is left alone, so
+  a good address is never retired by mistake.
 
 ### Find the right company instantly
 

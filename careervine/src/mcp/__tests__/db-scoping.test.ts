@@ -253,6 +253,17 @@ const DB_TABLE: Record<string, Entry> = {
       await db.searchEmailHistory("intro (call)");
       await db.searchEmailHistory("intro (call)", 5);
     },
+    // CAR-217 added a second query inside this function: a contact_emails
+    // lookup that annotates outbound rows whose recipient has since bounced.
+    // It only runs when the first query returned an OUTBOUND row with
+    // recipients, so without this fixture the drive returns nothing, the
+    // annotation query never fires, and this gate would silently stop covering
+    // it — an unscoped version would then leak other tenants' bounce data past
+    // a green test.
+    route: (q) =>
+      q.table === "email_messages"
+        ? [{ gmail_message_id: "m1", direction: "outbound", to_addresses: ["dana@corp.com"] }]
+        : undefined,
   },
   getCachedThreadMessages: {
     kind: "scoped",
@@ -423,6 +434,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
   },
   "@/lib/data/contacts": {
     getContactEmailLookup: { kind: "mcp-covered", coveredBy: "listCalendarEvents", touches: "contact_emails" },
+    // CAR-217: annotates outbound search results whose recipient has bounced.
+    getBouncedAddresses: { kind: "mcp-covered", coveredBy: "searchEmailHistory", touches: "contact_emails" },
     getContactById: { kind: "mcp-covered", coveredBy: "getContactFull", touches: "contacts" },
     createContact: { kind: "mcp-covered", coveredBy: "createContactFull", touches: "contacts" },
     createContacts: { kind: "web-only" },

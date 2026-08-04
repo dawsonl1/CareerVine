@@ -27,6 +27,12 @@ export interface FakeGmailMessage {
   labelIds?: string[];
   /** Extra metadata headers, e.g. { "X-Failed-Recipients": "a@b.c" }. */
   extraHeaders?: Record<string, string>;
+  /**
+   * MIME sub-parts, served ONLY on a `format: "full"` fetch (see below).
+   * `body` is the decoded text; the fake base64url-encodes it the way Gmail
+   * does, so the code under test performs a real decode.
+   */
+  parts?: { mimeType: string; body?: string }[];
 }
 
 export interface FakeGmailOptions {
@@ -52,6 +58,9 @@ export function createFakeGmail(options: FakeGmailOptions = {}) {
   const state = {
     listCalls: [] as { q: string; pageToken?: string }[],
     getCalls: [] as string[],
+    /** Every messages.get with the format it asked for, so a test can assert
+     *  a cheap metadata pass was not silently upgraded to a full fetch. */
+    getFormats: [] as { id: string; format: string }[],
     inFlightListCalls: 0,
     maxInFlightListCalls: 0,
   };
@@ -86,8 +95,9 @@ export function createFakeGmail(options: FakeGmailOptions = {}) {
             state.inFlightListCalls--;
           }
         },
-        get: async (args: { id: string }) => {
+        get: async (args: { id: string; format?: string }) => {
           state.getCalls.push(args.id);
+          state.getFormats.push({ id: args.id, format: args.format ?? "full" });
           const msg = allMessages().find((m) => m.id === args.id);
           if (!msg) throw new Error(`fake-gmail: no message ${args.id}`);
           const headers: { name: string; value: string }[] = [];
@@ -98,13 +108,27 @@ export function createFakeGmail(options: FakeGmailOptions = {}) {
           for (const [name, value] of Object.entries(msg.extraHeaders ?? {})) {
             headers.push({ name, value });
           }
+          // `format: "metadata"` really does omit the body parts in the Gmail
+          // API, and honoring that here is what makes a two-phase fetch
+          // testable: code that forgets its `full` re-fetch sees no parts and
+          // its test fails, instead of the fake handing them over regardless.
+          const wantsParts = (args.format ?? "full") !== "metadata";
+          const parts = wantsParts && msg.parts
+            ? msg.parts.map((p) => ({
+                mimeType: p.mimeType,
+                headers: [],
+                body: p.body === undefined
+                  ? {}
+                  : { data: Buffer.from(p.body, "utf-8").toString("base64url") },
+              }))
+            : undefined;
           return {
             data: {
               id: msg.id,
               threadId: msg.threadId ?? null,
               snippet: msg.snippet ?? "",
               labelIds: msg.labelIds ?? [],
-              payload: { headers },
+              payload: { headers, ...(parts ? { parts } : {}) },
             },
           };
         },

@@ -7,10 +7,17 @@
  */
 
 export type Capability =
-  | "mailbox:read" // read the live Gmail mailbox (inbox/sent/trash/hidden, body-expand, labels, sync)
+  | "mailbox:read" // read the live Gmail mailbox (inbox/sent/trash/hidden, body-expand, labels, sync, bounce detection)
   | "mailbox:modify" // mailbox actions: mark-read, trash/untrash, move/label
   | "drafts:gmail" // create real Gmail drafts (drafts.create)
-  | "followups:auto" // cron auto reply-detection + bounce-cancel
+  // Cron auto reply-detection. This used to say "+ bounce-cancel", which no code
+  // ever implemented: bounce work has always gated on mailbox:read (via the sync
+  // route, and since CAR-217 via /api/cron/detect-bounces too), because reading
+  // NDRs is a mailbox READ and a free token cannot do it at all. Corrected rather
+  // than made true: a premium user who has opted out of automatic sending still
+  // needs a dead address retired, or their confirm-to-send queue fills with
+  // messages that can only ever 422.
+  | "followups:auto"
   | "inbox:premium" // premium tier (connection holds gmail.modify); gates mailbox operations in CAR-102
   | "inbox:upgrade" // premium switch on but token lacks gmail.modify — show reconnect-to-upgrade (CAR-131)
   | "outreach:portal"; // the free Outreach experience — a POSITIVE free-tier grant (nobody in Phase 0; CAR-102 grants confirmed free users)
