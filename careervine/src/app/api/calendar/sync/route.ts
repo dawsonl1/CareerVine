@@ -1,7 +1,7 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { calendarSyncQuerySchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import { fetchCalendarEvents, getCalendarTimezone, getCalendarList, DEFAULT_TIMEZONE } from "@/lib/calendar";
+import { fetchCalendarEvents, getCalendarTimezone, getCalendarList } from "@/lib/calendar";
 import { buildOwnAddressSet } from "@/lib/gmail-helpers";
 import type { Json, TablesInsert } from "@/lib/database.types";
 import type { calendar_v3 } from "@googleapis/calendar";
@@ -76,7 +76,11 @@ export const POST = withApiHandler({
           .filter((id): id is string => Boolean(id));
 
         await service.from("gmail_connections").update({
-          calendar_timezone: tz || DEFAULT_TIMEZONE,
+          // NULL, not a regional default (CAR-215): if Google did not tell us
+          // the zone, saying so is honest and lets the caller fall back to the
+          // user's own captured zone. Writing America/New_York here is how the
+          // three fake "Eastern" users were minted in the first place.
+          calendar_timezone: tz || null,
           calendar_list: calList as unknown as Json,
           busy_calendar_ids: busyIds.length > 0 ? busyIds : ["primary"],
         }).eq("user_id", user.id);

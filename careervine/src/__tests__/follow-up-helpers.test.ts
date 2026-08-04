@@ -4,6 +4,16 @@ import { FollowUpMessageStatus } from '@/lib/constants';
 
 describe('buildFollowUpMessageRows', () => {
   const baseDate = new Date('2025-01-15T10:00:00Z');
+  const MT = 'America/Denver';
+
+  /** Wall clock the given zone shows at an instant, independent of the code under test. */
+  const wallClockIn = (iso: string, zone: string) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: zone,
+      hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    }).format(new Date(iso));
 
   it('builds rows with correct sequence numbers starting at 1', () => {
     const rows = buildFollowUpMessageRows(
@@ -13,6 +23,7 @@ describe('buildFollowUpMessageRows', () => {
         { sendAfterDays: 7, subject: 'Second', bodyHtml: '<p>Following up</p>' },
       ],
       baseDate,
+      MT,
     );
 
     expect(rows).toHaveLength(2);
@@ -29,36 +40,79 @@ describe('buildFollowUpMessageRows', () => {
         { sendAfterDays: 3, subject: 'Third', bodyHtml: '<p>Hey</p>' },
       ],
       baseDate,
+      MT,
       2, // 2 messages already sent
     );
 
     expect(rows[0].sequence_number).toBe(3);
   });
 
-  it('schedules dates relative to sentAt + sendAfterDays', () => {
+  /**
+   * CAR-215. This used to assert `getUTCHours() === 9`, encoding the bug: the
+   * builder called setUTCHours(9, 0), so every follow-up went out at 09:00 UTC,
+   * which is 2:00 AM for a Mountain user. The default is now 9:05 LOCAL.
+   */
+  it('defaults to 9:05 in the user\'s own zone, not 9:00 UTC', () => {
     const rows = buildFollowUpMessageRows(
       1,
       [{ sendAfterDays: 5, subject: 'Test', bodyHtml: '' }],
       baseDate,
+      MT,
     );
 
-    const scheduled = new Date(rows[0].scheduled_send_at);
-    // Should be 5 days after baseDate, defaulting to 9:00 AM UTC
-    expect(scheduled.getUTCDate()).toBe(baseDate.getUTCDate() + 5);
-    expect(scheduled.getUTCHours()).toBe(9);
-    expect(scheduled.getUTCMinutes()).toBe(0);
+    // 2025-01-15 + 5 days = 2025-01-20, at 09:05 Mountain (MST, UTC-7).
+    expect(wallClockIn(rows[0].scheduled_send_at, MT)).toBe('2025-01-20, 09:05');
+    expect(rows[0].scheduled_send_at).toBe('2025-01-20T16:05:00.000Z');
+    // The old behaviour would have been 09:00Z, i.e. 02:00 local. Guard it.
+    expect(new Date(rows[0].scheduled_send_at).getUTCHours()).not.toBe(9);
   });
 
-  it('uses sendTime when provided instead of 9:00 default', () => {
+  it('gives each zone its own local 9:05', () => {
+    const forZone = (zone: string) =>
+      buildFollowUpMessageRows(1, [{ sendAfterDays: 5, subject: 'T', bodyHtml: '' }], baseDate, zone)[0]
+        .scheduled_send_at;
+
+    expect(forZone('America/New_York')).toBe('2025-01-20T14:05:00.000Z');
+    expect(forZone(MT)).toBe('2025-01-20T16:05:00.000Z');
+    expect(forZone('America/Los_Angeles')).toBe('2025-01-20T17:05:00.000Z');
+    // UTC is the honest fallback when the zone is unknown.
+    expect(forZone('UTC')).toBe('2025-01-20T09:05:00.000Z');
+  });
+
+  it('treats a caller-picked sendTime as local, not UTC', () => {
     const rows = buildFollowUpMessageRows(
       1,
       [{ sendAfterDays: 1, subject: 'Test', bodyHtml: '', sendTime: '14:30' }],
       baseDate,
+      MT,
     );
 
-    const scheduled = new Date(rows[0].scheduled_send_at);
-    expect(scheduled.getUTCHours()).toBe(14);
-    expect(scheduled.getUTCMinutes()).toBe(30);
+    // Picking 14:30 in the follow-up modal must mean 14:30 where the user is.
+    expect(wallClockIn(rows[0].scheduled_send_at, MT)).toBe('2025-01-16, 14:30');
+  });
+
+  it('ignores an out-of-range sendTime rather than rolling the date', () => {
+    const rows = buildFollowUpMessageRows(
+      1,
+      [{ sendAfterDays: 1, subject: 'Test', bodyHtml: '', sendTime: '99:99' }],
+      baseDate,
+      MT,
+    );
+
+    expect(wallClockIn(rows[0].scheduled_send_at, MT)).toBe('2025-01-16, 09:05');
+  });
+
+  it('holds the local hour across a DST boundary', () => {
+    // Created 2026-10-15 (MDT); the 21-day step lands 2026-11-05, past the
+    // Nov 1 fall-back. A creation-time offset would have made this 08:05.
+    const rows = buildFollowUpMessageRows(
+      1,
+      [{ sendAfterDays: 21, subject: 'Late step', bodyHtml: '' }],
+      new Date('2026-10-15T15:05:00Z'),
+      MT,
+    );
+
+    expect(wallClockIn(rows[0].scheduled_send_at, MT)).toBe('2026-11-05, 09:05');
   });
 
   it('sets all rows to pending status', () => {
@@ -69,6 +123,7 @@ describe('buildFollowUpMessageRows', () => {
         { sendAfterDays: 3, subject: 'B', bodyHtml: '' },
       ],
       baseDate,
+      MT,
     );
 
     for (const row of rows) {
@@ -81,6 +136,7 @@ describe('buildFollowUpMessageRows', () => {
       1,
       [{ sendAfterDays: 1, subject: 'Check in', bodyHtml: '<b>Hello</b>' }],
       baseDate,
+      MT,
     );
 
     expect(rows[0].subject).toBe('Check in');
@@ -89,7 +145,7 @@ describe('buildFollowUpMessageRows', () => {
   });
 
   it('returns empty array for empty messages', () => {
-    const rows = buildFollowUpMessageRows(1, [], baseDate);
+    const rows = buildFollowUpMessageRows(1, [], baseDate, MT);
     expect(rows).toEqual([]);
   });
 });

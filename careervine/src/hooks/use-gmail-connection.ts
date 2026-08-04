@@ -16,7 +16,13 @@ export type GmailConnectionData = {
   availability_priority: unknown;
   calendar_list: Array<{ id: string; summary: string; accessRole: string }>;
   busy_calendar_ids: string[];
-  calendar_timezone: string;
+  /**
+   * NULL until a calendar sync reads the real zone from Google. Was typed
+   * non-nullable only because the column carried a DEFAULT of America/New_York,
+   * which CAR-215 dropped: an unsynced connection was indistinguishable from a
+   * genuinely Eastern one. Consumers already null-guard.
+   */
+  calendar_timezone: string | null;
 };
 
 // ── Module-level store ──────────────────────────────────────────────────

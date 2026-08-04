@@ -30,6 +30,36 @@
  */
 
 import type { ApiErrorBody } from "@/lib/api-handler";
+import { TIMEZONE_HEADER } from "@/lib/timezone";
+
+/**
+ * Request init with the caller's IANA timezone attached (CAR-215).
+ *
+ * The server cannot infer a user's zone: the only thing it previously had was
+ * `gmail_connections.calendar_timezone`, which is populated on calendar connect
+ * and defaulted to America/New_York for everyone else — so half the recorded
+ * "Eastern" users were never Eastern at all. The browser knows the answer for
+ * free, so every API call carries it and `api-handler` stamps it (throttled)
+ * onto `users.timezone`.
+ *
+ * Header merge is explicit rather than a spread: `init.headers` may legally be
+ * a Headers instance, a plain object, or an array of pairs, and a naive
+ * `{...init.headers}` silently drops the first two.
+ */
+function withTimezoneHeader(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers);
+  // Never overwrite a caller-set value, and never let a missing/odd Intl
+  // implementation turn into a thrown request.
+  if (!headers.has(TIMEZONE_HEADER)) {
+    try {
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (zone) headers.set(TIMEZONE_HEADER, zone);
+    } catch {
+      // No zone available; the server keeps whatever it already knows.
+    }
+  }
+  return { credentials: "same-origin", ...init, headers };
+}
 
 /** A non-2xx response from one of our own API routes. */
 export class ApiRequestError extends Error {
@@ -89,7 +119,7 @@ async function toApiError(res: Response): Promise<ApiRequestError> {
  * rides along, matching what the raw-fetch call sites relied on implicitly.
  */
 export async function apiFetch<T>(input: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(input, { credentials: "same-origin", ...init });
+  const res = await fetch(input, withTimezoneHeader(init));
   if (!res.ok) throw await toApiError(res);
   try {
     return (await res.json()) as T;
@@ -116,7 +146,7 @@ export async function apiFetch<T>(input: string, init?: RequestInit): Promise<T>
  * gains the curated server message that idiom threw away.
  */
 export async function apiSend(input: string, init?: RequestInit): Promise<void> {
-  const res = await fetch(input, { credentials: "same-origin", ...init });
+  const res = await fetch(input, withTimezoneHeader(init));
   if (!res.ok) throw await toApiError(res);
 }
 

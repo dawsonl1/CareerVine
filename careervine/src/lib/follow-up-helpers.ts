@@ -8,6 +8,7 @@ import {
   FollowUpMessageStatus,
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
+import { localTimeDaysAfter } from "@/lib/timezone";
 
 /**
  * Cancel every active follow-up sequence linked to a scheduled email
@@ -60,28 +61,50 @@ interface FollowUpMessageInput {
   sendTime?: string;
 }
 
+/** Send time used when a caller does not pick one. Local to the user's zone. */
+export const DEFAULT_FOLLOW_UP_SEND_HOUR = 9;
+export const DEFAULT_FOLLOW_UP_SEND_MINUTE = 5;
+
 /**
  * Build database rows for follow-up messages.
+ *
+ * ── Times are LOCAL to `timeZone`, not UTC (CAR-215) ────────────────────
+ *
+ * This used to call `setUTCHours(9, 0)`, so every follow-up went out at 09:00
+ * UTC no matter where the user was: 2:00 AM for a Mountain user, 1:00 AM
+ * Pacific. A caller-picked `sendTime` was read the same way, so choosing
+ * "9:00 AM" in the follow-up modal scheduled a 2 AM email. Worse, the sibling
+ * route (`POST /api/email-follow-ups`) applied a browser offset instead, so the
+ * same feature produced two different answers depending on which modal opened
+ * it. Both now resolve through here against a real IANA zone.
+ *
+ * Day arithmetic is calendar-based rather than `+ n * 24h`, so "7 days later at
+ * 9:05" stays literally true across a DST boundary instead of sliding an hour.
  *
  * @param followUpId - The parent follow-up sequence ID
  * @param messages - Array of message inputs from the client
  * @param sentAt - The original email's sent date (used to compute scheduled dates)
+ * @param timeZone - The recipient user's IANA zone; resolve it with `resolveUserTimeZone`
  * @param sequenceOffset - Starting sequence number (use to avoid collisions with already-sent messages)
  */
 export function buildFollowUpMessageRows(
   followUpId: number,
   messages: FollowUpMessageInput[],
   sentAt: Date,
+  timeZone: string,
   sequenceOffset: number = 0,
 ) {
   return messages.map((m, idx) => {
-    const scheduledDate = new Date(sentAt);
-    scheduledDate.setDate(scheduledDate.getDate() + m.sendAfterDays);
+    let hour = DEFAULT_FOLLOW_UP_SEND_HOUR;
+    let minute = DEFAULT_FOLLOW_UP_SEND_MINUTE;
     if (m.sendTime) {
       const [h, min] = m.sendTime.split(":").map(Number);
-      scheduledDate.setUTCHours(h, min, 0, 0);
-    } else {
-      scheduledDate.setUTCHours(9, 0, 0, 0);
+      // The schema already pins the HH:MM shape; guard the range so a "99:99"
+      // that slipped past a non-validating caller cannot roll the date.
+      if (Number.isFinite(h) && Number.isFinite(min) && h >= 0 && h < 24 && min >= 0 && min < 60) {
+        hour = h;
+        minute = min;
+      }
     }
     return {
       follow_up_id: followUpId,
@@ -90,7 +113,13 @@ export function buildFollowUpMessageRows(
       subject: m.subject,
       body_html: m.bodyHtml,
       status: FollowUpMessageStatus.Pending,
-      scheduled_send_at: scheduledDate.toISOString(),
+      scheduled_send_at: localTimeDaysAfter(
+        sentAt,
+        m.sendAfterDays,
+        hour,
+        minute,
+        timeZone,
+      ).toISOString(),
     };
   });
 }

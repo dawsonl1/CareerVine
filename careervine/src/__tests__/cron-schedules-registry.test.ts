@@ -79,8 +79,8 @@ describe("QStash cron schedule registry", () => {
  */
 describe("QStash cadence is pinned to the registry", () => {
   const EXPECTED_CRONS: Record<string, string> = {
-    "send-follow-ups": "*/10 * * * *",
-    "send-scheduled-emails": "*/15 * * * *",
+    "send-follow-ups": "0 * * * *",
+    "send-scheduled-emails": "0 * * * *",
     "sync-bundles": "0 12 * * *",
     "scrape-refresh": "0 9 * * *",
     discovery: "0 10 * * 1",
@@ -98,61 +98,74 @@ describe("QStash cadence is pinned to the registry", () => {
     expect(actual).toEqual(EXPECTED_CRONS);
   });
 
-  /** Minutes from an every-N-minutes interval cron, else null. */
-  function intervalMinutes(cron: string): number | null {
-    const m = /^\*\/(\d+) \* \* \* \*$/.exec(cron);
-    return m ? Number(m[1]) : null;
+  /** True for an hourly-on-the-hour cron, which is what a safety net must be. */
+  function isHourly(cron: string): boolean {
+    return cron === "0 * * * *";
   }
 
   /**
-   * Both interval schedules are quoted in user-facing copy, so both are pinned.
-   * Every needle is SUBJECT-ANCHORED — it names the job in the same phrase as the
-   * interval — because a bare "every N minutes" fragment is satisfied by ANY
-   * schedule that happens to share the interval: with presence-only fragments,
-   * swapping the two README lines (mislabeling both jobs) stayed green, and so
-   * did drifting one schedule onto the other's cadence. The tag needle keeps its
+   * Both send schedules are quoted in user-facing copy, so both are pinned.
+   *
+   * CAR-215 changed WHAT the copy has to say. These are no longer the primary
+   * driver: the A1 send watcher triggers both routes within ~15s of anything
+   * coming due, and QStash runs them hourly only as a safety net. So the copy
+   * now makes a latency promise ("within a minute") rather than quoting a poll
+   * interval, and the surfaces are pinned against BOTH halves: the promise must
+   * be there, and the stale "every N minutes" phrasing must NOT be, or the docs
+   * would keep advertising a 15-minute delay this change removed.
+   *
+   * Every needle stays SUBJECT-ANCHORED, naming the job in the same phrase as
+   * the claim, because a bare fragment is satisfied by any schedule that
+   * happens to share it: with presence-only fragments, swapping the two README
+   * lines (mislabeling both jobs) stayed green. The tag needle keeps its
    * trailing "<" to pin the docs page's feature-card tag, easy to miss when
    * editing only the sentence next to it. The two route header comments are
-   * pinned too — a stale header here is exactly how the F41 drift started.
+   * pinned too: a stale header is exactly how the F41 drift started.
    */
   const COPY_PINNED: Array<{
     schedule: string;
-    readme: (m: number) => string[];
-    docs: (m: number) => string[];
+    readme: string[];
+    docs: string[];
+    route: string[];
   }> = [
     {
       schedule: "send-follow-ups",
-      readme: (m) => [`Follow-up sequence steps are processed every ${m} minutes`],
-      docs: (m) => [`due follow-up steps go out every ${m} minutes`, `Every ${m} min<`],
+      readme: ["Follow-up sequence steps go out within about a minute"],
+      docs: ["due follow-up steps go out within about a minute", "Within a minute<"],
+      route: ["within ~15s of a step coming due", "QStash\n * hourly as a safety net"],
     },
     {
       schedule: "send-scheduled-emails",
-      readme: (m) => [`Scheduled emails are sent every ${m} minutes`],
-      docs: (m) => [`scheduled emails every ${m} minutes`],
+      readme: ["Scheduled emails are sent within about a minute"],
+      docs: ["scheduled emails within about a minute"],
+      route: ["within ~15s of anything coming due", "QStash, hourly, as a safety net"],
     },
   ];
 
+  /** Phrasings that would mean the old polling latency is still being advertised. */
+  const STALE_CADENCE = [/every \d+ minutes/i, /Every \d+ min</];
+
   it.each(COPY_PINNED)(
-    "keeps user-facing $schedule cadence copy in sync with the registry",
-    ({ schedule, readme, docs }) => {
+    "keeps user-facing $schedule copy in sync with the registry",
+    ({ schedule, readme, docs, route }) => {
       const entry = (SCHEDULES as Array<{ name: string; cron: string }>).find((s) => s.name === schedule);
       expect(entry, `${schedule} missing from the registry`).toBeDefined();
-
-      const minutes = intervalMinutes(entry!.cron);
-      expect(minutes, `${schedule} cron is no longer a simple interval: ${entry!.cron}`).not.toBeNull();
+      expect(
+        isHourly(entry!.cron),
+        `${schedule} is no longer the hourly safety net (${entry!.cron}). If that is deliberate, ` +
+          `the copy promise below has to change with it.`,
+      ).toBe(true);
 
       const repoRoot = path.resolve(here, "../../..");
       const surfaces: Array<{ file: string; needles: string[] }> = [
-        { file: path.join(repoRoot, "careervine", "README.md"), needles: readme(minutes!) },
+        { file: path.join(repoRoot, "careervine", "README.md"), needles: readme },
         {
           file: path.join(repoRoot, "careervine", "public", "docs", "index.html"),
-          needles: docs(minutes!),
+          needles: docs,
         },
         {
-          // The route's own header comment states its cadence; pin it so the
-          // comment cannot drift from the registry again.
           file: path.join(repoRoot, "careervine", "src", "app", "api", "cron", schedule, "route.ts"),
-          needles: [`every ${minutes} minutes`],
+          needles: route,
         },
       ];
 
@@ -161,11 +174,32 @@ describe("QStash cadence is pinned to the registry", () => {
         for (const needle of needles) {
           expect(
             copy,
-            `${path.relative(repoRoot, file)} must state the ${schedule} cadence as "${needle}" to match ` +
-              `scripts/qstash-schedules.mjs (${entry!.cron}). Update the copy, not this test.`,
+            `${path.relative(repoRoot, file)} must state the ${schedule} behaviour as "${needle}". ` +
+              `Update the copy, not this test.`,
           ).toContain(needle);
         }
       }
     },
   );
+
+  it("no longer advertises a polling interval in user-facing copy", () => {
+    // The whole point of CAR-215 is that the delay is gone. A doc still saying
+    // "every 15 minutes" would be describing the bug as a feature.
+    const repoRoot = path.resolve(here, "../../..");
+    for (const rel of [
+      ["careervine", "README.md"],
+      ["careervine", "public", "docs", "index.html"],
+    ]) {
+      const file = path.join(repoRoot, ...rel);
+      const copy = readFileSync(file, "utf8");
+      for (const pattern of STALE_CADENCE) {
+        const hit = copy.match(pattern);
+        expect(
+          hit?.[0],
+          `${path.relative(repoRoot, file)} still advertises a polling interval ("${hit?.[0]}"). ` +
+            `Sends are now driven by the A1 watcher within seconds; QStash is only the hourly net.`,
+        ).toBeUndefined();
+      }
+    }
+  });
 });
