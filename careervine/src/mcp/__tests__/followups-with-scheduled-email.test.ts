@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { z } from "zod";
 import { buildMcpFollowUpRows, scheduleEmailSchema, followUpSequenceSchema } from "../tools/email";
 
@@ -37,6 +37,25 @@ describe("buildMcpFollowUpRows", () => {
   // 14:58 UTC = 08:58 Mountain (MDT). Nathan's real scheduled send.
   const SEND_AT = "2026-08-04T14:58:00.000Z";
   const MT = "America/Denver";
+
+  /**
+   * Pin the clock two minutes after SEND_AT.
+   *
+   * Every expectation below is a date relative to these fixtures, and the
+   * builder's future-floor (CAR-220) rewrites any step that lands in the past.
+   * Against a live clock these assertions were therefore true only until the
+   * calendar reached the fixtures and then failed forever: on 2026-08-05 the
+   * `send_after_days: 1` step and the historical-thread case both started
+   * clamping a day forward. Freezing the clock is what makes the suite a test
+   * of the arithmetic rather than of the date it runs on.
+   */
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-04T15:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("gives every step the opening email's time of day, not 09:00 UTC", () => {
     const rows = buildMcpFollowUpRows([step(6), step(14)], SEND_AT, SEND_AT, MT);

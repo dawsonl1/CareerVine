@@ -42,6 +42,7 @@ import {
   listScheduled,
   cancelScheduledEmail,
   cancelFollowUpSequence,
+  rescheduleFollowUpSequence,
   searchEmailHistory,
   getCachedThreadMessages,
   findOriginalOutbound,
@@ -523,6 +524,36 @@ export function registerEmailTools(server: McpServer): void {
         return { summary: `Cancelled follow-up sequence ${follow_up_id}` };
       }
       throw new Error("Provide scheduled_email_id or follow_up_id");
+    }),
+  );
+
+  server.registerTool(
+    "reschedule_follow_up",
+    {
+      title: "Reschedule follow-up send time",
+      description:
+        "Change the time of day an active follow-up sequence's remaining steps send, keeping each step's date. send_time is HH:MM in your local timezone. Bodies and subjects are untouched. A time already past today moves that step to the next day.",
+      inputSchema: {
+        follow_up_id: z.number().int(),
+        send_time: z
+          .string()
+          .regex(/^\d{1,2}:\d{2}$/, "send_time must be HH:MM")
+          .refine((v) => {
+            const [h, m] = v.split(":").map(Number);
+            return h >= 0 && h < 24 && m >= 0 && m < 60;
+          }, "send_time must be a real 24-hour clock time"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ follow_up_id, send_time }) => {
+      const steps = await rescheduleFollowUpSequence(follow_up_id, send_time);
+      if (steps.length === 0) {
+        return { summary: `Follow-up sequence ${follow_up_id} has no remaining steps to move` };
+      }
+      return {
+        summary: `Moved ${steps.length} step${steps.length === 1 ? "" : "s"} of sequence ${follow_up_id} to ${send_time} local`,
+        steps,
+      };
     }),
   );
 
