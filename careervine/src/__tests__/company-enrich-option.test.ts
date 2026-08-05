@@ -255,4 +255,23 @@ describe("getCompanies enrich option (CAR-229)", () => {
     expect(summaries[0].alum_count).toBe(0);
     expect("traction" in summaries[0]).toBe(true);
   });
+
+  it("does not read contact_companies on the `all` scope", async () => {
+    // The employment read feeds aggByCompany, and aggByCompany is consumed ONLY
+    // inside the enrichment block. `all` never enriches, so those rows were
+    // fetched, paged, chunked, aggregated into Sets and Maps, and then dropped
+    // on the floor — a chunkedPaginated sweep keyed on ~4,700 companies on the
+    // reference account, paid by MCP's list_companies(targets_only: false).
+    //
+    // Gating the read on `runEnrichment` rather than on `enrich` cannot change
+    // this scope's OUTPUT, which is why the test above still passes unchanged.
+    // This assertion is the half that test cannot make: output equality says
+    // nothing about the read that produced it, so without pinning the table set
+    // the sweep could be reintroduced and every other assertion would stay green.
+    state.recorded.length = 0;
+    await getCompanies(USER, { scope: "all", search: "Company" });
+
+    expect(tablesRead().has("contact_companies")).toBe(false);
+    expect(tablesRead()).toEqual(new Set(["target_companies", "rpc:company_network_counts", "companies"]));
+  });
 });
