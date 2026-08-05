@@ -243,6 +243,106 @@ export async function getContactsStreamed(
 }
 
 /**
+ * The columns the contacts page needs to SEARCH the whole network (CAR-229).
+ *
+ * Every tier, but nothing the search path doesn't use: the matcher in
+ * src/lib/contact-search.ts reads name / industry / headline / email / company
+ * name + title / school name / tag name, and a contact card draws photo, tier,
+ * LinkedIn, notes, phones and the date fields the experience sort orders on.
+ * That is 8 of the 36 columns on `contacts`, and the join rows shed their
+ * scrape/location bookkeeping (contact_companies alone drops 11).
+ *
+ * Deliberately NOT the same select as the list: the list is fetched per tier
+ * and streamed, this is fetched once for all tiers and must stay cheap enough
+ * to sit off the mount path.
+ */
+const CONTACTS_SEARCH_SELECT = `
+  id, name, photo_url, network_status, industry, headline, linkedin_url, notes,
+  contact_emails(id, email, is_primary),
+  contact_phones(id, phone),
+  contact_companies(
+    id, title, is_current, start_month, end_month,
+    companies(id, name)
+  ),
+  contact_schools(
+    id, degree, field_of_study, start_year, end_year,
+    schools(id, name)
+  ),
+  contact_tags(
+    tag_id,
+    tags(id, name)
+  )
+`;
+
+type ContactEmailRow = Database["public"]["Tables"]["contact_emails"]["Row"];
+type ContactPhoneRow = Database["public"]["Tables"]["contact_phones"]["Row"];
+type ContactCompanyRow = Database["public"]["Tables"]["contact_companies"]["Row"];
+type ContactSchoolRow = Database["public"]["Tables"]["contact_schools"]["Row"];
+type ContactTagRow = Database["public"]["Tables"]["contact_tags"]["Row"];
+type CompanyNameRow = Pick<Database["public"]["Tables"]["companies"]["Row"], "id" | "name">;
+type SchoolNameRow = Pick<Database["public"]["Tables"]["schools"]["Row"], "id" | "name">;
+type TagNameRow = Pick<Database["public"]["Tables"]["tags"]["Row"], "id" | "name">;
+
+/**
+ * Row shape of {@link getContactsSearchCorpus}: a structural SUPERTYPE of
+ * `ContactListItem` (the assert below fails the build if that stops holding),
+ * so the contacts list renders a corpus row and a streamed row through one card
+ * path instead of two.
+ */
+export type ContactSearchItem = Pick<
+  Contact,
+  "id" | "name" | "photo_url" | "network_status" | "industry" | "headline" | "linkedin_url" | "notes"
+> & {
+  contact_emails: Array<Pick<ContactEmailRow, "id" | "email" | "is_primary">>;
+  contact_phones: Array<Pick<ContactPhoneRow, "id" | "phone">>;
+  contact_companies: Array<
+    Pick<ContactCompanyRow, "id" | "title" | "is_current" | "start_month" | "end_month"> & {
+      companies: CompanyNameRow;
+    }
+  >;
+  contact_schools: Array<
+    Pick<ContactSchoolRow, "id" | "degree" | "field_of_study" | "start_year" | "end_year"> & {
+      schools: SchoolNameRow;
+    }
+  >;
+  contact_tags: Array<Pick<ContactTagRow, "tag_id"> & { tags: TagNameRow }>;
+};
+
+// The one-way lockstep the shared card path depends on: a streamed list row
+// must always be usable where a corpus row is expected. Widening
+// ContactSearchItem past what CONTACTS_LIST_SELECT returns breaks here rather
+// than at the render site.
+type _ContactListItemIsSearchItem = Assert<ContactListItem extends ContactSearchItem ? true : false>;
+
+/**
+ * Every contact in the account, in the lean search projection (CAR-229).
+ *
+ * The contacts page loads only the tier being viewed, so search can no longer
+ * read the in-memory list and still span the network — which CAR-222 requires,
+ * because an account with 9 active and ~1,996 prospect/archive contacts would
+ * otherwise find almost nobody. This is the pool it searches instead: fetched
+ * once per session, lazily, on the first search interaction. Ranking stays in
+ * the client (src/lib/contact-search.ts); this only supplies the rows.
+ *
+ * No network_status filter on purpose — the corpus is the WHOLE network,
+ * including the bench that every other list view excludes.
+ */
+export async function getContactsSearchCorpus(userId: string): Promise<ContactSearchItem[]> {
+  const rows: ContactSearchItem[] = await paginateAll(async (from, to) =>
+    must(
+      await db()
+        .from("contacts")
+        .select(CONTACTS_SEARCH_SELECT)
+        .eq("user_id", userId)
+        .order("name")
+        .order("id")
+        .range(from, to),
+    ),
+  );
+  return rows;
+}
+
+/**
  * Fetch a single contact by ID with all related data (same shape as getContacts).
  */
 export async function getContactById(contactId: number, userId: string) {
