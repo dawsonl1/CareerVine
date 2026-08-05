@@ -28,7 +28,7 @@
  *   error with console.error for diagnosis.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { ZodSchema, ZodError } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { getExtensionAuth, corsHeaders } from "@/lib/extension-auth";
@@ -74,16 +74,16 @@ interface HandlerContext<
   params: TParams;
   /**
    * Record a product-analytics event for the authenticated user (CAR-38).
-   * Fire-and-forget from the handler's perspective — the wrapper awaits all
-   * pending captures after the handler returns, so events survive the
-   * serverless freeze without the handler blocking on them.
+   * Fire-and-forget from the handler's perspective — the wrapper hands all
+   * pending captures to `after()` once the handler returns, so events survive
+   * the serverless freeze without delaying the response (CAR-229).
    */
   track: <E extends AnalyticsEvent>(event: E, props: AnalyticsEvents[E]) => void;
   /**
    * Defer arbitrary non-critical async work (already-started promise) past
-   * the response (CAR-78). Same flush guarantee as track: the wrapper awaits
-   * it in finally, so it completes before the lambda freezes but never
-   * blocks the handler. Rejections are swallowed.
+   * the response (CAR-78). Same flush guarantee as track: the wrapper hands it
+   * to `after()` in finally, so it completes before the lambda freezes but
+   * never blocks the handler or the response. Rejections are swallowed.
    */
   defer: (p: Promise<unknown>) => void;
 }
@@ -207,6 +207,38 @@ function jsonResponse(
   });
 }
 
+/**
+ * Settle background work WITHOUT holding the response open (CAR-229).
+ *
+ * The wrapper queues two kinds of side work — analytics captures and the
+ * throttled last-seen/timezone stamps — and used to `await` them in `finally`,
+ * which put a Supabase round trip on the critical path of every single API
+ * call. `after()` hands the same promise to the platform's `waitUntil`, so the
+ * invocation still stays alive until the work settles (nothing is cut off by
+ * the serverless freeze) while the response goes out immediately.
+ *
+ * The await fallback is load-bearing, not defensive noise. `after()` throws
+ * synchronously when there is no request scope (unit tests calling an exported
+ * handler directly) or when the runtime has no `waitUntil` — and in those
+ * environments dropping the promise on the floor would be a silent behavior
+ * change, so we fall back to the old guarantee instead. Callers must therefore
+ * `await` this function.
+ *
+ * Do NOT "simplify" this to a bare floating promise: on Vercel that is exactly
+ * the fire-and-forget shape that gets frozen the moment the response is sent.
+ */
+async function settlePastResponse(work: Promise<unknown>[]): Promise<void> {
+  if (work.length === 0) return;
+  // allSettled, so a rejected member can never surface as an unhandled
+  // rejection once nothing in this frame is awaiting it.
+  const flush = Promise.allSettled(work);
+  try {
+    after(flush);
+  } catch {
+    await flush;
+  }
+}
+
 // ── Core wrapper ───────────────────────────────────────────────────────
 //
 // Two overloads key the handler's `user` type on the `authOptional` literal so
@@ -270,8 +302,9 @@ export function withApiHandler(config: {
   ): Promise<NextResponse> => {
     const headers = config.cors ? corsHeaders : undefined;
 
-    // Analytics captures started during this request; awaited (never thrown)
-    // before the response goes out so the lambda doesn't freeze mid-flush.
+    // Analytics captures and last-seen stamps started during this request.
+    // Settled (never thrown) via settlePastResponse in `finally`, so the
+    // lambda doesn't freeze mid-flush and the response doesn't wait on them.
     const pendingTracks: Promise<void>[] = [];
     let trackUserId: string | null = null;
 
@@ -514,11 +547,12 @@ export function withApiHandler(config: {
         headers,
       );
     } finally {
-      // Flush analytics + the CAR-68 last-seen stamp on EVERY exit path,
-      // including the early returns (auth, admin, rate-limit, validation).
-      // finally awaits before the returned response resolves, so nothing is
-      // cut off by the serverless freeze.
-      await Promise.allSettled(pendingTracks);
+      // Flush analytics + the CAR-68/CAR-105 last-seen stamps on EVERY exit
+      // path, including the early returns (auth, admin, rate-limit,
+      // validation) — but off the response's critical path. See
+      // settlePastResponse: the work still completes before the lambda
+      // freezes, it just no longer delays the bytes.
+      await settlePastResponse(pendingTracks);
     }
   };
 }

@@ -4,6 +4,12 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 /**
  * GET /api/gmail/connection
  * Fetches the current Gmail/Calendar connection status and settings for the user.
+ *
+ * The app shell's single `gmail_connections` read (CAR-229). The column list is
+ * deliberately a superset of `getGmailConnection()` in `lib/data/users.ts`, so
+ * a shell consumer never has a reason to issue a second, narrower query —
+ * everything subscribes to the one `useGmailConnection()` store instead. Adding
+ * a column here is cheap; adding a second shell-level fetch is not.
  */
 export const GET = withApiHandler({
   handler: async ({ user }) => {
