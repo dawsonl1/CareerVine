@@ -48,6 +48,8 @@ import {
   insertEmailDraft,
   insertFollowUpSequenceRows,
   insertScheduledEmail,
+  rescheduleFollowUpSequenceCascade,
+  type RescheduledFollowUpStep,
 } from "@/lib/data/emails";
 import { ScheduledEmailStatus } from "@/lib/constants";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
@@ -845,6 +847,28 @@ export async function cancelFollowUpSequence(followUpId: number): Promise<void> 
   if (!cancelled) {
     throw new Error(`No active follow-up sequence with id ${followUpId}`);
   }
+}
+
+/**
+ * Move an active sequence's unresolved steps to `sendTime`, keeping each step's
+ * calendar date (CAR-230). Time of day is LOCAL to the user's resolved zone,
+ * same resolver the create path uses.
+ */
+export async function rescheduleFollowUpSequence(
+  followUpId: number,
+  sendTime: string,
+): Promise<RescheduledFollowUpStep[]> {
+  const steps = await rescheduleFollowUpSequenceCascade(
+    db(),
+    uid(),
+    followUpId,
+    sendTime,
+    await getUserTimeZone(),
+  );
+  if (steps === null) {
+    throw new Error(`No active follow-up sequence with id ${followUpId}`);
+  }
+  return steps;
 }
 
 /** Locate the original outbound message a follow-up sequence hangs off. */

@@ -8,7 +8,7 @@ import {
   FollowUpMessageStatus,
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
-import { localTimeDaysAfter } from "@/lib/timezone";
+import { zonedDateParts, zonedWallClockToUtc } from "@/lib/timezone";
 
 /**
  * Cancel every active follow-up sequence linked to a scheduled email
@@ -65,6 +65,102 @@ interface FollowUpMessageInput {
 export const DEFAULT_FOLLOW_UP_SEND_HOUR = 9;
 export const DEFAULT_FOLLOW_UP_SEND_MINUTE = 5;
 
+/** A local calendar date, as `zonedDateParts` returns it. */
+export type LocalDateParts = { year: number; month: number; day: number };
+
+/**
+ * Parse an `HH:MM` send time into local hour/minute, falling back to the
+ * defaults on anything malformed.
+ *
+ * The Zod schemas already pin the shape at the API boundary, so the range guard
+ * here is for callers that skipped one: a "99:99" that reached
+ * `zonedWallClockToUtc` would roll the DATE, silently moving a step to another
+ * day rather than failing.
+ */
+export function parseSendTime(sendTime?: string): { hour: number; minute: number } {
+  if (!sendTime) {
+    return { hour: DEFAULT_FOLLOW_UP_SEND_HOUR, minute: DEFAULT_FOLLOW_UP_SEND_MINUTE };
+  }
+  const [h, min] = sendTime.split(":").map(Number);
+  if (Number.isFinite(h) && Number.isFinite(min) && h >= 0 && h < 24 && min >= 0 && min < 60) {
+    return { hour: h, minute: min };
+  }
+  return { hour: DEFAULT_FOLLOW_UP_SEND_HOUR, minute: DEFAULT_FOLLOW_UP_SEND_MINUTE };
+}
+
+/**
+ * THE single authority for when a follow-up step is allowed to land.
+ *
+ * Two invariants, both bought with production incidents, and both of which a
+ * second hand-rolled implementation would quietly drop:
+ *
+ * ── Every emitted instant is in the future (CAR-220) ────────────────────
+ *
+ * The send cron's due filter is a bare `scheduled_send_at <= now`, and the A1
+ * watcher polls every ~15s, so a row written in the past is not "late", it is
+ * DELIVERED — a real cold email leaving the moment the user hits save. Clamping
+ * advances whole LOCAL days rather than snapping to `now`: the user asked for
+ * 09:03, and 09:03 tomorrow honours that where 14:32 today does not.
+ *
+ * ── Steps stay strictly increasing ──────────────────────────────────────
+ *
+ * Without the running floor, a sequence whose first two steps both clamp
+ * collapses into two emails at the same instant.
+ *
+ * Callers supply a LOCAL CALENDAR DATE rather than an instant, because the two
+ * writers derive that date differently and only they know how: creation counts
+ * `sendAfterDays` calendar days off the original send, while a reschedule keeps
+ * the date each row already has. Everything after that decision is identical,
+ * and lives here.
+ *
+ * The day-advance is bounded: the initial jump covers most of the gap in one
+ * step (`sentAt` can be months old on the thread-anchored path), then at most
+ * three single-day passes absorb a DST transition inside that jump, which can
+ * otherwise leave it an hour short.
+ */
+export function clampFollowUpInstants(
+  steps: Array<{ localDate: LocalDateParts; hour: number; minute: number }>,
+  timeZone: string,
+  now: Date = new Date(),
+): Date[] {
+  // Each step must clear both `now` and the step before it.
+  let floorMs = now.getTime();
+
+  return steps.map(({ localDate, hour, minute }) => {
+    const at = (dayOffset: number) => {
+      const { year, month, day } = shiftLocalDate(localDate, dayOffset);
+      return zonedWallClockToUtc(year, month, day, hour, minute, timeZone);
+    };
+
+    let dayOffset = 0;
+    let sendAt = at(dayOffset);
+    if (sendAt.getTime() <= floorMs) {
+      dayOffset += Math.max(1, Math.ceil((floorMs - sendAt.getTime()) / 86_400_000));
+      sendAt = at(dayOffset);
+      for (let guard = 0; sendAt.getTime() <= floorMs && guard < 3; guard++) {
+        dayOffset += 1;
+        sendAt = at(dayOffset);
+      }
+    }
+    floorMs = sendAt.getTime();
+    return sendAt;
+  });
+}
+
+/** `dayOffset` calendar days after a local date. */
+export function shiftLocalDate(
+  { year, month, day }: LocalDateParts,
+  dayOffset: number,
+): LocalDateParts {
+  // Date.UTC normalizes overflow, so day + 21 rolls the month and the year.
+  const shifted = new Date(Date.UTC(year, month - 1, day + dayOffset));
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+}
+
 /**
  * Build database rows for follow-up messages.
  *
@@ -119,53 +215,30 @@ export function buildFollowUpMessageRows(
   sequenceOffset: number = 0,
   now: Date = new Date(),
 ) {
-  // Each step must clear both `now` and the step before it.
-  let floorMs = now.getTime();
+  // Creation counts `sendAfterDays` CALENDAR days off the original send, so a
+  // step keeps its wall clock across a DST boundary instead of sliding an hour.
+  // The clamping that follows is shared with the reschedule path.
+  const sentAtDate = zonedDateParts(sentAt, timeZone);
+  const instants = clampFollowUpInstants(
+    messages.map((m) => ({
+      localDate: shiftLocalDate(sentAtDate, m.sendAfterDays),
+      ...parseSendTime(m.sendTime),
+    })),
+    timeZone,
+    now,
+  );
 
-  return messages.map((m, idx) => {
-    let hour = DEFAULT_FOLLOW_UP_SEND_HOUR;
-    let minute = DEFAULT_FOLLOW_UP_SEND_MINUTE;
-    if (m.sendTime) {
-      const [h, min] = m.sendTime.split(":").map(Number);
-      // The schema already pins the HH:MM shape; guard the range so a "99:99"
-      // that slipped past a non-validating caller cannot roll the date.
-      if (Number.isFinite(h) && Number.isFinite(min) && h >= 0 && h < 24 && min >= 0 && min < 60) {
-        hour = h;
-        minute = min;
-      }
-    }
-
-    const at = (dayOffset: number) =>
-      localTimeDaysAfter(sentAt, dayOffset, hour, minute, timeZone);
-
-    let dayOffset = m.sendAfterDays;
-    let sendAt = at(dayOffset);
-    if (sendAt.getTime() <= floorMs) {
-      // Jump most of the gap in one step rather than looping a day at a time —
-      // `sentAt` can be months old on the thread-anchored path.
-      dayOffset += Math.max(1, Math.ceil((floorMs - sendAt.getTime()) / 86_400_000));
-      sendAt = at(dayOffset);
-      // A DST transition inside the jump can leave it an hour short. Bounded:
-      // each pass adds a whole day, so this cannot iterate more than twice.
-      for (let guard = 0; sendAt.getTime() <= floorMs && guard < 3; guard++) {
-        dayOffset += 1;
-        sendAt = at(dayOffset);
-      }
-    }
-    floorMs = sendAt.getTime();
-
-    return {
-      follow_up_id: followUpId,
-      sequence_number: sequenceOffset + idx + 1,
-      // The REQUESTED delay, not the clamped one: this is what the UI shows the
-      // user ("Day 3"), and rewriting it would make the clamp invisible to them.
-      send_after_days: m.sendAfterDays,
-      subject: m.subject,
-      body_html: m.bodyHtml,
-      status: FollowUpMessageStatus.Pending,
-      scheduled_send_at: sendAt.toISOString(),
-    };
-  });
+  return messages.map((m, idx) => ({
+    follow_up_id: followUpId,
+    sequence_number: sequenceOffset + idx + 1,
+    // The REQUESTED delay, not the clamped one: this is what the UI shows the
+    // user ("Day 3"), and rewriting it would make the clamp invisible to them.
+    send_after_days: m.sendAfterDays,
+    subject: m.subject,
+    body_html: m.bodyHtml,
+    status: FollowUpMessageStatus.Pending,
+    scheduled_send_at: instants[idx].toISOString(),
+  }));
 }
 
 /** Prior open-step snapshot used when rebuilding a sequence on edit (CAR-125). */
