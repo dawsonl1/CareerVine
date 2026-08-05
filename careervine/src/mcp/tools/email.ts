@@ -194,12 +194,25 @@ export const followUpSequenceSchema = {
  * the original was. Pinning the UTC hour pins an instant-of-day, which drifts an
  * hour in local terms across a DST boundary; pinning the local wall clock is
  * what "the hour the conversation already uses" actually means to a person.
+ *
+ * ── The future-floor's clock is a parameter, not the ambient one (CAR-220) ──
+ *
+ * `buildFollowUpMessageRows` pushes any step that would land in the past onto a
+ * later local day, and it measures that against its injectable `now`. Forward
+ * `now` rather than letting it default down there, so this layer has the same
+ * seam every other caller of the builder has. Without it a caller cannot pin the
+ * floor at all, and any assertion about an absolute instant here quietly stops
+ * describing the day/clock arithmetic and starts describing the clamp the moment
+ * real time passes the dates it names.
+ *
+ * @param now - Injectable clock; the builder's future-floor is measured against it.
  */
 export function buildMcpFollowUpRows(
   steps: Array<z.infer<typeof followUpStepShape>>,
   dateBaseIso: string,
   timeAnchorIso: string,
   timeZone: string,
+  now: Date = new Date(),
 ) {
   const sendTime = zonedTimeOfDay(new Date(timeAnchorIso), timeZone);
   return buildFollowUpMessageRows(
@@ -212,6 +225,8 @@ export function buildMcpFollowUpRows(
     })),
     new Date(dateBaseIso),
     timeZone,
+    0,
+    now,
   );
 }
 

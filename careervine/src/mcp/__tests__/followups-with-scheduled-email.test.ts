@@ -38,8 +38,28 @@ describe("buildMcpFollowUpRows", () => {
   const SEND_AT = "2026-08-04T14:58:00.000Z";
   const MT = "America/Denver";
 
+  /**
+   * Every case below asserts day/clock ARITHMETIC, so it pins the builder's
+   * CAR-220 future-floor to the sequence's own creation moment — its date base —
+   * instead of leaving it on the ambient clock.
+   *
+   * The floor pushes any step that would land in the past onto a later local
+   * day, so an unpinned case stops describing the arithmetic and starts
+   * describing the clamp the instant real time passes the date it names. That is
+   * not hypothetical: on 2026-08-05 two of these were already inverted (a step
+   * asserted at 08-05 came back 08-06), with three more fuses behind them at
+   * 2026-08-10T14:58Z, 2026-08-11T20:00Z and 2026-11-05T16:05Z. `build` is the
+   * only entry point used here so a new case cannot forget the pin; the clamp
+   * itself is asserted deliberately in its own case at the bottom.
+   */
+  const build = (
+    steps: Parameters<typeof buildMcpFollowUpRows>[0],
+    dateBaseIso: string,
+    timeAnchorIso: string = dateBaseIso,
+  ) => buildMcpFollowUpRows(steps, dateBaseIso, timeAnchorIso, MT, new Date(dateBaseIso));
+
   it("gives every step the opening email's time of day, not 09:00 UTC", () => {
-    const rows = buildMcpFollowUpRows([step(6), step(14)], SEND_AT, SEND_AT, MT);
+    const rows = build([step(6), step(14)], SEND_AT);
 
     // The whole point: 14:58Z (≈9 a.m. Mountain), never 09:00Z (3 a.m. Mountain).
     expect(rows[0].scheduled_send_at).toBe("2026-08-10T14:58:00.000Z");
@@ -50,7 +70,7 @@ describe("buildMcpFollowUpRows", () => {
   });
 
   it("offsets each step by its own send_after_days", () => {
-    const rows = buildMcpFollowUpRows([step(1), step(3), step(30)], SEND_AT, SEND_AT, MT);
+    const rows = build([step(1), step(3), step(30)], SEND_AT);
     expect(rows.map((r) => r.scheduled_send_at.slice(0, 10))).toEqual([
       "2026-08-05",
       "2026-08-07",
@@ -59,7 +79,7 @@ describe("buildMcpFollowUpRows", () => {
   });
 
   it("numbers steps from 1 and records the requested delay", () => {
-    const rows = buildMcpFollowUpRows([step(6, "First"), step(14, "Second")], SEND_AT, SEND_AT, MT);
+    const rows = build([step(6, "First"), step(14, "Second")], SEND_AT);
     expect(rows.map((r) => r.sequence_number)).toEqual([1, 2]);
     expect(rows.map((r) => r.send_after_days)).toEqual([6, 14]);
     expect(rows.map((r) => r.subject)).toEqual(["First", "Second"]);
@@ -69,23 +89,21 @@ describe("buildMcpFollowUpRows", () => {
   it("takes the day from the date base but the clock from the time anchor", () => {
     // The historical-thread path: the original went out weeks ago, so the day
     // base is clamped to now to stop the cron firing the whole sequence at
-    // once — but the time of day should still be the conversation's own.
-    const rows = buildMcpFollowUpRows(
+    // once — but the time of day should still be the conversation's own. `build`
+    // pins the clock to that same base, which is what "clamped to now" means.
+    const rows = build(
       [step(2)],
       "2026-08-03T23:40:00.000Z", // clamped-to-now base, late at night
       "2026-06-01T16:30:00.000Z", // original send, 16:30Z
-      MT,
     );
     expect(rows[0].scheduled_send_at).toBe("2026-08-05T16:30:00.000Z");
   });
 
   it("sanitizes step bodies on the way to storage", () => {
     // The cron auto-sends body_html verbatim, and MCP bodies come from an LLM.
-    const rows = buildMcpFollowUpRows(
+    const rows = build(
       [{ subject: "Hi", body: '<p>ok</p><script>fetch("https://evil")</script>', send_after_days: 1 }],
       SEND_AT,
-      SEND_AT,
-      MT,
     );
     expect(rows[0].body_html).not.toContain("<script");
     expect(rows[0].body_html).toContain("ok");
@@ -101,7 +119,7 @@ describe("buildMcpFollowUpRows", () => {
     // 20:00Z is 14:00 Mountain. Follow-ups must land at 14:00 Mountain (20:00Z),
     // NOT at 20:00 Mountain (02:00Z the next day), which is what a UTC-read
     // anchor would have produced once sendTime became local.
-    const rows = buildMcpFollowUpRows([step(7)], "2026-08-04T20:00:00.000Z", "2026-08-04T20:00:00.000Z", MT);
+    const rows = build([step(7)], "2026-08-04T20:00:00.000Z");
     expect(rows[0].scheduled_send_at).toBe("2026-08-11T20:00:00.000Z");
     expect(localClock(rows[0].scheduled_send_at)).toBe("14:00");
   });
@@ -111,18 +129,32 @@ describe("buildMcpFollowUpRows", () => {
     // Nov 1 fall-back. Pinning the local wall clock keeps it at 09:05 Mountain;
     // pinning 15:05Z would have shown 08:05 Mountain, an hour earlier than the
     // conversation's own hour.
-    const rows = buildMcpFollowUpRows([step(21)], "2026-10-15T15:05:00.000Z", "2026-10-15T15:05:00.000Z", MT);
+    const rows = build([step(21)], "2026-10-15T15:05:00.000Z");
     expect(localClock(rows[0].scheduled_send_at)).toBe("09:05");
     expect(rows[0].scheduled_send_at).toBe("2026-11-05T16:05:00.000Z");
   });
 
+  /**
+   * The clamp the cases above deliberately pin away, asserted on its own terms.
+   * It is the reason they must pin: an MCP step really can be computed into the
+   * past (the historical-thread anchor bases off a months-old send), and the
+   * cron's due filter is a bare `scheduled_send_at <= now`, so such a row would
+   * go out on the send watcher's next ~15s tick (CAR-220).
+   */
+  it("pushes a step that would land in the past onto the next local day", () => {
+    // Step 1 off a 14:58Z base computes to 2026-08-05T14:58Z. With the clock at
+    // 21:18Z that day, that instant is already gone, so it advances a whole
+    // LOCAL day and keeps the conversation's 08:58 Mountain hour rather than
+    // collapsing to "now".
+    const rows = buildMcpFollowUpRows([step(1)], SEND_AT, SEND_AT, MT, new Date("2026-08-05T21:18:00.000Z"));
+    expect(rows[0].scheduled_send_at).toBe("2026-08-06T14:58:00.000Z");
+    expect(localClock(rows[0].scheduled_send_at)).toBe("08:58");
+    // The delay stored is the REQUESTED one; the clamp must not rewrite it.
+    expect(rows[0].send_after_days).toBe(1);
+  });
+
   it("converts markdown bodies to HTML", () => {
-    const rows = buildMcpFollowUpRows(
-      [{ subject: "Hi", body: "Still **interested**!", send_after_days: 1 }],
-      SEND_AT,
-      SEND_AT,
-      MT,
-    );
+    const rows = build([{ subject: "Hi", body: "Still **interested**!", send_after_days: 1 }], SEND_AT);
     expect(rows[0].body_html).toContain("<strong>interested</strong>");
   });
 });
