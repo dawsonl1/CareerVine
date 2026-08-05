@@ -18,7 +18,13 @@ import {
   ScheduledEmailStatus,
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
-import { cancelFollowUpsForScheduledEmail } from "@/lib/follow-up-helpers";
+import {
+  cancelFollowUpsForScheduledEmail,
+  clampFollowUpInstants,
+  parseSendTime,
+} from "@/lib/follow-up-helpers";
+import { zonedDateParts } from "@/lib/timezone";
+import { paginateAll } from "@/lib/data/postgrest";
 
 type EmailClient = SupabaseClient<Database>;
 
@@ -272,4 +278,102 @@ export async function cancelFollowUpSequenceCascade(
     .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
   if (msgError) throw msgError;
   return true;
+}
+
+/** One step's new landing time, as `rescheduleFollowUpSequenceCascade` reports it. */
+export interface RescheduledFollowUpStep {
+  sequenceNumber: number;
+  scheduledSendAt: string;
+}
+
+/**
+ * Move the unresolved steps of an active sequence to a new time of day, keeping
+ * the calendar date each one already has. Returns null when the sequence isn't
+ * this user's or isn't active.
+ *
+ * ── Why the date comes from the ROW, not from send_after_days ────────────
+ *
+ * `send_after_days` deliberately stores the REQUESTED delay, not the clamped
+ * one (see `buildFollowUpMessageRows`), so a step that was clamped forward at
+ * creation has a stored date that `original_sent_at + send_after_days` does not
+ * reproduce. Re-deriving would silently walk such a step BACKWARD onto a date
+ * the user never agreed to. Reading the date off `scheduled_send_at` keeps
+ * "same day, new clock" literally true.
+ *
+ * ── Why nothing else moves ──────────────────────────────────────────────
+ *
+ * Only `scheduled_send_at` is written. Bodies, subjects, sequence numbers and
+ * `send_after_days` are untouched, which is the whole point of this path
+ * existing next to `PUT /api/gmail/follow-ups/[id]`: that route rebuilds every
+ * unresolved row from caller-supplied copy, and reviewed outbound text should
+ * not be at risk for what is a metadata change.
+ *
+ * 'sending' rows are excluded with the rest of the resolved statuses: a step
+ * mid-claim belongs to the send driver, and retiming it under that driver would
+ * race the claim.
+ */
+export async function rescheduleFollowUpSequenceCascade(
+  client: EmailClient,
+  userId: string,
+  followUpId: number,
+  sendTime: string,
+  timeZone: string,
+  now: Date = new Date(),
+): Promise<RescheduledFollowUpStep[] | null> {
+  // Ownership + active check in one read. The service role bypasses RLS, so
+  // user_id is what makes this another user's sequence invisible rather than
+  // merely unreachable.
+  const { data: parent, error: parentError } = await client
+    .from("email_follow_ups")
+    .select("id")
+    .eq("id", followUpId)
+    .eq("user_id", userId)
+    .eq("status", FollowUpStatus.Active)
+    .maybeSingle();
+  if (parentError) throw parentError;
+  if (!parent) return null;
+
+  // Ordered by sequence_number so the strictly-increasing guard inside
+  // clampFollowUpInstants applies in send order rather than PostgREST's, and
+  // paged because a silent 1000-row truncation here would leave the tail of a
+  // sequence sitting at the old time while the head moved.
+  const steps = await paginateAll(async (from, to) => {
+    const { data, error } = await client
+      .from("email_follow_up_messages")
+      .select("id, sequence_number, scheduled_send_at")
+      .eq("follow_up_id", followUpId)
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES])
+      .order("sequence_number", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    return data;
+  });
+  if (steps.length === 0) return [];
+
+  const { hour, minute } = parseSendTime(sendTime);
+  const instants = clampFollowUpInstants(
+    steps.map((s) => ({
+      localDate: zonedDateParts(new Date(s.scheduled_send_at), timeZone),
+      hour,
+      minute,
+    })),
+    timeZone,
+    now,
+  );
+
+  const updated: RescheduledFollowUpStep[] = [];
+  for (const [idx, step] of steps.entries()) {
+    const scheduledSendAt = instants[idx].toISOString();
+    const { error: updateError } = await client
+      .from("email_follow_up_messages")
+      .update({ scheduled_send_at: scheduledSendAt })
+      .eq("id", step.id)
+      // Re-assert the status at write time: the send driver may have claimed
+      // this row into 'sending' between the read above and here, and a retime
+      // landing on a claimed row would move a send that is already in flight.
+      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
+    if (updateError) throw updateError;
+    updated.push({ sequenceNumber: step.sequence_number, scheduledSendAt });
+  }
+  return updated;
 }

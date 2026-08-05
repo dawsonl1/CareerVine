@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { z } from "zod";
 import { buildMcpFollowUpRows, scheduleEmailSchema, followUpSequenceSchema } from "../tools/email";
 
@@ -39,24 +39,44 @@ describe("buildMcpFollowUpRows", () => {
   const MT = "America/Denver";
 
   /**
-   * Every case below asserts day/clock ARITHMETIC, so it pins the builder's
-   * CAR-220 future-floor to the sequence's own creation moment — its date base —
-   * instead of leaving it on the ambient clock.
+   * TWO layers of clock control, and both are load-bearing.
    *
-   * The floor pushes any step that would land in the past onto a later local
-   * day, so an unpinned case stops describing the arithmetic and starts
-   * describing the clamp the instant real time passes the date it names. That is
-   * not hypothetical: on 2026-08-05 two of these were already inverted (a step
-   * asserted at 08-05 came back 08-06), with three more fuses behind them at
-   * 2026-08-10T14:58Z, 2026-08-11T20:00Z and 2026-11-05T16:05Z. `build` is the
-   * only entry point used here so a new case cannot forget the pin; the clamp
-   * itself is asserted deliberately in its own case at the bottom.
+   * Every case below asserts day/clock ARITHMETIC, and the builder's CAR-220
+   * future-floor rewrites any step that would land in the past. Against a live
+   * clock these assertions were therefore true only until the calendar reached
+   * the fixtures they name, and then false forever: by 2026-08-05 the
+   * `send_after_days: 1` step and the historical-thread case had both started
+   * clamping a day forward, with three more fuses behind them at
+   * 2026-08-10T14:58Z, 2026-08-11T20:00Z and 2026-11-05T16:05Z.
+   *
+   * The frozen system clock (CAR-230) pins the ambient `new Date()` that any
+   * code path in this file reads without being handed one.
+   *
+   * `build` (CAR-229) pins the builder's floor explicitly and PER CASE, to that
+   * sequence's own creation moment. It is the narrower of the two: each case
+   * states the instant its own arithmetic is measured from, rather than
+   * inheriting one global date that every case added later must also happen to
+   * satisfy. It is also the only entry point used here, so a new case cannot
+   * forget the pin.
+   *
+   * Keep both. A frozen global clock cannot express a per-case floor, and an
+   * injected `now` does not reach a clock read that never gets to the builder.
+   * The clamp itself is asserted deliberately in its own case at the bottom,
+   * which passes its own `now` and is therefore independent of both layers.
    */
   const build = (
     steps: Parameters<typeof buildMcpFollowUpRows>[0],
     dateBaseIso: string,
     timeAnchorIso: string = dateBaseIso,
   ) => buildMcpFollowUpRows(steps, dateBaseIso, timeAnchorIso, MT, new Date(dateBaseIso));
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-04T15:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("gives every step the opening email's time of day, not 09:00 UTC", () => {
     const rows = build([step(6), step(14)], SEND_AT);

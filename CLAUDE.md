@@ -140,9 +140,9 @@ The failure mode this guards against is real and recent: CAR-157 found the same 
 
 <!-- New rules are appended below this line. Do not edit above this section. -->
 
-> **Archived** → `.claude/rules-archive.md`, verbatim, with the reason each left: rules 2, 6, 9, 11, 18–23, 34, 46 (superseded/absorbed), and 4, 12, 15, 16, 17, 28, 29, 30, 33, 36, 39, 40, 43, 44, 47, 48, 49, 51 (merged into a live rule, or localized to a verified code-site guard). Numbering is never reused — the next new rule takes the number after the highest below (52).
+> **Archived** → `.claude/rules-archive.md`, verbatim, with the reason each left: rules 2, 6, 9, 11, 18–23, 34, 46 (superseded/absorbed), and 4, 12, 15, 16, 17, 28, 29, 30, 33, 36, 39, 40, 43, 44, 47, 48, 49, 51 (merged into a live rule, or localized to a verified code-site guard). Numbering is never reused — the next new rule takes the number after the highest below (53).
 >
-> 21 live, 30 archived, 51 accounted for. **Before localizing a rule, open the guard and confirm it exists** — three of these were nearly archived on the strength of "the convention isn't written up in CONVENTIONS.md," which measures documentation, not enforcement. Two turned out to be guarded already; the third had no guard until one was written for it.
+> 22 live, 30 archived, 52 accounted for. **Before localizing a rule, open the guard and confirm it exists** — three of these were nearly archived on the strength of "the convention isn't written up in CONVENTIONS.md," which measures documentation, not enforcement. Two turned out to be guarded already; the third had no guard until one was written for it.
 
 1. [PROCESS] Always rephrase user-provided rules into precise, unambiguous imperatives with explicit scope and rationale before appending them — because conversational phrasing is ambiguous, and a rule is only as good as its worst reading.
 
@@ -185,3 +185,5 @@ The failure mode this guards against is real and recent: CAR-157 found the same 
 45. [PROCESS] Never report CI as green from the absence of failing checks — verify the expected JOB LIST is present and passing via `gh run list` on the head SHA plus `gh run view <id> --json jobs`. A conflicted PR produces no Actions run at all, so the checks UI shows only the non-Actions integrations passing and reads as all-clear. `gh pr checks` alone cannot report a job that was never created. A `mergeStateStatus` of DIRTY/BLOCKED means investigate, never retry-and-hope.
 
 50. [TOOL] Never `git checkout -- <file>` to undo a temporary edit on uncommitted work — it restores from the INDEX, discarding every uncommitted change in the file, not just your probe. Commit first (a WIP commit is free and amendable) or copy the file to the scratchpad and restore with `cp`. Applies to any probe-and-revert workflow: falsification passes, bisecting, testing a hypothesis by breaking something.
+
+52. [PROCESS] Never conclude a test is vacuous (or a guard missing) from a falsification probe that came back clean until you have confirmed the probe actually mutated the intended code — print the `git diff` and read it before trusting a green run. A file-wide `sed`/`perl -0p` substitution edits the FIRST match in the file, which is routinely a different function with the same idiom, so the probe changes nothing relevant and its passing result reads as proof the test is worthless. A no-op probe is not evidence in either direction.

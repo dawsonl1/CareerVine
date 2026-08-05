@@ -297,6 +297,19 @@ const DB_TABLE: Record<string, Entry> = {
     kind: "ownership",
     drive: () => db.cancelFollowUpSequence(3),
   },
+  rescheduleFollowUpSequence: {
+    kind: "ownership",
+    drive: () => db.rescheduleFollowUpSequence(3, "09:03"),
+    // The ownership read must find a sequence, or the drive short-circuits on
+    // "no active sequence" and the message queries below it are never observed.
+    route: (q) => {
+      if (q.table === "email_follow_ups" && q.op === "select") return { id: 3 };
+      if (q.table === "email_follow_up_messages" && q.op === "select") {
+        return [{ id: 1, sequence_number: 1, scheduled_send_at: "2026-12-01T16:03:00.000Z" }];
+      }
+      return undefined;
+    },
+  },
   getPendingScheduledEmail: {
     kind: "scoped",
     drive: () => db.getPendingScheduledEmail(12),
@@ -566,6 +579,7 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     findActiveSequenceForScheduledEmail: { kind: "mcp-covered", coveredBy: "assertNoActiveSequenceForScheduledEmail", touches: "email_follow_ups" },
     cancelScheduledEmailCascade: { kind: "mcp-covered", coveredBy: "cancelScheduledEmail", touches: "scheduled_emails" },
     cancelFollowUpSequenceCascade: { kind: "mcp-covered", coveredBy: "cancelFollowUpSequence", touches: "email_follow_ups" },
+    rescheduleFollowUpSequenceCascade: { kind: "mcp-covered", coveredBy: "rescheduleFollowUpSequence", touches: "email_follow_ups" },
   },
 };
 
