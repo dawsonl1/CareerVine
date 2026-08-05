@@ -3111,6 +3111,7 @@ export type Database = {
           p_extra_company_ids?: number[]
           p_min_contacts?: number
           p_scope?: string
+          p_user_id?: string
         }
         Returns: {
           bench_count: number

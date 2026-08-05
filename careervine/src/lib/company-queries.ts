@@ -568,6 +568,7 @@ interface CompanyCountsRow {
  * many contacts you have there, so it still needs its counts.
  */
 async function fetchCompanyCounts(
+  userId: string,
   scope: CompanyScope,
   minContacts: number,
   targetCompanyIds: number[],
@@ -588,6 +589,12 @@ async function fetchCompanyCounts(
   return await paginateAll<CompanyCountsRow>(async (from, to) => {
     const { data, error } = await db()
       .rpc("company_network_counts", {
+        // Passed explicitly rather than left to auth.uid(): the MCP server
+        // injects the service-role client into these modules, where auth.uid()
+        // is NULL and RLS is bypassed, so this argument is what scopes the read
+        // (src/mcp/lib/db.ts). Omitting it made every MCP company query return
+        // zero rows silently — db-scoping.test.ts caught it (CAR-229).
+        p_user_id: userId,
         p_scope: scope,
         p_min_contacts: minContacts,
         p_extra_company_ids: targetCompanyIds,
@@ -683,7 +690,7 @@ export async function getCompanies(
   // Per-company counts AND the scope selection, both computed in Postgres
   // (CAR-229). Targets ride along as extras so they keep their counts even
   // when they have no contacts yet.
-  const countRows = await fetchCompanyCounts(scope, opts.minContacts ?? 1, [...targetByCompany.keys()]);
+  const countRows = await fetchCompanyCounts(userId, scope, opts.minContacts ?? 1, [...targetByCompany.keys()]);
   const countsByCompany = new Map(countRows.map((r) => [r.company_id, r]));
 
   // selectCompanyIds stays the authoritative statement of the scope rule even
