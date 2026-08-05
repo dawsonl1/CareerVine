@@ -19,12 +19,9 @@ import {
   getHomeCoreData,
   getActionListCounts,
   getContactEmailLookup,
-  getRelationshipsOnTrack,
   getNetworkingStreak,
   getHomeStats,
   getActivityHeatmap,
-  getNetworkHealthSummary,
-  getNeglectedContacts,
   updateActionItem,
   appendContactNote,
   snoozeActionItem,
@@ -58,6 +55,8 @@ type ActionItem = Database["public"]["Tables"]["follow_up_action_items"]["Row"] 
   // Null for contactless rows, e.g. the seeded CAR-68 onboarding to-do.
   contacts: Database["public"]["Tables"]["contacts"]["Row"] | null;
 };
+
+type HomeCoreData = Awaited<ReturnType<typeof getHomeCoreData>>;
 
 type FollowUpContact = {
   id: number;
@@ -123,13 +122,20 @@ export default function Home() {
   const [scheduleError, setScheduleError] = useState(false);
   const [newContacts, setNewContacts] = useState<NewContact[]>(cachedData?.newContacts ?? []);
 
-  // Band 3 data
+  // Band 3 data. The three relationship rollups ride getHomeCoreData's fetch —
+  // they derive from the same active contacts + last-touch map it already
+  // paginates, so re-reading them here cost nine requests for identical rows.
   const [homeStats, setHomeStats] = useState<Awaited<ReturnType<typeof getHomeStats>> | null>(null);
   const [heatmapData, setHeatmapData] = useState<{ date: string; count: number; dayOfWeek: number }[]>([]);
-  const [healthSummary, setHealthSummary] = useState<Awaited<ReturnType<typeof getNetworkHealthSummary>> | null>(null);
-  const [neglectedContacts, setNeglectedContactsList] = useState<Awaited<ReturnType<typeof getNeglectedContacts>>>([]);
+  const [healthSummary, setHealthSummary] = useState<HomeCoreData["networkHealth"] | null>(null);
+  const [neglectedContacts, setNeglectedContactsList] = useState<HomeCoreData["neglectedContacts"]>([]);
   const [band3Loading, setBand3Loading] = useState(true);
-  const [relationshipsOnTrack, setRelationshipsOnTrack] = useState<Awaited<ReturnType<typeof getRelationshipsOnTrack>> | null>(null);
+  const [relationshipsOnTrack, setRelationshipsOnTrack] = useState<HomeCoreData["relationshipsOnTrack"] | null>(null);
+  // Band 3 renders as one block, so it stays in its skeleton until BOTH loaders
+  // have reported: the rollups now arrive with core data rather than with the
+  // aggregates beside them, and a cached first paint would otherwise flash an
+  // empty donut while core data was still in flight.
+  const [coreRollupsLoaded, setCoreRollupsLoaded] = useState(false);
   const [streak, setStreak] = useState(0);
   // Getting-started checklist rows the user has dismissed (CAR-73).
   const [dismissedGettingStarted, setDismissedGettingStartedState] = useState<string[]>([]);
@@ -203,6 +209,10 @@ export default function Home() {
       setFollowUps(data.followUps);
       setContactHealth(data.contactHealth);
       setNewContacts(nc);
+      // Band-3 rollups derived from the same fetch (CAR-229).
+      setHealthSummary(data.networkHealth);
+      setNeglectedContactsList(data.neglectedContacts);
+      setRelationshipsOnTrack(data.relationshipsOnTrack);
       setCoreLoadedOnce(true);
 
       // Cache for instant revisit
@@ -221,6 +231,9 @@ export default function Home() {
       setCoreError(true);
     }
     setDataLoaded(true);
+    // Reported either way: a failed core load must release band 3 from its
+    // skeleton exactly as a failed rollup fetch used to.
+    setCoreRollupsLoaded(true);
   }, [user, cacheKey]);
 
   const loadSchedule = useCallback(async () => {
@@ -311,24 +324,22 @@ export default function Home() {
     // refresh doesn't re-fire the calendar sync (CAR-106).
   }, [user, calendarConnected, gmailLoading]);
 
+  // The activity half of band 3: the KPI counts (server-side aggregates, never
+  // rows pulled here to be counted) plus the heatmap and streak scans. The
+  // three relationship rollups arrive with core data instead — they derive
+  // from the population it already holds (CAR-229).
   const loadBand3 = useCallback(async () => {
     if (!user) return;
     try {
       const results = await Promise.allSettled([
         getHomeStats(user.id),
         getActivityHeatmap(user.id),
-        getNetworkHealthSummary(user.id),
-        getNeglectedContacts(user.id),
-        getRelationshipsOnTrack(user.id),
         getNetworkingStreak(user.id),
       ]);
 
       if (results[0].status === "fulfilled") setHomeStats(results[0].value);
       if (results[1].status === "fulfilled") setHeatmapData(results[1].value);
-      if (results[2].status === "fulfilled") setHealthSummary(results[2].value);
-      if (results[3].status === "fulfilled") setNeglectedContactsList(results[3].value);
-      if (results[4].status === "fulfilled") setRelationshipsOnTrack(results[4].value);
-      if (results[5].status === "fulfilled") setStreak(results[5].value.streak);
+      if (results[2].status === "fulfilled") setStreak(results[2].value.streak);
     } catch {
       // silent
     } finally {
@@ -960,7 +971,7 @@ export default function Home() {
             neglectedContacts={neglectedContacts}
             relationshipsOnTrack={relationshipsOnTrack}
             streak={streak}
-            loading={band3Loading}
+            loading={band3Loading || !coreRollupsLoaded}
           />
         )}
       </main>

@@ -13,6 +13,7 @@ import { SUGGESTION_COOLDOWN_DAYS } from "@/lib/constants";
 import { deriveDueFollowUps, type DueFollowUpEntry } from "@/lib/rules/due-follow-ups";
 import { deriveRelationshipsOnTrack } from "@/lib/rules/on-track";
 import { deriveNeglectedContacts } from "@/lib/rules/neglected";
+import { startOfDay } from "@/lib/rules/clock";
 import { dateKeyOf, daysBetweenDateKeys } from "@/lib/calendar-day";
 
 /** Get a suggestion cooldown timestamp (now + SUGGESTION_COOLDOWN_DAYS) */
@@ -156,6 +157,83 @@ export async function setSuggestionCooldown(contactId: number) {
   if (error) throw error;
 }
 
+/** Contact columns the last-touch projection needs (the health-grid select). */
+export interface LastTouchSourceRow {
+  id: number;
+  name: string;
+  industry: string | null;
+  photo_url: string | null;
+  follow_up_frequency_days: number | null;
+  created_at: string;
+  first_outreach_skipped: boolean | null;
+  network_status: string;
+}
+
+export type ContactWithLastTouch = LastTouchSourceRow & {
+  last_touch: string | null;
+  /** Whole calendar days since the last touch; null means never contacted. */
+  days_since_touch: number | null;
+};
+
+/**
+ * A population plus its last-touch map that a caller already holds, letting
+ * the rollups below skip their own fetch (CAR-229).
+ *
+ * getHomeCoreData paginates the active contact list and builds the map for
+ * the action feed; the donut, the neglected list and the on-track ratio then
+ * re-read exactly those rows. Passing this instead is what removes nine
+ * requests from a dashboard load, and it keeps ONE code path per rollup: the
+ * standalone fetch and the dashboard run the same function over the same
+ * rule, differing only in where the rows came from.
+ *
+ * `nowIso` is the caller's pinned instant, so every surface in one response
+ * is evaluated against a single clock.
+ */
+export interface PrefetchedContacts {
+  contacts: LastTouchSourceRow[];
+  lastTouchMap: Map<number, string>;
+  nowIso: string;
+}
+
+/**
+ * Project contacts + their last-touch map into the health-grid row shape.
+ * Pure, clock injected via nowIso.
+ *
+ * `days_since_touch` is what deriveNeglectedContacts consumes, so this is the
+ * one place that computes it: the dashboard and the MCP network-health tool
+ * cannot end up measuring "days since" two different ways.
+ *
+ * Module-private on purpose — src/mcp/__tests__/db-scoping.test.ts enumerates
+ * every export of this module, and a pure helper is not a query surface.
+ */
+function deriveContactsWithLastTouch(
+  contacts: LastTouchSourceRow[],
+  lastTouchMap: Map<number, string>,
+  nowIso: string,
+): ContactWithLastTouch[] {
+  const todayKey = dateKeyOf(startOfDay(nowIso));
+
+  return contacts.map((c) => {
+    const lastTouch = lastTouchMap.get(c.id) || null;
+    // Whole calendar days, both ends local (CAR-206) — feeds the neglected rule.
+    const daysSinceTouch = lastTouch
+      ? daysBetweenDateKeys(dateKeyOf(new Date(lastTouch)), todayKey)
+      : null; // null means never contacted
+    return {
+      id: c.id,
+      name: c.name,
+      industry: c.industry,
+      photo_url: c.photo_url,
+      follow_up_frequency_days: c.follow_up_frequency_days,
+      created_at: c.created_at,
+      first_outreach_skipped: c.first_outreach_skipped,
+      network_status: c.network_status,
+      last_touch: lastTouch,
+      days_since_touch: daysSinceTouch,
+    };
+  });
+}
+
 /**
  * Get all contacts with their last interaction/meeting date for the relationship health grid.
  * Returns a lightweight projection: id, name, industry, last_touch date, and days since last touch.
@@ -164,9 +242,15 @@ export async function setSuggestionCooldown(contactId: number) {
  * app surfaces consume it through getNetworkHealthSummary / getNeglectedContacts.
  *
  * @param userId - The user's ID
+ * @param prefetched - Population the caller already holds; skips the fetch
  * @returns Promise<ContactHealth[]> - All contacts with recency data
  */
-export async function getContactsWithLastTouch(userId: string) {
+export async function getContactsWithLastTouch(userId: string, prefetched?: PrefetchedContacts) {
+  if (prefetched) {
+    return deriveContactsWithLastTouch(prefetched.contacts, prefetched.lastTouchMap, prefetched.nowIso);
+  }
+
+  const nowIso = new Date().toISOString();
   // Paginated, not capped: its sibling getRelationshipsOnTrack is unbounded and
   // getNetworkHealth composes both, so a cap here would pair a whole-network
   // on-track ratio with an alphabetically-truncated neglected list. Name order
@@ -187,28 +271,7 @@ export async function getContactsWithLastTouch(userId: string) {
 
   const lastTouchMap = await buildLastTouchMap(userId, contacts.map((c) => c.id));
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  return contacts.map((c) => {
-    const lastTouch = lastTouchMap.get(c.id) || null;
-    // Whole calendar days, both ends local (CAR-206) — feeds the neglected rule.
-    const daysSinceTouch = lastTouch
-      ? daysBetweenDateKeys(dateKeyOf(new Date(lastTouch)), dateKeyOf(today))
-      : null; // null means never contacted
-    return {
-      id: c.id,
-      name: c.name,
-      industry: c.industry,
-      photo_url: c.photo_url,
-      follow_up_frequency_days: c.follow_up_frequency_days,
-      created_at: c.created_at,
-      first_outreach_skipped: c.first_outreach_skipped,
-      network_status: c.network_status,
-      last_touch: lastTouch,
-      days_since_touch: daysSinceTouch,
-    };
-  });
+  return deriveContactsWithLastTouch(contacts, lastTouchMap, nowIso);
 }
 
 /**
@@ -216,7 +279,13 @@ export async function getContactsWithLastTouch(userId: string) {
  * The on-track policy itself lives in src/lib/rules/on-track.ts (CAR-155);
  * this wrapper fetches the population and hands it to the rule.
  */
-export async function getRelationshipsOnTrack(userId: string) {
+export async function getRelationshipsOnTrack(userId: string, prefetched?: PrefetchedContacts) {
+  if (prefetched) {
+    // The rule counts; it does not care about row order, so the dashboard's
+    // name-ordered population produces the same ratio as this fetch's id order.
+    return deriveRelationshipsOnTrack(prefetched.contacts, prefetched.lastTouchMap, prefetched.nowIso);
+  }
+
   const nowIso = new Date().toISOString();
 
   const contacts = await paginateAll(async (from, to) =>
@@ -238,14 +307,25 @@ export async function getRelationshipsOnTrack(userId: string) {
   return deriveRelationshipsOnTrack(contacts, lastTouchMap, nowIso);
 }
 
-/**
- * Get network health summary for the donut chart.
- * Returns counts by category: healthy, due, overdue, neverContacted, noCadence.
- */
-export async function getNetworkHealthSummary(userId: string) {
-  const contacts = await getContactsWithLastTouch(userId);
+export interface NetworkHealthSummary {
+  healthy: number;
+  dueSoon: number;
+  overdue: number;
+  neverContacted: number;
+  noCadence: number;
+  total: number;
+}
 
-  const summary = { healthy: 0, dueSoon: 0, overdue: 0, neverContacted: 0, noCadence: 0, total: contacts.length };
+/**
+ * Bucket contacts into the donut chart's categories. Pure; module-private for
+ * the same reason as deriveContactsWithLastTouch above.
+ */
+function summarizeNetworkHealth(
+  contacts: Pick<ContactWithLastTouch, "follow_up_frequency_days" | "days_since_touch">[],
+): NetworkHealthSummary {
+  const summary: NetworkHealthSummary = {
+    healthy: 0, dueSoon: 0, overdue: 0, neverContacted: 0, noCadence: 0, total: contacts.length,
+  };
 
   for (const c of contacts) {
     if (!c.follow_up_frequency_days) {
@@ -267,11 +347,19 @@ export async function getNetworkHealthSummary(userId: string) {
 }
 
 /**
+ * Get network health summary for the donut chart.
+ * Returns counts by category: healthy, due, overdue, neverContacted, noCadence.
+ */
+export async function getNetworkHealthSummary(userId: string, prefetched?: PrefetchedContacts) {
+  return summarizeNetworkHealth(await getContactsWithLastTouch(userId, prefetched));
+}
+
+/**
  * Get contacts that are 2x+ past their follow-up cadence (neglected relationships).
  * The neglected policy itself lives in src/lib/rules/neglected.ts (CAR-155);
  * this wrapper fetches the population and hands it to the rule.
  */
-export async function getNeglectedContacts(userId: string) {
-  const contacts = await getContactsWithLastTouch(userId);
+export async function getNeglectedContacts(userId: string, prefetched?: PrefetchedContacts) {
+  const contacts = await getContactsWithLastTouch(userId, prefetched);
   return deriveNeglectedContacts(contacts);
 }
