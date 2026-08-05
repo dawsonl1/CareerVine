@@ -5,7 +5,8 @@
  * Client resolution is lazy via db(); functions throw on failure.
  */
 
-import { db } from "./client";
+import { db, must } from "./client";
+import { chunkedPaginated } from "./postgrest";
 
 /**
  * Upload a file to Supabase Storage and create an attachment record.
@@ -101,6 +102,45 @@ export async function getAttachmentsForMeeting(meetingId: number) {
     .eq("meeting_id", meetingId);
   if (error) throw error;
   return (data || []).map((row) => row.attachments).filter((a): a is NonNullable<typeof a> => a != null);
+}
+
+/**
+ * Attachments for MANY meetings in ONE batched read (CAR-229).
+ *
+ * Counterpart to getActionItemsForMeetings — the activity timeline fired both
+ * per meeting inside a `Promise.all(meetings.map(...))`. Anything iterating
+ * meetings calls this; the singular function stays for the upload handler,
+ * which refreshes exactly one meeting.
+ *
+ * chunkedPaginated, NOT chunked: meeting_attachments fans out per meeting, so
+ * one 200-id chunk can exceed PostgREST's 1000-row cap by itself.
+ *
+ * @param meetingIds - Meeting ids to fetch for; an empty list issues no query
+ * @returns Promise<Record<meetingId, Attachment[]>> - meetings with no
+ *   attachments are absent from the map
+ */
+export async function getAttachmentsForMeetings(meetingIds: number[]) {
+  const rows = await chunkedPaginated(meetingIds, async (chunk, from, to) =>
+    must(
+      await db()
+        .from("meeting_attachments")
+        .select("meeting_id, attachment_id, attachments(*)")
+        .in("meeting_id", chunk)
+        // meeting_id leads for a stable total order across range windows;
+        // attachment_id is monotonic with insertion, which is the order the
+        // per-meeting read returned in practice (it declared none).
+        .order("meeting_id", { ascending: true })
+        .order("attachment_id", { ascending: true })
+        .range(from, to),
+    ),
+  );
+
+  const byMeeting: Record<number, NonNullable<(typeof rows)[number]["attachments"]>[]> = {};
+  for (const row of rows) {
+    if (!row.attachments) continue;
+    (byMeeting[row.meeting_id] ??= []).push(row.attachments);
+  }
+  return byMeeting;
 }
 
 /**

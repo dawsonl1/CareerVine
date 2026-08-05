@@ -6,7 +6,7 @@
  */
 
 import { db, must } from "./client";
-import { paginateAll } from "./postgrest";
+import { chunkedPaginated, paginateAll } from "./postgrest";
 import type { Database } from "@/lib/database.types";
 import { activateContacts } from "./contacts";
 import { deleteAttachment } from "./attachments";
@@ -310,6 +310,142 @@ export async function getTranscriptSegments(meetingId: number) {
         .range(from, to),
     ),
   );
+}
+
+/**
+ * Transcript segments for MANY meetings in ONE batched read (CAR-229).
+ *
+ * Third of the per-meeting reads the activity timeline fired inside a
+ * `Promise.all(meetings.map(...))`. Anything iterating meetings calls this; the
+ * singular function stays for the speaker-resolver reload, which refreshes one
+ * meeting after a write.
+ *
+ * chunkedPaginated for the same reason getTranscriptSegments paginates: one
+ * row per utterance, so a single meeting routinely passes PostgREST's 1000-row
+ * cap and a whole chunk of meetings certainly does.
+ *
+ * @param meetingIds - Meeting ids to fetch for; an empty list issues no query
+ * @returns Promise<Record<meetingId, TranscriptSegment[]>> - meetings with no
+ *   segments are absent from the map
+ */
+export async function getTranscriptSegmentsForMeetings(meetingIds: number[]) {
+  const rows = await chunkedPaginated(meetingIds, async (chunk, from, to) =>
+    must(
+      await db()
+        .from("transcript_segments")
+        .select("*, contacts:contact_id(id, name)")
+        .in("meeting_id", chunk)
+        // meeting_id leads for a stable total order across range windows;
+        // ordinal is the within-meeting order getTranscriptSegments returns.
+        .order("meeting_id", { ascending: true })
+        .order("ordinal", { ascending: true })
+        .range(from, to),
+    ),
+  );
+
+  const byMeeting: Record<number, typeof rows> = {};
+  for (const row of rows) (byMeeting[row.meeting_id] ??= []).push(row);
+  return byMeeting;
+}
+
+// ── Attendee identity ────────────────────────────────────────────────────
+//
+// The activity and calendar timelines both label attendees, and both used to
+// do it by pulling the user's ENTIRE contact list — ~2,000 rows dragging every
+// joined email, phone, company, school and tag — to read one field off it. On
+// a real network that single read was the slowest request on either page. The
+// two lookups below replace it with a read bounded by the attendees actually
+// on screen (CAR-229).
+//
+// They live in the meeting domain because their only consumers are the meeting
+// and calendar attendee surfaces, and because contact_emails fans out per
+// contact, both go through chunkedPaginated rather than chunked.
+
+/**
+ * Which network statuses an attendee lookup resolves. Mirrors getContacts'
+ * default (bench excluded), because these lookups REPLACED a getContacts call
+ * on both timelines: widening this would start labelling attendees that neither
+ * page has ever labelled, and would flip /calendar's "With contacts" filter for
+ * events whose only known attendee is benched.
+ */
+const ATTENDEE_NETWORK_STATUSES = ["active", "prospect"] as const;
+
+/**
+ * First email address of each of `contactIds`, keyed by contact id.
+ *
+ * "First" reproduces exactly what the activity timeline read off getContacts —
+ * element 0 of the embedded contact_emails array — so RSVP badges keep matching
+ * the same single address. Ordering by id states that order rather than
+ * inheriting PostgREST's embed order by accident.
+ *
+ * @param userId - The user's ID; scopes through a contacts!inner join
+ * @param contactIds - Contact ids to resolve; an empty list issues no query
+ */
+export async function getFirstEmailByContactId(
+  userId: string,
+  contactIds: number[],
+): Promise<Map<number, string>> {
+  const rows = await chunkedPaginated([...new Set(contactIds)], async (chunk, from, to) =>
+    must(
+      await db()
+        .from("contact_emails")
+        .select("contact_id, email, contacts!inner(user_id, network_status)")
+        .in("contact_id", chunk)
+        .eq("contacts.user_id", userId)
+        .in("contacts.network_status", [...ATTENDEE_NETWORK_STATUSES])
+        .order("contact_id", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  );
+
+  const first = new Map<number, string>();
+  for (const row of rows) {
+    if (!row.email || first.has(row.contact_id)) continue;
+    first.set(row.contact_id, row.email);
+  }
+  return first;
+}
+
+/**
+ * Contact id + name for each of `emails`, keyed by the LOWERCASED address.
+ *
+ * Addresses are lowercased on the way in as well as out: contact_emails.email
+ * is stored lower(trim())-normalized (one-time backfill plus a trigger, CAR-153
+ * migration 20260717020000), but the calendar attendee addresses this is called
+ * with come straight from Google and are not.
+ *
+ * @param userId - The user's ID; scopes through a contacts!inner join
+ * @param emails - Addresses to resolve; an empty list issues no query
+ */
+export async function getContactsByEmail(
+  userId: string,
+  emails: string[],
+): Promise<Map<string, { id: number; name: string }>> {
+  const wanted = [...new Set(emails.map((e) => (e ?? "").trim().toLowerCase()).filter(Boolean))];
+
+  const rows = await chunkedPaginated<
+    { email: string | null; contacts: { id: number; name: string } | null },
+    string
+  >(wanted, async (chunk, from, to) =>
+    must(
+      await db()
+        .from("contact_emails")
+        .select("email, contacts!inner(id, name, user_id, network_status)")
+        .in("email", chunk)
+        .eq("contacts.user_id", userId)
+        .in("contacts.network_status", [...ATTENDEE_NETWORK_STATUSES])
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  );
+
+  const byEmail = new Map<string, { id: number; name: string }>();
+  for (const row of rows) {
+    if (!row.email || !row.contacts) continue;
+    byEmail.set(row.email.toLowerCase(), { id: row.contacts.id, name: row.contacts.name });
+  }
+  return byEmail;
 }
 
 /**

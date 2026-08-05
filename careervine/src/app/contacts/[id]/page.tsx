@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useParams, useRouter } from "next/navigation";
 import { hasInAppBackHistory } from "@/lib/nav-history";
@@ -80,7 +80,15 @@ export default function ContactDetailPage() {
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(true);
+  /**
+   * The user's whole contact list, for the ContactPicker inside the Actions
+   * tab's inline edit form — the ONLY thing on a one-contact page that needs it.
+   * Fetched when that tab opens, never on mount (CAR-229): it is ~2,000 rows
+   * dragging every joined email, phone, company, school and tag, and it was by
+   * some distance the slowest request this page made.
+   */
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
+  const contactsRequested = useRef(false);
   const [editing, setEditing] = useState(false);
 
   const [meetings, setMeetings] = useState<ContactMeeting[]>([]);
@@ -122,6 +130,23 @@ export default function ContactDetailPage() {
     setActiveTab(tab);
     window.history.replaceState(null, "", `#${tab}`);
   };
+
+  /**
+   * Idempotent via a ref rather than `allContacts.length`, so re-entering the
+   * tab cannot re-fire it and an empty list is not mistaken for "never tried";
+   * the ref is released on failure so the next open retries.
+   */
+  const ensureAllContacts = useCallback(async () => {
+    if (!user || contactsRequested.current) return;
+    contactsRequested.current = true;
+    try {
+      // getContacts is properly typed as of CAR-158; no assertion needed.
+      setAllContacts(await getContacts(user.id));
+    } catch (e) {
+      contactsRequested.current = false;
+      console.error("Error loading contacts:", e);
+    }
+  }, [user]);
 
   const loadContact = useCallback(async () => {
     if (!user) return;
@@ -261,11 +286,25 @@ export default function ContactDetailPage() {
       getGmailConnection(user.id)
         .then((conn) => setGmailConn(conn as GmailConnection | null))
         .catch(() => {});
-
-      // getContacts is properly typed as of CAR-158; no assertion needed.
-      getContacts(user.id).then((data) => setAllContacts(data)).catch(() => {});
     }
   }, [user, loadContact]);
+
+  // The Actions tab owns the only consumer of the full list, so opening it is
+  // what pays for the fetch. Covers a direct load on #actions too, since
+  // activeTab is seeded from the hash.
+  useEffect(() => {
+    if (contact && activeTab === "actions") void ensureAllContacts();
+  }, [contact, activeTab, ensureAllContacts]);
+
+  /**
+   * The tab reads this contact's own name out of the list to label its
+   * "Waiting on …" rows, so keep it in front: otherwise the label reads
+   * "Waiting on them" until the fetch lands.
+   */
+  const actionsTabContacts = useMemo(
+    () => (contact && !allContacts.some((c) => c.id === contact.id) ? [contact, ...allContacts] : allContacts),
+    [contact, allContacts],
+  );
 
   useEffect(() => {
     if (contact) void loadRelatedData();
@@ -476,7 +515,7 @@ export default function ContactDetailPage() {
                     userId={user!.id}
                     actions={actions}
                     completedActions={completedActions}
-                    allContacts={allContacts}
+                    allContacts={actionsTabContacts}
                     meetings={meetings}
                     loading={loadingData}
                     onActionsChange={(acts, completed) => {

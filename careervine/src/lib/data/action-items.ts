@@ -6,7 +6,7 @@
  */
 
 import { db, must, type QueryClient } from "./client";
-import { paginateAll } from "./postgrest";
+import { chunkedPaginated, paginateAll } from "./postgrest";
 import type { Database } from "@/lib/database.types";
 
 /**
@@ -101,6 +101,55 @@ export async function getActionItemsForMeeting(meetingId: number) {
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Action items for MANY meetings in ONE batched read (CAR-229).
+ *
+ * The activity timeline used to call getActionItemsForMeeting once per meeting
+ * inside a `Promise.all(meetings.map(...))`, so a page rendering a single list
+ * opened one PostgREST request per meeting — up to 200, the cap getMeetings
+ * imposes. Anything iterating meetings must call this instead; the singular
+ * function stays for genuine single-meeting refreshes after a mutation.
+ *
+ * chunkedPaginated, NOT chunked: follow_up_action_items fans out per meeting,
+ * so one 200-id chunk can exceed PostgREST's 1000-row cap on its own and
+ * truncate silently (see the postgrest.ts header). The select and the
+ * per-meeting id ordering match getActionItemsForMeeting exactly, so each
+ * grouped array is what the per-meeting call returned.
+ *
+ * @param meetingIds - Meeting ids to fetch for; an empty list issues no query
+ * @returns Promise<Record<meetingId, ActionItem[]>> - meetings with no action
+ *   items are absent from the map, matching the caller's `length > 0` guard
+ */
+export async function getActionItemsForMeetings(meetingIds: number[]) {
+  const rows = await chunkedPaginated(meetingIds, async (chunk, from, to) =>
+    must(
+      await db()
+        .from("follow_up_action_items")
+        .select(`
+          *,
+          contacts(id, name),
+          action_item_contacts(contact_id, contacts(id, name))
+        `)
+        .in("meeting_id", chunk)
+        // meeting_id leads so the range windows are a stable total order across
+        // pages; id is the order getActionItemsForMeeting has always returned
+        // within a meeting.
+        .order("meeting_id", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  );
+
+  const byMeeting: Record<number, typeof rows> = {};
+  for (const row of rows) {
+    // meeting_id is nullable on the table; an .in() filter can never match a
+    // null, so this is a type narrowing rather than a real branch.
+    if (row.meeting_id == null) continue;
+    (byMeeting[row.meeting_id] ??= []).push(row);
+  }
+  return byMeeting;
 }
 
 /**

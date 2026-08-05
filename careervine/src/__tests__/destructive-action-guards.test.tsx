@@ -67,6 +67,7 @@ const q = vi.hoisted(() => ({
   addAttachmentToMeeting: vi.fn(),
   getAttachmentsForContact: vi.fn(),
   getAttachmentsForMeeting: vi.fn(),
+  getAttachmentsForMeetings: vi.fn(),
   getAttachmentUrl: vi.fn(),
   deleteAttachment: vi.fn(),
 }));

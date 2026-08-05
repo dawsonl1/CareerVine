@@ -29,6 +29,21 @@ const q = vi.hoisted(() => ({
   updateSpeakerContact: vi.fn(),
 }));
 
+/**
+ * The batched per-meeting reads (CAR-229). They live in the domain modules
+ * rather than the frozen @/lib/queries barrel, so they need their own mocks —
+ * priming only `q` here would let the page reach the real db() seam.
+ */
+/** Rows the inline calendar_events read resolves with; set per test. */
+const calendarEventRows = vi.hoisted(() => ({ current: [] as unknown[] }));
+
+const batch = vi.hoisted(() => ({
+  getActionItemsForMeetings: vi.fn(),
+  getAttachmentsForMeetings: vi.fn(),
+  getTranscriptSegmentsForMeetings: vi.fn(),
+  getFirstEmailByContactId: vi.fn(),
+}));
+
 vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <nav /> }));
 vi.mock("@/components/auth-provider", () => mockAuthProviderModule());
 vi.mock("@/components/ui/toast", () =>
@@ -37,9 +52,70 @@ vi.mock("@/components/ui/toast", () =>
 vi.mock("@/hooks/use-gmail-connection", () => ({ useGmailConnection: () => ({ calendarConnected: true, loading: false }) }));
 vi.mock("@/components/quick-capture-context", () => ({ useQuickCapture: () => ({ open: vi.fn(), openEdit: vi.fn() }) }));
 vi.mock("@/lib/queries", () => q);
+// The RSVP badge's calendar_events read is issued inline by the page.
+vi.mock("@/lib/supabase/browser-client", () =>
+  mockBrowserClientModule(() => ({
+    from: () => {
+      const builder: Record<string, unknown> = {
+        select: () => builder,
+        in: () => builder,
+        eq: () => Promise.resolve({ data: calendarEventRows.current, error: null }),
+      };
+      return builder;
+    },
+  })),
+);
+vi.mock("@/lib/data/action-items", () =>
+  typedMock<typeof import("@/lib/data/action-items")>({
+    createActionItem: vi.fn(),
+    getActionItems: vi.fn(),
+    getActionItemsForMeeting: vi.fn(),
+    getActionItemsForMeetings: batch.getActionItemsForMeetings,
+    getActionItemsForContact: vi.fn(),
+    getCompletedActionItems: vi.fn(),
+    getCompletedActionItemsForContact: vi.fn(),
+    replaceContactsForActionItem: vi.fn(),
+    deleteActionItem: vi.fn(),
+    getOnboardingActionItemId: vi.fn(),
+    updateActionItem: vi.fn(),
+    snoozeActionItem: vi.fn(),
+  }),
+);
+vi.mock("@/lib/data/attachments", () =>
+  typedMock<typeof import("@/lib/data/attachments")>({
+    uploadAttachment: vi.fn(),
+    addAttachmentToContact: vi.fn(),
+    addAttachmentToMeeting: vi.fn(),
+    getAttachmentsForContact: vi.fn(),
+    getAttachmentsForMeeting: vi.fn(),
+    getAttachmentsForMeetings: batch.getAttachmentsForMeetings,
+    getAttachmentUrl: vi.fn(),
+    deleteAttachment: vi.fn(),
+  }),
+);
+vi.mock("@/lib/data/meetings", () =>
+  typedMock<typeof import("@/lib/data/meetings")>({
+    getMeetings: vi.fn(),
+    getMeetingsForContact: vi.fn(),
+    createMeeting: vi.fn(),
+    updateMeeting: vi.fn(),
+    deleteMeeting: vi.fn(),
+    replaceContactsForMeeting: vi.fn(),
+    addContactsToMeeting: vi.fn(),
+    createTranscriptSegments: vi.fn(),
+    getTranscriptSegments: vi.fn(),
+    getTranscriptSegmentsForMeetings: batch.getTranscriptSegmentsForMeetings,
+    getFirstEmailByContactId: batch.getFirstEmailByContactId,
+    getContactsByEmail: vi.fn(),
+    updateSpeakerContact: vi.fn(),
+    deleteTranscriptSegments: vi.fn(),
+  }),
+);
 
 import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
 import { mockToastModule } from "./helpers/mock-toast";
+import { mockBrowserClientModule } from "./helpers/mock-supabase";
+import { typedMock } from "./helpers/typed-mock";
 import MeetingsPage from "@/app/meetings/page";
 
 const meeting = {
@@ -67,15 +143,65 @@ function primeHappyQueries() {
   q.getMeetings.mockResolvedValue([meeting]);
   q.getContacts.mockResolvedValue([]);
   q.getAllInteractions.mockResolvedValue([]);
-  q.getActionItemsForMeeting.mockResolvedValue([completedAction]);
-  q.getAttachmentsForMeeting.mockResolvedValue([]);
-  q.getTranscriptSegments.mockResolvedValue([]);
+  primeMeetingActions([completedAction]);
+  batch.getAttachmentsForMeetings.mockResolvedValue({});
+  batch.getTranscriptSegmentsForMeetings.mockResolvedValue({});
+  batch.getFirstEmailByContactId.mockResolvedValue(new Map());
+}
+
+/** Action items the batched read returns, keyed to the one fixture meeting. */
+function primeMeetingActions(items: unknown[]) {
+  batch.getActionItemsForMeetings.mockResolvedValue({ [meeting.id]: items });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  calendarEventRows.current = [];
 });
 afterEach(() => cleanup());
+
+describe("MeetingsPage — attendee RSVP badges (CAR-229)", () => {
+  const linked = {
+    ...meeting,
+    id: 2,
+    calendar_event_id: "gcal-1",
+    meeting_contacts: [{ contact_id: 5, contacts: { id: 5, name: "Jane Doe", industry: null } }],
+  };
+
+  function primeLinkedMeeting() {
+    q.getMeetings.mockResolvedValue([linked]);
+    q.getContacts.mockResolvedValue([]);
+    q.getAllInteractions.mockResolvedValue([]);
+    batch.getActionItemsForMeetings.mockResolvedValue({});
+    batch.getAttachmentsForMeetings.mockResolvedValue({});
+    batch.getTranscriptSegmentsForMeetings.mockResolvedValue({});
+    calendarEventRows.current = [{
+      google_event_id: "gcal-1",
+      attendees: [{ email: "jane@example.com", responseStatus: "accepted" }],
+    }];
+  }
+
+  it("matches an attendee on the contact's first email, without the full contact list", async () => {
+    primeLinkedMeeting();
+    batch.getFirstEmailByContactId.mockResolvedValue(new Map([[5, "jane@example.com"]]));
+
+    render(<MeetingsPage />);
+    await waitFor(() => expect(screen.getByText("✓")).toBeTruthy());
+
+    // Bounded by the attendees of calendar-linked meetings, not the whole list.
+    expect(batch.getFirstEmailByContactId).toHaveBeenCalledWith(expect.any(String), [5]);
+    expect(q.getContacts).not.toHaveBeenCalled();
+  });
+
+  it("renders the attendee with no badge when the address does not match", async () => {
+    primeLinkedMeeting();
+    batch.getFirstEmailByContactId.mockResolvedValue(new Map([[5, "other@example.com"]]));
+
+    render(<MeetingsPage />);
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeTruthy());
+    expect(screen.queryByText("✓")).toBeNull();
+  });
+});
 
 describe("MeetingsPage — mutation failure contract (F21)", () => {
   it("toasts when restoring an action item fails, instead of swallowing it", async () => {
@@ -129,7 +255,7 @@ describe("MeetingsPage — action-item due dates (CAR-206)", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-07-10T18:00:00-06:00"));
     primeHappyQueries();
-    q.getActionItemsForMeeting.mockResolvedValue([pending("2026-07-10T00:00:00+00:00")]);
+    primeMeetingActions([pending("2026-07-10T00:00:00+00:00")]);
 
     render(<MeetingsPage />);
     await waitFor(() => expect(screen.getByText("Send the deck")).toBeTruthy());
@@ -142,7 +268,7 @@ describe("MeetingsPage — action-item due dates (CAR-206)", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-07-10T09:00:00-06:00"));
     primeHappyQueries();
-    q.getActionItemsForMeeting.mockResolvedValue([pending("2026-07-09T00:00:00+00:00")]);
+    primeMeetingActions([pending("2026-07-09T00:00:00+00:00")]);
 
     render(<MeetingsPage />);
     await waitFor(() => expect(screen.getByText("Send the deck")).toBeTruthy());

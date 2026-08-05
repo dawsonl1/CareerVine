@@ -60,6 +60,7 @@ vi.mock("@/lib/data/action-items", () =>
       return { id: 99, ...payload } as never;
     }),
     getActionItemsForMeeting: vi.fn(),
+    getActionItemsForMeetings: vi.fn(),
     getActionItemsForContact: vi.fn(),
     getCompletedActionItems: vi.fn(),
     getCompletedActionItemsForContact: vi.fn(),
