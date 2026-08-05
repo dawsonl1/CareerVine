@@ -19,9 +19,7 @@ import {
   getHomeCoreData,
   getActionListCounts,
   getContactEmailLookup,
-  getNetworkingStreak,
   getHomeStats,
-  getActivityHeatmap,
   updateActionItem,
   appendContactNote,
   snoozeActionItem,
@@ -31,6 +29,9 @@ import {
   getDismissedGettingStarted,
   setDismissedGettingStarted,
 } from "@/lib/queries";
+// New code imports the domain module directly; src/lib/queries is a frozen
+// compatibility barrel.
+import { getHomeActivity } from "@/lib/data/home";
 import type { Database } from "@/lib/database.types";
 import { useQuickCapture } from "@/components/quick-capture-context";
 import { useExtensionOnboarding } from "@/components/onboarding/extension-onboarding-context";
@@ -325,21 +326,23 @@ export default function Home() {
   }, [user, calendarConnected, gmailLoading]);
 
   // The activity half of band 3: the KPI counts (server-side aggregates, never
-  // rows pulled here to be counted) plus the heatmap and streak scans. The
+  // rows pulled here to be counted) plus ONE activity scan serving both the
+  // heatmap and the streak, which read the same three tables (CAR-229). The
   // three relationship rollups arrive with core data instead — they derive
-  // from the population it already holds (CAR-229).
+  // from the population it already holds.
   const loadBand3 = useCallback(async () => {
     if (!user) return;
     try {
       const results = await Promise.allSettled([
         getHomeStats(user.id),
-        getActivityHeatmap(user.id),
-        getNetworkingStreak(user.id),
+        getHomeActivity(user.id),
       ]);
 
       if (results[0].status === "fulfilled") setHomeStats(results[0].value);
-      if (results[1].status === "fulfilled") setHeatmapData(results[1].value);
-      if (results[2].status === "fulfilled") setStreak(results[2].value.streak);
+      if (results[1].status === "fulfilled") {
+        setHeatmapData(results[1].value.heatmap);
+        setStreak(results[1].value.streak);
+      }
     } catch {
       // silent
     } finally {

@@ -17,7 +17,9 @@
  * server-side aggregate (getHomeStats, getActionListCounts) keeps one:
  * counting rows in the browser to avoid a request is not the trade.
  *
- * The remaining known overlap is the streak against the heatmap — see
+ * The streak and the heatmap read the same three activity tables, and the
+ * streak's 365-day window strictly contains the heatmap's ~6 months, so the
+ * dashboard takes both off ONE scan through getHomeActivity — see
  * fetchActivityRows.
  */
 
@@ -227,14 +229,13 @@ interface ActivityRows {
  * The three activity legs, shared by getNetworkingStreak and
  * getActivityHeatmap so the two cannot drift in shape or scoping.
  *
- * They are still TWO scans on a dashboard load, and the streak's window (365
- * days) strictly contains the heatmap's (~6 months), so one scan over the
- * union could serve both and save three requests. Doing that needs a return
- * shape carrying both, which means either a new export from this module or a
- * changed one — and both are pinned outside this file:
- * `src/mcp/__tests__/db-scoping.test.ts` enumerates every export here, and
- * `src/__tests__/data-scale-regressions.test.ts` asserts getActivityHeatmap
- * resolves to the day array. Land it with those two, not around them.
+ * ONE scan serves both on a dashboard load (CAR-229). The streak's window (365
+ * days) strictly contains the heatmap's (~6 months), so getHomeActivity runs
+ * this once over the wider window and hands the rows to the heatmap as
+ * PrefetchedActivity; rows older than the heatmap's start bucket into days its
+ * axis never emits, so the wider window costs it nothing but the rows. The two
+ * standalone entry points keep their own scans for callers holding nothing —
+ * the MCP network-health tool is getNetworkingStreak's.
  *
  * Paginated — a year of activity can pass the 1000-row cap and silently
  * truncate the streak otherwise.
@@ -380,16 +381,36 @@ export async function getHomeStats(userId: string) {
 }
 
 /**
- * Get daily activity counts for the last 4 months for the heatmap.
- * Start date is aligned to the nearest Sunday ~4 months ago, end date is today.
+ * Activity rows a caller already has in flight, so the heatmap does not
+ * re-read them (CAR-229).
  *
- * Shares its three activity legs with getNetworkingStreak through
- * fetchActivityRows: the streak reads the same tables over a wider window, so
- * one scan could serve both. It does not yet — see the note on
- * fetchActivityRows.
+ * `rows` may be a PROMISE deliberately: getHomeActivity starts the shared scan
+ * and the heatmap's own two legs in the same tick, so all five requests are
+ * one round trip rather than two.
+ *
+ * `now` is the caller's pinned instant, so the heatmap's axis and the streak
+ * derived beside it off the same rows cannot straddle two clocks.
  */
-export async function getActivityHeatmap(userId: string) {
-  const now = new Date();
+interface PrefetchedActivity {
+  rows: ActivityRows | Promise<ActivityRows>;
+  now: Date;
+}
+
+/**
+ * Get daily activity counts for the last ~6 months for the heatmap.
+ * Start date is aligned to the nearest Sunday ~6 months ago, end date is today.
+ *
+ * Standalone fetch for callers holding nothing. The dashboard passes
+ * PrefetchedActivity instead, because the streak scans the same three tables
+ * over a strictly wider window — same function, same day arithmetic, only the
+ * source of the activity rows differs (CAR-229, getHomeActivity).
+ *
+ * The email_messages and contacts sweeps below are keyed by THIS function's
+ * name in check-conventions' EXHAUSTIVE_SWEEP_ALLOWLIST, so lifting either
+ * into a helper renames its entry and fails that ratchet in both directions.
+ */
+export async function getActivityHeatmap(userId: string, prefetched?: PrefetchedActivity) {
+  const now = prefetched?.now ?? new Date();
   // Go back ~6 months and align to Sunday
   const start = new Date(now);
   start.setMonth(start.getMonth() - 6);
@@ -401,8 +422,8 @@ export async function getActivityHeatmap(userId: string) {
   // window and silently flatten the heatmap otherwise.
   // error-tolerated: the heatmap is a cosmetic visualization; a failed read
   // renders those days as empty rather than failing the dashboard.
-  const [activity, sentEmails] = await Promise.all([
-    fetchActivityRows(userId, start),
+  const [activity, sentEmails, newContacts] = await Promise.all([
+    prefetched?.rows ?? fetchActivityRows(userId, start),
     paginateAll(async (from, to) =>
       must(
         await db()
@@ -411,6 +432,20 @@ export async function getActivityHeatmap(userId: string) {
           .eq("user_id", userId)
           .eq("direction", "outbound")
           .gte("date", startStr)
+          .order("id")
+          .range(from, to),
+      ),
+    ).catch(() => []),
+    // Contacts added per day. In the same batch as its siblings, not awaited
+    // after them: it depends on nothing above and a serial read here was a
+    // second round trip on every dashboard load.
+    paginateAll(async (from, to) =>
+      must(
+        await db()
+          .from("contacts")
+          .select("created_at")
+          .eq("user_id", userId)
+          .gte("created_at", start.toISOString())
           .order("id")
           .range(from, to),
       ),
@@ -448,20 +483,6 @@ export async function getActivityHeatmap(userId: string) {
     if (d) getDay(d).conversations++;
   }
 
-  // Also count contacts added per day
-  // error-tolerated: same cosmetic surface as above.
-  const newContacts = await paginateAll(async (from, to) =>
-    must(
-      await db()
-        .from("contacts")
-        .select("created_at")
-        .eq("user_id", userId)
-        .gte("created_at", start.toISOString())
-        .order("id")
-        .range(from, to),
-    ),
-  ).catch(() => []);
-
   for (const c of newContacts) {
     const d = c.created_at?.split("T")[0];
     if (d) getDay(d).contacts++;
@@ -488,4 +509,37 @@ export async function getActivityHeatmap(userId: string) {
   }
 
   return result;
+}
+
+/**
+ * The dashboard's activity band: heatmap plus streak off ONE scan of the three
+ * activity tables (CAR-229).
+ *
+ * They read the same tables and the streak's 365-day window strictly contains
+ * the heatmap's ~6 months, so the wider scan serves both and the pair costs 5
+ * requests instead of 8. Neither result is re-derived here: the day array is
+ * getActivityHeatmap's own, and the streak is deriveNetworkingStreak over this
+ * module's day keys — the same rule and the same input getNetworkingStreak
+ * hands it, differing only in where the rows came from.
+ *
+ * ONE pinned `now` for the whole response, like getHomeCoreData: the streak's
+ * day walk and the heatmap's axis are two views of one instant and must not be
+ * evaluated against clocks that drifted across the awaits between them.
+ */
+export async function getHomeActivity(userId: string) {
+  const now = new Date();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  const lookback = new Date(today);
+  lookback.setDate(lookback.getDate() - STREAK_LOOKBACK_DAYS);
+
+  // Deliberately not awaited before the heatmap call: passing the promise lets
+  // the heatmap's own two legs go out in the same tick as these three, so the
+  // consolidation saves three requests without adding a round trip.
+  const rows = fetchActivityRows(userId, lookback);
+  const heatmap = await getActivityHeatmap(userId, { rows, now });
+
+  // Counting policy lives in src/lib/rules/streak.ts (CAR-155).
+  return { heatmap, streak: deriveNetworkingStreak(streakDayKeys(await rows), today.toISOString()) };
 }

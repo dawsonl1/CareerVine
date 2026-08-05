@@ -546,6 +546,10 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     getActionListCounts: { kind: "web-only" },
     getHomeStats: { kind: "web-only" },
     getActivityHeatmap: { kind: "web-only" },
+    // CAR-229: the dashboard's heatmap + streak off one activity scan. Browser
+    // surface only — the MCP takes its streak from getNetworkingStreak, which
+    // keeps its own narrower scan and its own mcp-covered entry above.
+    getHomeActivity: { kind: "web-only" },
   },
   "@/lib/data/users": {
     // CAR-213: MCP-consumable, because the dossier's alum flag is relative to

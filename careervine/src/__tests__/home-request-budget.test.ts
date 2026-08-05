@@ -6,7 +6,9 @@
  * of the same rows: `contacts` eleven times, `follow_up_action_items` seven,
  * `interactions` seven. Four of those cycles were the SAME population — the
  * active contact list plus its last-touch map — re-read by the reach-out feed,
- * the donut, the neglected list and the on-track ratio.
+ * the donut, the neglected list and the on-track ratio. A fifth was the streak
+ * and the heatmap scanning the same three activity tables separately, which
+ * getHomeActivity now does once over the wider of the two windows.
  *
  * Two things are pinned here, and they are load-bearing in opposite
  * directions:
@@ -47,10 +49,12 @@ import {
 import {
   getActionListCounts,
   getActivityHeatmap,
+  getHomeActivity,
   getHomeCoreData,
   getHomeStats,
   getNetworkingStreak,
 } from "@/lib/data/home";
+import { dateKeyOf } from "@/lib/calendar-day";
 import { getContactEmailLookup } from "@/lib/data/contacts";
 import { getDismissedGettingStarted } from "@/lib/data/users";
 
@@ -99,6 +103,14 @@ const ACTION_ITEMS = [
     snoozed_until: null, contacts: null, meetings: null, action_item_contacts: [] },
 ];
 
+// The activity scan's own rows. Read ONLY by the streak/heatmap legs — every
+// other meetings read on this page is a head count — so these perturb nothing
+// above. Two consecutive recent days give the streak a real run to walk, and
+// the 300-day-old one sits inside the streak's 365-day window but outside the
+// heatmap's ~6 months, which is what makes the shared scan falsifiable in both
+// directions.
+const MEETINGS = [{ meeting_date: daysAgo(1) }, { meeting_date: daysAgo(2) }, { meeting_date: daysAgo(300) }];
+
 function route(q: RecordedQuery): unknown | undefined {
   // Head counts resolve through the recorder's default (count 0); only row
   // reads need fixtures.
@@ -108,6 +120,8 @@ function route(q: RecordedQuery): unknown | undefined {
       return CONTACTS;
     case "meeting_contacts":
       return MEETING_LINKS;
+    case "meetings":
+      return MEETINGS;
     case "interactions":
       return INTERACTIONS;
     case "follow_up_action_items":
@@ -153,8 +167,7 @@ async function driveDashboardLoad() {
     getActionListCounts(USER),
     getHomeCoreData(USER),
     getHomeStats(USER),
-    getActivityHeatmap(USER),
-    getNetworkingStreak(USER),
+    getHomeActivity(USER),
     getDismissedGettingStarted(USER),
     getContactEmailLookup(USER),
   ]);
@@ -167,19 +180,19 @@ describe("dashboard request budget (CAR-229)", () => {
     // Raising any number here is a real regression in what the landing page
     // costs on a high-latency connection. If a widget genuinely needs another
     // read, change the number in the same commit and say why in the PR.
-    // 28 queries, from 37 before this ticket. The per-loader breakdown in the
+    // 25 queries, from 37 before this ticket. The per-loader breakdown in the
     // next test is where each number comes from.
     expect(countsByTable()).toEqual({
       contacts: 6,
-      follow_up_action_items: 7,
-      interactions: 5,
-      meetings: 4,
+      follow_up_action_items: 6,
+      interactions: 4,
+      meetings: 3,
       meeting_contacts: 1,
       email_messages: 3,
       contact_emails: 1,
       users: 1,
     });
-    expect(state.recorded).toHaveLength(28);
+    expect(state.recorded).toHaveLength(25);
   });
 
   it("attributes the budget to the loaders that spend it", async () => {
@@ -188,8 +201,7 @@ describe("dashboard request budget (CAR-229)", () => {
       getActionListCounts: () => getActionListCounts(USER),
       getHomeCoreData: () => getHomeCoreData(USER),
       getHomeStats: () => getHomeStats(USER),
-      getActivityHeatmap: () => getActivityHeatmap(USER),
-      getNetworkingStreak: () => getNetworkingStreak(USER),
+      getHomeActivity: () => getHomeActivity(USER),
     })) {
       state.recorded.length = 0;
       await drive();
@@ -206,8 +218,10 @@ describe("dashboard request budget (CAR-229)", () => {
       // Server-side aggregates, deliberately left as counts: pulling these rows
       // into the browser to count them there is not the trade this ticket makes.
       getHomeStats: { meetings: 2, follow_up_action_items: 3, contacts: 2, interactions: 2, email_messages: 2 },
-      getActivityHeatmap: { meetings: 1, follow_up_action_items: 1, interactions: 1, email_messages: 1, contacts: 1 },
-      getNetworkingStreak: { meetings: 1, follow_up_action_items: 1, interactions: 1 },
+      // The heatmap's five reads, serving the streak as well: the three
+      // activity legs are ONE scan over the streak's wider window, and the
+      // streak adds nothing of its own. It used to add three.
+      getHomeActivity: { meetings: 1, follow_up_action_items: 1, interactions: 1, email_messages: 1, contacts: 1 },
     });
   });
 
@@ -280,5 +294,79 @@ describe("consolidated rollups equal their standalone fetches (CAR-229)", () => 
     expect(later.neglectedContacts).toEqual(first.neglectedContacts);
     expect(later.relationshipsOnTrack).toEqual(first.relationshipsOnTrack);
     expect(later.followUps).toEqual(first.followUps);
+  });
+});
+
+// ── 3. One activity scan for two widgets ───────────────────────────────
+
+/** The heatmap buckets a stored value by its date part; the fixtures are noon UTC. */
+const dayKey = (n: number) => daysAgo(n).split("T")[0];
+
+/** The lower bound of the most recent row read on `table`. */
+function sinceOf(table: string, column: string): string {
+  const q = state.recorded.filter((r) => r.table === table && !r.headRequested).at(-1)!;
+  return q.filters.find(([m, col]) => m === "gte" && col === column)![2] as string;
+}
+
+describe("one activity scan serves both the streak and the heatmap (CAR-229)", () => {
+  it("derives the same heatmap and streak the standalone fetches do", async () => {
+    const activity = await getHomeActivity(USER);
+
+    const [heatmap, streak] = await Promise.all([
+      getActivityHeatmap(USER),
+      getNetworkingStreak(USER),
+    ]);
+
+    expect(activity.heatmap).toEqual(heatmap);
+    expect(activity.streak).toBe(streak.streak);
+
+    // Falsification: the two assertions above would also pass if the shared
+    // scan produced an empty axis and a zero streak. Pin the fixture's actual
+    // activity so they cannot — two meetings and two interactions on the axis,
+    // and two consecutive days behind the streak walk.
+    const busy = Object.fromEntries(activity.heatmap.filter((d) => d.count > 0).map((d) => [d.date, d.count]));
+    expect(busy).toEqual({ [dayKey(1)]: 1, [dayKey(2)]: 1, [dayKey(10)]: 1, [dayKey(40)]: 1 });
+    expect(activity.streak).toBe(2);
+  });
+
+  it("scans over the streak's 365-day window, not the heatmap's six months", async () => {
+    await getHomeActivity(USER);
+    const shared = sinceOf("meetings", "meeting_date");
+
+    state.recorded.length = 0;
+    await getActivityHeatmap(USER);
+    const heatmapOnly = sinceOf("meetings", "meeting_date");
+
+    // Sharing one scan has to widen it to the streak's window, never narrow
+    // the streak to the heatmap's — that direction would silently cap a streak
+    // at six months and no fixture inside the window could show it.
+    expect(shared < heatmapOnly).toBe(true);
+    expect(Math.round((NOW.getTime() - new Date(shared).getTime()) / 86_400_000)).toBeGreaterThanOrEqual(365);
+  });
+
+  it("keeps the wider scan's older rows off the heatmap's axis", async () => {
+    const { heatmap } = await getHomeActivity(USER);
+
+    // The 300-day-old meeting is inside the streak's window and outside the
+    // heatmap's. The axis runs from the heatmap's own start through today, so
+    // the extra rows the shared scan drags in bucket into days nobody reads.
+    expect(heatmap.some((d) => d.date === dayKey(300))).toBe(false);
+    expect(heatmap[0].date > dayKey(300)).toBe(true);
+    expect(heatmap.reduce((n, d) => n + d.count, 0)).toBe(4);
+  });
+
+  it("uses the caller's prefetched rows and pinned instant instead of its own", async () => {
+    // What makes the consolidation safe: the heatmap must not re-scan the
+    // three activity tables, and must draw its axis on the instant its caller
+    // pinned rather than reading the clock again after the awaits.
+    const pinned = new Date(NOW.getTime() - 7 * 86_400_000);
+    const days = await getActivityHeatmap(USER, {
+      rows: { meetings: [], completedItems: [], interactions: [] },
+      now: pinned,
+    });
+
+    expect(state.recorded.map((q) => q.table).sort()).toEqual(["contacts", "email_messages"]);
+    expect(days.at(-1)!.date).toBe(dateKeyOf(pinned));
+    expect(days.at(-1)!.date).not.toBe(dateKeyOf(NOW));
   });
 });
