@@ -411,22 +411,77 @@ describe("/outreach query shape (CAR-229)", () => {
   });
 
   it("the whole /outreach load stays flat", async () => {
-    const summaries = await gate.run(() => getCompanies(USER, { scope: "targets", sort: "priority" }));
+    // The page's real call: `enrich: false`, because nothing it renders reads
+    // the who-you-know fields (CAR-229). The enriched shape is pinned by the
+    // test below, which is the one /companies and MCP are on.
+    const summaries = await gate.run(() =>
+      getCompanies(USER, { scope: "targets", sort: "priority", enrich: false }),
+    );
     const queueReleased = [...gate.released];
     const queueDepth = waveDepth(queueReleased);
     const { queue } = buildOutreachQueue(summaries, new Date().toISOString());
     expect(queue).toHaveLength(COMPANIES);
-    // Enrichment is intact: the queue's ordering and the company cards read it.
-    expect(summaries.every((c) => c.traction != null)).toBe(true);
-    expect(summaries.some((c) => c.alum_count > 0)).toBe(true);
-    expect(summaries.every((c) => c.recruiter_count === 1)).toBe(true);
-    expect(summaries.every((c) => c.lead_contact_name != null)).toBe(true);
+
+    // Everything the page and the queue builder actually read is still real.
+    expect(queue[0].name).toBe(`Company ${FOCUS_COMPANY}`);
+    expect(queue[0].current_count).toBe(FOCUS_CONTACTS);
+    expect(summaries.every((c) => c.target != null)).toBe(true);
+    expect(summaries.every((c) => c.bench_count === 0)).toBe(true);
+
+    // And the five it does not read are ABSENT, not zeroed. This is the
+    // assertion that would catch someone "fixing" the option by keeping the
+    // keys and filling them with 0/null, which reads as a real answer.
+    for (const key of ["alum_count", "product_alum_count", "recruiter_count", "lead_contact_name", "traction"]) {
+      expect(key in summaries[0], `${key} should not exist on an unenriched summary`).toBe(false);
+    }
+
+    // The reads the option is supposed to remove, named rather than inferred
+    // from a total: the viewer's school (feeds only the alum signal), the
+    // per-person employment sweep, and the nine-leg stage/alum fan-out.
+    const queueTables = new Set(queueReleased.map((r) => r.table));
+    expect(queueTables, `unenriched getCompanies read too much:\n${waveReport(queueReleased)}`).toEqual(
+      new Set(["target_companies", "rpc:company_network_counts", "companies"]),
+    );
 
     const detail = await gate.run(() => getCompanyDetail(USER, queue[0].id));
     expect(detail?.current).toHaveLength(FOCUS_CONTACTS);
 
     const report = waveReport(gate.released);
     const total = state.recorded.length;
+
+    /**
+     * Unenriched getCompanies is FOUR waves at this fixture's scale:
+     *
+     *   1  target_companies   (the viewer's school no longer rides along)
+     *   2  the counts RPC     (needs the target ids from wave 1)
+     *   3  companies          (chunk 1 of 2)
+     *   4  companies          (chunk 2 of 2)
+     *
+     * The employment read that used to share waves 3-4 is gone with the pass it
+     * fed, and with it the three contact-chunk waves that followed. Waves 3-4
+     * are `chunked`'s serial loop, so re-derive rather than nudge:
+     * ceil(COMPANIES/200) + 2.
+     */
+    expect(queueDepth, `unenriched getCompanies got deeper:\n${report}`).toBe(4);
+    expect(waveDepth(gate.released), `/outreach got deeper:\n${report}`).toBe(6);
+
+    // Count is the secondary instrument (see the header): it cannot see the
+    // waterfall, but it does catch a leg that fans out per row. 22 measured
+    // (4 in getCompanies + 18 in getCompanyDetail), down from 52 when this page
+    // still asked for the enrichment it never rendered; the ceiling leaves room
+    // for one more batched read per function.
+    expect(total, `/outreach request count:\n${report}`).toBeLessThanOrEqual(26);
+  });
+
+  it("the ENRICHED path (/companies, MCP) keeps its who-you-know pass", async () => {
+    const summaries = await gate.run(() => getCompanies(USER, { scope: "targets", sort: "priority" }));
+    const report = waveReport(gate.released);
+
+    // Enrichment is intact: the company cards, the filters and MCP read it.
+    expect(summaries.every((c) => c.traction != null)).toBe(true);
+    expect(summaries.some((c) => c.alum_count > 0)).toBe(true);
+    expect(summaries.every((c) => c.recruiter_count === 1)).toBe(true);
+    expect(summaries.every((c) => c.lead_contact_name != null)).toBe(true);
 
     /**
      * getCompanies is SEVEN waves at this fixture's scale, and each one is a
@@ -442,12 +497,11 @@ describe("/outreach query shape (CAR-229)", () => {
      * number tracks fixture size while getCompanyDetail's does not. Re-derive
      * rather than nudge: ceil(COMPANIES/200) + ceil(contacts/200) + 3.
      */
-    expect(queueDepth, `getCompanies got deeper:\n${report}`).toBe(7);
-    expect(waveDepth(gate.released), `/outreach got deeper:\n${report}`).toBe(9);
-
-    // Count is the secondary instrument (see the header): it cannot see the
-    // waterfall, but it does catch a leg that fans out per row. 52 measured;
-    // the ceiling leaves room for one more batched read per function.
-    expect(total, `/outreach request count:\n${report}`).toBeLessThanOrEqual(56);
+    expect(waveDepth(gate.released), `enriched getCompanies got deeper:\n${report}`).toBe(7);
+    // 34 measured, and 30 of those are the enrichment pass: the viewer's school
+    // (1), the employment read's two company chunks (2), and nine stage/alum
+    // legs over three contact chunks (27). That is what `enrich: false` removes
+    // for /outreach above, leaving 4.
+    expect(state.recorded.length, `enriched getCompanies request count:\n${report}`).toBeLessThanOrEqual(38);
   });
 });

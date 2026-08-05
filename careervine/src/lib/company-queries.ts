@@ -6,6 +6,23 @@
  * current/former/bench split. Bench containment is enforced here: bench
  * people are returned in their own list, never mixed into contact counts
  * or traction.
+ *
+ * ── The `enrich` option (CAR-229) ────────────────────────────────────────
+ *
+ * getCompanies' who-you-know pass (alum/product-alum/recruiter counts,
+ * traction, lead name) is the bulk of what the call costs: it fans the shown
+ * companies out to their people, then fans those people out to eight stage legs
+ * plus an alumni lookup. `enrich: false` skips all of it for a caller that
+ * renders none of those five fields, and the RESULT TYPE CHANGES with it —
+ * CompanyBaseSummary simply does not carry them, so a consumer cannot read a
+ * count that was never computed. That is the whole point of the option: the
+ * cheap way to add it would have been to leave `alum_count: 0` in place, which
+ * is indistinguishable from "nobody here went to your school".
+ *
+ * Two sorts read the enrichment (`next` through nextActionForCompany, and
+ * `traction` directly), so `enrich: false` requires an explicit `sort` from the
+ * narrowed set. Defaulting would have silently picked `next` for the
+ * pursuing/in_play scopes.
  */
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
@@ -380,7 +397,18 @@ export interface OfficeScopeSummary {
   status: string;
 }
 
-export interface CompanySummary {
+/**
+ * What getCompanies returns WITHOUT the who-you-know enrichment pass
+ * (`enrich: false`).
+ *
+ * The five enrichment fields are absent from this type AND from the object at
+ * runtime, so `"alum_count" in summary` is false and reading `.alum_count` is a
+ * compile error rather than a plausible-looking `0`. An unenriched summary is
+ * therefore structurally distinguishable from an enriched one, which is what
+ * stops "nobody at this company went to your school" from being manufactured by
+ * a caller that simply opted out of asking.
+ */
+export interface CompanyBaseSummary {
   id: number;
   name: string;
   logo_url: string | null;
@@ -388,6 +416,13 @@ export interface CompanySummary {
   current_count: number;
   former_count: number;
   bench_count: number;
+  target: TargetInfo | null;
+  /** Targeted office scopes (location-level targets), highest priority first. */
+  office_scopes: OfficeScopeSummary[];
+}
+
+/** The five fields the who-you-know pass computes; see CompanyBaseSummary. */
+export interface CompanyEnrichment {
   /** BYU alumni among current non-bench contacts — the app's warm-intro edge. */
   alum_count: number;
   /** BYU alumni among current non-bench contacts who are in a product role — the top intro for a PM search. */
@@ -400,12 +435,18 @@ export interface CompanySummary {
    * when the company has no current non-bench contacts.
    */
   lead_contact_name: string | null;
-  target: TargetInfo | null;
-  /** Targeted office scopes (location-level targets), highest priority first. */
-  office_scopes: OfficeScopeSummary[];
   /** Max derived stage across non-bench contacts (pursuing/in_play views). */
   traction: OutreachStage | null;
 }
+
+/**
+ * The default getCompanies row: base fields plus the enrichment pass.
+ *
+ * Deliberately still a single flat shape with exactly the members it had before
+ * the split, so every existing consumer and every hand-built test fixture keeps
+ * compiling untouched.
+ */
+export interface CompanySummary extends CompanyBaseSummary, CompanyEnrichment {}
 
 /** One target_companies row (any scope, targeted or not) for derivation. */
 export interface CompanyTargetScopeRow {
@@ -480,6 +521,16 @@ export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
 }
 
 export type CompanySort = "next" | "priority" | "traction" | "next_app_date" | "name";
+
+/**
+ * The sorts an unenriched call may ask for.
+ *
+ * `next` ranks through nextActionForCompany, which reads all five enrichment
+ * fields, and `traction` reads the stage directly — neither is derivable from a
+ * CompanyBaseSummary. Excluding them here is what makes the bad combination a
+ * compile error at the call site instead of an ordering computed from nothing.
+ */
+export type UnenrichedCompanySort = Exclude<CompanySort, "next" | "traction">;
 
 /**
  * Which companies the dashboard returns:
@@ -641,14 +692,64 @@ async function fetchEmploymentRowsForCompanies(
   );
 }
 
+interface GetCompaniesCommonOptions {
+  scope?: CompanyScope;
+  search?: string;
+  minContacts?: number;
+}
+
+/** The default call: the who-you-know pass runs and every field is a real value. */
+export interface GetCompaniesEnrichedOptions extends GetCompaniesCommonOptions {
+  sort?: CompanySort;
+  /** Omit (or pass true) to run the enrichment pass. */
+  enrich?: true;
+}
+
+/**
+ * Opt out of the who-you-know pass.
+ *
+ * `sort` is REQUIRED here and narrowed to the orders that do not read the
+ * enrichment: leaving it to the default would pick `next` for the
+ * pursuing/in_play scopes, and `next` cannot be computed from what this call
+ * returns.
+ */
+export interface GetCompaniesUnenrichedOptions extends GetCompaniesCommonOptions {
+  sort: UnenrichedCompanySort;
+  enrich: false;
+}
+
 export async function getCompanies(
   userId: string,
-  opts: { scope?: CompanyScope; search?: string; minContacts?: number; sort?: CompanySort } = {},
-): Promise<CompanySummary[]> {
+  opts?: GetCompaniesEnrichedOptions,
+): Promise<CompanySummary[]>;
+export async function getCompanies(
+  userId: string,
+  opts: GetCompaniesUnenrichedOptions,
+): Promise<CompanyBaseSummary[]>;
+export async function getCompanies(
+  userId: string,
+  opts: GetCompaniesEnrichedOptions | GetCompaniesUnenrichedOptions = {},
+): Promise<CompanyBaseSummary[]> {
   const scope = opts.scope ?? "targets";
+  const enrich = opts.enrich ?? true;
   // Default order: focused views lead with what needs you next; the full
   // search is alphabetical; the outreach/MCP targets queue stays priority-first.
   const sort = opts.sort ?? (scope === "all" ? "name" : scope === "targets" ? "priority" : "next");
+  // The overloads already make this unreachable from TypeScript. It is here for
+  // the callers types cannot see — the MCP tool layer resolves arguments from
+  // JSON, and a silently mis-ordered outreach queue is not a failure anyone
+  // would notice from the output.
+  if (!enrich && (sort === "next" || sort === "traction")) {
+    throw new Error(
+      `getCompanies: sort "${sort}" reads the who-you-know enrichment. ` +
+        `Use enrich:true, or sort by priority / next_app_date / name.`,
+    );
+  }
+  // Whether the pass RUNS, which is not the same question as whether its five
+  // fields are emitted. `all` has always skipped the pass while still returning
+  // the fields as 0/null, and callers (MCP list_companies) read them that way,
+  // so that shape is preserved verbatim; only `enrich: false` drops the keys.
+  const runEnrichment = enrich && scope !== "all";
 
   // All scope rows, including soft-untargeted containers: tier/program
   // live on the company-wide row even when only offices are targeted.
@@ -664,8 +765,9 @@ export async function getCompanies(
   // What CAN share it is the viewer's school. That read depends on nothing,
   // feeds only the enrichment pass at the bottom, and awaiting it down there put
   // a single-row lookup on the critical path between the employment read and the
-  // stage fan-out. It stays CONDITIONAL on the scope so the `all` view — the one
-  // that skips enrichment entirely — does not pay for a value it discards.
+  // stage fan-out. It stays CONDITIONAL on whether that pass will run at all —
+  // the `all` view and any `enrich: false` caller both discard the value — so
+  // neither pays for it.
   const [scopeRows, userSchool] = await Promise.all([
     paginateAll(async (from, to) =>
       must(
@@ -679,7 +781,7 @@ export async function getCompanies(
           .range(from, to),
       ),
     ),
-    scope === "all" ? Promise.resolve(null) : viewerSchool(userId),
+    runEnrichment ? viewerSchool(userId) : Promise.resolve(null),
   ]);
   // A company is a target if ANY scope (company-wide or office) is targeted.
   const targetByCompany = new Map<number, ReturnType<typeof deriveCompanyTarget>>();
@@ -739,8 +841,24 @@ export async function getCompanies(
   // used to order them was where they were written. Each is a serial chunk loop
   // over the shown companies, so running them back to back doubled the chunk
   // depth of this stage.
+  //
+  // Under `enrich: false` the employment read is skipped outright, because the
+  // enrichment pass is its only consumer: the counts on the card come from the
+  // RPC above, and selectCompanyIds ran off the RPC's rows too. That is the
+  // larger half of what the option saves — it is the read that fans companies
+  // out to people, and the contact ids it produces are what the stage/alum
+  // fan-out then chunks over.
+  //
+  // Gated on `runEnrichment`, which also covers `scope: "all"`. These rows feed
+  // aggByCompany, and aggByCompany is read ONLY inside the enrichment block
+  // below — the summaries take their counts from the RPC. So for `all` this was
+  // a chunkedPaginated sweep over every selected company's employment rows
+  // whose result was then dropped on the floor: ~4,700 companies' worth on the
+  // reference account, for MCP's list_companies(targets_only: false). Skipping
+  // it cannot change that scope's output, because nothing downstream can
+  // observe the difference.
   const [employment, companyRows] = await Promise.all([
-    fetchEmploymentRowsForCompanies(userId, companyIds),
+    runEnrichment ? fetchEmploymentRowsForCompanies(userId, companyIds) : Promise.resolve([]),
     chunked(companyIds, async (chunk) => {
       let q = db()
         .from("companies")
@@ -813,15 +931,16 @@ export async function getCompanies(
     for (const id of agg.current) agg.former.delete(id);
   }
 
-  // Enrichment (traction + who-you-know) per company. Skipped only for the
-  // "all" view, whose company set is unbounded; targets/pursuing/in_play are
-  // bounded and safe. One extra batched query (BYU alumni) over the shown set.
+  // Enrichment (traction + who-you-know) per company. Skipped for the "all"
+  // view, whose company set is unbounded (targets/pursuing/in_play are bounded
+  // and safe), and for an `enrich: false` caller. One extra batched query (BYU
+  // alumni) over the shown set.
   const traction = new Map<number, OutreachStage>();
   const alumCountByCompany = new Map<number, number>();
   const productAlumCountByCompany = new Map<number, number>();
   const recruiterCountByCompany = new Map<number, number>();
   const leadNameByCompany = new Map<number, string | null>();
-  if (scope !== "all") {
+  if (runEnrichment) {
     const uniqueContacts = new Map<number, { id: number; stage_override: string | null }>();
     for (const id of companyIds) {
       for (const p of aggByCompany.get(id)?.people.values() ?? []) {
@@ -870,34 +989,65 @@ export async function getCompanies(
     }
   }
 
-  const summaries: CompanySummary[] = (companyRows as Array<{
-    id: number;
-    name: string;
-    logo_url: string | null;
-    linkedin_url: string | null;
-  }>).map((c) => {
+  /**
+   * The two halves every row carries regardless of enrichment, split out so the
+   * enriched literal below can keep its exact original member order while the
+   * unenriched one simply omits the five keys. Sharing the expressions is what
+   * stops the two shapes from drifting on a base field.
+   */
+  const parts = (c: { id: number; name: string; logo_url: string | null; linkedin_url: string | null }) => {
     const derived = targetByCompany.get(c.id);
     // Counts come from the RPC, not from the in-memory sets: the employment
     // rows are now fetched only for the shown companies, so the sets are an
     // enrichment input rather than a complete tally (CAR-229).
     const counts = countsByCompany.get(c.id);
     return {
-      id: c.id,
-      name: c.name,
-      logo_url: c.logo_url,
-      linkedin_url: c.linkedin_url,
-      current_count: counts?.current_count ?? 0,
-      former_count: counts?.former_count ?? 0,
-      bench_count: counts?.bench_count ?? 0,
-      alum_count: alumCountByCompany.get(c.id) ?? 0,
-      product_alum_count: productAlumCountByCompany.get(c.id) ?? 0,
-      recruiter_count: recruiterCountByCompany.get(c.id) ?? 0,
-      lead_contact_name: leadNameByCompany.get(c.id) ?? null,
-      target: derived?.target ?? null,
-      office_scopes: derived?.office_scopes ?? [],
-      traction: traction.get(c.id) ?? null,
+      identity: {
+        id: c.id,
+        name: c.name,
+        logo_url: c.logo_url,
+        linkedin_url: c.linkedin_url,
+        current_count: counts?.current_count ?? 0,
+        former_count: counts?.former_count ?? 0,
+        bench_count: counts?.bench_count ?? 0,
+      },
+      scopes: {
+        target: derived?.target ?? null,
+        office_scopes: derived?.office_scopes ?? [],
+      },
     };
-  });
+  };
+
+  const rows = companyRows as Array<{
+    id: number;
+    name: string;
+    logo_url: string | null;
+    linkedin_url: string | null;
+  }>;
+  // Kept as its own typed binding rather than narrowed back out of `summaries`
+  // with a cast: it is the only thing that lets the "next" sort below reach
+  // nextActionForCompany, and a cast there would be the one place a caller
+  // could still read an uncomputed field.
+  const enrichedSummaries: CompanySummary[] | null = enrich
+    ? rows.map((c) => {
+        const { identity, scopes } = parts(c);
+        return {
+          ...identity,
+          alum_count: alumCountByCompany.get(c.id) ?? 0,
+          product_alum_count: productAlumCountByCompany.get(c.id) ?? 0,
+          recruiter_count: recruiterCountByCompany.get(c.id) ?? 0,
+          lead_contact_name: leadNameByCompany.get(c.id) ?? null,
+          ...scopes,
+          traction: traction.get(c.id) ?? null,
+        };
+      })
+    : null;
+  const summaries: CompanyBaseSummary[] =
+    enrichedSummaries ??
+    rows.map((c) => {
+      const { identity, scopes } = parts(c);
+      return { ...identity, ...scopes };
+    });
 
   const cmpNullsLast = (a: number | string | null, b: number | string | null, desc = false) => {
     if (a == null && b == null) return 0;
@@ -908,10 +1058,14 @@ export async function getCompanies(
     return 0;
   };
   // "What's next" ranks are relatively expensive to derive; precompute once.
+  // Driven off `enrichedSummaries` rather than `summaries`, so the sort that
+  // needs all five enrichment fields can only be computed from rows that
+  // actually have them — the guard at the top of the function has already
+  // rejected the combination, and this is what stops a cast from re-opening it.
   const nextRank = new Map<number, number>();
-  if (sort === "next") {
+  if (sort === "next" && enrichedSummaries) {
     const now = new Date();
-    for (const c of summaries) nextRank.set(c.id, nextActionForCompany(c, now).rank);
+    for (const c of enrichedSummaries) nextRank.set(c.id, nextActionForCompany(c, now).rank);
   }
   summaries.sort((a, b) => {
     switch (sort) {
@@ -932,8 +1086,13 @@ export async function getCompanies(
           a.name.localeCompare(b.name)
         );
       case "traction": {
-        const ra = a.traction ? stageRank(a.traction) : -1;
-        const rb = b.traction ? stageRank(b.traction) : -1;
+        // Read from the map the enrichment pass filled rather than off the row,
+        // which is the identical value (`traction: traction.get(c.id) ?? null`)
+        // and keeps this comparator typed over CompanyBaseSummary.
+        const sa = traction.get(a.id) ?? null;
+        const sb = traction.get(b.id) ?? null;
+        const ra = sa ? stageRank(sa) : -1;
+        const rb = sb ? stageRank(sb) : -1;
         return rb - ra || a.name.localeCompare(b.name);
       }
       default:

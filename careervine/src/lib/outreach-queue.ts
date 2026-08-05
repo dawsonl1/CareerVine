@@ -11,20 +11,28 @@
  *  - then priority score desc (nulls last), then name
  */
 
-import type { CompanySummary } from "./company-queries";
+import type { CompanyBaseSummary, CompanySummary } from "./company-queries";
 
 export const APP_DATE_BOOST_DAYS = 30;
 
-export interface OutreachQueueResult {
-  queue: CompanySummary[];
+export interface OutreachQueueResult<T extends CompanyBaseSummary = CompanySummary> {
+  queue: T[];
   /** Target companies excluded for having nobody contactable (incl. bench-only). */
   skippedCount: number;
 }
 
-export function buildOutreachQueue(
-  summaries: CompanySummary[],
+/**
+ * Generic over the summary shape, and bounded at CompanyBaseSummary rather than
+ * CompanySummary, because that is genuinely all this reads: `target` (status,
+ * next_app_date, priority_score), the two contact counts, and `name`. /outreach
+ * fetches its queue with `enrich: false` and so has nothing else to give it,
+ * while MCP's list_outreach_queue passes full summaries and gets full summaries
+ * back — `T` carries the caller's own row type straight through.
+ */
+export function buildOutreachQueue<T extends CompanyBaseSummary>(
+  summaries: T[],
   todayIso: string,
-): OutreachQueueResult {
+): OutreachQueueResult<T> {
   const today = todayIso.slice(0, 10);
   const boostCutoff = new Date(`${today}T00:00:00Z`);
   boostCutoff.setUTCDate(boostCutoff.getUTCDate() + APP_DATE_BOOST_DAYS);
@@ -34,7 +42,7 @@ export function buildOutreachQueue(
   const queue = targets.filter((c) => c.current_count + c.former_count > 0);
   const skippedCount = targets.length - queue.length;
 
-  const isBoosted = (c: CompanySummary) => {
+  const isBoosted = (c: CompanyBaseSummary) => {
     const d = c.target?.next_app_date;
     return Boolean(d && d >= today && d <= cutoff);
   };

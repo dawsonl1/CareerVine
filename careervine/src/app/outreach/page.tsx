@@ -19,7 +19,7 @@ import { useCompose } from "@/components/compose-email-context";
 import { useLatestRequest } from "@/hooks/use-latest-request";
 import { LoadErrorBanner, LoadErrorState } from "@/components/ui/load-error-state";
 import { PersonModal } from "@/components/companies/person-modal";
-import { getCompanies, getCompanyDetail, type CompanyDetail, type CompanyPerson, type CompanySummary } from "@/lib/company-queries";
+import { getCompanies, getCompanyDetail, type CompanyBaseSummary, type CompanyDetail, type CompanyPerson } from "@/lib/company-queries";
 import { buildOutreachQueue } from "@/lib/outreach-queue";
 import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
 import {
@@ -55,7 +55,7 @@ function OutreachFlow() {
   const searchParams = useSearchParams();
   const { openCompose, isOpen: composeOpen } = useCompose();
 
-  const [queue, setQueue] = useState<CompanySummary[]>([]);
+  const [queue, setQueue] = useState<CompanyBaseSummary[]>([]);
   const [skippedCount, setSkippedCount] = useState(0);
   const [queueLoading, setQueueLoading] = useState(true);
   const [detail, setDetail] = useState<CompanyDetail | null>(null);
@@ -65,9 +65,20 @@ function OutreachFlow() {
   const [formerOpen, setFormerOpen] = useState(false);
 
   // ── Queue ──
+  //
+  // `enrich: false` (CAR-229). Nothing on this page reads the who-you-know
+  // fields: the context strip shows the target's priority, program, app date and
+  // bench count, the queue orders on next_app_date → priority → name, and the
+  // people grid comes from getCompanyDetail, not from here. The enrichment pass
+  // was most of what this call cost — the per-person employment read plus a
+  // nine-leg fan-out chunked over every contact at every target — and none of it
+  // reached a pixel.
+  //
+  // `sort` is explicit because the option requires it: the unenriched result
+  // type cannot express the "what's next" ordering, so the API refuses to guess.
   useEffect(() => {
     if (!user) return;
-    getCompanies(user.id, { scope: "targets", sort: "priority" })
+    getCompanies(user.id, { scope: "targets", sort: "priority", enrich: false })
       .then((summaries) => {
         const { queue: q, skippedCount: skipped } = buildOutreachQueue(summaries, new Date().toISOString());
         setQueue(q);
