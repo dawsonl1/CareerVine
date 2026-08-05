@@ -13,6 +13,11 @@
  * - Session management
  * 
  * This is the root layout that applies to all routes in the app.
+ *
+ * This file is a Server Component (it exports `metadata`), which is why the
+ * lazily loaded overlays live in @/components/app-overlays instead of here:
+ * `next/dynamic` with `ssr: false` is a build error in a Server Component. Read
+ * that file's header before moving anything back up into this one.
  */
 
 import type { Metadata } from "next";
@@ -20,14 +25,11 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
 import { AnalyticsProvider } from "@/components/analytics-provider";
+import { AppOverlays } from "@/components/app-overlays";
 import { ComposeEmailProvider } from "@/components/compose-email-context";
-import { ComposeEmailModal } from "@/components/compose-email-modal";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-context";
-import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { ExtensionOnboardingProvider } from "@/components/onboarding/extension-onboarding-context";
-import { ExtensionOnboardingModal } from "@/components/onboarding/extension-onboarding-modal";
 import { QuickCaptureProvider } from "@/components/quick-capture-context";
-import { QuickCaptureModal } from "@/components/quick-capture-modal";
 import { SignedOutRedirect } from "@/components/signed-out-redirect";
 import { ToastProvider } from "@/components/ui/toast";
 import { Analytics } from "@vercel/analytics/next";
@@ -105,10 +107,12 @@ export default function RootLayout({
                     <QuickCaptureProvider>
                       <SignedOutRedirect>
                         {children}
-                        <ComposeEmailModal />
-                        <QuickCaptureModal />
-                        <OnboardingFlow />
-                        <ExtensionOnboardingModal />
+                        {/*
+                          The four global overlays are lazily mounted (CAR-229).
+                          Their providers above stay static — they hold the state
+                          every trigger in the app writes to.
+                        */}
+                        <AppOverlays />
                       </SignedOutRedirect>
                     </QuickCaptureProvider>
                   </ExtensionOnboardingProvider>

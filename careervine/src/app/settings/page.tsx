@@ -14,18 +14,69 @@
 "use client";
 
 import { Suspense } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import Navigation from "@/components/navigation";
-import AccountSection from "@/components/settings/account-section";
-import IntegrationsSection from "@/components/settings/integrations-section";
-import AvailabilitySection from "@/components/settings/availability-section";
-import AiKeySection from "@/components/settings/ai-key-section";
-import TemplatesSection from "@/components/settings/templates-section";
-import DataSubscriptionsSection from "@/components/settings/data-subscriptions-section";
-import DataScrapingSection from "@/components/settings/data-scraping-section";
 import { User, Plug, Calendar, Bot, Sparkles, Database, RefreshCw, BookOpen, ExternalLink } from "lucide-react";
 
 const DOCS_URL = "https://docs.careervine.app";
+
+/**
+ * Placeholder for the section chunk in flight. Matches the app's skeleton
+ * convention (surface-container-highest + animate-pulse) and is roughly the
+ * height of a section's first card, so the tab does not collapse and reflow
+ * when the real content arrives.
+ */
+function SectionSkeleton() {
+  return (
+    <div className="space-y-4" aria-hidden="true">
+      <div className="h-9 w-56 rounded-lg bg-surface-container-highest animate-pulse" />
+      <div className="h-48 rounded-xl bg-surface-container-highest animate-pulse" />
+      <div className="h-32 rounded-xl bg-surface-container-highest animate-pulse" />
+    </div>
+  );
+}
+
+/**
+ * One section renders at a time (see the content area below), so shipping all
+ * seven in the page bundle made every visitor download six they would not open
+ * (CAR-229). `ssr: false` keeps each chunk out of the initial script set; the
+ * active tab's chunk is fetched immediately on mount and the skeleton covers the
+ * gap, so the default tab still paints something instantly.
+ *
+ * The options object is repeated inline on purpose. Next's SWC transform reads
+ * these arguments statically and rejects a shared const with "next/dynamic
+ * options must be an object literal" — a build-only error that typecheck and
+ * ESLint both pass straight over.
+ */
+const AccountSection = dynamic(() => import("@/components/settings/account-section"), {
+  ssr: false,
+  loading: SectionSkeleton,
+});
+const IntegrationsSection = dynamic(() => import("@/components/settings/integrations-section"), {
+  ssr: false,
+  loading: SectionSkeleton,
+});
+const AvailabilitySection = dynamic(() => import("@/components/settings/availability-section"), {
+  ssr: false,
+  loading: SectionSkeleton,
+});
+const AiKeySection = dynamic(() => import("@/components/settings/ai-key-section"), {
+  ssr: false,
+  loading: SectionSkeleton,
+});
+const TemplatesSection = dynamic(() => import("@/components/settings/templates-section"), {
+  ssr: false,
+  loading: SectionSkeleton,
+});
+const DataSubscriptionsSection = dynamic(
+  () => import("@/components/settings/data-subscriptions-section"),
+  { ssr: false, loading: SectionSkeleton },
+);
+const DataScrapingSection = dynamic(() => import("@/components/settings/data-scraping-section"), {
+  ssr: false,
+  loading: SectionSkeleton,
+});
 
 const tabs = [
   { id: "account", label: "Account", icon: User },

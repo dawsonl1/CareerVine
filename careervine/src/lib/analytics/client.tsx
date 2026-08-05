@@ -12,7 +12,8 @@
  *   net; dashboards are built only on the curated events in events.ts.
  * - Session replay ON with all inputs masked and any element marked
  *   data-ph-mask redacted — email bodies and contact PII stay out of
- *   recordings.
+ *   recordings. It STARTS after load rather than at init (CAR-229); see
+ *   scheduleSessionRecording below.
  * - Identity is the Supabase user id, same as every other surface.
  * - No-ops without NEXT_PUBLIC_POSTHOG_KEY.
  */
@@ -22,7 +23,52 @@ import type { AnalyticsEvent, AnalyticsEvents } from "./events";
 
 const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
+/**
+ * Upper bound on how long the idle wait may defer the recorder. Without it a
+ * permanently busy tab would never record at all.
+ */
+const RECORDER_IDLE_TIMEOUT_MS = 5000;
+
 let initialized = false;
+let recordingScheduled = false;
+
+/**
+ * Turn session replay on once the page has loaded and gone idle.
+ *
+ * posthog.init with `disable_session_recording: true` skips fetching the rrweb
+ * recorder, which is a separate script pulled from the PostHog host and is the
+ * single largest thing analytics put on the first-paint path (CAR-229).
+ * startSessionRecording() flips that config back to false and loads it, so
+ * deferring the call moves the whole cost past first paint without changing
+ * what ends up recorded — the masking rules are set at init and apply the
+ * moment recording begins.
+ *
+ * The opt-out check mirrors AnalyticsProvider, which opts internal accounts out
+ * as soon as the Supabase session resolves: if that has already happened by the
+ * time we go idle, never resurrect recording for them.
+ */
+function scheduleSessionRecording(): void {
+  if (recordingScheduled || typeof window === "undefined") return;
+  recordingScheduled = true;
+
+  const start = () => {
+    if (posthog.has_opted_out_capturing()) return;
+    posthog.startSessionRecording();
+  };
+
+  const whenIdle = () => {
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(start, { timeout: RECORDER_IDLE_TIMEOUT_MS });
+    } else {
+      // Safari below 16.4 has no requestIdleCallback; a macrotask still lands
+      // after the load handlers, which is the part that matters.
+      window.setTimeout(start, 0);
+    }
+  };
+
+  if (document.readyState === "complete") whenIdle();
+  else window.addEventListener("load", whenIdle, { once: true });
+}
 
 /** Idempotent PostHog init; returns false (disabled) without a key or window. */
 export function ensureInit(): boolean {
@@ -37,12 +83,15 @@ export function ensureInit(): boolean {
     // traffic stays cheap and out of the way.
     person_profiles: "identified_only",
     autocapture: true,
+    // Off at init, on at idle — scheduleSessionRecording() owns the handoff.
+    disable_session_recording: true,
     session_recording: {
       maskAllInputs: true,
       maskTextSelector: "[data-ph-mask]",
     },
   });
   initialized = true;
+  scheduleSessionRecording();
   return true;
 }
 
