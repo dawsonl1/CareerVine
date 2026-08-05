@@ -657,21 +657,30 @@ export async function getCompanies(
   // count multiplies well past the company count, and a truncated read here
   // drops companies out of the targets view entirely.
   //
-  // This is now the FIRST read rather than one half of a Promise.all, because
-  // the target company ids it yields are an input to the counts aggregate
-  // below (CAR-229) — targets are shown whether or not they have contacts.
-  const scopeRows = await paginateAll(async (from, to) =>
-    must(
-      await db()
-        .from("target_companies")
-        .select(
-          "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
-        )
-        .eq("user_id", userId)
-        .order("id")
-        .range(from, to),
+  // It leads the function because the target company ids it yields are an input
+  // to the counts aggregate below (CAR-229) — targets are shown whether or not
+  // they have contacts — so nothing that reads companyIds can share its wave.
+  //
+  // What CAN share it is the viewer's school. That read depends on nothing,
+  // feeds only the enrichment pass at the bottom, and awaiting it down there put
+  // a single-row lookup on the critical path between the employment read and the
+  // stage fan-out. It stays CONDITIONAL on the scope so the `all` view — the one
+  // that skips enrichment entirely — does not pay for a value it discards.
+  const [scopeRows, userSchool] = await Promise.all([
+    paginateAll(async (from, to) =>
+      must(
+        await db()
+          .from("target_companies")
+          .select(
+            "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
+          )
+          .eq("user_id", userId)
+          .order("id")
+          .range(from, to),
+      ),
     ),
-  );
+    scope === "all" ? Promise.resolve(null) : viewerSchool(userId),
+  ]);
   // A company is a target if ANY scope (company-wide or office) is targeted.
   const targetByCompany = new Map<number, ReturnType<typeof deriveCompanyTarget>>();
   {
@@ -724,7 +733,27 @@ export async function getCompanies(
 
   // Per-person rows for the shown companies only — the enrichment pass below
   // is the sole consumer, and it never looks past `companyIds`.
-  const employment = await fetchEmploymentRowsForCompanies(userId, companyIds);
+  //
+  // The company name/logo read runs in the SAME wave (CAR-229): both are keyed
+  // on `companyIds` and neither reads the other's rows, so the only thing that
+  // used to order them was where they were written. Each is a serial chunk loop
+  // over the shown companies, so running them back to back doubled the chunk
+  // depth of this stage.
+  const [employment, companyRows] = await Promise.all([
+    fetchEmploymentRowsForCompanies(userId, companyIds),
+    chunked(companyIds, async (chunk) => {
+      let q = db()
+        .from("companies")
+        .select("id, name, logo_url, linkedin_url")
+        .in("id", chunk);
+      if (opts.search?.trim()) {
+        q = q.ilike("name", `%${escapeIlike(opts.search.trim())}%`);
+      }
+      const { data, error } = await q;
+      if (error) throw error;
+      return data ?? [];
+    }),
+  ]);
 
   // Aggregate people per company; bench counted separately, never mixed
   interface PersonAgg {
@@ -784,20 +813,6 @@ export async function getCompanies(
     for (const id of agg.current) agg.former.delete(id);
   }
 
-  // Company rows (chunked)
-  const companyRows = await chunked(companyIds, async (chunk) => {
-    let q = db()
-      .from("companies")
-      .select("id, name, logo_url, linkedin_url")
-      .in("id", chunk);
-    if (opts.search?.trim()) {
-      q = q.ilike("name", `%${escapeIlike(opts.search.trim())}%`);
-    }
-    const { data, error } = await q;
-    if (error) throw error;
-    return data ?? [];
-  });
-
   // Enrichment (traction + who-you-know) per company. Skipped only for the
   // "all" view, whose company set is unbounded; targets/pursuing/in_play are
   // bounded and safe. One extra batched query (BYU alumni) over the shown set.
@@ -813,7 +828,7 @@ export async function getCompanies(
         uniqueContacts.set(p.id, { id: p.id, stage_override: p.stage_override });
       }
     }
-    const userSchool = await viewerSchool(userId);
+    // userSchool was resolved in the first wave, above.
     const [stages, alumByContact] = await Promise.all([
       getContactStages(userId, [...uniqueContacts.values()]),
       alumContactIds([...uniqueContacts.keys()], userSchool),
@@ -1033,9 +1048,23 @@ export async function getCompanyDetail(
   userId: string,
   companyId: number,
 ): Promise<CompanyDetail | null> {
-  // CAR-213: whose school lights the alum badge on this page.
-  const detailUserSchool = await viewerSchool(userId);
-  const [companyRes, officesRes, targetRes] = await Promise.all([
+  // ── Wave 1 ──────────────────────────────────────────────────────────────
+  //
+  // Five reads, ONE round trip. None of them depends on another: the viewer's
+  // school (CAR-213) is consumed only by the alum badge at the very bottom of
+  // this function, and the roster read is keyed on `companyId` alone. Awaiting
+  // them in the order they were written cost three extra sequential round trips
+  // on every company step of the /outreach flow, which is the whole reason this
+  // function read as "three sequential waves that scale with employee count"
+  // (CAR-229).
+  //
+  // The roster rides in this wave even though a company the user cannot see
+  // makes it wasted work. That path returns null and is rare; paying a round
+  // trip to find out on every SUCCESSFUL load is not. Promise.all attaches a
+  // handler to every leg as it is constructed, so a rejection in one can never
+  // surface as an unhandled rejection while another is still in flight.
+  const [detailUserSchool, companyRes, officesRes, targetRes, rows] = await Promise.all([
+    viewerSchool(userId),
     db()
       .from("companies")
       .select("id, name, logo_url, linkedin_url, universal_name")
@@ -1053,105 +1082,129 @@ export async function getCompanyDetail(
       .is("location_id", null)
       .eq("is_targeted", true)
       .maybeSingle(),
+    // Employment rows for this company across the user's contacts.
+    //
+    // Paginated, and ordered (CAR-207). `.limit(2000)` asked for twice what
+    // PostgREST will ever return, so a company with more than 1000 employment
+    // rows silently lost the rest — and with no ORDER BY, Postgres guarantees no
+    // ordering at all, so WHICH 1000 came back could differ between two loads of
+    // the same page. `id` is the stable key range pagination needs.
+    paginateAll(async (from, to) => {
+      const { data, error } = await db()
+        .from("contact_companies")
+        .select(
+          `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
+         locations(city, state, country),
+         contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta, linkedin_url)`,
+        )
+        .eq("company_id", companyId)
+        .eq("contacts.user_id", userId)
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return data;
+    }),
   ]);
   if (companyRes.error) throw companyRes.error;
   if (!companyRes.data) return null;
 
-  // Employment rows for this company across the user's contacts.
-  //
-  // Paginated, and ordered (CAR-207). `.limit(2000)` asked for twice what
-  // PostgREST will ever return, so a company with more than 1000 employment
-  // rows silently lost the rest — and with no ORDER BY, Postgres guarantees no
-  // ordering at all, so WHICH 1000 came back could differ between two loads of
-  // the same page. `id` is the stable key range pagination needs.
-  const rows = await paginateAll(async (from, to) => {
-    const { data, error } = await db()
-      .from("contact_companies")
-      .select(
-        `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
-         locations(city, state, country),
-         contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta, linkedin_url)`,
-      )
-      .eq("company_id", companyId)
-      .eq("contacts.user_id", userId)
-      .order("id", { ascending: true })
-      .range(from, to);
-    if (error) throw error;
-    return data;
-  });
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
+  const nonBench = new Map<number, { id: number; stage_override: string | null }>();
+  for (const r of rows) {
+    if (r.contacts.network_status !== "bench") {
+      nonBench.set(r.contact_id, { id: r.contact_id, stage_override: r.contacts.stage_override });
+    }
+  }
 
-  // Emails, alum badge, stages, latest logged interaction, current employer.
-  // All four paginate inside their chunk for the reason spelled out in
-  // getContactStages above: `chunked` bounds the URL, never the response, and
-  // `contactIds` here is now unbounded (the employment read above used to cap
-  // it at PostgREST's 1000).
-  const [emailRows, schoolRows, interactionRows, currentPositionRows] = await Promise.all([
-    chunked(contactIds, async (chunk) => {
-      return (
-        (await paginateAll(async (from, to) =>
-          must(
-            await db()
-              .from("contact_emails")
-              .select("contact_id, email, source, is_primary, bounced_at")
-              .in("contact_id", chunk)
-              .order("id")
-              .range(from, to),
-          ),
-        )) ?? []
-      );
-    }),
-    chunked(contactIds, async (chunk) => {
-      return (
-        (await paginateAll(async (from, to) =>
-          must(
-            await db()
-              .from("contact_schools")
-              .select("contact_id, schools(name)")
-              .in("contact_id", chunk)
-              .order("id")
-              .range(from, to),
-          ),
-        )) ?? []
-      );
-    }),
-    chunked(contactIds, async (chunk) => {
-      return (
-        (await paginateAll(async (from, to) =>
-          must(
-            await db()
-              .from("interactions")
-              .select("contact_id, interaction_type, interaction_date")
-              .in("contact_id", chunk)
-              // interaction_date DESC stays PRIMARY, with id DESC only as the
-              // tiebreaker range pagination needs. The consumer below keeps the
-              // first row seen per contact as `last_interaction`, so leading
-              // with `id` (the shape every other leg here uses) would silently
-              // hand every contact their OLDEST interaction instead of their
-              // newest, and nothing on screen would look wrong.
-              .order("interaction_date", { ascending: false })
-              .order("id", { ascending: false })
-              .range(from, to),
-          ),
-        )) ?? []
-      );
-    }),
-    chunked(contactIds, async (chunk) => {
-      return (
-        (await paginateAll(async (from, to) =>
-          must(
-            await db()
-              .from("contact_companies")
-              .select("contact_id, title, companies(id, name)")
-              .eq("is_current", true)
-              .in("contact_id", chunk)
-              .order("id")
-              .range(from, to),
-          ),
-        )) ?? []
-      );
-    }),
-  ]);
+  // ── Wave 2 ──────────────────────────────────────────────────────────────
+  //
+  // Everything downstream of the roster, in ONE round trip.
+  //
+  // getContactStages belongs HERE, not in a wave of its own after these four.
+  // Its only input is the non-bench contact id set, which wave 1 already
+  // produced, so the await that used to follow them was ordering, not
+  // dependency — one more full round trip on every company step. Its eight legs
+  // are internally parallel, so folding it in widens this wave rather than
+  // deepening it.
+  //
+  // Its legs are NOT narrowed for the outreach view. Each one feeds a distinct
+  // StageSignals field, and a missing signal does not degrade a stage, it
+  // INVERTS one — drop the referrals leg and a referred contact silently reads
+  // `contacted`, drop the bounce leg and a dead address reads contactable. The
+  // outreach card renders that chip and the queue's traction ordering reads the
+  // same derivation, so a narrower leg set would be a correctness regression
+  // wearing a performance costume.
+  //
+  // The target-notes read is here for the same reason: it depends only on the
+  // target row wave 1 returned, and running it last put a single-row lookup on
+  // the critical path.
+  //
+  // chunkedPaginated, matching fetchEmploymentRowsForCompanies: every one of
+  // these tables fans out (several emails, schools, interactions or past roles
+  // per contact), so `chunked` alone would bound the URL and not the response
+  // (CAR-223), and `contactIds` is unbounded here.
+  const [emailRows, schoolRows, interactionRows, currentPositionRows, stages, noteRows] =
+    await Promise.all([
+      chunkedPaginated(contactIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("contact_emails")
+            .select("contact_id, email, source, is_primary, bounced_at")
+            .in("contact_id", chunk)
+            .order("id")
+            .range(from, to),
+        ),
+      ),
+      chunkedPaginated(contactIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("contact_schools")
+            .select("contact_id, schools(name)")
+            .in("contact_id", chunk)
+            .order("id")
+            .range(from, to),
+        ),
+      ),
+      chunkedPaginated(contactIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("interactions")
+            .select("contact_id, interaction_type, interaction_date")
+            .in("contact_id", chunk)
+            // interaction_date DESC stays PRIMARY, with id DESC only as the
+            // tiebreaker range pagination needs. The consumer below keeps the
+            // first row seen per contact as `last_interaction`, so leading
+            // with `id` (the shape every other leg here uses) would silently
+            // hand every contact their OLDEST interaction instead of their
+            // newest, and nothing on screen would look wrong.
+            .order("interaction_date", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to),
+        ),
+      ),
+      chunkedPaginated(contactIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("contact_companies")
+            .select("contact_id, title, companies(id, name)")
+            .eq("is_current", true)
+            .in("contact_id", chunk)
+            .order("id")
+            .range(from, to),
+        ),
+      ),
+      getContactStages(userId, [...nonBench.values()]),
+      targetRes.data
+        ? (async () =>
+            must(
+              await db()
+                .from("target_company_notes")
+                .select("id, note, created_at, location_id, locations(city, state, country)")
+                .eq("target_company_id", (targetRes.data as TargetInfo).id)
+                .order("created_at", { ascending: false }),
+            ))()
+        : Promise.resolve(null),
+    ]);
 
   const emailByContact = new Map<number, { address: string; source: string; bounced: boolean }>();
   for (const e of emailRows) {
@@ -1181,14 +1234,6 @@ export async function getCompanyDetail(
     if (!p.companies || currentPositionByContact.has(p.contact_id)) continue;
     currentPositionByContact.set(p.contact_id, { title: p.title, company_id: p.companies.id, company_name: p.companies.name });
   }
-
-  const nonBench = new Map<number, { id: number; stage_override: string | null }>();
-  for (const r of rows) {
-    if (r.contacts.network_status !== "bench") {
-      nonBench.set(r.contact_id, { id: r.contact_id, stage_override: r.contacts.stage_override });
-    }
-  }
-  const stages = await getContactStages(userId, [...nonBench.values()]);
 
   // Group rows into people
   const peopleById = new Map<number, CompanyPerson>();
@@ -1318,17 +1363,10 @@ export async function getCompanyDetail(
   // Bench: the pipeline's own ranking (adjacency), best first
   bench.sort((a, b) => (b.adjacency_score ?? -1) - (a.adjacency_score ?? -1) || a.name.localeCompare(b.name));
 
-  // Target notes
+  // Target notes (read in wave 2 above, assembled here).
   let target: CompanyDetail["target"] = null;
   if (targetRes.data) {
     const t = targetRes.data as TargetInfo;
-    const noteRows = must(
-      await db()
-        .from("target_company_notes")
-        .select("id, note, created_at, location_id, locations(city, state, country)")
-        .eq("target_company_id", t.id)
-        .order("created_at", { ascending: false }),
-    );
     const notes: CompanyNote[] = ((noteRows) ?? [])
       .map((n) => ({
         id: n.id,

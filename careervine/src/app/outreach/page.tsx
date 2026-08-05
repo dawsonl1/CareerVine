@@ -85,6 +85,29 @@ function OutreachFlow() {
   }, [queue, companyParam]);
   const company = queue[index] ?? null;
 
+  /**
+   * Which company the detail fetch is for — the URL's company BEFORE the queue
+   * has loaded, the queue entry afterwards (CAR-229).
+   *
+   * The URL half is what takes the detail fetch off the end of the queue fetch.
+   * Every step through this flow writes `?company=<id>`, so a reload, a
+   * bookmark, or a return from the company page all arrive already knowing which
+   * company to open, and there is no reason to spend the whole getCompanies
+   * round trip finding out. The two agree in the normal case, so the queue
+   * landing does not refire anything; they disagree only when the URL names a
+   * company the queue does not contain (a closed target), where falling back to
+   * queue[0] is the pre-existing behaviour and the CAR-145 token gate below
+   * already owns the resulting overlap.
+   *
+   * `queueLoading` bounds the URL half to the window where the queue genuinely
+   * is not known yet. Without it, a user whose queue comes back EMPTY but who
+   * arrived with a stale `?company=` would pay a full company-detail fetch for a
+   * page that renders the empty-queue card instead.
+   */
+  const activeCompanyId =
+    company?.id ??
+    (queueLoading && Number.isSafeInteger(companyParam) && companyParam > 0 ? companyParam : null);
+
   const goTo = useCallback(
     (i: number) => {
       const target = queue[i];
@@ -97,21 +120,23 @@ function OutreachFlow() {
   // ── Company detail ──
   //
   // Identity-keyed on the company, so it needs the CAR-145 token gate: ←/→ and
-  // the jump Select both change `company` and refire this, and getCompanyDetail
-  // runs three sequential waves that scale with employee count, so the latency
-  // spread between two in-flight companies is structural rather than incidental.
-  // Ungated, the slower response won last and the page rendered company B's
-  // header over company A's employees — and clicking a person there opened a
-  // compose prefilled to someone at the other company (CAR-190).
+  // the jump Select both change the active company and refire this, and two
+  // getCompanyDetail calls for companies of different sizes do not resolve in
+  // the order they were issued. Ungated, the slower response won last and the
+  // page rendered company B's header over company A's employees — and clicking
+  // a person there opened a compose prefilled to someone at the other company
+  // (CAR-190). The gate matters MORE now that the fetch can start from the URL
+  // before the queue exists, since that adds a second way for two detail
+  // requests to overlap.
   const detailRequest = useLatestRequest();
 
   const loadDetail = useCallback(async () => {
-    if (!user || !company) return;
+    if (!user || activeCompanyId == null) return;
     const token = detailRequest.begin();
     setDetailLoading(true);
     setDetailFailed(false);
     try {
-      const next = await getCompanyDetail(user.id, company.id);
+      const next = await getCompanyDetail(user.id, activeCompanyId);
       if (!detailRequest.isLatest(token)) return;
       // A null resolve is "we could not read this company", not "this company
       // has nobody" — it reaches the same empty render as a throw, so it takes
@@ -132,7 +157,7 @@ function OutreachFlow() {
       // would show the previous company's people as though they had finished.
       if (detailRequest.isLatest(token)) setDetailLoading(false);
     }
-  }, [user, company, detailRequest]);
+  }, [user, activeCompanyId, detailRequest]);
 
   useEffect(() => {
     setFormerOpen(false);
@@ -279,7 +304,10 @@ function OutreachFlow() {
 
             {/* ── People ── */}
             {detailLoading && !detail ? (
-              <p className="text-sm text-on-surface-variant text-center py-10">Loading people…</p>
+              // Painted from the QUEUE ENTRY, which is already in memory — see
+              // PeopleSkeleton. The people grid is this page's largest element,
+              // so what renders here is what LCP waits on.
+              <PeopleSkeleton currentCount={company.current_count} />
             ) : detailFailed && !detail ? (
               // `&& !detail` because this branch sits AHEAD of the `detail` one.
               // The company-change effect clears `detail` before loading, so a
@@ -353,6 +381,39 @@ function OutreachFlow() {
           onChanged={loadDetail}
         />
       )}
+    </div>
+  );
+}
+
+// ── People placeholder ─────────────────────────────────────────────────
+
+/**
+ * The people region drawn from the QUEUE ENTRY while the detail loads (CAR-229).
+ *
+ * `current_count` is already in memory — getCompanies aggregates it in Postgres
+ * for every company in the queue — so the heading and a correctly sized grid can
+ * paint the moment you step to a company, instead of a single line of text that
+ * the real grid then displaces. It is the same number the real heading shows,
+ * from the same rows, so it does not change when the detail lands.
+ *
+ * Zero is left as the bare line: a placeholder grid with no cards would claim
+ * this region is about to fill and it is not (a former-employees-only company
+ * still qualifies for the queue).
+ */
+function PeopleSkeleton({ currentCount }: { currentCount: number }) {
+  const cards = Math.min(currentCount, 6);
+  if (cards === 0) {
+    return <p className="text-sm text-on-surface-variant text-center py-10">Loading people…</p>;
+  }
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-on-surface mb-2.5">Current employees ({currentCount})</h2>
+      <p className="sr-only" role="status">Loading people…</p>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3" aria-hidden="true">
+        {Array.from({ length: cards }, (_, i) => (
+          <div key={i} className="h-[120px] rounded-2xl bg-surface-container animate-pulse" />
+        ))}
+      </div>
     </div>
   );
 }
