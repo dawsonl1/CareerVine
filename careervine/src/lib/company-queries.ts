@@ -572,13 +572,31 @@ async function fetchCompanyCounts(
   minContacts: number,
   targetCompanyIds: number[],
 ): Promise<CompanyCountsRow[]> {
-  const { data, error } = await db().rpc("company_network_counts", {
-    p_scope: scope,
-    p_min_contacts: minContacts,
-    p_extra_company_ids: targetCompanyIds,
+  // Paginated, because a function result is still a PostgREST response and is
+  // still cut at max_rows (1000) with error: null. The `all` scope returns
+  // 4,708 companies on the reference account, so an unpaginated read silently
+  // lost most of them — and getCompanies applies its name search AFTER this,
+  // so the search could not find a company outside the arbitrary window. The
+  // sweep this replaced did page, so skipping it here was a regression; the
+  // parity test caught it (CAR-229).
+  //
+  // Each page re-runs the aggregate, so this is only cheap because the ordinary
+  // scopes fit in one page (in_play 657, pursuing 653, targets ~327). The `all`
+  // scope pays a handful of pages and is still far below the 17,628-row sweep
+  // it replaced. The function's ORDER BY company_id is what makes the range
+  // windows stable.
+  return await paginateAll<CompanyCountsRow>(async (from, to) => {
+    const { data, error } = await db()
+      .rpc("company_network_counts", {
+        p_scope: scope,
+        p_min_contacts: minContacts,
+        p_extra_company_ids: targetCompanyIds,
+      })
+      .order("company_id")
+      .range(from, to);
+    if (error) throw error;
+    return (data ?? []) as CompanyCountsRow[];
   });
-  if (error) throw error;
-  return (data ?? []) as CompanyCountsRow[];
 }
 
 /**
@@ -669,11 +687,17 @@ export async function getCompanies(
   const countsByCompany = new Map(countRows.map((r) => [r.company_id, r]));
 
   // selectCompanyIds stays the authoritative statement of the scope rule even
-  // though the RPC has already applied it. Re-applying it in TS is idempotent
-  // over a correctly-filtered response, and if the two ever drift the TS rule
-  // can only narrow the SQL's result, never widen it — the safe direction.
-  // company-scope.test.ts pins the rule; the RPC is pinned against the same
-  // cases in company-network-counts.test.ts.
+  // though the RPC has already applied it, and re-applying it in TS is
+  // idempotent over a correctly-filtered response.
+  //
+  // Do NOT read that as "the TS can only narrow the SQL, so drift is safe".
+  // It is not a narrowing: selectCompanyIds unconditionally seeds its result
+  // with every target id, so it WIDENS. That widening is what masked a real
+  // SQL bug (a zero-contact target could not come back through
+  // p_extra_company_ids at all) and kept it off the screen, which is exactly
+  // why the divergence has to be tested rather than reasoned about.
+  // company-scope.test.ts pins the TS rule; company-network-counts.itest.ts
+  // drives both halves from one fixture and asserts they agree.
   const companyIds = selectCompanyIds(
     scope,
     targetByCompany.keys(),
