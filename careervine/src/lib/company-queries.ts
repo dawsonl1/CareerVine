@@ -15,7 +15,7 @@ import {
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
-import { chunked, paginateAll, escapeIlike } from "@/lib/data/postgrest";
+import { chunked, chunkedPaginated, paginateAll, escapeIlike } from "@/lib/data/postgrest";
 import { must } from "@/lib/data/client";
 import { getUserSchool } from "@/lib/data/users";
 import { findOrCreateCompany } from "./company-helpers";
@@ -546,23 +546,74 @@ interface EmploymentAggRow {
   };
 }
 
-async function fetchUserEmploymentRows(userId: string): Promise<EmploymentAggRow[]> {
-  const PAGE = 1000;
-  const all: EmploymentAggRow[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db()
-      .from("contact_companies")
-      .select(
-        "company_id, contact_id, is_current, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
-      )
-      .eq("contacts.user_id", userId)
-      .range(from, from + PAGE - 1);
-    if (error) throw error;
-    const rows = data ?? [];
-    all.push(...rows);
-    if (rows.length < PAGE) break;
-  }
-  return all;
+/** One row per company from the company_network_counts RPC (CAR-229). */
+interface CompanyCountsRow {
+  company_id: number;
+  current_count: number;
+  former_count: number;
+  bench_count: number;
+  current_prospect_count: number;
+}
+
+/**
+ * Per-company contact counts, aggregated in Postgres (CAR-229).
+ *
+ * This replaces a client-side sweep of EVERY contact_companies row for the
+ * user: 17,628 rows over 18 sequential 1,000-row pages on the reference
+ * account, 6.6s before anything rendered, growing linearly with the network.
+ *
+ * The scope filter is pushed into the RPC because it is what bounds the
+ * response (7,328 companies unfiltered vs 657 for the `/companies` default).
+ * `targetCompanyIds` are always included: a target is shown regardless of how
+ * many contacts you have there, so it still needs its counts.
+ */
+async function fetchCompanyCounts(
+  scope: CompanyScope,
+  minContacts: number,
+  targetCompanyIds: number[],
+): Promise<CompanyCountsRow[]> {
+  const { data, error } = await db().rpc("company_network_counts", {
+    p_scope: scope,
+    p_min_contacts: minContacts,
+    p_extra_company_ids: targetCompanyIds,
+  });
+  if (error) throw error;
+  return (data ?? []) as CompanyCountsRow[];
+}
+
+/**
+ * Employment rows for the companies actually being shown (CAR-229).
+ *
+ * Only the enrichment pass (alumni/recruiter counts, traction, lead name)
+ * needs per-person rows, and it only ever looks at the selected companies, so
+ * this is bounded by the view rather than by the size of the whole network.
+ *
+ * chunkedPaginated, not chunked: contact_companies fans out (several people
+ * per company, several roles per person), so a single id chunk can exceed
+ * PostgREST's 1000-row cap and truncate silently. The explicit .order() is
+ * required by paginateAll's contract and was missing from the sweep this
+ * replaces, where range windows over an unspecified order could duplicate or
+ * drop rows at page boundaries.
+ */
+async function fetchEmploymentRowsForCompanies(
+  userId: string,
+  companyIds: number[],
+): Promise<EmploymentAggRow[]> {
+  return await chunkedPaginated<EmploymentAggRow>(companyIds, async (chunk, from, to) =>
+    must(
+      await db()
+        .from("contact_companies")
+        .select(
+          "company_id, contact_id, is_current, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
+        )
+        .eq("contacts.user_id", userId)
+        .in("company_id", chunk)
+        .order("company_id")
+        .order("contact_id")
+        .order("id")
+        .range(from, to),
+    ),
+  );
 }
 
 export async function getCompanies(
@@ -574,28 +625,28 @@ export async function getCompanies(
   // search is alphabetical; the outreach/MCP targets queue stays priority-first.
   const sort = opts.sort ?? (scope === "all" ? "name" : scope === "targets" ? "priority" : "next");
 
-  const [employment, scopeRows] = await Promise.all([
-    fetchUserEmploymentRows(userId),
-    // All scope rows, including soft-untargeted containers: tier/program
-    // live on the company-wide row even when only offices are targeted.
-    //
-    // Paginated (CAR-223): one row per company AND per targeted office, so the
-    // count multiplies well past the company count. fetchUserEmploymentRows
-    // directly above already pages; this leg was the odd one out, and a
-    // truncated read here drops companies out of the targets view entirely.
-    paginateAll(async (from, to) =>
-      must(
-        await db()
-          .from("target_companies")
-          .select(
-            "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
-          )
-          .eq("user_id", userId)
-          .order("id")
-          .range(from, to),
-      ),
+  // All scope rows, including soft-untargeted containers: tier/program
+  // live on the company-wide row even when only offices are targeted.
+  //
+  // Paginated (CAR-223): one row per company AND per targeted office, so the
+  // count multiplies well past the company count, and a truncated read here
+  // drops companies out of the targets view entirely.
+  //
+  // This is now the FIRST read rather than one half of a Promise.all, because
+  // the target company ids it yields are an input to the counts aggregate
+  // below (CAR-229) — targets are shown whether or not they have contacts.
+  const scopeRows = await paginateAll(async (from, to) =>
+    must(
+      await db()
+        .from("target_companies")
+        .select(
+          "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
+        )
+        .eq("user_id", userId)
+        .order("id")
+        .range(from, to),
     ),
-  ]);
+  );
   // A company is a target if ANY scope (company-wide or office) is targeted.
   const targetByCompany = new Map<number, ReturnType<typeof deriveCompanyTarget>>();
   {
@@ -610,6 +661,39 @@ export async function getCompanies(
       if (derived.target) targetByCompany.set(companyId, derived);
     }
   }
+
+  // Per-company counts AND the scope selection, both computed in Postgres
+  // (CAR-229). Targets ride along as extras so they keep their counts even
+  // when they have no contacts yet.
+  const countRows = await fetchCompanyCounts(scope, opts.minContacts ?? 1, [...targetByCompany.keys()]);
+  const countsByCompany = new Map(countRows.map((r) => [r.company_id, r]));
+
+  // selectCompanyIds stays the authoritative statement of the scope rule even
+  // though the RPC has already applied it. Re-applying it in TS is idempotent
+  // over a correctly-filtered response, and if the two ever drift the TS rule
+  // can only narrow the SQL's result, never widen it — the safe direction.
+  // company-scope.test.ts pins the rule; the RPC is pinned against the same
+  // cases in company-network-counts.test.ts.
+  const companyIds = selectCompanyIds(
+    scope,
+    targetByCompany.keys(),
+    new Map(
+      [...countsByCompany].map(([id, r]) => [
+        id,
+        {
+          current: { size: r.current_count },
+          former: { size: r.former_count },
+          currentProspect: { size: r.current_prospect_count },
+        },
+      ]),
+    ),
+    opts.minContacts ?? 1,
+  );
+  if (companyIds.length === 0) return [];
+
+  // Per-person rows for the shown companies only — the enrichment pass below
+  // is the sole consumer, and it never looks past `companyIds`.
+  const employment = await fetchEmploymentRowsForCompanies(userId, companyIds);
 
   // Aggregate people per company; bench counted separately, never mixed
   interface PersonAgg {
@@ -668,10 +752,6 @@ export async function getCompanies(
   for (const agg of aggByCompany.values()) {
     for (const id of agg.current) agg.former.delete(id);
   }
-
-  // Which companies to show
-  const companyIds = selectCompanyIds(scope, targetByCompany.keys(), aggByCompany, opts.minContacts ?? 1);
-  if (companyIds.length === 0) return [];
 
   // Company rows (chunked)
   const companyRows = await chunked(companyIds, async (chunk) => {
@@ -750,16 +830,19 @@ export async function getCompanies(
     logo_url: string | null;
     linkedin_url: string | null;
   }>).map((c) => {
-    const agg = aggByCompany.get(c.id);
     const derived = targetByCompany.get(c.id);
+    // Counts come from the RPC, not from the in-memory sets: the employment
+    // rows are now fetched only for the shown companies, so the sets are an
+    // enrichment input rather than a complete tally (CAR-229).
+    const counts = countsByCompany.get(c.id);
     return {
       id: c.id,
       name: c.name,
       logo_url: c.logo_url,
       linkedin_url: c.linkedin_url,
-      current_count: agg?.current.size ?? 0,
-      former_count: agg?.former.size ?? 0,
-      bench_count: agg?.bench.size ?? 0,
+      current_count: counts?.current_count ?? 0,
+      former_count: counts?.former_count ?? 0,
+      bench_count: counts?.bench_count ?? 0,
       alum_count: alumCountByCompany.get(c.id) ?? 0,
       product_alum_count: productAlumCountByCompany.get(c.id) ?? 0,
       recruiter_count: recruiterCountByCompany.get(c.id) ?? 0,
