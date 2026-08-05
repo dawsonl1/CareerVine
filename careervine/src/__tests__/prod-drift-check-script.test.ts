@@ -116,7 +116,15 @@ beforeAll(() => {
   writeStub("docker", `exit 0`);
   writeStub(
     "supabase",
-    `echo run >> "$STUB_LOG"
+    // --version is answered BEFORE the invocation log, and with the exact
+    // version the script pins (CAR-229). The script refuses to run `db diff`
+    // through an unpinned CLI because 2.110.0 inverted the diff direction and
+    // reported a pending migration as production drift; a stub that cannot say
+    // what version it is would send every case here down the npx fallback and
+    // test nothing. Answering before the log keeps the invocation counts below
+    // measuring db diff attempts only.
+    `if [ "$1" = "--version" ]; then echo "2.109.1"; exit 0; fi
+echo run >> "$STUB_LOG"
 case "$STUB_MODE" in
   clean)
     printf '%s' '{"diff":"","dropStatements":[]}'
