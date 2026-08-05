@@ -1627,6 +1627,132 @@ describe("conventions guard", { timeout: 60_000 }, () => {
     );
     expect(code, out).toBe(0);
   });
+
+  // ── tripwire (n): exhaustive data-layer sweeps (CAR-229) ──
+  //
+  // Disjoint from (m) by construction: a paginateAll body always carries
+  // `.range(from, to)`, so (m) reads every one of these as bounded and never
+  // reports it. Each fixture below therefore proves (n) fired, by name.
+
+  const sweep = (table: string, filters: string) =>
+    "export async function loadAll(db: any, userId: string, meetingId: number, ids: number[]) {\n" +
+    "  return await paginateAll(async (from: number, to: number) => {\n" +
+    `    const { data, error } = await db.from("${table}").select("id")${filters}.order("id").range(from, to);\n` +
+    "    if (error) throw error;\n" +
+    "    return data;\n" +
+    "  });\n}\n";
+
+  it("flags a data-layer read paged to exhaustion behind nothing but user_id", () => {
+    const { code, out } = withFile("src/lib/data/probe.ts", sweep("contacts", '.eq("user_id", userId)'));
+    expect(code, out).toBe(1);
+    expect(out).toContain("exhaustive pagination without a caller-supplied bound");
+    // Labelled by function AND table: a module with two sweeps is otherwise two
+    // identical allowlist lines with nothing to tell them apart.
+    expect(out).toContain("loadAll:contacts");
+  });
+
+  it("treats a filter on one of the function's own parameters as a real bound", () => {
+    // `.eq("meeting_id", meetingId)` is one meeting's transcript, however long.
+    // Without this, getTranscriptSegments would need an allowlist line and the
+    // list would stop meaning "sweeps the account".
+    const { code, out } = withFile(
+      "src/lib/data/probe.ts",
+      sweep("transcript_segments", '.eq("user_id", userId).eq("meeting_id", meetingId)'),
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("treats an .in() id list as a bound, wherever the list was assembled", () => {
+    const { code, out } = withFile(
+      "src/lib/data/probe.ts",
+      sweep("contact_emails", '.in("contact_id", ids)'),
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("does not accept user_id as a bound even when it is a parameter", () => {
+    // The whole point: every read in this layer is filtered by the tenant, and
+    // the tenant is exactly what grows. A naive "does a parameter appear in a
+    // filter" rule passes all of them.
+    const { code, out } = withFile(
+      "src/lib/data/probe.ts",
+      sweep("contacts", '.eq("contacts.user_id", userId).eq("network_status", "active")'),
+    );
+    expect(code, out).toBe(1);
+    expect(out).toContain("loadAll:contacts");
+  });
+
+  it("accepts an exhaustive sweep outside the data layer, which check (m) owns", () => {
+    // Scope is src/lib/data/** plus company-queries.ts. A cron route sweeping a
+    // table is a different trade-off and is not this check's business.
+    const { code, out } = withFile("src/lib/probe.ts", sweep("contacts", '.eq("user_id", userId)'));
+    expect(code, out).toBe(0);
+  });
+
+  // ── tripwire (o): range pagination without a stable order (CAR-229) ──
+
+  it("flags a .range() window over a query with no .order()", () => {
+    const { code, out } = withFile(
+      "src/lib/probe.ts",
+      'export const page = (db: any, from: number, to: number) =>\n' +
+        '  db.from("contacts").select("id").range(from, to);\n',
+    );
+    expect(code, out).toBe(1);
+    expect(out).toContain("range pagination without a stable .order()");
+    expect(out).toContain("src/lib/probe.ts");
+  });
+
+  it("accepts a .range() whose chain carries an order", () => {
+    const { code, out } = withFile(
+      "src/lib/probe.ts",
+      'export const page = (db: any, from: number, to: number) =>\n' +
+        '  db.from("contacts").select("id").order("name").order("id").range(from, to);\n',
+    );
+    expect(code, out).toBe(0);
+  });
+
+  it("sees an order applied where the query variable was built", () => {
+    // The shape the paginateAll call site cannot see at all: the .range() is
+    // applied to a variable, one or more statements after the query was
+    // assembled. Two real call sites do this (the admin contacts route and the
+    // discovery candidates route), and both are correct.
+    //
+    // Asserted as "(o) stayed silent" rather than "the script exited 0",
+    // because (m) DOES fire on this shape — its header names the split chain as
+    // a known blind spot, and that is exactly why both real call sites carry an
+    // UNBOUNDED_READ_BASELINE entry. A `toBe(0)` here would be a test of (m)'s
+    // limitation wearing (o)'s name.
+    const { out } = withFile(
+      "src/lib/probe.ts",
+      "export async function page(db: any, from: number, to: number, only: number | null) {\n" +
+        '  let q = db.from("contacts").select("id").order("id");\n' +
+        '  if (only != null) q = q.eq("company_id", only);\n' +
+        "  const { data, error } = await q.range(from, to);\n" +
+        "  if (error) throw error;\n  return data;\n}\n",
+    );
+    expect(out).not.toContain("range pagination without a stable .order()");
+
+    // The control: drop the .order() from the declaration and (o) must speak up,
+    // or the assertion above passes for the trivial reason that this fixture
+    // never reached the check at all.
+    const unordered = withFile(
+      "src/lib/probe.ts",
+      "export async function page(db: any, from: number, to: number, only: number | null) {\n" +
+        '  let q = db.from("contacts").select("id");\n' +
+        '  if (only != null) q = q.eq("company_id", only);\n' +
+        "  const { data, error } = await q.range(from, to);\n" +
+        "  if (error) throw error;\n  return data;\n}\n",
+    ).out;
+    expect(unordered).toContain("range pagination without a stable .order()");
+  });
+
+  it("ignores a .range() that is not a PostgREST chain", () => {
+    const { code, out } = withFile(
+      "src/lib/probe.ts",
+      "export const slice = (helper: any, from: number, to: number) => helper.range(from, to);\n",
+    );
+    expect(code, out).toBe(0);
+  });
 });
 
 /**

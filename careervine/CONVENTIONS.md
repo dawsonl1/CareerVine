@@ -123,6 +123,14 @@ of the three helpers applies. `check:conventions` ratchets every multi-row read
 it cannot prove bounded, so a new unpaginated one fails the build and a fixed
 one must leave the baseline (CAR-223).
 
+Paging is not free, and two further checks say so (CAR-229). A read in this
+directory that pages a table to EXHAUSTION with nothing but `user_id` narrowing
+it costs the whole account on every call; those that do it deliberately are
+named in `EXHAUSTIVE_SWEEP_ALLOWLIST`, and a new one needs a line there with a
+reason. Separately, every `.range()` window must carry an `.order()` — range
+pagination over an unordered query duplicates and drops rows at page
+boundaries — and that one is frozen at zero with no escape hatch.
+
 School affinity has ONE authority per language: `careervine/src/lib/schools/affinity.ts` in
 TypeScript, `is_byu_family_school()` / `is_alumni_only_prospect()` in SQL, held together by
 `careervine/src/__integration__/school-affinity-parity.itest.ts`. Never read
@@ -356,8 +364,10 @@ unmeasured; the browser tier owns them.
 
 A third tier: real Chromium against a real `next build && next start`, backed by the same local
 Supabase stack the integration tier uses. It exists for the one thing neither other tier can
-express — whether a change the UI *claims* to have made actually persisted. Nine flows live in
-`careervine/e2e/*.spec.ts`. Run it:
+express — whether a change the UI *claims* to have made actually persisted. Ten flows live in
+`careervine/e2e/*.spec.ts`. Nine are persistence flows; the tenth,
+`request-budget.spec.ts`, is a per-route ceiling on how many data requests a page load may
+make, which is the other thing only a real browser can count (CAR-229). Run it:
 
 ```
 supabase start -x studio,imgproxy,edge-runtime,realtime,storage-api,vector,logflare,supavisor
@@ -388,7 +398,7 @@ reads must be pinned to a real value rather than blanked.
 
 Authentication never drives the login form. `careervine/e2e/auth.setup.ts` provisions a tenant
 and mints the session through the app's real `/auth/confirm` route. One shared tenant,
-single-worker, so flows write to one database in file order. Three specs mint their own identity
+single-worker, so flows write to one database in file order. Four specs mint their own identity
 instead. A spec that mutates shared state restores it in `afterEach`, not `finally`; where the
 damage is wider than the restore, own a tenant instead. Read
 `careervine/e2e/helpers/tenant.ts` before adding a spec.
@@ -402,8 +412,8 @@ against could have occurred; `careervine/e2e/fixtures/test.ts` carries the seque
   `careervine/e2e/server-stubs/register.mjs` (header), `careervine/e2e/fixtures/test.ts` (header),
   `careervine/e2e/helpers/env-allowlist.ts` (header), `careervine/e2e/helpers/tenant.ts` (header),
   `careervine/e2e/helpers/ports.ts`, and `careervine/e2e/helpers/stack-env.ts` (header)
-- Counted: Nine flows in `careervine/e2e/*.spec.ts`, pinned by
-  `careervine/src/__tests__/conventions-doc.test.ts` so a tenth cannot silently falsify this
+- Counted: Ten flows in `careervine/e2e/*.spec.ts`, pinned by
+  `careervine/src/__tests__/conventions-doc.test.ts` so an eleventh cannot silently falsify this
   section.
 - Enforced: CI runs it as the separate `e2e` job with `failOnFlakyTests`. The deny-by-default
   stub layers are self-enforcing. `careervine/src/__tests__/e2e-env-allowlist.test.ts` fails when
