@@ -2,10 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { UI_EVENTS, onUiEvent, type UnreadChangedDetail } from "@/lib/ui-events";
-import { useAuth } from "@/components/auth-provider";
 import { useCapabilities } from "@/hooks/use-capabilities";
-import { getGmailConnection } from "@/lib/queries";
-import type { GmailConnection } from "@/lib/types";
+import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { apiFetch } from "@/lib/api-client";
 
 export type AiDraftContext = {
@@ -101,12 +99,19 @@ export function useCompose() {
 }
 
 export function ComposeEmailProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const { can } = useCapabilities();
+  const { can, loading: capabilitiesLoading } = useCapabilities();
   // Boolean (not the `can` fn) so the fetch callback stays referentially stable.
   const isFreeOutreach = can("outreach:portal");
-  const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
-  const [gmailLoading, setGmailLoading] = useState(true);
+  // CAR-229: the shared store, NOT a private getGmailConnection() call. This
+  // provider is mounted in the root layout, so its own read was a third
+  // gmail_connections fetch on every page load behind the two the store and
+  // /api/capabilities already make — and it selected a strict subset of the
+  // columns /api/gmail/connection returns.
+  const { data: gmailConn, loading: gmailLoading } = useGmailConnection();
+  // Depend on the boolean, not the row: the onboarding poll refreshes the store
+  // every 3s and hands back a fresh object each time, which would re-fire the
+  // unread fetch on every tick if the callback closed over the row itself.
+  const hasGmailConnection = !!gmailConn;
   const [isOpen, setIsOpen] = useState(false);
   const [composeSessionId, setComposeSessionId] = useState(0);
   const [prefillTo, setPrefillTo] = useState("");
@@ -124,16 +129,20 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
   const [templateFollowUps, setTemplateFollowUps] = useState<TemplateFollowUp[] | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
-    if (!user) return;
-    getGmailConnection(user.id)
-      .then((conn) => setGmailConn(conn as GmailConnection | null))
-      .catch(() => {})
-      .finally(() => setGmailLoading(false));
-  }, [user]);
-
   const fetchUnreadCount = useCallback(() => {
-    if (!gmailConn) return;
+    // Two gates, and neither costs a round trip: /api/capabilities and
+    // /api/gmail/connection are issued in parallel the moment the user lands,
+    // so waiting for both is free while firing early is not (CAR-229).
+    //
+    //  • capabilitiesLoading — the capability store initialises EMPTY, so
+    //    `isFreeOutreach` reads false before /api/capabilities resolves. An
+    //    ungated effect therefore fetched /api/gmail/unread, then re-fetched
+    //    /api/gmail/follow-ups/awaiting-review the instant capabilities
+    //    landed: two requests per page load, the first one against the wrong
+    //    endpoint for every free user.
+    //  • hasGmailConnection — no connection row means there is nothing to
+    //    count on either endpoint.
+    if (capabilitiesLoading || !hasGmailConnection) return;
     // Free tier holds no live inbox, so /unread is always 0 — count the follow-ups
     // awaiting the user's confirm-to-send instead (CAR-102).
     const url = isFreeOutreach ? "/api/gmail/follow-ups/awaiting-review" : "/api/gmail/unread";
@@ -144,7 +153,7 @@ export function ComposeEmailProvider({ children }: { children: React.ReactNode }
       // far smaller problem than a toast fired from a global provider on every
       // page load whenever the mailbox is briefly unavailable.
       .catch(() => {});
-  }, [gmailConn, isFreeOutreach]);
+  }, [capabilitiesLoading, hasGmailConnection, isFreeOutreach]);
 
   useEffect(() => {
     fetchUnreadCount();

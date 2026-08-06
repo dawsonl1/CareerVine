@@ -4,8 +4,8 @@
  * eslint cannot express, each of which has already cost a real incident or a
  * real audit finding.
  *
- * ELEVEN checks under ten labels — (a) reports twice, once per half. Keep this
- * list and the count in CONVENTIONS.md section d in step with the code; both
+ * FOURTEEN checks under thirteen labels — (a) reports twice, once per half. Keep
+ * this list and the count in CONVENTIONS.md section d in step with the code; both
  * drifted to "four" while the file carried seven (CAR-190).
  *
  * ── What these checks are, and are not ──
@@ -43,6 +43,13 @@
  *   (h) no window.confirm / global confirm(: use useConfirm().
  *   (i) a mutation handler carries a synchronous useRef double-submit guard.
  *   (j) an identity-keyed async read gates its setState on useLatestRequest.
+ *
+ *   Read scale (CAR-223, CAR-229)
+ *   (m) a multi-row read that declares no bound at all, and so truncates
+ *       silently at PostgREST's 1000 rows.
+ *   (n) a read in src/lib/data or company-queries.ts that pages a table to
+ *       EXHAUSTION with nothing but the tenant key narrowing it.
+ *   (o) a `.range()` window over a query carrying no `.order()`.
  *
  * There is no (k). It checked that a `fixed inset-0` overlay outside modal.tsx
  * carried role="dialog", and CAR-208 deleted it as a duplicate of
@@ -1612,7 +1619,10 @@ const DOUBLE_SUBMIT_BASELINE = {
   "src/components/settings/provider-key-card.tsx": ["handleSave"],
   "src/components/settings/templates-section.tsx": ["handleDelete", "handleSave"],
   "src/hooks/use-pipeline-autosave.ts": ["resolveTargetId"],
-  "src/hooks/use-suggestions.ts": ["dismiss", "load", "saveSuggestion"],
+  // `load` left this list in CAR-229: its only mutation is now the generate
+  // request, and `runGenerate` claims a synchronous in-flight ref before its
+  // first await and releases it in finally.
+  "src/hooks/use-suggestions.ts": ["dismiss", "saveSuggestion"],
 };
 
 {
@@ -2489,6 +2499,347 @@ function postgrestChainRoot(fromCall) {
   );
 }
 
+// ── (n) exhaustive pagination in the data layer ──────────────────────────
+//
+// Check (m) is about CORRECTNESS: a read that never pages truncates at 1000
+// rows. This one is about COST, and the two are disjoint by construction —
+// every paginateAll() body carries `.range(from, to)`, so (m) already counts it
+// as bounded and never looks at it again.
+//
+// The failure mode is the one CAR-92/93/94/96 kept re-fixing: a page whose load
+// time is a function of the account's total row count. Dawson's account has
+// 2,005 contacts, so a paginateAll() over `contacts` is three PostgREST round
+// trips before the handler can start work, and /contacts measured 14.8s.
+//
+// e2e/request-budget.spec.ts does NOT cover this, which is why both guards
+// exist. Inside an /api handler a sweep is one browser request however slow;
+// on the pages that read the data layer from the browser it is counted, but
+// only bills an extra request past a 1,000-row page — so at any seeded test
+// scale a sweep and a keyed read look identical. That guard owns fan-out; this
+// one owns sweeps.
+//
+// A sweep is EXHAUSTIVE unless something bounds it independently of how much
+// data the tenant has:
+//   - `.limit(...)` anywhere in the chain — an explicit cap;
+//   - `.in(...)` — an id list, which is what chunkedPaginated() and every
+//     batched read use, and whose size is set by the caller;
+//   - a filter whose VALUE references a parameter of an enclosing function —
+//     `.eq("meeting_id", meetingId)` is one meeting's transcript, not a table.
+//
+// `user_id` is explicitly NOT a bound. Every read in this layer carries it and
+// it is precisely the filter that grows with the account.
+//
+// ALLOWLIST, not a warning: some of these sweeps are correct and load-bearing
+// (getContactsSearchCorpus is deliberately the whole network — see CAR-222).
+// The point is that adding a new one costs a deliberate line here with a reason
+// beside it, and that a sweep someone fixes must leave the list. Blind spots,
+// stated: a bound carried by a LOCAL derived from a parameter reads as
+// unbounded (findOrCreateSchool's ilike probe), and a filter built one
+// statement earlier is invisible. Both fail toward over-inclusion, which costs
+// an allowlist line; the other direction costs a live regression.
+
+const SWEEP_ROOTS = (r) =>
+  (r.startsWith("src/lib/data/") || r === "src/lib/company-queries.ts") &&
+  // Defines paginateAll/chunkedPaginated; its own internal delegation is the
+  // helper, not a read.
+  r !== "src/lib/data/postgrest.ts";
+
+/** PostgREST filter methods whose second argument can carry a caller's bound. */
+const BOUNDING_FILTER = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|contains|containedBy|overlaps|match|textSearch)$/;
+
+/** The tenant key, which bounds nothing: every row in the account matches it. */
+const TENANT_COLUMN = /(^|\.)user_id$/;
+
+/**
+ * Parameter names of every function-like scope enclosing `node`.
+ *
+ * `from` and `to` are excluded: they are the page window paginateAll hands its
+ * callback, not anything a caller chose, and treating them as a bound would
+ * make `.gte("date", from)` read as narrowed by the offset it is paging with.
+ * This check fails toward over-inclusion everywhere else, and that has to hold
+ * here too.
+ */
+const PAGE_WINDOW_PARAMS = new Set(["from", "to"]);
+
+function enclosingParamNames(node) {
+  const names = new Set();
+  for (let cur = node.parent; cur; cur = cur.parent) {
+    if (isFunctionLike(cur)) {
+      for (const p of cur.parameters) {
+        for (const n of bindingNames(p.name)) if (!PAGE_WINDOW_PARAMS.has(n)) names.add(n);
+      }
+    }
+  }
+  return names;
+}
+
+/** The nearest named function around `node`, for a label that survives line moves. */
+function enclosingFunctionName(node) {
+  for (let cur = node.parent; cur; cur = cur.parent) {
+    if (ts.isFunctionDeclaration(cur) && cur.name) return cur.name.text;
+    if (ts.isMethodDeclaration(cur) && cur.name && ts.isIdentifier(cur.name)) return cur.name.text;
+    if (
+      ts.isVariableDeclaration(cur) &&
+      cur.name &&
+      ts.isIdentifier(cur.name) &&
+      cur.initializer &&
+      isFunctionLike(cur.initializer)
+    ) {
+      return cur.name.text;
+    }
+  }
+  return "<anonymous>";
+}
+
+/** The callee's plain name, seeing through `ns.fn(...)` and `fn<T>(...)`. */
+function calleeName(call) {
+  const e = call.expression;
+  if (ts.isIdentifier(e)) return e.text;
+  if (ts.isPropertyAccessExpression(e)) return e.name.text;
+  return null;
+}
+
+/**
+ * True when some filter inside `call` narrows the read by something the CALLER
+ * chose, rather than by the tenant it already belongs to.
+ */
+function hasCallerBound(call, sf) {
+  const params = enclosingParamNames(call);
+  let bounded = false;
+  const visit = (n) => {
+    if (bounded) return;
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+      const method = n.expression.name.text;
+      if (method === "limit") {
+        bounded = true;
+        return;
+      }
+      if (BOUNDING_FILTER.test(method) && n.arguments.length >= 2) {
+        const [col, value] = n.arguments;
+        const column = col && ts.isStringLiteral(col) ? col.text : "";
+        if (!TENANT_COLUMN.test(column)) {
+          // `.in()` is an id list; its length is the caller's, wherever the
+          // list was assembled. Everything else has to name a parameter.
+          if (method === "in") {
+            bounded = true;
+            return;
+          }
+          const text = value ? value.getText(sf) : "";
+          for (const p of params) {
+            if (new RegExp(`\\b${p}\\b`).test(text)) {
+              bounded = true;
+              return;
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(call);
+  return bounded;
+}
+
+const EXHAUSTIVE_SWEEP_ALLOWLIST = {
+  // The targets view composes company-wide and per-office scope rows, and a
+  // company is a target if ANY of its scopes is: there is no id list to narrow
+  // by until this read has produced one.
+  //
+  // company_network_counts is an aggregate function, and its response is capped
+  // at max_rows like any other. The `all` scope legitimately returns ~4,700
+  // companies on the reference account, so exhaustion IS the answer here; the
+  // ordinary scopes fit in a single page (CAR-229).
+  "src/lib/company-queries.ts": [
+    "fetchCompanyCounts:rpc:company_network_counts",
+    "getCompanies:target_companies",
+  ],
+  // The pending set is shared by the web action list and MCP's listActionItems,
+  // both of which narrow in memory; completed items are the full history.
+  "src/lib/data/action-items.ts": [
+    "getActionItems:follow_up_action_items",
+    "getCompletedActionItems:follow_up_action_items",
+  ],
+  // Lookup map for calendar-attendee matching (address → contact), and the
+  // search corpus, which is the WHOLE network on purpose (CAR-222: 9 active vs
+  // ~1,996 other, so a tier-scoped search finds nobody). The schools probe is
+  // narrowed by an ilike on a local derived from the caller's name.
+  "src/lib/data/contacts.ts": [
+    "getContactEmailLookup:contact_emails",
+    "getContactsSearchCorpus:contacts",
+    "probe:schools",
+  ],
+  // The three relationship-rule populations. Capping any one of them would pair
+  // a whole-network on-track ratio with a truncated neglected list.
+  "src/lib/data/follow-ups.ts": [
+    "getDueFollowUps:contacts",
+    "getContactsWithLastTouch:contacts",
+    "getRelationshipsOnTrack:contacts",
+  ],
+  // The dashboard: the action list plus the active network, then the cosmetic
+  // activity widgets, whose reads are bounded by a lookback WINDOW rather than
+  // by a caller — a window bounds the time span, not the row count.
+  //
+  // fetchActivityRows lists two of its three sibling reads, which looks
+  // arbitrary and is not: the third filters on `since` directly, a parameter,
+  // while these two filter on `sinceDay`, a local derived from it one line
+  // earlier. That is the "local derived from a parameter" blind spot named
+  // above, sitting inside one function so it is easy to see. Over-inclusion,
+  // which is the direction this check is built to fail in.
+  "src/lib/data/home.ts": [
+    "getHomeCoreData:follow_up_action_items",
+    "getHomeCoreData:contacts",
+    "fetchActivityRows:meetings",
+    "fetchActivityRows:interactions",
+    "getActivityHeatmap:email_messages",
+    "getActivityHeatmap:contacts",
+  ],
+};
+
+{
+  const rows = [];
+  const scanned = new Set();
+  for (const file of walk("src/lib", [])) {
+    const r = rel(file);
+    if (isTestFile(r) || !SWEEP_ROOTS(r)) continue;
+    scanned.add(r);
+    const sf = parse(file);
+
+    for (const node of collect(sf)) {
+      if (!ts.isCallExpression(node) || calleeName(node) !== "paginateAll") continue;
+      if (hasCallerBound(node, sf)) continue;
+      // The table is the label's other half; a function with two sweeps is
+      // otherwise two identical entries with nothing to tell them apart. An
+      // .rpc() is labelled by the function it calls: a set-returning function's
+      // response is capped at max_rows exactly like a table read, so paging one
+      // to exhaustion is the same cost with a different name.
+      const text = node.getText(sf);
+      const fromTable = text.match(/\.from\(\s*["']([^"']+)["']/)?.[1];
+      const rpcName = text.match(/\.rpc\(\s*["']([^"']+)["']/)?.[1];
+      const table = fromTable ?? (rpcName ? `rpc:${rpcName}` : "<unknown>");
+      rows.push({
+        file: r,
+        name: `${enclosingFunctionName(node)}:${table}`,
+        line: lineOf(sf, node),
+      });
+    }
+  }
+
+  report(
+    "exhaustive pagination without a caller-supplied bound",
+    diffNamedRatchet(byFile(rows), EXHAUSTIVE_SWEEP_ALLOWLIST, scanned, BASELINE_HOME),
+    "This read pages the table to exhaustion, so its cost is the size of the\n" +
+      "  account rather than the size of the answer. On a 2,005-contact account\n" +
+      "  that is three PostgREST round trips before the handler starts, and no\n" +
+      "  test at a seeded scale can see it — a sweep and a keyed read are the\n" +
+      "  same one request until the account passes 1,000 rows.\n" +
+      "  Narrow it: an .in() over ids the caller already has\n" +
+      "  (chunkedPaginated from src/lib/data/postgrest.ts), a filter on one of\n" +
+      "  this function's parameters, or a deliberate .limit(). If the whole\n" +
+      "  sweep really is the answer, add it to EXHAUSTIVE_SWEEP_ALLOWLIST with a\n" +
+      "  comment saying why — and delete the entry when it stops sweeping.",
+  );
+}
+
+// ── (o) range pagination without a stable order ──────────────────────────
+//
+// `.range()` is OFFSET/LIMIT. Postgres guarantees no ordering without an ORDER
+// BY, so consecutive windows over an unordered query can return the same row
+// twice and skip another entirely — a silent, data-dependent wrong answer that
+// no test with fewer than pageSize rows can reproduce. src/lib/data/postgrest.ts
+// states the contract in paginateAll's and chunkedPaginated's docblocks; until
+// now nothing enforced it, and CAR-229 found a live instance in
+// company-queries' employment sweep.
+//
+// A FREEZE AT ZERO, and with no escape hatch on purpose: all 72 range chains in
+// src/ carry an order today, and there is no case where the fix is not simply
+// `.order("id")`. A hatch here would only ever be used to write down a reason
+// that is wrong.
+//
+// Anchored on the `.range()` call rather than on paginateAll(), which is
+// strictly wider: it also covers hand-rolled `for (let from = 0; ...)` loops
+// (storage-sweep.ts, contacts.ts) and the two shapes where the query is held in
+// a variable (`let q = ...; await q.range(...)`), neither of which is reachable
+// from the paginateAll call site.
+
+/** The full property/call chain `node` sits in, walking back to its root. */
+function chainRootOf(node) {
+  let cur = node;
+  for (;;) {
+    if (ts.isCallExpression(cur)) {
+      cur = cur.expression;
+      continue;
+    }
+    if (ts.isPropertyAccessExpression(cur)) {
+      cur = cur.expression;
+      continue;
+    }
+    if (ts.isNonNullExpression(cur) || ts.isParenthesizedExpression(cur)) {
+      cur = cur.expression;
+      continue;
+    }
+    return cur;
+  }
+}
+
+{
+  const violations = [];
+  const files = [...walk("src/lib", []), ...walk("src/app", []), ...walk("src/mcp", [])];
+  for (const file of files) {
+    const r = rel(file);
+    if (isTestFile(r)) continue;
+    const sf = parse(file);
+    const all = collect(sf);
+
+    // Every text a query held in `name` could have been built from, so a
+    // `.order()` applied where the variable was declared or reassigned still
+    // counts. Cheap and file-local; a query assembled across modules is a
+    // blind spot this does not claim to cover.
+    const assignmentsOf = (name) => {
+      const parts = [];
+      for (const n of all) {
+        if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name && n.initializer) {
+          parts.push(n.initializer.getText(sf));
+        }
+        if (
+          ts.isBinaryExpression(n) &&
+          n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          ts.isIdentifier(n.left) &&
+          n.left.text === name
+        ) {
+          parts.push(n.right.getText(sf));
+        }
+      }
+      return parts.join("\n");
+    };
+
+    for (const node of all) {
+      if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) continue;
+      if (node.expression.name.text !== "range") continue;
+
+      let text = node.getText(sf);
+      const root = chainRootOf(node);
+      if (ts.isIdentifier(root)) text += "\n" + assignmentsOf(root.text);
+
+      // Only PostgREST chains. `.range()` on anything else (a Range object, a
+      // date helper) is not this rule's business.
+      if (!/\.(from|select|rpc)\s*\(/.test(text)) continue;
+      if (/\.order\s*\(/.test(text)) continue;
+
+      violations.push(`${r}:${lineOf(sf, node)}: ${oneLine(node.getText(sf))}`);
+    }
+  }
+
+  report(
+    "range pagination without a stable .order()",
+    violations,
+    "`.range()` is OFFSET/LIMIT, and Postgres orders nothing without an ORDER BY,\n" +
+      "  so successive windows over this query can return one row twice and drop\n" +
+      "  another — silently, and only on accounts big enough to page. Add a stable\n" +
+      "  tiebreak: .order(\"id\") is always sufficient, and goes AFTER any display\n" +
+      "  ordering. See the paginateAll docblock in src/lib/data/postgrest.ts.",
+  );
+}
+
 // ── Report ───────────────────────────────────────────────────────────────
 
 if (failures.length > 0) {
@@ -2526,5 +2877,10 @@ console.log(
     `  ${BROWSER_REACHABLE.size} modules outside it the browser still loads; plus no first-party\n` +
     "  /api fetch anywhere else under src/; double-submit and useLatestRequest\n" +
     `  ratchets at ${countBaseline(DOUBLE_SUBMIT_BASELINE)}/${countBaseline(LATEST_REQUEST_BASELINE)} known sites — each can only shrink;\n` +
-    `  ${countBaseline(UNBOUNDED_READ_BASELINE)} unbounded multi-row reads inventoried across ${Object.keys(UNBOUNDED_READ_BASELINE).length} files, same ratchet.`,
+    `  ${countBaseline(UNBOUNDED_READ_BASELINE)} unbounded multi-row reads inventoried across ${Object.keys(UNBOUNDED_READ_BASELINE).length} files, same ratchet;\n` +
+    // The allowlist size is the claim, not "no sweeps exist" — these ARE
+    // sweeps, deliberately, and the guard's value is that a new one cannot
+    // appear without a line and a reason.
+    `  ${countBaseline(EXHAUSTIVE_SWEEP_ALLOWLIST)} exhaustive data-layer sweeps allowlisted across ${Object.keys(EXHAUSTIVE_SWEEP_ALLOWLIST).length} files;\n` +
+    "  every .range() window in src/{lib,app,mcp} carries a stable .order().",
 );

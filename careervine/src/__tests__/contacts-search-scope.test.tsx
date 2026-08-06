@@ -9,12 +9,24 @@ import type { ContactListItem } from "@/lib/types";
 /**
  * Reproduction of the contacts search bugs Dawson reported (2026-08-04), sized
  * to his real data: 9 active, 1140 prospects, 856 bench.
+ *
+ * CAR-229 moved where the search pool comes from. The page no longer loads
+ * every tier on mount, so `getContactsSearchCorpus` — a lean, all-tiers fetch
+ * made on the first search interaction — is what keeps these assertions true;
+ * before, they rode on the mount-time superset. The behaviour under test is
+ * unchanged: a query still reaches every tier regardless of the chips.
+ * contacts-search-corpus.test.tsx pins the loading contract itself.
  */
 
 const q = vi.hoisted(() => ({
   getContactsStreamed: vi.fn(),
   getNetworkTierCounts: vi.fn(),
   getTags: vi.fn(),
+}));
+
+const corpus = vi.hoisted(() => ({ getContactsSearchCorpus: vi.fn() }));
+vi.mock("@/lib/data/contacts", () => ({
+  getContactsSearchCorpus: corpus.getContactsSearchCorpus,
 }));
 
 vi.mock("@/lib/queries", () => ({
@@ -105,6 +117,12 @@ function mockStream(net: ReturnType<typeof buildNetwork>) {
     bench: net.bench.length,
   });
   q.getTags.mockResolvedValue([]);
+  // The search corpus spans every tier whether or not its chip was ever lit.
+  corpus.getContactsSearchCorpus.mockResolvedValue([
+    ...net.active,
+    ...net.prospect,
+    ...net.bench,
+  ]);
 }
 
 async function renderPage() {

@@ -116,11 +116,16 @@ describe('buildFollowUpMessageRows', () => {
   it('holds the local hour across a DST boundary', () => {
     // Created 2026-10-15 (MDT); the 21-day step lands 2026-11-05, past the
     // Nov 1 fall-back. A creation-time offset would have made this 08:05.
+    // Pinned like AT_SEND above, and for the same reason: unpinned, this asserts
+    // the clamp rather than the zone math from 2026-11-05T16:05Z onward.
+    const createdAt = new Date('2026-10-15T15:05:00Z');
     const rows = buildFollowUpMessageRows(
       1,
       [{ sendAfterDays: 21, subject: 'Late step', bodyHtml: '' }],
-      new Date('2026-10-15T15:05:00Z'),
+      createdAt,
       MT,
+      0,
+      createdAt,
     );
 
     expect(wallClockIn(rows[0].scheduled_send_at, MT)).toBe('2026-11-05, 09:05');

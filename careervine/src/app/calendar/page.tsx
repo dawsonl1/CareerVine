@@ -10,6 +10,10 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { Select } from "@/components/ui/select";
 import { getMeetings, createMeeting, updateMeeting, getContacts, addContactsToMeeting, replaceContactsForMeeting } from "@/lib/queries";
+// Direct domain import: @/lib/queries is a frozen barrel and does not
+// re-export reads added after CAR-146 (CONVENTIONS §d).
+import { getContactsByEmail } from "@/lib/data/meetings";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 import type { Meeting, SimpleContact } from "@/lib/types";
 import { RefreshCw, Lock, RotateCcw, Video, MapPin, List, LayoutGrid, ChevronLeft, ChevronRight, Pencil, X, Plus, Search, Trash2 } from "lucide-react";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
@@ -92,8 +96,27 @@ export default function CalendarPage() {
   const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
 
   // ── Contacts + linked meetings
+  /**
+   * The user's full contact list. Loaded ONLY when the meeting form opens
+   * (CAR-229): it is ~2,000 rows dragging every joined email, phone, company,
+   * school and tag, it was the two slowest requests on this page, and the only
+   * thing that needs all of it is the form's contact search.
+   */
   const [allContacts, setAllContacts] = useState<SimpleContact[]>([]);
   const [contactEmailsMap, setContactEmailsMap] = useState<Record<number, string[]>>({});
+  const contactsRequested = useRef(false);
+  /**
+   * Contacts named by something already on screen but absent from `allContacts`
+   * until it loads — the attendees of the linked meeting an edit form opens
+   * over. Without them the form's chips blank for as long as the fetch takes.
+   */
+  const [namedContacts, setNamedContacts] = useState<{ id: number; name: string }[]>([]);
+  /**
+   * Attendee address → contact, resolved for the addresses ACTUALLY on the
+   * loaded events. This is what labels attendees and drives the contact filter;
+   * it replaced reading the same two fields off the whole contact list.
+   */
+  const [contactsByEmail, setContactsByEmail] = useState<Map<string, { id: number; name: string }>>(new Map());
   const [linkedMeetings, setLinkedMeetings] = useState<Record<string, Meeting>>({});
 
   // ── Week view: event bubble (absolute within weekShell so it scrolls with the page)
@@ -149,15 +172,29 @@ export default function CalendarPage() {
     return dt > new Date();
   })();
 
-  // Map email → contact name, and set of all known contact emails
+  // Map email → contact name, and set of all known contact emails.
+  // Two sources, and the bounded one carries the page on its own: every address
+  // rendered here belongs to a loaded event, so `contactsByEmail` already covers
+  // it. The full list only ever adds entries (same rows, same network-status
+  // scope), so merging the two cannot disagree — it just keeps working after a
+  // form has pulled the list in.
   const contactEmailToName = useMemo(() => {
     const map: Record<string, string> = {};
+    contactsByEmail.forEach((c, email) => { map[email] = c.name; });
     allContacts.forEach(c => {
       const emails = contactEmailsMap[c.id] || (c.email ? [c.email] : []);
       emails.forEach(email => { if (email) map[email.toLowerCase()] = c.name; });
     });
     return map;
-  }, [allContacts, contactEmailsMap]);
+  }, [allContacts, contactEmailsMap, contactsByEmail]);
+
+  /** Display name for a selected contact id: the full list, or an on-screen name. */
+  const contactNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const c of namedContacts) map.set(c.id, c.name);
+    for (const c of allContacts) map.set(c.id, c.name);
+    return map;
+  }, [allContacts, namedContacts]);
 
   const eventHasContact = useCallback((e: CalendarEvent) =>
     e.contact_id !== null ||
@@ -201,17 +238,51 @@ export default function CalendarPage() {
     if (data.events) setEvents([...data.events].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
   }, []);
 
-  const loadContacts = useCallback(async () => {
-    if (!user) return;
-    const data = await getContacts(user.id);
-    const em: Record<number, string[]> = {};
-    setAllContacts(data.map(c => {
-      const emails = (c.contact_emails || []).map(e => e.email).filter((e): e is string => Boolean(e));
-      em[c.id] = emails;
-      return { id: c.id, name: c.name, email: emails[0], emails };
-    }));
-    setContactEmailsMap(em);
+  /**
+   * Fetch the full contact list once, when the meeting form opens. Idempotent
+   * via a ref so repeated opens cost nothing; the ref is released on failure so
+   * the next open retries. Fire-and-forget by design — the form is usable
+   * without it (dates, notes, type) and the search box fills in when it lands.
+   */
+  const ensureAllContacts = useCallback(async () => {
+    if (!user || contactsRequested.current) return;
+    contactsRequested.current = true;
+    try {
+      const data = await getContacts(user.id);
+      const em: Record<number, string[]> = {};
+      setAllContacts(data.map(c => {
+        const emails = (c.contact_emails || []).map(e => e.email).filter((e): e is string => Boolean(e));
+        em[c.id] = emails;
+        return { id: c.id, name: c.name, email: emails[0], emails };
+      }));
+      setContactEmailsMap(em);
+    } catch (err) {
+      contactsRequested.current = false;
+      console.error("Error loading calendar contacts:", err);
+    }
   }, [user]);
+
+  /**
+   * Resolve the attendee addresses on the loaded events to contacts. Keyed on
+   * the address SET rather than on `events`, so the two loadEvents calls a
+   * mount makes (initial, then the background sync) resolve to one request, and
+   * a sync that changes nothing re-issues nothing.
+   */
+  const attendeeEmailKey = useMemo(() => [...new Set(
+    events.flatMap(e => e.attendees.map(a => (a.email ?? "").trim().toLowerCase())).filter(Boolean),
+  )].sort().join(","), [events]);
+
+  const attendeeReq = useLatestRequest();
+  useEffect(() => {
+    if (!user || !attendeeEmailKey) return;
+    const token = attendeeReq.begin();
+    getContactsByEmail(user.id, attendeeEmailKey.split(","))
+      .then(map => { if (attendeeReq.isLatest(token)) setContactsByEmail(map); })
+      // error-tolerated: attendee names are enrichment over events that have
+      // already rendered — a failure leaves Google's own name or the raw
+      // address, which is what an unknown attendee shows anyway.
+      .catch(err => console.error("Error resolving calendar attendees:", err));
+  }, [user, attendeeEmailKey, attendeeReq]);
 
   const loadLinkedMeetings = useCallback(async () => {
     if (!user) return;
@@ -230,8 +301,7 @@ export default function CalendarPage() {
     // failure from rejecting the whole load, which both keeps the calendar
     // usable and prevents a stale loadError flag from surfacing a spurious
     // full-screen error after the view later empties (CAR-154 review).
-    const [eventsResult, contactsResult, meetingsResult] = await Promise.allSettled([loadEvents(), loadContacts(), loadLinkedMeetings()]);
-    if (contactsResult.status === "rejected") console.error("Error loading calendar contacts:", contactsResult.reason);
+    const [eventsResult, meetingsResult] = await Promise.allSettled([loadEvents(), loadLinkedMeetings()]);
     if (meetingsResult.status === "rejected") console.error("Error loading linked meetings:", meetingsResult.reason);
     if (eventsResult.status === "rejected") {
       console.error("Error loading calendar events:", eventsResult.reason);
@@ -244,7 +314,7 @@ export default function CalendarPage() {
       apiSend("/api/calendar/sync", { method: "POST" }).then(() => loadEvents()).catch(() => {});
     }
     setLoading(false);
-  }, [loadEvents, loadContacts, loadLinkedMeetings]);
+  }, [loadEvents, loadLinkedMeetings]);
 
   // Fire-and-forget: loadData settles every loader itself and owns loadError.
   useEffect(() => { if (user) void loadData(); }, [user, loadData]);
@@ -276,7 +346,12 @@ export default function CalendarPage() {
   const fmtHour = (h: number) => h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`;
 
   // ── Meeting form helpers
-  const openNewMeetingForm = (prefill?: Partial<typeof emptyForm>, duration?: number) => {
+  // useCallback because the drag-to-create effect closes over it, and it is now
+  // reactive (it calls ensureAllContacts, which is keyed on `user`).
+  const openNewMeetingForm = useCallback((prefill?: Partial<typeof emptyForm>, duration?: number) => {
+    // The form's contact search is the only thing on this page that needs every
+    // contact, so opening it is what pays for the list (CAR-229).
+    void ensureAllContacts();
     setEditingMeeting(null);
     setEditingGoogleEventId(null);
     const nextForm = { ...emptyForm, ...prefill };
@@ -286,9 +361,10 @@ export default function CalendarPage() {
     setInviteEmailMap({});
     setMeetingDuration(duration ?? 0);
     setShowMeetingForm(true);
-  };
+  }, [ensureAllContacts]);
 
   const openEditFromEvent = (event: CalendarEvent) => {
+    void ensureAllContacts();
     setSelectedEvent(null);
     const linked = linkedMeetings[event.google_event_id];
     if (linked) {
@@ -309,6 +385,9 @@ export default function CalendarPage() {
         transcript: linked.transcript || "",
       };
       const nextContactIds = linked.meeting_contacts.map(mc => mc.contact_id);
+      // The linked meeting already carries its attendees, so the chips render
+      // now rather than after the full contact fetch.
+      setNamedContacts(prev => [...prev, ...linked.meeting_contacts.map(mc => ({ id: mc.contacts.id, name: mc.contacts.name }))]);
       setFormData(nextForm);
       setSelectedContactIds(nextContactIds);
       setPristineMeetingForm(serializeMeetingForm(nextForm, nextContactIds, meetingDuration));
@@ -384,7 +463,7 @@ export default function CalendarPage() {
       ? `${formData.meeting_date}T${formData.meeting_time}` : formData.meeting_date;
     const meetingType = formData.meeting_type || null;
     const autoSummary = formData.title ||
-      (meetingType ? `${meetingType.charAt(0).toUpperCase() + meetingType.slice(1).replace("-"," ")} with ${selectedContactIds.map(id => allContacts.find(c => c.id === id)?.name).filter(Boolean).join(", ") || "Contact"}` : "Meeting");
+      (meetingType ? `${meetingType.charAt(0).toUpperCase() + meetingType.slice(1).replace("-"," ")} with ${selectedContactIds.map(id => contactNameById.get(id)).filter(Boolean).join(", ") || "Contact"}` : "Meeting");
     const saveMode = resolveCalendarSaveMode({
       hasLinkedMeeting: !!editingMeeting,
       editingGoogleEventId,
@@ -490,7 +569,7 @@ export default function CalendarPage() {
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
     return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
-  }, [dragState]);
+  }, [dragState, openNewMeetingForm]);
 
   if (!user) return null;
 
@@ -889,14 +968,14 @@ export default function CalendarPage() {
             {selectedContactIds.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2.5">
                 {selectedContactIds.map(id => {
-                  const c = allContacts.find(c => c.id === id);
-                  if (!c) return null;
+                  const name = contactNameById.get(id);
+                  if (!name) return null;
                   const emails = contactEmailsMap[id] || [];
                   const selEmail = inviteEmailMap[id] || emails[0];
                   return (
                     <div key={id} className="flex flex-col gap-0.5">
                       <span className="inline-flex items-center gap-1.5 h-9 pl-4 pr-2 rounded-full bg-secondary-container text-sm text-on-secondary-container font-medium">
-                        {c.name}
+                        {name}
                         <button type="button" onClick={() => { setSelectedContactIds(selectedContactIds.filter(i => i !== id)); setInviteEmailMap(p => { const n = {...p}; delete n[id]; return n; }); }} className="p-0.5 rounded-full hover:bg-black/10 cursor-pointer"><X className="h-3.5 w-3.5" /></button>
                       </span>
                       {emails.length > 1 && calendarConnected && (

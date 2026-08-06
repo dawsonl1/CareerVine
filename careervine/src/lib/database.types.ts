@@ -3106,6 +3106,21 @@ export type Database = {
         Args: { p_bundle_id: number; p_user: string }
         Returns: boolean
       }
+      company_network_counts: {
+        Args: {
+          p_extra_company_ids?: number[]
+          p_min_contacts?: number
+          p_scope?: string
+          p_user_id?: string
+        }
+        Returns: {
+          bench_count: number
+          company_id: number
+          current_count: number
+          current_prospect_count: number
+          former_count: number
+        }[]
+      }
       delete_pipeline_cycle: {
         Args: { p_cycle_number: number; p_target_company_id: number }
         Returns: undefined

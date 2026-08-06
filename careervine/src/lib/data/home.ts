@@ -5,12 +5,34 @@
  * health lookups); the rest are cosmetic widgets (stats, streak, heatmap)
  * that deliberately tolerate read errors — see the error-tolerated
  * annotations. Client resolution is lazy via db().
+ *
+ * ONE fetch per row set, and the dashboard's widgets derive from it
+ * (CAR-229). Every band-3 rollup over the active contact list plus its
+ * last-touch map — the donut, the neglected list, the on-track ratio — is
+ * derived inside getHomeCoreData from the population it already paginated,
+ * by calling those rollups' own functions with a PrefetchedContacts instead
+ * of letting each re-read the same rows. Same function, same rule, same
+ * pinned clock; only the source of the rows differs, so the dashboard and
+ * the MCP network-health tool cannot drift apart. A widget that needs a
+ * server-side aggregate (getHomeStats, getActionListCounts) keeps one:
+ * counting rows in the browser to avoid a request is not the trade.
+ *
+ * The streak and the heatmap read the same three activity tables, and the
+ * streak's 365-day window strictly contains the heatmap's ~6 months, so the
+ * dashboard takes both off ONE scan through getHomeActivity — see
+ * fetchActivityRows.
  */
 
 import { db, must } from "./client";
 import { paginateAll } from "./postgrest";
-import { buildLastTouchMap } from "./follow-ups";
-import { getRecentCutoff } from "@/lib/rules/clock";
+import {
+  buildLastTouchMap,
+  getNeglectedContacts,
+  getNetworkHealthSummary,
+  getRelationshipsOnTrack,
+  type PrefetchedContacts,
+} from "./follow-ups";
+import { getRecentCutoff, startOfDay } from "@/lib/rules/clock";
 import { deriveDueFollowUps } from "@/lib/rules/due-follow-ups";
 import { deriveNetworkingStreak } from "@/lib/rules/streak";
 import { dateKeyOf, daysBetweenDateKeys, toDateKey } from "@/lib/calendar-day";
@@ -24,6 +46,11 @@ import { dateKeyOf, daysBetweenDateKeys, toDateKey } from "@/lib/calendar-day";
  * 1. Action items (1 query)
  * 2. All contacts with emails (paginated)
  * 3. Last-touch map from meeting_contacts + interactions (2 queries in parallel)
+ *
+ * Those four reads also back the band-3 rollups (networkHealth,
+ * neglectedContacts, relationshipsOnTrack): each is the same pure rule this
+ * dashboard has always used, handed the population and the last-touch map
+ * already in hand rather than three more copies of them (CAR-229).
  */
 export async function getHomeCoreData(userId: string) {
   // One instant for the whole response: contactHealth, followUps and
@@ -31,8 +58,6 @@ export async function getHomeCoreData(userId: string) {
   // across the awaits between them.
   const now = new Date().toISOString();
   const recentCutoff = getRecentCutoff(now);
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
 
   // Fetch action items + all contacts in parallel. The contacts read
   // paginates (bulk imports push networks past PostgREST's 1000-row cap);
@@ -75,6 +100,7 @@ export async function getHomeCoreData(userId: string) {
   const lastTouchMap = await buildLastTouchMap(userId, contactIds);
 
   // ── Derive contactHealth (for lastTouchLookup) ──
+  const today = startOfDay(now);
   const contactHealth = allContacts.map((c) => {
     const lastTouch = lastTouchMap.get(c.id) || null;
     // Whole calendar days, both ends in the local calendar (CAR-206). The old
@@ -90,6 +116,18 @@ export async function getHomeCoreData(userId: string) {
       follow_up_frequency_days: c.follow_up_frequency_days,
     };
   });
+
+  // ── Derive the band-3 relationship rollups off the same rows ──
+  // Same three functions the MCP health tool calls, handed the population and
+  // the last-touch map already in hand instead of fetching three more copies
+  // of them — nine requests on every dashboard load. No I/O happens here, so
+  // these resolve immediately and share the pinned `now` above.
+  const prefetched: PrefetchedContacts = { contacts: allContacts, lastTouchMap, nowIso: now };
+  const [networkHealth, neglectedContacts, relationshipsOnTrack] = await Promise.all([
+    getNetworkHealthSummary(userId, prefetched),
+    getNeglectedContacts(userId, prefetched),
+    getRelationshipsOnTrack(userId, prefetched),
+  ]);
 
   // ── Derive followUps (reach out contacts) ──
   // Shared rule (CAR-155): the same policy backs the standalone
@@ -123,7 +161,15 @@ export async function getHomeCoreData(userId: string) {
       emails: (c.contact_emails || []).map((e) => e.email).filter((email): email is string => email !== null),
     }));
 
-  return { actionItems, contactHealth, followUps, recentlyAdded };
+  return {
+    actionItems,
+    contactHealth,
+    followUps,
+    recentlyAdded,
+    networkHealth,
+    neglectedContacts,
+    relationshipsOnTrack,
+  };
 }
 
 /**
@@ -169,32 +215,44 @@ export async function getActionListCounts(userId: string) {
   };
 }
 
+/** How far back the streak walk can reach. */
+const STREAK_LOOKBACK_DAYS = 365;
+
+/** The three activity tables both the streak and the heatmap read. */
+interface ActivityRows {
+  meetings: { meeting_date: string | null }[];
+  completedItems: { completed_at: string | null }[];
+  interactions: { interaction_date: string | null }[];
+}
+
 /**
- * Get the user's current networking streak — consecutive days with at least
- * one activity (meeting logged, action item completed, or interaction).
- * Counts backward from yesterday (today is still in progress).
+ * The three activity legs, shared by getNetworkingStreak and
+ * getActivityHeatmap so the two cannot drift in shape or scoping.
+ *
+ * ONE scan serves both on a dashboard load (CAR-229). The streak's window (365
+ * days) strictly contains the heatmap's (~6 months), so getHomeActivity runs
+ * this once over the wider window and hands the rows to the heatmap as
+ * PrefetchedActivity; rows older than the heatmap's start bucket into days its
+ * axis never emits, so the wider window costs it nothing but the rows. The two
+ * standalone entry points keep their own scans for callers holding nothing —
+ * the MCP network-health tool is getNetworkingStreak's.
+ *
+ * Paginated — a year of activity can pass the 1000-row cap and silently
+ * truncate the streak otherwise.
+ *
+ * error-tolerated: the streak and the heatmap are cosmetic widgets; a failed
+ * read renders as a shorter/zero streak and empty days rather than an error.
  */
-export async function getNetworkingStreak(userId: string) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  // Look back up to 365 days
-  const lookback = new Date(today);
-  lookback.setDate(lookback.getDate() - 365);
-  const lookbackStr = lookback.toISOString().split("T")[0];
-
-  // Get all activity dates (paginated — a year of activity can pass the
-  // 1000-row cap and silently truncate the streak otherwise).
-  // error-tolerated: the streak is a cosmetic widget; a failed read renders
-  // as a shorter/zero streak rather than an error.
-  const [meetings, completedItems, interactions] = await Promise.all([
+function fetchActivityRows(userId: string, since: Date): Promise<ActivityRows> {
+  const sinceDay = since.toISOString().split("T")[0];
+  return Promise.all([
     paginateAll(async (from, to) =>
       must(
         await db()
           .from("meetings")
           .select("meeting_date")
           .eq("user_id", userId)
-          .gte("meeting_date", lookbackStr)
+          .gte("meeting_date", sinceDay)
           .order("id")
           .range(from, to),
       ),
@@ -206,7 +264,7 @@ export async function getNetworkingStreak(userId: string) {
           .select("completed_at")
           .eq("user_id", userId)
           .eq("is_completed", true)
-          .gte("completed_at", lookback.toISOString())
+          .gte("completed_at", since.toISOString())
           .order("id")
           .range(from, to),
       ),
@@ -217,33 +275,59 @@ export async function getNetworkingStreak(userId: string) {
           .from("interactions")
           .select("interaction_date, contacts!inner()")
           .eq("contacts.user_id", userId)
-          .gte("interaction_date", lookbackStr)
+          .gte("interaction_date", sinceDay)
           .order("id")
           .range(from, to),
       ),
     ).catch(() => []),
-  ]);
+  ]).then(([meetings, completedItems, interactions]) => ({ meetings, completedItems, interactions }));
+}
 
+/**
+ * Local calendar day of each activity, matching the basis deriveNetworkingStreak
+ * compares against (CAR-206). Splitting on "T" gave the UTC day, so an evening
+ * meeting west of UTC landed on tomorrow's key and never counted for the day
+ * it happened. meeting_date is a naive wall clock stored as UTC, so its own
+ * digits are the local day the user meant; the other two are real instants.
+ *
+ * Deliberately NOT the heatmap's bucket key: that one is the stored date part
+ * (the axis the user reads), this one is the viewer's calendar day.
+ */
+function streakDayKeys(rows: ActivityRows): Set<string> {
   const activeDays = new Set<string>();
-
-  // Local calendar day of each activity, matching the basis deriveNetworkingStreak
-  // compares against (CAR-206). Splitting on "T" gave the UTC day, so an evening
-  // meeting west of UTC landed on tomorrow's key and never counted for the day
-  // it happened. meeting_date is a naive wall clock stored as UTC, so its own
-  // digits are the local day the user meant; the other two are real instants.
-  for (const m of meetings) {
+  for (const m of rows.meetings) {
     if (m.meeting_date) activeDays.add(toDateKey(m.meeting_date) ?? "");
   }
-  for (const a of completedItems) {
+  for (const a of rows.completedItems) {
     if (a.completed_at) activeDays.add(dateKeyOf(new Date(a.completed_at)));
   }
-  for (const i of interactions) {
+  for (const i of rows.interactions) {
     if (i.interaction_date) activeDays.add(dateKeyOf(new Date(i.interaction_date)));
   }
   activeDays.delete("");
+  return activeDays;
+}
+
+/**
+ * Get the user's current networking streak — consecutive days with at least
+ * one activity (meeting logged, action item completed, or interaction).
+ * Counts backward from yesterday (today is still in progress).
+ *
+ * Standalone fetch for callers holding nothing (the MCP network-health tool).
+ * The dashboard takes its streak off getHomeActivity's scan instead, since
+ * the heatmap reads the same three tables over a narrower window (CAR-229).
+ */
+export async function getNetworkingStreak(userId: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const lookback = new Date(today);
+  lookback.setDate(lookback.getDate() - STREAK_LOOKBACK_DAYS);
+
+  const rows = await fetchActivityRows(userId, lookback);
 
   // Counting policy lives in src/lib/rules/streak.ts (CAR-155).
-  return { streak: deriveNetworkingStreak(activeDays, today.toISOString()) };
+  return { streak: deriveNetworkingStreak(streakDayKeys(rows), today.toISOString()) };
 }
 
 /**
@@ -297,11 +381,36 @@ export async function getHomeStats(userId: string) {
 }
 
 /**
- * Get daily activity counts for the last 4 months for the heatmap.
- * Start date is aligned to the nearest Sunday ~4 months ago, end date is today.
+ * Activity rows a caller already has in flight, so the heatmap does not
+ * re-read them (CAR-229).
+ *
+ * `rows` may be a PROMISE deliberately: getHomeActivity starts the shared scan
+ * and the heatmap's own two legs in the same tick, so all five requests are
+ * one round trip rather than two.
+ *
+ * `now` is the caller's pinned instant, so the heatmap's axis and the streak
+ * derived beside it off the same rows cannot straddle two clocks.
  */
-export async function getActivityHeatmap(userId: string) {
-  const now = new Date();
+interface PrefetchedActivity {
+  rows: ActivityRows | Promise<ActivityRows>;
+  now: Date;
+}
+
+/**
+ * Get daily activity counts for the last ~6 months for the heatmap.
+ * Start date is aligned to the nearest Sunday ~6 months ago, end date is today.
+ *
+ * Standalone fetch for callers holding nothing. The dashboard passes
+ * PrefetchedActivity instead, because the streak scans the same three tables
+ * over a strictly wider window — same function, same day arithmetic, only the
+ * source of the activity rows differs (CAR-229, getHomeActivity).
+ *
+ * The email_messages and contacts sweeps below are keyed by THIS function's
+ * name in check-conventions' EXHAUSTIVE_SWEEP_ALLOWLIST, so lifting either
+ * into a helper renames its entry and fails that ratchet in both directions.
+ */
+export async function getActivityHeatmap(userId: string, prefetched?: PrefetchedActivity) {
+  const now = prefetched?.now ?? new Date();
   // Go back ~6 months and align to Sunday
   const start = new Date(now);
   start.setMonth(start.getMonth() - 6);
@@ -313,41 +422,8 @@ export async function getActivityHeatmap(userId: string) {
   // window and silently flatten the heatmap otherwise.
   // error-tolerated: the heatmap is a cosmetic visualization; a failed read
   // renders those days as empty rather than failing the dashboard.
-  const [meetings, completedItems, interactions, sentEmails] = await Promise.all([
-    paginateAll(async (from, to) =>
-      must(
-        await db()
-          .from("meetings")
-          .select("meeting_date")
-          .eq("user_id", userId)
-          .gte("meeting_date", startStr)
-          .order("id")
-          .range(from, to),
-      ),
-    ).catch(() => []),
-    paginateAll(async (from, to) =>
-      must(
-        await db()
-          .from("follow_up_action_items")
-          .select("completed_at")
-          .eq("user_id", userId)
-          .eq("is_completed", true)
-          .gte("completed_at", start.toISOString())
-          .order("id")
-          .range(from, to),
-      ),
-    ).catch(() => []),
-    paginateAll(async (from, to) =>
-      must(
-        await db()
-          .from("interactions")
-          .select("interaction_date, contacts!inner()")
-          .eq("contacts.user_id", userId)
-          .gte("interaction_date", startStr)
-          .order("id")
-          .range(from, to),
-      ),
-    ).catch(() => []),
+  const [activity, sentEmails, newContacts] = await Promise.all([
+    prefetched?.rows ?? fetchActivityRows(userId, start),
     paginateAll(async (from, to) =>
       must(
         await db()
@@ -360,7 +436,22 @@ export async function getActivityHeatmap(userId: string) {
           .range(from, to),
       ),
     ).catch(() => []),
+    // Contacts added per day. In the same batch as its siblings, not awaited
+    // after them: it depends on nothing above and a serial read here was a
+    // second round trip on every dashboard load.
+    paginateAll(async (from, to) =>
+      must(
+        await db()
+          .from("contacts")
+          .select("created_at")
+          .eq("user_id", userId)
+          .gte("created_at", start.toISOString())
+          .order("id")
+          .range(from, to),
+      ),
+    ).catch(() => []),
   ]);
+  const { meetings, completedItems, interactions } = activity;
 
   // Build day map with breakdown by type
   type DayBreakdown = { conversations: number; actions: number; contacts: number };
@@ -392,20 +483,6 @@ export async function getActivityHeatmap(userId: string) {
     if (d) getDay(d).conversations++;
   }
 
-  // Also count contacts added per day
-  // error-tolerated: same cosmetic surface as above.
-  const newContacts = await paginateAll(async (from, to) =>
-    must(
-      await db()
-        .from("contacts")
-        .select("created_at")
-        .eq("user_id", userId)
-        .gte("created_at", start.toISOString())
-        .order("id")
-        .range(from, to),
-    ),
-  ).catch(() => []);
-
   for (const c of newContacts) {
     const d = c.created_at?.split("T")[0];
     if (d) getDay(d).contacts++;
@@ -432,4 +509,37 @@ export async function getActivityHeatmap(userId: string) {
   }
 
   return result;
+}
+
+/**
+ * The dashboard's activity band: heatmap plus streak off ONE scan of the three
+ * activity tables (CAR-229).
+ *
+ * They read the same tables and the streak's 365-day window strictly contains
+ * the heatmap's ~6 months, so the wider scan serves both and the pair costs 5
+ * requests instead of 8. Neither result is re-derived here: the day array is
+ * getActivityHeatmap's own, and the streak is deriveNetworkingStreak over this
+ * module's day keys — the same rule and the same input getNetworkingStreak
+ * hands it, differing only in where the rows came from.
+ *
+ * ONE pinned `now` for the whole response, like getHomeCoreData: the streak's
+ * day walk and the heatmap's axis are two views of one instant and must not be
+ * evaluated against clocks that drifted across the awaits between them.
+ */
+export async function getHomeActivity(userId: string) {
+  const now = new Date();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  const lookback = new Date(today);
+  lookback.setDate(lookback.getDate() - STREAK_LOOKBACK_DAYS);
+
+  // Deliberately not awaited before the heatmap call: passing the promise lets
+  // the heatmap's own two legs go out in the same tick as these three, so the
+  // consolidation saves three requests without adding a round trip.
+  const rows = fetchActivityRows(userId, lookback);
+  const heatmap = await getActivityHeatmap(userId, { rows, now });
+
+  // Counting policy lives in src/lib/rules/streak.ts (CAR-155).
+  return { heatmap, streak: deriveNetworkingStreak(streakDayKeys(await rows), today.toISOString()) };
 }

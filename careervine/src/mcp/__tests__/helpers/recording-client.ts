@@ -187,7 +187,21 @@ export function createRecordingClient(state: RecordingState) {
         orders: [],
         stack: captureStack(),
       };
+      // A function result is an ordinary PostgREST response, so its builder
+      // takes .order()/.range()/.limit() exactly like a .from() chain does —
+      // and it MUST, because a set-returning rpc is subject to the same
+      // max_rows cap and has to be paginated (CAR-229). Omitting them here
+      // made the double reject correct calling code with "order is not a
+      // function", which reads as a bug in the caller rather than a gap in the
+      // double. .order() records into q.orders so the scoping assertions see
+      // rpc ordering the same way they see table ordering.
       const builder: Record<string, unknown> = {
+        order: (col: string, opts?: { referencedTable?: string }) => {
+          q.orders.push(opts?.referencedTable ? `${opts.referencedTable}.${col}` : col);
+          return builder;
+        },
+        limit: () => builder,
+        range: () => builder,
         single: async () => { q.resolution = "single"; return resolveQuery(state, q); },
         maybeSingle: async () => { q.resolution = "maybeSingle"; return resolveQuery(state, q); },
         then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
@@ -411,7 +425,17 @@ export function assertAllScoped(
     if (q.op === "rpc") {
       const allowed = ownership?.allowedRpcs?.includes(q.rpc ?? "");
       const argsOwned = Object.values(q.rpcArgs ?? {}).some((v) => owned.has(v as number | string));
-      if (!allowed || !argsOwned) {
+      // An rpc that takes the tenant as an argument is directly scoped, exactly
+      // as a .eq("user_id", userId) filter scopes a table query — it is the
+      // argument that confines the function to one tenant when RLS is bypassed
+      // under service-role. Recognising it is a tightening, not a loophole: the
+      // value must equal THIS invocation's user, so an rpc handed the wrong
+      // tenant (or a null one, which is how the CAR-229 aggregate silently
+      // returned zero rows to the MCP server) still fails here.
+      const argsUserScoped = Object.entries(q.rpcArgs ?? {}).some(
+        ([k, v]) => /user_id$/.test(k) && v === userId,
+      );
+      if (!(allowed && argsOwned) && !argsUserScoped) {
         failures.push(`rpc ${q.rpc}(${JSON.stringify(q.rpcArgs)}) is not covered by an ownership assertion`);
       }
       continue;

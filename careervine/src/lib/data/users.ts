@@ -111,7 +111,16 @@ export async function setDismissedGettingStarted(userId: string, ids: string[]):
   if (error) throw error;
 }
 
-/** The user's Gmail connection row (settings + compose surfaces). */
+/**
+ * The user's Gmail connection row, for a surface that mounts on ONE page.
+ *
+ * Never call this from anything the app shell renders on every route (a root
+ * layout provider, navigation, a global modal). `/api/gmail/connection` selects
+ * a strict superset of these columns and `useGmailConnection()` shares one
+ * fetch of it across every consumer, so a shell-level caller here is a second
+ * gmail_connections read on every page load that learns nothing new — which is
+ * what CAR-229 removed from `components/compose-email-context.tsx`.
+ */
 export async function getGmailConnection(userId: string) {
   const { data, error } = await db()
     .from("gmail_connections")

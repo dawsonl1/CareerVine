@@ -6,10 +6,18 @@ import { apiFetch } from "@/lib/api-client";
 
 /**
  * Connection data returned by /api/gmail/connection.
- * Shared across all components that need calendar/gmail status.
+ *
+ * Shared across all components that need calendar/gmail status. This is the
+ * ONE `gmail_connections` read the app shell is allowed to make (CAR-229):
+ * every consumer subscribes to the module store below, so a page that needs
+ * the connection must reach for `useGmailConnection()` rather than issuing its
+ * own `getGmailConnection()` query. The route selects a superset of that
+ * query's columns, so there is nothing a second read could learn.
  */
 export type GmailConnectionData = {
   send_scope_granted: boolean;
+  /** The connected mailbox address — the compose modal's "from" line. */
+  gmail_address: string;
   calendar_scopes_granted: boolean;
   calendar_last_synced_at: string | null;
   availability_standard: unknown;

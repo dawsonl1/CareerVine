@@ -34,6 +34,39 @@ docker info >/dev/null 2>&1 || { echo "Error: Docker is not running. 'supabase d
 command -v node >/dev/null 2>&1 || { echo "Error: node not found in PATH (needed to parse the db diff output)." >&2; exit 1; }
 command -v supabase >/dev/null 2>&1 || { echo "Error: supabase CLI not found in PATH." >&2; exit 1; }
 
+# CLI PIN (CAR-229). The header's central claim — that `db diff --linked`
+# reports only undocumented PROD state and never flags a pending migration — is
+# a property of the CLI version, not of the command. It holds on 2.109.1 and
+# BROKE on 2.110.0, which emits a `DROP FUNCTION ...` for a migration that
+# exists locally and has not been pushed yet.
+#
+# That failure mode is maximally misleading, because it fires precisely when
+# this script is used as intended: as the preflight immediately before pushing a
+# new migration. The operator is told "PRODUCTION SCHEMA DRIFT DETECTED" and
+# handed a DROP for the very object they are about to create.
+#
+# Verified empirically on 2026-08-05 from a worktree carrying exactly one
+# unpushed migration: 2.109.1 -> {"diff":"","dropStatements":[]} ("No schema
+# changes found"); 2.110.0 -> a DROP for that migration's new function. Prod was
+# confirmed independently (pg_proc + supabase_migrations.schema_migrations) to
+# NOT contain the object, so 2.109.1 was right and 2.110.0's output inverts the
+# direction this script depends on.
+#
+# So: pin the diff to the verified version rather than trusting PATH. Matches
+# the existing pin in .github/workflows/ci.yml for `gen types`. A version bump
+# here must be re-verified against the pending-migration case above.
+DRIFT_CHECK_CLI_VERSION="2.109.1"
+if supabase --version 2>/dev/null | grep -q "$DRIFT_CHECK_CLI_VERSION"; then
+  SUPABASE_DIFF_CLI=(supabase)
+else
+  command -v npx >/dev/null 2>&1 || {
+    echo "Error: supabase CLI on PATH is $(supabase --version 2>/dev/null || echo unknown), but this check is only valid on $DRIFT_CHECK_CLI_VERSION, and npx is not available to fetch it (fail-closed)." >&2
+    exit 1
+  }
+  echo "Note: pinning db diff to supabase@$DRIFT_CHECK_CLI_VERSION via npx (PATH has $(supabase --version 2>/dev/null || echo unknown))." >&2
+  SUPABASE_DIFF_CLI=(npx -y "supabase@$DRIFT_CHECK_CLI_VERSION")
+fi
+
 # Shadow-port pre-check (CAR-171): db diff provisions its shadow database on
 # db.shadow_port from supabase/config.toml. A local `supabase start` stack
 # holds that port, and the resulting provisioning failure used to surface as a
@@ -69,7 +102,7 @@ attempts=3
 out=""
 rc=1
 for i in $(seq 1 "$attempts"); do
-  out="$(supabase db diff --linked --schema public 2>"$errfile")"
+  out="$("${SUPABASE_DIFF_CLI[@]}" db diff --linked --schema public 2>"$errfile")"
   rc=$?
   # A shadow-provisioning failure (port grabbed after the pre-check above, or
   # any other shadow setup error) is deterministic — retrying just adds noise.

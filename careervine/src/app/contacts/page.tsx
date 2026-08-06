@@ -16,13 +16,16 @@ import {
   getTags, createTag, addTagToContact, findOrCreateLocation,
   activateContact, getNetworkTierCounts,
 } from "@/lib/queries";
+// Straight from the domain module rather than the frozen queries barrel: this
+// is new code, and the barrel takes no additions (src/lib/queries.ts header).
+import { getContactsSearchCorpus, type ContactSearchItem } from "@/lib/data/contacts";
 import { promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
 import { track } from "@/lib/analytics/client";
 import { primaryCurrentRole, sortEducation, sortExperiences } from "@/lib/experience-order";
 import {
   searchContacts, normalizeSearchText, parseSearchTokens, scoreContact, searchableFields,
 } from "@/lib/contact-search";
-import type { ContactListItem, TagRow } from "@/lib/types";
+import type { TagRow } from "@/lib/types";
 import {
   Plus, Users, Search, ChevronDown, Mail, Phone,
   Tag, ExternalLink, Briefcase, GraduationCap, Check, Trash2, X, UserPlus,
@@ -44,6 +47,9 @@ import { apiSend } from "@/lib/api-client";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 
+type Tier = "active" | "prospect" | "bench";
+const TIERS = ["active", "prospect", "bench"] as const;
+
 const emptyForm = {
   name: "", industry: "", linkedin_url: "", notes: "", met_through: "",
   follow_up_frequency_days: "", contact_status: "", expected_graduation: "",
@@ -55,7 +61,11 @@ export default function ContactsPage() {
   const { user } = useAuth();
   const router = useRouter();
   const { success: toastSuccess, error: toastError } = useToast();
-  const [contacts, setContacts] = useState<ContactListItem[]>([]);
+  // Rows for the tiers that have actually been streamed in. Typed as the lean
+  // search-corpus row, not ContactListItem: the corpus and the streamed list
+  // share one card renderer, and a list row is assignable to a corpus row
+  // (asserted in src/lib/data/contacts.ts) but not the other way round.
+  const [contacts, setContacts] = useState<ContactSearchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -90,13 +100,16 @@ export default function ContactsPage() {
   // whichever tiers are switched on. Default is the hand-curated network
   // only; imported prospects and the archive stay out of the way until
   // toggled in (plan 24 containment).
-  const [enabledTiers, setEnabledTiers] = useState<Set<"active" | "prospect" | "bench">>(
-    () => new Set(["active"])
-  );
-  // True once every tier is in memory — toggle flips are then instant
-  const [allTiersLoaded, setAllTiersLoaded] = useState(false);
-  // Lightweight head-count results shown on the chips until the full
-  // contact payload lands
+  const [enabledTiers, setEnabledTiers] = useState<Set<Tier>>(() => new Set(["active"]));
+  // Tiers whose stream has finished. A tier's rows are only a complete answer
+  // about that tier once it appears here, which is what makes a derived count
+  // trustworthy (see tierCounts) and what viewLoading waits on.
+  const [loadedTiers, setLoadedTiers] = useState<Set<Tier>>(() => new Set());
+  // Tiers already claimed by a fetch (in flight or settled). A ref rather than
+  // state so a re-render mid-stream can't start the same tier twice.
+  const requestedTiersRef = useRef<Set<Tier>>(new Set());
+  // Head counts for the chips. With tiers loading lazily this is the standing
+  // authority, not just a placeholder until the payload lands.
   const [serverTierCounts, setServerTierCounts] = useState<{ active: number; prospect: number; bench: number } | null>(null);
 
   // Rows rendered before "Show all" (CAR-222). Nobody scrolls two thousand
@@ -108,7 +121,7 @@ export default function ContactsPage() {
   const RENDER_CAP = 100;
   const [showAllRows, setShowAllRows] = useState(false);
 
-  const toggleTier = (tier: "active" | "prospect" | "bench") => {
+  const toggleTier = (tier: Tier) => {
     // Back to the capped list: "show all" was a decision about the previous
     // result set, and carrying it into a new one re-renders thousands of rows.
     setShowAllRows(false);
@@ -120,65 +133,96 @@ export default function ContactsPage() {
     });
   };
 
-  const loadContacts = useCallback(async () => {
-    // Clear the spinner on the guard path too, so a retry clicked after auth
-    // is lost can't strand `loading` at true forever (CAR-154 review).
-    if (!user) { setLoading(false); return; }
-    setLoadError(false);
-    try {
-      // Stream every tier in parallel. getContactsStreamed pulls a small first
-      // page (50) then large pages, in name order, so each tier paints its
-      // first ~50 rows fast and backfills the rest in the background. Running
-      // the tiers as independent streams (rather than one all-tiers superset)
-      // means: the active network — the default view — paints from its own
-      // first page without waiting on the prospect/bench archive, no tier
-      // blocks another, and active is never fetched twice. Prospect/bench still
-      // load fully so their toggles stay in-memory once switched on.
-      const byId = new Map<number, ContactListItem>();
-      const flush = () =>
-        setContacts(Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name)));
+  const mergeRows = useCallback((rows: ContactSearchItem[]) => {
+    setContacts((prev) => {
+      const byId = new Map(prev.map((c) => [c.id, c]));
+      for (const r of rows) byId.set(r.id, r);
+      return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+    });
+  }, []);
 
-      const TIERS = ["active", "prospect", "bench"] as const;
-      await Promise.all(
-        TIERS.map(async (tier) => {
-          await getContactsStreamed(user.id, [tier], (rows) => {
-            for (const r of rows) byId.set(r.id, r);
-            flush();
-            // First paint on the active tier's first page (the default view).
+  /**
+   * Stream the named tiers into the list, skipping any already claimed.
+   *
+   * Only the tiers actually on screen are ever fetched (CAR-229): pulling all
+   * three to exhaustion on mount cost ~15s cold on a 2,000-contact account, and
+   * ~1,996 of those rows were behind toggles that were off. Search does not
+   * depend on this any more — it has its own corpus below — so a tier the user
+   * never opens is never loaded.
+   *
+   * getContactsStreamed still pulls a small first page (50) then large ones, in
+   * name order, so the tier paints its first rows fast and backfills behind.
+   * One stream per tier keeps CAR-94's property that no tier blocks another.
+   */
+  const loadTiers = useCallback(
+    async (tiers: Tier[], opts: { refetch?: boolean } = {}) => {
+      // Clear the spinner on the guard path too, so a retry clicked after auth
+      // is lost can't strand `loading` at true forever (CAR-154 review).
+      if (!user) { setLoading(false); return; }
+      if (opts.refetch) for (const t of tiers) requestedTiersRef.current.delete(t);
+      const pending = tiers.filter((t) => !requestedTiersRef.current.has(t));
+      if (pending.length === 0) { setLoading(false); return; }
+      for (const t of pending) requestedTiersRef.current.add(t);
+      setLoadError(false);
+      try {
+        await Promise.all(
+          pending.map(async (tier) => {
+            await getContactsStreamed(user.id, [tier], (rows) => {
+              mergeRows(rows);
+              // First paint on the active tier's first page (the default view).
+              if (tier === "active") setLoading(false);
+            });
+            // Active tier settled — clear the spinner even if it had zero rows
+            // (a bundle account starts with 0 active, so the onPage above never
+            // fires and can't unblock the list). CAR-96.
             if (tier === "active") setLoading(false);
-          });
-          // Active tier settled — clear the spinner even if it had zero rows
-          // (a bundle account starts with 0 active, so the onPage above never
-          // fires and can't unblock the list). CAR-96.
-          if (tier === "active") setLoading(false);
-        }),
-      );
-      setLoading(false);
-      setAllTiersLoaded(true);
-    } catch (error) {
-      // Postgrest errors are plain objects that log as "{}" — pull the fields out
-      const e = error as { message?: string; code?: string; details?: string; hint?: string };
-      console.error(
-        `Error loading contacts: ${e?.message || String(error)}`,
-        JSON.stringify({ code: e?.code, details: e?.details, hint: e?.hint })
-      );
-      setLoadError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
+            setLoadedTiers((prev) => new Set(prev).add(tier));
+          }),
+        );
+      } catch (error) {
+        // Postgrest errors are plain objects that log as "{}" — pull the fields out
+        const e = error as { message?: string; code?: string; details?: string; hint?: string };
+        console.error(
+          `Error loading contacts: ${e?.message || String(error)}`,
+          JSON.stringify({ code: e?.code, details: e?.details, hint: e?.hint })
+        );
+        // Release the claim so Retry, or re-toggling the chip, fetches again.
+        for (const t of pending) requestedTiersRef.current.delete(t);
+        setLoadError(true);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [user, mergeRows],
+  );
 
-  // Per-tier counts for the toggle chips: derived from the loaded
-  // superset once it's in memory (stays live as contacts are promoted),
-  // otherwise the fast head-count results; null until either arrives
+  /**
+   * Per-tier counts for the toggle chips.
+   *
+   * The head-count RPC is the authority now that tiers load lazily: a count
+   * derived from what is in memory is only the truth for a tier that has
+   * finished streaming, and for the rest it is a LOWER BOUND. So a loaded tier
+   * uses its derived count (which stays live as contacts are promoted), and an
+   * unloaded one takes whichever of the two is larger — the max only ever bites
+   * if the error-tolerated RPC came back as zeros, which would otherwise hide
+   * the toggles for an account that plainly has prospects on screen.
+   *
+   * Null until the RPC answers, exactly as before.
+   */
   const tierCounts = useMemo(() => {
-    if (!allTiersLoaded) return serverTierCounts;
-    const counts = { active: 0, prospect: 0, bench: 0 };
+    if (!serverTierCounts) return null;
+    const derived = { active: 0, prospect: 0, bench: 0 };
     for (const c of contacts) {
-      if (c.network_status in counts) counts[c.network_status as keyof typeof counts]++;
+      if (c.network_status in derived) derived[c.network_status as Tier]++;
+    }
+    const counts = { active: 0, prospect: 0, bench: 0 };
+    for (const tier of TIERS) {
+      counts[tier] = loadedTiers.has(tier)
+        ? derived[tier]
+        : Math.max(serverTierCounts[tier], derived[tier]);
     }
     return counts;
-  }, [contacts, allTiersLoaded, serverTierCounts]);
+  }, [contacts, loadedTiers, serverTierCounts]);
 
   // Hide the tier toggles entirely for accounts with no prospects or
   // archived contacts — new users just see their network, no set math
@@ -188,30 +232,60 @@ export default function ContactsPage() {
   // With no toggles on screen, the view is always the active network.
   const visibleContacts = useMemo(() => {
     if (!tiersExist) return contacts.filter((c) => c.network_status === "active");
-    return contacts.filter((c) => enabledTiers.has(c.network_status as "active" | "prospect" | "bench"));
+    return contacts.filter((c) => enabledTiers.has(c.network_status as Tier));
   }, [contacts, enabledTiers, tiersExist]);
 
   // Blocking spinner for a prospect/bench view only while it has NOTHING to
   // show yet. Once the first page of the enabled tier is in memory, render those
   // cards and let the rest stream in behind — never hide loaded rows behind a
   // spinner waiting for the full backfill (CAR-96).
+  const enabledTierLoading = Array.from(enabledTiers).some((t) => !loadedTiers.has(t));
   const viewLoading =
     tiersExist &&
-    !allTiersLoaded &&
+    enabledTierLoading &&
     visibleContacts.length === 0 &&
     (enabledTiers.has("prospect") || enabledTiers.has("bench"));
 
+  // Load the tiers on screen: the default (active) on mount, and any other the
+  // moment its chip is switched on. Fire-and-forget — loadTiers owns its error
+  // handling (sets loadError) and skips tiers it has already claimed.
   useEffect(() => {
-    if (user) {
-      // Fire-and-forget: loadContacts owns its error handling (sets loadError).
-      void loadContacts();
-      // Chip counts arrive in milliseconds, well before the full payload
-      getNetworkTierCounts().then(setServerTierCounts).catch(() => {});
-      getTags(user.id).then(setAllTags).catch(() => {});
-    }
-  }, [user, loadContacts]);
+    if (!user) return;
+    void loadTiers(Array.from(enabledTiers));
+  }, [user, enabledTiers, loadTiers]);
+
+  useEffect(() => {
+    if (!user) return;
+    // Chip counts arrive in milliseconds, well before any tier finishes
+    getNetworkTierCounts().then(setServerTierCounts).catch(() => {});
+    getTags(user.id).then(setAllTags).catch(() => {});
+  }, [user]);
 
   const hasQuery = searchQuery.trim().length > 0;
+
+  // The whole-network search corpus (CAR-229). Only the active tier is in
+  // memory now, so the loaded list is no longer a pool search can read: this is
+  // every tier in a lean projection, fetched ONCE and only on the first search
+  // interaction, so the mount path never pays for it.
+  const [searchCorpus, setSearchCorpus] = useState<ContactSearchItem[] | null>(null);
+  const corpusRequestedRef = useRef(false);
+
+  const ensureSearchCorpus = useCallback(() => {
+    if (!user || corpusRequestedRef.current) return;
+    corpusRequestedRef.current = true;
+    getContactsSearchCorpus(user.id)
+      .then(setSearchCorpus)
+      .catch((error) => {
+        // error-tolerated: search keeps working over the tiers already loaded,
+        // the hint line still says results may be incomplete, and releasing the
+        // claim lets the next focus or keystroke retry.
+        console.error("Error loading contact search corpus:", error);
+        corpusRequestedRef.current = false;
+      });
+  }, [user]);
+
+  // True once a query really is being matched against every tier.
+  const wholeNetworkSearchable = searchCorpus !== null || loadedTiers.size === TIERS.length;
 
   // A search spans the WHOLE network, not just the toggled-on tiers (CAR-222).
   // The chips are a browse filter; scoping search to them meant an account with
@@ -219,10 +293,20 @@ export default function ContactsPage() {
   // and typing a saved contact's full name returned "no contacts match".
   // Cards already signal tier (teal ring = prospect, grayscale = archive), so a
   // result from a toggled-off tier still reads correctly.
-  const searchResults = useMemo(
-    () => (hasQuery ? searchContacts(contacts, searchQuery) : null),
-    [contacts, searchQuery, hasQuery],
-  );
+  //
+  // Ranking is unchanged and still client-side; only the pool moved. Loaded
+  // rows win over corpus rows for the same id — same person, wider columns.
+  const searchResults = useMemo(() => {
+    if (!hasQuery) return null;
+    let pool: ContactSearchItem[] = contacts;
+    if (searchCorpus) {
+      const byId = new Map<number, ContactSearchItem>();
+      for (const c of searchCorpus) byId.set(c.id, c);
+      for (const c of contacts) byId.set(c.id, c);
+      pool = Array.from(byId.values());
+    }
+    return searchContacts(pool, searchQuery);
+  }, [contacts, searchCorpus, searchQuery, hasQuery]);
 
   // Search suggestions: top-ranked people first, then the ones that surfaced
   // only because of a tag. Splitting on "would this still match with tags
@@ -237,8 +321,8 @@ export default function ContactsPage() {
   const { nameSuggestions, tagSuggestions } = useMemo(() => {
     if (!searchResults) return { nameSuggestions: [], tagSuggestions: [] };
     const tokens = parseSearchTokens(searchQuery);
-    const nameSuggestions: ContactListItem[] = [];
-    const tagSuggestions: ContactListItem[] = [];
+    const nameSuggestions: ContactSearchItem[] = [];
+    const tagSuggestions: ContactSearchItem[] = [];
     for (const c of searchResults) {
       if (nameSuggestions.length >= SUGGESTION_LIMIT && tagSuggestions.length >= SUGGESTION_LIMIT) break;
       const tagOnly =
@@ -260,25 +344,48 @@ export default function ContactsPage() {
   const renderedContacts = showAllRows ? filteredContacts : filteredContacts.slice(0, RENDER_CAP);
   const hiddenRowCount = filteredContacts.length - renderedContacts.length;
 
-  const handleActivate = async (contact: ContactListItem) => {
+  /**
+   * Move one contact between tiers in local state after the write succeeded.
+   *
+   * A tier move can land on a contact that reached the screen through SEARCH,
+   * from a tier that was never toggled on and so was never loaded. Writing only
+   * to `contacts` would be a no-op for that row and the card would sit there
+   * unchanged, so the corpus is updated too, and a row missing from the list is
+   * added to it — it belongs to its new tier now. The head counts move with it,
+   * since an unloaded tier has nothing to derive a fresh count from.
+   */
+  const applyTier = (contact: ContactSearchItem, tier: Tier) => {
+    const from = contact.network_status as Tier;
+    setContacts((prev) => {
+      const next = prev.some((c) => c.id === contact.id)
+        ? prev.map((c) => (c.id === contact.id ? { ...c, network_status: tier } : c))
+        : [...prev, { ...contact, network_status: tier }];
+      return next.sort((a, b) => a.name.localeCompare(b.name));
+    });
+    setSearchCorpus((prev) =>
+      prev ? prev.map((c) => (c.id === contact.id ? { ...c, network_status: tier } : c)) : prev,
+    );
+    setServerTierCounts((prev) => {
+      if (!prev || from === tier || !(from in prev)) return prev;
+      return { ...prev, [from]: Math.max(0, prev[from] - 1), [tier]: prev[tier] + 1 };
+    });
+  };
+
+  const handleActivate = async (contact: ContactSearchItem) => {
     try {
       await activateContact(contact.id);
-      setContacts((prev) =>
-        prev.map((c) => (c.id === contact.id ? { ...c, network_status: "active" } : c))
-      );
+      applyTier(contact, "active");
       toastSuccess(`${contact.name} added to your network`);
     } catch {
       toastError("Failed to add to network");
     }
   };
 
-  const handleSetTier = async (contact: ContactListItem, tier: "prospect" | "bench") => {
+  const handleSetTier = async (contact: ContactSearchItem, tier: "prospect" | "bench") => {
     try {
       if (tier === "prospect") await promoteContactToProspect(contact.id);
       else await demoteContactToBench(contact.id);
-      setContacts((prev) =>
-        prev.map((c) => (c.id === contact.id ? { ...c, network_status: tier } : c))
-      );
+      applyTier(contact, tier);
       toastSuccess(tier === "prospect" ? `${contact.name} moved to prospects` : `${contact.name} archived`);
     } catch {
       toastError("Failed to move contact");
@@ -413,7 +520,12 @@ export default function ContactsPage() {
       void apiSend("/api/analytics/milestones", { method: "POST" }).catch(() => {});
 
       closeForm();
-      await loadContacts();
+      // The new contact has to be findable immediately: re-stream the tiers on
+      // screen and drop the search corpus so the next search rebuilds it.
+      setSearchCorpus(null);
+      corpusRequestedRef.current = false;
+      getNetworkTierCounts().then(setServerTierCounts).catch(() => {});
+      await loadTiers(Array.from(enabledTiers), { refetch: true });
       toastSuccess("Contact created");
     } catch {
       toastError("Failed to create contact");
@@ -444,7 +556,7 @@ export default function ContactsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <LoadErrorState
             message="We could not load your contacts"
-            onRetry={() => { setLoading(true); void loadContacts(); }}
+            onRetry={() => { setLoading(true); void loadTiers(Array.from(enabledTiers)); }}
           />
         </div>
       </div>
@@ -474,8 +586,10 @@ export default function ContactsPage() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setShowSearchSuggestions(true); setShowAllRows(false); }}
-            onFocus={() => setShowSearchSuggestions(true)}
+            onChange={(e) => { ensureSearchCorpus(); setSearchQuery(e.target.value); setShowSearchSuggestions(true); setShowAllRows(false); }}
+            // Focus, not the first keystroke: the whole-network corpus starts
+            // downloading while the user is still typing the first letters.
+            onFocus={() => { ensureSearchCorpus(); setShowSearchSuggestions(true); }}
             className="w-full h-12 pl-11 pr-4 bg-surface-container-low text-foreground rounded-full border border-outline-variant placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:border-2 transition-colors text-base"
             placeholder="Search contacts…"
           />
@@ -529,7 +643,7 @@ export default function ContactsPage() {
             surfacing while only "My network" is lit reads as a bug. */}
         {hasQuery && tiersExist && (
           <p className="text-sm text-muted-foreground mb-4">
-            {allTiersLoaded
+            {wholeNetworkSearchable
               ? "Searching your whole network, including prospects and archive."
               : "Searching your whole network. Still loading, so more matches may appear."}
           </p>

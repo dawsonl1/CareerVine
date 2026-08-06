@@ -55,12 +55,40 @@ export async function proxy(request: NextRequest) {
   }
 }
 
+/**
+ * Which requests pay for the refresh above, and why the rest do not.
+ *
+ * getUser() is a REMOTE GoTrue call, not a local JWT decode, so every matched
+ * request spends a full network round trip before Next renders a byte. Three
+ * classes of request are excluded because they provably cannot need it:
+ *
+ *  • Static assets — no auth state at all.
+ *  • API routes — route handlers own a WRITABLE cookie store, so they refresh
+ *    and persist their own session. Matching them would be a redundant
+ *    getUser() per API call.
+ *  • Public routes (CAR-229) — every path `isPublicPath` in
+ *    `lib/public-routes.ts` calls true. The proxy exists for ONE failure: a
+ *    Server Component that reads the session cannot write the rotated cookies
+ *    back (CAR-141). No public route has one. `/` `/privacy` `/terms`
+ *    `/reset-password` `/contacts/preview` `/oauth/consent` are client
+ *    components or static text, `/auth` renders the sign-in form, and
+ *    `/auth/confirm` is a route handler that mints its own session with a
+ *    writable store. A signed-in visitor landing on `/` still refreshes:
+ *    `createBrowserClient` rotates and persists the token itself.
+ *
+ * The public list is duplicated here because Next requires `matcher` to be a
+ * statically analyzable literal — a variable or function call is ignored at
+ * build time. `src/__tests__/proxy-matcher.test.ts` compiles this matcher the
+ * way `next build` does and asserts it agrees with `isPublicPath` across the
+ * whole route inventory, so the copy cannot drift from the source of truth.
+ *
+ * Alternatives are anchored (`terms$`, or `.` for the `.rsc`/`.json` transport
+ * forms of the same route) so a FUTURE route that merely starts with a public
+ * route's name — `/authors`, `/terms-of-sale` — keeps its session refresh
+ * instead of silently losing it.
+ */
 export const config = {
-  // Run on every route except static assets and API routes. Static assets have
-  // no auth state; API routes are route handlers with a writable cookie store,
-  // so they refresh and persist their own session and don't need the proxy —
-  // skipping them avoids a redundant getUser() round trip per API call.
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|txt|xml|css|js|map|json)$).*)",
+    "/((?!$|api|_next/static|_next/image|favicon.ico|privacy(?:$|\\.)|terms(?:$|\\.)|reset-password(?:$|\\.)|contacts/preview(?:$|\\.)|auth(?:$|[./])|oauth(?:$|[./])|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|txt|xml|css|js|map|json)$).*)",
   ],
 };

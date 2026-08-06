@@ -13,14 +13,23 @@
  *   - Delete interaction from timeline
  *
  * Data flow:
- *   loadMeetings() → getMeetings(userId) + getActionItemsForMeeting per meeting
+ *   loadMeetings() → getMeetings(userId), then ONE batched read per related
+ *     table over every meeting id (action items, attachments, transcript
+ *     segments). Never fetch those per meeting: getMeetings returns up to 200,
+ *     so a per-meeting fan-out is up to 600 concurrent PostgREST requests for
+ *     a single list (CAR-229).
  *   loadInteractions() → getAllInteractions(userId)
  *   Timeline merges both arrays sorted by date descending
+ *
+ * The full contact list is NOT part of the page load. Attendee RSVP badges use
+ * getFirstEmailByContactId over the attendee ids on screen; the two widgets
+ * that genuinely need every contact (the action-item ContactPicker and the
+ * speaker resolver) pull it through ensureAllContacts() when they open.
  */
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
@@ -29,6 +38,11 @@ import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getMeetings, deleteMeeting, getContacts, getActionItemsForMeeting, updateActionItem, deleteActionItem, replaceContactsForActionItem, getAllInteractions, deleteInteraction, uploadAttachment, addAttachmentToMeeting, getAttachmentsForMeeting, getAttachmentUrl, deleteAttachment, getTranscriptSegments, updateSpeakerContact } from "@/lib/queries";
+// Direct domain imports: @/lib/queries is a frozen barrel, so batched reads
+// added after CAR-146 are not re-exported through it (CONVENTIONS §d).
+import { getFirstEmailByContactId, getTranscriptSegmentsForMeetings } from "@/lib/data/meetings";
+import { getActionItemsForMeetings } from "@/lib/data/action-items";
+import { getAttachmentsForMeetings } from "@/lib/data/attachments";
 import type { Meeting, ActionItemWithContacts, MeetingActionsMap, InteractionWithContact, TranscriptSegment } from "@/lib/types";
 import { Plus, Calendar, Search, Pencil, CheckSquare, Trash2, Check, RotateCcw, MessageSquare, Paperclip, AlertCircle } from "lucide-react";
 import Link from "next/link";
@@ -59,7 +73,22 @@ export default function MeetingsPage() {
   const [loadError, setLoadError] = useState(false);
   // SpeakerCandidate, not SimpleContact: the AI speaker matcher also reads
   // `industry`, and a SimpleContact[] annotation would erase it here (CAR-158).
+  //
+  // Loaded on demand, never on mount (CAR-229): this is ~2,000 rows dragging
+  // every joined email, phone, company, school and tag, and it was the slowest
+  // request on the page for two widgets most visits never open.
   const [allContacts, setAllContacts] = useState<SpeakerCandidate[]>([]);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
+  const contactsRequested = useRef(false);
+  /**
+   * Contacts named by a row on screen but not (yet) in the full list: the
+   * action items an edit form opens over already carry their assigned contacts,
+   * so the picker renders its chips immediately instead of blanking for as long
+   * as the full fetch takes. Merged UNDER the real list, never over it.
+   */
+  const [namedContacts, setNamedContacts] = useState<{ id: number; name: string }[]>([]);
+  /** contact id → first email, for RSVP badge matching. See loadMeetings. */
+  const [attendeeEmails, setAttendeeEmails] = useState<Map<number, string>>(new Map());
   const [meetingActions, setMeetingActions] = useState<MeetingActionsMap>({});
   const [cardEditActionId, setCardEditActionId] = useState<number | null>(null);
   const [cardEditTitle, setCardEditTitle] = useState("");
@@ -84,8 +113,16 @@ export default function MeetingsPage() {
   const [meetingSegments, setMeetingSegments] = useState<Record<number, TranscriptSegment[]>>({});
   const [showSpeakerResolver, setShowSpeakerResolver] = useState<number | null>(null);
 
-  const loadContacts = useCallback(async () => {
-    if (!user) return;
+  /**
+   * Fetch the full contact list, once, the first time a widget that genuinely
+   * needs all of it opens: the action-item ContactPicker and the speaker
+   * resolver. Idempotent via a ref rather than `contactsLoaded`, so two opens in
+   * the same tick can't both fire it; the ref is released on failure so the next
+   * open retries.
+   */
+  const ensureAllContacts = useCallback(async () => {
+    if (!user || contactsRequested.current) return;
+    contactsRequested.current = true;
     try {
       const data = await getContacts(user.id);
       const contacts = data.map((c) => {
@@ -100,8 +137,28 @@ export default function MeetingsPage() {
         };
       });
       setAllContacts(contacts);
-    } catch (e) { console.error("Error loading contacts:", e); }
+      setContactsLoaded(true);
+    } catch (e) {
+      contactsRequested.current = false;
+      console.error("Error loading contacts:", e);
+    }
   }, [user]);
+
+  /**
+   * What the pickers search: the full list once loaded, plus on-screen names.
+   * Deduped by id — `namedContacts` is appended to on every edit-form open, so
+   * reopening the same action item would otherwise render duplicate options.
+   */
+  const pickerContacts = useMemo(() => {
+    const seen = new Set(allContacts.map((c) => c.id));
+    const extra: { id: number; name: string }[] = [];
+    for (const c of namedContacts) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      extra.push(c);
+    }
+    return [...allContacts, ...extra];
+  }, [allContacts, namedContacts]);
 
   const loadInteractions = useCallback(async () => {
     if (!user) return;
@@ -149,31 +206,36 @@ export default function MeetingsPage() {
           // rendered, so a failed lookup just leaves the badges off.
         }
       }
-      // Load action items, attachments, and transcript segments for each meeting
-      const actionsMap: MeetingActionsMap = {};
-      const attMap: typeof meetingAttachments = {};
-      const segMap: Record<number, TranscriptSegment[]> = {};
-      await Promise.all(data.map(async (m) => {
-        try {
-          // A literal tuple (rather than a Promise<any>[] the results are cast
-          // back out of) so each result keeps its own query's inferred row type.
-          const [items, atts, segs] = await Promise.all([
-            getActionItemsForMeeting(m.id),
-            getAttachmentsForMeeting(m.id),
-            // Only load segments for meetings that have parsed transcripts
-            m.transcript_parsed ? getTranscriptSegments(m.id) : null,
-          ]);
-          if (items.length > 0) actionsMap[m.id] = items;
-          if (atts.length > 0) attMap[m.id] = atts;
-          if (segs && segs.length > 0) segMap[m.id] = segs;
-        } catch {
-          // Per-meeting action items/attachments/segments are enrichment; one
-          // meeting failing must not blank the others.
-        }
-      }));
-      setMeetingActions(actionsMap);
-      setMeetingAttachments(attMap);
-      setMeetingSegments(segMap);
+      // Everything the timeline rows need, in FOUR reads for the whole list.
+      // Three of them replace a per-meeting fetch: getMeetings returns up to
+      // 200 rows, so that fan-out was up to 600 concurrent requests (CAR-229).
+      // The fourth resolves RSVP badges, which compare a calendar attendee's
+      // address against the contact's first email — that used to come out of
+      // the whole contact list, and is now keyed by the attendees of
+      // calendar-linked meetings, the only ones that can render a badge.
+      //
+      // allSettled so one failing read leaves the others on screen, which is
+      // the resilience the per-meeting try/catch used to give.
+      const meetingIds = data.map((m) => m.id);
+      const [actionsRes, attRes, segRes, emailRes] = await Promise.allSettled([
+        getActionItemsForMeetings(meetingIds),
+        getAttachmentsForMeetings(meetingIds),
+        // Only load segments for meetings that have parsed transcripts
+        getTranscriptSegmentsForMeetings(data.filter((m) => m.transcript_parsed).map((m) => m.id)),
+        getFirstEmailByContactId(user.id, [...new Set(
+          data.filter((m) => m.calendar_event_id)
+            .flatMap((m) => m.meeting_contacts.map((mc) => mc.contact_id)),
+        )]),
+      ]);
+      setMeetingActions(actionsRes.status === "fulfilled" ? actionsRes.value : {});
+      setMeetingAttachments(attRes.status === "fulfilled" ? attRes.value : {});
+      setMeetingSegments(segRes.status === "fulfilled" ? segRes.value : {});
+      // Badges are enrichment over a list that has already rendered, so a
+      // failure here just leaves them off — same as the calendar_events read.
+      if (emailRes.status === "fulfilled") setAttendeeEmails(emailRes.value);
+      for (const r of [actionsRes, attRes, segRes, emailRes]) {
+        if (r.status === "rejected") console.error("Error loading meeting details:", r.reason);
+      }
     }
     catch (e) { console.error("Error loading meetings:", e); setLoadError(true); }
     finally { setLoading(false); }
@@ -184,10 +246,9 @@ export default function MeetingsPage() {
   useEffect(() => {
     if (user) {
       void loadMeetings();
-      void loadContacts();
       void loadInteractions();
     }
-  }, [user, loadMeetings, loadContacts, loadInteractions]);
+  }, [user, loadMeetings, loadInteractions]);
 
   // Refresh when a conversation is logged via the unified modal
   useEffect(() => {
@@ -274,7 +335,7 @@ export default function MeetingsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <LoadErrorState
             message="We could not load your activity"
-            onRetry={() => { setLoading(true); void loadMeetings(); void loadInteractions(); void loadContacts(); }}
+            onRetry={() => { setLoading(true); void loadMeetings(); void loadInteractions(); }}
           />
         </div>
       </div>
@@ -324,7 +385,7 @@ export default function MeetingsPage() {
         {loadError && (meetings.length > 0 || allInteractions.length > 0) && (
           <LoadErrorBanner
             message="Some of your activity could not be loaded."
-            onRetry={() => { void loadMeetings(); void loadInteractions(); void loadContacts(); }}
+            onRetry={() => { void loadMeetings(); void loadInteractions(); }}
             className="mb-6"
           />
         )}
@@ -494,7 +555,7 @@ export default function MeetingsPage() {
                   <div className="flex flex-wrap gap-2 mt-4 ml-[60px]">
                     {meeting.meeting_contacts.map((mc: Meeting["meeting_contacts"][0]) => {
                       const calEvent = meetingCalendarMap[meeting.id];
-                      const contactEmail = allContacts.find(c => c.id === mc.contact_id)?.email;
+                      const contactEmail = attendeeEmails.get(mc.contact_id);
                       const rsvp = calEvent && contactEmail
                         ? calEvent.attendees.find((a) => a.email === contactEmail)?.responseStatus
                         : undefined;
@@ -537,7 +598,12 @@ export default function MeetingsPage() {
                         <button
                           type="button"
                           className="text-sm text-primary hover:underline cursor-pointer"
-                          onClick={() => setShowSpeakerResolver(showSpeakerResolver === meeting.id ? null : meeting.id)}
+                          onClick={() => {
+                            // The resolver searches every contact, so this click
+                            // is what pays for the list (CAR-229).
+                            if (showSpeakerResolver !== meeting.id) void ensureAllContacts();
+                            setShowSpeakerResolver(showSpeakerResolver === meeting.id ? null : meeting.id);
+                          }}
                         >
                           {showSpeakerResolver === meeting.id ? "Hide" : "Match speakers"}
                         </button>
@@ -548,7 +614,11 @@ export default function MeetingsPage() {
                         <SpeakerResolver
                           segments={meetingSegments[meeting.id]}
                           meetingContacts={meeting.meeting_contacts.map(mc => ({ id: mc.contacts.id, name: mc.contacts.name, industry: mc.contacts.industry }))}
-                          allContacts={allContacts}
+                          // undefined, not [], until the fetch lands: the
+                          // resolver's own fallback is "use the meeting's
+                          // attendees", and an empty array would suppress it and
+                          // hand the AI matcher no candidates at all.
+                          allContacts={contactsLoaded ? allContacts : undefined}
                           meetingTitle={meeting.title || undefined}
                           onResolve={async (mappings) => {
                             try {
@@ -595,7 +665,7 @@ export default function MeetingsPage() {
                           <div key={action.id} className="p-4 rounded-[8px] bg-surface-container space-y-2.5">
                             <input type="text" value={cardEditTitle} onChange={(e) => setCardEditTitle(e.target.value)} className={`${inputClasses} !h-11 text-base`} placeholder="Title" />
                             <textarea value={cardEditDescription} onChange={(e) => setCardEditDescription(e.target.value)} className={`${inputClasses} !h-auto py-2.5 text-base`} rows={2} placeholder="Description (optional)" />
-                            <ContactPicker allContacts={allContacts} selectedIds={cardEditContactIds} onChange={setCardEditContactIds} />
+                            <ContactPicker allContacts={pickerContacts} selectedIds={cardEditContactIds} onChange={setCardEditContactIds} />
                             <DatePicker value={cardEditDueDate} onChange={setCardEditDueDate} placeholder="No due date" />
                             <div className="flex justify-end gap-2">
                               <Button type="button" variant="text" size="sm" onClick={() => setCardEditActionId(null)}>Cancel</Button>
@@ -618,7 +688,19 @@ export default function MeetingsPage() {
                               </span>
                             )}
                             <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button type="button" onClick={() => { setCardEditActionId(action.id); setCardEditTitle(action.title); setCardEditDescription(action.description || ""); setCardEditDueDate(dueDateKey(action.due_at) ?? ""); setCardEditContactIds(action.action_item_contacts?.map(ac => ac.contact_id) || (action.contacts ? [action.contacts.id] : [])); }} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
+                              <button type="button" onClick={() => {
+                                // The picker searches every contact, so opening
+                                // the form is what pays for the list. Its already
+                                // assigned contacts come embedded on the action
+                                // item, so the chips render now rather than after
+                                // the fetch (CAR-229).
+                                void ensureAllContacts();
+                                setNamedContacts(prev => [
+                                  ...prev,
+                                  ...(action.action_item_contacts ?? []).map(ac => ac.contacts).filter((c): c is { id: number; name: string } => c != null),
+                                  ...(action.contacts ? [action.contacts] : []),
+                                ]);
+                                setCardEditActionId(action.id); setCardEditTitle(action.title); setCardEditDescription(action.description || ""); setCardEditDueDate(dueDateKey(action.due_at) ?? ""); setCardEditContactIds(action.action_item_contacts?.map(ac => ac.contact_id) || (action.contacts ? [action.contacts.id] : [])); }} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground cursor-pointer" title="Edit">
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
                               {action.is_completed ? (

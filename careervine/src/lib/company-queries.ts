@@ -6,6 +6,23 @@
  * current/former/bench split. Bench containment is enforced here: bench
  * people are returned in their own list, never mixed into contact counts
  * or traction.
+ *
+ * ── The `enrich` option (CAR-229) ────────────────────────────────────────
+ *
+ * getCompanies' who-you-know pass (alum/product-alum/recruiter counts,
+ * traction, lead name) is the bulk of what the call costs: it fans the shown
+ * companies out to their people, then fans those people out to eight stage legs
+ * plus an alumni lookup. `enrich: false` skips all of it for a caller that
+ * renders none of those five fields, and the RESULT TYPE CHANGES with it —
+ * CompanyBaseSummary simply does not carry them, so a consumer cannot read a
+ * count that was never computed. That is the whole point of the option: the
+ * cheap way to add it would have been to leave `alum_count: 0` in place, which
+ * is indistinguishable from "nobody here went to your school".
+ *
+ * Two sorts read the enrichment (`next` through nextActionForCompany, and
+ * `traction` directly), so `enrich: false` requires an explicit `sort` from the
+ * narrowed set. Defaulting would have silently picked `next` for the
+ * pursuing/in_play scopes.
  */
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
@@ -15,7 +32,7 @@ import {
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
-import { chunked, paginateAll, escapeIlike } from "@/lib/data/postgrest";
+import { chunked, chunkedPaginated, paginateAll, escapeIlike } from "@/lib/data/postgrest";
 import { must } from "@/lib/data/client";
 import { getUserSchool } from "@/lib/data/users";
 import { findOrCreateCompany } from "./company-helpers";
@@ -380,7 +397,18 @@ export interface OfficeScopeSummary {
   status: string;
 }
 
-export interface CompanySummary {
+/**
+ * What getCompanies returns WITHOUT the who-you-know enrichment pass
+ * (`enrich: false`).
+ *
+ * The five enrichment fields are absent from this type AND from the object at
+ * runtime, so `"alum_count" in summary` is false and reading `.alum_count` is a
+ * compile error rather than a plausible-looking `0`. An unenriched summary is
+ * therefore structurally distinguishable from an enriched one, which is what
+ * stops "nobody at this company went to your school" from being manufactured by
+ * a caller that simply opted out of asking.
+ */
+export interface CompanyBaseSummary {
   id: number;
   name: string;
   logo_url: string | null;
@@ -388,6 +416,13 @@ export interface CompanySummary {
   current_count: number;
   former_count: number;
   bench_count: number;
+  target: TargetInfo | null;
+  /** Targeted office scopes (location-level targets), highest priority first. */
+  office_scopes: OfficeScopeSummary[];
+}
+
+/** The five fields the who-you-know pass computes; see CompanyBaseSummary. */
+export interface CompanyEnrichment {
   /** BYU alumni among current non-bench contacts — the app's warm-intro edge. */
   alum_count: number;
   /** BYU alumni among current non-bench contacts who are in a product role — the top intro for a PM search. */
@@ -400,12 +435,18 @@ export interface CompanySummary {
    * when the company has no current non-bench contacts.
    */
   lead_contact_name: string | null;
-  target: TargetInfo | null;
-  /** Targeted office scopes (location-level targets), highest priority first. */
-  office_scopes: OfficeScopeSummary[];
   /** Max derived stage across non-bench contacts (pursuing/in_play views). */
   traction: OutreachStage | null;
 }
+
+/**
+ * The default getCompanies row: base fields plus the enrichment pass.
+ *
+ * Deliberately still a single flat shape with exactly the members it had before
+ * the split, so every existing consumer and every hand-built test fixture keeps
+ * compiling untouched.
+ */
+export interface CompanySummary extends CompanyBaseSummary, CompanyEnrichment {}
 
 /** One target_companies row (any scope, targeted or not) for derivation. */
 export interface CompanyTargetScopeRow {
@@ -482,6 +523,16 @@ export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
 export type CompanySort = "next" | "priority" | "traction" | "next_app_date" | "name";
 
 /**
+ * The sorts an unenriched call may ask for.
+ *
+ * `next` ranks through nextActionForCompany, which reads all five enrichment
+ * fields, and `traction` reads the stage directly — neither is derivable from a
+ * CompanyBaseSummary. Excluding them here is what makes the bad combination a
+ * compile error at the call site instead of an ordering computed from nothing.
+ */
+export type UnenrichedCompanySort = Exclude<CompanySort, "next" | "traction">;
+
+/**
  * Which companies the dashboard returns:
  * - `targets`  — only companies the user explicitly targets (outreach queue, MCP).
  * - `pursuing` — targets + companies where the user has a CURRENT *prospect*
@@ -546,43 +597,178 @@ interface EmploymentAggRow {
   };
 }
 
-async function fetchUserEmploymentRows(userId: string): Promise<EmploymentAggRow[]> {
-  const PAGE = 1000;
-  const all: EmploymentAggRow[] = [];
-  for (let from = 0; ; from += PAGE) {
+/** One row per company from the company_network_counts RPC (CAR-229). */
+interface CompanyCountsRow {
+  company_id: number;
+  current_count: number;
+  former_count: number;
+  bench_count: number;
+  current_prospect_count: number;
+}
+
+/**
+ * Per-company contact counts, aggregated in Postgres (CAR-229).
+ *
+ * This replaces a client-side sweep of EVERY contact_companies row for the
+ * user: 17,628 rows over 18 sequential 1,000-row pages on the reference
+ * account, 6.6s before anything rendered, growing linearly with the network.
+ *
+ * The scope filter is pushed into the RPC because it is what bounds the
+ * response (7,328 companies unfiltered vs 657 for the `/companies` default).
+ * `targetCompanyIds` are always included: a target is shown regardless of how
+ * many contacts you have there, so it still needs its counts.
+ */
+async function fetchCompanyCounts(
+  userId: string,
+  scope: CompanyScope,
+  minContacts: number,
+  targetCompanyIds: number[],
+): Promise<CompanyCountsRow[]> {
+  // Paginated, because a function result is still a PostgREST response and is
+  // still cut at max_rows (1000) with error: null. The `all` scope returns
+  // 4,708 companies on the reference account, so an unpaginated read silently
+  // lost most of them — and getCompanies applies its name search AFTER this,
+  // so the search could not find a company outside the arbitrary window. The
+  // sweep this replaced did page, so skipping it here was a regression; the
+  // parity test caught it (CAR-229).
+  //
+  // Each page re-runs the aggregate, so this is only cheap because the ordinary
+  // scopes fit in one page (in_play 657, pursuing 653, targets ~327). The `all`
+  // scope pays a handful of pages and is still far below the 17,628-row sweep
+  // it replaced. The function's ORDER BY company_id is what makes the range
+  // windows stable.
+  return await paginateAll<CompanyCountsRow>(async (from, to) => {
     const { data, error } = await db()
-      .from("contact_companies")
-      .select(
-        "company_id, contact_id, is_current, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
-      )
-      .eq("contacts.user_id", userId)
-      .range(from, from + PAGE - 1);
+      .rpc("company_network_counts", {
+        // Passed explicitly rather than left to auth.uid(): the MCP server
+        // injects the service-role client into these modules, where auth.uid()
+        // is NULL and RLS is bypassed, so this argument is what scopes the read
+        // (src/mcp/lib/db.ts). Omitting it made every MCP company query return
+        // zero rows silently — db-scoping.test.ts caught it (CAR-229).
+        p_user_id: userId,
+        p_scope: scope,
+        p_min_contacts: minContacts,
+        p_extra_company_ids: targetCompanyIds,
+      })
+      .order("company_id")
+      .range(from, to);
     if (error) throw error;
-    const rows = data ?? [];
-    all.push(...rows);
-    if (rows.length < PAGE) break;
-  }
-  return all;
+    return (data ?? []) as CompanyCountsRow[];
+  });
+}
+
+/**
+ * Employment rows for the companies actually being shown (CAR-229).
+ *
+ * Only the enrichment pass (alumni/recruiter counts, traction, lead name)
+ * needs per-person rows, and it only ever looks at the selected companies, so
+ * this is bounded by the view rather than by the size of the whole network.
+ *
+ * chunkedPaginated, not chunked: contact_companies fans out (several people
+ * per company, several roles per person), so a single id chunk can exceed
+ * PostgREST's 1000-row cap and truncate silently. The explicit .order() is
+ * required by paginateAll's contract and was missing from the sweep this
+ * replaces, where range windows over an unspecified order could duplicate or
+ * drop rows at page boundaries.
+ */
+async function fetchEmploymentRowsForCompanies(
+  userId: string,
+  companyIds: number[],
+): Promise<EmploymentAggRow[]> {
+  return await chunkedPaginated<EmploymentAggRow>(companyIds, async (chunk, from, to) =>
+    must(
+      await db()
+        .from("contact_companies")
+        .select(
+          "company_id, contact_id, is_current, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
+        )
+        .eq("contacts.user_id", userId)
+        .in("company_id", chunk)
+        .order("company_id")
+        .order("contact_id")
+        .order("id")
+        .range(from, to),
+    ),
+  );
+}
+
+interface GetCompaniesCommonOptions {
+  scope?: CompanyScope;
+  search?: string;
+  minContacts?: number;
+}
+
+/** The default call: the who-you-know pass runs and every field is a real value. */
+export interface GetCompaniesEnrichedOptions extends GetCompaniesCommonOptions {
+  sort?: CompanySort;
+  /** Omit (or pass true) to run the enrichment pass. */
+  enrich?: true;
+}
+
+/**
+ * Opt out of the who-you-know pass.
+ *
+ * `sort` is REQUIRED here and narrowed to the orders that do not read the
+ * enrichment: leaving it to the default would pick `next` for the
+ * pursuing/in_play scopes, and `next` cannot be computed from what this call
+ * returns.
+ */
+export interface GetCompaniesUnenrichedOptions extends GetCompaniesCommonOptions {
+  sort: UnenrichedCompanySort;
+  enrich: false;
 }
 
 export async function getCompanies(
   userId: string,
-  opts: { scope?: CompanyScope; search?: string; minContacts?: number; sort?: CompanySort } = {},
-): Promise<CompanySummary[]> {
+  opts?: GetCompaniesEnrichedOptions,
+): Promise<CompanySummary[]>;
+export async function getCompanies(
+  userId: string,
+  opts: GetCompaniesUnenrichedOptions,
+): Promise<CompanyBaseSummary[]>;
+export async function getCompanies(
+  userId: string,
+  opts: GetCompaniesEnrichedOptions | GetCompaniesUnenrichedOptions = {},
+): Promise<CompanyBaseSummary[]> {
   const scope = opts.scope ?? "targets";
+  const enrich = opts.enrich ?? true;
   // Default order: focused views lead with what needs you next; the full
   // search is alphabetical; the outreach/MCP targets queue stays priority-first.
   const sort = opts.sort ?? (scope === "all" ? "name" : scope === "targets" ? "priority" : "next");
+  // The overloads already make this unreachable from TypeScript. It is here for
+  // the callers types cannot see — the MCP tool layer resolves arguments from
+  // JSON, and a silently mis-ordered outreach queue is not a failure anyone
+  // would notice from the output.
+  if (!enrich && (sort === "next" || sort === "traction")) {
+    throw new Error(
+      `getCompanies: sort "${sort}" reads the who-you-know enrichment. ` +
+        `Use enrich:true, or sort by priority / next_app_date / name.`,
+    );
+  }
+  // Whether the pass RUNS, which is not the same question as whether its five
+  // fields are emitted. `all` has always skipped the pass while still returning
+  // the fields as 0/null, and callers (MCP list_companies) read them that way,
+  // so that shape is preserved verbatim; only `enrich: false` drops the keys.
+  const runEnrichment = enrich && scope !== "all";
 
-  const [employment, scopeRows] = await Promise.all([
-    fetchUserEmploymentRows(userId),
-    // All scope rows, including soft-untargeted containers: tier/program
-    // live on the company-wide row even when only offices are targeted.
-    //
-    // Paginated (CAR-223): one row per company AND per targeted office, so the
-    // count multiplies well past the company count. fetchUserEmploymentRows
-    // directly above already pages; this leg was the odd one out, and a
-    // truncated read here drops companies out of the targets view entirely.
+  // All scope rows, including soft-untargeted containers: tier/program
+  // live on the company-wide row even when only offices are targeted.
+  //
+  // Paginated (CAR-223): one row per company AND per targeted office, so the
+  // count multiplies well past the company count, and a truncated read here
+  // drops companies out of the targets view entirely.
+  //
+  // It leads the function because the target company ids it yields are an input
+  // to the counts aggregate below (CAR-229) — targets are shown whether or not
+  // they have contacts — so nothing that reads companyIds can share its wave.
+  //
+  // What CAN share it is the viewer's school. That read depends on nothing,
+  // feeds only the enrichment pass at the bottom, and awaiting it down there put
+  // a single-row lookup on the critical path between the employment read and the
+  // stage fan-out. It stays CONDITIONAL on whether that pass will run at all —
+  // the `all` view and any `enrich: false` caller both discard the value — so
+  // neither pays for it.
+  const [scopeRows, userSchool] = await Promise.all([
     paginateAll(async (from, to) =>
       must(
         await db()
@@ -595,6 +781,7 @@ export async function getCompanies(
           .range(from, to),
       ),
     ),
+    runEnrichment ? viewerSchool(userId) : Promise.resolve(null),
   ]);
   // A company is a target if ANY scope (company-wide or office) is targeted.
   const targetByCompany = new Map<number, ReturnType<typeof deriveCompanyTarget>>();
@@ -610,6 +797,81 @@ export async function getCompanies(
       if (derived.target) targetByCompany.set(companyId, derived);
     }
   }
+
+  // Per-company counts AND the scope selection, both computed in Postgres
+  // (CAR-229). Targets ride along as extras so they keep their counts even
+  // when they have no contacts yet.
+  const countRows = await fetchCompanyCounts(userId, scope, opts.minContacts ?? 1, [...targetByCompany.keys()]);
+  const countsByCompany = new Map(countRows.map((r) => [r.company_id, r]));
+
+  // selectCompanyIds stays the authoritative statement of the scope rule even
+  // though the RPC has already applied it, and re-applying it in TS is
+  // idempotent over a correctly-filtered response.
+  //
+  // Do NOT read that as "the TS can only narrow the SQL, so drift is safe".
+  // It is not a narrowing: selectCompanyIds unconditionally seeds its result
+  // with every target id, so it WIDENS. That widening is what masked a real
+  // SQL bug (a zero-contact target could not come back through
+  // p_extra_company_ids at all) and kept it off the screen, which is exactly
+  // why the divergence has to be tested rather than reasoned about.
+  // company-scope.test.ts pins the TS rule; company-network-counts.itest.ts
+  // drives both halves from one fixture and asserts they agree.
+  const companyIds = selectCompanyIds(
+    scope,
+    targetByCompany.keys(),
+    new Map(
+      [...countsByCompany].map(([id, r]) => [
+        id,
+        {
+          current: { size: r.current_count },
+          former: { size: r.former_count },
+          currentProspect: { size: r.current_prospect_count },
+        },
+      ]),
+    ),
+    opts.minContacts ?? 1,
+  );
+  if (companyIds.length === 0) return [];
+
+  // Per-person rows for the shown companies only — the enrichment pass below
+  // is the sole consumer, and it never looks past `companyIds`.
+  //
+  // The company name/logo read runs in the SAME wave (CAR-229): both are keyed
+  // on `companyIds` and neither reads the other's rows, so the only thing that
+  // used to order them was where they were written. Each is a serial chunk loop
+  // over the shown companies, so running them back to back doubled the chunk
+  // depth of this stage.
+  //
+  // Under `enrich: false` the employment read is skipped outright, because the
+  // enrichment pass is its only consumer: the counts on the card come from the
+  // RPC above, and selectCompanyIds ran off the RPC's rows too. That is the
+  // larger half of what the option saves — it is the read that fans companies
+  // out to people, and the contact ids it produces are what the stage/alum
+  // fan-out then chunks over.
+  //
+  // Gated on `runEnrichment`, which also covers `scope: "all"`. These rows feed
+  // aggByCompany, and aggByCompany is read ONLY inside the enrichment block
+  // below — the summaries take their counts from the RPC. So for `all` this was
+  // a chunkedPaginated sweep over every selected company's employment rows
+  // whose result was then dropped on the floor: ~4,700 companies' worth on the
+  // reference account, for MCP's list_companies(targets_only: false). Skipping
+  // it cannot change that scope's output, because nothing downstream can
+  // observe the difference.
+  const [employment, companyRows] = await Promise.all([
+    runEnrichment ? fetchEmploymentRowsForCompanies(userId, companyIds) : Promise.resolve([]),
+    chunked(companyIds, async (chunk) => {
+      let q = db()
+        .from("companies")
+        .select("id, name, logo_url, linkedin_url")
+        .in("id", chunk);
+      if (opts.search?.trim()) {
+        q = q.ilike("name", `%${escapeIlike(opts.search.trim())}%`);
+      }
+      const { data, error } = await q;
+      if (error) throw error;
+      return data ?? [];
+    }),
+  ]);
 
   // Aggregate people per company; bench counted separately, never mixed
   interface PersonAgg {
@@ -669,40 +931,23 @@ export async function getCompanies(
     for (const id of agg.current) agg.former.delete(id);
   }
 
-  // Which companies to show
-  const companyIds = selectCompanyIds(scope, targetByCompany.keys(), aggByCompany, opts.minContacts ?? 1);
-  if (companyIds.length === 0) return [];
-
-  // Company rows (chunked)
-  const companyRows = await chunked(companyIds, async (chunk) => {
-    let q = db()
-      .from("companies")
-      .select("id, name, logo_url, linkedin_url")
-      .in("id", chunk);
-    if (opts.search?.trim()) {
-      q = q.ilike("name", `%${escapeIlike(opts.search.trim())}%`);
-    }
-    const { data, error } = await q;
-    if (error) throw error;
-    return data ?? [];
-  });
-
-  // Enrichment (traction + who-you-know) per company. Skipped only for the
-  // "all" view, whose company set is unbounded; targets/pursuing/in_play are
-  // bounded and safe. One extra batched query (BYU alumni) over the shown set.
+  // Enrichment (traction + who-you-know) per company. Skipped for the "all"
+  // view, whose company set is unbounded (targets/pursuing/in_play are bounded
+  // and safe), and for an `enrich: false` caller. One extra batched query (BYU
+  // alumni) over the shown set.
   const traction = new Map<number, OutreachStage>();
   const alumCountByCompany = new Map<number, number>();
   const productAlumCountByCompany = new Map<number, number>();
   const recruiterCountByCompany = new Map<number, number>();
   const leadNameByCompany = new Map<number, string | null>();
-  if (scope !== "all") {
+  if (runEnrichment) {
     const uniqueContacts = new Map<number, { id: number; stage_override: string | null }>();
     for (const id of companyIds) {
       for (const p of aggByCompany.get(id)?.people.values() ?? []) {
         uniqueContacts.set(p.id, { id: p.id, stage_override: p.stage_override });
       }
     }
-    const userSchool = await viewerSchool(userId);
+    // userSchool was resolved in the first wave, above.
     const [stages, alumByContact] = await Promise.all([
       getContactStages(userId, [...uniqueContacts.values()]),
       alumContactIds([...uniqueContacts.keys()], userSchool),
@@ -744,31 +989,65 @@ export async function getCompanies(
     }
   }
 
-  const summaries: CompanySummary[] = (companyRows as Array<{
+  /**
+   * The two halves every row carries regardless of enrichment, split out so the
+   * enriched literal below can keep its exact original member order while the
+   * unenriched one simply omits the five keys. Sharing the expressions is what
+   * stops the two shapes from drifting on a base field.
+   */
+  const parts = (c: { id: number; name: string; logo_url: string | null; linkedin_url: string | null }) => {
+    const derived = targetByCompany.get(c.id);
+    // Counts come from the RPC, not from the in-memory sets: the employment
+    // rows are now fetched only for the shown companies, so the sets are an
+    // enrichment input rather than a complete tally (CAR-229).
+    const counts = countsByCompany.get(c.id);
+    return {
+      identity: {
+        id: c.id,
+        name: c.name,
+        logo_url: c.logo_url,
+        linkedin_url: c.linkedin_url,
+        current_count: counts?.current_count ?? 0,
+        former_count: counts?.former_count ?? 0,
+        bench_count: counts?.bench_count ?? 0,
+      },
+      scopes: {
+        target: derived?.target ?? null,
+        office_scopes: derived?.office_scopes ?? [],
+      },
+    };
+  };
+
+  const rows = companyRows as Array<{
     id: number;
     name: string;
     logo_url: string | null;
     linkedin_url: string | null;
-  }>).map((c) => {
-    const agg = aggByCompany.get(c.id);
-    const derived = targetByCompany.get(c.id);
-    return {
-      id: c.id,
-      name: c.name,
-      logo_url: c.logo_url,
-      linkedin_url: c.linkedin_url,
-      current_count: agg?.current.size ?? 0,
-      former_count: agg?.former.size ?? 0,
-      bench_count: agg?.bench.size ?? 0,
-      alum_count: alumCountByCompany.get(c.id) ?? 0,
-      product_alum_count: productAlumCountByCompany.get(c.id) ?? 0,
-      recruiter_count: recruiterCountByCompany.get(c.id) ?? 0,
-      lead_contact_name: leadNameByCompany.get(c.id) ?? null,
-      target: derived?.target ?? null,
-      office_scopes: derived?.office_scopes ?? [],
-      traction: traction.get(c.id) ?? null,
-    };
-  });
+  }>;
+  // Kept as its own typed binding rather than narrowed back out of `summaries`
+  // with a cast: it is the only thing that lets the "next" sort below reach
+  // nextActionForCompany, and a cast there would be the one place a caller
+  // could still read an uncomputed field.
+  const enrichedSummaries: CompanySummary[] | null = enrich
+    ? rows.map((c) => {
+        const { identity, scopes } = parts(c);
+        return {
+          ...identity,
+          alum_count: alumCountByCompany.get(c.id) ?? 0,
+          product_alum_count: productAlumCountByCompany.get(c.id) ?? 0,
+          recruiter_count: recruiterCountByCompany.get(c.id) ?? 0,
+          lead_contact_name: leadNameByCompany.get(c.id) ?? null,
+          ...scopes,
+          traction: traction.get(c.id) ?? null,
+        };
+      })
+    : null;
+  const summaries: CompanyBaseSummary[] =
+    enrichedSummaries ??
+    rows.map((c) => {
+      const { identity, scopes } = parts(c);
+      return { ...identity, ...scopes };
+    });
 
   const cmpNullsLast = (a: number | string | null, b: number | string | null, desc = false) => {
     if (a == null && b == null) return 0;
@@ -779,10 +1058,14 @@ export async function getCompanies(
     return 0;
   };
   // "What's next" ranks are relatively expensive to derive; precompute once.
+  // Driven off `enrichedSummaries` rather than `summaries`, so the sort that
+  // needs all five enrichment fields can only be computed from rows that
+  // actually have them — the guard at the top of the function has already
+  // rejected the combination, and this is what stops a cast from re-opening it.
   const nextRank = new Map<number, number>();
-  if (sort === "next") {
+  if (sort === "next" && enrichedSummaries) {
     const now = new Date();
-    for (const c of summaries) nextRank.set(c.id, nextActionForCompany(c, now).rank);
+    for (const c of enrichedSummaries) nextRank.set(c.id, nextActionForCompany(c, now).rank);
   }
   summaries.sort((a, b) => {
     switch (sort) {
@@ -803,8 +1086,13 @@ export async function getCompanies(
           a.name.localeCompare(b.name)
         );
       case "traction": {
-        const ra = a.traction ? stageRank(a.traction) : -1;
-        const rb = b.traction ? stageRank(b.traction) : -1;
+        // Read from the map the enrichment pass filled rather than off the row,
+        // which is the identical value (`traction: traction.get(c.id) ?? null`)
+        // and keeps this comparator typed over CompanyBaseSummary.
+        const sa = traction.get(a.id) ?? null;
+        const sb = traction.get(b.id) ?? null;
+        const ra = sa ? stageRank(sa) : -1;
+        const rb = sb ? stageRank(sb) : -1;
         return rb - ra || a.name.localeCompare(b.name);
       }
       default:
@@ -919,9 +1207,23 @@ export async function getCompanyDetail(
   userId: string,
   companyId: number,
 ): Promise<CompanyDetail | null> {
-  // CAR-213: whose school lights the alum badge on this page.
-  const detailUserSchool = await viewerSchool(userId);
-  const [companyRes, officesRes, targetRes] = await Promise.all([
+  // ── Wave 1 ──────────────────────────────────────────────────────────────
+  //
+  // Five reads, ONE round trip. None of them depends on another: the viewer's
+  // school (CAR-213) is consumed only by the alum badge at the very bottom of
+  // this function, and the roster read is keyed on `companyId` alone. Awaiting
+  // them in the order they were written cost three extra sequential round trips
+  // on every company step of the /outreach flow, which is the whole reason this
+  // function read as "three sequential waves that scale with employee count"
+  // (CAR-229).
+  //
+  // The roster rides in this wave even though a company the user cannot see
+  // makes it wasted work. That path returns null and is rare; paying a round
+  // trip to find out on every SUCCESSFUL load is not. Promise.all attaches a
+  // handler to every leg as it is constructed, so a rejection in one can never
+  // surface as an unhandled rejection while another is still in flight.
+  const [detailUserSchool, companyRes, officesRes, targetRes, rows] = await Promise.all([
+    viewerSchool(userId),
     db()
       .from("companies")
       .select("id, name, logo_url, linkedin_url, universal_name")
@@ -939,105 +1241,129 @@ export async function getCompanyDetail(
       .is("location_id", null)
       .eq("is_targeted", true)
       .maybeSingle(),
+    // Employment rows for this company across the user's contacts.
+    //
+    // Paginated, and ordered (CAR-207). `.limit(2000)` asked for twice what
+    // PostgREST will ever return, so a company with more than 1000 employment
+    // rows silently lost the rest — and with no ORDER BY, Postgres guarantees no
+    // ordering at all, so WHICH 1000 came back could differ between two loads of
+    // the same page. `id` is the stable key range pagination needs.
+    paginateAll(async (from, to) => {
+      const { data, error } = await db()
+        .from("contact_companies")
+        .select(
+          `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
+         locations(city, state, country),
+         contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta, linkedin_url)`,
+        )
+        .eq("company_id", companyId)
+        .eq("contacts.user_id", userId)
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return data;
+    }),
   ]);
   if (companyRes.error) throw companyRes.error;
   if (!companyRes.data) return null;
 
-  // Employment rows for this company across the user's contacts.
-  //
-  // Paginated, and ordered (CAR-207). `.limit(2000)` asked for twice what
-  // PostgREST will ever return, so a company with more than 1000 employment
-  // rows silently lost the rest — and with no ORDER BY, Postgres guarantees no
-  // ordering at all, so WHICH 1000 came back could differ between two loads of
-  // the same page. `id` is the stable key range pagination needs.
-  const rows = await paginateAll(async (from, to) => {
-    const { data, error } = await db()
-      .from("contact_companies")
-      .select(
-        `id, contact_id, title, is_current, start_month, end_month, location_id, workplace_type,
-         locations(city, state, country),
-         contacts!inner(id, user_id, name, photo_url, headline, persona, network_status, verified_school, review_note, last_scraped_at, stage_override, import_meta, linkedin_url)`,
-      )
-      .eq("company_id", companyId)
-      .eq("contacts.user_id", userId)
-      .order("id", { ascending: true })
-      .range(from, to);
-    if (error) throw error;
-    return data;
-  });
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
+  const nonBench = new Map<number, { id: number; stage_override: string | null }>();
+  for (const r of rows) {
+    if (r.contacts.network_status !== "bench") {
+      nonBench.set(r.contact_id, { id: r.contact_id, stage_override: r.contacts.stage_override });
+    }
+  }
 
-  // Emails, alum badge, stages, latest logged interaction, current employer.
-  // All four paginate inside their chunk for the reason spelled out in
-  // getContactStages above: `chunked` bounds the URL, never the response, and
-  // `contactIds` here is now unbounded (the employment read above used to cap
-  // it at PostgREST's 1000).
-  const [emailRows, schoolRows, interactionRows, currentPositionRows] = await Promise.all([
-    chunked(contactIds, async (chunk) => {
-      return (
-        (await paginateAll(async (from, to) =>
-          must(
-            await db()
-              .from("contact_emails")
-              .select("contact_id, email, source, is_primary, bounced_at")
-              .in("contact_id", chunk)
-              .order("id")
-              .range(from, to),
-          ),
-        )) ?? []
-      );
-    }),
-    chunked(contactIds, async (chunk) => {
-      return (
-        (await paginateAll(async (from, to) =>
-          must(
-            await db()
-              .from("contact_schools")
-              .select("contact_id, schools(name)")
-              .in("contact_id", chunk)
-              .order("id")
-              .range(from, to),
-          ),
-        )) ?? []
-      );
-    }),
-    chunked(contactIds, async (chunk) => {
-      return (
-        (await paginateAll(async (from, to) =>
-          must(
-            await db()
-              .from("interactions")
-              .select("contact_id, interaction_type, interaction_date")
-              .in("contact_id", chunk)
-              // interaction_date DESC stays PRIMARY, with id DESC only as the
-              // tiebreaker range pagination needs. The consumer below keeps the
-              // first row seen per contact as `last_interaction`, so leading
-              // with `id` (the shape every other leg here uses) would silently
-              // hand every contact their OLDEST interaction instead of their
-              // newest, and nothing on screen would look wrong.
-              .order("interaction_date", { ascending: false })
-              .order("id", { ascending: false })
-              .range(from, to),
-          ),
-        )) ?? []
-      );
-    }),
-    chunked(contactIds, async (chunk) => {
-      return (
-        (await paginateAll(async (from, to) =>
-          must(
-            await db()
-              .from("contact_companies")
-              .select("contact_id, title, companies(id, name)")
-              .eq("is_current", true)
-              .in("contact_id", chunk)
-              .order("id")
-              .range(from, to),
-          ),
-        )) ?? []
-      );
-    }),
-  ]);
+  // ── Wave 2 ──────────────────────────────────────────────────────────────
+  //
+  // Everything downstream of the roster, in ONE round trip.
+  //
+  // getContactStages belongs HERE, not in a wave of its own after these four.
+  // Its only input is the non-bench contact id set, which wave 1 already
+  // produced, so the await that used to follow them was ordering, not
+  // dependency — one more full round trip on every company step. Its eight legs
+  // are internally parallel, so folding it in widens this wave rather than
+  // deepening it.
+  //
+  // Its legs are NOT narrowed for the outreach view. Each one feeds a distinct
+  // StageSignals field, and a missing signal does not degrade a stage, it
+  // INVERTS one — drop the referrals leg and a referred contact silently reads
+  // `contacted`, drop the bounce leg and a dead address reads contactable. The
+  // outreach card renders that chip and the queue's traction ordering reads the
+  // same derivation, so a narrower leg set would be a correctness regression
+  // wearing a performance costume.
+  //
+  // The target-notes read is here for the same reason: it depends only on the
+  // target row wave 1 returned, and running it last put a single-row lookup on
+  // the critical path.
+  //
+  // chunkedPaginated, matching fetchEmploymentRowsForCompanies: every one of
+  // these tables fans out (several emails, schools, interactions or past roles
+  // per contact), so `chunked` alone would bound the URL and not the response
+  // (CAR-223), and `contactIds` is unbounded here.
+  const [emailRows, schoolRows, interactionRows, currentPositionRows, stages, noteRows] =
+    await Promise.all([
+      chunkedPaginated(contactIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("contact_emails")
+            .select("contact_id, email, source, is_primary, bounced_at")
+            .in("contact_id", chunk)
+            .order("id")
+            .range(from, to),
+        ),
+      ),
+      chunkedPaginated(contactIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("contact_schools")
+            .select("contact_id, schools(name)")
+            .in("contact_id", chunk)
+            .order("id")
+            .range(from, to),
+        ),
+      ),
+      chunkedPaginated(contactIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("interactions")
+            .select("contact_id, interaction_type, interaction_date")
+            .in("contact_id", chunk)
+            // interaction_date DESC stays PRIMARY, with id DESC only as the
+            // tiebreaker range pagination needs. The consumer below keeps the
+            // first row seen per contact as `last_interaction`, so leading
+            // with `id` (the shape every other leg here uses) would silently
+            // hand every contact their OLDEST interaction instead of their
+            // newest, and nothing on screen would look wrong.
+            .order("interaction_date", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to),
+        ),
+      ),
+      chunkedPaginated(contactIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("contact_companies")
+            .select("contact_id, title, companies(id, name)")
+            .eq("is_current", true)
+            .in("contact_id", chunk)
+            .order("id")
+            .range(from, to),
+        ),
+      ),
+      getContactStages(userId, [...nonBench.values()]),
+      targetRes.data
+        ? (async () =>
+            must(
+              await db()
+                .from("target_company_notes")
+                .select("id, note, created_at, location_id, locations(city, state, country)")
+                .eq("target_company_id", (targetRes.data as TargetInfo).id)
+                .order("created_at", { ascending: false }),
+            ))()
+        : Promise.resolve(null),
+    ]);
 
   const emailByContact = new Map<number, { address: string; source: string; bounced: boolean }>();
   for (const e of emailRows) {
@@ -1067,14 +1393,6 @@ export async function getCompanyDetail(
     if (!p.companies || currentPositionByContact.has(p.contact_id)) continue;
     currentPositionByContact.set(p.contact_id, { title: p.title, company_id: p.companies.id, company_name: p.companies.name });
   }
-
-  const nonBench = new Map<number, { id: number; stage_override: string | null }>();
-  for (const r of rows) {
-    if (r.contacts.network_status !== "bench") {
-      nonBench.set(r.contact_id, { id: r.contact_id, stage_override: r.contacts.stage_override });
-    }
-  }
-  const stages = await getContactStages(userId, [...nonBench.values()]);
 
   // Group rows into people
   const peopleById = new Map<number, CompanyPerson>();
@@ -1204,17 +1522,10 @@ export async function getCompanyDetail(
   // Bench: the pipeline's own ranking (adjacency), best first
   bench.sort((a, b) => (b.adjacency_score ?? -1) - (a.adjacency_score ?? -1) || a.name.localeCompare(b.name));
 
-  // Target notes
+  // Target notes (read in wave 2 above, assembled here).
   let target: CompanyDetail["target"] = null;
   if (targetRes.data) {
     const t = targetRes.data as TargetInfo;
-    const noteRows = must(
-      await db()
-        .from("target_company_notes")
-        .select("id, note, created_at, location_id, locations(city, state, country)")
-        .eq("target_company_id", t.id)
-        .order("created_at", { ascending: false }),
-    );
     const notes: CompanyNote[] = ((noteRows) ?? [])
       .map((n) => ({
         id: n.id,
