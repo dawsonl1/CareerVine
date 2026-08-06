@@ -1,0 +1,16 @@
+[Unit]
+Description=CareerVine full Gmail sync (CAR-234) - every contact, 3x daily
+Documentation=https://linear.app/career-vine/issue/CAR-234
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+# Shared with the send watcher: one copy of CRON_TRIGGER_SECRET on the box, not
+# two to rotate. Also supplies APP_BASE_URL.
+EnvironmentFile=/etc/careervine/send-watcher.env
+# The timer fires hourly; the hour list is what makes this 3x daily, in local
+# time, correctly across DST. See sync-trigger.sh for why it is not in the timer.
+ExecStart=/opt/careervine/gmail-sync/sync-trigger.sh /api/cron/sync-gmail-full 08,12,16

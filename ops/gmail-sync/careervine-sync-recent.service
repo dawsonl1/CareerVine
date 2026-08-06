@@ -1,0 +1,13 @@
+[Unit]
+Description=CareerVine narrow Gmail sync (CAR-234) - recent contacts only, every 20 min
+Documentation=https://linear.app/career-vine/issue/CAR-234
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+EnvironmentFile=/etc/careervine/send-watcher.env
+# No hour list: this one runs on every tick, all day.
+ExecStart=/opt/careervine/gmail-sync/sync-trigger.sh /api/cron/sync-gmail-recent

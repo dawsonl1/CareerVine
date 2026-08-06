@@ -542,11 +542,27 @@ const SYNC_CONCURRENCY = 4;
  * skip a contact. `last_gmail_sync_at` is only stamped when a pass reaches
  * the end, so a partial or all-failed pass never masquerades as a completed
  * sync.
+ *
+ * ── Scoping the sweep to a contact set (CAR-234) ─────────────────────────
+ *
+ * `opts.contactIds` narrows the pass to those contacts and changes nothing
+ * else: the id cursor, the concurrency pool, the per-contact watermark and the
+ * budget all behave exactly as they do on a full sweep. Omitting it sweeps
+ * everything, which is what every pre-CAR-234 caller does.
+ *
+ * It exists because the scheduled narrow sweep runs every 20 minutes and only
+ * cares about contacts we have actually written to. A reply can only exist in a
+ * thread we started, so restricting the set costs nothing in recall for that
+ * job while cutting the swept population by ~97% on a real account.
+ *
+ * An EMPTY array is not the same as omitting it: empty means "no contacts
+ * qualify", and callers must skip the user rather than pass it, because
+ * `.in("id", [])` matches nothing and would burn a pass to discover that.
  */
 export async function syncAllContactEmails(
   userId: string,
   sinceDays = 90,
-  opts: { cursor?: number; budgetMs?: number } = {}
+  opts: { cursor?: number; budgetMs?: number; contactIds?: number[] } = {}
 ): Promise<SyncAllResult> {
   const supabase = createSupabaseServiceClient();
 
@@ -591,13 +607,32 @@ export async function syncAllContactEmails(
   let nextCursor: number | null = null;
 
   paging: while (true) {
-    const { data: contacts, error } = await supabase
-      .from("contacts")
-      .select("id, email_synced_through, contact_emails(email)")
-      .eq("user_id", userId)
-      .gt("id", lastDoneId)
-      .order("id", { ascending: true })
-      .range(0, SYNC_CONTACT_PAGE - 1);
+    // Narrowing rides on top of the id cursor rather than replacing it, so a
+    // scoped pass that exhausts its budget resumes the same way a full one
+    // does. user_id stays on the query regardless: the caller supplies the ids
+    // and must not be able to reach another tenant's contacts through them.
+    //
+    // Kept as ONE chained expression on purpose. Hoisting the builder into a
+    // `let` and re-assigning it hides the .order()/.range() from the unbounded-
+    // read check in scripts/check-conventions.mjs, which then reports this as a
+    // new unpaginated sweep. The conditional stays inline so the paging stays
+    // visible to it.
+    const { data: contacts, error } = opts.contactIds
+      ? await supabase
+          .from("contacts")
+          .select("id, email_synced_through, contact_emails(email)")
+          .eq("user_id", userId)
+          .gt("id", lastDoneId)
+          .in("id", opts.contactIds)
+          .order("id", { ascending: true })
+          .range(0, SYNC_CONTACT_PAGE - 1)
+      : await supabase
+          .from("contacts")
+          .select("id, email_synced_through, contact_emails(email)")
+          .eq("user_id", userId)
+          .gt("id", lastDoneId)
+          .order("id", { ascending: true })
+          .range(0, SYNC_CONTACT_PAGE - 1);
 
     if (error) throw error;
     if (!contacts || contacts.length === 0) break;

@@ -1,0 +1,17 @@
+[Unit]
+Description=Hourly tick for the CareerVine full Gmail sync (CAR-234)
+Documentation=https://linear.app/career-vine/issue/CAR-234
+
+[Timer]
+# Hourly, NOT 08/12/16: the service's hour guard picks the three local hours,
+# because systemd 249 cannot express a timezone in OnCalendar and this box runs
+# on UTC. A UTC-hardcoded schedule would slip an hour at every DST change.
+OnCalendar=hourly
+# Fire a missed tick after downtime rather than waiting for the next hour.
+Persistent=true
+# Keeps the box from starting this at the same instant as every other hourly
+# unit, and stops the sync landing exactly on the send watcher's busiest moment.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

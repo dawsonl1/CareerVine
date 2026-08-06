@@ -1,0 +1,14 @@
+[Unit]
+Description=20-minute tick for the CareerVine narrow Gmail sync (CAR-234)
+Documentation=https://linear.app/career-vine/issue/CAR-234
+
+[Timer]
+# Every 20 minutes on the clock. No timezone concern here, unlike the full
+# sweep: a fixed interval means the same thing in every zone.
+OnCalendar=*:0/20
+Persistent=true
+# Small jitter so this never lines up exactly with the full sweep's tick.
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

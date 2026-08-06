@@ -2659,6 +2659,25 @@ const EXHAUSTIVE_SWEEP_ALLOWLIST = {
     "getActionItems:follow_up_action_items",
     "getCompletedActionItems:follow_up_action_items",
   ],
+  // CAR-234, the scheduled Gmail sweeps. All three run with no signed-in user.
+  //
+  // gmail_connections is genuinely every-row by design: a cron has to consider
+  // every account to decide which ones it is allowed to sync, and there is no
+  // id list to narrow by until this read has produced one. It is one row per
+  // connected user, which is the smallest table in this set.
+  //
+  // The other two ARE narrowed, just not in a way the detector can prove: the
+  // sequences read is user + status='active', and the outbound read is user +
+  // direction + a date window off the function's own `days` parameter. Both are
+  // bounded by a single user's recent activity (tens of rows on the reference
+  // account, against ~1,571 contacts). A .limit() would be the wrong fix — it
+  // would silently drop contacts from the sweep, which reads as "nobody
+  // replied" rather than as an error.
+  "src/lib/data/sync-targets.ts": [
+    "getPremiumSyncUserIds:gmail_connections",
+    "getRecentlyTouchedContactIds:email_follow_ups",
+    "getRecentlyTouchedContactIds:email_messages",
+  ],
   // Lookup map for calendar-attendee matching (address → contact), and the
   // search corpus, which is the WHOLE network on purpose (CAR-222: 9 active vs
   // ~1,996 other, so a tier-scoped search finds nobody). The schools probe is
