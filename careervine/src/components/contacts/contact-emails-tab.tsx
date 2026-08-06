@@ -317,8 +317,12 @@ export function ContactEmailsTab({
                         contactName: se.contact_name,
                         originalSubject: se.subject,
                         originalSentAt: se.scheduled_send_at,
-                        originalGmailMessageId: `scheduled_${se.id}`,
-                        threadId: se.thread_id || `pending_scheduled_${se.id}`,
+                        // Blank, not a placeholder: this email has not sent, so
+                        // neither id exists yet. The send cron back-fills them,
+                        // and `thread_id is null` is what holds the sequence
+                        // dormant meanwhile — a stand-in string defeats it.
+                        originalGmailMessageId: "",
+                        threadId: se.thread_id || "",
                         scheduledEmailId: se.id,
                       });
                     }}

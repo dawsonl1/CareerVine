@@ -1,7 +1,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { activateContactByEmail } from "@/lib/gmail";
 import { trackServer } from "@/lib/analytics/server";
-import { UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES } from "@/lib/constants";
+import { cancelFollowUpsForRepliedThreads } from "@/lib/follow-up-helpers";
 import { must } from "@/lib/data/client";
 
 /**
@@ -24,29 +24,11 @@ export async function recordThreadReply(
   const service = createSupabaseServiceClient();
   const now = new Date().toISOString();
 
-  // Cancel active sequences on this thread (mirrors the cron's reply-cancel;
-  // clears both pending and awaiting_review messages so none are orphaned).
-  const seqs = must(
-    await service
-      .from("email_follow_ups")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("thread_id", threadId)
-      .eq("status", "active"),
-  );
-  for (const s of seqs ?? []) {
-    await service
-      .from("email_follow_ups")
-      .update({ status: "cancelled_reply", updated_at: now })
-      .eq("id", s.id);
-    await service
-      .from("email_follow_up_messages")
-      .update({ status: "cancelled" })
-      .eq("follow_up_id", s.id)
-      // Clear expired too (CAR-105): a still-sendable expired sibling must not
-      // orphan under a now-cancelled parent.
-      .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
-  }
+  // Cancel active sequences on this thread. Shares one implementation with the
+  // send cron and the Gmail sync path (CAR-233) — reply-cancellation is a status
+  // cascade with real edge cases (unresolved-only sweep, never stomp a 'sending'
+  // claim), and it used to be hand-rolled separately in each of them.
+  await cancelFollowUpsForRepliedThreads(service, userId, [threadId], now);
 
   // Graduate the contact (no-op if unmatched / already active).
   await activateContactByEmail(userId, recipientEmail);

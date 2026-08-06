@@ -80,7 +80,11 @@ export function ScheduledTab({
                         <RotateCcw className="h-4 w-4" />
                       </button>
                     )}
-                    <button type="button" onClick={() => { onOpenFollowUp({ recipientEmail: se.recipient_email, contactName: se.contact_name, originalSubject: se.subject, originalSentAt: se.scheduled_send_at, originalGmailMessageId: `scheduled_${se.id}`, threadId: se.thread_id || `pending_scheduled_${se.id}`, scheduledEmailId: se.id, existingFollowUp: linkedFU || null }); }} className="p-2 rounded-full text-muted-foreground hover:text-tertiary cursor-pointer transition-colors" title="Schedule follow-up">
+                    <button type="button" onClick={() => { // Blank ids, not placeholders: this email has not sent, so its thread and
+// message id do not exist yet. The send cron back-fills both, and the
+// follow-up cron keeps the sequence dormant on `thread_id is null` until it
+// does. A stand-in string looks non-null and slips straight past that.
+onOpenFollowUp({ recipientEmail: se.recipient_email, contactName: se.contact_name, originalSubject: se.subject, originalSentAt: se.scheduled_send_at, originalGmailMessageId: "", threadId: se.thread_id || "", scheduledEmailId: se.id, existingFollowUp: linkedFU || null }); }} className="p-2 rounded-full text-muted-foreground hover:text-tertiary cursor-pointer transition-colors" title="Schedule follow-up">
                       <Clock className="h-4 w-4" />
                     </button>
                     <button type="button" onClick={() => onCancel(se.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors" title="Cancel scheduled email">

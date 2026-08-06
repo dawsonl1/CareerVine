@@ -73,8 +73,11 @@ export const POST = withApiHandler({
       service,
       user.id,
       {
-        originalGmailMessageId,
-        threadId,
+        // Blank -> null, never a placeholder: a sequence waiting on an unsent
+        // scheduled email stays dormant on `thread_id is null` until the send
+        // cron back-fills the real ids (see gmailFollowUpCreateSchema).
+        originalGmailMessageId: originalGmailMessageId || null,
+        threadId: threadId || null,
         recipientEmail,
         contactName: contactName || null,
         originalSubject: originalSubject || null,

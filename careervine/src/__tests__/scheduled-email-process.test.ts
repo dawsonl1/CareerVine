@@ -143,7 +143,7 @@ describe("processScheduledEmails claim step (CAR-134)", () => {
 
   it("marks the row sent and propagates ids to linked follow-ups", async () => {
     const rows = [scheduledRow()];
-    const followUps: Row[] = [{ id: 9, status: "active", scheduled_email_id: 1 }];
+    const followUps: Row[] = [{ id: 9, user_id: "u1", status: "active", scheduled_email_id: 1 }];
     const db = makeDb({ scheduled_emails: rows, email_follow_ups: followUps });
 
     const result = await processScheduledEmails("u1", { service: db, send: okSend });
@@ -151,8 +151,42 @@ describe("processScheduledEmails claim step (CAR-134)", () => {
     expect(result).toEqual({ sent: 1, errors: 0 });
     expect(rows[0].status).toBe("sent");
     expect(rows[0].sent_thread_id).toBe("t1");
+    // The back-fill is what RELEASES the sequence: it was dormant on a null
+    // thread until this write gave it a real one.
     expect(followUps[0].original_gmail_message_id).toBe("m1");
     expect(followUps[0].thread_id).toBe("t1");
+  });
+
+  it("back-fills only the sending user's sequences, and only the live ones", async () => {
+    const rows = [scheduledRow()];
+    const followUps: Row[] = [
+      { id: 9, user_id: "u1", status: "active", scheduled_email_id: 1, thread_id: null },
+      // Retired BEFORE its opening email sent — reachable in production because
+      // detectBounces cancels by recipient address, which matches a pre-send
+      // sequence. Stamping it would rewrite the record of a sequence that never
+      // ran (and never will: status is terminal).
+      { id: 10, user_id: "u1", status: "cancelled_bounce", scheduled_email_id: 1, thread_id: null },
+      { id: 11, user_id: "u1", status: "cancelled_user", scheduled_email_id: 1, thread_id: null },
+      // Another tenant's row on the same link. The service client carries no
+      // tenant scope of its own, so the filter is the only thing standing here.
+      { id: 12, user_id: "u2", status: "active", scheduled_email_id: 1, thread_id: null },
+    ];
+    const db = makeDb({ scheduled_emails: rows, email_follow_ups: followUps });
+
+    await processScheduledEmails("u1", { service: db, send: okSend });
+
+    const byId = Object.fromEntries(followUps.map((f) => [f.id, f]));
+    expect(byId[9].thread_id).toBe("t1");
+    expect(byId[10].thread_id).toBeNull();
+    expect(byId[11].thread_id).toBeNull();
+    expect(byId[12].thread_id).toBeNull();
+    // Status is never touched by the stamp, in either direction.
+    expect(followUps.map((f) => f.status)).toEqual([
+      "active",
+      "cancelled_bounce",
+      "cancelled_user",
+      "active",
+    ]);
   });
 
   it("releases the claim and stops the batch when the daily cap is hit (429)", async () => {

@@ -130,16 +130,49 @@ const followUpMessageSchema = z.object({
   sendTime: z.string().regex(/^\d{1,2}:\d{2}$/, "sendTime must be HH:MM format").optional(),
 });
 
-export const gmailFollowUpCreateSchema = z.object({
-  originalGmailMessageId: z.string().min(1, "originalGmailMessageId is required"),
-  threadId: z.string().min(1, "threadId is required"),
-  recipientEmail: headerSafeString.min(1, "recipientEmail is required"),
-  contactName: optionalString,
-  originalSubject: optionalHeaderSafeString,
-  originalSentAt: z.string(),
-  scheduledEmailId: z.number().optional(),
-  messages: z.array(followUpMessageSchema).min(1, "At least one message is required"),
-});
+/**
+ * A sequence anchored to a scheduled email that has NOT SENT YET legitimately
+ * has no thread and no message id — they do not exist until the opening email
+ * goes out, and the send cron back-fills them then. The follow-up cron keeps
+ * such a sequence dormant via `thread_id is not null`, so BLANK IS THE
+ * LOAD-BEARING VALUE: a placeholder string defeats that interlock, and the
+ * cron then burns a threads.get on an id Gmail has never heard of, every tick,
+ * forever. (The MCP path has always passed null here; the web path invented
+ * `pending_scheduled_<id>` only because this schema demanded non-empty.)
+ *
+ * Blank is therefore allowed only WITH `scheduledEmailId`. Without one there is
+ * nothing to back-fill from, so a blank thread would be a sequence that can
+ * never run and never says so — still rejected, loudly, as before.
+ */
+export const gmailFollowUpCreateSchema = z
+  .object({
+    originalGmailMessageId: optionalString,
+    threadId: optionalString,
+    recipientEmail: headerSafeString.min(1, "recipientEmail is required"),
+    contactName: optionalString,
+    originalSubject: optionalHeaderSafeString,
+    originalSentAt: z.string(),
+    scheduledEmailId: z.number().optional(),
+    messages: z.array(followUpMessageSchema).min(1, "At least one message is required"),
+  })
+  .superRefine((val, ctx) => {
+    if (val.scheduledEmailId) return;
+    if (!val.threadId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["threadId"],
+        message: "threadId is required unless the sequence is anchored to a scheduled email",
+      });
+    }
+    if (!val.originalGmailMessageId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["originalGmailMessageId"],
+        message:
+          "originalGmailMessageId is required unless the sequence is anchored to a scheduled email",
+      });
+    }
+  });
 
 export const gmailFollowUpQuerySchema = z.object({
   threadId: optionalString,

@@ -112,6 +112,39 @@ describe('gmailFollowUpCreateSchema', () => {
       messages: [{ sendAfterDays: 3, subject: 'Hi', bodyHtml: '' }],
     });
   });
+
+  // A sequence anchored to a scheduled email that has not sent has no thread
+  // and no message id yet — the send cron back-fills both, and `thread_id is
+  // null` is what keeps the sequence dormant meanwhile. Blank must therefore be
+  // expressible HERE, or the caller invents a placeholder that reads as non-null
+  // and walks straight through that interlock.
+  it('accepts blank thread and message ids when anchored to a scheduled email', () => {
+    expectValid(gmailFollowUpCreateSchema, {
+      ...validPayload,
+      originalGmailMessageId: '',
+      threadId: '',
+      scheduledEmailId: 42,
+    });
+    expectValid(gmailFollowUpCreateSchema, {
+      recipientEmail: 'alice@example.com',
+      originalSentAt: '2025-01-15T10:00:00Z',
+      scheduledEmailId: 42,
+      messages: validPayload.messages,
+    });
+  });
+
+  it('still rejects blank ids with no scheduled email to back-fill from', () => {
+    // Without an anchor there is nothing that will ever supply the thread, so
+    // this would be a sequence that can never run and never says so.
+    expectInvalid(gmailFollowUpCreateSchema, {
+      ...validPayload,
+      threadId: '',
+    });
+    expectInvalid(gmailFollowUpCreateSchema, {
+      ...validPayload,
+      originalGmailMessageId: '',
+    });
+  });
 });
 
 // ── gmailFollowUpUpdateSchema ──────────────────────────────────────────

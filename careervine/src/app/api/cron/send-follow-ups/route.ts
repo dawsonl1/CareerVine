@@ -12,6 +12,7 @@ import {
   resolveFollowUpThreadHeaders,
   THREADING_METADATA_HEADERS,
 } from "@/lib/follow-up-threading";
+import { cancelFollowUpsForRepliedThreads } from "@/lib/follow-up-helpers";
 import { filterActiveUserIds } from "@/lib/user-status";
 import { capabilitiesFor } from "@/lib/capabilities/map";
 import type { Capability } from "@/lib/capabilities/types";
@@ -431,16 +432,12 @@ async function runJob(): Promise<NextResponse> {
     }
 
     if (hasReply) {
-      // Cancel the entire sequence — they replied!
-      await service
-        .from("email_follow_ups")
-        .update({ status: "cancelled_reply", updated_at: now })
-        .eq("id", seqId);
-      await service
-        .from("email_follow_up_messages")
-        .update({ status: "cancelled" })
-        .eq("follow_up_id", seqId)
-        .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
+      // Cancel the entire sequence — they replied! Thread-keyed rather than
+      // seqId-keyed because the cancel is shared with the Gmail sync and manual
+      // paths (CAR-233), and a second active sequence on this same thread is
+      // answered by this same reply. This remains the SAFETY NET: sync cancels
+      // as soon as the app sees a reply, and this catches the ones it hasn't.
+      await cancelFollowUpsForRepliedThreads(service, userId, [threadId], now);
       // Their reply graduates prospects/bench into the active network
       await activateContactByEmail(userId, parent.recipient_email);
       cancelled += messages.length;
