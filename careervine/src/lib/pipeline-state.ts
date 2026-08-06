@@ -87,6 +87,31 @@ export interface PipelineState {
   scopes: Record<string, ScopePipelineState>;
 }
 
+/** Every child-entity id a cycle form currently holds, grouped by collection. */
+export interface CycleEntityIds {
+  programs: string[];
+  notes: string[];
+  applications: string[];
+  interview_rounds: string[];
+}
+
+/**
+ * Snapshot the ids in a cycle form (CAR-238).
+ *
+ * The autosave diffs consecutive snapshots to work out what THIS client deleted,
+ * so `save_pipeline_cycle` can be told explicitly rather than inferring deletion
+ * from absence. Inferring it is what let one browser tab wipe another tab's
+ * notes, and would have let a UI save wipe an MCP-written note.
+ */
+export function collectCycleEntityIds(form: CycleFormState): CycleEntityIds {
+  return {
+    programs: form.researching.programs.map((p) => p.id),
+    notes: form.researching.notes.map((n) => n.id),
+    applications: form.applied.applications.map((a) => a.id),
+    interview_rounds: form.interviewing.rounds.map((r) => r.id),
+  };
+}
+
 export function createPipelineEntityId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();

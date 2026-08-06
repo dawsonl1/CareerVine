@@ -12,6 +12,7 @@
  * user or runs behind an ownership assertion.
  */
 
+import { randomUUID } from "node:crypto";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import type { TablesInsert } from "@/lib/database.types";
 import { setCompanyQueriesClient } from "@/lib/company-queries";
@@ -1263,20 +1264,24 @@ function companyAmbiguity(name: string, candidates: Array<{ id: number; name: st
   return new Error(`"${name}" matches ${candidates.length} companies — retry with company_id:\n${list}`);
 }
 
-export async function getOrCreateTargetCompany(companyId: number): Promise<number> {
-  const { data } = await db()
+export async function getOrCreateTargetCompany(
+  companyId: number,
+  locationId: number | null = null,
+): Promise<number> {
+  let lookup = db()
     .from("target_companies")
     .select("id")
     .eq("user_id", uid())
-    .eq("company_id", companyId)
-    .is("location_id", null)
-    .maybeSingle();
+    .eq("company_id", companyId);
+  lookup = locationId == null ? lookup.is("location_id", null) : lookup.eq("location_id", locationId);
+  const { data } = await lookup.maybeSingle();
   if (data) return (data as { id: number }).id;
   const { data: created, error } = await db()
     .from("target_companies")
     .insert({
       user_id: uid(),
       company_id: companyId,
+      location_id: locationId,
       priority_score: null,
       tier: null,
       program_name: null,
@@ -1287,6 +1292,60 @@ export async function getOrCreateTargetCompany(companyId: number): Promise<numbe
     .single();
   if (error) throw error;
   return (created as { id: number }).id;
+}
+
+/**
+ * Append a note to the company's ACTIVE PIPELINE CYCLE (CAR-238).
+ *
+ * This writes the same `pipeline_notes` row the company page's "Add note"
+ * button writes, so an agent-written note appears in the normal Notes list.
+ * It previously wrote `target_company_notes`, which the UI renders only as a
+ * fallback while there are zero pipeline notes — so the first note a user typed
+ * hid every note the agent had ever written, permanently and silently.
+ *
+ * Safe to interleave with the UI now that `save_pipeline_cycle` deletes only
+ * ids the saving client explicitly names. Before that change this insert would
+ * have been destroyed by the user's next keystroke.
+ */
+export async function addPipelineNote(targetCompanyId: number, body: string): Promise<void> {
+  // pipeline_notes has no user_id; ownership rides on the target row.
+  const { data: target, error: targetErr } = await db()
+    .from("target_companies")
+    .select("id, active_cycle")
+    .eq("id", targetCompanyId)
+    .eq("user_id", uid())
+    .maybeSingle();
+  if (targetErr) throw targetErr;
+  if (!target) throw new Error(`No target company with id ${targetCompanyId}`);
+
+  const cycleNumber = (target as { active_cycle: number }).active_cycle || 1;
+
+  // The cycle row may not exist yet on a company whose pipeline was never opened.
+  const { data: cycle, error: cycleErr } = await db()
+    .from("pipeline_cycles")
+    .upsert(
+      { target_company_id: targetCompanyId, cycle_number: cycleNumber },
+      { onConflict: "target_company_id,cycle_number", ignoreDuplicates: false },
+    )
+    .select("id")
+    .single();
+  if (cycleErr) throw cycleErr;
+  const cycleId = (cycle as { id: number }).id;
+
+  // Append after whatever is already there rather than colliding on position 0.
+  const { data: last } = await db()
+    .from("pipeline_notes")
+    .select("position")
+    .eq("cycle_id", cycleId)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const position = ((last as { position: number } | null)?.position ?? -1) + 1;
+
+  const { error } = await db()
+    .from("pipeline_notes")
+    .insert({ id: randomUUID(), cycle_id: cycleId, body, position });
+  if (error) throw error;
 }
 
 export async function addTargetCompanyNote(targetCompanyId: number, note: string, locationId: number | null): Promise<void> {

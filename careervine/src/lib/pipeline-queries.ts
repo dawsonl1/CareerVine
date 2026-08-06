@@ -12,6 +12,7 @@
 import { db } from "@/lib/data/client";
 import type { Database, Json } from "@/lib/database.types";
 import {
+  type CycleEntityIds,
   type CycleFormState,
   type PipelineFileRef,
   type PipelineStage,
@@ -298,6 +299,8 @@ export async function setScopeActiveCycle(targetId: number, activeCycle: number)
 export interface PipelineCyclePayload {
   selected_stage: PipelineStage;
   declined_next_cycle: boolean;
+  /** Explicit deletions (CAR-238). Omitted means "delete nothing". */
+  deleted?: PipelineCycleDeletions;
   programs: Array<{ id: string; name: string; apps_open: string; job_potential: string }>;
   notes: Array<{ id: string; body: string }>;
   applications: Array<{
@@ -320,10 +323,56 @@ export interface PipelineCyclePayload {
   }>;
 }
 
-export function cyclePayloadFromForm(form: CycleFormState): PipelineCyclePayload {
+/**
+ * Ids this client removed, per collection (CAR-238).
+ *
+ * `save_pipeline_cycle` used to infer deletions from absence: anything missing
+ * from the payload was deleted. That also described every row written by anyone
+ * else since this client loaded, so two tabs wiped each other's notes and an
+ * MCP-written note vanished on the user's next keystroke. Deletions are now
+ * named explicitly, and absence means "I don't know about it", not "delete it".
+ */
+export interface PipelineCycleDeletions {
+  programs?: string[];
+  notes?: string[];
+  applications?: string[];
+  interview_rounds?: string[];
+}
+
+/**
+ * Ids present in `before` and gone from `after`, i.e. what this client deleted.
+ *
+ * Returns undefined when nothing was removed (or when there is no prior
+ * snapshot, as on the first save), which keeps `deleted` out of the payload
+ * entirely so the RPC deletes nothing.
+ */
+export function diffDeletedIds(
+  before: CycleEntityIds | undefined,
+  after: CycleEntityIds,
+): PipelineCycleDeletions | undefined {
+  if (!before) return undefined;
+
+  const out: PipelineCycleDeletions = {};
+  let any = false;
+  for (const key of ["programs", "notes", "applications", "interview_rounds"] as const) {
+    const kept = new Set(after[key]);
+    const removed = before[key].filter((id) => !kept.has(id));
+    if (removed.length > 0) {
+      out[key] = removed;
+      any = true;
+    }
+  }
+  return any ? out : undefined;
+}
+
+export function cyclePayloadFromForm(
+  form: CycleFormState,
+  deleted?: PipelineCycleDeletions,
+): PipelineCyclePayload {
   return {
     selected_stage: form.selectedStage,
     declined_next_cycle: form.closed.declinedNextCycle,
+    ...(deleted ? { deleted } : {}),
     programs: form.researching.programs.map((p) => ({
       id: p.id,
       name: p.name,
@@ -356,11 +405,12 @@ export async function savePipelineCycle(
   targetId: number,
   cycleNumber: number,
   form: CycleFormState,
+  deleted?: PipelineCycleDeletions,
 ): Promise<void> {
   const { error } = await db().rpc("save_pipeline_cycle", {
     p_target_company_id: targetId,
     p_cycle_number: cycleNumber,
-    p_payload: cyclePayloadFromForm(form) as unknown as Json,
+    p_payload: cyclePayloadFromForm(form, deleted) as unknown as Json,
   });
   if (error) throw error;
 }

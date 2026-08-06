@@ -14,7 +14,7 @@ import {
   resolveContact,
   resolveCompanyId,
   getOrCreateTargetCompany,
-  addTargetCompanyNote,
+  addPipelineNote,
   getCompanyName,
   setStageOverride,
 } from "../lib/db";
@@ -171,8 +171,11 @@ export function registerOutreachTools(server: McpServer): void {
     },
     handler(async ({ company_id, name, note, location_id }) => {
       const id = await resolveCompanyId({ company_id, name });
-      const targetId = await getOrCreateTargetCompany(id);
-      await addTargetCompanyNote(targetId, note, location_id ?? null);
+      // CAR-238: write the same pipeline note the company page's "Add note"
+      // creates, so it lands in the visible Notes list instead of a fallback
+      // block the first user-typed note hides forever.
+      const targetId = await getOrCreateTargetCompany(id, location_id ?? null);
+      await addPipelineNote(targetId, note);
       const companyName = (await getCompanyName(id)) ?? `company ${id}`;
       return { summary: `Intel logged for ${companyName}` };
     }),
