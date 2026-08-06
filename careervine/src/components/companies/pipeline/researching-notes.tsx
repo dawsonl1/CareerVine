@@ -150,7 +150,14 @@ export function ResearchingNotesEditor({
   // over MCP, permanently and with no indication anything was there. New MCP
   // notes are ordinary pipeline notes now, so this block only carries rows
   // written before that change.
-  const showIntel = Boolean(intelNotes && intelNotes.length > 0);
+  //
+  // Anything already copied into the pipeline list by the CAR-238 backfill is
+  // dropped here, otherwise the same note renders twice: once editable and once
+  // as legacy intel.
+  const unmigratedIntel = (intelNotes ?? []).filter(
+    (n) => !notes.some((p) => p.body.trim() === n.note.trim()),
+  );
+  const showIntel = unmigratedIntel.length > 0;
 
   return (
     <div className="space-y-2">
@@ -192,10 +199,10 @@ export function ResearchingNotesEditor({
             From your target record
           </p>
           <ul className="space-y-2">
-            {(intelNotes ?? []).map((n) => (
+            {unmigratedIntel.map((n) => (
               <li
                 key={n.id}
-                className="text-xs text-on-surface pl-3 border-l-2 border-outline-variant/50 leading-relaxed"
+                className="text-xs text-on-surface pl-3 border-l-2 border-outline-variant/50 leading-relaxed whitespace-pre-wrap"
               >
                 {n.note}
               </li>
