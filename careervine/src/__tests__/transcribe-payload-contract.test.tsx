@@ -47,7 +47,7 @@ function renderFields(overrides: Record<string, unknown> = {}) {
   return render(
     <PastMeetingFields
       form={form as never}
-      setForm={vi.fn()}
+      setForm={(overrides.setForm as never) ?? vi.fn()}
       transcriptState={{
         pendingSegments: [],
         pendingTranscriptSource: "",
@@ -131,6 +131,35 @@ describe("audio transcription request contract", () => {
     // /api/attachments/upload does not exist; nothing may reach for it.
     const urls = fetchMock.mock.calls.map(([u]) => String(u));
     expect(urls.some((u) => u.includes("/api/attachments"))).toBe(false);
+  });
+
+  it("does not let a superseded transcription overwrite a newer one", async () => {
+    // Two files picked in a row. The first upload resolves LAST, so without a
+    // latest-request guard its transcript would clobber the second one's.
+    const setForm = vi.fn();
+    let releaseFirst: (v: { id: number; object_path: string }) => void = () => {};
+    uploadAttachment
+      .mockImplementationOnce(
+        () => new Promise((res) => { releaseFirst = res; }),
+      )
+      .mockResolvedValueOnce({ id: 43, object_path: `${USER_ID}/second.m4a` });
+
+    const { container } = renderFields({ setForm });
+    selectAudio(container); // first — hangs
+    selectAudio(container); // second — resolves immediately, supersedes
+
+    await waitFor(() => expect(transcribeBody()?.attachmentObjectPath).toBe(`${USER_ID}/second.m4a`));
+    const callsAfterSecond = fetchMock.mock.calls.length;
+
+    releaseFirst({ id: 42, object_path: OBJECT_PATH });
+    await new Promise((r) => setTimeout(r, 20));
+
+    // The stale first request must not transcribe, and must not write state.
+    expect(fetchMock.mock.calls.length).toBe(callsAfterSecond);
+    const paths = fetchMock.mock.calls
+      .filter(([u]) => String(u).includes("/api/transcripts/transcribe"))
+      .map(([, i]) => JSON.parse((i as RequestInit).body as string).attachmentObjectPath);
+    expect(paths).not.toContain(OBJECT_PATH);
   });
 
   it("surfaces a failure instead of proceeding when the upload throws", async () => {

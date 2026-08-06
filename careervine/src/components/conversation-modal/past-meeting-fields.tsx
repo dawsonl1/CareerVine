@@ -9,6 +9,7 @@ import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import type { ConversationFormState, PendingAction, TranscriptState } from "./types";
 import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 import { uploadAttachment } from "@/lib/queries";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 
 interface PastMeetingFieldsProps {
   form: ConversationFormState;
@@ -37,6 +38,7 @@ export function PastMeetingFields({
 }: PastMeetingFieldsProps) {
   const [showTranscript, setShowTranscript] = useState(!!form.transcript);
   const [transcribeError, setTranscribeError] = useState("");
+  const transcribeReq = useLatestRequest();
 
   const hasNotesOrTranscript = form.notes.trim().length > 0 || form.transcript.trim().length > 0;
 
@@ -58,6 +60,11 @@ export function PastMeetingFields({
 
   const handleAudioFile = useCallback(
     async (file: File) => {
+      // Transcription is slow (a long recording can take a while), so a user
+      // who picks a second file before the first finishes would otherwise get
+      // whichever request happens to resolve last. Gate every commit on the
+      // newest token so only the most recent selection lands.
+      const token = transcribeReq.begin();
       setTranscribeError("");
       setTranscriptState((prev) => ({ ...prev, isTranscribing: true }));
       try {
@@ -66,6 +73,7 @@ export function PastMeetingFields({
         // previously POSTed to /api/attachments/upload, a route that does not
         // exist, so audio selection 404'd before Deepgram was ever reached.
         const attachment = await uploadAttachment(userId, file);
+        if (!transcribeReq.isLatest(token)) return;
 
         setTranscriptState((prev) => ({
           ...prev,
@@ -87,6 +95,8 @@ export function PastMeetingFields({
           jsonBody({ attachmentObjectPath: attachment.object_path }),
         );
 
+        if (!transcribeReq.isLatest(token)) return;
+
         setForm((prev) => ({ ...prev, transcript: rawText }));
         setTranscriptState((prev) => ({
           ...prev,
@@ -95,13 +105,14 @@ export function PastMeetingFields({
           isTranscribing: false,
         }));
       } catch (err) {
+        if (!transcribeReq.isLatest(token)) return;
         setTranscribeError(
           isApiRequestError(err) ? err.message : "Transcription failed. Please try again.",
         );
         setTranscriptState((prev) => ({ ...prev, isTranscribing: false }));
       }
     },
-    [setForm, setTranscriptState, userId]
+    [setForm, setTranscriptState, userId, transcribeReq]
   );
 
   return (
