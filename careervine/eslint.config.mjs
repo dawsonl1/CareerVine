@@ -43,6 +43,14 @@ const SERVICE_CLIENT_GRANDFATHERED = [
   "src/app/api/cron/follow-up-nudges/route.ts",
   "src/app/api/cron/scrape-refresh/route.ts",
   "src/app/api/cron/send-follow-ups/route.ts",
+  // CAR-234, added in CAR-237: the two Gmail sweeps are cross-user crons with no
+  // request-scoped session. The service client is used only to enumerate
+  // eligible users (getPremiumSyncUserIds); every per-user call downstream in
+  // gmail-sync-cron.ts is userId-scoped (syncAllContactEmails, syncThreadReplies,
+  // detectBounces). Same shape as detect-bounces above. These two shipped
+  // without an entry, which left `main` failing the web job's lint step.
+  "src/app/api/cron/sync-gmail-full/route.ts",
+  "src/app/api/cron/sync-gmail-recent/route.ts",
   // CAR-215: cross-user cron with no request-scoped session. Its only direct
   // use is the cron_heartbeats row the two send drivers use to watch each
   // other; the sends themselves go through processDueScheduledEmails.
