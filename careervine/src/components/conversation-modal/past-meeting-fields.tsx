@@ -8,6 +8,8 @@ import { TranscriptActionSuggestions } from "@/components/meetings/transcript-ac
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import type { ConversationFormState, PendingAction, TranscriptState } from "./types";
 import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
+import { uploadAttachment } from "@/lib/queries";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 
 interface PastMeetingFieldsProps {
   form: ConversationFormState;
@@ -36,6 +38,7 @@ export function PastMeetingFields({
 }: PastMeetingFieldsProps) {
   const [showTranscript, setShowTranscript] = useState(!!form.transcript);
   const [transcribeError, setTranscribeError] = useState("");
+  const transcribeReq = useLatestRequest();
 
   const hasNotesOrTranscript = form.notes.trim().length > 0 || form.transcript.trim().length > 0;
 
@@ -57,18 +60,20 @@ export function PastMeetingFields({
 
   const handleAudioFile = useCallback(
     async (file: File) => {
+      // Transcription is slow (a long recording can take a while), so a user
+      // who picks a second file before the first finishes would otherwise get
+      // whichever request happens to resolve last. Gate every commit on the
+      // newest token so only the most recent selection lands.
+      const token = transcribeReq.begin();
       setTranscribeError("");
       setTranscriptState((prev) => ({ ...prev, isTranscribing: true }));
       try {
-        // Upload audio file
-        const formDataUpload = new FormData();
-        formDataUpload.append("file", file);
-        // FormData body: deliberately no Content-Type, so the browser sets the
-        // multipart boundary. jsonBody would break that, hence the bare init.
-        const { attachment } = await apiFetch<{ attachment: { id: number; object_path: string } }>(
-          "/api/attachments/upload",
-          { method: "POST", body: formDataUpload },
-        );
+        // CAR-237: upload through the shared client-side helper, the same path
+        // every other uploader uses (meetings page, contact attachments). This
+        // previously POSTed to /api/attachments/upload, a route that does not
+        // exist, so audio selection 404'd before Deepgram was ever reached.
+        const attachment = await uploadAttachment(userId, file);
+        if (!transcribeReq.isLatest(token)) return;
 
         setTranscriptState((prev) => ({
           ...prev,
@@ -77,10 +82,20 @@ export function PastMeetingFields({
 
         // Transcribe — the server routes through the user's Deepgram key (or the
         // shared key) and returns a friendly, specific message if both fail.
+        //
+        // The body key must stay `attachmentObjectPath`: that is what
+        // transcribeSchema requires, and sending `objectPath` (as this did
+        // before CAR-237) is a silent 400. transcribe-payload-contract.test.ts
+        // pins this against the route's own schema so a rename cannot drift.
         const { rawText, segments } = await apiFetch<{
           rawText: string;
           segments?: ParsedTranscriptTurn[];
-        }>("/api/transcripts/transcribe", jsonBody({ objectPath: attachment.object_path }));
+        }>(
+          "/api/transcripts/transcribe",
+          jsonBody({ attachmentObjectPath: attachment.object_path }),
+        );
+
+        if (!transcribeReq.isLatest(token)) return;
 
         setForm((prev) => ({ ...prev, transcript: rawText }));
         setTranscriptState((prev) => ({
@@ -90,13 +105,14 @@ export function PastMeetingFields({
           isTranscribing: false,
         }));
       } catch (err) {
+        if (!transcribeReq.isLatest(token)) return;
         setTranscribeError(
           isApiRequestError(err) ? err.message : "Transcription failed. Please try again.",
         );
         setTranscriptState((prev) => ({ ...prev, isTranscribing: false }));
       }
     },
-    [setForm, setTranscriptState]
+    [setForm, setTranscriptState, userId, transcribeReq]
   );
 
   return (

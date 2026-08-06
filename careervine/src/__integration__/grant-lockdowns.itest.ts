@@ -106,15 +106,22 @@ it("NO un-allowlisted SECURITY DEFINER function in public is executable by anon 
  *     PostgREST cannot expose it as RPC; the grant is inert.
  *   - bundle_visible_to: boolean visibility helper used inside bundle RLS
  *     policies. Returns a boolean, leaks no rows.
- *   - bundle_alumni_stats / replace_transcript_segments: deliberately
- *     authenticated-callable, and pinned as such in FUNCTIONS above. Both scope
- *     their own work to the caller's bundle/meeting rather than trusting RLS.
+ *   - bundle_alumni_stats: deliberately authenticated-callable, and pinned as
+ *     such in FUNCTIONS above. Scopes its own work to the caller's bundle
+ *     rather than trusting RLS.
+ *
+ * `replace_transcript_segments` was listed here until CAR-237 on the stated
+ * grounds that it "scopes its own work to the caller's meeting". It did not —
+ * it was SECURITY DEFINER with no ownership check at all, so any authenticated
+ * user could replace another user's transcript segments (proven against
+ * production before the fix). CAR-237 made it SECURITY INVOKER so RLS enforces,
+ * which is why it no longer belongs in a SECURITY DEFINER allowlist. Its grants
+ * are unchanged and stay pinned in FUNCTIONS above.
  */
 const AUTHENTICATED_SECDEF_ALLOWLIST = new Set([
   "handle_new_user()",
   "bundle_visible_to(p_bundle_id integer, p_user uuid)",
   "bundle_alumni_stats(p_bundle_id integer)",
-  "replace_transcript_segments(p_meeting_id integer, p_segments jsonb)",
 ]);
 
 async function unallowlistedSecdef(role: string, allowlist: Set<string>): Promise<string[]> {
