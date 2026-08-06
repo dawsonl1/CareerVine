@@ -11,6 +11,14 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // scripts/local-transcribe/*.ts are executed DIRECTLY by node (which strips
+    // types natively), not bundled, so their relative imports must carry the
+    // real `.ts` extension or node cannot resolve the file. Enabling this keeps
+    // those scripts inside the one `tsc --noEmit` the `web` CI job already runs,
+    // rather than exiling them to a second tsconfig that nothing checks.
+    // Safe here because `noEmit` is true — TS only permits this flag at all when
+    // it is not responsible for rewriting the specifier (CAR-236).
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
