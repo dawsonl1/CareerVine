@@ -853,10 +853,14 @@ export async function cancelFollowUpSequence(followUpId: number): Promise<void> 
  * Move an active sequence's unresolved steps to `sendTime`, keeping each step's
  * calendar date (CAR-230). Time of day is LOCAL to the user's resolved zone,
  * same resolver the create path uses.
+ *
+ * `sendTime` is a single `HH:MM` for every step, or a map keyed by
+ * `sequence_number` to give steps different times (CAR-232). A step the map
+ * omits keeps its current clock; see the cascade's header for why.
  */
 export async function rescheduleFollowUpSequence(
   followUpId: number,
-  sendTime: string,
+  sendTime: string | ReadonlyMap<number, string>,
 ): Promise<RescheduledFollowUpStep[]> {
   const steps = await rescheduleFollowUpSequenceCascade(
     db(),

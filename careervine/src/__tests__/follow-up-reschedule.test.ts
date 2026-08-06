@@ -259,4 +259,131 @@ describe("rescheduleFollowUpSequenceCascade", () => {
     expect(localDay(new Date(got![0].scheduledSendAt))).toBe("2026-08-06");
     expect(new Date(got![0].scheduledSendAt).getTime()).toBeGreaterThan(now.getTime());
   });
+
+  /**
+   * CAR-232: a map gives the steps of one sequence different times of day.
+   *
+   * The scenario these were written from is real: a three-step sequence sitting
+   * at one time, wanted at 11:05 / 10:22 / 09:03. Before this the only way to
+   * get there was to re-apply the single-string form between firings from
+   * outside the app, which meant the tail silently kept the old time whenever
+   * that outside process did not run.
+   */
+  describe("per-step times", () => {
+    /** Aug 11 / 14 / 19, all at 11:05 Mountain. */
+    const threeSteps = [
+      { id: 1, sequence_number: 1, scheduled_send_at: "2026-08-11T17:05:00.000Z" },
+      { id: 2, sequence_number: 2, scheduled_send_at: "2026-08-14T17:05:00.000Z" },
+      { id: 3, sequence_number: 3, scheduled_send_at: "2026-08-19T17:05:00.000Z" },
+    ];
+
+    it("moves only the sequence numbers the map names", async () => {
+      const { client } = makeClient({ parent: { id: 35 }, steps: threeSteps });
+
+      const got = await rescheduleFollowUpSequenceCascade(
+        client,
+        "user-1",
+        35,
+        new Map([
+          [2, "10:22"],
+          [3, "9:03"],
+        ]),
+        MT,
+        now,
+      );
+
+      // Step 1 is absent from the map, so it keeps the clock it already had
+      // rather than inheriting a neighbour's.
+      expect(got!.map((s) => localClock(new Date(s.scheduledSendAt)))).toEqual([
+        "11:05",
+        "10:22",
+        "09:03",
+      ]);
+      // Dates are untouched, same as the single-string form.
+      expect(got!.map((s) => localDay(new Date(s.scheduledSendAt)))).toEqual([
+        "2026-08-11",
+        "2026-08-14",
+        "2026-08-19",
+      ]);
+    });
+
+    it("keeps a decreasing clock strictly increasing in absolute time", async () => {
+      const { client } = makeClient({ parent: { id: 35 }, steps: threeSteps });
+
+      const got = await rescheduleFollowUpSequenceCascade(
+        client,
+        "user-1",
+        35,
+        new Map([
+          [1, "11:05"],
+          [2, "10:22"],
+          [3, "9:03"],
+        ]),
+        MT,
+        now,
+      );
+
+      const instants = got!.map((s) => new Date(s.scheduledSendAt).getTime());
+      expect(instants[1]).toBeGreaterThan(instants[0]);
+      expect(instants[2]).toBeGreaterThan(instants[1]);
+    });
+
+    it("still writes nothing but scheduled_send_at", async () => {
+      const { client, calls } = makeClient({ parent: { id: 35 }, steps: threeSteps });
+
+      await rescheduleFollowUpSequenceCascade(client, "user-1", 35, new Map([[2, "10:22"]]), MT, now);
+
+      const writes = calls.filter((c) => c.payload !== undefined);
+      // Every unresolved step is rewritten, including the ones keeping their
+      // clock: the clamp runs over the whole ordered set, so the write set is
+      // deliberately not narrowed to the named steps.
+      expect(writes).toHaveLength(3);
+      for (const w of writes) {
+        expect(Object.keys(w.payload!)).toEqual(["scheduled_send_at"]);
+      }
+    });
+
+    it("clamps a mapped time that has already passed, like the string form", async () => {
+      const { client } = makeClient({
+        parent: { id: 35 },
+        // Due TODAY; 09:03 Mountain is behind the 14:00 clock.
+        steps: [{ id: 1, sequence_number: 1, scheduled_send_at: "2026-08-05T22:39:00.000Z" }],
+      });
+
+      const got = await rescheduleFollowUpSequenceCascade(
+        client,
+        "user-1",
+        35,
+        new Map([[1, "9:03"]]),
+        MT,
+        now,
+      );
+
+      expect(localDay(new Date(got![0].scheduledSendAt))).toBe("2026-08-06");
+      expect(new Date(got![0].scheduledSendAt).getTime()).toBeGreaterThan(now.getTime());
+    });
+
+    it("is a no-op for a map that names no remaining step", async () => {
+      const { client } = makeClient({ parent: { id: 35 }, steps: threeSteps });
+
+      const got = await rescheduleFollowUpSequenceCascade(
+        client,
+        "user-1",
+        35,
+        new Map([[99, "9:03"]]),
+        MT,
+        now,
+      );
+
+      // Every step kept its own clock and date.
+      expect(got!.map((s) => localClock(new Date(s.scheduledSendAt)))).toEqual([
+        "11:05",
+        "11:05",
+        "11:05",
+      ]);
+      expect(got!.map((s) => s.scheduledSendAt)).toEqual(
+        threeSteps.map((s) => s.scheduled_send_at),
+      );
+    });
+  });
 });
