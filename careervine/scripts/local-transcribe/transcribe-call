@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Fully-local call transcription + speaker diarization (CAR-236).
+#
+#   transcribe-call <audio-file> [--speakers N] [--names "A,B"] [--prompt "..."] [--outdir DIR]
+#
+# Nothing leaves this machine: whisper.cpp for speech recognition, sherpa-onnx
+# (pyannote segmentation + TitaNet embeddings) for diarization. No API key, no
+# per-minute cost, no third party sees the call.
+#
+# Run scripts/local-transcribe/install.sh once first to fetch the models.
+#
+# Outputs into --outdir (default: alongside the audio file):
+#   <name>.turns.json   speaker-attributed turns — feed this to ingest.ts
+#   <name>.vtt          WebVTT with <v Speaker> tags (the app's own parser reads this)
+#   <name>.txt          plain "Speaker: text" transcript
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODELS="${LOCAL_TRANSCRIBE_MODELS:-$HOME/.local/share/local-transcribe/models}"
+VENV="${LOCAL_TRANSCRIBE_VENV:-$HOME/.local/share/local-transcribe/venv}"
+
+AUDIO=""; SPEAKERS=2; NAMES=""; PROMPT=""; OUTDIR=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --speakers) SPEAKERS="$2"; shift 2;;
+    --names)    NAMES="$2";    shift 2;;
+    --prompt)   PROMPT="$2";   shift 2;;
+    --outdir)   OUTDIR="$2";   shift 2;;
+    -h|--help)  sed -n '2,16p' "$0"; exit 0;;
+    *)          AUDIO="$1";    shift;;
+  esac
+done
+
+[[ -n "$AUDIO" ]] || { echo "usage: transcribe-call <audio-file> [--speakers N] [--names \"A,B\"]" >&2; exit 1; }
+[[ -f "$AUDIO" ]] || { echo "no such file: $AUDIO" >&2; exit 1; }
+command -v whisper-cli >/dev/null || { echo "whisper-cli not found — run: brew install whisper-cpp" >&2; exit 1; }
+command -v ffmpeg      >/dev/null || { echo "ffmpeg not found — run: brew install ffmpeg" >&2; exit 1; }
+[[ -x "$VENV/bin/python" ]] || { echo "python venv missing — run: $HERE/install.sh" >&2; exit 1; }
+[[ -f "$MODELS/ggml-large-v3-turbo.bin" ]] || { echo "models missing — run: $HERE/install.sh" >&2; exit 1; }
+
+BASE="$(basename "${AUDIO%.*}")"
+OUTDIR="${OUTDIR:-$(dirname "$AUDIO")}"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$OUTDIR"
+
+echo "▸ decoding to 16 kHz mono…"
+ffmpeg -y -loglevel error -i "$AUDIO" -ar 16000 -ac 1 -c:a pcm_s16le "$WORK/call.wav"
+
+# --vad is NOT optional. Without it Whisper hallucinates over silence: the call
+# this was built against opened with ~3 minutes of empty Zoom waiting room, and
+# an unguarded run emitted a looping "Hey, uh..." across the whole stretch. VAD
+# also cut the run from 115s to 75s by skipping the silence outright.
+#
+# --prompt seeds the decoder's vocabulary. Without the contact and company name
+# in it, "Brevium" came back as Bravium/Brandvium in 4 of 5 mentions.
+echo "▸ transcribing (whisper large-v3-turbo, VAD)…"
+whisper-cli \
+  -m "$MODELS/ggml-large-v3-turbo.bin" \
+  -f "$WORK/call.wav" -l en -oj -of "$WORK/asr" \
+  --vad --vad-model "$MODELS/ggml-silero-v5.1.2.bin" \
+  -vmsd 12 -vp 100 -sns -pp \
+  ${PROMPT:+--prompt "$PROMPT"} >/dev/null 2>&1
+
+# An exact speaker count beats threshold clustering when you know it, and for a
+# 1:1 networking call you always do.
+echo "▸ diarizing (pyannote segmentation + TitaNet)…"
+"$VENV/bin/python" "$HERE/diarize.py" \
+  --wav "$WORK/call.wav" \
+  --segmentation "$MODELS/sherpa-onnx-pyannote-segmentation-3-0/model.onnx" \
+  --embedding "$MODELS/nemo_en_titanet_large.onnx" \
+  --num-speakers "$SPEAKERS" \
+  --out "$WORK/diarization.json"
+
+# --disable-warning: merge-cli imports src/lib/transcript-merge.ts, which sits
+# under careervine/package.json (CommonJS, and must stay that way for Next), so
+# node reparses it as ESM and says so. Cosmetic, and only that one warning is
+# silenced.
+echo "▸ merging…"
+node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON "$HERE/merge-cli.ts" \
+  --asr "$WORK/asr.json" \
+  --diarization "$WORK/diarization.json" \
+  ${NAMES:+--names "$NAMES"} \
+  --out-json "$OUTDIR/$BASE.turns.json" \
+  --out-vtt  "$OUTDIR/$BASE.vtt" \
+  --out-txt  "$OUTDIR/$BASE.txt"
+
+echo
+echo "✓ $OUTDIR/$BASE.turns.json"
+echo "✓ $OUTDIR/$BASE.vtt"
+echo "✓ $OUTDIR/$BASE.txt"
+echo
+echo "Next: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON $HERE/ingest.ts --turns \"$OUTDIR/$BASE.turns.json\" \\"
+echo "        --contact <id> --date <ISO> --title \"...\"   # add --apply to write"
