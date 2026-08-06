@@ -43,9 +43,36 @@ describe("QStash cron schedule registry", () => {
     expect(routeDirs.length).toBeGreaterThan(0);
   });
 
-  it("registers every cron route in SCHEDULES", () => {
-    const unregistered = routeDirs.filter((dir) => !declaredPaths.has(`/api/cron/${dir}`));
+  /**
+   * Cron routes that are deliberately NOT QStash-scheduled (CAR-234).
+   *
+   * These are driven by systemd timers on the A1 box (`ops/gmail-sync/`), because
+   * their schedule is expressed in the user's LOCAL time and systemd 249 on that
+   * box cannot put a timezone in `OnCalendar` — the full sweep ticks hourly and a
+   * wrapper picks the Mountain hours, so DST cannot slide it. A QStash entry
+   * would be a second, contradicting trigger for the same work.
+   *
+   * Named individually rather than pattern-matched: a new unregistered cron route
+   * should still fail this test and force the author to say which mechanism owns
+   * it, which is the whole point of the check.
+   */
+  const A1_DRIVEN_CRON_ROUTES = new Set(["sync-gmail-full", "sync-gmail-recent"]);
+
+  it("registers every cron route in SCHEDULES, or names it as A1-driven", () => {
+    const unregistered = routeDirs.filter(
+      (dir) => !declaredPaths.has(`/api/cron/${dir}`) && !A1_DRIVEN_CRON_ROUTES.has(dir),
+    );
     expect(unregistered, `cron routes missing a SCHEDULES entry: ${unregistered.join(", ")}`).toEqual([]);
+  });
+
+  it("every A1-driven exemption still names a route that exists", () => {
+    // Anti-vacuity: a stale exemption is worse than none, because it silently
+    // excuses whatever route later takes that name.
+    const stale = [...A1_DRIVEN_CRON_ROUTES].filter((dir) => !routeDirs.includes(dir));
+    expect(stale, `A1-driven exemptions for routes that no longer exist: ${stale.join(", ")}`).toEqual([]);
+    // And they must genuinely have no QStash entry, or the exemption is a lie.
+    const alsoScheduled = [...A1_DRIVEN_CRON_ROUTES].filter((dir) => declaredPaths.has(`/api/cron/${dir}`));
+    expect(alsoScheduled, `exempted as A1-driven but also QStash-scheduled: ${alsoScheduled.join(", ")}`).toEqual([]);
   });
 
   it("has no SCHEDULES entry pointing at a non-existent cron route", () => {

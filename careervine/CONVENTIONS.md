@@ -28,10 +28,10 @@ check, a unit-test coverage gate (§h), and `npm run check:conventions`.
 
 ## a. API routes
 
-106 routes live under `careervine/src/app/api` and 91 of them go through `withApiHandler`,
+108 routes live under `careervine/src/app/api` and 91 of them go through `withApiHandler`,
 which owns auth, the admin and capability gates, rate limiting, Zod validation (`paramsSchema`,
 then `schema`, then `querySchema`), and error mapping, in that order. Gates and the limiter run
-before the body is parsed. The 15 routes that skip the wrapper are the named allowlist in
+before the body is parsed. The 17 routes that skip the wrapper are the named allowlist in
 section g.
 
 Wrapper errors are `{ error }`, plus `code` on an `ApiError`, `capability` on a capability 403,
@@ -54,29 +54,42 @@ Shared request schemas live in `careervine/src/lib/api-schemas.ts` as `<domain><
 
 ## b. Cron and queue
 
+Scheduled work runs on **two** mechanisms, and which one a job belongs on is a real decision.
+
 Nine QStash schedules exist, declared in exactly one place:
 `careervine/scripts/qstash-schedules.mjs`. There are no `vercel.json` crons, no `pg_cron`, and
 no scheduled GitHub Actions. `node scripts/qstash-schedules.mjs list` diffs declared against
 live and exits 1 on drift.
+
+The second is **systemd on the Oracle A1 box**, deployed from the repo-root `ops/` directory
+rather than from this app, and it exists for what QStash cannot do. The send watcher
+(`ops/send-watcher/`) is a long-running service that triggers due-send sweeps within ~15s,
+which is the difference between a scheduled email landing at the minute the user picked and
+landing up to an hour later. The two Gmail sync timers (`ops/gmail-sync/`, CAR-234) are there
+because the schedule is expressed in the user's LOCAL time and systemd 249 on that box cannot
+put a timezone in `OnCalendar`; the full sweep therefore ticks hourly and a wrapper picks the
+three Mountain hours, so DST cannot slide it. Anything on A1 is invisible to
+`qstash-schedules.mjs`, so a cadence question about scheduled work has to look in both places.
 
 Every cron route nests `withQStashVerification` **outside** `withCronGuard`: credential first,
 so an unauthenticated request 401s and the handler never runs, then error capture.
 `api/queue/bundle-sync` verifies but is not a cron and does not guard.
 
 Two credentials reach that wrapper, and which a route accepts is **per route, not global**: a
-QStash signature, the default for all ten verified consumers; and
-`Authorization: Bearer $CRON_TRIGGER_SECRET`, accepted only by the two routes passing
-`allowCronBearer` (`api/cron/send-scheduled-emails` and `api/cron/send-follow-ups`, which the
-A1 send watcher drives and which cannot produce a signature). Both fail closed when their
-secret is unset. The handler receives which credential admitted the caller as its `source`
-argument.
+QStash signature, the default for all twelve verified consumers; and
+`Authorization: Bearer $CRON_TRIGGER_SECRET`, accepted only by the four routes passing
+`allowCronBearer`, all of them A1-driven and none able to produce a signature:
+`api/cron/send-scheduled-emails` and `api/cron/send-follow-ups` (the send watcher), plus
+`api/cron/sync-gmail-full` and `api/cron/sync-gmail-recent` (the sync timers). Both fail
+closed when their secret is unset. The handler receives which credential admitted the caller
+as its `source` argument.
 
 **`allowCronBearer` defaults to false, and that default is the whole security boundary.**
 CAR-215 checked the bearer at the shared chokepoint with no scoping, which silently opened
 every route behind it, including two destructive purges and two paid Apify runs. The bearer
 path also carries no body signature, so on an opted-in route the body is chosen by whoever
 holds the secret: **a handler that trusts its body must not opt in.** Read the
-`careervine/src/lib/qstash-verify.ts` header before adding a third route.
+`careervine/src/lib/qstash-verify.ts` header before adding a fifth route.
 
 Changing a cadence means updating the copy that quotes it in the same change.
 
@@ -283,7 +296,7 @@ through `careervine/src/lib/report-error.ts`. Boundaries catch render throws onl
 
 ## g. Auth exceptions, secrets, machine tokens, package edges
 
-The 15 routes that deliberately skip `withApiHandler` are named, with the mechanism each uses,
+The 17 routes that deliberately skip `withApiHandler` are named, with the mechanism each uses,
 in the `HAND_ROLLED` map in `careervine/src/__tests__/route-auth-inventory.test.ts`. Six
 mechanisms are in play: qstash-signature, qstash-signature+cron-bearer, bundle-admin-token,
 webhook-secret, hmac-token, and oauth-jwks. Adding an unwrapped route without listing it fails

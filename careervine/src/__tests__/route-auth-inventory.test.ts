@@ -53,6 +53,12 @@ const HAND_ROLLED: Record<string, string> = {
   // The credential's blast radius is exactly this pair; see CRON_BEARER_ROUTES.
   "cron/send-follow-ups/route.ts": "qstash-signature+cron-bearer",
   "cron/send-scheduled-emails/route.ts": "qstash-signature+cron-bearer",
+  // CAR-234. Both are driven by A1 systemd timers, which cannot produce a
+  // QStash signature, hence the bearer. Both select their own work from the
+  // database and read nothing from the request body, which is the condition
+  // that makes opting in safe on an unsigned-body path.
+  "cron/sync-gmail-full/route.ts": "qstash-signature+cron-bearer",
+  "cron/sync-gmail-recent/route.ts": "qstash-signature+cron-bearer",
   // Apify completion webhook — shared secret via timingSafeEqual (header, CAR-140).
   "apify/run-callback/route.ts": "webhook-secret",
   // One-click unsubscribe — signed HMAC token, intentionally unauthenticated (RFC 8058).
@@ -181,10 +187,17 @@ describe("route-auth inventory", () => {
     }
   });
 
-  it("only the two send routes accept the cron-trigger bearer", () => {
+  it("only the send and scheduled-sync routes accept the cron-trigger bearer", () => {
+    // Four routes, all A1-driven. The send pair needs the bearer for latency
+    // (the watcher fires within ~15s of a due send); the sync pair needs it
+    // because a systemd timer has no way to sign a QStash request. Every one of
+    // them ignores the request body, which is the precondition for opting into
+    // a credential that does not sign one.
     expect(CRON_BEARER_ROUTES).toEqual([
       "cron/send-follow-ups/route.ts",
       "cron/send-scheduled-emails/route.ts",
+      "cron/sync-gmail-full/route.ts",
+      "cron/sync-gmail-recent/route.ts",
     ]);
   });
 
@@ -222,7 +235,9 @@ describe("route-auth inventory", () => {
     // should force someone to look at this file and decide whether it belongs
     // on the signature alone or opts into the cron bearer. CAR-217's
     // detect-bounces took it from 9 to 10, and correctly stayed signature-only.
-    expect(users.length).toBe(10);
+    // CAR-234's two scheduled syncs took it to 12, and both DO opt in — they
+    // are driven by A1 systemd timers, which cannot sign a request.
+    expect(users.length).toBe(12);
     const mislabelled = users.filter((f) => !(HAND_ROLLED[rel(f)] ?? "").startsWith("qstash-signature"));
     expect(mislabelled, `routes using withQStashVerification without a qstash mechanism label: ${mislabelled.join(", ")}`).toEqual([]);
   });
