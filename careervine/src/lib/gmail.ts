@@ -1324,7 +1324,19 @@ export async function processScheduledEmails(
         .eq("id", email.id)
         .eq("status", ScheduledEmailStatus.Sending);
 
-      // Update any follow-ups linked to this scheduled email
+      // Back-fill the sequences that were waiting on this send: until now they
+      // carried no thread, which is what kept them dormant (the follow-up cron
+      // filters on `thread_id is not null`). Stamping the real ids is what
+      // releases them.
+      //
+      // Scoped on BOTH user and status, neither of which the link alone
+      // implies. user_id because this is a service-role write and carries no
+      // tenant scope of its own (CAR-151) — every other write in this file
+      // states it. Status because a sequence can be retired BEFORE its opening
+      // email sends: detectBounces cancels by recipient address, which matches
+      // a pre-send sequence fine. Stamping a cancelled row would not resurrect
+      // it (status is untouched), but it would rewrite the record of a sequence
+      // that never ran, and 'active' is the only state the stamp is FOR.
       await supabase
         .from("email_follow_ups")
         .update({
@@ -1333,7 +1345,9 @@ export async function processScheduledEmails(
           original_sent_at: now,
           updated_at: now,
         })
-        .eq("scheduled_email_id", email.id);
+        .eq("scheduled_email_id", email.id)
+        .eq("user_id", userId)
+        .eq("status", FollowUpStatus.Active);
 
       sent++;
     } catch (err) {
