@@ -16,6 +16,8 @@ import {
   type CycleFormState,
   type PipelineStage,
   type PipelineState,
+  type CycleEntityIds,
+  collectCycleEntityIds,
   cycleHintsFromTarget,
   defaultCycleFormState,
   defaultPipelineState,
@@ -33,6 +35,7 @@ import {
   ensureScopeContainer,
   ensureScopeTarget,
   locationIdForScopeKey,
+  diffDeletedIds,
   savePipelineCycle,
   setScopeActiveCycle,
   setScopeUntargeted,
@@ -82,6 +85,15 @@ export function usePipelineAutosave({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Serializes ensureScopeTarget + saves per scope so rows aren't raced. */
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * `${scopeKey}:${cycle}` → the child ids this client last persisted (CAR-238).
+   *
+   * Diffing this against the form at save time yields exactly the ids THIS
+   * client removed, which is what `save_pipeline_cycle` now deletes. Previously
+   * the RPC inferred deletion from absence, so it also destroyed rows written by
+   * another tab or by the MCP server since this client loaded.
+   */
+  const knownIdsRef = useRef<Map<string, CycleEntityIds>>(new Map());
 
   // ── Initial state from DB load ──────────────────────────────────────
   useEffect(() => {
@@ -96,6 +108,14 @@ export function usePipelineAutosave({
       targetIdsRef.current[scopeKey] = loadedScope.targetId;
       if (scopeKey === "all") companyTargeted = loadedScope.isTargeted;
       else officeTargeted[scopeKey] = loadedScope.isTargeted;
+
+      // Seed the deletion baseline from what the server actually holds (CAR-238).
+      // Without this the first save of a session has no prior snapshot, so a
+      // note the user deleted would be reported as no deletion at all and would
+      // reappear on reload.
+      for (const [cycleNumber, form] of Object.entries(loadedScope.scope.cycles)) {
+        knownIdsRef.current.set(`${scopeKey}:${cycleNumber}`, collectCycleEntityIds(form));
+      }
 
       if (loadedScope.scope.cycleCount > 0) {
         scopes[scopeKey] = loadedScope.scope;
@@ -165,7 +185,16 @@ export function usePipelineAutosave({
           if (!form) continue;
 
           const targetId = await resolveTargetId(scopeKey, form.selectedStage);
-          await savePipelineCycle(targetId, cycle, form);
+
+          // Only ids this client had and no longer has count as deletions. Rows
+          // it never saw (another tab, the MCP server) are left alone.
+          const key = `${scopeKey}:${cycle}`;
+          const nowIds = collectCycleEntityIds(form);
+          const deleted = diffDeletedIds(knownIdsRef.current.get(key), nowIds);
+
+          await savePipelineCycle(targetId, cycle, form, deleted);
+          knownIdsRef.current.set(key, nowIds);
+
           if (cycle === scope.activeCycle) {
             await syncScopeStatus(targetId, form.selectedStage);
           }

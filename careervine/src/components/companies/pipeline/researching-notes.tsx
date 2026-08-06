@@ -144,7 +144,20 @@ export function ResearchingNotesEditor({
     onChange(notes.filter((n) => n.id !== id));
   };
 
-  const showIntel = intelNotes && intelNotes.length > 0 && notes.length === 0 && !isComposing;
+  // CAR-238: render legacy intel notes whenever they exist, not only while the
+  // pipeline note list happens to be empty. The old `notes.length === 0 &&
+  // !isComposing` gate meant the first note a user typed hid every note written
+  // over MCP, permanently and with no indication anything was there. New MCP
+  // notes are ordinary pipeline notes now, so this block only carries rows
+  // written before that change.
+  //
+  // Anything already copied into the pipeline list by the CAR-238 backfill is
+  // dropped here, otherwise the same note renders twice: once editable and once
+  // as legacy intel.
+  const unmigratedIntel = (intelNotes ?? []).filter(
+    (n) => !notes.some((p) => p.body.trim() === n.note.trim()),
+  );
+  const showIntel = unmigratedIntel.length > 0;
 
   return (
     <div className="space-y-2">
@@ -186,10 +199,10 @@ export function ResearchingNotesEditor({
             From your target record
           </p>
           <ul className="space-y-2">
-            {intelNotes.map((n) => (
+            {unmigratedIntel.map((n) => (
               <li
                 key={n.id}
-                className="text-xs text-on-surface pl-3 border-l-2 border-outline-variant/50 leading-relaxed"
+                className="text-xs text-on-surface pl-3 border-l-2 border-outline-variant/50 leading-relaxed whitespace-pre-wrap"
               >
                 {n.note}
               </li>

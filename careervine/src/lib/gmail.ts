@@ -7,6 +7,7 @@
  */
 
 import "server-only";
+import { advanceCompaniesForRepliedThreads } from "@/lib/company-stage-advance";
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
@@ -1668,6 +1669,16 @@ export async function syncThreadReplies(
       await cancelFollowUpsForRepliedThreads(supabase, userId, repliedThreadIds);
     } catch (err) {
       console.error("[threadReplies] follow-up cancel failed:", err);
+    }
+
+    // CAR-239: a reply means outreach is live, so move the contact's companies
+    // off Researching. Forward-only and researching-only, so a reply on an old
+    // thread can never drag an application backwards. Best-effort for the same
+    // reason as the cancel above: a stale pipeline stage must not fail a sync.
+    try {
+      await advanceCompaniesForRepliedThreads(supabase, userId, repliedThreadIds);
+    } catch (err) {
+      console.error("[threadReplies] company stage advance failed:", err);
     }
   }
 

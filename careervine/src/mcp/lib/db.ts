@@ -1263,20 +1263,24 @@ function companyAmbiguity(name: string, candidates: Array<{ id: number; name: st
   return new Error(`"${name}" matches ${candidates.length} companies — retry with company_id:\n${list}`);
 }
 
-export async function getOrCreateTargetCompany(companyId: number): Promise<number> {
-  const { data } = await db()
+export async function getOrCreateTargetCompany(
+  companyId: number,
+  locationId: number | null = null,
+): Promise<number> {
+  let lookup = db()
     .from("target_companies")
     .select("id")
     .eq("user_id", uid())
-    .eq("company_id", companyId)
-    .is("location_id", null)
-    .maybeSingle();
+    .eq("company_id", companyId);
+  lookup = locationId == null ? lookup.is("location_id", null) : lookup.eq("location_id", locationId);
+  const { data } = await lookup.maybeSingle();
   if (data) return (data as { id: number }).id;
   const { data: created, error } = await db()
     .from("target_companies")
     .insert({
       user_id: uid(),
       company_id: companyId,
+      location_id: locationId,
       priority_score: null,
       tier: null,
       program_name: null,

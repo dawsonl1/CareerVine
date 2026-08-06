@@ -250,7 +250,12 @@ function StageSummary({
                 {researching.notes
                   .filter((n) => n.body.trim())
                   .map((n) => (
-                    <li key={n.id} className="text-xs text-on-surface leading-relaxed">
+                    // whitespace-pre-wrap: notes are multi-paragraph plain text, and HTML
+                    // collapses their newlines into one run-on block otherwise (CAR-238).
+                    <li
+                      key={n.id}
+                      className="text-xs text-on-surface leading-relaxed whitespace-pre-wrap"
+                    >
                       {n.body}
                     </li>
                   ))}
