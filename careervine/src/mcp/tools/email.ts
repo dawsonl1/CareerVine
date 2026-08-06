@@ -133,10 +133,30 @@ export const sendEmailSchema = {
     .describe("Must be true — confirms the user explicitly approved sending this email now"),
 };
 
+/**
+ * A local wall-clock time of day, `HH:MM` on a 24-hour clock.
+ *
+ * Shared by the per-step `send_at_time` and `reschedule_follow_up`'s `send_time`
+ * so the two cannot drift apart. The regex alone would accept `99:99`, hence the
+ * refine.
+ */
+const sendTimeSchema = z
+  .string()
+  .regex(/^\d{1,2}:\d{2}$/, "must be HH:MM")
+  .refine((v) => {
+    const [h, m] = v.split(":").map(Number);
+    return h >= 0 && h < 24 && m >= 0 && m < 60;
+  }, "must be a real 24-hour clock time");
+
 const followUpStepShape = z.object({
   subject: z.string().min(1).regex(NO_LINE_BREAKS, NO_LINE_BREAKS_MESSAGE),
   body: z.string().min(1).describe("Markdown or HTML"),
   send_after_days: z.number().int().min(1).describe("Days after the original send"),
+  send_at_time: sendTimeSchema
+    .optional()
+    .describe(
+      "Local time of day for THIS step, HH:MM. Omit to inherit the opening email's time of day, which is the default for the whole sequence.",
+    ),
 });
 
 export const scheduleEmailSchema = {
@@ -147,7 +167,7 @@ export const scheduleEmailSchema = {
     .max(5)
     .optional()
     .describe(
-      "Optional follow-up steps queued with this email in one call. They stay dormant until it sends, then reply on its thread and auto-cancel the moment the contact responds. Each goes out at the same time of day as the opening email.",
+      "Optional follow-up steps queued with this email in one call. They stay dormant until it sends, then reply on its thread and auto-cancel the moment the contact responds. Each inherits the opening email's time of day unless it sets its own send_at_time.",
     ),
 };
 
@@ -165,7 +185,9 @@ export const followUpSequenceSchema = {
   messages: z
     .array(followUpStepShape)
     .min(1)
-    .describe("Follow-up steps; the whole sequence auto-cancels if the contact replies"),
+    .describe(
+      "Follow-up steps; the whole sequence auto-cancels if the contact replies. Each inherits the original send's time of day unless it sets its own send_at_time.",
+    ),
 };
 
 /**
@@ -206,6 +228,22 @@ export const followUpSequenceSchema = {
  * describing the day/clock arithmetic and starts describing the clamp the moment
  * real time passes the dates it names.
  *
+ * ── The anchor is a DEFAULT, not the only option (CAR-232) ──────────────
+ *
+ * A step may carry its own `send_at_time` and opt out of the anchor. The
+ * anchor stays the fallback, so a sequence that sets nothing produces exactly
+ * the rows it did before this existed — that equivalence is the whole
+ * backward-compatibility contract and it is pinned by a test.
+ *
+ * `buildFollowUpMessageRows` has always read `sendTime` per message, so this
+ * needed no change below this layer and no schema change at all: the per-row
+ * `scheduled_send_at` column already stores whatever we compute here.
+ *
+ * Note that times may DECREASE across a sequence (11:05 then 10:22) without
+ * decreasing in absolute terms, because the dates advance. The builder's
+ * strictly-increasing guard still governs, and still wins where two steps
+ * share a date.
+ *
  * @param now - Injectable clock; the builder's future-floor is measured against it.
  */
 export function buildMcpFollowUpRows(
@@ -215,14 +253,14 @@ export function buildMcpFollowUpRows(
   timeZone: string,
   now: Date = new Date(),
 ) {
-  const sendTime = zonedTimeOfDay(new Date(timeAnchorIso), timeZone);
+  const anchorSendTime = zonedTimeOfDay(new Date(timeAnchorIso), timeZone);
   return buildFollowUpMessageRows(
     0,
     steps.map((m) => ({
       sendAfterDays: m.send_after_days,
       subject: m.subject,
       bodyHtml: toSafeEmailHtml(m.body),
-      sendTime,
+      sendTime: m.send_at_time ?? anchorSendTime,
     })),
     new Date(dateBaseIso),
     timeZone,
@@ -547,26 +585,59 @@ export function registerEmailTools(server: McpServer): void {
     {
       title: "Reschedule follow-up send time",
       description:
-        "Change the time of day an active follow-up sequence's remaining steps send, keeping each step's date. send_time is HH:MM in your local timezone. Bodies and subjects are untouched. A time already past today moves that step to the next day.",
+        "Change the time of day an active follow-up sequence's remaining steps send, keeping each step's date. Pass send_time to move every remaining step to one HH:MM local, or step_times to give steps different times. Bodies and subjects are untouched. A time already past today moves that step to the next day.",
       inputSchema: {
         follow_up_id: z.number().int(),
-        send_time: z
-          .string()
-          .regex(/^\d{1,2}:\d{2}$/, "send_time must be HH:MM")
-          .refine((v) => {
-            const [h, m] = v.split(":").map(Number);
-            return h >= 0 && h < 24 && m >= 0 && m < 60;
-          }, "send_time must be a real 24-hour clock time"),
+        send_time: sendTimeSchema
+          .optional()
+          .describe(
+            "One local HH:MM applied to every remaining step. Provide this or step_times, not both.",
+          ),
+        step_times: z
+          .array(
+            z.object({
+              sequence_number: z.number().int().min(1),
+              send_time: sendTimeSchema,
+            }),
+          )
+          .min(1)
+          .optional()
+          .describe(
+            "Per-step local times keyed by sequence_number, for sequences whose steps should go at different times of day. A remaining step not named here keeps the time it already has. Provide this or send_time, not both.",
+          ),
       },
       annotations: { readOnlyHint: false },
     },
-    handler(async ({ follow_up_id, send_time }) => {
-      const steps = await rescheduleFollowUpSequence(follow_up_id, send_time);
+    handler(async ({ follow_up_id, send_time, step_times }) => {
+      if ((send_time === undefined) === (step_times === undefined)) {
+        throw new Error("Provide exactly one of send_time or step_times");
+      }
+
+      let target: string | ReadonlyMap<number, string>;
+      if (step_times) {
+        // A duplicate sequence_number is a caller mistake, and building the Map
+        // would silently honour whichever entry came last. Refuse instead.
+        const seen = new Set<number>();
+        for (const s of step_times) {
+          if (seen.has(s.sequence_number)) {
+            throw new Error(`step_times lists sequence_number ${s.sequence_number} more than once`);
+          }
+          seen.add(s.sequence_number);
+        }
+        target = new Map(step_times.map((s) => [s.sequence_number, s.send_time]));
+      } else {
+        target = send_time!;
+      }
+
+      const steps = await rescheduleFollowUpSequence(follow_up_id, target);
       if (steps.length === 0) {
         return { summary: `Follow-up sequence ${follow_up_id} has no remaining steps to move` };
       }
+      const plural = steps.length === 1 ? "" : "s";
       return {
-        summary: `Moved ${steps.length} step${steps.length === 1 ? "" : "s"} of sequence ${follow_up_id} to ${send_time} local`,
+        summary: send_time
+          ? `Moved ${steps.length} step${plural} of sequence ${follow_up_id} to ${send_time} local`
+          : `Retimed sequence ${follow_up_id}: ${steps.length} step${plural} now scheduled, using the per-step times given`,
         steps,
       };
     }),

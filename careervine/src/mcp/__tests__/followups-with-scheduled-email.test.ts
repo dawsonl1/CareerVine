@@ -173,6 +173,102 @@ describe("buildMcpFollowUpRows", () => {
     expect(rows[0].send_after_days).toBe(1);
   });
 
+  /**
+   * CAR-232: a step may name its own local time and opt out of the anchor.
+   *
+   * The anchor stays the default, so the "omits it entirely" case below is the
+   * backward-compatibility contract: it must produce the same rows the tests
+   * above already pin, which is why it asserts an exact instant rather than
+   * merely "some time".
+   */
+  describe("per-step send_at_time", () => {
+    const timed = (send_after_days: number, send_at_time: string) => ({
+      ...step(send_after_days),
+      send_at_time,
+    });
+
+    it("gives each step its own local clock", () => {
+      const rows = build([timed(5, "11:05"), timed(8, "10:22"), timed(13, "9:03")], SEND_AT);
+
+      expect(rows.map((r) => localClock(r.scheduled_send_at))).toEqual(["11:05", "10:22", "09:03"]);
+      // Dates still come from send_after_days off the base, untouched by the clock.
+      expect(rows.map((r) => r.scheduled_send_at.slice(0, 10))).toEqual([
+        "2026-08-09",
+        "2026-08-12",
+        "2026-08-17",
+      ]);
+    });
+
+    /**
+     * The reason this needs pinning rather than assuming: `clampFollowUpInstants`
+     * keeps steps strictly increasing, and a caller reading only the times
+     * (11:05 → 10:22 → 09:03) would reasonably expect that guard to fire. It
+     * must not, because the DATES advance, so the instants do too.
+     */
+    it("leaves a decreasing time-of-day sequence alone, because the dates advance", () => {
+      const rows = build([timed(5, "11:05"), timed(8, "10:22"), timed(13, "9:03")], SEND_AT);
+      const instants = rows.map((r) => new Date(r.scheduled_send_at).getTime());
+
+      expect(instants[1]).toBeGreaterThan(instants[0]);
+      expect(instants[2]).toBeGreaterThan(instants[1]);
+      // And nothing was nudged onto a later day to achieve that.
+      expect(rows.map((r) => r.send_after_days)).toEqual([5, 8, 13]);
+    });
+
+    it("lets some steps set a time while the rest inherit the anchor", () => {
+      const rows = build([step(5), timed(8, "10:22"), step(13)], SEND_AT);
+
+      // SEND_AT is 14:58Z = 08:58 Mountain.
+      expect(rows.map((r) => localClock(r.scheduled_send_at))).toEqual(["08:58", "10:22", "08:58"]);
+    });
+
+    it("reproduces the anchor-only rows exactly when no step sets a time", () => {
+      const withField = build([{ ...step(6) }, { ...step(14) }], SEND_AT);
+      const withoutField = build([step(6), step(14)], SEND_AT);
+
+      expect(withField).toEqual(withoutField);
+      // Same instants the pre-CAR-232 tests above pin, restated so a regression
+      // here fails on its own terms rather than only through those.
+      expect(withField.map((r) => r.scheduled_send_at)).toEqual([
+        "2026-08-10T14:58:00.000Z",
+        "2026-08-18T14:58:00.000Z",
+      ]);
+    });
+
+    it("holds an explicit time across a DST boundary", () => {
+      // Base 2026-10-15, step lands 2026-11-05, after the Nov 1 fall-back. The
+      // requested wall clock survives; the UTC offset is what moves.
+      const rows = build([timed(21, "9:03")], "2026-10-15T15:05:00.000Z");
+      expect(localClock(rows[0].scheduled_send_at)).toBe("09:03");
+      expect(rows[0].scheduled_send_at).toBe("2026-11-05T16:03:00.000Z");
+    });
+
+    it("accepts the schema's single-digit hour form", () => {
+      const parsed = z.object(scheduleEmailSchema).parse({
+        contact_id: 1,
+        subject: "Hi",
+        body: "Hello",
+        send_at: "2026-08-06T15:38:00.000Z",
+        follow_ups: [timed(5, "9:03")],
+      });
+      expect(parsed.follow_ups?.[0].send_at_time).toBe("9:03");
+    });
+
+    it("rejects a time that is not a real 24-hour clock", () => {
+      const parse = (send_at_time: string) =>
+        z.object(followUpSequenceSchema).safeParse({
+          contact_id: 1,
+          thread_id: "t1",
+          messages: [{ ...step(5), send_at_time }],
+        }).success;
+
+      expect(parse("24:00")).toBe(false);
+      expect(parse("11:60")).toBe(false);
+      expect(parse("nope")).toBe(false);
+      expect(parse("23:59")).toBe(true);
+    });
+  });
+
   it("converts markdown bodies to HTML", () => {
     const rows = build([{ subject: "Hi", body: "Still **interested**!", send_after_days: 1 }], SEND_AT);
     expect(rows[0].body_html).toContain("<strong>interested</strong>");

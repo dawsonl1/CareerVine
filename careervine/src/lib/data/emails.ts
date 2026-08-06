@@ -23,7 +23,7 @@ import {
   clampFollowUpInstants,
   parseSendTime,
 } from "@/lib/follow-up-helpers";
-import { zonedDateParts } from "@/lib/timezone";
+import { zonedDateParts, zonedTimeOfDay } from "@/lib/timezone";
 import { paginateAll } from "@/lib/data/postgrest";
 
 type EmailClient = SupabaseClient<Database>;
@@ -311,12 +311,27 @@ export interface RescheduledFollowUpStep {
  * 'sending' rows are excluded with the rest of the resolved statuses: a step
  * mid-claim belongs to the send driver, and retiming it under that driver would
  * race the claim.
+ *
+ * ── One time, or one per step (CAR-232) ─────────────────────────────────
+ *
+ * `sendTime` is either a single `HH:MM` that every unresolved step moves to, or
+ * a map from `sequence_number` to `HH:MM` that moves only the steps it names.
+ *
+ * The map form exists because a sequence's steps often want DIFFERENT times of
+ * day, and the single-string form cannot express that without being applied
+ * repeatedly between firings by something outside the app. A step the map omits
+ * keeps its own current local clock rather than inheriting a neighbour's, so a
+ * partial map is a partial edit and not a silent rewrite of the rest.
+ *
+ * The clamp still runs over the whole ordered set afterwards, so a map that
+ * would put two steps on the same instant is corrected the same way creation
+ * would correct it.
  */
 export async function rescheduleFollowUpSequenceCascade(
   client: EmailClient,
   userId: string,
   followUpId: number,
-  sendTime: string,
+  sendTime: string | ReadonlyMap<number, string>,
   timeZone: string,
   now: Date = new Date(),
 ): Promise<RescheduledFollowUpStep[] | null> {
@@ -350,12 +365,22 @@ export async function rescheduleFollowUpSequenceCascade(
   });
   if (steps.length === 0) return [];
 
-  const { hour, minute } = parseSendTime(sendTime);
+  // A bare string retimes every step, which is the original CAR-230 behavior. A
+  // map retimes only the sequence numbers it names; a step it omits keeps the
+  // local clock it already has, read back off its own row. Dropping omitted
+  // steps onto some other step's time would be a silent, unasked-for move.
+  const timeFor = (step: { sequence_number: number; scheduled_send_at: string }) =>
+    parseSendTime(
+      typeof sendTime === "string"
+        ? sendTime
+        : (sendTime.get(step.sequence_number) ??
+            zonedTimeOfDay(new Date(step.scheduled_send_at), timeZone)),
+    );
+
   const instants = clampFollowUpInstants(
     steps.map((s) => ({
       localDate: zonedDateParts(new Date(s.scheduled_send_at), timeZone),
-      hour,
-      minute,
+      ...timeFor(s),
     })),
     timeZone,
     now,
