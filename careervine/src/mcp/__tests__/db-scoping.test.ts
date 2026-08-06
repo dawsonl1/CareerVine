@@ -439,6 +439,17 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     db: { kind: "context" },
     must: { kind: "context" },
   },
+  // CAR-234. Cron-only: the scheduled Gmail sweeps run with no signed-in user
+  // and are never reached from MCP, so neither is driven through db.ts.
+  "@/lib/data/sync-targets": {
+    // Deliberately cross-user — a cron must consider every account to work out
+    // which ones it may sync. One row per connected user.
+    getPremiumSyncUserIds: { kind: "global" },
+    // Both legs carry .eq("user_id", userId) explicitly; the service client
+    // bypasses RLS here, so that filter is the only tenant boundary.
+    getRecentlyTouchedContactIds: { kind: "scoped" },
+    RECENT_OUTBOUND_DAYS: { kind: "context" },
+  },
   "@/lib/data/postgrest": {
     escapeIlike: { kind: "context" },
     chunkList: { kind: "context" },

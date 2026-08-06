@@ -607,21 +607,32 @@ export async function syncAllContactEmails(
   let nextCursor: number | null = null;
 
   paging: while (true) {
-    let contactQuery = supabase
-      .from("contacts")
-      .select("id, email_synced_through, contact_emails(email)")
-      .eq("user_id", userId)
-      .gt("id", lastDoneId);
-
     // Narrowing rides on top of the id cursor rather than replacing it, so a
     // scoped pass that exhausts its budget resumes the same way a full one
     // does. user_id stays on the query regardless: the caller supplies the ids
     // and must not be able to reach another tenant's contacts through them.
-    if (opts.contactIds) contactQuery = contactQuery.in("id", opts.contactIds);
-
-    const { data: contacts, error } = await contactQuery
-      .order("id", { ascending: true })
-      .range(0, SYNC_CONTACT_PAGE - 1);
+    //
+    // Kept as ONE chained expression on purpose. Hoisting the builder into a
+    // `let` and re-assigning it hides the .order()/.range() from the unbounded-
+    // read check in scripts/check-conventions.mjs, which then reports this as a
+    // new unpaginated sweep. The conditional stays inline so the paging stays
+    // visible to it.
+    const { data: contacts, error } = opts.contactIds
+      ? await supabase
+          .from("contacts")
+          .select("id, email_synced_through, contact_emails(email)")
+          .eq("user_id", userId)
+          .gt("id", lastDoneId)
+          .in("id", opts.contactIds)
+          .order("id", { ascending: true })
+          .range(0, SYNC_CONTACT_PAGE - 1)
+      : await supabase
+          .from("contacts")
+          .select("id, email_synced_through, contact_emails(email)")
+          .eq("user_id", userId)
+          .gt("id", lastDoneId)
+          .order("id", { ascending: true })
+          .range(0, SYNC_CONTACT_PAGE - 1);
 
     if (error) throw error;
     if (!contacts || contacts.length === 0) break;
