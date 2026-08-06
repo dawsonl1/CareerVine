@@ -70,6 +70,9 @@ vi.mock("@/lib/supabase/service-client", () =>
         in: () => b,
         order: () => b,
         limit: () => b,
+        // The reply-cancel read paginates (CAR-233). One page of `state.seqs`
+        // is short of the page size, so paginateAll stops after it.
+        range: () => b,
         maybeSingle: async () => {
           if (table === "email_messages") {
             if (direction === "outbound") {

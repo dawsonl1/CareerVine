@@ -2427,7 +2427,6 @@ const UNBOUNDED_READ_BASELINE = {
   "src/lib/data/meetings.ts": ["attachments", "contact_attachments", "interaction_attachments", "meeting_attachments", "meeting_attachments", "meeting_contacts", "meetings"],
   "src/lib/email-send.ts": ["contact_emails"],
   "src/lib/follow-up-helpers.ts": ["email_follow_ups"],
-  "src/lib/follow-up-reply.ts": ["email_follow_ups"],
   "src/lib/gmail.ts": ["contact_emails", "contact_emails", "email_follow_ups", "email_messages", "email_messages", "email_messages"],
   "src/lib/import-db-helpers.ts": ["contact_tags", "tags"],
   "src/lib/onboarding/bundle-stats.ts": ["data_bundles"],

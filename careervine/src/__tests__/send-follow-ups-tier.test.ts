@@ -100,6 +100,8 @@ vi.mock("@/lib/supabase/service-client", () =>
         not: () => b,
         order: () => b,
         limit: () => b,
+        // The reply-cancel read paginates (CAR-233); one short page ends it.
+        range: () => b,
         then: (resolve: (v: unknown) => void) => {
           const hasEq = (c: string, v: unknown) => filters.some((f) => f[0] === "eq" && f[1] === c && f[2] === v);
           const hasLt = (c: string) => filters.some((f) => f[0] === "lt" && f[1] === c);
@@ -135,6 +137,25 @@ vi.mock("@/lib/supabase/service-client", () =>
           if (table === "gmail_connections") {
             if (state.connectionsReadError) return resolve({ data: null, error: state.connectionsReadError });
             return resolve({ data: state.connections, error: null });
+          }
+          if (table === "email_follow_ups") {
+            // CAR-233: reply-cancel is now thread-keyed and shared with the sync
+            // path, so it READS the active sequences on the thread before
+            // writing. Derived from the seeded due messages rather than a second
+            // fixture, so the two cannot disagree. Honors the user_id + status
+            // filters, which is what makes the scoping assertions meaningful.
+            const threads = (filters.find((f) => f[0] === "in" && f[1] === "thread_id")?.[2] ?? []) as string[];
+            const seen = new Set<number>();
+            const rows: { id: number }[] = [];
+            for (const m of state.pendingMessages as { email_follow_ups?: { id: number; user_id: string; thread_id: string; status: string } }[]) {
+              const p = m.email_follow_ups;
+              if (!p || seen.has(p.id)) continue;
+              if (!threads.includes(p.thread_id)) continue;
+              if (!hasEq("user_id", p.user_id) || !hasEq("status", p.status)) continue;
+              seen.add(p.id);
+              rows.push({ id: p.id });
+            }
+            return resolve({ data: rows, error: null });
           }
           return resolve({ data: [] });
         },

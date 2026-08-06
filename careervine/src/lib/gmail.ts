@@ -27,6 +27,7 @@ import { googleApiStatus, googleApiReason } from "@/lib/google-api-error";
 import { must } from "@/lib/data/client";
 import { paginateAll } from "@/lib/data/postgrest";
 import { extractFailedRecipients, needsFullFetch } from "@/lib/bounce-parse";
+import { cancelFollowUpsForRepliedThreads } from "@/lib/follow-up-helpers";
 import { sendBounceAlert, type BounceAlertOutcome } from "@/lib/notify/send-bounce-alert";
 import type { BounceAlertItem } from "@/lib/notify/bounce-alert";
 
@@ -374,14 +375,24 @@ export async function syncEmailsForContact(
             onConflict: "user_id,gmail_message_id",
             ignoreDuplicates: true,
           })
-          .select("gmail_message_id, thread_id, direction");
+          // from_address rides along for the NDR filter below: an insert-time
+          // column, so it costs nothing beyond the RETURNING it was already doing.
+          .select("gmail_message_id, thread_id, direction, from_address");
         if (error) { console.error("Insert error:", error); pageFailed = true; }
         const inserted = insertedRows ?? [];
+
+        // Non-NDR inbound rows THIS call created. An NDR is a delivery failure,
+        // not the contact writing back: detectBounces owns it (cancelled_bounce),
+        // and reading one as a reply would activate the very contact whose
+        // address just failed. Same stance syncThreadReplies takes at its ingest.
+        const replies = inserted.filter(
+          (r) => r.direction === "inbound" && !isBounceSenderAddress(r.from_address ?? ""),
+        );
 
         // An inbound message means the contact wrote back — that reply is
         // what graduates imported prospects/bench into the active network
         // (plan 24 tier transition). Outbound-only threads never graduate.
-        if (inserted.some((r) => r.direction === "inbound")) {
+        if (replies.length > 0) {
           // Inline user_id scoping (CAR-151): contactId comes from this
           // user's sync loop, but a service-role write carries its own scope.
           const { error: actError } = await supabase
@@ -398,8 +409,24 @@ export async function syncEmailsForContact(
           // dedupe: only rows this call created are attributed, so re-syncs
           // and concurrent syncs can't recount. ai_assisted comes from the
           // outbound side of the thread (stamped at send time, CAR-58).
-          const inbound = inserted.filter((r) => r.direction === "inbound" && r.thread_id);
+          const inbound = replies.filter((r) => r.thread_id);
           const threadIds = [...new Set(inbound.map((r) => r.thread_id as string))];
+
+          // CAR-233: the reply is in hand, so retire its follow-up sequence NOW
+          // rather than leaving it scheduled until the send cron's next
+          // threads.get happens to notice. Costs no Gmail call and nothing on
+          // any page load — this only runs on a sync that actually ingested a
+          // reply. Error-tolerated like the activation above it: the cron's
+          // send-time check is still the backstop, so a failure here delays the
+          // cancel rather than losing it, and must not fail the user's sync.
+          if (threadIds.length > 0) {
+            try {
+              await cancelFollowUpsForRepliedThreads(supabase, userId, threadIds);
+            } catch (err) {
+              console.error("Failed to cancel follow-ups on synced reply:", err);
+            }
+          }
+
           if (threadIds.length > 0) {
             // error-tolerated: this only decides whether to emit the
             // reply_received analytics event; the user's mail sync must not
@@ -1438,6 +1465,10 @@ export async function syncThreadReplies(
 
   let ingested = 0;
   let learnedAddresses = 0;
+  // Threads this sweep newly saw a reply on (CAR-233). Accumulated across the
+  // batches and drained once at the end, so a user with replies on ten threads
+  // pays one cancel pass rather than ten.
+  const repliedThreadIds = new Set<string>();
 
   for (let i = 0; i < candidateIds.length; i += 20) {
     const batch = candidateIds.slice(i, i + 20);
@@ -1516,6 +1547,9 @@ export async function syncThreadReplies(
 
       if (isOutbound) continue;
 
+      // Past the outbound guard and the NDR skip above, this row IS a reply.
+      repliedThreadIds.add(msg.threadId);
+
       // Learn the address they actually write from (CAR-227). Without this the
       // next sync is blind to this thread all over again, AND a reply Dawson
       // sends to it caches with matched_contact_id null, detaching his own
@@ -1571,6 +1605,20 @@ export async function syncThreadReplies(
           ai_assisted: priorOutbound.ai_assisted === true,
         });
       }
+    }
+  }
+
+  // CAR-233: retire the sequences these replies answered, now rather than at
+  // the send cron's next tick. This sweep is the ONLY path that sees a reply
+  // sent from an address the contact record doesn't carry (CAR-227), so without
+  // it those sequences keep nagging until a step comes due. Error-tolerated for
+  // the same reason it is on the per-contact path: the send-time check backstops
+  // it, and the caller already treats this whole sweep as best-effort.
+  if (repliedThreadIds.size > 0) {
+    try {
+      await cancelFollowUpsForRepliedThreads(supabase, userId, repliedThreadIds);
+    } catch (err) {
+      console.error("[threadReplies] follow-up cancel failed:", err);
     }
   }
 

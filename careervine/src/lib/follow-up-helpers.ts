@@ -9,6 +9,7 @@ import {
   UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES,
 } from "@/lib/constants";
 import { zonedDateParts, zonedWallClockToUtc } from "@/lib/timezone";
+import { chunkedPaginated } from "@/lib/data/postgrest";
 
 /**
  * Cancel every active follow-up sequence linked to a scheduled email
@@ -52,6 +53,97 @@ export async function cancelFollowUpsForScheduledEmail(
     .in("id", fuIds)
     .eq("user_id", userId);
   if (fuError) throw fuError;
+}
+
+/**
+ * Cancel every active follow-up sequence sitting on a thread the contact has
+ * replied on: parents → cancelled_reply, unresolved steps → cancelled.
+ * Returns how many sequences actually flipped.
+ *
+ * THE single implementation of reply-cancellation (CAR-233). It used to exist
+ * three times — the send cron, the free-tier manual mark, and nowhere at all on
+ * the sync path — and three copies of a status cascade is three chances to
+ * drift. Callers differ only in how they learned about the reply:
+ *
+ *   - Gmail sync, per-contact and thread-sweep: an inbound row just landed.
+ *     This is the fast path this function exists for — a sequence dies the
+ *     moment we SEE the reply, not when its next step happens to come due.
+ *   - The send-follow-ups cron: its own threads.get says someone wrote back.
+ *     Still the safety net, for a reply nothing has synced yet.
+ *   - recordThreadReply: the free tier has no mailbox scope, so the user says so.
+ *
+ * ── Ordering and CAS ────────────────────────────────────────────────────
+ *
+ * Parents first, for the reason cancelFollowUpSequenceCascade documents: the
+ * send cron only claims steps whose parent is active, so a crash mid-cascade
+ * strands child rows the cron already ignores. `sending` is excluded from the
+ * child sweep — a claim a send driver holds is mid-Gmail-round-trip and belongs
+ * to the stale-claim sweep, never to us. `expired` IS included (CAR-105): a
+ * still-sendable expired step must not outlive its cancelled parent.
+ *
+ * Batched (1 read + 2 writes) no matter how many threads, because the sync path
+ * calls this inside a per-contact loop and per-thread round trips would turn a
+ * mail sync into an N+1.
+ *
+ * Contact activation is the CALLER's job, not this function's. Each one already
+ * graduates the contact on its own terms (by id in sync, by address in the cron
+ * and the manual path), and folding it in here would double-write.
+ */
+export async function cancelFollowUpsForRepliedThreads(
+  service: SupabaseClient,
+  userId: string,
+  threadIds: Iterable<string | null | undefined>,
+  now: string = new Date().toISOString(),
+): Promise<number> {
+  const ids = [...new Set([...threadIds].filter((t): t is string => Boolean(t)))];
+  if (ids.length === 0) return 0;
+
+  // chunkedPaginated, not a bare .in(): the thread list is caller-supplied and
+  // unbounded (a sync sweep can carry every thread that gained a reply), and
+  // email_follow_ups FANS OUT per thread — several sequences can share one. So
+  // both the URL-length bound and the 1000-row response cap are live, and the
+  // cap truncates silently, which here means "sequences we never cancelled".
+  // Fail loud on the read: swallowing it reads as "no active sequences" and
+  // sends the very nag this function exists to stop.
+  const active = await chunkedPaginated<{ id: number }, string>(ids, async (chunk, from, to) => {
+    const { data, error } = await service
+      .from("email_follow_ups")
+      .select("id")
+      .eq("user_id", userId)
+      .in("thread_id", chunk)
+      .eq("status", FollowUpStatus.Active)
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    return data as { id: number }[] | null;
+  });
+  if (active.length === 0) return 0;
+
+  const fuIds = active.map((fu) => fu.id);
+
+  // Count-based CAS (rule 17): re-filtering on `active` makes a sequence another
+  // actor resolved between the read and here a no-op rather than a rewrite of
+  // history (a completed sequence must not become cancelled_reply).
+  const { error: fuError, count } = await service
+    .from("email_follow_ups")
+    .update({ status: FollowUpStatus.CancelledReply, updated_at: now }, { count: "exact" })
+    .in("id", fuIds)
+    .eq("user_id", userId)
+    .eq("status", FollowUpStatus.Active);
+  if (fuError) throw fuError;
+
+  // Swept over the full id set rather than only the rows that flipped: a
+  // sequence that lost the CAS was resolved by someone else, and its steps are
+  // then either terminal already (no-op) or unresolved leftovers that SHOULD be
+  // cleared. The status filter is what keeps that safe in both directions.
+  const { error: msgError } = await service
+    .from("email_follow_up_messages")
+    .update({ status: FollowUpMessageStatus.Cancelled })
+    .in("follow_up_id", fuIds)
+    .in("status", [...UNRESOLVED_FOLLOW_UP_MESSAGE_STATUSES]);
+  if (msgError) throw msgError;
+
+  return count ?? 0;
 }
 
 interface FollowUpMessageInput {

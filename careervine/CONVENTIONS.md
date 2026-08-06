@@ -178,12 +178,20 @@ that second header before touching detection: the parse is deliberately biased t
 extracting nothing when evidence is ambiguous. Detection needs a mailbox read scope and runs
 only for premium connections; everything downstream of it is ungated on purpose.
 
+A reply retires a sequence, and `cancelFollowUpsForRepliedThreads`
+(`careervine/src/lib/follow-up-helpers.ts`) is the only thing allowed to do it. Three callers
+learn about the reply differently (a Gmail sync ingesting an inbound row, the send cron's own
+`threads.get`, the free tier's manual mark) and all share the one cascade. Read its header
+before adding a fourth: the edge cases it encodes are the ones a fresh copy drops.
+
 - Authoritative: `careervine/src/lib/notify/email.ts`, `careervine/src/lib/email-send.ts`
-  (headers), `careervine/src/lib/follow-up-threading.ts`, and
+  (headers), `careervine/src/lib/follow-up-threading.ts`,
+  `careervine/src/lib/follow-up-helpers.ts` (header), and
   `careervine/src/lib/bounce-parse.ts` (header)
-- Enforced: `careervine/src/__tests__/bounce-parse.test.ts` and
-  `careervine/src/__tests__/detect-bounces.test.ts`. The two-sender rule itself is not
-  enforced: nothing stops a new caller reaching for the wrong one.
+- Enforced: `careervine/src/__tests__/bounce-parse.test.ts`,
+  `careervine/src/__tests__/detect-bounces.test.ts`, and
+  `careervine/src/__tests__/cancel-followups-on-reply.test.ts`. The two-sender rule itself is
+  not enforced: nothing stops a new caller reaching for the wrong one.
 
 ## f. Client state
 
