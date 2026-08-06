@@ -71,6 +71,8 @@ function stub({
       filters[`in:${col}`] = val;
       return api;
     };
+    api.order = () => api;
+    api.limit = () => api;
     api.update = (p: Record<string, unknown>) => {
       patch = p;
       return api;

@@ -434,6 +434,14 @@ const DB_TABLE: Record<string, Entry> = {
 };
 
 const DATA_TABLES: Record<string, Record<string, Entry>> = {
+  // CAR-238. `add_company_intel` writes the same pipeline note the company page
+  // writes, so the note lands in the visible Notes list instead of a fallback
+  // block the first user-typed note hides forever.
+  "@/lib/data/pipeline": {
+    // Takes userId explicitly and asserts ownership on the parent target row
+    // before writing; pipeline_notes itself carries no user_id.
+    addPipelineNote: { kind: "scoped" },
+  },
   "@/lib/data/client": {
     setDataClient: { kind: "context" },
     db: { kind: "context" },

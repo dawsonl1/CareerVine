@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import { addPipelineNote } from "@/lib/data/pipeline";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getCompanies, getCompanyDetail, type CompanySummary } from "@/lib/company-queries";
 import { buildOutreachQueue, APP_DATE_BOOST_DAYS } from "@/lib/outreach-queue";
@@ -14,7 +15,6 @@ import {
   resolveContact,
   resolveCompanyId,
   getOrCreateTargetCompany,
-  addPipelineNote,
   getCompanyName,
   setStageOverride,
 } from "../lib/db";
@@ -175,7 +175,7 @@ export function registerOutreachTools(server: McpServer): void {
       // creates, so it lands in the visible Notes list instead of a fallback
       // block the first user-typed note hides forever.
       const targetId = await getOrCreateTargetCompany(id, location_id ?? null);
-      await addPipelineNote(targetId, note);
+      await addPipelineNote(uid(), targetId, note);
       const companyName = (await getCompanyName(id)) ?? `company ${id}`;
       return { summary: `Intel logged for ${companyName}` };
     }),

@@ -28,6 +28,12 @@ export interface StageAdvanceClient {
 const ADVANCE_FROM = "researching";
 /** The stage it moves to. */
 const ADVANCE_TO = "outreach_active";
+/**
+ * Row ceiling for the three reads below. PostgREST truncates silently at 1000,
+ * so every read here carries an explicit bound and a stable order rather than
+ * relying on the default.
+ */
+const MAX_ROWS = 1000;
 
 export interface AdvanceResult {
   /** target_companies.id rows moved to outreach_active. */
@@ -51,7 +57,12 @@ export async function advanceCompaniesForContacts(
     .from("contact_companies")
     .select("company_id, contacts!inner(user_id)")
     .in("contact_id", ids)
-    .eq("contacts.user_id", userId);
+    .eq("contacts.user_id", userId)
+    // Deliberate bound, not pagination: `ids` comes from the replied threads of
+    // one sync, and a contact has a handful of employers. Ordered so the window
+    // is stable if it is ever reached.
+    .order("contact_id")
+    .limit(MAX_ROWS);
   if (linkErr) throw linkErr;
 
   const companyIds = [
@@ -68,7 +79,10 @@ export async function advanceCompaniesForContacts(
     .select("id, active_cycle")
     .eq("user_id", userId)
     .eq("status", ADVANCE_FROM)
-    .in("company_id", companyIds);
+    .in("company_id", companyIds)
+    // At most one target row per (user, company, office scope).
+    .order("id")
+    .limit(MAX_ROWS);
   if (targetErr) throw targetErr;
 
   const rows = (targets ?? []) as Array<{ id: number; active_cycle: number | null }>;
@@ -118,7 +132,12 @@ export async function advanceCompaniesForRepliedThreads(
     .from("email_messages")
     .select("matched_contact_id, email_message_contacts(contact_id)")
     .eq("user_id", userId)
-    .in("thread_id", threads);
+    .in("thread_id", threads)
+    // Only needs enough messages to identify WHICH contacts replied, so a
+    // partial window still resolves the same contact set in practice. Ordered
+    // so the window is deterministic rather than whatever PostgREST returns.
+    .order("id")
+    .limit(MAX_ROWS);
   if (error) throw error;
 
   const contactIds: number[] = [];
