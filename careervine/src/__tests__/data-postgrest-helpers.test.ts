@@ -181,14 +181,19 @@ describe("chunkedPaginated (CAR-223)", () => {
 
     // 400 ids -> two 200-id chunks, each walked to exhaustion (3 pages: the
     // 2400th row means pages at 0, 1000, 2000 with the last one short).
-    expect(seen).toEqual([
-      { chunkStart: 0, from: 0 },
-      { chunkStart: 0, from: 1000 },
-      { chunkStart: 0, from: 2000 },
-      { chunkStart: 200, from: 0 },
-      { chunkStart: 200, from: 1000 },
-      { chunkStart: 200, from: 2000 },
-    ]);
+    //
+    // Asserted per chunk rather than as one flat sequence: chunks now run
+    // concurrently (CAR-231), so the INTERLEAVING between them is not a contract
+    // and pinning it would just re-break on the next scheduling change. What IS
+    // still a contract is that each chunk walks its own pages in order, because a
+    // short page is paginateAll's only stop signal.
+    const pagesByChunk = new Map<number, number[]>();
+    for (const { chunkStart, from } of seen) {
+      pagesByChunk.set(chunkStart, [...(pagesByChunk.get(chunkStart) ?? []), from]);
+    }
+    expect([...pagesByChunk.keys()].sort((a, b) => a - b)).toEqual([0, 200]);
+    expect(pagesByChunk.get(0)).toEqual([0, 1000, 2000]);
+    expect(pagesByChunk.get(200)).toEqual([0, 1000, 2000]);
     // chunked() would have returned 2000 here (1000 per chunk), losing 2800 rows.
     expect(rows).toHaveLength(ROWS_PER_CHUNK * 2);
   });
@@ -200,18 +205,25 @@ describe("chunkedPaginated (CAR-223)", () => {
   });
 
   it("honours custom chunk and page sizes", async () => {
-    const seen: Array<[number, number, number]> = [];
+    const seen: Array<[number, number, number, number]> = [];
     await chunkedPaginated(
       [1, 2, 3, 4],
       async (chunk, from, to) => {
-        seen.push([chunk.length, from, to]);
+        seen.push([chunk[0], chunk.length, from, to]);
         return from === 0 ? [{ id: 1 }, { id: 2 }] : [];
       },
       { chunkSize: 2, pageSize: 2 },
     );
-    expect(seen).toEqual([
+    // Two chunks of 2, each paging 0-1 then 2-3. Grouped by chunk because the
+    // interleaving between chunks is not a contract (CAR-231); the window sizes
+    // and the per-chunk page progression are.
+    const windowsFor = (first: number) =>
+      seen.filter(([id]) => id === first).map(([, len, from, to]) => [len, from, to]);
+    expect(windowsFor(1)).toEqual([
       [2, 0, 1],
       [2, 2, 3],
+    ]);
+    expect(windowsFor(3)).toEqual([
       [2, 0, 1],
       [2, 2, 3],
     ]);
@@ -230,5 +242,81 @@ describe("chunkedPaginated (CAR-223)", () => {
         throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
+  });
+});
+
+describe("bounded concurrency (CAR-231)", () => {
+  /** ids spanning `n` chunks of 200. */
+  const idsForChunks = (n: number) => Array.from({ length: n * 200 }, (_, i) => i + 1);
+
+  it("runs chunks concurrently rather than one at a time", async () => {
+    let peak = 0;
+    let live = 0;
+    await chunked(idsForChunks(6), async (chunk) => {
+      live++;
+      peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 5));
+      live--;
+      return chunk;
+    });
+    // The serial implementation this replaced never exceeded 1.
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it("preserves INPUT order even when later chunks resolve first", async () => {
+    // Staggered so chunk order and completion order are exactly reversed. A
+    // push-on-complete implementation returns these reversed, and still passes every
+    // length and set-membership check while silently reordering rows.
+    const chunkCount = 4;
+    const rows = await chunked(idsForChunks(chunkCount), async (chunk) => {
+      const position = Math.floor((chunk[0] - 1) / 200);
+      await new Promise((r) => setTimeout(r, (chunkCount - position) * 10));
+      return [chunk[0]];
+    });
+    expect(rows).toEqual([1, 201, 401, 601]);
+  });
+
+  it("holds the ceiling ACROSS concurrent callers, not just within one", async () => {
+    // The reason the gate is module-level: getContactStages runs 8 chunked legs at
+    // once, so a per-call limit would multiply by the number of legs.
+    let peak = 0;
+    let live = 0;
+    const leg = () =>
+      chunked(idsForChunks(5), async (chunk) => {
+        live++;
+        peak = Math.max(peak, live);
+        await new Promise((r) => setTimeout(r, 5));
+        live--;
+        return chunk;
+      });
+    await Promise.all([leg(), leg(), leg(), leg(), leg(), leg(), leg(), leg()]);
+    expect(peak).toBeLessThanOrEqual(24);
+  });
+
+  it("applies the same ceiling to chunkedPaginated", async () => {
+    let peak = 0;
+    let live = 0;
+    const leg = () =>
+      chunkedPaginated(idsForChunks(4), async (chunk, from) => {
+        live++;
+        peak = Math.max(peak, live);
+        await new Promise((r) => setTimeout(r, 5));
+        live--;
+        return from === 0 ? [chunk[0]] : [];
+      });
+    await Promise.all([leg(), leg(), leg(), leg(), leg(), leg(), leg(), leg()]);
+    expect(peak).toBeLessThanOrEqual(24);
+  });
+
+  it("releases its slot when a chunk throws, so the gate cannot wedge", async () => {
+    await expect(
+      chunked(idsForChunks(3), async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    // If the failed run leaked its slots, this second call would hang forever.
+    const rows = await chunked([1, 2, 3], async (chunk) => chunk);
+    expect(rows).toEqual([1, 2, 3]);
   });
 });

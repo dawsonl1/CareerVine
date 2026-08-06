@@ -34,10 +34,15 @@
  * Pagination. The fixture resolves every page under PostgREST's 1000-row cap,
  * so `paginateAll` returns after one request per query. That is on purpose: the
  * structural depth of the graph is what a refactor regresses, and folding in
- * page counts would make the pin a function of fixture size. Chunking IS
- * measured — `chunked`/`chunkedPaginated` split on id count regardless of
- * response size and their chunk loops are serial, so the fixture deliberately
- * carries more than one chunk's worth of both companies and contacts.
+ * page counts would make the pin a function of fixture size.
+ *
+ * Chunking is measured, but it no longer CONTRIBUTES depth. `chunked` and
+ * `chunkedPaginated` used to walk their id chunks one at a time, so depth grew as
+ * ceil(ids/chunkSize) and the fixture had to carry several chunks' worth to see
+ * it. CAR-231 runs those chunks concurrently under a module-wide ceiling, so the
+ * depth numbers below are now flat in fixture size. The multi-chunk fixture is
+ * kept deliberately: it is what would make the depth pins start scaling again if
+ * the gate were removed, or if its cap were lowered under the widest fan-out.
  *
  * The browser-side sibling of this guard is `e2e/request-budget.spec.ts`, which
  * counts requests a real page load makes and cannot see depth at all. Neither
@@ -458,12 +463,17 @@ describe("/outreach query shape (CAR-229)", () => {
      *   4  companies          (chunk 2 of 2)
      *
      * The employment read that used to share waves 3-4 is gone with the pass it
-     * fed, and with it the three contact-chunk waves that followed. Waves 3-4
-     * are `chunked`'s serial loop, so re-derive rather than nudge:
-     * ceil(COMPANIES/200) + 2.
+     * fed, and with it the three contact-chunk waves that followed.
+     *
+     * This used to be ceil(COMPANIES/200) + 2, because `chunked` walked its id
+     * chunks one at a time. CAR-231 runs them concurrently under a module-wide
+     * ceiling, so the chunk count no longer adds depth and this is a flat 3
+     * regardless of how many companies the fixture has. If this number starts
+     * scaling with COMPANIES again, the gate has been removed or its cap has
+     * fallen below the fan-out.
      */
-    expect(queueDepth, `unenriched getCompanies got deeper:\n${report}`).toBe(4);
-    expect(waveDepth(gate.released), `/outreach got deeper:\n${report}`).toBe(6);
+    expect(queueDepth, `unenriched getCompanies got deeper:\n${report}`).toBe(3);
+    expect(waveDepth(gate.released), `/outreach got deeper:\n${report}`).toBe(5);
 
     // Count is the secondary instrument (see the header): it cannot see the
     // waterfall, but it does catch a leg that fans out per row. 22 measured
@@ -497,7 +507,7 @@ describe("/outreach query shape (CAR-229)", () => {
      * number tracks fixture size while getCompanyDetail's does not. Re-derive
      * rather than nudge: ceil(COMPANIES/200) + ceil(contacts/200) + 3.
      */
-    expect(waveDepth(gate.released), `enriched getCompanies got deeper:\n${report}`).toBe(7);
+    expect(waveDepth(gate.released), `enriched getCompanies got deeper:\n${report}`).toBe(5);
     // 34 measured, and 30 of those are the enrichment pass: the viewer's school
     // (1), the employment read's two company chunks (2), and nine stage/alum
     // legs over three contact chunks (27). That is what `enrich: false` removes
