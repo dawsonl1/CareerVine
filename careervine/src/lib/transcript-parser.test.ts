@@ -161,6 +161,87 @@ describe("parseTranscript", () => {
     expect(result.segments[0].content).toContain("doing well");
   });
 
+  // CAR-237: the cue regex accepted only MM:SS.mmm. HH:MM:SS.mmm is what
+  // Whisper, Zoom, and the WebVTT spec past one hour all emit, so ordinary
+  // .vtt files fell through to the generic parser and lost their timestamps.
+
+  it("parses VTT with HH:MM:SS.mmm timestamps", () => {
+    const text = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:05.000",
+      "<v Alice>Hello, how are you?</v>",
+      "",
+      "00:00:05.000 --> 00:00:10.000",
+      "<v Bob>I'm doing well, thanks!</v>",
+    ].join("\n");
+
+    const result = parseTranscript(text);
+    expect(result.format).toBe("vtt");
+    expect(result.segments).toHaveLength(2);
+    expect(result.segments[0].speaker_label).toBe("Alice");
+    expect(result.segments[0].started_at).toBe(1);
+    expect(result.segments[0].ended_at).toBe(5);
+    expect(result.segments[1].speaker_label).toBe("Bob");
+    expect(result.segments[1].started_at).toBe(5);
+  });
+
+  it("parses VTT cues past the one-hour mark", () => {
+    const text = [
+      "WEBVTT",
+      "",
+      "01:23:45.678 --> 01:23:49.000",
+      "<v Alice>Still going.</v>",
+      "",
+      "02:00:00.000 --> 02:00:04.500",
+      "<v Bob>Two hours in.</v>",
+    ].join("\n");
+
+    const result = parseTranscript(text);
+    expect(result.format).toBe("vtt");
+    expect(result.segments).toHaveLength(2);
+    expect(result.segments[0].started_at).toBeCloseTo(5025.678, 3);
+    expect(result.segments[0].ended_at).toBeCloseTo(5029, 3);
+    expect(result.segments[1].started_at).toBeCloseTo(7200, 3);
+    expect(result.segments[1].ended_at).toBeCloseTo(7204.5, 3);
+  });
+
+  it("parses a VTT mixing MM:SS and HH:MM:SS cues", () => {
+    const text = [
+      "WEBVTT",
+      "",
+      "00:30.000 --> 00:35.000",
+      "<v Alice>Short form.</v>",
+      "",
+      "01:00:00.000 --> 01:00:05.000",
+      "<v Bob>Long form.</v>",
+    ].join("\n");
+
+    const result = parseTranscript(text);
+    expect(result.format).toBe("vtt");
+    expect(result.segments).toHaveLength(2);
+    expect(result.segments[0].started_at).toBe(30);
+    expect(result.segments[1].started_at).toBe(3600);
+  });
+
+  it("parses VTT cues using a comma millisecond separator", () => {
+    const text = [
+      "WEBVTT",
+      "",
+      "00:00:01,500 --> 00:00:05,250",
+      "<v Alice>Comma separated.</v>",
+      "",
+      "00:00:05,250 --> 00:00:09,000",
+      "<v Bob>Still parsed.</v>",
+    ].join("\n");
+
+    const result = parseTranscript(text);
+    expect(result.format).toBe("vtt");
+    expect(result.segments).toHaveLength(2);
+    expect(result.segments[0].started_at).toBeCloseTo(1.5, 3);
+    expect(result.segments[0].ended_at).toBeCloseTo(5.25, 3);
+  });
+
   // ── SRT format ────────────────────────────────────────────
 
   it("parses SRT format with speaker prefixes", () => {

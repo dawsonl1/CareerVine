@@ -8,6 +8,7 @@ import { TranscriptActionSuggestions } from "@/components/meetings/transcript-ac
 import type { ParsedTranscriptTurn } from "@/lib/transcript-parser";
 import type { ConversationFormState, PendingAction, TranscriptState } from "./types";
 import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
+import { uploadAttachment } from "@/lib/queries";
 
 interface PastMeetingFieldsProps {
   form: ConversationFormState;
@@ -60,15 +61,11 @@ export function PastMeetingFields({
       setTranscribeError("");
       setTranscriptState((prev) => ({ ...prev, isTranscribing: true }));
       try {
-        // Upload audio file
-        const formDataUpload = new FormData();
-        formDataUpload.append("file", file);
-        // FormData body: deliberately no Content-Type, so the browser sets the
-        // multipart boundary. jsonBody would break that, hence the bare init.
-        const { attachment } = await apiFetch<{ attachment: { id: number; object_path: string } }>(
-          "/api/attachments/upload",
-          { method: "POST", body: formDataUpload },
-        );
+        // CAR-237: upload through the shared client-side helper, the same path
+        // every other uploader uses (meetings page, contact attachments). This
+        // previously POSTed to /api/attachments/upload, a route that does not
+        // exist, so audio selection 404'd before Deepgram was ever reached.
+        const attachment = await uploadAttachment(userId, file);
 
         setTranscriptState((prev) => ({
           ...prev,
@@ -77,10 +74,18 @@ export function PastMeetingFields({
 
         // Transcribe — the server routes through the user's Deepgram key (or the
         // shared key) and returns a friendly, specific message if both fail.
+        //
+        // The body key must stay `attachmentObjectPath`: that is what
+        // transcribeSchema requires, and sending `objectPath` (as this did
+        // before CAR-237) is a silent 400. transcribe-payload-contract.test.ts
+        // pins this against the route's own schema so a rename cannot drift.
         const { rawText, segments } = await apiFetch<{
           rawText: string;
           segments?: ParsedTranscriptTurn[];
-        }>("/api/transcripts/transcribe", jsonBody({ objectPath: attachment.object_path }));
+        }>(
+          "/api/transcripts/transcribe",
+          jsonBody({ attachmentObjectPath: attachment.object_path }),
+        );
 
         setForm((prev) => ({ ...prev, transcript: rawText }));
         setTranscriptState((prev) => ({
@@ -96,7 +101,7 @@ export function PastMeetingFields({
         setTranscriptState((prev) => ({ ...prev, isTranscribing: false }));
       }
     },
-    [setForm, setTranscriptState]
+    [setForm, setTranscriptState, userId]
   );
 
   return (

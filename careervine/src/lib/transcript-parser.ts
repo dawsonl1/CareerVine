@@ -222,7 +222,14 @@ function tryTeams(text: string): ParseResult | null {
 function tryVtt(text: string): ParseResult | null {
   if (!text.trim().startsWith("WEBVTT")) return null;
 
-  const cuePattern = /^(\d{2}:\d{2}[:.]\d{3})\s*-->\s*(\d{2}:\d{2}[:.]\d{3})/;
+  // CAR-237: the hour group is optional. WebVTT allows both MM:SS.mmm and
+  // HH:MM:SS.mmm, and the latter is what Whisper, Zoom, and most tools emit —
+  // the previous pattern accepted only MM:SS.mmm, so ordinary .vtt files fell
+  // through to the next parser and lost their timestamps. `parseVttTimestamp`
+  // already handled both shapes; only this regex was narrow.
+  // Milliseconds accept `.` or `,` because pasted SRT-style cues use a comma.
+  const cuePattern =
+    /^((?:\d{2,}:)?\d{2}:\d{2}[.,]\d{3})\s*-->\s*((?:\d{2,}:)?\d{2}:\d{2}[.,]\d{3})/;
   const speakerTag = /<v\s+([^>]+)>([\s\S]*?)(?:<\/v>)?$/;
   const lines = text.split("\n");
   const segments: ParsedTranscriptTurn[] = [];
