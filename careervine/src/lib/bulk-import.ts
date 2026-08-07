@@ -54,6 +54,7 @@ import {
   computeEmploymentMerge,
   computeEmailMerge,
   computeContactPatch,
+  employmentRowKey,
   type ExistingEmploymentRow,
   type IncomingEmploymentRow,
   type MergePolicy,
@@ -945,8 +946,30 @@ async function bulkCreatePersons(
     }
   }
 
-  const employmentRowsOf = (p: PendingCreate) =>
-    p.w.employment.map((e) => ({ contact_id: p.w.contactId, ...e.incoming, source: "scraped", scraped_at: now }));
+  // Collapse the payload before it reaches the database (CAR-261).
+  //
+  // This is where the duplicates came from. The UPDATE branch below runs
+  // `computeEmploymentMerge`, which dedupes its incoming rows; this CREATE
+  // branch mapped `p.w.employment` 1:1 and never did, so an actor payload
+  // listing the same role twice inserted it twice. 61 of the 65 duplicate groups
+  // found in production had fully contiguous row ids, which is the signature of
+  // one INSERT writing every copy, not of drift across re-imports.
+  //
+  // `employmentRowKey` and not `employmentKey`: the narrow matching key would
+  // also collapse two genuinely distinct stints that differ only in end_month.
+  const employmentRowsOf = (p: PendingCreate) => {
+    const byKey = new Map<string, IncomingEmploymentRow>();
+    for (const e of p.w.employment) {
+      const key = employmentRowKey(e.incoming);
+      if (!byKey.has(key)) byKey.set(key, e.incoming);
+    }
+    return [...byKey.values()].map((incoming) => ({
+      contact_id: p.w.contactId,
+      ...incoming,
+      source: "scraped",
+      scraped_at: now,
+    }));
+  };
   const withEmployment = createdPending.filter((p) => p.w.employment.length > 0);
   const allEmploymentRows = withEmployment.flatMap(employmentRowsOf);
   if (allEmploymentRows.length > 0) {

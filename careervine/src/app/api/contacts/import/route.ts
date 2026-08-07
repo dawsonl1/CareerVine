@@ -18,6 +18,9 @@ import { createContact, updateContact } from "@/lib/data/contacts";
 import type { QueryClient } from "@/lib/data/client";
 import { triggerEnrichOnSave } from "@/lib/apify/scrape-service";
 import { normalizeLocation, normalizeParsedLocation, locationMatchKey } from "@/lib/location-normalizer";
+// Identity key shared with the merge engine, so this route and the scrape paths
+// agree with `contact_companies_natural_key_idx` on what a duplicate is (CAR-261).
+import { employmentRowKey } from "@/lib/scrape-merge";
 import type { SupabaseClient } from "@supabase/supabase-js";
 // CAR-148 (F11): the profile payload shape is single-sourced. `ProfileData` and
 // its row types come from the extension contract — do not re-declare them here.
@@ -36,6 +39,8 @@ interface ContactRow {
 interface CompanyRelRow {
   company_id: number;
   title: string | null;
+  start_month: string | null;
+  end_month: string | null;
 }
 
 interface SchoolRelRow {
@@ -205,14 +210,34 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
       .select('*')
       .eq('contact_id', contactId)
       .eq('source', 'extension');
-    await supabase.from('contact_companies').delete().eq('contact_id', contactId).eq('source', 'extension');
+    // The DELETE's error was previously discarded (CAR-261). If it failed while
+    // the insert below then threw, the restore blind-inserted the full backup on
+    // top of rows that were never removed, doubling every extension row for this
+    // contact. Checked now, and the whole replace is abandoned rather than half
+    // done: leaving the old rows in place is strictly better than duplicating
+    // them, and the caller still sees the failure.
+    const { error: delErr } = await supabase
+      .from('contact_companies')
+      .delete()
+      .eq('contact_id', contactId)
+      .eq('source', 'extension');
+    if (delErr) throw new Error(`Failed to clear extension experience: ${delErr.message}`);
     try {
       const currentEmployerIds = await addExperienceToContact(supabase, contactId, profileData.experience, profileData.location, false);
       // Hand-saved person => their CURRENT employer becomes a target (CAR-263).
       await ensureCompanyTargets(supabase, userId, currentEmployerIds);
     } catch (err) {
       if (oldExp && oldExp.length > 0) {
-        await supabase.from('contact_companies').insert(oldExp.map(({ id: _id, ...rest }) => rest));
+        // The DELETE above is now known to have succeeded, so this restores onto
+        // an empty set. ignoreDuplicates is belt-and-braces against a concurrent
+        // save racing us: under the natural-key index a collision would
+        // otherwise fail the restore and lose the backup entirely.
+        await supabase
+          .from('contact_companies')
+          .upsert(oldExp.map(({ id: _id, ...rest }) => rest), {
+            onConflict: 'contact_id,company_id,title,start_month,end_month',
+            ignoreDuplicates: true,
+          });
       }
       throw err;
     }
@@ -399,14 +424,17 @@ async function addExperienceToContact(
     ? locationMatchKey(normalizeParsedLocation(profileLocation))
     : null;
 
+  // Keyed to match `contact_companies_natural_key_idx` (CAR-261). The old key
+  // was `company_id:title`, narrower than the index, so two stints differing
+  // only by date collapsed into one and the second was silently dropped.
   let relSet = new Set<string>();
   if (!skipDedup) {
     const { data: existingRels } = await supabase
       .from('contact_companies')
-      .select('company_id, title')
+      .select('company_id, title, start_month, end_month')
       .eq('contact_id', contactId);
     relSet = new Set(((existingRels as CompanyRelRow[] | null) || []).map(r =>
-      `${r.company_id}:${r.title || ''}`
+      employmentRowKey(r)
     ));
   }
 
@@ -414,7 +442,13 @@ async function addExperienceToContact(
   for (const exp of validExps) {
     const company = companyMap.get(exp.company.toLowerCase());
     if (!company) continue;
-    const key = `${company.id}:${exp.title || ''}`;
+    const endMonth = exp.is_current ? 'Present' : (exp.end_month || null);
+    const key = employmentRowKey({
+      company_id: company.id,
+      title: exp.title || null,
+      start_month: exp.start_month || null,
+      end_month: endMonth,
+    });
 
     const locationRaw = exp.location || null;
     const workplaceType = normalizeWorkplaceType(exp.workplace_type, exp.location);
@@ -449,13 +483,17 @@ async function addExperienceToContact(
       locationSource = 'profile_match';
     }
 
+    // Added to the set as we go (CAR-261): without this, two entries in the SAME
+    // payload with identical company/title/dates both passed the guard and both
+    // got inserted. The read above only knows what was already in the table.
     if (!relSet.has(key)) {
+      relSet.add(key);
       toInsert.push({
         contact_id: contactId,
         company_id: company.id,
         title: exp.title || null,
         start_month: exp.start_month || null,
-        end_month: exp.is_current ? 'Present' : (exp.end_month || null),
+        end_month: endMonth,
         is_current: exp.is_current || false,
         location_id: locationId,
         location_source: locationSource,
