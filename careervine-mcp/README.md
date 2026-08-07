@@ -29,13 +29,13 @@ That's it. The server is registered in the repo-root `.mcp.json`, so any Claude 
 - **No tier auto-graduation on outbound email** — prospects graduate on a reply, a logged interaction, or a meeting, same as the app.
 - **No delete tools** — the lowest-regret omission.
 
-## Tools (36)
+## Tools (39)
 
 | Area | Tools |
 | --- | --- |
 | Contacts & research | `search_contacts`, `get_contact_dossier`, `add_contact`, `update_contact`, `add_contact_note`, `add_contact_email`, `add_contact_phone`, `tag_contact`, `untag_contact`, `set_network_status`, `defer_follow_up` |
 | Email | `create_email_draft`, `send_email`, `check_delivery`, `schedule_email`, `create_follow_up_sequence`, `list_scheduled`, `cancel_scheduled`, `reschedule_follow_up`, `search_email_history`, `get_email_thread` |
-| Outreach engine | `list_outreach_queue`, `list_companies`, `get_company`, `add_company_intel`, `set_company_stage`, `update_company_target`, `set_stage_override` |
+| Outreach engine | `list_outreach_queue`, `list_companies`, `get_company`, `get_company_pipeline`, `add_company_intel`, `set_company_stage`, `update_company_target`, `log_application`, `log_interview_round`, `set_stage_override` |
 | Relationship upkeep | `log_interaction`, `create_action_item`, `list_action_items`, `update_action_item`, `list_due_followups`, `get_network_health` |
 | Calendar | `list_meetings`, `create_meeting` |
 
@@ -59,6 +59,16 @@ The server is no longer read-mostly. An agent that finds something can record it
 - `defer_follow_up` snoozes an overdue contact or stops suggesting a first outreach, so "email now" is not the only answer to a due follow-up.
 
 Still no delete tools, and nothing generates content: the model is the writer.
+
+### The recruiting pipeline
+
+`get_company_pipeline` returns the board behind a company's stage: every scope (company-wide and per-office), every application cycle, the researching programs, the intel notes, the applications you submitted and the interview rounds you sat.
+
+**This is where `add_company_intel`'s notes are readable.** They live in `pipeline_notes`; `get_company`'s `target.notes` are a different, legacy table, so a note written by an agent was previously invisible to it on read-back.
+
+`log_application` and `log_interview_round` append to a cycle. They round-trip the entries already there rather than sending only the new row, and never send a deletion, so an agent writing alongside the app cannot remove rows it never saw. Resume and cover-letter PDFs stay browser-uploads: the tools report a file's name and size, never its storage path, which is unusable without a signed URL and embeds the user's id.
+
+`declined_next_cycle` is a UI intent flag meaning "declined to open the next cycle". It is not an outcome and does not mean rejected.
 
 ### Reading past the first page
 

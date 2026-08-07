@@ -41,6 +41,7 @@ function person(id: number, name: string, over: Partial<CompanyPerson> = {}): Co
     last_scraped_at: null,
     linkedin_url: null,
     stage: null,
+    conversations: { past: null, upcoming: null },
     email: null,
     last_interaction: null,
     adjacency_score: null,

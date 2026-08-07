@@ -51,6 +51,100 @@ export interface CompanyInput {
   logo_url?: string | null;
 }
 
+// ── CAR-269: hardcoded company consolidations ──────────────────────────
+//
+// Acquisitions where LinkedIn keeps a separate company page for the acquired
+// brand, so scraped identity alone can never unify them: Workfront kept page
+// 48453 after Adobe bought it, Divvy kept 10593835 (universal_name
+// "divvynowbill") after BILL bought it. Dawson's ruling: these ARE the parent
+// company. Every resolution path funnels through this file (no other code
+// writes `companies`), so rewriting the input here — before the match ladder
+// runs — is sufficient to stop the duplicate rows from ever being minted
+// again. The rows that already exist are merged by the companion migration
+// (20260808..._car269_merge_workfront_and_divvy.sql).
+
+interface CanonicalCompanyIdentity {
+  name: string;
+  linkedin_company_id: string;
+  linkedin_url: string;
+  universal_name: string;
+}
+
+const CANONICAL_ADOBE: CanonicalCompanyIdentity = {
+  name: "Adobe",
+  linkedin_company_id: "1480",
+  linkedin_url: "https://www.linkedin.com/company/adobe",
+  universal_name: "adobe",
+};
+
+const CANONICAL_BILL: CanonicalCompanyIdentity = {
+  name: "BILL (Bill.com)",
+  linkedin_company_id: "113254",
+  linkedin_url: "https://www.linkedin.com/company/bill",
+  universal_name: "bill",
+};
+
+const CONSOLIDATED_BY_LINKEDIN_ID: Record<string, CanonicalCompanyIdentity> = {
+  "48453": CANONICAL_ADOBE, // Adobe Workfront's own page
+  "10593835": CANONICAL_BILL, // Divvy's own page ("divvynowbill")
+};
+
+const CONSOLIDATED_BY_UNIVERSAL_NAME: Record<string, CanonicalCompanyIdentity> = {
+  adobeworkfront: CANONICAL_ADOBE,
+  divvynowbill: CANONICAL_BILL,
+};
+
+// Fires ONLY for name-only inputs (extension import, MCP add_contact, the
+// contact forms). An input carrying any LinkedIn identity keeps it: a company
+// that merely shares a word must never be captured by a name alias when its
+// own identity can resolve it.
+const CONSOLIDATED_BY_NORMALIZED_NAME: Record<string, CanonicalCompanyIdentity> = {
+  workfront: CANONICAL_ADOBE,
+  "adobe workfront": CANONICAL_ADOBE,
+  "adobe workfront office": CANONICAL_ADOBE,
+  divvy: CANONICAL_BILL,
+  bill: CANONICAL_BILL,
+  "bill com": CANONICAL_BILL,
+};
+
+function companyUrlSlug(url: string | null | undefined): string | null {
+  const match = url?.match(/linkedin\.com\/company\/([^/?#]+)/i);
+  return match ? match[1].trim().toLowerCase() : null;
+}
+
+/**
+ * Rewrite a consolidated-company input to its canonical identity. Returns the
+ * SAME object when no consolidation applies (callers rely on identity
+ * equality to detect a rewrite). Precedence mirrors findOrCreateCompany's
+ * match ladder: a non-consolidated linkedin_company_id wins outright, then
+ * universal_name / URL slug, then (name-only inputs) the normalized name.
+ * logo_url is dropped on rewrite so an acquired brand's logo is never stamped
+ * onto the parent row.
+ */
+export function applyCompanyConsolidations(input: CompanyInput): CompanyInput {
+  const id = input.linkedin_company_id?.trim();
+  let canonical: CanonicalCompanyIdentity | undefined;
+  if (id) {
+    canonical = CONSOLIDATED_BY_LINKEDIN_ID[id];
+    if (!canonical) return input; // carries its own (non-consolidated) identity
+  } else {
+    const universal =
+      input.universal_name?.trim().toLowerCase() || companyUrlSlug(input.linkedin_url);
+    if (universal) canonical = CONSOLIDATED_BY_UNIVERSAL_NAME[universal];
+    if (!canonical && isNameOnlyCompanyInput(input) && input.name) {
+      canonical = CONSOLIDATED_BY_NORMALIZED_NAME[normalizeCompanyName(input.name)];
+    }
+  }
+  if (!canonical) return input;
+  return {
+    name: canonical.name,
+    linkedin_company_id: canonical.linkedin_company_id,
+    linkedin_url: canonical.linkedin_url,
+    universal_name: canonical.universal_name,
+    logo_url: null,
+  };
+}
+
 export interface CompanyRecord {
   id: number;
   name: string;
@@ -119,6 +213,26 @@ export async function prefetchCompanies(
   const byId = new Map<string, CompanyRecord>();
   const byName = new Map<string, CompanyRecord>();
 
+  // CAR-269: sweep with canonical identities, but remember each rewritten
+  // input's caller-visible key — callers compute lookup keys from their RAW
+  // inputs, so a hit must be registered under both keys or every aliased
+  // company silently degrades to a findOrCreateCompany round trip.
+  const rawInputs = inputs;
+  inputs = inputs.map(applyCompanyConsolidations);
+  const aliasIdKeys = new Map<string, string>(); // raw linkedin id -> canonical linkedin id
+  const aliasNameKeys = new Map<string, string>(); // raw name-only key -> canonical linkedin id
+  rawInputs.forEach((raw, i) => {
+    const canon = inputs[i];
+    if (canon === raw) return;
+    const rawId = raw.linkedin_company_id?.trim();
+    if (rawId) {
+      if (rawId !== canon.linkedin_company_id) aliasIdKeys.set(rawId, canon.linkedin_company_id!);
+      return;
+    }
+    const nameKey = companyFallbackName(raw)?.toLowerCase();
+    if (nameKey) aliasNameKeys.set(nameKey, canon.linkedin_company_id!);
+  });
+
   const ids = [...new Set(inputs.map((i) => i.linkedin_company_id?.trim()).filter(Boolean))] as string[];
   for (const chunk of chunkList(ids)) {
     // error-tolerated: this is a warm-cache pass only; an id that misses the
@@ -147,6 +261,16 @@ export async function prefetchCompanies(
       if (!byName.has(key)) byName.set(key, row);
     }
   }
+
+  // CAR-269: register consolidated hits under the raw keys callers use.
+  for (const [rawId, canonId] of aliasIdKeys) {
+    const row = byId.get(canonId);
+    if (row && !byId.has(rawId)) byId.set(rawId, row);
+  }
+  for (const [nameKey, canonId] of aliasNameKeys) {
+    const row = byId.get(canonId);
+    if (row && !byName.has(nameKey)) byName.set(nameKey, row);
+  }
   return { byId, byName };
 }
 
@@ -154,6 +278,7 @@ export async function findOrCreateCompany(
   supabase: SupabaseClient,
   input: CompanyInput,
 ): Promise<CompanyResolveResult> {
+  input = applyCompanyConsolidations(input);
   const companyId = input.linkedin_company_id?.trim() || null;
   const linkedinUrl = normalizeCompanyLinkedinUrl(input.linkedin_url);
   const universalName = normalizeUniversalName(input.universal_name);

@@ -21,7 +21,7 @@ import { LoadErrorBanner, LoadErrorState } from "@/components/ui/load-error-stat
 import { PersonModal } from "@/components/companies/person-modal";
 import { getCompanies, getCompanyDetail, type CompanyBaseSummary, type CompanyDetail, type CompanyPerson } from "@/lib/company-queries";
 import { buildOutreachQueue } from "@/lib/outreach-queue";
-import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
+import { stageChipLabels, type OutreachStage } from "@/lib/stage-derivation";
 import {
   ArrowLeft, ArrowRight, ExternalLink, GraduationCap, Mail, MapPin,
   AlertTriangle, ChevronDown, ChevronRight, CalendarClock,
@@ -476,7 +476,11 @@ function PersonCards({
                 </span>
               )}
               {p.stage && p.stage !== "not_contacted" && (
-                <span className={`px-2 py-0.5 rounded-full text-[10px] ${STAGE_STYLES[p.stage]}`}>{STAGE_LABELS[p.stage]}</span>
+                // One chip per distinct conversation kind behind a call stage
+                // (CAR-267): a text exchange reads "Texted", not "Call done".
+                stageChipLabels(p.stage, p.conversations).map((label) => (
+                  <span key={label} className={`px-2 py-0.5 rounded-full text-[10px] ${STAGE_STYLES[p.stage!]}`}>{label}</span>
+                ))
               )}
               {p.adjacency_score != null && (
                 <span className="text-[10px] text-on-surface-variant/70 ml-auto">adj {p.adjacency_score}</span>
