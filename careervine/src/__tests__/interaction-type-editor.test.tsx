@@ -46,7 +46,7 @@ function renderTab(rows: InteractionRow[]) {
       interactions={rows}
       emails={[]}
       completedActions={[]}
-      loadFailed={false}
+      loading={false}
       onInteractionsChange={vi.fn()}
       onConfirmDeleteInteraction={vi.fn().mockResolvedValue(true)}
     />,
