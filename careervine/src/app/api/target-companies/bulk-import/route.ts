@@ -4,7 +4,13 @@
  *
  * Re-runnable: research fields (priority_score, tier, program_name,
  * app_window_text) refresh from the sheet; hand-set fields
- * (next_app_date, status) are never touched on re-import.
+ * (next_app_date, status, is_targeted) are never touched on re-import.
+ *
+ * `is_targeted` joined that list in CAR-258. It used to be forced back to true
+ * on every existing row, so re-running the sheet silently undid a company the
+ * user had untargeted by hand — the one thing a re-import must not do, since the
+ * only two writers of `is_targeted = false` in the codebase are both user
+ * actions (the company page's "Not a target" picker, and removing an office).
  */
 
 import { withApiHandler } from "@/lib/api-handler";
@@ -76,10 +82,19 @@ export const POST = withApiHandler({
           .maybeSingle();
 
         if (existing) {
-          // Re-importing a target sheet re-targets soft-untargeted rows.
+          // Research fields only — `is_targeted` is deliberately absent (CAR-258).
+          //
+          // The residual case this accepts: a row can also sit at false because
+          // pipeline autosave created it as an untargeted CONTAINER (research
+          // notes on a company that was never targeted), and such a row now stays
+          // untargeted even though being on the sheet argues for targeting it.
+          // Distinguishing the two would take a column recording explicit intent,
+          // and it is not worth one — the sheet loads before people arrive, so a
+          // sheet company already has a targeted row from the first run, and the
+          // only way it reaches false afterwards is the user untargeting it.
           const { error } = await supabase
             .from("target_companies")
-            .update({ ...researchFields, is_targeted: true, updated_at: new Date().toISOString() })
+            .update({ ...researchFields, updated_at: new Date().toISOString() })
             .eq("id", (existing as { id: number }).id);
           if (error) throw error;
           updated++;
