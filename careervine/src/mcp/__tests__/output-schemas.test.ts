@@ -3,7 +3,6 @@ import { z } from "zod";
 import { createRecordingClient, type RecordedQuery } from "./helpers/recording-client";
 import { mockServiceClientModule } from "@/__tests__/helpers/mock-supabase";
 import { mockAnalyticsServerModule } from "@/__tests__/helpers/mock-analytics";
-import { runWithUserAsync } from "@/mcp/user-context";
 import { registerOutreachTools } from "@/mcp/tools/outreach";
 import { registerContactTools } from "@/mcp/tools/contacts";
 import { registerEmailTools } from "@/mcp/tools/email";
@@ -88,6 +87,51 @@ function allTools(): Registered[] {
   registerUpkeepTools(fake);
   registerCalendarTools(fake);
   return tools;
+}
+
+/**
+ * The same list, but bound to a FRESH module graph.
+ *
+ * `src/mcp/lib/db.ts` caches its service client module-globally in
+ * `ensureClient()`. Several MCP test files mock that client, so whichever file
+ * runs first in a worker installs its own recording state for every file after
+ * it — and this suite's fixtures are then never consulted. It passes alone and
+ * on a machine that happens to schedule the files apart, and fails on a runner
+ * with a different worker count, which is exactly how it reached CI green
+ * locally and red there.
+ *
+ * Resetting the registry before importing rebinds db.ts to THIS file's mock, so
+ * the result no longer depends on who ran first.
+ */
+async function freshTools(): Promise<{
+  tools: Registered[];
+  runWithUser: <T>(id: string, fn: () => Promise<T>) => Promise<T>;
+}> {
+  vi.resetModules();
+  const tools: Registered[] = [];
+  const fake = {
+    registerTool: (name: string, config: { outputSchema?: Record<string, z.ZodTypeAny> }, handler: never) => {
+      tools.push({ name, outputSchema: config?.outputSchema, handler });
+    },
+  } as never;
+  for (const path of [
+    "@/mcp/tools/contacts",
+    "@/mcp/tools/email",
+    "@/mcp/tools/outreach",
+    "@/mcp/tools/upkeep",
+    "@/mcp/tools/calendar",
+  ]) {
+    const mod = (await import(path)) as Record<string, (s: never) => void>;
+    const register = Object.entries(mod).find(([k]) => k.startsWith("register"))?.[1];
+    register?.(fake);
+  }
+  // The user-context module is fresh too, and its AsyncLocalStorage instance is
+  // therefore NOT the one the statically-imported runWithUserAsync writes to.
+  // Handing back the matching pair is what keeps uid() resolvable.
+  const ctx = (await import("@/mcp/user-context")) as {
+    runWithUserAsync: <T>(id: string, fn: () => Promise<T>) => Promise<T>;
+  };
+  return { tools, runWithUser: ctx.runWithUserAsync };
 }
 
 const CONTACT = { id: 5, name: "Jane Doe", network_status: "prospect", stage_override: null };
@@ -292,7 +336,11 @@ describe("declared schemas match what the handlers actually return", () => {
 
   for (const tool of schemaBearing) {
     it(`${tool.name}: real payload parses`, async () => {
-      const res = await runWithUserAsync(USER, () => tool.handler(DRIVE_ARGS[tool.name]));
+      // Re-registered against a fresh module graph so this file's fixtures are
+      // the ones db.ts sees, whatever ran before it in this worker.
+      const { tools, runWithUser } = await freshTools();
+      const live = tools.find((t) => t.name === tool.name)!;
+      const res = await runWithUser(USER, () => live.handler(DRIVE_ARGS[tool.name]));
       // A thrown handler would make this vacuous — the SDK skips validation on
       // isError, so a failing drive would "pass" without checking anything.
       expect(res.isError, `handler errored: ${res.content[0]?.text}`).toBeFalsy();
