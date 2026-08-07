@@ -25,6 +25,7 @@
 import { test, expect } from "./fixtures/test";
 import { serviceClient, uniq } from "./helpers/tenant";
 import fs from "node:fs";
+import type { Database } from "@/lib/database.types";
 import { TENANT_FILE } from "./helpers/tenant";
 
 const svc = serviceClient();
@@ -42,10 +43,18 @@ let created: {
   cityLabels: { lehi: string; boston: string };
 } | null = null;
 
-async function insert<T extends Record<string, unknown>>(table: string, row: T): Promise<{ id: number }> {
-  const { data, error } = await svc.from(table).insert(row).select("id").single();
+/**
+ * Typed the way the integration tier's own seeder is (`tenant-graph.ts:66`):
+ * the table name is narrowed to the generated union so a typo is a compile
+ * error, and only the payload takes the `as never` the supabase-js insert
+ * overload needs.
+ */
+type SeedTable = keyof Database["public"]["Tables"];
+
+async function insert(table: SeedTable, row: Record<string, unknown>): Promise<{ id: number }> {
+  const { data, error } = await svc.from(table).insert(row as never).select("id").single();
   if (error) throw new Error(`seed ${table}: ${error.message}`);
-  return data as { id: number };
+  return data as unknown as { id: number };
 }
 
 test.beforeEach(async () => {

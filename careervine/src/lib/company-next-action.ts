@@ -12,8 +12,9 @@
  * names; the card maps them to components.
  */
 
-import type { CompanySummary } from "./company-queries";
+import type { CompanySummary, ReplyThreadState } from "./company-queries";
 import type { OutreachStage } from "./stage-derivation";
+import { formatTimeAgo } from "./relative-time";
 
 export type NextActionTone = "urgent" | "active" | "muted";
 
@@ -45,6 +46,18 @@ export interface NextActionInput {
   recruiterCount: number;
   /** The person to name in the line (already chosen upstream); null if none. */
   leadName: string | null;
+  /**
+   * When we last reached out to the lead, so a waiting line can say how long it
+   * has been instead of "if it's been a while" (CAR-253). Null drops the clause.
+   */
+  lastOutreachAt: string | null;
+  /**
+   * The lead's reply conversation, when one backs a `replied` traction. Null
+   * means "no evidence either way" — a stage_override, or a caller that has not
+   * computed it — and the ladder falls back to the write-back prompt, which is
+   * the assumption that costs a wasted glance rather than a missed reply.
+   */
+  replyThread: ReplyThreadState | null;
 }
 
 /** Whole days from `now` (local midnight) to a YYYY-MM-DD date; negative = past. */
@@ -75,7 +88,7 @@ function firstName(name: string | null): string | null {
  * bottom of the ladder.
  */
 export function deriveNextAction(input: NextActionInput, now: Date = new Date()): NextAction | null {
-  const { status, nextAppDate, traction, currentCount, alumCount, productAlumCount } = input;
+  const { status, nextAppDate, traction, currentCount, alumCount, productAlumCount, replyThread } = input;
   const lead = firstName(input.leadName);
 
   // Closed — nothing left to do.
@@ -103,7 +116,11 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
   if (traction === "call_scheduled") {
     return { text: lead ? `Prep for your call with ${lead}` : "Prep for your upcoming call", icon: "Phone", tone: "active", rank: 86 };
   }
-  if (traction === "replied") {
+  // A reply we have not answered. `replied` alone is NOT enough: the stage is
+  // sticky, so testing it by itself kept demanding a write-back on threads
+  // where the last word was already ours (CAR-253). A null replyThread means
+  // nobody computed it, and defaults to prompting — the cheap error.
+  if (traction === "replied" && (replyThread?.awaitingOurReply ?? true)) {
     return { text: lead ? `${lead} replied, write back` : "You have a reply, write back", icon: "MailOpen", tone: "active", rank: 84 };
   }
 
@@ -127,10 +144,37 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
       : null;
   }
 
+  // A reply we already answered. Reaching here means the live-inbound rung
+  // above declined it, so the ball is in their court — the same posture as
+  // `contacted`, and ranked with it rather than up at 84 where an unanswered
+  // reply sits. Warmer than a cold outreach (56), colder than an application
+  // that wants a referral (62).
+  if (traction === "replied") {
+    const when = formatTimeAgo(replyThread?.lastMessageAt ?? null, now);
+    const who = lead ? ` with ${lead}` : "";
+    return {
+      text: `You had an email thread${who}${when ? ` (${when})` : ""}`,
+      icon: "MailCheck",
+      tone: "muted",
+      rank: 58,
+    };
+  }
+
   // Contacted / bounced — you've already engaged, so this outranks a cold
   // warm-intro below: momentum leads.
   if (traction === "contacted") {
-    return { text: lead ? `Waiting on ${lead}. Follow up if it's been a while` : "No reply yet. Follow up", icon: "Clock", tone: "muted", rank: 56 };
+    // "Follow up if it's been a while" made the reader go work out how long it
+    // had been; the date is right here (CAR-253). It survives only as the
+    // fallback for a touch we hold no usable date for.
+    const when = formatTimeAgo(input.lastOutreachAt, now);
+    const text = lead
+      ? when
+        ? `Waiting on ${lead}. You reached out ${when}`
+        : `Waiting on ${lead}. Follow up if it's been a while`
+      : when
+        ? `No reply yet. You reached out ${when}`
+        : "No reply yet. Follow up";
+    return { text, icon: "Clock", tone: "muted", rank: 56 };
   }
   if (traction === "bounced") {
     return { text: "An email bounced. Find another way in", icon: "MailX", tone: "muted", rank: 52 };
@@ -197,6 +241,8 @@ export function nextActionForCompany(c: CompanySummary, now: Date = new Date()):
       productAlumCount: c.product_alum_count,
       recruiterCount: c.recruiter_count,
       leadName: c.lead_contact_name,
+      lastOutreachAt: c.lead_detail?.last_outreach_at ?? null,
+      replyThread: c.lead_detail?.reply ?? null,
     },
     now,
   );

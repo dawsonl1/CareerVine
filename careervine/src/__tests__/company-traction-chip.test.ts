@@ -35,6 +35,7 @@ const CALLS_DONE = 12; // one past call, two attendees, reaching one of them twi
 const CALLS_UPCOMING = 13; // two future calls for one person
 const OVERRIDE = 14; // stage_override with no underlying event
 const FORMER_ONLY = 15; // the only person with history has left
+const TWO_REPLIERS = 16; // two people replied; the first one seen is already answered
 
 const PAST = "2020-03-05T17:00:00Z";
 const OLDER = "2020-01-02T17:00:00Z";
@@ -61,6 +62,10 @@ const people: Person[] = [
   { company_id: CALLS_UPCOMING, contact_id: 402, is_current: true },
   { company_id: OVERRIDE, contact_id: 501, is_current: true, stage_override: "replied" },
   { company_id: FORMER_ONLY, contact_id: 601, is_current: false },
+  // Order matters: 701 is seen FIRST and is already answered, so it wins the
+  // rank tie unless the tie-break prefers the person still owed a response.
+  { company_id: TWO_REPLIERS, contact_id: 701, is_current: true },
+  { company_id: TWO_REPLIERS, contact_id: 702, is_current: true },
 ];
 
 /** Outbound mail, per contact. Everyone emailed also counts as "contacted". */
@@ -70,38 +75,53 @@ const OUTBOUND: Record<number, string[]> = {
   103: ["2026-06-15T10:00:00Z"], // the most recent touch at CONTACTED
   201: ["2026-05-01T10:00:00Z"],
   202: ["2026-05-01T10:00:00Z"],
+  701: ["2026-05-01T10:00:00Z", "2026-05-06T10:00:00Z"], // wrote back after their reply
+  702: ["2026-05-01T10:00:00Z"], // never wrote back
 };
 
 /** Inbound mail from the contact's own address, per contact. */
 const INBOUND: Record<number, string[]> = {
   201: ["2026-05-04T10:00:00Z"],
+  701: ["2026-05-04T10:00:00Z"],
+  702: ["2026-05-05T10:00:00Z"],
 };
 
-const COMPANY_IDS = [CONTACTED, REPLIED, CALLS_DONE, CALLS_UPCOMING, OVERRIDE, FORMER_ONLY];
+const COMPANY_IDS = [CONTACTED, REPLIED, CALLS_DONE, CALLS_UPCOMING, OVERRIDE, FORMER_ONLY, TWO_REPLIERS];
 
 const idsIn = (q: RecordedQuery, col: string): number[] | null => {
   const f = q.filters.find(([m, c]) => m === "in" && c === col);
   return f ? (f[2] as number[]) : null;
 };
 
+/**
+ * One thread per contact, which is what every fixture here means: each person's
+ * mail is one conversation. The reply-thread state (CAR-253) reads thread_id, so
+ * leaving it off would put a contact's whole history in one fallback bucket and
+ * make the distinction untestable.
+ */
 function emailRows(contactIds: number[]): unknown[] {
   const rows: unknown[] = [];
+  let messageId = 0;
   for (const contact_id of contactIds) {
+    const thread_id = `thread-${contact_id}`;
     for (const date of OUTBOUND[contact_id] ?? []) {
       rows.push({
         contact_id,
-        email_messages: { user_id: USER, direction: "outbound", date, from_address: "me@example.com", is_simulated: false },
+        email_message_id: ++messageId,
+        email_messages: { user_id: USER, direction: "outbound", date, from_address: "me@example.com", is_simulated: false, thread_id },
       });
     }
     for (const date of INBOUND[contact_id] ?? []) {
       rows.push({
         contact_id,
+        email_message_id: ++messageId,
         email_messages: {
           user_id: USER,
           direction: "inbound",
           date,
           from_address: `person${contact_id}@example.com`,
           is_simulated: false,
+          thread_id,
         },
       });
     }
@@ -308,5 +328,32 @@ describe("traction chip count and recency (CAR-246)", () => {
     expect(c.current_count).toBe(0);
     expect(c.lead_contact_name).toBeNull();
     expect(nextActionForCompany(c, new Date("2026-08-06T12:00:00"))).toBeNull();
+  });
+});
+
+/**
+ * The lead is the person the next-action line NAMES, so with two people at the
+ * same stage the choice is user-visible (CAR-253). Both of these replied; one
+ * has been answered and one has not. Taking the first one seen would print
+ * "You had an email thread with Person 701" and leave 702's reply invisible.
+ */
+describe("lead selection when two current contacts have both replied (CAR-253)", () => {
+  it("names the person still owed a response, not whoever came first", async () => {
+    const c = (await summaries()).get(TWO_REPLIERS)!;
+
+    expect(c.traction).toBe("replied");
+    // The chip still counts BOTH: who leads the line does not change the tally.
+    expect(c.traction_detail).toEqual({ count: 2, at: "2026-05-05T10:00:00Z" });
+
+    expect(c.lead_contact_name).toBe("Person 702");
+    expect(c.lead_detail?.reply).toEqual({ awaitingOurReply: true, lastMessageAt: "2026-05-05T10:00:00Z" });
+    expect(nextActionForCompany(c, new Date("2026-08-06T12:00:00"))!.text).toMatch(/write back/);
+  });
+
+  it("carries the lead's OWN last outreach, not the company's most recent", async () => {
+    // 701 was emailed on 05-06, later than anything sent to 702. A line that
+    // names 702 must not be dated by mail sent to someone else.
+    const c = (await summaries()).get(TWO_REPLIERS)!;
+    expect(c.lead_detail?.last_outreach_at).toBe("2026-05-01T10:00:00Z");
   });
 });
