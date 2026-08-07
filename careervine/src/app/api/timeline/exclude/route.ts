@@ -81,20 +81,30 @@ async function setExcluded(supabase: SupabaseClient, body: ExcludeBody, excluded
 
   // Spelled out per kind rather than `.from(table)` with a variable. A dynamic
   // table name here is invisible to the contacts write-chokepoint scan
-  // (contact-write-chokepoint.test.ts), and six duplicated lines are a better
-  // trade than an allowlist entry on the guard that keeps contact writes
-  // canonicalizing.
-  const { data, error } =
-    body.kind === "interaction"
-      ? // cas-checked: filtered on the primary key, not on the written column;
-        // the readback is the ownership probe RLS turns into the 404 below.
-        await supabase.from("interactions").update({ is_excluded: excluded }).eq("id", body.id).select("id")
-      : // cas-checked: same shape as the interaction branch above.
-        await supabase
-          .from("follow_up_action_items")
-          .update({ is_excluded: excluded })
-          .eq("id", body.id)
-          .select("id");
+  // (contact-write-chokepoint.test.ts), and the duplication is a better trade
+  // than an allowlist entry on the guard that keeps contact writes
+  // canonicalizing. Two statements rather than a ternary so each carries its
+  // own cas-checked annotation where the conventions scanner looks for it.
+  if (body.kind === "interaction") {
+    // cas-checked: filtered on the primary key, not on the written column;
+    // the readback is the ownership probe RLS turns into the 404 below.
+    const { data, error } = await supabase
+      .from("interactions")
+      .update({ is_excluded: excluded })
+      .eq("id", body.id)
+      .select("id");
+    if (error) throw error;
+    if (!data || data.length === 0) throw new ApiError("That entry could not be found.", 404);
+    return;
+  }
+
+  // cas-checked: same shape as the interaction branch above — primary key
+  // filter, readback as the ownership probe.
+  const { data, error } = await supabase
+    .from("follow_up_action_items")
+    .update({ is_excluded: excluded })
+    .eq("id", body.id)
+    .select("id");
   if (error) throw error;
   if (!data || data.length === 0) throw new ApiError("That entry could not be found.", 404);
 }

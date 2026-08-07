@@ -170,3 +170,44 @@ describe("mirror-interaction folding", () => {
     expect(screen.getByText("Timeline (2)")).toBeTruthy();
   });
 });
+
+describe("struck entries", () => {
+  const struckEmail = email({ id: 7, gmail_message_id: "auto", thread_id: "t7", is_excluded: true,
+    subject: "Accepted: Dawson<>Bryant: Call about R1 Product", direction: "inbound" });
+
+  it("hides a struck entry by default", () => {
+    renderTab({ emails: [...THREAD_OF_THREE, struckEmail] });
+    expect(screen.getByText("Timeline (1)")).toBeTruthy();
+    expect(screen.queryByText(/^Accepted:/)).toBeNull();
+  });
+
+  it("reveals it, marked, when Show removed is on", () => {
+    renderTab({ emails: [...THREAD_OF_THREE, struckEmail], showRemoved: true });
+    expect(screen.getByText("Timeline (2)")).toBeTruthy();
+    expect(screen.getByText(/^Accepted:/)).toBeTruthy();
+    expect(screen.getByText("Removed")).toBeTruthy();
+  });
+
+  it("keeps a struck message out of its thread's count", () => {
+    // Same thread as the other three, so a fold that ignored is_excluded would
+    // report four messages rather than three.
+    renderTab({ emails: [...THREAD_OF_THREE, email({ id: 8, gmail_message_id: "m4", is_excluded: true })] });
+    expect(screen.getByText("3 messages")).toBeTruthy();
+  });
+
+  it("does not let a struck mirror interaction reappear as a standalone row", () => {
+    // The email is struck and therefore absent from the loaded list, so the
+    // presence-keyed fold would keep its mirror. The mirror is struck too, and
+    // that is what has to remove it.
+    renderTab({
+      emails: [],
+      interactions: [interaction({ id: 200, email_message_id: 999, is_excluded: true })],
+    });
+    expect(screen.queryByText("Email")).toBeNull();
+  });
+
+  it("offers the toggle even when everything is struck, or there is no way back", () => {
+    renderTab({ emails: [struckEmail] });
+    expect(screen.getByText("Show removed")).toBeTruthy();
+  });
+});
