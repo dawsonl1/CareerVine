@@ -64,7 +64,7 @@ Still no delete tools, and nothing generates content: the model is the writer.
 
 Every tool now returns `structuredContent` alongside the text block, so a client can read the response as data instead of parsing prose. The text block is unchanged and still comes first, so nothing that reads it breaks.
 
-Thirteen tools additionally declare an `outputSchema`, which the MCP SDK enforces at runtime: the response is validated against it on every call. A tool only gets one once a test drives its real handler and parses the real payload with the declared schema, because a schema that does not match its handler is an outage rather than a documentation bug. The rest are listed by name in `TOOLS_WITHOUT_OUTPUT_SCHEMA` with the reason, and a test fails if a tool is neither schema-bearing nor listed.
+Thirty of the thirty-nine tools additionally declare an `outputSchema`, which the MCP SDK enforces at runtime: the response is validated against it on every call. A tool only gets one once a test drives its real handler and parses the real payload with the declared schema, because a schema that does not match its handler is an outage rather than a documentation bug. The remaining nine are listed by name in `TOOLS_WITHOUT_OUTPUT_SCHEMA` with the specific reason each one's handler cannot yet be driven to a clean payload, and a test fails if a tool is neither schema-bearing nor listed.
 
 ### The recruiting pipeline
 

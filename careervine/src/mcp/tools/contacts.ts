@@ -29,6 +29,9 @@ import {
   addContactDetailOutput,
   untagContactOutput,
   deferFollowUpOutput,
+  searchContactsOutput,
+  addContactOutput,
+  summaryOnlyOutput,
 } from "../lib/output-schemas";
 import { dateKeyOf, daysBetweenDateKeys, todayDateKey } from "@/lib/calendar-day";
 import { primaryCurrentRole } from "@/lib/experience-order";
@@ -144,6 +147,7 @@ export function registerContactTools(server: McpServer): void {
       description:
         "Search the CareerVine network by name, email, company, job title, school, industry, or tag. Returns compact rows with id, current role, tier, derived outreach stage, days since last touch, and primary email (with provenance flags).",
       inputSchema: searchContactsSchema,
+      outputSchema: searchContactsOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ query, tiers, limit }) => {
@@ -212,6 +216,7 @@ export function registerContactTools(server: McpServer): void {
       description:
         "Create a new contact with optional emails, phones, current company + title, school, and location. Companies, schools, and locations are find-or-created so no duplicate entities are introduced.",
       inputSchema: addContactSchema,
+      outputSchema: addContactOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async (input) => {
@@ -226,6 +231,7 @@ export function registerContactTools(server: McpServer): void {
       title: "Add contact note",
       description: "Append a timestamped note to a contact's notes field.",
       inputSchema: addNoteSchema,
+      outputSchema: summaryOnlyOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, note }) => {
@@ -241,6 +247,7 @@ export function registerContactTools(server: McpServer): void {
       title: "Tag contact",
       description: "Apply one or more tags to a contact (tags are created if they don't exist yet).",
       inputSchema: tagContactSchema,
+      outputSchema: summaryOnlyOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, tags }) => {
@@ -361,6 +368,7 @@ export function registerContactTools(server: McpServer): void {
       description:
         "Move a contact between tiers: active (my network), prospect (outreach pool), or bench (archive). Note: replies, logged interactions, and meeting links graduate prospects to active automatically — use this only for manual moves.",
       inputSchema: setNetworkStatusSchema,
+      outputSchema: summaryOnlyOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, status }) => {
