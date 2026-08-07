@@ -7,6 +7,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   resolveContact,
   logInteraction,
+  editInteraction,
   createActionItem,
   listActionItems,
   updateActionItem,
@@ -24,6 +25,48 @@ import {
 
 /** UI wording ("todo" / "waiting_on") ↔ DB values ("my_task" / "waiting_on"). */
 const directionToDb = { todo: "my_task", waiting_on: "waiting_on" } as const;
+
+/**
+ * Patch shape for `update_interaction` (CAR-275). Every field is optional and
+ * absent means unchanged, so a caller can fix one thing without restating the
+ * row.
+ *
+ * The destination contact is `move_to_contact_*` rather than the usual
+ * `contact_id` / `name` on purpose. Everywhere else on this server those two
+ * identify the SUBJECT of the call; here the subject is `interaction_id` and
+ * the contact is a destination, and reusing the names for an inverted meaning
+ * is the kind of thing a model gets wrong in exactly the direction that
+ * silently rewrites the wrong row.
+ */
+export const updateInteractionSchema = {
+  interaction_id: z
+    .number()
+    .int()
+    .describe("From get_contact_dossier's interactions.shown[].id, or log_interaction's return value"),
+  move_to_contact_id: z.number().int().optional().describe("Reassign the interaction to this contact"),
+  move_to_contact_name: z
+    .string()
+    .optional()
+    .describe("Reassign by name — exact or partial; ambiguous matches return candidates with ids"),
+  // Same five as log_interaction, from the shared vocabulary rather than a
+  // hand-listed enum (CAR-242). `email` is absent for the same reason it is
+  // there: the send path writes it, callers do not.
+  type: z.enum(CONVERSATION_TYPE_VALUES).optional(),
+  detail: z
+    .string()
+    .max(CONVERSATION_TYPE_DETAIL_MAX_LENGTH)
+    .nullable()
+    .optional()
+    .describe("Free text describing the conversation. Only used when the type is 'other'; cleared otherwise."),
+  date: z.string().optional().describe("ISO timestamp"),
+  summary: z.string().nullable().optional().describe("What was discussed, or null to clear it"),
+  excluded: z
+    .boolean()
+    .optional()
+    .describe(
+      "true drops this interaction from every calculation (last touch, streaks, network health, outreach stage) while leaving it in the record; false puts it back. This is how you retract a mistake, since nothing here deletes.",
+    ),
+};
 
 export function registerUpkeepTools(server: McpServer): void {
   server.registerTool(
@@ -62,6 +105,87 @@ export function registerUpkeepTools(server: McpServer): void {
         interaction_id: result.interactionId,
       };
     }),
+  );
+
+  server.registerTool(
+    "update_interaction",
+    {
+      title: "Update interaction",
+      description:
+        "Correct an interaction that was already logged: change its type, detail, date or summary, move it to a different contact, or set excluded to drop it from every calculation while leaving it in the record. Every field is optional and only what you pass changes. Get ids from get_contact_dossier. Interactions the email send path wrote describe a real sent message, so only their summary and excluded can change.",
+      inputSchema: updateInteractionSchema,
+      annotations: { readOnlyHint: false },
+    },
+    handler(
+      async ({ interaction_id, move_to_contact_id, move_to_contact_name, type, detail, date, summary, excluded }) => {
+        const moving = move_to_contact_id != null || Boolean(move_to_contact_name?.trim());
+        // An empty patch is a malformed call, not a no-op. Reporting success
+        // for a write that touched nothing is how an agent concludes it fixed
+        // something and moves on.
+        if (
+          !moving &&
+          type === undefined &&
+          detail === undefined &&
+          date === undefined &&
+          summary === undefined &&
+          excluded === undefined
+        ) {
+          throw new Error(
+            "Nothing to update. Pass at least one of move_to_contact_id, move_to_contact_name, type, detail, date, summary, or excluded.",
+          );
+        }
+
+        // Resolved here rather than inside editInteraction because the name is
+        // what the response reports back; editInteraction asserts the id again
+        // for its own integrity.
+        const destination = moving
+          ? await resolveContact({ contact_id: move_to_contact_id, name: move_to_contact_name })
+          : undefined;
+
+        let when: string | undefined;
+        if (date !== undefined) {
+          const parsed = new Date(date);
+          if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid date: ${date}`);
+          when = parsed.toISOString();
+        }
+
+        const { previous, activated } = await editInteraction(interaction_id, {
+          contactId: destination?.id,
+          type,
+          detail,
+          date: when,
+          summary,
+          excluded,
+        });
+
+        // Reported field by field so a caller can confirm the edit landed the
+        // way it meant, rather than trusting a bare "updated".
+        const changes: string[] = [];
+        if (destination && destination.id !== previous.contact_id) changes.push(`moved to ${destination.name}`);
+        if (type !== undefined || detail !== undefined) {
+          const nextType = type ?? previous.interaction_type;
+          const nextDetail = detail !== undefined ? detail : previous.interaction_type_detail;
+          changes.push(`type is now ${conversationTypeLabel(nextType, normalizeConversationTypeDetail(nextType, nextDetail))}`);
+        }
+        if (when) changes.push(`dated ${when}`);
+        if (summary !== undefined) changes.push(summary === null ? "summary cleared" : "summary updated");
+        if (excluded !== undefined) {
+          changes.push(
+            excluded
+              ? "removed from every calculation, still in the record"
+              : "restored to every calculation",
+          );
+        }
+        if (changes.length === 0) changes.push("no change (already as requested)");
+
+        return {
+          summary: `Interaction ${interaction_id}: ${changes.join("; ")}${activated ? ". Graduated into the active network" : ""}`,
+          interaction_id,
+          contact_id: destination?.id ?? previous.contact_id,
+          activated,
+        };
+      },
+    ),
   );
 
   server.registerTool(

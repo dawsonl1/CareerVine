@@ -25,6 +25,7 @@ vi.mock("@/lib/data/interactions", () =>
   typedMock<typeof import("@/lib/data/interactions")>({
     getInteractions: vi.fn(),
     getAllInteractions: vi.fn(),
+    getInteractionForUser: vi.fn(),
     createInteraction: vi.fn(),
     updateInteraction: q.updateInteraction,
     deleteInteraction: q.deleteInteraction,

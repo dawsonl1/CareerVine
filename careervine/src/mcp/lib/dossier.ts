@@ -76,6 +76,19 @@ export function daysSince(iso: string | null | undefined, now: Date): number | n
   return daysBetweenDateKeys(dateKeyOf(then), dateKeyOf(now));
 }
 
+/**
+ * Project one interaction for the dossier payload (CAR-275).
+ *
+ * `is_excluded` is a storage column, so it is replaced by `removed: true` and
+ * ONLY on a row that carries it. With `include_removed` off nothing is struck,
+ * so the key never appears and the default payload is exactly what it was
+ * before the flag existed.
+ */
+function shownInteraction(i: Record<string, unknown>): Record<string, unknown> {
+  const { is_excluded, ...rest } = i;
+  return is_excluded ? { ...rest, removed: true } : rest;
+}
+
 export function buildDossier(
   bundle: DossierBundle,
   stage: string | null,
@@ -92,8 +105,11 @@ export function buildDossier(
     ? [currentRole.title, currentRole.companies?.name].filter(Boolean).join(" at ")
     : null;
 
+  // A struck interaction must not feed last-touch even when the caller asked
+  // to SEE it (CAR-275 include_removed). That is CAR-260's whole contract, and
+  // letting a removed row back into this list is the quiet way to undo it.
   const lastTouchDates = [
-    ...bundle.interactions.map((i) => String(i.interaction_date ?? "")),
+    ...bundle.interactions.filter((i) => !i.is_excluded).map((i) => String(i.interaction_date ?? "")),
     ...bundle.meetings.map((m) => String(m.meeting_date ?? "")),
   ].filter(Boolean);
   const lastTouch = lastTouchDates.length > 0 ? lastTouchDates.sort().at(-1)! : null;
@@ -184,7 +200,7 @@ export function buildDossier(
     notes: c.notes,
     open_action_items: bundle.openActionItems,
     recent_completed_action_items: bundle.completedActionItems,
-    interactions: { total: bundle.interactionsTotal, shown: bundle.interactions },
+    interactions: { total: bundle.interactionsTotal, shown: bundle.interactions.map(shownInteraction) },
     meetings: { total: bundle.meetingsTotal, shown: bundle.meetings },
     email_history: { total: bundle.emailsTotal, shown: bundle.emails },
     pending_sends: {

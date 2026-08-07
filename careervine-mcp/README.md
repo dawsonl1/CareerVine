@@ -27,16 +27,17 @@ That's it. The server is registered in the repo-root `.mcp.json`, so any Claude 
 - **`send_email` never claims delivery.** It reports that Gmail ACCEPTED the message. A rejection arrives minutes later as its own notice in a separate thread, so it is invisible both in the sent folder and in the send result. `check_delivery` is the tool that answers "did it land", and the tool descriptions say so, because a tool description is documentation the model actually reads, unlike a prompt or skill file that can silently drift out of agreement with the code.
 - **Follow-ups can be queued with the opening email.** `schedule_email` takes an optional `follow_ups` array, so one call queues the intro and its sequence. The steps stay dormant until the intro sends, then reply on its thread and cancel themselves the moment the contact writes back. `create_follow_up_sequence` accepts the same anchor via `scheduled_email_id` when the sequence is added separately. Steps inherit the opening email's time of day rather than a fixed UTC hour.
 - **No tier auto-graduation on outbound email** — prospects graduate on a reply, a logged interaction, or a meeting, same as the app.
-- **No delete tools** — the lowest-regret omission.
+- **No delete tools** — the lowest-regret omission. `update_interaction`'s `excluded: true` is the retraction path instead: it drops a mis-logged touchpoint out of every calculation while leaving it in the record, and `excluded: false` puts it back. Nothing an agent writes here is unrecoverable.
+- **What the send path wrote, an agent may not rewrite.** `update_interaction` refuses to change the type, detail, date or contact of an interaction backed by a real sent email, since those columns describe the message rather than a judgement about it. Its summary and its exclusion stay editable.
 
-## Tools (39)
+## Tools (40)
 
 | Area | Tools |
 | --- | --- |
 | Contacts & research | `search_contacts`, `get_contact_dossier`, `add_contact`, `update_contact`, `add_contact_note`, `add_contact_email`, `add_contact_phone`, `tag_contact`, `untag_contact`, `set_network_status`, `defer_follow_up` |
 | Email | `create_email_draft`, `send_email`, `check_delivery`, `schedule_email`, `create_follow_up_sequence`, `list_scheduled`, `cancel_scheduled`, `reschedule_follow_up`, `search_email_history`, `get_email_thread` |
 | Outreach engine | `list_outreach_queue`, `list_companies`, `get_company`, `get_company_pipeline`, `add_company_intel`, `set_company_stage`, `update_company_target`, `log_application`, `log_interview_round`, `set_stage_override` |
-| Relationship upkeep | `log_interaction`, `create_action_item`, `list_action_items`, `update_action_item`, `list_due_followups`, `get_network_health` |
+| Relationship upkeep | `log_interaction`, `update_interaction`, `create_action_item`, `list_action_items`, `update_action_item`, `list_due_followups`, `get_network_health` |
 | Calendar | `list_meetings`, `create_meeting` |
 
 Deliberately excluded: AI generation tools — Claude is the generator; the server exposes data and actions only. Still no delete tools: `untag_contact` removes a tag's LINK to one contact, never the tag itself.
@@ -57,6 +58,7 @@ The server is no longer read-mostly. An agent that finds something can record it
 - `update_company_target` sets `next_app_date`, the field the outreach queue's boost window orders by, so an application deadline read off a careers page is one the queue can then act on.
 - `set_company_stage` moves a company through the pipeline. It writes both the target row and the active cycle, because the companies list reads one and the company page reads the other. It can move a company backwards, which the automatic reply-driven advance deliberately cannot.
 - `defer_follow_up` snoozes an overdue contact or stops suggesting a first outreach, so "email now" is not the only answer to a due follow-up.
+- `update_interaction` corrects a touchpoint that was already logged — its type, detail, date, summary, or the contact it sits on. `log_interaction` used to be a one-way write, so a coffee chat logged against the wrong Jane stayed wrong until someone opened the app. Ids come from `get_contact_dossier`, whose `include_removed` flag is what makes a struck interaction visible enough to restore; without it, `excluded: true` would be a one-way door of a different kind.
 
 Still no delete tools, and nothing generates content: the model is the writer.
 

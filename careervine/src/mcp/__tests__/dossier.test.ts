@@ -132,6 +132,49 @@ describe("buildDossier", () => {
     expect(d.meetings.shown).toHaveLength(1);
   });
 
+  /**
+   * CAR-275. `include_removed` widens what the dossier SHOWS; it must not widen
+   * what the dossier COUNTS. CAR-260's contract is that a struck row stops
+   * feeding every derived value, and last_touch is the one an agent acts on.
+   */
+  describe("removed interactions", () => {
+    const withRemoved = () =>
+      fixtureBundle({
+        interactions: [
+          // Newer, but struck: it must not become last_touch.
+          { id: 2, interaction_date: "2026-07-06T10:00:00Z", interaction_type: "coffee", summary: "Mis-logged", is_excluded: true },
+          { id: 1, interaction_date: "2026-07-01T10:00:00Z", interaction_type: "email", summary: "Sent intro", is_excluded: false },
+        ],
+      });
+
+    it("never lets a struck interaction become last touch, even when shown", () => {
+      const d = buildDossier(withRemoved(), null, NOW, null);
+      expect(d.status.last_touch).toBe("2026-07-01T10:00:00Z");
+      expect(d.status.last_touch_days_ago).toBe(7);
+    });
+
+    it("marks a struck row and leaves live rows unmarked", () => {
+      const d = buildDossier(withRemoved(), null, NOW, null);
+      expect(d.interactions.shown[0]).toMatchObject({ id: 2, removed: true });
+      expect(d.interactions.shown[1]).not.toHaveProperty("removed");
+    });
+
+    it("replaces the storage column rather than leaking it", () => {
+      const d = buildDossier(withRemoved(), null, NOW, null);
+      for (const shown of d.interactions.shown) expect(shown).not.toHaveProperty("is_excluded");
+    });
+
+    it("leaves the default payload exactly as it was before the flag existed", () => {
+      // With include_removed off nothing is struck, so `removed` must not
+      // appear at all — the grounding payload does not change shape for a
+      // feature it did not ask for.
+      const d = buildDossier(fixtureBundle(), null, NOW, null);
+      expect(d.interactions.shown).toEqual([
+        { id: 1, interaction_date: "2026-07-01T10:00:00Z", interaction_type: "email", summary: "Sent intro" },
+      ]);
+    });
+  });
+
   it("summarizes tier, stage, last touch, alum flag, and open items in one line", () => {
     const d = buildDossier(fixtureBundle(), "contacted", NOW, "Brigham Young University");
     expect(d.summary).toContain("Jane Doe");
